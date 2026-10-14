@@ -7,7 +7,7 @@ const PathParameters = @import("../path_parameters.zig").PathParameters;
 const testing = std.testing;
 
 /// The tables that the sweep reads. Each pattern is of one, two or three octets, so the sweep's
-/// paths of up to two octets find each route. The parameter child of `swept` takes each path of
+/// paths of up to two octets find each route. The parameter child of `swept` matches each path of
 /// one segment before the wildcard can, so the wildcard has a table of its own.
 const swept_patterns = [_][]const u8{ "/", "/a", "/:x" };
 const swept_binding = 2;

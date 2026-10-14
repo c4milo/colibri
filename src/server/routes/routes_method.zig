@@ -56,8 +56,8 @@ pub fn refusal_of(comptime method: anytype) ?Refusal {
 }
 
 fn standard_refusal(comptime method: Standard) ?Refusal {
-    // RFC 9110 §9.3.6, RFC 9112 §3.2.3, RFC 9113 §8.5 and RFC 9114 §4.4: a CONNECT request names
-    // an authority and no path. Decision 19 refuses the extended CONNECT, which has a path.
+    // RFC 9110 §9.3.6, RFC 9112 §3.2.3, RFC 9113 §8.5 and RFC 9114 §4.4: a CONNECT request
+    // names an authority and no path. Decision 19 refuses the extended CONNECT, which has a path.
     if (method == .connect) return .method_connect;
     return null;
 }

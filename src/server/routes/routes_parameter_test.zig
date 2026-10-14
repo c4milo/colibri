@@ -55,7 +55,7 @@ test "decision 122: a result other than found leaves no parameter" {
     try testing.expectEqual(0, parameters.count);
 }
 
-test "decision 122: each parameter takes the name of its own node" {
+test "decision 122: each parameter has the name of its own node" {
     const pairs = routes(u8, .{.{ .get, "/pairs/:left/:right", 1 }});
     var parameters: PathParameters = .{};
     try testing.expectEqual(1, pairs.match("GET", "/pairs/a/b", &parameters).found);
@@ -124,7 +124,7 @@ test "decision 122 ruling 6: the wildcard matches one segment or more, the rest 
     try testing.expectEqual(path.ptr + "/files/".len, parameters.get("*").?.ptr);
     try testing.expectEqual(.wildcard, files.match("GET", "/files/a", &parameters).found);
     try testing.expectEqualStrings("a", parameters.get("*").?);
-    // RFC 3986 §3.3: the rest of the path stops at the first "?".
+    // RFC 3986 §3.3: the rest of the path ends at the first "?".
     try testing.expectEqual(.wildcard, files.match("GET", "/files/a/b?c/d", &parameters).found);
     try testing.expectEqualStrings("a/b", parameters.get("*").?);
     // A segment that holds "*" and other octets is a literal, and the literal wins.
@@ -159,7 +159,7 @@ test "decision 122: the literal and the parameter win over the wildcard, whateve
     try testing.expectEqualStrings("c", parameters.get("*").?);
 }
 
-/// The comptime branches that `most_parameters` takes for each parameter. Test-only.
+/// The comptime branches that `most_parameters` uses for each parameter. Test-only.
 const branches_per_parameter = 1_000;
 
 /// A pattern of `path_parameters_max - 1` parameters and the wildcard, or a path that it matches

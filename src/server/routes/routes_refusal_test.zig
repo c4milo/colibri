@@ -126,7 +126,7 @@ test "refusal 8, parameter_repeated: each parameter of a pattern has a name of i
     try expect_pattern(null, "/:id/:ID");
 }
 
-/// The comptime branches that `parameters_pattern` takes for each parameter. Test-only.
+/// The comptime branches that `parameters_pattern` uses for each parameter. Test-only.
 const branches_per_parameter = 1_000;
 
 /// A pattern of `count` parameters, `/:p0/:p1/...`. Comptime-only.
@@ -144,7 +144,7 @@ test "refusal 9, parameters_too_many: a pattern holds path_parameters_max parame
     try expect_pattern(null, most);
     // A literal is not a parameter.
     try expect_pattern(null, most ++ "/extra");
-    // Decision 122 ruling 10: the wildcard takes one entry of `PathParameters`.
+    // Decision 122 ruling 10: the wildcard fills one entry of `PathParameters`.
     try expect_pattern(.parameters_too_many, most ++ "/*");
     const fewer = comptime parameters_pattern(constants.path_parameters_max - 1);
     try expect_pattern(null, fewer ++ "/*");
@@ -424,7 +424,7 @@ fn one_octet_table(comptime octets: []const u8) [octets.len + one_octet_tail.len
 
 test "decision 122 ruling 12: \"other\" has two octets when the table holds each one-octet literal" {
     const alpha_digit = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    // Claim 9: 62 literals of one octet take each segment of one octet.
+    // Claim 9: each segment of one octet is a literal of the table, so "other" has two octets.
     try expect_hidden(alpha_digit.len, "GET", "/aa/b", "/:x/b", comptime one_octet_table(alpha_digit));
     try expect_hidden(alpha_digit.len - 1, "GET", "/9/b", "/:x/b", comptime one_octet_table(alpha_digit[0 .. alpha_digit.len - 1]));
 }

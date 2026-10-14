@@ -4273,14 +4273,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        pointer or a struct.
      - A pattern is a path of segments. A segment is a literal, a parameter (`:name`) or a last
        segment `*`, the wildcard.
-     - `match` reads the path as received, octet for octet and case-sensitive. It stops at the
-       first "?". A path that does not start with "/" matches nothing. A path with an empty
-       segment other than the root's, or with a "." or ".." segment, matches nothing.
+     - `match` reads the path as received, octet for octet and case-sensitive. It reads the
+       path up to the first "?". A path that does not start with "/" matches nothing. A path with
+       an empty segment other than the root's, or with a "." or ".." segment, matches nothing.
      - At each node the walk tries the literal, then the parameter, then the wildcard. It backs
-       up one level when a deeper level fails. The first leaf that the walk finds decides, and
+       up one level when a deeper level fails. The leaf that the walk stops at decides, and
        the table's order changes nothing. The walk reads each node once at most (INV-32).
      - At the leaf the method decides: `found` with the route's value, or `method_not_allowed`
-       with the leaf's Allow value. A walk that finds no leaf gives `not_found`.
+       with the leaf's Allow value. A walk that stops at no leaf gives `not_found`.
      - `found` writes the parameters into a `server.PathParameters`, which the program places and
        reads with `get`. The values are slices of the path.
      - A malformed or conflicting table does not compile, and the message names the entry and the
@@ -4356,7 +4356,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          names. So `GET /users/me` and `PUT /users/:id` do not compile, because `PUT /users/me`
          gets 405. The check runs at compile time and adds nothing at run time. It runs the walk
          of `match` on a few canonical paths of each leaf. The doc comment of
-         `src/server/routes/routes_hidden.zig` proves that these paths find each case. A test
+         `src/server/routes/routes_hidden.zig` proves that these paths show each case. A test
          compares its verdict with a brute force on 2,838 small tables.
      13. `server.constants.path_len_max` is the endpoint's own bound on a path:
          `@max(h11.constants.start_line_len_max, core.constants.field_value_len_max)`, 8192

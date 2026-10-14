@@ -1,5 +1,5 @@
 //! The root of `zig build routes-hidden-check` (build/routes_check.zig, decision 122). The compile
-//! of the cross-check in `routes/routes_hidden_test.zig` takes about a minute. The owner ruled on
+//! of the cross-check in `routes/routes_hidden_test.zig` lasts about a minute. The owner ruled on
 //! 2026-10-14 that it runs apart from `zig build test-server`, in this binary of its own.
 //! `zig build test` runs both.
 //!

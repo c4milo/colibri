@@ -536,7 +536,7 @@ fn route(request: server.Request, state: *Served) !void {
 - **A literal, then a parameter, then the wildcard.** At each segment, `match` tries the literal
   that equals the segment, then the parameter, then the wildcard. When a deeper segment fails, it
   backs up one level and tries the next kind. So the order of the table does not change the
-  result: with `/users/me` beside `/users/:id`, the path `/users/me` finds `/users/me`.
+  result: with `/users/me` beside `/users/:id`, the path `/users/me` matches `/users/me` first.
 - **A parameter matches one segment.** The wildcard matches one segment or more, and
   `get("*")` gives the rest of the path, without its first "/". So `/files/*` does not match
   `/files`.
@@ -601,10 +601,11 @@ A malformed or conflicting table does not compile, and the compile error names t
 rule. A route that other routes hide is a conflict, in two cases:
 
 - **`route_hidden`:** a request that the route matches gets 405 from another pattern. With
-  `GET /users/:id` and `PUT /users/me`, a GET of `/users/me` finds `/users/me`, which names no
-  GET.
-- **`route_unreachable`:** no request gets to the route. With `GET /a/*`, `GET /a/:x` and
-  `GET /a/:x/*`, each path of two segments finds `/a/:x`, and each longer path finds `/a/:x/*`.
+  `GET /users/:id` and `PUT /users/me`, a GET of `/users/me` matches `/users/me` first, which
+  names no GET.
+- **`route_unreachable`:** no request reaches the route. With `GET /a/*`, `GET /a/:x` and
+  `GET /a/:x/*`, each path of two segments matches `/a/:x` first, and each longer path matches
+  `/a/:x/*` first.
 
 The cost of this rule: a literal names each method that the parameter beside it names. A table
 with `GET /users/me`, `GET /users/:id` and `PUT /users/:id` does not compile, because a PUT of

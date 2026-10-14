@@ -68,7 +68,8 @@ fn is_path_octet(octet: u8) bool {
     return switch (octet) {
         // RFC 3986 §2.3: unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~".
         'a'...'z', 'A'...'Z', '0'...'9', '-', '.', '_', '~' => true,
-        // RFC 3986 §2.2: sub-delims = "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / ";" / "=".
+        // RFC 3986 §2.2: sub-delims = "!" / "$" / "&" / "'" / "(" / ")"
+        //                           / "*" / "+" / "," / ";" / "=".
         '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => true,
         // RFC 3986 §3.3: pchar adds ":" and "@".
         ':', '@' => true,
@@ -175,7 +176,7 @@ fn names_refusal(comptime names: []const []const u8, comptime name: []const u8) 
         if (std.mem.eql(u8, held, name)) return .parameter_repeated;
     }
     // Decision 122 ruling 10: `path_parameters_max` sizes `PathParameters`, and the wildcard
-    // takes one entry of it.
+    // fills one entry of it.
     if (names.len == constants.path_parameters_max) return .parameters_too_many;
     return null;
 }

@@ -50,7 +50,7 @@ test "decision 122: a node's literals of each length are found, whatever the tab
     try expect_not_found(lengths, "GET", "/a/bb");
 }
 
-test "RFC 3986 §3.3: the match stops at the first \"?\", and the query is not read" {
+test "RFC 3986 §3.3: the match reads the path up to the first \"?\", and not the query" {
     try expect_found(greetings, Route.greeting, "GET", "/greeting?x=1");
     try expect_found(greetings, Route.greeting, "GET", "/greeting?q=a%20b");
     try expect_found(greetings, Route.greeting, "GET", "/greeting?");
@@ -314,7 +314,7 @@ test "decision 122: a table of 256 routes of four segments each compiles and mat
     try testing.expectEqualStrings("GET, HEAD", large.match("PUT", large_table[0][1], &parameters).method_not_allowed);
 }
 
-/// The route that a test of the back-up takes, by the kind of its last segments.
+/// The route that a test of the back-up finds, by the kind of its last segments.
 const Deeper = enum { literal, parameter, wildcard };
 
 const literal_or_parameter = routes(Deeper, .{ .{ .get, "/a/b/c", .literal }, .{ .get, "/a/:x/d", .parameter } });
@@ -346,9 +346,9 @@ test "decision 122: the walk backs up one level when the segments end at a node 
     try expect_not_found(literal_or_leaf, "GET", "/a" ++ "/b" ** 63);
 }
 
-test "decision 122: the wildcard takes the rest of the path after a back-up from a deeper level" {
+test "decision 122: the wildcard binds the rest of the path after a back-up from a deeper level" {
     var parameters: PathParameters = .{};
-    // The parameter binds "b", its node has no child for "c", and the wildcard takes "b/c".
+    // The parameter binds "b", its node has no child for "c", and the wildcard binds "b/c".
     try testing.expectEqual(.wildcard, parameter_or_wildcard.match("GET", "/a/b/c", &parameters).found);
     try testing.expectEqual(1, parameters.count);
     try testing.expectEqualStrings("b/c", parameters.get("*").?);

@@ -9,10 +9,10 @@
 //!   - the literal edge that equals T's literal, where T holds a literal;
 //!   - each literal edge, where T holds a parameter or the wildcard;
 //!   - the parameter child.
-//! At each node that it reads, it takes the node's leaf and the leaf of its wildcard child. A
-//! path that L and T both match holds T's literal where T holds one, so the walk reads each node
-//! on the paths of each such L. Each node has one parent, so the walk reads each node once at
-//! most.
+//! At each node that it reads, it adds the node's leaf and the leaf of its wildcard child to its
+//! list. A path that L and T both match holds T's literal where T holds one, so the walk reads
+//! each node on the paths of each such L. Each node has one parent, so the walk reads each node
+//! once at most.
 const std = @import("std");
 const assert = std.debug.assert;
 const routes_match = @import("routes_match.zig");

@@ -53,7 +53,7 @@ fn Table(comptime Value: type, comptime table: anytype) type {
         pub const Match = routes_match.Match(Value);
 
         /// The route that `method` and `path` name. `path` is `Request.path`, which may end in a
-        /// query: the match stops at the first "?". `match` writes the path's parameters into
+        /// query: the match reads it up to the first "?". `match` writes the path's parameters into
         /// `parameters`, and sets `parameters.count` to 0 first. It reads the method before the
         /// path, so a method that no route names gives `not_implemented` on any path. A HEAD
         /// request finds the GET route of a path with no HEAD route. The endpoint writes no

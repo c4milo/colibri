@@ -31,7 +31,7 @@ const pattern_part = 1;
 pub const value_part = 2;
 const entry_parts = 3;
 
-/// The comptime branches that the checks and the build take, at most: a fixed part, a part for
+/// The comptime branches that the checks and the build use, at most: a fixed part, a part for
 /// each octet of the patterns and of the method tokens times the count of routes, and a part for
 /// each pair of routes. The trie's lookups and sorts compare each segment with the segments of
 /// the other routes, and the check of repeated routes compares each pair of routes. A table of
@@ -40,12 +40,12 @@ const quota_branches_base = 4_096;
 const quota_branches_per_octet_route = 8;
 const quota_branches_per_route_pair = 16;
 
-/// The comptime branches that the check of hidden routes (`routes_hidden.zig`) takes, at most,
+/// The comptime branches that the check of hidden routes (`routes_hidden.zig`) uses, at most,
 /// beside `quota_of`. It has two parts:
 ///   - For each leaf it walks the trie, which holds `segments` nodes for each leaf at most, and it
 ///     writes a canonical path for each leaf that it finds at each length. So a part for each
 ///     pair of leaves, each length and each segment bounds it.
-///   - It walks each canonical path once. A walk takes `routes_match.walk_steps_max` passes at
+///   - It walks each canonical path once. A walk makes `routes_match.walk_steps_max` passes at
 ///     most, and each pass costs a fixed part. A walk reads the literal edges of each node once at
 ///     most, and each octet of its path once, so a part for each octet of the table and the path.
 const quota_branches_per_pair_length_segment = 32;
@@ -54,7 +54,7 @@ const quota_branches_per_walk_octet = 16;
 
 /// The quota of the check of hidden routes: `quota_of(table)`, the part for `pairs` pairs of
 /// leaves at `lengths` lengths of `segments` segments, and the part for `walks` walks of
-/// `walk_steps` passes each over `octets` octets. The value stops at the largest `u32`, which
+/// `walk_steps` passes each over `octets` octets. The value is the largest `u32` at most, which
 /// `@setEvalBranchQuota` takes.
 pub fn hidden_quota_of(comptime table: anytype, comptime counts: HiddenCounts) u32 {
     const compared: u64 = @as(u64, quota_branches_per_pair_length_segment) * counts.pairs * counts.lengths * counts.segments;
@@ -118,7 +118,7 @@ pub const Hidden = struct {
     method: []const u8,
     /// A path that the route matches.
     path: []const u8,
-    /// The pattern that the walk on the path finds first.
+    /// The pattern of the leaf that the walk on the path stops at.
     pattern: []const u8,
 
     fn sentence(comptime hidden: Hidden) []const u8 {
@@ -134,8 +134,8 @@ pub const Hidden = struct {
 
 /// Why no request reaches a route (decision 122 ruling 12).
 pub const Unreachable = struct {
-    /// The patterns that the walk finds first on the paths of the route, each in quotes and
-    /// joined by ", ", or "" when there is none.
+    /// The patterns of the leaves that the walk stops at on the paths of the route, each in
+    /// quotes and joined by ", ", or "" when there is none.
     patterns: []const u8,
     /// Whether a path of the route is longer than `server.constants.path_len_max`.
     too_long: bool,
