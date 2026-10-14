@@ -114,18 +114,21 @@ pub const Request = struct {
     id: Id,
     method: []const u8,
     version: Version,
-    /// The request-target as it arrived for h11 (RFC 9112 §3.2), and for h2 its `:path`, or
-    /// CONNECT's `:authority` (RFC 9113 §8.3.1, §8.5).
+    /// The request-target as it arrived for h11 (RFC 9112 §3.2). For h2 and h3 it is the
+    /// `:path`, or CONNECT's `:authority` (RFC 9113 §8.3.1, §8.5; RFC 9114 §4.3.1, §4.4).
     target: []const u8,
-    /// h2's `:scheme`, or for h11 "https" over TLS and "http" in cleartext, or an absolute-form
-    /// target's scheme (RFC 9112 §3.3). Null for CONNECT (RFC 9113 §8.5, RFC 9112 §3.2.3).
+    /// The `:scheme` of h2 and h3. For h11 it is "https" over TLS and "http" in cleartext, or an
+    /// absolute-form target's scheme (RFC 9112 §3.3). Null for CONNECT (RFC 9113 §8.5, RFC 9114
+    /// §4.4, RFC 9112 §3.2.3).
     scheme: ?[]const u8,
-    /// h2's `:authority`, or for h11 an absolute-form target's authority, else the Host field
-    /// (RFC 9112 §3.2.2, §3.3). Null when the request carries none.
+    /// The `:authority` of h2 and h3. For h11 it is an absolute-form target's authority, else the
+    /// Host field (RFC 9112 §3.2.2, §3.3). Null when the request carries none.
     authority: ?[]const u8,
-    /// h2's `:path`, or for h11 the target's path and query, `*` for the asterisk-form (RFC 9112
-    /// §3.2). An absolute-form target with an empty path gives "/" (RFC 9110 §4.2.3). Null for
-    /// CONNECT (RFC 9113 §8.5, RFC 9112 §3.2.3).
+    /// The `:path` of h2 and h3. For h11 it is the target's path and query, or `*` for the
+    /// asterisk-form (RFC 9112 §3.2). An absolute-form target with an empty path and no query
+    /// gives "/" (RFC 9110 §4.2.3). With a query it gives the query alone, such as "?x"
+    /// (https://github.com/c4milo/colibri/issues/103). Null for CONNECT (RFC 9113 §8.5, RFC 9114
+    /// §4.4, RFC 9112 §3.2.3). `server.routes` matches this value.
     path: ?[]const u8,
     fields: Fields,
     /// Whether the head ended the request, so no content follows.

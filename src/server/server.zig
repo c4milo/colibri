@@ -40,6 +40,8 @@ const files = struct {
     pub const close_reason = @import("close_reason.zig");
     pub const versions = @import("versions.zig");
     pub const limits = @import("limits.zig");
+    pub const path_parameters = @import("path_parameters.zig");
+    pub const routes = @import("routes/routes.zig");
 };
 
 /// What a program configures a server with, once: the endpoint reads it while it runs (decision
@@ -103,6 +105,13 @@ pub const Decoders = h11.coding.Storage;
 /// The CPU features a pool's codecs run on, which its `reset` takes: `Features.detect()` asks the
 /// CPU, as colibri never does itself, and `Features.target()` is what the build target guarantees.
 pub const Features = files.coding_pool.Features;
+/// The parameters of a path that a route table matched, which the program places and reads with
+/// `get` (decision 122).
+pub const PathParameters = files.path_parameters.PathParameters;
+
+/// Builds a route table at compile time, whose `match` names the route of a method and a path
+/// (decision 122). A function named after its file is exported under its own name.
+pub const routes = files.routes.routes;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21a adds `Versions` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
@@ -110,19 +119,20 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Config` to the type `EndpointConfig` named, which `QuicConfig` folded into in 21b.3, and
     // takes a TCP connection's own configuration out of the root (decision 119). 21d takes out
     // `Connection` and `QuicConnection`, which the endpoint holds, and `Error` and `Protocol`,
-    // which only their calls return (decision 121).
+    // which only their calls return (decision 121). 21e adds `PathParameters` and `routes`
+    // (decision 122).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",   "Config",             "Versions", "Limits",           "Deadline",
-        "Deadlines",   "CloseReason",        "Limit",    "Endpoint",         "EndpointOf",
-        "Capacity",    "Input",              "Datagram", "Security",         "StreamOctets",
-        "LogProvider", "Sent",               "Address",  "Ecn",              "StartError",
-        "SendError",   "Field",              "Id",       "ConnectionHandle", "Version",
-        "Fields",      "Event",              "Request",  "Body",             "Trailers",
-        "Cancelled",   "CancelReason",       "Done",     "Writable",         "Ended",
-        "Response",    "Content",            "Received", "Alternative",      "Coding",
-        "EncoderPool", "DefaultEncoderPool", "Encoders", "DecoderPool",      "DefaultDecoderPool",
-        "Decoders",    "Features",
+        "constants",   "Config",             "Versions",       "Limits",           "Deadline",
+        "Deadlines",   "CloseReason",        "Limit",          "Endpoint",         "EndpointOf",
+        "Capacity",    "Input",              "Datagram",       "Security",         "StreamOctets",
+        "LogProvider", "Sent",               "Address",        "Ecn",              "StartError",
+        "SendError",   "Field",              "Id",             "ConnectionHandle", "Version",
+        "Fields",      "Event",              "Request",        "Body",             "Trailers",
+        "Cancelled",   "CancelReason",       "Done",           "Writable",         "Ended",
+        "Response",    "Content",            "Received",       "Alternative",      "Coding",
+        "EncoderPool", "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool",
+        "Decoders",    "Features",           "PathParameters", "routes",
     });
 }
 
@@ -192,6 +202,8 @@ test {
     _ = @import("coding/coding_rules.zig");
     _ = @import("coding/coding_fields.zig");
     _ = @import("coding/coding_response.zig");
+    _ = @import("routes/routes_test.zig");
+    _ = @import("routes/routes_refusal_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

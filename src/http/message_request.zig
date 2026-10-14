@@ -147,7 +147,7 @@ fn check_path(method: []const u8, scheme: []const u8, path: []const u8) Error!vo
 }
 
 /// The `:authority` rule RFC 9113 §8.3.1 and RFC 9114 §4.3.1 state for an http or https URI,
-/// for a non-empty `scheme`. colibri parses no authority: RFC 3986 is not in docs/rfcs. So it
+/// for a non-empty `scheme`. colibri does not parse the authority by RFC 3986 §3.2. So it
 /// refuses any `@`, which is the strict side of a rule about the userinfo that `@` ends.
 fn check_authority(scheme: []const u8, authority: []const u8) Error!void {
     assert(scheme.len > 0);

@@ -207,6 +207,11 @@ pub const timeout_ns_max: u64 = 86_400 * nanoseconds_per_second;
 /// peer may open.
 pub const bodies_max: usize = h2.constants.concurrent_streams_max;
 
+/// The parameters that one pattern of a route table holds, its wildcard included (decision 122
+/// ruling 10). It sizes `PathParameters`. A table that needs more does not compile, so the limit
+/// never fails at run time.
+pub const path_parameters_max: usize = 8;
+
 comptime {
     assert(encoder_ring_len > 0 and encoders_default > 0);
     assert(quic_requests_max > 0 and quic_requests_max <= h3.constants.request_streams_max);
@@ -234,4 +239,6 @@ comptime {
     assert(body_unit_len == h2.constants.max_frame_size_initial and honest_rate_factor > 1);
     assert(requests_max > 0 and requests_max <= h2.constants.concurrent_streams_max);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
+    // A pattern can hold one parameter at least.
+    assert(path_parameters_max > 0);
 }
