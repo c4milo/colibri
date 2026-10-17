@@ -35,8 +35,8 @@ pub const check_name = "endpoint";
 /// of the runs' wire CRC-32s. A change to the plan, to what the endpoint does or to the trace
 /// format changes the first, and one to what goes over the wire changes the second. Each is
 /// committed with its new value once the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0x560d5625;
-pub const census_wire_crc32_expected: u32 = 0x5ec49f44;
+pub const census_crc32_expected: u32 = 0xb14b502f;
+pub const census_wire_crc32_expected: u32 = 0x137ae3c8;
 
 pub const Violation = run_module.Error || error{
     /// Two runs of one seed wrote different traces.

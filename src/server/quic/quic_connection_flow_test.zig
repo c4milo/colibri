@@ -99,3 +99,39 @@ test "RFC 9000 §4.1: no window the server advertises grants more than a smaller
     try testing.expectEqual(small_pool_len, granted.initial_max_stream_data_bidi_remote);
     try testing.expectEqual(small_pool_len, granted.initial_max_stream_data_uni);
 }
+
+/// A response of about 200 packets in datagrams of the smallest size, past the first skip when
+/// the intervals are the shortest. Test-only.
+const long_body_len: usize = long_body_packets * quic.constants.datagram_len_min;
+const long_body_packets: usize = 200;
+const long_body: [long_body_len]u8 = @splat('x');
+/// Calls of `write_body` and rounds of pumping that carry the long response. Test-only.
+const write_rounds_max: usize = 512;
+
+test "RFC 9000 §21.4: the server skips a packet number, and a long response reaches an honest client whole" {
+    try support.start();
+    support.server_datagram_len = quic.constants.datagram_len_min;
+    try support.connect();
+    const space = quic.connection.space_at(&connection.transport, .application);
+    // The server drew the intervals at start. From here every interval is the shortest, so the
+    // response passes a skip whatever the draw was.
+    try testing.expect(space.skips != null);
+    space.skips = .init(0);
+    const fetch = try support.request("GET", "/", "");
+    try support.pump(support.rounds_default);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
+    var written: usize = 0;
+    for (0..write_rounds_max) |_| {
+        if (support.content_of(fetch).len == long_body.len) break;
+        if (written < long_body.len) {
+            written += try connection.write_body(fetch.id, .{ .octets = long_body[written..], .end = true });
+        }
+        try support.pump(1);
+    }
+    try testing.expectEqual(long_body.len, support.content_of(fetch).len);
+    try support.pump(support.rounds_default);
+    // The client's ACK frames left the skipped number out, so the server closed nothing.
+    try testing.expect(space.skips.?.skipped != null);
+    try testing.expect(!support.server_failed);
+    try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
+}

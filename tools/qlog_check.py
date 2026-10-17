@@ -2,6 +2,7 @@
 """Checks the qlog files colibri's UDP QUIC endpoint writes (design §8 step 18c, decision 102).
 
     tools/qlog_check.py <directory> [complete]
+    tools/qlog_check.py --test
 
 Every `.sqlog` file in the directory must be JSON Text Sequences (RFC 7464): each record an RS,
 one JSON text (RFC 8259) and an LF. The first record is main schema §5's QlogFileSeq header, whose
@@ -9,7 +10,11 @@ group ID and vantage point are the ones the file's name gives (main schema §12.
 record is an event with the members main schema §7 requires, and the members quic-events §3
 requires of its name, at a time no earlier than the record before it. colibri numbers each packet
 number space's packets 0, 1, 2 and so on (RFC 9000 §12.3), so the packets a file logs as sent run
-without a gap, and a gap is an event the log dropped.
+without a gap, and a gap is an event the log dropped. The one exception is decision 123's: the
+1-RTT space skips one number at a time, at least `packet_number_skip_interval_min` packets after
+the last skip (RFC 9000 §21.4), and the check allows such a gap and no other.
+
+With --test it runs its own tests, which tools/quic_udp.sh runs before it reads a log.
 
 With `complete`, each original destination connection ID must have a client file and a server
 file, and each file must log its connection's close (quic-events §4.3). That is what a run of a
@@ -20,6 +25,8 @@ import json
 import os
 import re
 import sys
+import tempfile
+import unittest
 
 RECORD_SEPARATOR = "\x1e"
 FILE_SCHEMA = "urn:ietf:params:qlog:file:sequential"
@@ -29,6 +36,10 @@ FILE_NAME = re.compile(r"^([0-9a-f]+)_(client|server)\.sqlog$")
 
 # The packet number space of each packet type colibri sends (quic-events §8.6, §8.7).
 SPACE_OF = {"initial": "initial", "handshake": "handshake", "1RTT": "application_data"}
+# Decision 123: the space that skips packet numbers, and the fewest packets it sends between two
+# skips, quic's `packet_number_skip_interval_min`.
+SKIPPING_SPACE = "application_data"
+SKIP_INTERVAL_MIN = 128
 
 # The members of `data` each event requires: the drafts' CDDL fields without a "?".
 REQUIRED_DATA = {
@@ -94,17 +105,24 @@ def check_event(path, index, event, previous_time):
 
 
 def check_numbers(path, events):
-    """The packets sent in each space, numbered without a gap."""
+    """The packets sent in each space, numbered without a gap but decision 123's skips."""
     next_number = {}
+    since_skip = 0
     for event in events:
         if event["name"] != "quic:packet_sent":
             continue
         header = event["data"]["header"]
         space = SPACE_OF[header["packet_type"]]
         expected = next_number.get(space, 0)
+        # RFC 9000 §21.4: one number skipped, no sooner than the interval allows.
+        if space == SKIPPING_SPACE and header["packet_number"] == expected + 1 and since_skip >= SKIP_INTERVAL_MIN:
+            expected += 1
+            since_skip = 0
         if header["packet_number"] != expected:
             fail(path, f"packet {expected} of the {space} space is missing")
         next_number[space] = expected + 1
+        if space == SKIPPING_SPACE:
+            since_skip += 1
 
 
 def check_file(path, group_id, vantage_point, complete):
@@ -146,5 +164,55 @@ def main():
     print(f"qlog_check: {len(names)} files, {events} events, each record a JSON text")
 
 
+class CheckNumbersTest(unittest.TestCase):
+    """Each test writes the packet_sent events of one file and requires the verdict check_numbers
+    must give them."""
+
+    @staticmethod
+    def sent(packet_type, numbers):
+        return [{"name": "quic:packet_sent", "data": {"header": {"packet_type": packet_type, "packet_number": n}}}
+                for n in numbers]
+
+    def verdict(self, events):
+        try:
+            check_numbers("test", events)
+        except SystemExit as failure:
+            return str(failure)
+        return None
+
+    def test_numbers_without_a_gap_pass(self):
+        self.assertIsNone(self.verdict(self.sent("initial", range(3)) + self.sent("1RTT", range(400))))
+
+    def test_one_number_skipped_after_the_interval_passes(self):
+        numbers = list(range(SKIP_INTERVAL_MIN)) + list(range(SKIP_INTERVAL_MIN + 1, 2 * SKIP_INTERVAL_MIN + 2))
+        numbers += list(range(2 * SKIP_INTERVAL_MIN + 3, 2 * SKIP_INTERVAL_MIN + 10))
+        self.assertIsNone(self.verdict(self.sent("1RTT", numbers)))
+
+    def test_a_skip_before_the_interval_fails(self):
+        numbers = list(range(SKIP_INTERVAL_MIN - 1)) + list(range(SKIP_INTERVAL_MIN, SKIP_INTERVAL_MIN + 4))
+        self.assertIn(f"packet {SKIP_INTERVAL_MIN - 1} of the application_data space is missing", self.verdict(self.sent("1RTT", numbers)))
+
+    def test_a_second_skip_before_the_interval_fails(self):
+        numbers = list(range(SKIP_INTERVAL_MIN)) + list(range(SKIP_INTERVAL_MIN + 1, SKIP_INTERVAL_MIN + 10))
+        numbers += list(range(SKIP_INTERVAL_MIN + 11, SKIP_INTERVAL_MIN + 20))
+        self.assertIn(f"packet {SKIP_INTERVAL_MIN + 10} of", self.verdict(self.sent("1RTT", numbers)))
+
+    def test_a_gap_of_two_numbers_fails(self):
+        numbers = list(range(SKIP_INTERVAL_MIN)) + list(range(SKIP_INTERVAL_MIN + 2, SKIP_INTERVAL_MIN + 5))
+        self.assertIn(f"packet {SKIP_INTERVAL_MIN} of", self.verdict(self.sent("1RTT", numbers)))
+
+    def test_a_gap_in_another_space_fails(self):
+        # The 1-RTT space has sent enough for a skip of its own, which a handshake gap is not.
+        events = self.sent("1RTT", range(SKIP_INTERVAL_MIN)) + self.sent("handshake", [0, 2])
+        self.assertIn("packet 1 of the handshake space is missing", self.verdict(events))
+
+    def test_packets_of_other_spaces_do_not_count_toward_the_interval(self):
+        short = SKIP_INTERVAL_MIN - 8
+        events = self.sent("initial", range(10)) + self.sent("1RTT", list(range(short)) + [short + 1])
+        self.assertIn(f"packet {short} of the application_data space is missing", self.verdict(events))
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--test"]:
+        unittest.main(argv=sys.argv[:1])
     main()

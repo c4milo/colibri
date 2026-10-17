@@ -43,6 +43,14 @@ test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exc
 var upload: [upload_len]u8 = undefined;
 const upload_len: usize = 600_000;
 
+test "RFC 9000 §21.4: the client draws the intervals of the packet numbers it skips at start" {
+    try support.start(&support.alpn_h3, &support.alpn_h3, false);
+    try testing.expect(quic.connection.space_at(&connection.transport, .application).skips != null);
+    // Only the 1-RTT space skips.
+    try testing.expectEqual(null, quic.connection.space_at(&connection.transport, .initial).skips);
+    try testing.expectEqual(null, quic.connection.space_at(&connection.transport, .handshake).skips);
+}
+
 test "RFC 9000 §4.1: a POST's content goes out whole as the server grants more, and it is answered" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     @memset(&upload, 'x');

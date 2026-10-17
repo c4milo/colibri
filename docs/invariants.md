@@ -95,8 +95,10 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Claim.** colibri holds no generator and reads no uninitialised memory. Each unpredictable
   value comes from the `std.Random` its caller passed, at `init` or at the call that starts a
   connection. The server's endpoint draws its grease values, connection IDs, stateless reset
-  tokens and `PATH_CHALLENGE` data from it. A TLS session draws from it. From design §8 step 21c
-  a client's channel draws its connection IDs and grease value from it.
+  tokens and `PATH_CHALLENGE` data from it, and the intervals between the 1-RTT packet numbers
+  each QUIC connection skips (decision 123). A TLS session draws from it. From design §8 step 21c
+  a client's channel draws its connection IDs and grease value from it, and from step 20e its
+  skip intervals.
 - **Mechanism.** No source file outside `src/testing/` names `std.Random`, `std.crypto.random`
   or a clock, except `src/tls/values.zig`, which names the type once as `tls.Random`. A function
   that draws takes the source as a parameter or reads the one `init` was given. `undefined`

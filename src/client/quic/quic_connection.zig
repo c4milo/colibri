@@ -167,6 +167,9 @@ pub const QuicConnection = struct {
             .local_parameters = parameters(config, receive_pool.capacity),
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = &connection.start_values.source_id, .original_destination = &connection.start_values.original_destination_id },
+            // RFC 9000 §21.4: the intervals between skipped packet numbers come from the
+            // program's source (invariant 5).
+            .packet_number_skips = random.int(u64),
             .receive = receive_pool,
             .ecn_reads = config.ecn,
             .ecn_marks = config.ecn,

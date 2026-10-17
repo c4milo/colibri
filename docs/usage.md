@@ -1186,6 +1186,11 @@ through four calls:
 Streams are yours: a `StreamProvider` your program passes to `send` hands colibri the octets of
 each stream as the flow-control windows allow.
 
+Pass `packet_number_skips`, one `u64` your program draws from its source at start, so that the
+connection skips a 1-RTT packet number now and then. An ACK of a skipped number then shows a peer
+that acknowledges packets it never received (RFC 9000 §21.4, [decision 123](decisions.md)). The
+server's and the client's QUIC connections do this for you.
+
 An `h3.Connection` runs HTTP/3 over one QUIC connection. After each datagram, call its
 `receive` until it returns null; each call returns at most one event. `provider` wraps your stream
 provider so that h3 serves its control and QPACK streams itself. `write_request`,

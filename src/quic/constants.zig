@@ -410,6 +410,12 @@ pub const sent_packets_max: usize = 256;
 /// smaller packet splits one into.
 pub const stream_lost_ranges_max: usize = sent_packets_max;
 
+/// The fewest 1-RTT packets colibri sends between two packet numbers it skips (RFC 9000 §21.4).
+/// Each interval adds one octet the caller drew at start, so a skip comes 128 to 383 packets
+/// after the one before: often enough to catch a peer that acknowledges packets it never
+/// received, and seldom enough that a peer's ACK frames carry few gaps for them.
+pub const packet_number_skip_interval_min: u16 = 128;
+
 /// The priority a stream sends at until the caller sets one (RFC 9000 §2.3). A lower value goes
 /// first, and this is the middle of the range, so the caller can put a stream before or after the
 /// rest.

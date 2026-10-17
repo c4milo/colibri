@@ -82,6 +82,9 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
             .peer_initial_source = how.peer_source,
             .retry_source = how.retry_source,
         },
+        // RFC 9000 §21.4: the intervals between skipped packet numbers come from the program's
+        // source (invariant 5).
+        .packet_number_skips = random.int(u64),
         .receive = receive_pool,
         .ecn_reads = config.ecn,
         .ecn_marks = config.ecn,

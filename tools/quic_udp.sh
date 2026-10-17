@@ -141,8 +141,9 @@ for file in small medium large; do
 done
 # The client's close, with H3_NO_ERROR (RFC 9114 §5.2), ends the server's connection too.
 await_close "the h3 server"
-# Two connections, each logged by its client and its server (main schema §12.1), with no event
-# dropped for want of room.
+# The check's own tests first, then two connections, each logged by its client and its server
+# (main schema §12.1), with no event dropped for want of room.
+python3 tools/qlog_check.py --test 2>/dev/null || python3 tools/qlog_check.py --test
 python3 tools/qlog_check.py "$scratch/qlog" complete
 if grep -h "qlog dropped" "$scratch/client.log" "$scratch/server_hq.log" "$scratch/h3.log" "$scratch/server.log"; then
   echo "quic_udp: an endpoint's qlog dropped events" >&2

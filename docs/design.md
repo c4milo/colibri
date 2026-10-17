@@ -7375,15 +7375,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       <directory>` writes each seed's trace as TLA+, and `tools/h3_deadline_trace.sh` has TLC
       check each one against `spec/tla/h3_deadlines/H3DeadlinesTrace.tla`. `tools/ci.sh` runs
       the script.
-  - **20e**, four changes the owner ruled on 2026-10-17 (decisions 110 and 61 as amended). Each
-    lands in a commit of its own:
+  - **20e**, five changes the owner ruled on 2026-10-17 (decisions 110 and 61 as amended, and
+    decision 123). Each lands in a commit of its own:
     - the reset limits as `server.Limits.peer_resets_max` and `resets_sent_max`, which h2 and h3
       read in place of the constants;
     - h3's count of the request streams it refuses, under `resets_sent_max`;
     - `server.Config.retry_from_percent`, the share of QUIC slots in use from which the endpoint
       sends Retry;
     - an index in QUIC's receive pool, so a STREAM frame finds its block in a bounded number of
-      probes (RFC 9000 §21.7).
+      probes (RFC 9000 §21.7);
+    - skipped packet numbers in QUIC's 1-RTT space, so an ACK of a packet never sent shows an
+      optimistic ACK (RFC 9000 §21.4).
 
     The new fields are for an operator's program. A server behind a proxy that carries many
     users on one connection may need higher reset limits, and a server under attack lower ones
@@ -8513,6 +8515,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
     A peek that goes on past a gap inside a block is equivalent: its next pass finds the same
     block and copies nothing.
+
+  **20e, part 5: skipped packet numbers in QUIC, 2026-10-17.** The 1-RTT space skips one number
+  after each interval, and an ACK frame that covers the number skipped last closes the connection
+  with PROTOCOL_VIOLATION (decision 123). The intervals come from one value that the server's or
+  the client's QUIC connection draws from the program's source at start, the new option
+  `packet_number_skips` of `quic.Connection`. `quic.Connection` holds 120 octets more, and
+  `docs/performance.md` has the six rows that follow from it.
+
+  What was checked:
+  - New tests:
+    - a space skips one number after each interval, and takes the intervals in turn from the
+      draw's octets;
+    - an ACK frame that covers the skipped number, in its first range or a lower one, at a
+      range's start or its end, is refused, and one that leaves it out is not;
+    - a space given no draw skips none;
+    - the client draws at start, and only its 1-RTT space skips;
+    - over h3, a response of about 200 packets passes a skip and reaches colibri's client whole,
+      with no PROTOCOL_VIOLATION.
+  - `zig build test-quic` passed 743 of 743 tests, `test-server` 482 of 482 and `test-client`
+    194 of 194.
+  - Two censuses moved, each the same in Debug and ReleaseSafe:
+    - the h3 deadline check's trace CRC-32 stayed 0x9050e8bf, and its wire CRC-32 moved from
+      0x942c7916 to 0x99c38067, since the packet numbers changed;
+    - the endpoint check's draw at each start moves every later draw. Its counts moved by a few
+      (509 done to 508, 476 writable to 469), every property holds and none failed. Its CRC-32s
+      moved from 0x560d5625 and 0x5ec49f44 to 0xb14b502f and 0x137ae3c8.
+  - 14 mutations, each **CAUGHT**:
+    - no number skipped, or the skipped number not recorded;
+    - an ACK of the skipped number accepted;
+    - a range that ends or starts at the number taken as not covering it, or the first range
+      checked alone;
+    - one octet for every interval, an interval without its floor, the first skip one packet
+      late, or each later skip one packet early;
+    - a connection that ignores its draw, or that skips in the Handshake space too;
+    - a server or a client that passes no draw.
+  - `tools/ci.sh` found the gap in `tools/quic_udp.sh`: `tools/qlog_check.py` refused a server's
+    qlog, whose 1-RTT space skipped packet 177. The owner ruled on 2026-10-17 that the check
+    allows a gap of one number in the 1-RTT space, at least `packet_number_skip_interval_min`
+    packets after the last one, and no other gap. The check gained a `--test` mode with 7 tests,
+    which `tools/quic_udp.sh` runs first. 6 mutations, each **CAUGHT**: any gap of one number
+    whatever the interval, a gap in any space, a gap of any size, a count that never starts
+    again, an interval that must be passed rather than reached, and packets of every space
+    counted toward it.
 
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one

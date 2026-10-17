@@ -75,6 +75,10 @@ pub const Options = struct {
     /// §5.1 wants them unpredictable and invariant 5 forbids colibri a random number, so a
     /// client's are the caller's and a server's come off the first Initial it accepted.
     identity: identity_module.Options,
+    /// RFC 9000 §21.4: one value the caller drew from its source, whose eight octets space out
+    /// the 1-RTT packet numbers the connection skips to catch a peer that acknowledges what it
+    /// never received (invariant 5), or null to skip none.
+    packet_number_skips: ?u64 = null,
     /// The pool the peer's stream octets wait in until the application reads them, which the
     /// caller places (decision 61). Its capacity caps every receive window. A connection given
     /// none reads no stream: it checks STREAM frames and keeps nothing.
@@ -235,7 +239,7 @@ pub const Connection = struct {
         if (options.receive) |storage| storage.reset();
         connection.ecn_reads = options.ecn_reads;
         connection.ecn_marks = options.ecn_marks;
-        init_spaces(connection);
+        init_spaces(connection, options.packet_number_skips);
         connection.crypto_streams.init();
         init_streams(connection, parameters);
         init_flow(connection, parameters);
@@ -245,10 +249,12 @@ pub const Connection = struct {
     }
 
     /// One space per encryption level, paired by index (RFC 9000 §12.3, RFC 9001 Table 1).
-    fn init_spaces(connection: *Connection) void {
+    fn init_spaces(connection: *Connection, skips: ?u64) void {
         connection.spaces[@intFromEnum(Level.initial)].init(.initial);
         connection.spaces[@intFromEnum(Level.handshake)].init(.handshake);
         connection.spaces[@intFromEnum(Level.application)].init(.application);
+        // RFC 9000 §21.4: only the 1-RTT space carries enough packets for a skip to matter.
+        if (skips) |intervals| connection.spaces[@intFromEnum(Level.application)].skips = .init(intervals);
     }
 
     /// The stream table. What colibri may open starts at zero, because the peer has not said yet

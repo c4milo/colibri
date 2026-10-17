@@ -85,6 +85,9 @@ pub const Space = struct {
     /// The instant the largest number received arrived, which the ACK Delay is measured from
     /// (RFC 9000 §13.2.5). Read only when something has been received.
     largest_received_at_ns: u64,
+    /// The packet numbers this space skips to catch a peer that acknowledges packets it never
+    /// received (RFC 9000 §21.4), or null when it skips none.
+    skips: ?Skips,
     /// The instant the oldest ack-eliciting packet not yet acknowledged arrived, or null when
     /// none is pending. RFC 9000 §13.2.1 measures max_ack_delay from it, and it is the oldest
     /// rather than the newest because the promise is about every packet: the oldest is the one
@@ -102,6 +105,7 @@ pub const Space = struct {
             .ack_immediately = false,
             .largest_received_at_ns = 0,
             .ack_eliciting_since_at_ns = null,
+            .skips = null,
         };
     }
 
@@ -121,6 +125,14 @@ pub const Space = struct {
         if (space.next_packet_number > constants.packet_number_max) return error.PacketNumbersExhausted;
         const number = space.next_packet_number;
         space.next_packet_number = number + 1;
+        if (space.skips) |*skips| {
+            // RFC 9000 §21.4: "An endpoint MAY skip packet numbers when sending packets to detect
+            // this behavior."
+            if (skips.count_one()) {
+                skips.skipped = space.next_packet_number;
+                space.next_packet_number += 1;
+            }
+        }
         return number;
     }
 
@@ -303,6 +315,11 @@ pub const Space = struct {
         // RFC 9000 §13.1: an acknowledgment for a packet this endpoint did not send is a
         // connection error of PROTOCOL_VIOLATION. Every number it sent is below the next one.
         if (largest >= space.next_packet_number) return error.AcknowledgedUnsentPacket;
+        if (space.skips) |skips| if (skips.skipped) |skipped| {
+            // RFC 9000 §21.4: a frame that acknowledges a number this space skipped acknowledges
+            // a packet that never went out, so the peer acknowledges what it did not receive.
+            if (covers(&ack.ranges, skipped)) return error.AcknowledgedUnsentPacket;
+        };
         const largest_is_new = space.largest_acknowledged == null or largest > space.largest_acknowledged.?;
         // RFC 9000 §13.2: acknowledgments are irrevocable, so the largest never goes backward.
         if (largest_is_new) space.largest_acknowledged = largest;
@@ -318,7 +335,56 @@ pub const Space = struct {
 /// RFC 9000 §19.3.1: two steps separate one range's smallest from the next range's largest.
 const gap_step: u64 = 2;
 
+/// The packet numbers a space skips (RFC 9000 §21.4). The intervals between skips are the eight
+/// octets of one value the caller drew from its source at start (invariant 5), each added to
+/// `packet_number_skip_interval_min`, taken in turn.
+pub const Skips = struct {
+    intervals: u64,
+    /// The octet of `intervals` the next interval comes from.
+    turn: u3,
+    /// The packets to send before the next skip.
+    countdown: u16,
+    /// The number skipped last, which no ACK frame may cover, or null before the first skip.
+    skipped: ?u64,
+
+    pub fn init(intervals: u64) Skips {
+        var skips: Skips = .{ .intervals = intervals, .turn = 0, .countdown = 0, .skipped = null };
+        skips.countdown = skips.next_interval();
+        assert(skips.countdown >= constants.packet_number_skip_interval_min);
+        return skips;
+    }
+
+    /// Counts one packet sent, and says whether the next number is the one to skip.
+    fn count_one(skips: *Skips) bool {
+        assert(skips.countdown > 0);
+        skips.countdown -= 1;
+        if (skips.countdown > 0) return false;
+        skips.countdown = skips.next_interval();
+        return true;
+    }
+
+    fn next_interval(skips: *Skips) u16 {
+        const octet: u8 = @truncate(skips.intervals >> (@as(u6, skips.turn) * @bitSizeOf(u8)));
+        skips.turn +%= 1;
+        return constants.packet_number_skip_interval_min + octet;
+    }
+};
+
+/// Whether `ranges` acknowledge `number`.
+fn covers(ranges: *const frame.AckRanges, number: u64) bool {
+    var walk = ranges.iterator();
+    // The count is the frame's own, read before the walk, so it bounds the loop. The ranges
+    // descend, so the walk ends at the first one below `number`.
+    for (0..ranges.count + 1) |_| {
+        const range = walk.next() orelse return false;
+        if (range.largest < number) return false;
+        if (range.smallest <= number) return true;
+    }
+    return false;
+}
+
 test {
     _ = space_received;
     _ = @import("space_test.zig");
+    _ = @import("space_skip_test.zig");
 }
