@@ -4505,3 +4505,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        as its new name.
 
      The alternative refused: keep `routes`, because the call returns the table of routes.
+
+     **Amended by the owner on 2026-10-17, for
+     [#103](https://github.com/c4milo/colibri/issues/103): a query alone is the root.** An h11
+     absolute-form target with an empty path and a query, such as `GET http://a?x`, gives the path
+     "?x" (`Request.path`). RFC 9110 §4.2.3 makes an empty path equal to "/". So `match` reads a
+     path that starts with "?" as the root with a query. The sentence "A path that does not start
+     with "/" matches nothing" keeps two cases: "*" and the "" of a CONNECT request. Only the h11
+     absolute-form gives a query alone: h2 and h3 refuse a `:path` without a first "/", and the
+     path of a CONNECT request is null.
+
+     The alternatives refused:
+     - Room for "/?x" in each h11 connection, so that `Request.path` always starts with "/". A
+       request line holds up to 8,192 octets, so each connection grows by that much, for a form
+       that only a proxy sends (RFC 9112 §3.2.2).
+     - A `query` field beside `path`, with `path` holding "/" alone. Each program that reads
+       `path` then reads the query apart, and the `:path` of h2 and h3 holds both.

@@ -48,8 +48,10 @@ fn expect_match(table: anytype, comptime name: []const u8, target: []const u8) !
 }
 
 fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parameters: *const PathParameters) !void {
-    const path = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
-    try testing.expect(path.len > 0 and path[0] == '/');
+    const before_query = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
+    // RFC 9110 §4.2.3: a query alone has an empty path, which is the root.
+    const path = if (before_query.len == 0) swept_patterns[0] else before_query;
+    try testing.expect(path[0] == '/');
     try testing.expectEqual(null, std.mem.indexOfScalar(u8, path, '%'));
     if (route != swept_binding) {
         try testing.expectEqualStrings(swept_patterns[route], path);
@@ -90,6 +92,8 @@ test "fuzz: a found path equals a pattern before its query, or binds segments th
         core.fuzz.input("/b/../c"),
         core.fuzz.input("a"),
         core.fuzz.input("*"),
+        core.fuzz.input("?a"),
+        core.fuzz.input("?/a"),
     } });
 }
 

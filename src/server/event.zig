@@ -126,9 +126,10 @@ pub const Request = struct {
     authority: ?[]const u8,
     /// The `:path` of h2 and h3. For h11 it is the target's path and query, or `*` for the
     /// asterisk-form (RFC 9112 §3.2). An absolute-form target with an empty path and no query
-    /// gives "/" (RFC 9110 §4.2.3). With a query it gives the query alone, such as "?x"
-    /// (https://github.com/c4milo/colibri/issues/103). Null for CONNECT (RFC 9113 §8.5, RFC 9114
-    /// §4.4, RFC 9112 §3.2.3). `server.router` matches this value.
+    /// gives "/" (RFC 9110 §4.2.3). With a query it gives the query alone, such as "?x", and
+    /// `server.router` reads that as the root (https://github.com/c4milo/colibri/issues/103).
+    /// Null for CONNECT (RFC 9113 §8.5, RFC 9114 §4.4, RFC 9112 §3.2.3). `server.router` matches
+    /// this value.
     path: ?[]const u8,
     fields: Fields,
     /// Whether the head ended the request, so no content follows.

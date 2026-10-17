@@ -8,7 +8,8 @@
 //!      read. A table that names GET names HEAD too.
 //!   3. A path of more than `path_len_max` octets, its query included, matches nothing.
 //!   4. The path ends at the first "?". The query is not read.
-//!   5. A path that does not start with "/" matches nothing: "*", "", and a query alone.
+//!   5. A query alone, such as "?x", is the root with a query. Any other path that does not
+//!      start with "/" matches nothing: "*" and "".
 //!   6. One pass reads each octet of the path once, before the walk. A path matches nothing when
 //!      a segment holds an octet outside `path_octets`, a "%" included, when a segment other than
 //!      the root's is empty, or when a segment is "." or "..".
@@ -107,8 +108,11 @@ fn implemented(comptime layout: anytype, method: []const u8) bool {
 fn path_of(target: []const u8) ?[]const u8 {
     // INV-8: `path_len_max` bounds the octets that one match reads.
     if (target.len > constants.path_len_max) return null;
-    // RFC 9110 §4.1: absolute-path = 1*( "/" segment ). So "*" (RFC 9112 §3.2.4), the "" of a
-    // CONNECT request, and a query alone match nothing.
+    // RFC 9110 §4.2.3: an empty path is "/". An h11 absolute-form target with an empty path
+    // and a query gives the query alone (`Request.path`), so its path is the root.
+    if (target.len > 0 and target[0] == query_start) return router_pattern.root;
+    // RFC 9110 §4.1: absolute-path = 1*( "/" segment ). So "*" (RFC 9112 §3.2.4) and the "" of
+    // a CONNECT request match nothing.
     if (target.len == 0 or target[0] != router_pattern.separator) return null;
     var segment_first: usize = 1;
     for (target[1..], 1..) |octet, index| {

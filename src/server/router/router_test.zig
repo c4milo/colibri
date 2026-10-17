@@ -58,12 +58,19 @@ test "RFC 3986 §3.3: the match reads the path up to the first \"?\", and not th
     try expect_not_found(greetings, "GET", "/greet?ing");
 }
 
+test "RFC 9110 §4.2.3: a query alone, as an h11 absolute-form target gives it, is the root" {
+    try expect_found(greetings, Route.root, "GET", "?x");
+    try expect_found(greetings, Route.root, "GET", "?");
+    try expect_found(greetings, Route.root, "GET", "?/greeting");
+    // A table with no route at "/" does not match it.
+    try expect_not_found(router(Route, .{.{ .get, "/greeting", .greeting }}), "GET", "?x");
+}
+
 test "RFC 9110 §4.1: the path \"/\" is the root, and a path that does not start with \"/\" matches nothing" {
     try expect_found(greetings, Route.root, "GET", "/");
     try expect_not_found(greetings, "GET", "");
     try expect_not_found(greetings, "GET", "*");
     try expect_not_found(greetings, "GET", "greeting");
-    try expect_not_found(greetings, "GET", "?x");
     try expect_not_found(greetings, "GET", "//");
     try expect_not_found(greetings, "GET", "//greeting");
     // A table with no route at "/" does not match the root.
