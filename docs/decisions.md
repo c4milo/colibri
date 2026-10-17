@@ -3644,6 +3644,44 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Sending credit past the congestion window. RFC 9002 §7 forbids it for an ack-eliciting
        packet.
 
+     Amended an eighth time by the owner on 2026-10-17, after a review of the server's defences.
+     Design §8 step 20e carries three rulings:
+     - **The reset limits are settings.** `server.Limits` holds `peer_resets_max`, the requests a
+       client may cancel in one second, and `resets_sent_max`, the streams the server may reset
+       in one second. Each is 100 by default, the value of h2's two constants. `init` sets them,
+       and they stay fixed after it. An assertion refuses 0, which is a programmer error. The
+       period stays one second, a constant. `h2.Connection` holds the two limits as fields.
+       `init` sets h2's constants in them, and a server sets its own after `init`, as it does
+       for `data_frame_len_min`.
+     - **h3 counts the streams it resets.** h2 counted each RST_STREAM it sent, but h3 counted
+       only the client's cancels. A client could send a whole request head, which the
+       application starts to work on, and then break the request, for example with content past
+       its Content-Length. h3 then reset the stream, and nothing limited how often. This is the
+       cost of Rapid Reset, with a reset that the server sends. h3 now counts each request stream
+       it refuses under `resets_sent_max`. Past it, the connection closes with H3_EXCESSIVE_LOAD
+       (RFC 9114 §10.5).
+     - **Retry past a share of the slots.** `Config.retry` sent a Retry to every client or to
+       none. Without one, each spoofed Initial holds a QUIC slot until the first-request
+       deadline, and it starts a TLS handshake. RFC 9000 §8.1.2 names Retry as the way to defer
+       that state and that work. With `retry` set, the endpoint sends Retry while at least
+       `Config.retry_from_percent` of its QUIC slots hold a connection. Its default of 0 keeps
+       the old behavior: every client gets a Retry. The endpoint checks a Retry token that a
+       client returns with, whatever the share.
+
+     The names are the owner's. `peer_resets_max` and `resets_sent_max` match the values
+     `peer_resets` and `resets_sent` of a close reason's limit, so an operator reads one name for
+     a limit and for the close it caused.
+
+     The alternatives refused:
+     - For the settings: the constants as they were, and settings that a call changes for one
+       connection while it runs, as `set_deadlines` does.
+     - For h3: one counter for the client's cancels and the server's resets together, and no
+       limit.
+     - For Retry: a call that turns Retry on and off while the server runs; a default of 50
+       percent, which changes what a program that sets `retry` does today; and a count of free
+       slots, which a program must size against its `Capacity`.
+     - For the names: `cancels_max` and `refusals_max`, and names that end in `_per_second_max`.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

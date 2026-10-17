@@ -269,13 +269,14 @@ pub const stream_replies_max: u32 = 32;
 
 /// Most RST_STREAM frames colibri sends in one `rst_stream_rate_period_ns`, after which invalid
 /// requests are a connection error of ENHANCE_YOUR_CALM (§10.5: track the use of these features
-/// and set limits).
+/// and set limits). It is what `Connection.init` sets in `resets_sent_max`.
 pub const rst_stream_rate_max: u32 = 100;
 pub const rst_stream_rate_period_ns: u64 = 1_000_000_000;
 
 /// Most streams the peer opens and then resets in one `peer_reset_rate_period_ns`, after which the
 /// connection ends with ENHANCE_YOUR_CALM (§10.5). Each such stream costs the application a
-/// request's work for nothing, which CVE-2023-44487 did at line rate (decision 110).
+/// request's work for nothing, which CVE-2023-44487 did at line rate (decision 110). It is what
+/// `Connection.init` sets in `peer_resets_max`.
 pub const peer_reset_rate_max: u32 = 100;
 pub const peer_reset_rate_period_ns: u64 = 1_000_000_000;
 

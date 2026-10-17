@@ -27,9 +27,9 @@ fn cancel_batch(count: usize) !void {
 test "RFC 9114 §10.5: a client that cancels more requests in one period than the limit closes the connection with H3_EXCESSIVE_LOAD" {
     try support.start();
     try support.connect();
-    for (0..constants.quic_peer_reset_rate_max / batch_len) |_| try cancel_batch(batch_len);
+    for (0..constants.peer_resets_max / batch_len) |_| try cancel_batch(batch_len);
     // The limit's worth of cancelled requests is not past it.
-    try testing.expectEqual(constants.quic_peer_reset_rate_max, connection.peer_resets);
+    try testing.expectEqual(constants.peer_resets_max, connection.peer_resets);
     try testing.expect(!support.server_failed);
     try testing.expectEqual(null, connection.close_reason());
     try cancel_batch(1);
@@ -96,4 +96,15 @@ test "decision 110: a request the server cancels is not counted against the clie
     try support.pump(support.rounds_default);
     try testing.expect(fetch.reset != null);
     try testing.expectEqual(0, connection.peer_resets);
+}
+
+test "decision 110 as amended: the limit is the configuration's, which the endpoint takes from Limits.peer_resets_max" {
+    try support.start();
+    support.config.peer_resets_max = batch_len;
+    try support.connect();
+    try cancel_batch(batch_len);
+    try testing.expect(!support.server_failed);
+    try cancel_batch(1);
+    try testing.expect(support.server_failed);
+    try testing.expectEqual(.peer_resets, connection.close_reason().?.limit);
 }

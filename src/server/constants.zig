@@ -73,12 +73,10 @@ pub const quic_requests_max: u32 = 32;
 /// type (RFC 9000 §2.1), so a client's request streams are 4 apart.
 pub const quic_request_number_step: u64 = 1 << quic.constants.stream_id_type_bits;
 
-/// Most request streams a QUIC client opens and then cancels in one
-/// `quic_peer_reset_rate_period_ns`, after which the connection closes with H3_EXCESSIVE_LOAD
-/// (RFC 9114 §10.5). The stream limit above bounds how many are open at once, not how fast they
-/// are opened and cancelled. Both are h2's, which the owner ruled for h3 (decision 110 as
-/// amended).
-pub const quic_peer_reset_rate_max: u32 = h2.constants.peer_reset_rate_max;
+/// The period over which a QUIC connection counts the request streams its client opens and then
+/// cancels, against `Limits.peer_resets_max` (RFC 9114 §10.5). The stream limit above bounds how
+/// many are open at once, not how fast they are opened and cancelled. The period is h2's, which
+/// the owner ruled for h3 (decision 110 as amended).
 pub const quic_peer_reset_rate_period_ns: u64 = h2.constants.peer_reset_rate_period_ns;
 
 /// Octets of the frames one h3 response keeps until the peer acknowledges them (decision 79): its
@@ -201,6 +199,15 @@ pub const drain_timeout_ns: u64 = 30 * nanoseconds_per_second;
 /// configuration may lower it.
 pub const requests_max: u32 = 100;
 
+/// The requests a client may cancel in one second by default (`Limits.peer_resets_max`): h2's
+/// RST_STREAM on a stream the client opened, and h3's RESET_STREAM or STOP_SENDING on a request
+/// stream. One more ends the connection (RFC 9113 §10.5, RFC 9114 §10.5, decision 110).
+pub const peer_resets_max: u32 = h2.constants.peer_reset_rate_max;
+
+/// The streams a server may reset in one second by default (`Limits.resets_sent_max`), each for a
+/// stream the client broke. One more ends the connection (RFC 9113 §10.5, decision 110).
+pub const resets_sent_max: u32 = h2.constants.rst_stream_rate_max;
+
 /// The longest deadline a caller may set: a day. A deadline starts at an instant the caller
 /// passed, and this keeps the start plus the limit inside a `u64`.
 pub const timeout_ns_max: u64 = 86_400 * nanoseconds_per_second;
@@ -246,6 +253,7 @@ comptime {
     // The largest DATA frame a peer may send colibri is a record's plaintext too.
     assert(body_unit_len == h2.constants.max_frame_size_initial and honest_rate_factor > 1);
     assert(requests_max > 0 and requests_max <= h2.constants.concurrent_streams_max);
+    assert(peer_resets_max > 0 and resets_sent_max > 0);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
     // A pattern can hold one parameter at least.
     assert(path_parameters_max > 0);

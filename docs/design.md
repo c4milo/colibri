@@ -7375,6 +7375,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       <directory>` writes each seed's trace as TLA+, and `tools/h3_deadline_trace.sh` has TLC
       check each one against `spec/tla/h3_deadlines/H3DeadlinesTrace.tla`. `tools/ci.sh` runs
       the script.
+  - **20e**, three changes the owner ruled on 2026-10-17 (decision 110 as amended). Each lands
+    in a commit of its own:
+    - the reset limits as `server.Limits.peer_resets_max` and `resets_sent_max`, which h2 and h3
+      read in place of the constants;
+    - h3's count of the request streams it refuses, under `resets_sent_max`;
+    - `server.Config.retry_from_percent`, the share of QUIC slots in use from which the endpoint
+      sends Retry.
+
+    The new fields are for an operator's program. A server behind a proxy that carries many
+    users on one connection may need higher reset limits, and a server under attack lower ones
+    or Retry. **Check:** unit tests at each limit and one past it, through `Limits` and through
+    the endpoint, and mutations.
 
   **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
   period its instant falls in, beside the count of the resets colibri sends. What was checked, on
@@ -8383,6 +8395,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   where the disassembly gave about 480. h2-one wins as well: its user instructions per connection
   fell by 2,791 and 2,799, because the endpoint calls a new connection several times at one
   instant too.
+
+  **20e, part 1: the reset limits in `Limits`, 2026-10-17.** `server.Limits` gained
+  `peer_resets_max` and `resets_sent_max`, 100 each by default. `h2.Connection` holds both as
+  fields. Its `init` sets `peer_reset_rate_max` and `rst_stream_rate_max` in them, and a
+  server's TCP connection sets its `Limits` in them after `init`. A QUIC connection's
+  configuration carries `peer_resets_max`, which the endpoint copies from its `Limits`.
+  `h2.Connection` and the connection of each TCP slot hold 8 octets more, and
+  `docs/performance.md` has the seven rows that follow from it. Nothing read
+  `server.constants.quic_peer_reset_rate_max` any more, and the owner ruled on 2026-10-17 to
+  remove it.
+
+  What was checked:
+  - New tests:
+    - h2 ends a connection past limits set after `init`, and not before.
+    - A server's h2 connection ends at `Limits.peer_resets_max` and at `Limits.resets_sent_max`,
+      and the default `Limits` leave h2's constants in place.
+    - An h3 connection ends at its configuration's limit, and an endpoint gives each QUIC
+      connection its `Limits.peer_resets_max`.
+  - `zig build test-h2` passed 385 of 385 tests, and `zig build test-server` 472 of 472.
+  - 13 mutations, each **CAUGHT**:
+    - h2 compares either count with its constant, or lets one reset past the limit;
+    - h2's `init` sets another sent limit;
+    - the server leaves either h2 limit unset, or sets the peer limit as the sent limit;
+    - the endpoint gives QUIC no limit;
+    - h3 compares with the default, or lets one cancel past the limit;
+    - either default is one lower.
 
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one

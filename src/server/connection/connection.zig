@@ -170,6 +170,7 @@ pub const Connection = struct {
         for (config.codings) |coding| assert(coding_pool.encodes(coding));
         assert(config.limits.data_frame_len_min <= h2.constants.max_frame_size_initial);
         assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.concurrent_streams_max);
+        assert(config.limits.peer_resets_max > 0 and config.limits.resets_sent_max > 0);
         try config.deadlines.validate();
         if (connection_config.whole_units(config)) try config.deadlines.validate_units();
         connection.deadlines = config.deadlines;
@@ -415,6 +416,7 @@ test {
     _ = @import("connection_h11_test.zig");
     _ = @import("connection_h2_test.zig");
     _ = @import("connection_h2_fields_test.zig");
+    _ = @import("connection_h2_limits_test.zig");
     _ = @import("connection_head_test.zig");
     _ = @import("connection_internal_test.zig");
     _ = @import("connection_tls_test.zig");

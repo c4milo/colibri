@@ -64,10 +64,10 @@ pub const Limit = enum {
     continuation_frames,
     /// More records in a row that carried no data than `records_without_data_max`.
     records_without_data,
-    /// More streams refused with RST_STREAM in one period than `rst_stream_rate_max`.
+    /// More streams refused with RST_STREAM in one period than `resets_sent_max`.
     resets_sent,
-    /// More streams the peer opened and reset in one period than `peer_reset_rate_max`: Rapid
-    /// Reset, CVE-2023-44487.
+    /// More streams the peer opened and reset in one period than `peer_resets_max`: Rapid Reset,
+    /// CVE-2023-44487.
     peer_resets,
 };
 
@@ -232,6 +232,14 @@ pub const Connection = struct {
     /// (RFC 9846 §6). No record is read and no frame goes out after it, and `encrypt` writes only
     /// the alert the provider owes (`connection_tls.zig`).
     tls_failed: bool,
+    /// Most RST_STREAM frames colibri sends in one `rst_stream_rate_period_ns`, after which the
+    /// connection ends with ENHANCE_YOUR_CALM (§10.5). `init` sets `rst_stream_rate_max`, and a
+    /// server sets its own after `init` (decision 110 as amended).
+    resets_sent_max: u32,
+    /// Most streams the peer opens and then resets in one `peer_reset_rate_period_ns`, after
+    /// which the connection ends with ENHANCE_YOUR_CALM (§10.5). `init` sets
+    /// `peer_reset_rate_max`, and a server sets its own after `init` (decision 110 as amended).
+    peer_resets_max: u32,
     /// RST_STREAM frames colibri has sent since `rst_stream_period_start_ns` (§10.5).
     rst_stream_sent: u32,
     /// The instant the current RST_STREAM rate period began.
@@ -276,6 +284,8 @@ pub const Connection = struct {
         connection.records_without_data = 0;
         connection.handshake_owed = false;
         connection.tls_failed = false;
+        connection.resets_sent_max = constants.rst_stream_rate_max;
+        connection.peer_resets_max = constants.peer_reset_rate_max;
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
         connection.peer_resets = 0;

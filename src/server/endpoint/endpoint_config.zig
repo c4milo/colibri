@@ -94,6 +94,7 @@ pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Ra
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
     assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.concurrent_streams_max);
     assert(config.limits.data_frame_len_min <= h2.constants.max_frame_size_initial);
+    assert(config.limits.peer_resets_max > 0 and config.limits.resets_sent_max > 0);
     if (config.tls) |identity| assert(identity.alpn.len == 0);
     // RFC 9114 §3.1: a TCP connection speaks h11 or h2, and `versions` may turn both off (decision
     // 117).
@@ -138,6 +139,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
         .switch_to = config.switch_to,
         .deadlines = config.deadlines,
         .requests_max = @min(config.limits.requests_max, constants.quic_requests_max),
+        .peer_resets_max = config.limits.peer_resets_max,
     };
 }
 
@@ -216,6 +218,17 @@ test "RFC 9000 §4.6: requests_max bounds the request streams a client opens, up
 
 /// A limit on requests lower than h3's records.
 const requests_few: u32 = 2;
+
+test "decision 110 as amended: each QUIC connection takes the endpoint's Limits.peer_resets_max" {
+    try support.start_endpoint(null);
+    endpoint_support.endpoint_config.limits.peer_resets_max = peer_resets_few;
+    try endpoint_support.restart();
+    try support.connect();
+    try testing.expectEqual(peer_resets_few, support.served.config.peer_resets_max);
+}
+
+/// A limit on the requests a client cancels in one second, lower than the default.
+const peer_resets_few: u32 = 3;
 
 /// An endpoint of one TCP slot and no QUIC slot. Test-only.
 const TcpOnly = @import("endpoint.zig").EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });

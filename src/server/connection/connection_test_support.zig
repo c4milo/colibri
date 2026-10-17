@@ -58,6 +58,11 @@ pub const protocols_h2 = [_][]const u8{"h2"};
 pub var alternative: ?alt_svc.Alternative align(@alignOf(?alt_svc.Alternative)) = null;
 pub const Alternative = alt_svc.Alternative;
 
+/// The limits the next `start_cleartext` gives its connection. A test that sets them sets them
+/// back to `.{}` when it ends.
+pub var limits: Limits align(@alignOf(Limits)) = .{};
+pub const Limits = @FieldType(Config, "limits");
+
 /// The connection the tests drive, its configuration, and what it sends, outside any stack frame.
 pub var connection: Connection align(@alignOf(Connection)) = undefined;
 pub var config: Config align(@alignOf(Config)) = .{};
@@ -71,7 +76,7 @@ pub const input_len: usize = 65_536;
 /// A cleartext connection speaking `protocol`, with nothing read or written: its configuration
 /// allows that version alone, so the connection speaks it from the start (decision 117).
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
-    config = .{ .versions = only(protocol), .h3_alternative = alternative };
+    config = .{ .versions = only(protocol), .h3_alternative = alternative, .limits = limits };
     try connection.init(&config, stream.random(), 0, 0);
 }
 

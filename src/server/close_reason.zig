@@ -21,10 +21,10 @@ pub const Limit = enum {
     /// h11 or h2 over TLS: more records in a row that carried no data than
     /// `records_without_data_max`.
     records_without_data,
-    /// h2: more streams refused with RST_STREAM in one period than `rst_stream_rate_max`.
+    /// h2: more streams refused with RST_STREAM in one second than `Limits.resets_sent_max`.
     resets_sent,
-    /// h2: more streams the peer opened and reset in one period than `peer_reset_rate_max`: Rapid
-    /// Reset, CVE-2023-44487. h3: more request streams the client opened and cancelled in one
-    /// period than `quic_peer_reset_rate_max`.
+    /// h2: more streams the peer opened and reset in one second than `Limits.peer_resets_max`:
+    /// Rapid Reset, CVE-2023-44487. h3: more request streams the client opened and cancelled in
+    /// one second than the same limit.
     peer_resets,
 };

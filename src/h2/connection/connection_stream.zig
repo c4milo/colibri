@@ -156,11 +156,12 @@ pub fn refuse_stream(target: *Connection, id: u32, code: u32, now_ns: u64) Error
 /// work and to treat excess as ENHANCE_YOUR_CALM: a peer that opens and cancels streams makes
 /// colibri do a request's work for nothing.
 fn count_reset(target: *Connection, now_ns: u64) Error!void {
+    assert(target.resets_sent_max > 0);
     if (now_ns - target.rst_stream_period_start_ns >= constants.rst_stream_rate_period_ns) {
         target.rst_stream_period_start_ns = now_ns;
         target.rst_stream_sent = 0;
     }
-    if (target.rst_stream_sent == constants.rst_stream_rate_max) {
+    if (target.rst_stream_sent >= target.resets_sent_max) {
         return internal.fail_limit(target, .resets_sent);
     }
     target.rst_stream_sent += 1;
@@ -170,13 +171,14 @@ fn count_reset(target: *Connection, now_ns: u64) Error!void {
 /// connection past the limit (decision 110). Each such stream cost the application a request's
 /// work, which CVE-2023-44487 made the peer's to spend at line rate.
 fn count_peer_reset(target: *Connection, now_ns: u64) Error!void {
+    assert(target.peer_resets_max > 0);
     if (now_ns - target.peer_reset_period_start_ns >= constants.peer_reset_rate_period_ns) {
         target.peer_reset_period_start_ns = now_ns;
         target.peer_resets = 0;
     }
     // RFC 9113 §10.5: an endpoint tracks the use of the features that cost it work, sets limits on
     // them, and treats excess as ENHANCE_YOUR_CALM.
-    if (target.peer_resets == constants.peer_reset_rate_max) {
+    if (target.peer_resets >= target.peer_resets_max) {
         return internal.fail_limit(target, .peer_resets);
     }
     target.peer_resets += 1;
@@ -449,4 +451,37 @@ test "the reset count starts again in the next period" {
     _ = try test_connection.receive(other, constants.rst_stream_rate_period_ns);
     try testing.expectEqual(1, test_connection.rst_stream_sent);
     try testing.expectEqual(constants.rst_stream_rate_period_ns, test_connection.rst_stream_period_start_ns);
+}
+
+test "§10.5: a connection ends past the reset limits set after init, and not before" {
+    try start_server();
+    test_connection.resets_sent_max = 2;
+    var id: u32 = 1;
+    for (0..test_connection.resets_sent_max) |_| {
+        _ = try feed_request(id, "/", false);
+        const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
+        _ = try feed(zero);
+        _ = write_queued();
+        id += constants.stream_id_step;
+    }
+    try testing.expect(!test_connection.has_failed());
+    _ = try feed_request(id, "/", false);
+    const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
+    try testing.expectError(error.ConnectionFailed, test_connection.receive(zero, 0));
+    try testing.expectEqual(.resets_sent, test_connection.failure_limit.?);
+
+    try start_server();
+    test_connection.peer_resets_max = 3;
+    id = 1;
+    for (0..test_connection.peer_resets_max) |_| {
+        _ = try feed_request(id, "/", false);
+        const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+        _ = try feed(reset);
+        id += constants.stream_id_step;
+    }
+    try testing.expect(!test_connection.has_failed());
+    _ = try feed_request(id, "/", false);
+    const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+    try testing.expectError(error.ConnectionFailed, test_connection.receive(reset, 0));
+    try testing.expectEqual(.peer_resets, test_connection.failure_limit.?);
 }

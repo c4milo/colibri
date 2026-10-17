@@ -352,7 +352,7 @@ fn bodies_overload(first: ?*const Answer, first_window_ms: u64) ?Expected {
 /// A peer that floods is closed with the batch that carries the first cancelled request past the
 /// limit (decision 110 as amended): no batch sooner, and none later.
 fn flooded_as(plan: *const Plan, record: *const Record) bool {
-    const limit = server.constants.quic_peer_reset_rate_max;
+    const limit = server.constants.peer_resets_max;
     return record.requests_opened > limit and record.requests_opened <= limit + plan.flood_batch_len;
 }
 

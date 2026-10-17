@@ -104,6 +104,7 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
 fn count_peer_reset(connection: *QuicConnection) bool {
     const now_ns = connection.last_ns;
     assert(now_ns >= connection.peer_reset_period_start_ns);
+    assert(connection.config.peer_resets_max > 0);
     if (now_ns - connection.peer_reset_period_start_ns >= constants.quic_peer_reset_rate_period_ns) {
         connection.peer_reset_period_start_ns = now_ns;
         connection.peer_resets = 0;
@@ -111,7 +112,7 @@ fn count_peer_reset(connection: *QuicConnection) bool {
     // RFC 9114 §10.5: an endpoint SHOULD track the use of features that cost it work and set
     // limits on it, and "MAY treat activity that is suspicious as a connection error of type
     // H3_EXCESSIVE_LOAD".
-    if (connection.peer_resets == constants.quic_peer_reset_rate_max) {
+    if (connection.peer_resets >= connection.config.peer_resets_max) {
         connection.peer_resets_passed = true;
         const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
         assert(failed == error.ConnectionFailed);

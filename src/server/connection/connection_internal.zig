@@ -52,6 +52,8 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
             make_h2_session(connection);
             connection.session.h2.init(.server);
             connection.session.h2.data_frame_len_min = connection.config.limits.data_frame_len_min;
+            connection.session.h2.peer_resets_max = connection.config.limits.peer_resets_max;
+            connection.session.h2.resets_sent_max = connection.config.limits.resets_sent_max;
             connection.session.h2.limit_peer_streams(connection.config.limits.requests_max);
         },
         .h11 => {

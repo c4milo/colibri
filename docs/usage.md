@@ -475,7 +475,10 @@ Three more things a server sets:
   bound: `requests_max`, the requests a connection holds at once, up to
   `server.constants.quic_requests_max` request streams over QUIC, and `data_frame_len_min`, the
   shortest DATA frame h2 sends when a window, not the content, decides its length
-  ([decision 110](decisions.md)).
+  ([decision 110](decisions.md)). Two more bound resets in one second, 100 each by default:
+  `peer_resets_max`, the requests a client may cancel, and `resets_sent_max`, the streams the
+  server may reset because the client broke them. One more ends the connection, and its
+  `CloseReason` names the limit.
 
 ### Router
 
