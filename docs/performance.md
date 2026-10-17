@@ -98,14 +98,14 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 40630608 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323440 | an endpoint that holds one TCP connection |
-| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240560 | an endpoint that holds one QUIC connection, with its receive pool |
+| `server.Endpoint` | 40630752 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323456 | an endpoint that holds one TCP connection |
+| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240576 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 306448 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721416 | the connection each QUIC slot of an endpoint holds, without its receive pool |
+| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721424 | the connection each QUIC slot of an endpoint holds, without its receive pool |
 | `@FieldType(client.Channel, "tcp")` | 289208 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
-| `@FieldType(client.Channel, "quic")` | 703712 | a channel's QUIC connection, without its receive pool |
-| `client.Channel` | 995328 | one server's connections, QUIC first and TCP after, without receive pools |
+| `@FieldType(client.Channel, "quic")` | 703720 | a channel's QUIC connection, without its receive pool |
+| `client.Channel` | 995352 | one server's connections, QUIC first and TCP after, without receive pools |
 | `client.DefaultReceivePool` | 1505288 | the receive pool a program passes to a channel, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163384 | the h2 state inside a TCP connection |
@@ -113,8 +113,8 @@ With chapulin's host objects:
 | `quic.Connection` | 141624 | the QUIC state inside an h3 connection |
 | `tls.record.Client` | 40544 | a TLS client session over TCP |
 | `tls.record.Server` | 39904 | a TLS server session over TCP |
-| `tls.quic.Client` | 90000 | a TLS client session inside QUIC |
-| `tls.quic.Server` | 89424 | a TLS server session inside QUIC |
+| `tls.quic.Client` | 90008 | a TLS client session inside QUIC |
+| `tls.quic.Server` | 89432 | a TLS server session inside QUIC |
 
 ## Pitfalls this tree has paid for
 

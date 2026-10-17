@@ -28,12 +28,12 @@
             .lazy = true,
         },
         // The TLS stack and the packet protection (decision 94), compiled from source with
-        // `RAND=extern` in each configuration colibri uses (design §8 step 16). The library's
+        // `RAND=session` in each configuration colibri uses (design §8 step 16). The library's
         // `tls` module imports it, so it is not lazy: a project that depends on colibri fetches it
         // too.
         .chapulin = .{
-            .url = "git+https://github.com/c4milo/chapulin#26fa7821683e8c4ccbcef11d5ef6e753b656c59f",
-            .hash = "chapulin-0.2.0-btv9Nq6uHABncUHnzf_fFNZ3NfGNcAuhqMrxpDCnlmhf",
+            .url = "git+https://github.com/c4milo/chapulin#6f3bf95248c35d6798c9ba225fd48d198c0c8987",
+            .hash = "chapulin-0.2.0-btv9Nu97LgCT6E2eM5-AA9JszmzdZm-bJlJxRHnDo8Jc",
         },
         // The decoders of the gzip and deflate transfer codings h11 reads (decisions 90 and 91,
         // design §8 step 14). The library imports it, so it is not lazy: a project that depends on

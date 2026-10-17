@@ -14,7 +14,7 @@ const constants = @import("constants.zig");
 const values = @import("values.zig");
 
 pub const Error = error{
-    /// More anchors than chapulin's `CH_WEBPKI_ANCHOR_MAX`.
+    /// More anchors than `constants.anchors_max`.
     TooManyAnchors,
     /// More protocols than chapulin's `CH_ALPN_MAX`.
     TooManyProtocols,
@@ -33,9 +33,9 @@ pub fn ClientConfig(comptime chapulin: type) type {
     return struct {
         const Config = @This();
 
-        /// The most anchors and ALPN protocols the values may name, chapulin's
-        /// `CH_WEBPKI_ANCHOR_MAX` and `CH_ALPN_MAX`: `init` refuses more.
-        pub const anchors_max: usize = c.CH_WEBPKI_ANCHOR_MAX;
+        /// The most anchors and ALPN protocols the values may name, `constants.anchors_max` and
+        /// chapulin's `CH_ALPN_MAX`: `init` refuses more.
+        pub const anchors_max: usize = constants.anchors_max;
         pub const protocols_max: usize = c.CH_ALPN_MAX;
 
         anchors: [anchors_max]c.ch_trust_anchor,
@@ -50,7 +50,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
             assert(chapulin.buildMatches());
             const alpn = try protocols(chapulin, &config.alpn, client.alpn);
             const trust = try config.trust_of(client.trust);
-            config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq };
+            config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq, .takes_tickets = client.takes_tickets };
             // Decided when the object is built, so an object that takes no description of the
             // CPU never names chapulin's `Cpu`, which exists in a host object alone.
             if (comptime has_cpu(chapulin.Client)) config.values.cpu = cpu_of(chapulin, client.cpu);
@@ -69,7 +69,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
             switch (trust) {
                 .web_pki => |judged| {
                     // RFC 9846 §4.5.1.3: the trusted CAs a chain must reach, copied into a list of
-                    // chapulin's `CH_WEBPKI_ANCHOR_MAX`.
+                    // `constants.anchors_max`.
                     if (judged.anchors.len > config.anchors.len) return error.TooManyAnchors;
                     const anchors = config.anchors[0..judged.anchors.len];
                     for (judged.anchors, anchors) |anchor, *converted| converted.* = chapulin.trustAnchor(anchor.subject, anchor.spki);

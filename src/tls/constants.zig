@@ -1,6 +1,6 @@
 //! The limits of colibri's `tls` module (design §8 step 16). A limit chapulin names stays
-//! chapulin's, under its C name in `chapulin.c`, such as `CH_WEBPKI_ANCHOR_MAX` and `CH_ALPN_MAX`;
-//! these are the ones colibri chooses. A caller cannot reach `chapulin.c`, so the few it sizes its
+//! chapulin's, under its C name in `chapulin.c`, such as `CH_ALPN_MAX`; these are the ones colibri
+//! chooses. A caller cannot reach `chapulin.c`, so the few it sizes its
 //! buffers and lists by are exported where their object is known: `record.alert_record_len`,
 //! `record.Client.handshake_output_len_min`, and each configuration's `anchors_max` and
 //! `protocols_max`.
@@ -13,6 +13,13 @@ const assert = std.debug.assert;
 /// `docs/webpki.md`), which design §8 step 5 measured against a Go server. A record-mode session
 /// advertises it, less record overhead, as its record_size_limit.
 pub const receive_len: usize = 20 * 1024;
+
+/// Trust anchors one client's values name (RFC 9846 §4.5.1.3). chapulin takes any count of one
+/// or more since its commit 237e6e19. colibri keeps 12, chapulin's earlier
+/// `CH_WEBPKI_ANCHOR_MAX`, so no configuration grows. The owner ruled this on 2026-10-17. The PEM
+/// reader for a CA bundle (https://github.com/c4milo/colibri/issues/97) sizes it again for a
+/// system bundle. Each anchor costs a `ch_trust_anchor`, four words, in each client configuration.
+pub const anchors_max: usize = 12;
 
 /// Octets of the server_name a server keeps from a ClientHello (RFC 9846 §9.2). chapulin copies
 /// no longer name, and a server reports none for one.

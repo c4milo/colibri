@@ -2599,6 +2599,29 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     Cost: every caller passes a source to `start`, and chapulin changes how its objects draw.
 
+    **Amended by the owner on 2026-10-17: the pin moves to chapulin main 6f3bf952.** It is 174
+    commits after v0.2.0, and its push check passed. colibri needs its `takes_tickets`
+    ([#104](https://github.com/c4milo/colibri/issues/104)).
+    - `tls.values.Client.takes_tickets`, true by default, passes to `chapulin.Client`. With false,
+      a session keeps no ticket, and a web PKI session hashes its anchors only to check a ticket
+      that it offers (chapulin's decision 132).
+    - chapulin no longer has `CH_WEBPKI_ANCHOR_MAX`, and takes any count of anchors. colibri names
+      its own limit, `tls.constants.anchors_max`, and keeps it at 12, so no configuration grows.
+      The PEM reader of [#97](https://github.com/c4milo/colibri/issues/97) sizes it again for a
+      system bundle.
+    - chapulin's 1f4a9222 breaks a program with an RSA identity: in a host object, `ch_rsa_priv`
+      also holds the CRT values p, q, dp, dq and qinv (chapulin's decision 95). colibri passes the
+      key as an opaque pointer and changes no code. RSA-2048 signing goes from 37 ms to about 1 ms
+      on an M1 Pro, by chapulin's measurement.
+    - Each QUIC session and each configuration grows by one or two words. The memory table of
+      docs/performance.md moves by 8 to 144 octets a row.
+
+    The alternatives refused:
+    - A chapulin tag first. `takes_tickets` then waits for chapulin's next release.
+    - An anchor limit of 256 now, for a system bundle. Each channel grows by 15,616 octets
+      before a program can read a bundle
+      ([#97](https://github.com/c4milo/colibri/issues/97)).
+
 95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.

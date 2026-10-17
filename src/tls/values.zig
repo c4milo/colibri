@@ -88,6 +88,11 @@ pub const Client = struct {
     /// Suites to offer, most preferred first, as RFC 9846 Appendix B.4 codepoints; empty for
     /// chapulin's. A list may leave suites out, and the ClientHello offers exactly this list.
     cipher_suites: []const u16 = &.{},
+    /// Keep the tickets that a server sends (RFC 9846 §4.7.1), for `take_ticket`. With false, a
+    /// session keeps none and `take_ticket` gives null. A web PKI session then hashes its anchors
+    /// only to check a ticket that it offers, not at each start (chapulin's decision 132,
+    /// https://github.com/c4milo/colibri/issues/104). A ticket that it offers still resumes.
+    takes_tickets: bool = true,
 };
 
 /// A NewSessionTicket a client kept (RFC 9846 §4.7.1), in fixed-size fields, so a program keeps it
@@ -134,8 +139,10 @@ pub const RsaPssIdentity = struct {
     chain: []const []const u8,
     /// The modulus, big-endian.
     public_key: []const u8,
-    /// A chapulin `ch_rsa_priv`, the modulus and the private exponent. It is opaque here because
-    /// chapulin's type is one of each object, and colibri passes the pointer and never reads it.
+    /// A chapulin `ch_rsa_priv`. In a host object it holds the modulus, the private exponent and
+    /// the CRT values p, q, dp, dq and qinv, and in a device object the modulus and the private
+    /// exponent (chapulin's decision 95). It is opaque here because chapulin's type is one of each
+    /// object, and colibri passes the pointer and never reads it.
     private_key: *const anyopaque,
 };
 
