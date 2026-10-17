@@ -951,6 +951,11 @@ fn sleep_ns() u64 {
 }
 ```
 
+A channel has no deadline of its own for an exchange: QUIC's idle timeout is the one limit it
+runs. A server that answers slowly, or never, holds an exchange until the program ends it. So a
+program sets its own limit on each exchange and calls `cancel` when the limit passes. The
+deadlines of [decision 110](decisions.md) are the server's.
+
 A client that decodes content codings names them in `Config.codings`, and places the pool
 of decoders each needs ([decision 101](decisions.md)).
 

@@ -2491,6 +2491,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       about 400 MB on decoders it rarely uses.
     - Offering the codings on every client connection, or on none.
 
+    Recorded by the owner on 2026-10-17, after the review of design §8 step 20e, with no change:
+    the pool of decoders is shared, so slow coded uploads can hold all of it. Sixteen request
+    bodies in a compression coding, each at decision 110's minimum body rate, hold the default
+    pool for up to the cap of 300 s on a request. Meanwhile each other coded body gets 503.
+    Clients seldom send a coded request body. An operator who sees it places a larger pool, or
+    shortens the body deadlines with `set_deadlines`. Refused: a shorter cap on the time of a
+    coded body, which would be a new named limit.
+
 92. **How an h11 connection runs.** Ruled by the owner on 2026-09-25, for design §8 step 15b.
     - colibri writes a server's error responses itself, as h2 writes its own GOAWAY and
       RST_STREAM. The response carries `Connection: close` and no content, and the connection
