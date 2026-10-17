@@ -2641,6 +2641,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       before a program can read a bundle
       ([#97](https://github.com/c4milo/colibri/issues/97)).
 
+    **Amended by the owner on 2026-10-17, a second time: the pin moves to chapulin main
+    e6e3c1e7.** It is seven commits after 6f3bf952, and chapulin's `make check` passed on each.
+    They change the API that colibri calls.
+    - chapulin reads the clock through a function, `ch_cfg.now_seconds(clock_io)`, which each
+      `init` calls once (chapulin's decision 135). colibri reads no clock (non-negotiable 3), so
+      each `tls` session keeps the instant its `start` was given in `instant`, and
+      `config.clock_at` answers it. `start` takes `now_seconds` as before.
+    - A kept ticket, a session's results, the send rule and the Key Phase bit change too
+      (chapulin's decisions 134, 136 and 137). colibri calls these through forms of the Zig API
+      that did not change, so no other code changes.
+    - Each `tls` session holds one more word, `instant`. With chapulin's own changes, the rows
+      of the memory table in docs/performance.md move by 8 octets down to 48 up.
+
 95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.

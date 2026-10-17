@@ -73,7 +73,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
                     if (judged.anchors.len > config.anchors.len) return error.TooManyAnchors;
                     const anchors = config.anchors[0..judged.anchors.len];
                     for (judged.anchors, anchors) |anchor, *converted| converted.* = chapulin.trustAnchor(anchor.subject, anchor.spki);
-                    return .{ .web_pki = .{ .anchors = anchors, .server_name = judged.server_name, .now_seconds = 0, .pins = judged.pins } };
+                    return .{ .web_pki = .{ .anchors = anchors, .server_name = judged.server_name, .clock = no_clock(chapulin), .pins = judged.pins } };
                 },
                 .pins => |pinned| return .{ .pins = .{ .pins = pinned.pins, .server_name = pinned.server_name } },
             }
@@ -109,7 +109,6 @@ pub fn ServerConfig(comptime chapulin: type) type {
             config.values = .{
                 .cookie_key = server.cookie_key,
                 .ticket_key = server.ticket_key,
-                .now_seconds = 0,
                 .alpn = try protocols(chapulin, &config.alpn, server.alpn),
                 .require_server_name = server.require_server_name,
             };
@@ -148,6 +147,29 @@ pub fn ServerConfig(comptime chapulin: type) type {
             checked.check() catch return error.IdentityRefused;
         }
     };
+}
+
+/// chapulin's clock (its `cfg.h`): a C function that each session's `init` calls once, with
+/// `clock_io`. colibri reads no clock (non-negotiable 3), so the function answers the instant the
+/// caller read, which a session keeps in its `instant` until chapulin's `init` has read it.
+pub fn clock_at(comptime chapulin: type, instant: *const u64) chapulin.Clock {
+    return .{ .now_seconds = &answer_instant, .clock_io = @constCast(instant) };
+}
+
+fn answer_instant(clock_io: ?*anyopaque) callconv(.c) u64 {
+    const instant: *const u64 = @ptrCast(@alignCast(clock_io.?));
+    return instant.*;
+}
+
+/// The clock a client's values hold until `start` gives the session its own. It answers 0, which
+/// chapulin reads as no clock, so a Web PKI session started without one fails closed.
+fn no_clock(comptime chapulin: type) chapulin.Clock {
+    return .{ .now_seconds = &answer_none };
+}
+
+fn answer_none(clock_io: ?*anyopaque) callconv(.c) u64 {
+    assert(clock_io == null);
+    return 0;
 }
 
 /// Whether an object's `Values`, chapulin's `Client` or `Server`, take the caller's description of

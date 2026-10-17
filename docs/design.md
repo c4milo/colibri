@@ -9833,6 +9833,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     for example `client.Channel` from 995,328 to 995,352. Mutations, each **CAUGHT**:
     `takes_tickets` not passed, or passed as true (test-tls); `anchors_max` 11 or 13
     (test-bench, through the memory table).
+  - **The chapulin pin moves from 6f3bf952 to e6e3c1e7** (decision 94 as amended a second time
+    on 2026-10-17). chapulin's clock is now a function that its `init` calls once, so each `tls`
+    session keeps the instant `start` was given, and `config.clock_at` answers it. The rows of
+    the memory table move by 8 octets down to 48 up, for example `client.Channel` from 995,392
+    to 995,400. Mutations, each **CAUGHT** by test-tls: the instant written as 0 in the record
+    client, the record server, the QUIC client and the QUIC server.
   - `zig build test`: 183 steps and 2,983 tests, against 2,979 at 3952bcc.
   - **Owed before the push.** `tools/ci.sh` on the exact tree, which runs the interop and TLS
     checks against the new chapulin.

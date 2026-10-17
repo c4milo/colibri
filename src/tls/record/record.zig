@@ -54,6 +54,8 @@ pub const Client = struct {
     session: chapulin.record.Client(constants.receive_len),
     /// The ticket this connection offers, in chapulin's form; the session points at its PSK.
     offered: chapulin.Ticket,
+    /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
+    instant: u64,
     state: State,
     /// Whether chapulin may hold octets the client owes the server. chapulin reads no record while
     /// it does (`tcp_nonblocking.h`), and it cannot say so, so `handshake` asks by collecting.
@@ -75,8 +77,9 @@ pub const Client = struct {
         client.owed = true;
         var chosen = config.values;
         chosen.random = random;
+        client.instant = now_seconds;
         switch (chosen.trust) {
-            .web_pki => |*judged| judged.now_seconds = now_seconds,
+            .web_pki => |*judged| judged.clock = config_module.clock_at(chapulin, &client.instant),
             .pins => {},
         }
         if (resumption) |offer| {
@@ -180,6 +183,8 @@ pub const Server = struct {
     session: chapulin.record.Server(constants.receive_len),
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
     server_name: [constants.server_name_len_max]u8,
+    /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
+    instant: u64,
     state: State,
 
     const Provider = record_provider.Provider(Server);
@@ -191,7 +196,8 @@ pub const Server = struct {
         server.state = .{};
         var chosen = config.values;
         chosen.random = random;
-        chosen.now_seconds = now_seconds;
+        server.instant = now_seconds;
+        chosen.clock = config_module.clock_at(chapulin, &server.instant);
         // RFC 9846 §9.2: chapulin refuses values it cannot serve from, such as a cookie key missing
         // for the cookie extension that section makes mandatory.
         server.session.init(chosen, &server.server_name) catch return error.Refused;

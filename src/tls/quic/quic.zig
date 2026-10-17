@@ -52,6 +52,8 @@ pub const Client = struct {
     offered: chapulin.Ticket,
     /// The values this connection starts from, which chapulin reads when its session starts.
     chosen: chapulin.Client,
+    /// The instant `start` was given, which `chosen`'s clock answers (`config.clock_at`).
+    instant: u64,
     state: State,
 
     pub const is_client = true;
@@ -69,8 +71,9 @@ pub const Client = struct {
         // RFC 9368 §2.5: the version of the client's first Initial packet, its original one: the
         // version its configuration names, else its ticket's (decision 111), else version 1.
         client.chosen.quic_version = config.values.quic_version orelse ticket_version(resumption) orelse original_version_default;
+        client.instant = now_seconds;
         switch (client.chosen.trust) {
-            .web_pki => |*judged| judged.now_seconds = now_seconds,
+            .web_pki => |*judged| judged.clock = config_module.clock_at(chapulin, &client.instant),
             .pins => {},
         }
         const offer = resumption orelse return;
@@ -128,6 +131,8 @@ pub const Server = struct {
     server_name: [constants.server_name_len_max]u8,
     /// The values this connection starts from, which chapulin reads when its session starts.
     chosen: chapulin.Server,
+    /// The instant `start` was given, which `chosen`'s clock answers (`config.clock_at`).
+    instant: u64,
     state: State,
 
     pub const is_client = false;
@@ -141,7 +146,8 @@ pub const Server = struct {
         server.state = .{};
         server.chosen = config.values;
         server.chosen.random = random;
-        server.chosen.now_seconds = now_seconds;
+        server.instant = now_seconds;
+        server.chosen.clock = config_module.clock_at(chapulin, &server.instant);
         // RFC 9368 §2: the session starts in the version of the client's first Initial packet.
         server.chosen.quic_version = @enumFromInt(@intFromEnum(original));
     }
