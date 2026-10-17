@@ -9681,6 +9681,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       review change no check. The test counts are the
       check of 800ebda.
 
+  **After 21e, 2026-10-17.** Three issues that step 21e found or that a dependent asked for, on
+  the owner's rulings of 2026-10-17. Run on macOS 26 on an Apple M1 Pro, with Zig 0.16.0, on the
+  branch `paths-tls-102-104` over main 3952bcc.
+  - **e02fb20, [#103](https://github.com/c4milo/colibri/issues/103).** `server.router` reads a
+    query alone, such as the "?x" of `GET http://a?x`, as the root (RFC 9110 §4.2.3; decision 122
+    as amended on 2026-10-17). The router's sweep reads a query alone as the root too.
+    `zig build test-server`: 468 tests, 467 before. Mutations, each **CAUGHT** by test-server: the
+    new rule removed; a query alone refused; the "" of a CONNECT request read as the root too.
+  - **3998aba, [#102](https://github.com/c4milo/colibri/issues/102).** h2 and h3 hold `:path` to
+    the absolute-path and query of RFC 3986 §3.3 and §3.4 (RFC 9113 §8.3.1, RFC 9114 §4.3.1), as
+    h11 holds an origin-form target. `zig build test-h2`: 385 tests, 384 before; one more case in
+    an h3 test. Mutations, each **CAUGHT**: the first octet alone checked (test-h2 and test-h3);
+    the grammar check skipped; the query not checked (test-h2). The simulator's censuses did not
+    move.
+  - **bad1757, [#104](https://github.com/c4milo/colibri/issues/104).** The chapulin pin moves
+    from v0.2.0 (26fa782) to 6f3bf952, and `tls.values.Client` gains `takes_tickets` (decision 94
+    as amended on 2026-10-17). `tls.constants.anchors_max` is 12. A new test,
+    `src/tls/record/record_ticket_test.zig`, shows that a client that takes no tickets keeps none
+    and still resumes with a ticket it offers. The memory table moves by 8 to 144 octets a row,
+    for example `client.Channel` from 995,328 to 995,352. Mutations, each **CAUGHT**:
+    `takes_tickets` not passed, or passed as true (test-tls); `anchors_max` 11 or 13
+    (test-bench, through the memory table).
+  - `zig build test`: 183 steps and 2,983 tests, against 2,979 at 3952bcc.
+  - **Owed before the push.** `tools/ci.sh` on the exact tree, which runs the interop and TLS
+    checks against the new chapulin.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
