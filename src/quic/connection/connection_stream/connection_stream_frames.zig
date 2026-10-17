@@ -114,7 +114,7 @@ fn keep_octets(connection: *Connection, stream: *Stream, held: frame_stream.Stre
     const final_size = stream.receiving.final_size orelse return;
     // RFC 9000 §3.2: "Once all data for the stream has been received, the receiving part enters
     // the 'Data Recvd' state."
-    if (stream.incoming.contiguous_end(storage, stream.receive_flow.consumed) == final_size) {
+    if (stream.incoming.contiguous_end(storage, stream.id, stream.receive_flow.consumed) == final_size) {
         _ = stream.receiving.on(.all_data_received);
     }
 }
@@ -149,7 +149,7 @@ fn take_reset(connection: *Connection, stream_id: u64, application_error_code: u
         connection.receive_flow.consume(final_size - stream.receive_flow.consumed);
     }
     // RFC 9000 §3.2: a reset stream's octets are not delivered, so the pool takes them back.
-    if (connection.receive_storage) |storage| stream.incoming.release(storage);
+    if (connection.receive_storage) |storage| stream.incoming.release(storage, stream.id);
 }
 
 /// A STOP_SENDING frame (RFC 9000 §19.5): the peer wants nothing more on a stream this endpoint

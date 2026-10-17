@@ -7375,13 +7375,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       <directory>` writes each seed's trace as TLA+, and `tools/h3_deadline_trace.sh` has TLC
       check each one against `spec/tla/h3_deadlines/H3DeadlinesTrace.tla`. `tools/ci.sh` runs
       the script.
-  - **20e**, three changes the owner ruled on 2026-10-17 (decision 110 as amended). Each lands
-    in a commit of its own:
+  - **20e**, four changes the owner ruled on 2026-10-17 (decisions 110 and 61 as amended). Each
+    lands in a commit of its own:
     - the reset limits as `server.Limits.peer_resets_max` and `resets_sent_max`, which h2 and h3
       read in place of the constants;
     - h3's count of the request streams it refuses, under `resets_sent_max`;
     - `server.Config.retry_from_percent`, the share of QUIC slots in use from which the endpoint
-      sends Retry.
+      sends Retry;
+    - an index in QUIC's receive pool, so a STREAM frame finds its block in a bounded number of
+      probes (RFC 9000 §21.7).
 
     The new fields are for an operator's program. A server behind a proxy that carries many
     users on one connection may need higher reset limits, and a server under attack lower ones
@@ -8472,6 +8474,45 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - held QUIC slots counted as free ones;
     - a returned token not checked under the share;
     - a default of 50.
+
+  **20e, part 4: an index in QUIC's receive pool, 2026-10-17.** Each stream kept its blocks of
+  the pool in a list in offset order, and each STREAM frame walked the list from its first
+  block. A peer that leaves the first octets out and sends one octet into each block of its
+  window made each frame walk the whole list: up to 1,026 blocks once the window grew to the
+  default pool of 1 MiB. The pool now holds a bucket for each block, and a block lies in the
+  bucket its stream and number choose, chained through the field that links free blocks. A
+  chain holds at most one block of each stream, so a lookup takes at most one probe for each
+  stream that holds blocks. A stream keeps a count of its blocks, and `release` walks the
+  buckets for a stream reset with octets unread. The pool holds 2,560 octets more at the default
+  capacity, and `quic.Connection` 16 more for the slice of buckets. `docs/performance.md` has
+  the seven rows that follow from it.
+
+  What was checked:
+  - New tests:
+    - the list, kept in the test as the reference, against the index over 64 seeds of 400
+      random writes, reads, peeks, discards and releases on three streams: the same octets,
+      the same ends and the same free blocks after each, and no chain longer than the streams
+      that hold blocks;
+    - one octet in each block of a window leaves every chain one block long;
+    - the first blocks of three streams fall in different buckets;
+    - three streams whose first blocks share a bucket each read their own octets, while the
+      middle of the chain goes back first, then its head, then the last block by a release.
+  - `zig build test-quic` passed 740 of 740 tests, `test-h3` 118 of 118, `test-client` 193 of
+    193 and `test-server` 481 of 481.
+  - 16 mutations, each **CAUGHT**:
+    - every stream in the same buckets;
+    - a lookup that ignores the stream or the number;
+    - a block never linked into its bucket;
+    - a removal that drops the rest of its chain, or that empties its bucket at the head;
+    - a removed block not given back, or a new block not counted;
+    - a read that keeps a block it read to the end, or a discard that gives back one block
+      more;
+    - a release that keeps the head of a chain, drops the rest of one, removes another
+      stream's blocks, or walks the first bucket alone;
+    - buckets not emptied at a reset of the pool, and a reset stream's blocks kept.
+
+    A peek that goes on past a gap inside a block is equivalent: its next pass finds the same
+    block and copies nothing.
 
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one

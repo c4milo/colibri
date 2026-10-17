@@ -2,11 +2,18 @@
 //! Part of design §8 step 9e.
 //!
 //! One pool per connection holds every stream's unread octets, in blocks of `block_len`. A block
-//! belongs to one stream and one run of `block_len` offsets in it, and each stream keeps its blocks
-//! in a list in offset order. Frames arrive in any order and the same octets may arrive again (RFC
-//! 9000 §2.2), so a block marks which of its octets have arrived. The application reads from the
-//! lowest offset it has not read, up to the first octet that has not arrived, and a block it has
-//! read to the end goes back to the pool.
+//! belongs to one stream and one run of `block_len` offsets in it. Frames arrive in any order and
+//! the same octets may arrive again (RFC 9000 §2.2), so a block marks which of its octets have
+//! arrived. The application reads from the lowest offset it has not read, up to the first octet
+//! that has not arrived, and a block it has read to the end goes back to the pool.
+//!
+//! **How a block is found.** The pool finds a stream's block by its number through an index of
+//! buckets, one for each block, each a chain of the blocks whose stream and number fall in it
+//! (decision 61 as amended on 2026-10-17). A stream's live blocks lie inside its window, which
+//! spans fewer numbers than there are buckets, so a chain holds at most one block of each stream.
+//! Finding a block therefore takes at most one probe for each stream that holds blocks. A list
+//! walked from the stream's first block took one for each block of the stream: up to 1,026 for a
+//! window of 1 MiB, which a peer reaches with frames of one octet (RFC 9000 §21.7).
 //!
 //! **Why one pool is enough.** RFC 9000 §4.1's connection limit bounds the sum of every stream's
 //! highest offset, and what the application read comes off the same sum, so the octets between
@@ -28,6 +35,10 @@ const span_edges: usize = 2;
 const Index = u16;
 const no_block: Index = std.math.maxInt(Index);
 
+/// Spreads the streams over the buckets, so streams whose blocks have the same numbers, as every
+/// stream's first blocks do, fall in different ones: the 64-bit golden ratio, which is odd.
+const stream_spread: u64 = 0x9e37_79b9_7f4a_7c15;
+
 pub const Error = error{
     /// No block is free. Flow control bounds what a peer may send to what the pool holds, so this
     /// is colibri's own accounting gone wrong, and the connection closes on it.
@@ -40,7 +51,7 @@ pub const Block = struct {
     stream_id: u64,
     /// Which run of `block_len` offsets it holds: its first octet is at `number * block_len`.
     number: u64,
-    /// The stream's next block, in offset order, or the next free block.
+    /// The next block of its bucket's chain, or the next free block.
     next: Index,
     /// Which of its octets have arrived.
     present: std.StaticBitSet(block_len),
@@ -61,10 +72,11 @@ pub fn Pool(comptime capacity: usize) type {
     return struct {
         header: Header = undefined,
         blocks: [count]Block = undefined,
+        buckets: [count]Index = undefined,
         octets: [count][block_len]u8 = undefined,
 
         pub fn storage(pool: *@This()) Storage {
-            return .{ .header = &pool.header, .blocks = &pool.blocks, .octets = &pool.octets, .capacity = capacity };
+            return .{ .header = &pool.header, .blocks = &pool.blocks, .buckets = &pool.buckets, .octets = &pool.octets, .capacity = capacity };
         }
     };
 }
@@ -76,39 +88,105 @@ pub const DefaultPool = Pool(constants.receive_pool_len_default);
 pub const Storage = struct {
     header: *Header,
     blocks: []Block,
+    /// The first block of each bucket's chain.
+    buckets: []Index,
     octets: [][block_len]u8,
     capacity: u64,
 
-    /// Every block free, which is how a connection starts.
+    /// Every block free and every bucket empty, which is how a connection starts.
     pub fn reset(storage: Storage) void {
-        assert(storage.blocks.len == storage.octets.len);
+        assert(storage.blocks.len == storage.octets.len and storage.blocks.len == storage.buckets.len);
         // Bounded by the pool's blocks.
         for (storage.blocks, 0..) |*block, index| {
             const following = index + 1;
             block.next = if (following < storage.blocks.len) @intCast(following) else no_block;
         }
+        @memset(storage.buckets, no_block);
         storage.header.free_head = 0;
     }
 
-    fn take(storage: Storage) Error!Index {
+    /// The bucket of the block `number` of `stream_id`. Consecutive numbers of one stream fall in
+    /// consecutive buckets.
+    fn bucket_of(storage: Storage, stream_id: u64, number: u64) usize {
+        return @intCast((number +% stream_id *% stream_spread) % @as(u64, storage.buckets.len));
+    }
+
+    /// The block `number` of `stream_id`, or null when the stream holds none there.
+    fn find(storage: Storage, stream_id: u64, number: u64) ?Index {
+        var current = storage.buckets[storage.bucket_of(stream_id, number)];
+        // Bounded by the pool's blocks. A chain holds at most one block of each stream.
+        for (0..storage.blocks.len) |_| {
+            if (current == no_block) return null;
+            const block = &storage.blocks[current];
+            if (block.number == number and block.stream_id == stream_id) return current;
+            current = block.next;
+        }
+        unreachable;
+    }
+
+    /// Takes a free block for `number` of `stream_id`, with none of its octets arrived, and puts it
+    /// first in its bucket's chain.
+    fn add(storage: Storage, stream_id: u64, number: u64) Error!Index {
         const index = storage.header.free_head;
         if (index == no_block) return Error.PoolExhausted;
         storage.header.free_head = storage.blocks[index].next;
+        const bucket = &storage.buckets[storage.bucket_of(stream_id, number)];
+        storage.blocks[index] = .{ .stream_id = stream_id, .number = number, .next = bucket.*, .present = .initEmpty() };
+        bucket.* = index;
         return index;
     }
 
-    fn give_back(storage: Storage, index: Index) void {
-        storage.blocks[index].next = storage.header.free_head;
+    /// Takes every block of `stream_id` out of the chain that starts at `bucket`, gives each back
+    /// to the pool, and returns how many there were.
+    fn remove_all(storage: Storage, bucket: *Index, stream_id: u64) u32 {
+        var removed: u32 = 0;
+        var previous: Index = no_block;
+        var current = bucket.*;
+        // Bounded by the pool's blocks: a chain holds each block once.
+        for (0..storage.blocks.len) |_| {
+            if (current == no_block) break;
+            const next = storage.blocks[current].next;
+            if (storage.blocks[current].stream_id == stream_id) {
+                if (previous == no_block) bucket.* = next else storage.blocks[previous].next = next;
+                storage.blocks[current].next = storage.header.free_head;
+                storage.header.free_head = current;
+                removed += 1;
+            } else {
+                previous = current;
+            }
+            current = next;
+        }
+        return removed;
+    }
+
+    /// Takes block `index` out of its bucket's chain and gives it back to the pool.
+    fn remove(storage: Storage, index: Index) void {
+        const removed = &storage.blocks[index];
+        const bucket = &storage.buckets[storage.bucket_of(removed.stream_id, removed.number)];
+        if (bucket.* == index) {
+            bucket.* = removed.next;
+        } else {
+            var previous = bucket.*;
+            // Bounded by the pool's blocks: the block is in this chain.
+            for (0..storage.blocks.len) |_| {
+                assert(previous != no_block);
+                if (storage.blocks[previous].next == index) break;
+                previous = storage.blocks[previous].next;
+            }
+            assert(storage.blocks[previous].next == index);
+            storage.blocks[previous].next = removed.next;
+        }
+        removed.next = storage.header.free_head;
         storage.header.free_head = index;
     }
 };
 
-/// One stream's unread octets: the first of its blocks, in offset order.
+/// One stream's unread octets: how many blocks of the pool hold them.
 pub const Incoming = struct {
-    first: Index = no_block,
+    held: u32 = 0,
 
     pub fn is_empty(incoming: *const Incoming) bool {
-        return incoming.first == no_block;
+        return incoming.held == 0;
     }
 
     /// Keeps `data`, which a STREAM frame carried at `offset`. Octets below `read_offset` were
@@ -121,7 +199,7 @@ pub const Incoming = struct {
         // most this many blocks.
         for (0..data.len / block_len + span_edges) |_| {
             if (at >= end) return;
-            const index = try incoming.block_for(storage, stream_id, at / block_len);
+            const index = try incoming.block_for(storage, stream_id, read_offset, at / block_len);
             const within: usize = @intCast(at % block_len);
             const len: usize = @intCast(@min(end - at, block_len - within));
             const from: usize = @intCast(at - offset);
@@ -132,43 +210,34 @@ pub const Incoming = struct {
         assert(at >= end);
     }
 
-    /// The stream's block holding offsets from `number * block_len`, taken from the pool and put
-    /// in order when the stream holds none yet.
-    fn block_for(incoming: *Incoming, storage: Storage, stream_id: u64, number: u64) Error!Index {
-        var previous: Index = no_block;
-        var current = incoming.first;
-        // Bounded by the pool's blocks, which is the longest a stream's list can be.
-        for (0..storage.blocks.len) |_| {
-            if (current == no_block or storage.blocks[current].number >= number) break;
-            previous = current;
-            current = storage.blocks[current].next;
-        }
-        if (current != no_block and storage.blocks[current].number == number) return current;
-        const index = try storage.take();
-        storage.blocks[index] = .{ .stream_id = stream_id, .number = number, .next = current, .present = .initEmpty() };
-        if (previous == no_block) incoming.first = index else storage.blocks[previous].next = index;
+    /// The stream's block holding offsets from `number * block_len`, taken from the pool when the
+    /// stream holds none there yet.
+    fn block_for(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64, number: u64) Error!Index {
+        if (storage.find(stream_id, number)) |index| return index;
+        const index = try storage.add(stream_id, number);
+        // Flow control keeps a stream's blocks inside its window, which spans fewer numbers than
+        // there are buckets, so the stream holds no other block in this bucket.
+        assert(number - read_offset / block_len < storage.blocks.len);
+        incoming.held += 1;
         return index;
     }
 
     /// Copies the octets from `read_offset` up to the first that has not arrived into `output`,
     /// as many as fit, and returns how many. A block read to its end goes back to the pool.
-    pub fn read(incoming: *Incoming, storage: Storage, read_offset: u64, output: []u8) usize {
+    pub fn read(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64, output: []u8) usize {
         var at = read_offset;
         var written: usize = 0;
         // Bounded: each pass reads to the end of a block, to a gap or to the end of `output`.
         for (0..output.len / block_len + span_edges) |_| {
-            if (written == output.len or incoming.first == no_block) break;
-            const index = incoming.first;
-            const block = &storage.blocks[index];
-            if (block.number != at / block_len) break;
+            if (written == output.len) break;
+            const index = storage.find(stream_id, at / block_len) orelse break;
             const within: usize = @intCast(at % block_len);
-            const run = present_run(block, within, output.len - written);
+            const run = present_run(&storage.blocks[index], within, output.len - written);
             @memcpy(output[written..][0..run], storage.octets[index][within..][0..run]);
             written += run;
             at += run;
             if (within + run < block_len) break;
-            incoming.first = block.next;
-            storage.give_back(index);
+            incoming.give_back(storage, index);
         }
         return written;
     }
@@ -176,70 +245,71 @@ pub const Incoming = struct {
     /// Copies the octets from `read_offset` up to the first that has not arrived into `output`,
     /// as many as fit, and returns how many. Unlike `read`, it gives no block back, so the same
     /// octets are there to copy or read again.
-    pub fn peek(incoming: *const Incoming, storage: Storage, read_offset: u64, output: []u8) usize {
+    pub fn peek(incoming: *const Incoming, storage: Storage, stream_id: u64, read_offset: u64, output: []u8) usize {
+        _ = incoming;
         var at = read_offset;
         var written: usize = 0;
-        var current = incoming.first;
         // Bounded: each pass copies to the end of a block, to a gap or to the end of `output`.
         for (0..output.len / block_len + span_edges) |_| {
-            if (written == output.len or current == no_block) break;
-            const block = &storage.blocks[current];
-            if (block.number != at / block_len) break;
+            if (written == output.len) break;
+            const index = storage.find(stream_id, at / block_len) orelse break;
             const within: usize = @intCast(at % block_len);
-            const run = present_run(block, within, output.len - written);
-            @memcpy(output[written..][0..run], storage.octets[current][within..][0..run]);
+            const run = present_run(&storage.blocks[index], within, output.len - written);
+            @memcpy(output[written..][0..run], storage.octets[index][within..][0..run]);
             written += run;
             at += run;
-            // A run that stops short of the block's end leaves `at` inside it, so the next
-            // block's number is not the one asked for and the walk ends there.
-            current = block.next;
+            // A run that stops short of the block's end leaves `at` inside it, where the next
+            // pass would find the same block and copy nothing.
+            if (within + run < block_len) break;
         }
         return written;
     }
 
     /// Drops `len` octets from `read_offset`, as reading them would, without copying them. Every
     /// one of them has arrived: the caller drops only octets it has seen.
-    pub fn discard(incoming: *Incoming, storage: Storage, read_offset: u64, len: u64) void {
-        assert(incoming.contiguous_end(storage, read_offset) >= read_offset + len);
+    pub fn discard(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64, len: u64) void {
+        assert(incoming.contiguous_end(storage, stream_id, read_offset) >= read_offset + len);
         const end = read_offset + len;
-        // Bounded by the pool's blocks. A block goes back once every octet in it lies below `end`.
-        for (0..storage.blocks.len) |_| {
-            const index = incoming.first;
-            if (index == no_block) return;
-            if ((storage.blocks[index].number + 1) * block_len > end) return;
-            incoming.first = storage.blocks[index].next;
-            storage.give_back(index);
+        var number = read_offset / block_len;
+        // Bounded by the blocks the octets span. A block goes back once every octet in it lies
+        // below `end`.
+        for (0..len / block_len + span_edges) |_| {
+            if ((number + 1) * block_len > end) return;
+            const index = storage.find(stream_id, number) orelse unreachable;
+            incoming.give_back(storage, index);
+            number += 1;
         }
     }
 
     /// The offset of the first octet at or above `read_offset` that has not arrived.
-    pub fn contiguous_end(incoming: *const Incoming, storage: Storage, read_offset: u64) u64 {
+    pub fn contiguous_end(incoming: *const Incoming, storage: Storage, stream_id: u64, read_offset: u64) u64 {
+        _ = incoming;
         var at = read_offset;
-        var current = incoming.first;
         // Bounded by the pool's blocks.
         for (0..storage.blocks.len) |_| {
-            if (current == no_block) break;
-            const block = &storage.blocks[current];
-            if (block.number != at / block_len) break;
+            const index = storage.find(stream_id, at / block_len) orelse break;
             const within: usize = @intCast(at % block_len);
-            // A run that stops short of the block's end leaves `at` inside it, so the next block's
-            // number is not the one asked for and the walk ends there.
-            at += present_run(block, within, block_len - within);
-            current = block.next;
+            const run = present_run(&storage.blocks[index], within, block_len - within);
+            at += run;
+            // A run that stops short of the block's end leaves `at` inside it, at the octet that
+            // has not arrived.
+            if (within + run < block_len) break;
         }
         return at;
     }
 
-    /// Gives every block back, which a stream that was reset or closed no longer needs.
-    pub fn release(incoming: *Incoming, storage: Storage) void {
-        // Bounded by the pool's blocks.
-        for (0..storage.blocks.len) |_| {
-            const index = incoming.first;
-            if (index == no_block) return;
-            incoming.first = storage.blocks[index].next;
-            storage.give_back(index);
-        }
-        assert(incoming.first == no_block);
+    /// Gives every block back, which a stream that was reset or closed no longer needs. Only a
+    /// stream reset with octets unread holds any, so the walk of every bucket is rare.
+    pub fn release(incoming: *Incoming, storage: Storage, stream_id: u64) void {
+        if (incoming.held == 0) return;
+        for (storage.buckets) |*bucket| incoming.held -= storage.remove_all(bucket, stream_id);
+        assert(incoming.held == 0);
+    }
+
+    fn give_back(incoming: *Incoming, storage: Storage, index: Index) void {
+        assert(incoming.held > 0);
+        storage.remove(index);
+        incoming.held -= 1;
     }
 };
 
@@ -253,4 +323,5 @@ fn present_run(block: *const Block, within: usize, limit: usize) usize {
 
 test {
     _ = @import("stream_incoming_test.zig");
+    _ = @import("stream_incoming_index_test.zig");
 }

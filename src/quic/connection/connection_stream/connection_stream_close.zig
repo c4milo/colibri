@@ -28,7 +28,7 @@ pub fn close_if_finished(connection: *Connection, stream: *Stream) bool {
     // RFC 9000 §3.2: "Data Read" and "Reset Read" end the receiving part.
     if (id.is_receivable_by(role) and !stream.receiving.state.is_terminal()) return false;
     // Decision 61: what the stream still held in the receive pool goes back to it.
-    if (connection.receive_storage) |storage| stream.incoming.release(storage);
+    if (connection.receive_storage) |storage| stream.incoming.release(storage, stream.id);
     connection.streams.close(id);
     assert(connection.streams.lookup(id) == .closed);
     return true;

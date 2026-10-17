@@ -37,7 +37,7 @@ pub const Read = struct {
 /// arrived, into `output`. The connection must have been given a receive pool.
 pub fn read(connection: *Connection, id: StreamId, output: []u8) Error!Read {
     const stream = try readable(connection, id);
-    const len = stream.incoming.read(connection.receive_storage.?, stream.receive_flow.consumed, output);
+    const len = stream.incoming.read(connection.receive_storage.?, stream.id, stream.receive_flow.consumed, output);
     return on_consumed(connection, stream, len);
 }
 
@@ -47,7 +47,7 @@ pub fn read(connection: *Connection, id: StreamId, output: []u8) Error!Read {
 pub fn peek(connection: *Connection, id: StreamId, output: []u8) Error!Read {
     const stream = try readable(connection, id);
     const consumed = stream.receive_flow.consumed;
-    const len = stream.incoming.peek(connection.receive_storage.?, consumed, output);
+    const len = stream.incoming.peek(connection.receive_storage.?, stream.id, consumed, output);
     const final_size = stream.receiving.final_size orelse return .{ .len = len, .fin = false };
     assert(consumed + len <= final_size);
     return .{ .len = len, .fin = consumed + len == final_size };
@@ -57,7 +57,7 @@ pub fn peek(connection: *Connection, id: StreamId, output: []u8) Error!Read {
 /// but without copying them again (decision 80).
 pub fn consume(connection: *Connection, id: StreamId, len: usize) Error!Read {
     const stream = try readable(connection, id);
-    stream.incoming.discard(connection.receive_storage.?, stream.receive_flow.consumed, len);
+    stream.incoming.discard(connection.receive_storage.?, stream.id, stream.receive_flow.consumed, len);
     return on_consumed(connection, stream, len);
 }
 

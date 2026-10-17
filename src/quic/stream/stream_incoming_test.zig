@@ -58,8 +58,8 @@ test "decision 61: octets written in order read back in order, and the blocks go
     const end: u64 = block_len + block_len / 2;
     try incoming.write(storage, stream_a, 0, 0, frame(0, end));
     try testing.expectEqual(all - 2, free_blocks(storage));
-    try testing.expectEqual(end, incoming.contiguous_end(storage, 0));
-    const read = incoming.read(storage, 0, &output);
+    try testing.expectEqual(end, incoming.contiguous_end(storage, stream_a, 0));
+    const read = incoming.read(storage, stream_a, 0, &output);
     try testing.expectEqual(end, read);
     try expect_octets(0, output[0..read]);
     // The first block was read to its end; the second still holds unread offsets.
@@ -73,13 +73,13 @@ test "RFC 9000 §2.2: octets out of order wait for the gap, and a repeat changes
     const end: u64 = 2 * block_len;
     try incoming.write(storage, stream_a, 0, gap_end, frame(gap_end, end));
     // Nothing is readable while the octets before the gap have not arrived.
-    try testing.expectEqual(0, incoming.contiguous_end(storage, 0));
-    try testing.expectEqual(0, incoming.read(storage, 0, &output));
+    try testing.expectEqual(0, incoming.contiguous_end(storage, stream_a, 0));
+    try testing.expectEqual(0, incoming.read(storage, stream_a, 0, &output));
     try incoming.write(storage, stream_a, 0, 0, frame(0, gap_end));
     // The same octets again, overlapping both writes.
     try incoming.write(storage, stream_a, 0, 50, frame(50, gap_end + 50));
-    try testing.expectEqual(end, incoming.contiguous_end(storage, 0));
-    const read = incoming.read(storage, 0, &output);
+    try testing.expectEqual(end, incoming.contiguous_end(storage, stream_a, 0));
+    const read = incoming.read(storage, stream_a, 0, &output);
     try testing.expectEqual(end, read);
     try expect_octets(0, output[0..read]);
 }
@@ -89,9 +89,9 @@ test "decision 61: a read stops where the output ends and goes on from there" {
     var incoming: Incoming = .{};
     const end: u64 = 2 * block_len;
     try incoming.write(storage, stream_a, 0, 0, frame(0, end));
-    const short = incoming.read(storage, 0, output[0..100]);
+    const short = incoming.read(storage, stream_a, 0, output[0..100]);
     try testing.expectEqual(100, short);
-    const rest = incoming.read(storage, short, &output);
+    const rest = incoming.read(storage, stream_a, short, &output);
     try testing.expectEqual(end - short, rest);
     try expect_octets(short, output[0..rest]);
     // Octets below what was read are not kept again when a retransmission carries them.
@@ -107,12 +107,12 @@ test "decision 61: streams share the pool, and a released stream gives its block
     var second: Incoming = .{};
     try first.write(storage, stream_a, 0, 0, frame(0, block_len));
     try second.write(storage, stream_b, 0, block_len, frame(block_len, 2 * block_len));
-    try testing.expectEqual(block_len, first.contiguous_end(storage, 0));
-    try testing.expectEqual(0, second.contiguous_end(storage, 0));
-    second.release(storage);
+    try testing.expectEqual(block_len, first.contiguous_end(storage, stream_a, 0));
+    try testing.expectEqual(0, second.contiguous_end(storage, stream_b, 0));
+    second.release(storage, stream_b);
     try testing.expect(second.is_empty());
     try testing.expectEqual(all - 1, free_blocks(storage));
-    try testing.expectEqual(block_len, first.read(storage, 0, &output));
+    try testing.expectEqual(block_len, first.read(storage, stream_a, 0, &output));
     try testing.expectEqual(all, free_blocks(storage));
 }
 
@@ -127,7 +127,7 @@ test "decision 61: a pool with no block free refuses the write" {
     }
     const past = all * block_len;
     try testing.expectError(error.PoolExhausted, incoming.write(storage, stream_a, 0, past, frame(past, past + 1)));
-    try testing.expectEqual(1, incoming.contiguous_end(storage, 0));
+    try testing.expectEqual(1, incoming.contiguous_end(storage, stream_a, 0));
 }
 
 test "decision 61: two blocks per stream beyond the capacity" {
@@ -145,20 +145,20 @@ test "decision 80: a peek copies what a read would, and leaves every block in pl
     try incoming.write(storage, stream_a, 0, gap_start + 1, frame(gap_start + 1, gap_start + 5));
     const taken = free_blocks(storage);
     // The peek stops at the gap, as a read would, and gives nothing back.
-    const peeked = incoming.peek(storage, 0, &output);
+    const peeked = incoming.peek(storage, stream_a, 0, &output);
     try testing.expectEqual(gap_start, peeked);
     try expect_octets(0, output[0..peeked]);
     try testing.expectEqual(taken, free_blocks(storage));
     // A peek from inside the stream, and one cut short by the output.
-    try testing.expectEqual(gap_start - 100, incoming.peek(storage, 100, &output));
+    try testing.expectEqual(gap_start - 100, incoming.peek(storage, stream_a, 100, &output));
     try expect_octets(100, output[0 .. gap_start - 100]);
-    try testing.expectEqual(block_len + 5, incoming.peek(storage, 0, output[0 .. block_len + 5]));
+    try testing.expectEqual(block_len + 5, incoming.peek(storage, stream_a, 0, output[0 .. block_len + 5]));
     try testing.expectEqual(all - 3, taken);
     // A whole block missing: the peek stops at its start, not in the block after it.
     var other: Incoming = .{};
     try other.write(storage, stream_b, 0, 0, frame(0, block_len));
     try other.write(storage, stream_b, 0, 2 * block_len, frame(2 * block_len, 2 * block_len + 5));
-    try testing.expectEqual(block_len, other.peek(storage, 0, &output));
+    try testing.expectEqual(block_len, other.peek(storage, stream_b, 0, &output));
 }
 
 test "decision 80: a discard gives back the blocks it passes, as a read of them would" {
@@ -168,12 +168,12 @@ test "decision 80: a discard gives back the blocks it passes, as a read of them 
     const end: u64 = 2 * block_len + 10;
     try incoming.write(storage, stream_a, 0, 0, frame(0, end));
     // Short of a block's end, nothing goes back; at it, that block does.
-    incoming.discard(storage, 0, block_len - 1);
+    incoming.discard(storage, stream_a, 0, block_len - 1);
     try testing.expectEqual(all - 3, free_blocks(storage));
-    incoming.discard(storage, block_len - 1, 1);
+    incoming.discard(storage, stream_a, block_len - 1, 1);
     try testing.expectEqual(all - 2, free_blocks(storage));
     // What is left reads from where the discard stopped.
-    const read = incoming.read(storage, block_len, &output);
+    const read = incoming.read(storage, stream_a, block_len, &output);
     try testing.expectEqual(end - block_len, read);
     try expect_octets(block_len, output[0..read]);
     try testing.expectEqual(all - 1, free_blocks(storage));

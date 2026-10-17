@@ -1557,6 +1557,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     they arrive and keeping only what sits past a gap needs less pool, but makes the caller take
     octets whenever they come rather than when it reads.
 
+    Amended by the owner on 2026-10-17, after a review of the server's defences (design §8 step
+    20e): the pool finds a block through an index, not by a walk of its stream's list. Each
+    STREAM frame walked the list from the stream's first block. A peer that leaves the first
+    octets out and sends one octet into each block of its window made each frame walk the whole
+    list: up to 1,026 blocks at the default pool of 1 MiB. RFC 9000 §21.7 asks for a mitigation
+    of this "large and inefficient data structure".
+    - The pool holds a bucket for each block. A block lies in the bucket its stream and number
+      choose, chained through the field that links the free blocks.
+    - A stream's live blocks lie inside its window, which spans fewer numbers than there are
+      buckets, so a chain holds at most one block of each stream. A lookup takes at most one
+      probe for each stream that holds blocks.
+    - A stream keeps a count of its blocks in place of its first block. A stream reset with
+      octets unread gives them back by a walk of every bucket, which is rare.
+
+    The pool grows by two octets a block, 2,560 octets at the default capacity. The alternatives
+    refused: a pointer to each stream's last block, which speeds honest traffic but leaves a
+    write into the middle of a list at the full walk; a cap on the blocks past a gap, which an
+    honest peer with heavy loss and a large window could reach; and the cost left as it was.
+
 62. **colibri marks each level's keys installed, reading them from the suite, before the next
     packet.** Ruled by the owner on 2026-09-23. It amends entry 60 and settles
     [#45](https://github.com/c4milo/colibri/issues/45).
