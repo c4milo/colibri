@@ -147,6 +147,13 @@ test "the shared rules reach h3 under h3's own error names" {
             .{ .name = ":protocol", .value = "websocket" },
         }, .reason = error.PseudoHeaderUndefined },
         .{ .lines = &request_lines("user@example.com", "user@example.com"), .reason = error.AuthorityUserinfo },
+        // RFC 9114 §4.3.1: :path is an absolute-path and a query of RFC 3986.
+        .{ .lines = &.{
+            .{ .name = ":method", .value = "GET" },
+            .{ .name = ":scheme", .value = "https" },
+            .{ .name = ":path", .value = "/a b" },
+            .{ .name = ":authority", .value = "example.com" },
+        }, .reason = error.PathInvalid },
     };
     for (cases) |case| {
         try testing.expectError(case.reason, message.validate_request(try section_of(case.lines)));

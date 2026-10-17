@@ -77,7 +77,8 @@ pub const Error = error{
     /// An empty `:path` in a request for an http or https URI (RFC 9114 §4.3.1).
     PathEmpty,
     /// A `:path` of `*` in a request other than OPTIONS (RFC 9110 §7.1), or one for an http or
-    /// https URI that neither starts with `/` nor is `*` (RFC 9114 §4.3.1, RFC 9110 §4.1).
+    /// https URI that is neither `*` nor an absolute-path with an optional query (RFC 9114 §4.3.1,
+    /// RFC 9110 §4.1, RFC 3986 §3.3 and §3.4).
     PathInvalid,
     /// A CONNECT request with `:scheme` or `:path` (RFC 9114 §4.4).
     ConnectWithSchemeOrPath,

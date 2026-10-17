@@ -17,6 +17,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const method_module = @import("method.zig");
 const message_lines = @import("message_lines.zig");
+const uri = @import("uri.zig");
 
 const Seen = message_lines.Seen;
 
@@ -57,9 +58,6 @@ const scheme_https = "https";
 
 /// The `:path` of a request in asterisk form (RFC 9113 §8.3.1, RFC 9114 §4.3.1).
 const path_asterisk = "*";
-
-/// What an absolute-path starts with: `absolute-path = 1*( "/" segment )` (RFC 9110 §4.1).
-const path_separator = "/";
 
 /// The octet between the host and the port of a CONNECT target (RFC 9110 §9.3.6).
 const port_separator = ':';
@@ -140,10 +138,10 @@ fn check_path(method: []const u8, scheme: []const u8, path: []const u8) Error!vo
     if (!is_http_scheme(scheme)) return;
     // RFC 9113 §8.3.1 and RFC 9114 §4.3.1: :path must not be empty for "http" or "https" URIs.
     if (path.len == 0) return error.PathEmpty;
-    // RFC 9113 §8.3.1 and RFC 9114 §4.3.1: :path is the absolute-path production, and
-    // RFC 9110 §4.1 defines
-    // absolute-path = 1*( "/" segment ).
-    if (!std.mem.startsWith(u8, path, path_separator)) return error.PathInvalid;
+    // RFC 9113 §8.3.1 and RFC 9114 §4.3.1: :path is the absolute-path production and, after a
+    // "?", the query production: absolute-path = 1*( "/" segment ) (RFC 9110 §4.1), with segment
+    // and query from RFC 3986 §3.3 and §3.4. h11 holds an origin-form target to the same grammar.
+    if (!uri.is_origin_form(path)) return error.PathInvalid;
 }
 
 /// The `:authority` rule RFC 9113 §8.3.1 and RFC 9114 §4.3.1 state for an http or https URI,

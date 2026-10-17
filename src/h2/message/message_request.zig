@@ -85,6 +85,17 @@ test "an http or https :path that does not start with / is PathInvalid, and a sc
     try expect_accepted(try request_of("GET", "httpsx", null, "foo"));
 }
 
+test "RFC 9113 §8.3.1: an http or https :path is an absolute-path and a query of RFC 3986, as h11 holds a target" {
+    // RFC 3986 §3.3 and §3.4: no SP, "#", DQUOTE, backslash, "{", "|", "^", "`", "<", octet above
+    // 0x7F, or "%" without two hex digits, in the path or in the query.
+    const refused = [_][]const u8{ "/a b", "/a#b", "/a\"b", "/a\\b", "/a{b", "/a|b", "/a^b", "/a`b", "/a<b", "/\x80", "/a%zz", "/a%2", "/a?b c", "/a?b#c" };
+    for (refused) |path| try expect_request(error.PathInvalid, try request_of("GET", "https", "example.org", path));
+    const accepted = [_][]const u8{ "/a%20b", "/%7E", "/a?b=c&d", "/:@!$&'()*+,;=-._~", "/a?/?", "/?", "/a/" };
+    for (accepted) |path| try expect_accepted(try request_of("GET", "https", "example.org", path));
+    // A scheme outside http and https is not held to the rule.
+    try expect_accepted(try request_of("GET", "ftp", null, "/a b"));
+}
+
 test "a :path of * is PathInvalid in a request other than OPTIONS, in any scheme (RFC 9110 §7.1)" {
     try expect_request(error.PathInvalid, try request_of("GET", "https", "example.org", "*"));
     try expect_request(error.PathInvalid, try request_of("options", "http", null, "*"));

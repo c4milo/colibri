@@ -44,7 +44,8 @@
 //!        `SchemeInvalid`, and one without `:path` is `PathMissing` (§8.3.1);
 //!      - a `:path` of `*` in a request other than OPTIONS is `PathInvalid` (RFC 9110 §7.1);
 //!      - for an http or https scheme, an empty `:path` is `PathEmpty`, and a `:path` that is not
-//!        `*` and does not start with `/` is `PathInvalid` (§8.3.1, RFC 9110 §4.1);
+//!        `*` and not an absolute-path with an optional query is `PathInvalid` (§8.3.1, RFC 9110
+//!        §4.1, RFC 3986 §3.3 and §3.4);
 //!      - for an http or https scheme, an `:authority` that holds `@`, the delimiter that ends
 //!        userinfo, is `AuthorityUserinfo` (§8.3.1, RFC 9110 §4.2.4);
 //!      - a response without `:status` is `StatusMissing` (§8.3.2), one whose status is not three
@@ -125,7 +126,8 @@ pub const Error = error{
     /// An empty `:path` in a request for an http or https URI (RFC 9113 §8.3.1).
     PathEmpty,
     /// A `:path` of `*` in a request other than OPTIONS (RFC 9110 §7.1), or a `:path` for an http
-    /// or https URI that neither starts with `/` nor is `*` (RFC 9113 §8.3.1, RFC 9110 §4.1).
+    /// or https URI that is neither `*` nor an absolute-path with an optional query (RFC 9113
+    /// §8.3.1, RFC 9110 §4.1, RFC 3986 §3.3 and §3.4).
     PathInvalid,
     /// A CONNECT request with `:scheme` or `:path` (RFC 9113 §8.5).
     ConnectWithSchemeOrPath,
