@@ -65,6 +65,9 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.peer_resets = 0;
     connection.peer_reset_period_start_ns = now_ns;
     connection.peer_resets_passed = false;
+    connection.resets_sent = 0;
+    connection.resets_sent_period_start_ns = now_ns;
+    connection.resets_sent_passed = false;
     connection.random = random;
     connection.spare_ids_issued = false;
     connection.transport.init(.{

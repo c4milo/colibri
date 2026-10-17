@@ -8422,6 +8422,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - h3 compares with the default, or lets one cancel past the limit;
     - either default is one lower.
 
+  **20e, part 2: h3 counts the request streams it refuses, 2026-10-17.** h3 reports each request
+  stream it refuses to the server's QUIC connection. The connection now counts each one against
+  `Limits.resets_sent_max` in one second, whether the caller heard of the request or not. Past
+  the limit, the connection closes with H3_EXCESSIVE_LOAD, and its close reason names
+  `resets_sent`. h3 rejects a stream at or above the GOAWAY's identifier without a refusal, so
+  that stream does not count. The two counters moved into `quic_connection_resets.zig`, because
+  `quic_connection_h3.zig` would pass 500 lines. The connection of each QUIC slot holds 8 octets
+  more, and `docs/performance.md` has the two rows that follow from it.
+
+  What was checked:
+  - New tests:
+    - h3 counts each request it refuses after the caller heard of it, and past a limit of 4 it
+      closes the connection with H3_EXCESSIVE_LOAD;
+    - the same past the default limit of 100;
+    - a request stream that ends before a whole head counts too;
+    - the count starts again each period, apart from the client's cancels;
+    - an endpoint gives each QUIC connection its `Limits.resets_sent_max`.
+  - `zig build test-server` passed 476 of 476 tests.
+  - 12 mutations, each **CAUGHT**:
+    - no count, or a count of only the refusals the caller heard of;
+    - one refusal past the limit, the peer limit in its place, or the count kept with the
+      cancels;
+    - a period that never starts again, or one that ends one nanosecond late;
+    - a close that names no reason, or a flag that is never set;
+    - an `init` that keeps a count;
+    - an endpoint that gives QUIC no limit, and a default that is one lower.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the

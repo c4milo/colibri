@@ -140,6 +140,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
         .deadlines = config.deadlines,
         .requests_max = @min(config.limits.requests_max, constants.quic_requests_max),
         .peer_resets_max = config.limits.peer_resets_max,
+        .resets_sent_max = config.limits.resets_sent_max,
     };
 }
 
@@ -219,15 +220,21 @@ test "RFC 9000 §4.6: requests_max bounds the request streams a client opens, up
 /// A limit on requests lower than h3's records.
 const requests_few: u32 = 2;
 
-test "decision 110 as amended: each QUIC connection takes the endpoint's Limits.peer_resets_max" {
+test "decision 110 as amended: each QUIC connection takes the endpoint's two reset limits" {
     try support.start_endpoint(null);
     endpoint_support.endpoint_config.limits.peer_resets_max = peer_resets_few;
     try endpoint_support.restart();
     try support.connect();
     try testing.expectEqual(peer_resets_few, support.served.config.peer_resets_max);
+    try testing.expectEqual(constants.resets_sent_max, support.served.config.resets_sent_max);
+    try support.start_endpoint(null);
+    endpoint_support.endpoint_config.limits.resets_sent_max = peer_resets_few;
+    try endpoint_support.restart();
+    try support.connect();
+    try testing.expectEqual(peer_resets_few, support.served.config.resets_sent_max);
 }
 
-/// A limit on the requests a client cancels in one second, lower than the default.
+/// A reset limit lower than the default.
 const peer_resets_few: u32 = 3;
 
 /// An endpoint of one TCP slot and no QUIC slot. Test-only.

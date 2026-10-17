@@ -18,6 +18,7 @@ const quic_connection = @import("quic_connection.zig");
 const internal = @import("quic_connection_internal.zig");
 const quic_coding = @import("quic_coding.zig");
 const quic_continue = @import("quic_continue.zig");
+const resets = @import("quic_connection_resets.zig");
 const coding_rules = @import("../coding/coding_rules.zig");
 const coding_fields = @import("../coding/coding_fields.zig");
 
@@ -83,7 +84,7 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
         // RFC 9114 §4.1.1: that is the client cancelling its request, which the limit counts.
         .reset_sent, .reset_recvd => if (!record.over) {
             end(connection, record, .{ .cancelled = .peer_reset });
-            if (!count_peer_reset(connection)) return;
+            if (!resets.count_peer_reset(connection)) return;
         },
         .ready, .send, .data_sent => {},
     }
@@ -94,33 +95,6 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
     }
     quic_coding.go_on(connection, record);
     quic_continue.write(connection, record, stream);
-}
-
-/// Counts one request stream the client opened and then cancelled, in the period the latest
-/// instant falls in, and returns whether the connection goes on: past the limit it closes
-/// (decision 110 as amended). A client cancels with a RESET_STREAM, or with a STOP_SENDING that
-/// stops its response (RFC 9114 §4.1.1). Either cost the application a request's work, which
-/// CVE-2023-44487 made the peer's to spend at line rate.
-fn count_peer_reset(connection: *QuicConnection) bool {
-    const now_ns = connection.last_ns;
-    assert(now_ns >= connection.peer_reset_period_start_ns);
-    assert(connection.config.peer_resets_max > 0);
-    if (now_ns - connection.peer_reset_period_start_ns >= constants.quic_peer_reset_rate_period_ns) {
-        connection.peer_reset_period_start_ns = now_ns;
-        connection.peer_resets = 0;
-    }
-    // RFC 9114 §10.5: an endpoint SHOULD track the use of features that cost it work and set
-    // limits on it, and "MAY treat activity that is suspicious as a connection error of type
-    // H3_EXCESSIVE_LOAD".
-    if (connection.peer_resets >= connection.config.peer_resets_max) {
-        connection.peer_resets_passed = true;
-        const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
-        assert(failed == error.ConnectionFailed);
-        internal.fail(connection);
-        return false;
-    }
-    connection.peer_resets += 1;
-    return true;
 }
 
 pub fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_request.Ending, "kind")) void {
@@ -228,7 +202,7 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
     stop_waiting(connection, stream_id);
     const known = connection.requests.of(stream_id);
     if (known) |held| if (held.over) return null;
-    if (!count_peer_reset(connection)) return null;
+    if (!resets.count_peer_reset(connection)) return null;
     const record = known orelse return null;
     connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
     record.over = true;
@@ -239,6 +213,9 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
 /// RFC 9114 §4.1.2: h3 refused a malformed request and reset its stream.
 fn on_refused(connection: *QuicConnection, stream_id: u64) ?event.Event {
     stop_waiting(connection, stream_id);
+    // Decision 110 as amended: each refusal counts, whether the caller heard of the request or
+    // not, as h2 counts each RST_STREAM it sends.
+    if (!resets.count_reset_sent(connection)) return null;
     const record = live(connection, stream_id) orelse return null;
     record.over = true;
     quic_coding.give_back(connection, record);

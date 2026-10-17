@@ -3,6 +3,7 @@
 //! because a hand-written source file stays at or under 500 lines (CLAUDE.md).
 const std = @import("std");
 const h3 = @import("h3");
+const quic = @import("quic");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 
@@ -107,4 +108,71 @@ test "decision 110 as amended: the limit is the configuration's, which the endpo
     try cancel_batch(1);
     try testing.expect(support.server_failed);
     try testing.expectEqual(.peer_resets, connection.close_reason().?.limit);
+}
+
+/// A request head that declares more content than the stream carries: h3 refuses it once the
+/// stream ends (RFC 9114 §4.1.2), after the caller heard of it. Test-only.
+const declared = [_]support.Field{.{ .name = "content-length", .value = "5" }};
+
+/// The client sends `count` requests h3 refuses, then the datagrams move. Test-only.
+fn broken_batch(count: usize) !void {
+    support.fetches_len = 0;
+    for (0..count) |_| _ = try support.request_with_fields("POST", "/", &declared);
+    try support.pump(1);
+}
+
+test "decision 110 as amended: h3 counts each request it refuses, and past the limit closes the connection with H3_EXCESSIVE_LOAD" {
+    try support.start();
+    support.config.resets_sent_max = batch_len;
+    try support.connect();
+    try broken_batch(batch_len);
+    try testing.expectEqual(batch_len, connection.resets_sent);
+    try testing.expect(!support.server_failed);
+    try testing.expectEqual(null, connection.close_reason());
+    // The caller heard of each request, then of its refusal.
+    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .refused);
+    try broken_batch(1);
+    try testing.expect(support.server_failed);
+    try testing.expectEqual(.resets_sent, connection.close_reason().?.limit);
+    const close = connection.transport.pending_close.?;
+    try testing.expectEqual(.application, close.layer);
+    try testing.expectEqual(h3.constants.error_excessive_load, close.error_code);
+}
+
+test "decision 110 as amended: the count of refused requests starts again each period, apart from the client's cancels" {
+    try support.start();
+    try support.connect();
+    try broken_batch(batch_len);
+    try cancel_batch(1);
+    try testing.expectEqual(batch_len, connection.resets_sent);
+    try testing.expectEqual(1, connection.peer_resets);
+    const period_end_ns = connection.resets_sent_period_start_ns + constants.quic_resets_sent_period_ns;
+    support.now_ns = period_end_ns - support.round_ns;
+    try broken_batch(1);
+    try testing.expectEqual(period_end_ns, support.now_ns);
+    try testing.expectEqual(1, connection.resets_sent);
+    try testing.expect(!support.server_failed);
+}
+
+test "decision 110 as amended: a request refused before the caller heard of it counts too" {
+    try support.start();
+    try support.connect();
+    // RFC 9114 §4.1: a request stream that ends before a whole head is refused with
+    // H3_REQUEST_INCOMPLETE, and its head never reaches the caller.
+    const fetch = try support.stage_request("GET", "/", &.{}, "", &.{});
+    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, 0, true);
+    try support.pump(rounds_few);
+    try testing.expectEqual(1, connection.resets_sent);
+    try testing.expectEqual(null, support.nth(.cancelled, 0));
+    try testing.expectEqual(null, support.nth(.request, 0));
+}
+
+test "decision 110 as amended: by default h3 closes the connection past Limits' default of refused requests" {
+    try support.start();
+    try support.connect();
+    for (0..constants.resets_sent_max / batch_len) |_| try broken_batch(batch_len);
+    try testing.expectEqual(constants.resets_sent_max, connection.resets_sent);
+    try testing.expect(!support.server_failed);
+    try broken_batch(1);
+    try testing.expectEqual(.resets_sent, connection.close_reason().?.limit);
 }

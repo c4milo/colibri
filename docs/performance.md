@@ -98,11 +98,11 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 40630896 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.Endpoint` | 40631024 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
 | `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323488 | an endpoint that holds one TCP connection |
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240608 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 306456 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721424 | the connection each QUIC slot of an endpoint holds, without its receive pool |
+| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721432 | the connection each QUIC slot of an endpoint holds, without its receive pool |
 | `@FieldType(client.Channel, "tcp")` | 289216 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
 | `@FieldType(client.Channel, "quic")` | 703720 | a channel's QUIC connection, without its receive pool |
 | `client.Channel` | 995360 | one server's connections, QUIC first and TCP after, without receive pools |

@@ -79,6 +79,10 @@ pub const quic_request_number_step: u64 = 1 << quic.constants.stream_id_type_bit
 /// the owner ruled for h3 (decision 110 as amended).
 pub const quic_peer_reset_rate_period_ns: u64 = h2.constants.peer_reset_rate_period_ns;
 
+/// The period over which a QUIC connection counts the request streams h3 refuses, against
+/// `Limits.resets_sent_max`: h2's, as the limit is (decision 110 as amended).
+pub const quic_resets_sent_period_ns: u64 = h2.constants.rst_stream_rate_period_ns;
+
 /// Octets of the frames one h3 response keeps until the peer acknowledges them (decision 79): its
 /// heads' HEADERS frames, each DATA frame's header, and its trailer section's HEADERS frame.
 pub const quic_response_kept_len: usize = 8192;

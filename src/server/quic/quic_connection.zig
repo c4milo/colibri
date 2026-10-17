@@ -72,6 +72,9 @@ pub const Config = struct {
     /// The request streams the client may cancel in one second: the endpoint's
     /// `limits.peer_resets_max` (decision 110 as amended).
     peer_resets_max: u32 = constants.peer_resets_max,
+    /// The request streams h3 may refuse in one second, each because the client broke it: the
+    /// endpoint's `limits.resets_sent_max` (decision 110 as amended).
+    resets_sent_max: u32 = constants.resets_sent_max,
 };
 
 /// What a connection starts from, which the endpoint read off the client's first Initial or drew
@@ -141,6 +144,12 @@ pub const QuicConnection = struct {
     peer_reset_period_start_ns: u64,
     /// Whether the client passed that limit, which closed the connection.
     peer_resets_passed: bool,
+    /// The request streams h3 refused in the period that began at `resets_sent_period_start_ns`,
+    /// each because the client broke it (decision 110 as amended).
+    resets_sent: u32,
+    resets_sent_period_start_ns: u64,
+    /// Whether h3 refused more than that limit, which closed the connection.
+    resets_sent_passed: bool,
     /// This connection's limits and where its deadlines stand (decision 110 as amended).
     deadlines: deadline.Deadlines,
     clock: quic_deadline.Clock,
@@ -229,6 +238,7 @@ pub const QuicConnection = struct {
     pub fn close_reason(connection: *const QuicConnection) ?close_reason_module.CloseReason {
         if (connection.clock.timed_out) |passed| return .{ .deadline = passed };
         if (connection.peer_resets_passed) return .{ .limit = .peer_resets };
+        if (connection.resets_sent_passed) return .{ .limit = .resets_sent };
         return null;
     }
 
