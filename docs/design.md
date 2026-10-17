@@ -8449,6 +8449,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - an `init` that keeps a count;
     - an endpoint that gives QUIC no limit, and a default that is one lower.
 
+  **20e, part 3: Retry past a share of the QUIC slots, 2026-10-17.** `server.Config` gained
+  `retry_from_percent`, 0 by default, at most `server.constants.retry_from_percent_max`, which
+  is 100. With `retry` set, a client that brings no Retry token gets a Retry while at least that
+  percent of the endpoint's QUIC slots hold a connection. Below the share, its Initial starts a
+  connection. The endpoint checks a token that a client returns with, whatever the share. The
+  share counts QUIC slots alone, so TCP connections never send a QUIC client a Retry. No struct
+  grew.
+
+  What was checked:
+  - New tests:
+    - with two QUIC slots, one connection reaches 50 percent and gets the next client a Retry,
+      and does not reach 51;
+    - at the default of 0, every client gets a Retry, as before;
+    - under the share, a client that returns with a Retry token starts from it;
+    - TCP connections do not count toward the share, and the share is of the QUIC slots alone.
+  - `zig build test-server` passed 480 of 480 tests.
+  - 8 mutations, each **CAUGHT**:
+    - a Retry for every client, or for none;
+    - a share that must be passed, not reached;
+    - TCP slots counted toward the share, or the share taken of every slot;
+    - held QUIC slots counted as free ones;
+    - a returned token not checked under the share;
+    - a default of 50.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the

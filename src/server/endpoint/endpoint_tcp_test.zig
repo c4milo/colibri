@@ -4,6 +4,9 @@
 //! that ended names nothing.
 const std = @import("std");
 const h2 = @import("h2");
+const quic = @import("quic");
+const tls = @import("tls");
+const server_constants = @import("../constants.zig");
 const support = @import("endpoint_tcp_test_support.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const h2_support = @import("../connection/connection_h2_test_support.zig");
@@ -253,4 +256,55 @@ test "RFC 9846 §6: a TLS slot's session is wiped at the endpoint's close, and a
     support.collect();
     try testing.expectEqual(null, support.nth(.close, 0));
     try testing.expectEqual(left, support.nth(.ended, 0).?.connection);
+}
+
+/// The deployment's Retry token key (decision 55). Test-only.
+const retry_key: [tls.quic.token_key_len]u8 = @splat(retry_key_octet);
+const retry_key_octet: u8 = 0x2e;
+const retry_lifetime_seconds: u64 = 10;
+threadlocal var retry: tls.quic.Retry align(@alignOf(tls.quic.Retry)) = undefined;
+/// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets, with a payload no key opens.
+threadlocal var initial: [quic.constants.datagram_len_max]u8 = undefined;
+const initial_id: [server_constants.quic_id_len]u8 = @splat(initial_id_octet);
+const initial_id_octet: u8 = 0x5a;
+const other_id: [server_constants.quic_id_len]u8 = @splat(other_id_octet);
+const other_id_octet: u8 = 0x5b;
+const client_port: u16 = 4433;
+const loopback = [_]u8{ loopback_first, 0, 0, 1 };
+const loopback_first: u8 = 127;
+
+/// Gives the endpoint a client's first Initial for `id`, and returns whether it answers with a
+/// Retry. Test-only.
+fn answers_with_retry(id: *const [server_constants.quic_id_len]u8) !bool {
+    var writer = quic.core.Writer.init(&initial);
+    try quic.packet.header_write.write_long(&writer, .{
+        .version = .v1,
+        .type = .initial,
+        .dcid = id,
+        .scid = id,
+        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .protected_payload_len = quic.constants.datagram_len_min,
+    });
+    const len = writer.written().len + quic.constants.datagram_len_min;
+    @memset(initial[writer.written().len..len], 0);
+    const from = quic.PeerAddress.of(&loopback, client_port);
+    _ = endpoint.receive(.{ .datagram = .{ .octets = initial[0..len], .from = from } }, support.now_ns);
+    var output: [quic.constants.datagram_len_max]u8 = undefined;
+    const sent = endpoint.held.connections.replies.take(&output) orelse return false;
+    return (try quic.packet.header.read(sent.octets, server_constants.quic_id_len)) == .retry;
+}
+
+test "decision 110 as amended: retry_from_percent is a share of the QUIC slots alone, not of the TCP ones" {
+    try support.start(support.identity(), .{});
+    retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
+    support.config.retry = &retry;
+    support.config.retry_from_percent = 50;
+    try endpoint.init(&support.config, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns);
+    for (0..support.tcp_slots) |_| _ = endpoint.accept(.cleartext, support.now_ns).?;
+    // Both TCP slots hold a connection and the one QUIC slot holds none, so no Retry is owed,
+    // and the Initial takes the QUIC slot.
+    try testing.expect(!try answers_with_retry(&initial_id));
+    // One QUIC slot of one holds a connection, which reaches 50 percent of the QUIC slots and not
+    // of all three.
+    try testing.expect(try answers_with_retry(&other_id));
 }

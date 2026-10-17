@@ -107,6 +107,13 @@ pub const Slots = struct {
         return @as(u32, @intCast(slots.generations.len)) - free;
     }
 
+    /// How many QUIC slots hold a connection.
+    pub fn holding_quic(slots: *const Slots) u32 {
+        const count: u32 = @as(u32, @intCast(slots.generations.len)) - slots.tcp_count;
+        assert(slots.free_quic.len <= count);
+        return count - slots.free_quic.len;
+    }
+
     /// The handle of the connection slot `slot` holds now.
     pub fn handle_of(slots: *const Slots, slot: u32) ConnectionHandle {
         assert(slots.live[slot]);

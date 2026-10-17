@@ -106,6 +106,9 @@ pub const quic_stream_window: u64 = 65_536;
 /// RFC 9000 §18.2 defines fits.
 pub const quic_transport_parameters_len_max: usize = 1024;
 
+/// The most `Config.retry_from_percent` may be: all of an endpoint's QUIC slots.
+pub const retry_from_percent_max: u8 = 100;
+
 /// The idle timeout a QUIC connection advertises unless the caller names another (RFC 9000 §10.1),
 /// in milliseconds.
 pub const quic_idle_timeout_ms_default: u64 = 30_000;

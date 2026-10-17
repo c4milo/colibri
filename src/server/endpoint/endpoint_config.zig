@@ -59,10 +59,15 @@ pub const Config = struct {
     /// QUIC connections alone: the QUIC version the server switches a client to when the client
     /// lists it (RFC 9368 §2.3, decision 111), or null to keep every client in its first one.
     switch_to: ?quic.packet.header.Version = .v2,
-    /// QUIC connections alone. When set, every client proves its address with a Retry token
-    /// before a connection starts (RFC 9000 §8.1.2), which the endpoint seals and opens under this
-    /// key (decision 55).
+    /// QUIC connections alone. When set, a client proves its address with a Retry token before a
+    /// connection starts (RFC 9000 §8.1.2), as `retry_from_percent` says, which the endpoint seals
+    /// and opens under this key (decision 55).
     retry: ?*const tls.quic.Retry = null,
+    /// QUIC connections alone, with `retry` set: the endpoint sends a Retry to a client that brings
+    /// no token while at least this percent of its QUIC slots hold a connection, from 0 to
+    /// `retry_from_percent_max` (decision 110 as amended). At 0 every such client gets one. The
+    /// endpoint checks a token a client returns with, whatever the share.
+    retry_from_percent: u8 = 0,
     /// QUIC connections alone: where each connection's qlog log comes from (decision 102 as
     /// amended), or null for none.
     logs: ?endpoint_connections.LogProvider = null,
@@ -95,6 +100,7 @@ pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Ra
     assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.concurrent_streams_max);
     assert(config.limits.data_frame_len_min <= h2.constants.max_frame_size_initial);
     assert(config.limits.peer_resets_max > 0 and config.limits.resets_sent_max > 0);
+    assert(config.retry_from_percent <= constants.retry_from_percent_max);
     if (config.tls) |identity| assert(identity.alpn.len == 0);
     // RFC 9114 §3.1: a TCP connection speaks h11 or h2, and `versions` may turn both off (decision
     // 117).

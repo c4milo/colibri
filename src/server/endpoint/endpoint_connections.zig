@@ -136,6 +136,7 @@ pub const Connections = struct {
         const address = endpoint_stateless.token_address(from, &address_storage);
         return switch (quic.connection_retry.verify_token(retry.suite(), long.version, address, long.token, long.dcid, now_ns)) {
             .absent => blk: {
+                if (!held.retry_owed()) break :blk held.start(long.version, long.dcid, long.scid, null, from, now_ns);
                 held.owe_retry(retry, long, address, from, now_ns);
                 break :blk null;
             },
@@ -144,6 +145,17 @@ pub const Connections = struct {
             .invalid => null,
             .validated => |ids| held.start(long.version, ids.original_destination_slice(), long.scid, ids.retry_source_slice(), from, now_ns),
         };
+    }
+
+    /// Whether a client that brings no Retry token gets a Retry: while at least
+    /// `retry_from_percent` of the QUIC slots hold a connection (decision 110 as amended). RFC
+    /// 9000 §8.1.2: a Retry defers "the state and processing costs of connection establishment",
+    /// which a spoofed Initial would put on the server.
+    fn retry_owed(held: *const Connections) bool {
+        const count: u64 = held.connections.len;
+        const holding: u64 = held.slots.holding_quic();
+        assert(count > 0 and holding <= count);
+        return holding * constants.retry_from_percent_max >= held.config.retry_from_percent * count;
     }
 
     /// Owes a Retry for a client's first Initial (RFC 9000 §17.2.5.1), from a Source

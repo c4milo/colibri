@@ -636,8 +636,11 @@ of the protocol. A later client then takes its slot, and every id of the ended c
 nothing. A QUIC connection has no socket of its own, so the endpoint reports no `send` and no
 `close` for one.
 
-`Config.retry` makes every client prove its address before a connection starts (RFC 9000
-§8.1.2), and `Config.logs` gives each connection a qlog log
+`Config.retry` makes a client prove its address before a connection starts (RFC 9000 §8.1.2).
+By default every client must, and `Config.retry_from_percent` limits that to the times when at
+least that percent of the QUIC slots hold a connection ([decision 110](decisions.md)). A spoofed
+Initial then holds no slot while the server is under load, and an honest client spends no extra
+round trip while it is not. `Config.logs` gives each connection a qlog log
 ([decision 102](decisions.md)).
 
 ## The client

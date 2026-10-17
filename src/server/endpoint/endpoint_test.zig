@@ -271,6 +271,56 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
     }
 }
 
+/// The share of the test endpoint's QUIC slots that one connection reaches. The next percent is
+/// one it does not reach. Test-only.
+const share_of_one: u8 = constants.retry_from_percent_max / endpoint_support.connections;
+comptime {
+    std.debug.assert(@as(u32, share_of_one + 1) * endpoint_support.connections > constants.retry_from_percent_max);
+}
+
+/// Whether the endpoint answers a new client's first Initial, from another port than the test
+/// client's, with a Retry. Test-only.
+fn answers_with_retry() !bool {
+    var writer = quic.core.Writer.init(&padded_initial);
+    try quic.packet.header_write.write_long(&writer, .{
+        .version = .v1,
+        .type = .initial,
+        .dcid = &short_id,
+        .scid = &short_id,
+        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .protected_payload_len = padded_payload_len,
+    });
+    const len = writer.written().len + padded_payload_len;
+    @memset(padded_initial[writer.written().len..len], 0);
+    support.client_port_now = support.client_port + 1;
+    defer support.client_port_now = support.client_port;
+    _ = give(padded_initial[0..len], support.client_address());
+    var output: [quic.constants.datagram_len_max]u8 = undefined;
+    const sent = endpoint.held.connections.replies.take(&output) orelse return false;
+    return (try quic.packet.header.read(sent.octets, constants.quic_id_len)) == .retry;
+}
+
+test "decision 110 as amended: with retry_from_percent, a client gets a Retry only once that share of QUIC slots hold a connection" {
+    for ([_]u8{ share_of_one, share_of_one + 1 }) |percent| {
+        retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
+        try support.start_endpoint(&retry);
+        endpoint_support.endpoint_config.retry_from_percent = percent;
+        try endpoint_support.restart();
+        // No slot holds a connection, so the first client starts with no Retry (RFC 9000 §7.3).
+        try support.connect();
+        try testing.expectEqual(null, support.served.transport.identity.retry_source);
+        // One slot of 2 holds a connection, which reaches 50 percent and not 51.
+        try testing.expectEqual(percent == share_of_one, try answers_with_retry());
+    }
+}
+
+test "decision 110 as amended: at the default of 0 percent, every client gets a Retry" {
+    retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
+    try support.start_endpoint(&retry);
+    try testing.expectEqual(0, endpoint_support.endpoint_config.retry_from_percent);
+    try testing.expect(try answers_with_retry());
+}
+
 /// The Source Connection ID of a Retry an earlier build sent, which its client addresses next.
 const retry_source_id: [constants.quic_id_len]u8 = @splat(retry_source_octet);
 const retry_source_octet: u8 = 0x6b;
@@ -298,6 +348,32 @@ test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID und
         try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
         try testing.expectEqual(null, endpoint_support.live_connection());
     }
+}
+
+test "decision 110 as amended: under the share, a client that returns with a Retry token starts with it" {
+    retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
+    try support.start_endpoint(&retry);
+    endpoint_support.endpoint_config.retry_from_percent = share_of_one;
+    try endpoint_support.restart();
+    // The Retry went out while the share was reached, and the client returns once it is not.
+    const token = try old_token(&short_id);
+    var writer = quic.core.Writer.init(&padded_initial);
+    try quic.packet.header_write.write_long(&writer, .{
+        .version = .v1,
+        .type = .initial,
+        .dcid = &retry_source_id,
+        .scid = &short_id,
+        .token = token,
+        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .protected_payload_len = padded_payload_len,
+    });
+    const len = writer.written().len + padded_payload_len;
+    @memset(padded_initial[writer.written().len..len], 0);
+    _ = give(padded_initial[0..len], support.client_address());
+    // RFC 9000 §7.3: the connection names the Retry's Source Connection ID, which the client
+    // checks, so it starts from the token and not as a client with none.
+    const started = endpoint_support.live_connection() orelse return error.TestUnexpectedResult;
+    try testing.expectEqualSlices(u8, &retry_source_id, started.transport.identity.retry_source.?.slice());
 }
 
 /// The token of a Retry the endpoint's key seals for the client's address, naming
