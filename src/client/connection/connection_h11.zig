@@ -19,6 +19,7 @@ const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
 const event = @import("../event.zig");
+const event_internal = @import("../event_internal.zig");
 
 const Connection = connection_module.Connection;
 const Field = event.Field;
@@ -267,7 +268,7 @@ fn request_fields(
     lines[0] = .{ .name = "Host", .value = connection.config.authority };
     @memcpy(lines[1..][0..request.fields.len], request.fields);
     var count = 1 + request.fields.len;
-    if (request.content_length(digits)) |length| {
+    if (event_internal.content_length(request, digits)) |length| {
         lines[count] = .{ .name = "Content-Length", .value = length };
         count += 1;
     }

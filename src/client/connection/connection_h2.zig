@@ -17,6 +17,7 @@ const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
 const event = @import("../event.zig");
+const event_internal = @import("../event_internal.zig");
 const alt_svc = @import("../alt_svc.zig");
 
 const Connection = connection_module.Connection;
@@ -292,7 +293,7 @@ fn request_fields(
         how.* = if (never) .never_indexed else .without_indexing;
     }
     var count = request.fields.len;
-    if (request.content_length(digits)) |length| {
+    if (event_internal.content_length(request, digits)) |length| {
         lines[count] = .{ .name = "content-length", .value = length };
         indexing[count] = .without_indexing;
         count += 1;

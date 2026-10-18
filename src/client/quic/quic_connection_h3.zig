@@ -12,6 +12,7 @@ const quic = @import("quic");
 const h3 = @import("h3");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
+const event_internal = @import("../event_internal.zig");
 const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
@@ -103,7 +104,7 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
     append_fields(section, request, indexing) orelse return null;
     var count = pseudo_fields + request.fields.len;
     var digits: [constants.content_length_digits_max]u8 = undefined;
-    if (request.content_length(&digits)) |value| {
+    if (event_internal.content_length(request, &digits)) |value| {
         section.append("content-length", value) catch return null;
         indexing[count] = .no_insert;
         count += 1;

@@ -27,6 +27,7 @@ const tls = @import("tls");
 const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
+const event_internal = @import("../event_internal.zig");
 const slots_module = @import("../slots.zig");
 const coding = @import("../coding.zig");
 const coding_pool = @import("../coding_pool.zig");
@@ -201,7 +202,7 @@ pub const Connection = struct {
         // identifiers or said it closes opens no new request.
         if (connection.draining) return error.Draining;
         try check_request(message);
-        response.clear();
+        event_internal.clear(response);
         const id = connection.slots.take(message, response) orelse return error.Full;
         assert(connection.slots.of_id(id).?.stage == .queued);
         return id;

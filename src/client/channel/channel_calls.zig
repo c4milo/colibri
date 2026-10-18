@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");
 const constants = @import("../constants.zig");
+const event_internal = @import("../event_internal.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const channel_module = @import("channel.zig");
@@ -57,7 +58,7 @@ pub fn request(channel: anytype, message: *const Request, response: *Response) R
     assert(!channel.shut);
     try connection_module.check_request(message);
     const entry = free_entry(channel) orelse return error.Full;
-    response.clear();
+    event_internal.clear(response);
     entry.* = .{ .stage = .waiting, .id = channel.next_id, .request = message, .response = response };
     channel.next_id += 1;
     channel_events.assign_waiting(channel);

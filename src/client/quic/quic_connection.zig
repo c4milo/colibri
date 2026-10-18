@@ -31,6 +31,7 @@ const http = @import("http");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
+const event_internal = @import("../event_internal.zig");
 const slots_module = @import("../slots.zig");
 const coding = @import("../coding.zig");
 const coding_pool = @import("../coding_pool.zig");
@@ -205,7 +206,7 @@ pub const QuicConnection = struct {
         // RFC 9114 §5.2: a connection that heard GOAWAY, or is shutting down, opens no request.
         if (connection.draining) return error.Draining;
         try connection_module.check_request(message);
-        response.clear();
+        event_internal.clear(response);
         return connection.slots.take(message, response) orelse error.Full;
     }
 

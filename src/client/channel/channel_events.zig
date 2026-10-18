@@ -11,6 +11,7 @@ const quic = @import("quic");
 const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
+const event_internal = @import("../event_internal.zig");
 const alt_svc = @import("../alt_svc.zig");
 const quic_internal = @import("../quic/quic_connection_internal.zig");
 const channel_module = @import("channel.zig");
@@ -166,7 +167,7 @@ fn on_finished(channel: anytype, transport: Transport, ended: event.Ended) ?Even
         // RFC 9112 §9.3.2: a failed connection is one "not explicitly closed by the server in its
         // last complete response", which leaves the connection draining instead.
         const after_failure = closed and channel.phase(transport) == .failed;
-        entry.response.clear();
+        event_internal.clear(entry.response);
         entry.* = .{
             .stage = .waiting,
             .id = entry.id,

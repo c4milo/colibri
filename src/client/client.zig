@@ -190,6 +190,7 @@ test {
     _ = @import("coding.zig");
     _ = @import("coding_pool.zig");
     _ = @import("owed.zig");
+    _ = @import("event_internal.zig");
     _ = @import("channel/channel_choice.zig");
     _ = @import("channel/channel_config_test.zig");
     _ = @import("channel/channel_test.zig");
