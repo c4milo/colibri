@@ -3,7 +3,7 @@
 //! request's Accept-Encoding, in its order of preference. As it writes the request it takes a
 //! decoder from the pool of each coding it offers, so the response always finds one, and it
 //! offers no coding whose pool has none free. It decodes a response whose Content-Encoding names
-//! one coding it offered into the exchange's body, gives back the decoders the response did not
+//! one coding it offered into the response's body, gives back the decoders the response did not
 //! need, and passes any other content on as it arrived, with the field.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,7 +21,7 @@ const FieldSection = http.FieldSection;
 pub const offer_len_max: usize = 64;
 
 pub const Error = error{
-    /// The decoded content passed the exchange's `body`.
+    /// The decoded content passed the response's `body`.
     NoSpaceLeft,
     /// The coded content breaks its format (RFC 1950, 1951, 1952, 8878, 7932), uses a feature
     /// stdx refuses, such as a window past the limit, ends before its stream does, or goes on
@@ -74,7 +74,7 @@ fn names(codings: []const Coding, coding: Coding) bool {
 pub fn offer(codings: []const Coding, pools: Pools, slot: *Slot, into: *[offer_len_max]u8) ?[]const u8 {
     if (codings.len == 0) return null;
     // Decision 101: a request that names Accept-Encoding goes out as its caller wrote it.
-    for (slot.exchange.fields) |field| {
+    for (slot.request.fields) |field| {
         if (http.field.names_equal(field.name, accept_encoding)) return null;
     }
     assert(codings.len <= codings_max);
@@ -174,7 +174,7 @@ pub fn begin(slot: *Slot, status: u16, section: *const FieldSection, first: u32)
             slot.zstd.release();
         },
     }
-    slot.exchange.coding = coding;
+    slot.response.coding = coding;
 }
 
 fn give_back_deflate(slot: *Slot) void {
@@ -218,24 +218,24 @@ fn one_coding(value: []const u8) ?Coding {
 /// RFC 9110 §5.6.3: optional whitespace is spaces and horizontal tabs.
 const whitespace = " \t";
 
-/// Decodes the coded `octets` into the exchange's body, after the octets already there.
+/// Decodes the coded `octets` into the response's body, after the octets already there.
 pub fn decode(slot: *Slot, octets: []const u8) Error!void {
     assert(active(slot));
-    const exchange = slot.exchange;
+    const response = slot.response;
     slot.coded_len += octets.len;
     var taken: usize = 0;
     // The last octets of a stream, its checksum, decode to nothing, so they are fed with room for
     // one octet that must stay unwritten.
     var spill: [1]u8 = undefined;
     // Bounded: each pass takes an octet or writes one, and the body holds `body.len`.
-    for (0..octets.len + exchange.body.len + 1) |_| {
+    for (0..octets.len + response.body.len + 1) |_| {
         if (taken == octets.len) return;
-        const room = exchange.body[exchange.body_len..];
+        const room = response.body[response.body_len..];
         const output = if (room.len > 0) room else &spill;
         const progress = try step(slot, octets[taken..], output);
         if (room.len == 0 and progress.written > 0) return error.NoSpaceLeft;
         taken += progress.consumed;
-        exchange.body_len += progress.written;
+        response.body_len += progress.written;
     }
     unreachable;
 }
@@ -261,7 +261,7 @@ pub fn end(slot: *Slot) Error!void {
     if (!active(slot)) return;
     if (slot.coded_len == 0) {
         slots_module.give_back(slot);
-        slot.exchange.coding = null;
+        slot.response.coding = null;
         return;
     }
     if (slot.decoding.active()) {

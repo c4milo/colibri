@@ -15,7 +15,8 @@ const coding_support = @import("../coding_test_support.zig");
 
 pub const Connection = connection_module.Connection;
 pub const Config = connection_module.Config;
-pub const HttpExchange = event.HttpExchange;
+pub const Request = event.Request;
+pub const Response = event.Response;
 pub const Event = event.Event;
 pub const Field = event.Field;
 
@@ -38,6 +39,13 @@ pub const cpu: tls.Cpu = .{
 /// The instant each call passes, in nanoseconds. The tests hold it still.
 pub const now_ns: u64 = 1_000_000;
 pub const authority = "localhost";
+
+/// A request and the response it gets, as one test places them. A program places the two apart,
+/// and the tests keep them side by side (decision 124). Test-only.
+pub const Exchange = struct {
+    request: Request,
+    response: Response = .{},
+};
 
 pub const chain = [_][]const u8{ leaf, root };
 pub const anchors = [_]tls.Anchor{.{ .subject = root_name, .spki = root_spki }};

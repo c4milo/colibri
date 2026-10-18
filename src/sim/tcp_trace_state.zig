@@ -94,8 +94,8 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     for (state.request_read[0..n], state.server_closed[0..n], world.done[0..n]) |*read, closed, done| {
         if (done and read.* == .head and closed == .end_stream) read.* = .ended;
     }
-    for (world.exchanges[0..world.requested], 0..) |*exchange, index| {
-        state.response_read[index] = response_read_of(exchange.outcome, exchange.status, exchange.interims);
+    for (world.responses[0..world.requested], 0..) |*response, index| {
+        state.response_read[index] = response_read_of(response.outcome, response.status, response.interims);
     }
     // The client drops the plaintext it read at once, so all it holds is unread. The server holds
     // what its last event pointed into, `plain_in_read` octets, until its next call.

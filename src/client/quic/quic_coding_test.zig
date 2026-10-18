@@ -1,6 +1,6 @@
 //! The tests of content codings at the client over h3 (`coding.zig`, decision 101 as amended): the
 //! request offers gzip first with a decoder taken, and a response coded in gzip, zstd or br decodes
-//! into the exchange's body.
+//! into the response's body.
 const std = @import("std");
 const gzip = @import("gzip");
 const http = @import("http");
@@ -10,7 +10,7 @@ const coding_support = @import("../coding_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const HttpExchange = support.HttpExchange;
+const Exchange = support.Exchange;
 
 const decoders_all: usize = 2;
 const text = "colibri decodes an h3 response the server coded. " ** text_repeats;
@@ -54,12 +54,12 @@ test "decision 101 as amended: an h3 response in zstd, and one in br, decode int
         try start_zstd_br();
         support.answer_content = content;
         support.answer_coding = name;
-        var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &plain_body };
-        _ = try connection.request(&exchange);
+        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &plain_body } };
+        _ = try connection.request(&exchange.request, &exchange.response);
         try support.pump(support.rounds_default);
-        try testing.expectEqual(.response, exchange.outcome);
-        try testing.expectEqualStrings(name, exchange.coding.?.name());
-        try testing.expectEqualStrings(coding_support.plain, exchange.content_received());
+        try testing.expectEqual(.response, exchange.response.outcome);
+        try testing.expectEqualStrings(name, exchange.response.coding.?.name());
+        try testing.expectEqualStrings(coding_support.plain, exchange.response.content_received());
         try testing.expectEqual(1, coding_support.zstd_pool.storage().free_count());
         try testing.expectEqual(1, coding_support.br_pool.storage().free_count());
     }
@@ -71,13 +71,13 @@ test "decision 101: an h3 request offers gzip first, and the coded response deco
     const coded = coded_room[0..try gzip_encoder.encode_all(text, &coded_room)];
     support.answer_content = coded;
     support.answer_coding = "gzip";
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &body };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     try testing.expect(support.answers[0].offers_gzip);
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqual(.gzip, exchange.coding.?);
-    try testing.expectEqualStrings(text, exchange.content_received());
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.gzip, exchange.response.coding.?);
+    try testing.expectEqualStrings(text, exchange.response.content_received());
     try testing.expectEqual(decoders_all, tcp_support.pool.storage().free_count());
 }
 
@@ -88,9 +88,9 @@ test "decision 101: an h3 response whose coded stream is cut short ends malforme
     // RFC 1952 §2.3: the member's last octet, of its trailer, never arrives.
     support.answer_content = coded[0 .. coded.len - 1];
     support.answer_coding = "gzip";
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &body };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.malformed, exchange.outcome);
+    try testing.expectEqual(.malformed, exchange.response.outcome);
     try testing.expectEqual(decoders_all, tcp_support.pool.storage().free_count());
 }

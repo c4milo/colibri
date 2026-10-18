@@ -33,7 +33,7 @@ pub const Owed = struct {
             return .ticket;
         }
         if (slots.oldest_reportable()) |slot| {
-            const ended: event.Finished = .{ .id = slot.id, .exchange = slot.exchange };
+            const ended: event.Finished = .{ .id = slot.id, .request = slot.request, .response = slot.response };
             slots_module.release(slot);
             return .{ .finished = ended };
         }
@@ -53,8 +53,9 @@ const testing = std.testing;
 test "the version comes first, then the ticket, each exchange's end, draining, and the close" {
     var slots: Slots = undefined;
     slots.init();
-    var exchange: event.HttpExchange = .{ .method = "GET", .path = "/" };
-    const id = slots.take(&exchange).?;
+    const request: event.Request = .{ .method = "GET", .path = "/" };
+    var response: event.Response = .{};
+    const id = slots.take(&request, &response).?;
     slots_module.end(slots.of_id(id).?, .response);
     var owed: Owed = .{ .connected = true, .ticket = true, .draining = true };
     try testing.expectEqual(Protocol.h2, owed.next(&slots, .h2, true).?.connected);

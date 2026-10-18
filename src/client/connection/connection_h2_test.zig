@@ -8,7 +8,7 @@ const event = @import("../event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const HttpExchange = support.HttpExchange;
+const Exchange = support.Exchange;
 
 const ok: u16 = 200;
 /// RFC 9110 §15.2.4: 103 Early Hints, an interim response.
@@ -24,8 +24,8 @@ const bodies_count: usize = 2;
 const values_len: usize = 256;
 
 /// The one exchange a test sends, and the stream the peer read it on. Test-only.
-fn get(body: []u8) HttpExchange {
-    return .{ .method = "GET", .path = "/dns-query", .body = body };
+fn get(body: []u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/dns-query" }, .response = .{ .body = body } };
 }
 
 /// The request the h2 peer read last. Test-only.
@@ -47,9 +47,9 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     // RFC 9113 §8.3: `:status` is a pseudo-header field and no field, so the caller reads none.
     var wanted = [_]event.Wanted{ .{ .name = "content-type" }, .{ .name = "age" }, .{ .name = ":status" } };
     var exchange = get(&bodies[0]);
-    exchange.wanted = &wanted;
-    exchange.values = &values;
-    try testing.expectEqual(1, try connection.request(&exchange));
+    exchange.response.wanted = &wanted;
+    exchange.response.values = &values;
+    try testing.expectEqual(1, try connection.request(&exchange.request, &exchange.response));
     try support.pump_h2();
     const arrived = peer_request().?;
     try testing.expectEqual(1, arrived.stream_id);
@@ -63,10 +63,11 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     try testing.expectEqual(event.Protocol.h2, support.find(.connected).?.connected);
     const finished = support.find(.finished).?.finished;
     try testing.expectEqual(1, finished.id);
-    try testing.expectEqual(&exchange, finished.exchange);
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqual(ok, exchange.status);
-    try testing.expectEqualStrings("hello", exchange.content_received());
+    try testing.expectEqual(&exchange.response, finished.response);
+    try testing.expectEqual(&exchange.request, finished.request);
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
     try testing.expectEqualStrings("application/dns-message", wanted[0].value.?);
     try testing.expectEqual(null, wanted[1].value);
     try testing.expectEqual(null, wanted[2].value);
@@ -79,8 +80,8 @@ test "RFC 9113 §6.9: content past the stream's window goes out as the peer gran
     const content_len = 3 * h2.constants.initial_window_size_initial;
     const content = bodies[1][0..content_len];
     @memset(content, 'x');
-    var exchange: HttpExchange = .{ .method = "POST", .path = "/upload", .content = content, .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .content = content }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     var received: usize = 0;
     for (0..support.events_max) |_| {
         try support.pump_h2();
@@ -93,35 +94,35 @@ test "RFC 9113 §6.9: content past the stream's window goes out as the peer gran
     try testing.expectEqual(content_len, received);
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqual(0, exchange.body_len);
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(0, exchange.response.body_len);
 }
 
 test "RFC 9110 §15.2: interim responses are counted, and the final one gives the status" {
     try start();
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
     support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, early_hints, &.{}, false);
     try support.client_receive();
-    try testing.expectEqual(1, exchange.interims);
-    try testing.expectEqual(.pending, exchange.outcome);
+    try testing.expectEqual(1, exchange.response.interims);
+    try testing.expectEqual(.pending, exchange.response.outcome);
     try support.peer_h2_answer(1, ok, &.{}, "done");
     try support.client_receive();
-    try testing.expectEqual(ok, exchange.status);
-    try testing.expectEqualStrings("done", exchange.content_received());
+    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqualStrings("done", exchange.response.content_received());
 }
 
 test "RFC 9113 §6.4: content past the caller's memory ends the exchange, and CANCEL stops the rest" {
     try start();
     var exchange = get(bodies[0][0..4]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
     // The content does not end the stream, so more of it would follow.
     support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
     support.to_client_len += (try support.peer_h2.write_data(support.to_client[support.to_client_len..], 1, "hello", false)).written;
     try support.client_receive();
-    try testing.expectEqual(.too_large, exchange.outcome);
+    try testing.expectEqual(.too_large, exchange.response.outcome);
     support.peer_events_len = 0;
     try support.pump_h2();
     const reset = for (support.peer_events[0..support.peer_events_len]) |peer_event| {
@@ -134,38 +135,38 @@ test "RFC 9113 §8.7: REFUSED_STREAM ends an exchange refused, and another code 
     try start();
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
-    _ = try connection.request(&first);
-    _ = try connection.request(&second);
+    _ = try connection.request(&first.request, &first.response);
+    _ = try connection.request(&second.request, &second.response);
     try support.pump_h2();
     try support.peer_h2.reset_stream(1, h2.constants.error_refused_stream);
     try support.peer_h2.reset_stream(3, h2.constants.error_internal_error);
     support.peer_h2_owe();
     try support.client_receive();
-    try testing.expectEqual(.refused, first.outcome);
-    try testing.expectEqual(.reset, second.outcome);
-    try testing.expectEqual(h2.constants.error_internal_error, second.error_code);
+    try testing.expectEqual(.refused, first.response.outcome);
+    try testing.expectEqual(.reset, second.response.outcome);
+    try testing.expectEqual(h2.constants.error_internal_error, second.response.error_code);
 }
 
 test "RFC 9113 §6.8: a GOAWAY refuses the exchanges past its last stream, and the connection drains" {
     try start();
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
-    _ = try connection.request(&first);
-    _ = try connection.request(&second);
+    _ = try connection.request(&first.request, &first.response);
+    _ = try connection.request(&second.request, &second.response);
     try support.pump_h2();
     // The peer took stream 1 and says so; stream 3 it never processed.
     var writer = h2.core.Writer.init(support.to_client[support.to_client_len..]);
     try h2.frame.write_goaway(&writer, 1, h2.constants.error_no_error, "");
     support.to_client_len += writer.written().len;
     try support.client_receive();
-    try testing.expectEqual(.refused, second.outcome);
+    try testing.expectEqual(.refused, second.response.outcome);
     try testing.expect(support.find(.draining) != null);
     var third = get(&bodies[1]);
-    try testing.expectError(error.Draining, connection.request(&third));
+    try testing.expectError(error.Draining, connection.request(&third.request, &third.response));
     // The exchange the peer took is answered, and then the connection is over.
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, first.outcome);
+    try testing.expectEqual(.response, first.response.outcome);
     try testing.expect(support.find(.closed) != null);
     support.client_send();
     try testing.expect(connection.should_close());
@@ -174,24 +175,24 @@ test "RFC 9113 §6.8: a GOAWAY refuses the exchanges past its last stream, and t
 test "RFC 9113 §6.4: a cancelled exchange's stream is reset with CANCEL, and no event reports it" {
     try start();
     var exchange = get(&bodies[0]);
-    const id = try connection.request(&exchange);
+    const id = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
     connection.cancel(id);
     support.peer_events_len = 0;
     try support.pump_h2();
     try testing.expectEqual(h2.constants.error_cancel, support.peer_events[0].stream_reset.error_code);
     try testing.expectEqual(0, support.count(.finished));
-    try testing.expectEqual(.pending, exchange.outcome);
+    try testing.expectEqual(.pending, exchange.response.outcome);
 }
 
 test "RFC 9113 §8.3.1: a method h2 refuses to send ends its exchange invalid and spends no stream" {
     try start();
-    var bad: HttpExchange = .{ .method = "G ET", .path = "/", .body = &bodies[0] };
+    var bad: Exchange = .{ .request = .{ .method = "G ET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     var good = get(&bodies[1]);
-    _ = try connection.request(&bad);
-    _ = try connection.request(&good);
+    _ = try connection.request(&bad.request, &bad.response);
+    _ = try connection.request(&good.request, &good.response);
     try support.pump_h2();
-    try testing.expectEqual(.invalid, bad.outcome);
+    try testing.expectEqual(.invalid, bad.response.outcome);
     // RFC 9113 §5.1.1: the refused request spent no identifier.
     try testing.expectEqual(1, peer_request().?.stream_id);
 }
@@ -199,16 +200,16 @@ test "RFC 9113 §8.3.1: a method h2 refuses to send ends its exchange invalid an
 test "RFC 9113 §5.4.1: a peer that breaks the protocol ends every exchange, and the connection" {
     try start();
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     // RFC 9113 §3.4: the server's first frame must be SETTINGS, and this is a PING.
     const ping = "\x00\x00\x08\x06\x00\x00\x00\x00\x00" ++ "colibri!";
     @memcpy(support.to_client[0..ping.len], ping);
     support.to_client_len = ping.len;
     try support.client_receive();
-    try testing.expectEqual(.closed, exchange.outcome);
+    try testing.expectEqual(.closed, exchange.response.outcome);
     try testing.expect(support.find(.closed) != null);
-    try testing.expectError(error.ConnectionClosed, connection.request(&exchange));
+    try testing.expectError(error.ConnectionClosed, connection.request(&exchange.request, &exchange.response));
     // The GOAWAY colibri owes goes out before the caller closes.
     support.to_peer_len = 0;
     support.client_send();
@@ -219,7 +220,7 @@ test "RFC 9113 §5.4.1: a peer that breaks the protocol ends every exchange, and
 test "RFC 9113 §6.8: a shut-down connection sends GOAWAY after its last exchange, and closes" {
     try start();
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
     connection.shutdown();
     try support.client_receive();
@@ -254,11 +255,11 @@ test "RFC 9113 §6.8: a connection shut down with no exchange closes once send w
 test "RFC 9114 §3.1.2: an ALTSVC frame over cleartext teaches no h3" {
     try start();
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
     support.to_client_len += try support.peer_h2.write_alt_svc(support.to_client[support.to_client_len..], 1, "h3=\":443\"");
     try support.peer_h2_answer(1, ok, &.{}, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(null, connection.take_alt_svc());
 }

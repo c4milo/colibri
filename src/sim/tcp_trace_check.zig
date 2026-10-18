@@ -165,7 +165,7 @@ fn result_of(storage: *const Storage) Result {
         .tls = @intFromBool(world.tls),
         .wire = std.hash.Crc32.hash(world.to_server.octets[0..world.to_server.handed]),
     };
-    for (world.exchanges[0..world.requested]) |*exchange| result.responses += @intFromBool(exchange.outcome == .response);
+    for (world.responses[0..world.requested]) |*response| result.responses += @intFromBool(response.outcome == .response);
     return result;
 }
 

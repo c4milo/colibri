@@ -659,37 +659,39 @@ every UDP datagram. The channel tries QUIC first, and carries its exchanges over
 fallback delay passes. Its server, in [`examples/client_peer.zig`](../examples/client_peer.zig), is
 an endpoint with no UDP socket.
 
-For each request the program places an `HttpExchange` in its own memory: the request, and where
-the response goes.
+For each exchange the program places two values in its own memory
+([decision 124](decisions.md)): a `client.Request`, which says what it sends, and a
+`client.Response`, which says where the answer goes and holds what arrived. The client only reads
+the request, so a program may make it a `const`.
 
 ```zig
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
 var wanted_values: [content_type.len]u8 = undefined;
 var get_body: [greeting.len]u8 = undefined;
 var post_body: [note.len]u8 = undefined;
-var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
-    .method = "GET",
-    .path = "/greeting",
+const get: client.Request = .{ .method = "GET", .path = "/greeting" };
+var get_response: client.Response align(@alignOf(client.Response)) = .{
     .wanted = &wanted,
     .values = &wanted_values,
     .body = &get_body,
 };
-var post: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+const post: client.Request = .{
     .method = "POST",
     .path = "/echo",
     .fields = &.{.{ .name = "content-type", .value = content_type }},
     .content = note,
-    .body = &post_body,
 };
+var post_response: client.Response align(@alignOf(client.Response)) = .{ .body = &post_body };
 ```
 
 `wanted` names the fields of the response the program reads. Their values go into `values` and
-the content into `body`; colibri keeps no other field. `content` is the request's own content,
-which stays the program's until the exchange ends.
+the content into `body`; colibri keeps no other field. `content` is the request's own content.
+The program keeps the request and the response in place, with each slice they name, until the
+exchange's `finished` event or until `cancel` returns.
 
-The client gives one configuration with one TLS value, makes the channel, and hands it the
-exchanges. The program passes what DNS knows as values: the server's addresses and its port, and
-an HTTPS record's `alpn` and `port` when it has one.
+The client gives one configuration with one TLS value, makes the channel, and hands it each
+request and its response. The program passes what DNS knows as values: the server's addresses
+and its port, and an HTTPS record's `alpn` and `port` when it has one.
 
 ```zig
 // One configuration serves both transports. Its TLS value names no protocol: the channel
@@ -703,11 +705,11 @@ const known: client.Values = .{ .addresses = &server_addresses, .port = server_p
 // `init` builds the TLS configuration of each transport inside the channel, which stays in
 // place from here on. The pool is what makes the channel offer QUIC.
 try channel.init(&client_config, known, receive_pool.storage());
-// `request` only takes an exchange. The channel asks for a transport, and sends the exchange
-// over the first connection that completes its handshake, so a program asks at once and
-// never waits.
-_ = try channel.request(&get);
-_ = try channel.request(&post);
+// `request` only takes a request and its response. The channel asks for a transport, and
+// sends the request over the first connection that completes its handshake, so a program asks
+// at once and never waits.
+_ = try channel.request(&get, &get_response);
+_ = try channel.request(&post, &post_response);
 ```
 
 The channel takes one `client.Config` ([decision 120](decisions.md)):
@@ -806,7 +808,7 @@ fn drain(now_ns: u64) !void {
 ```
 
 The channel's events say what the program does next, and an exchange ends in exactly one
-`finished` event, whatever happened to it:
+`finished` event, whatever happened to it. The event names the request and the response:
 
 ```zig
 fn report(event: client.Event, now_ns: u64) !void {
@@ -821,9 +823,9 @@ fn report(event: client.Event, now_ns: u64) !void {
             spoken = protocol;
         },
         .finished => |ended| {
-            const exchange = ended.exchange;
+            // The event names the request and the response, whose memory is the program's again.
             std.debug.print("client: {s}: {s}, {d}\n", .{
-                exchange.path, @tagName(exchange.outcome), exchange.status,
+                ended.request.path, @tagName(ended.response.outcome), ended.response.status,
             });
             finished += 1;
             // Every exchange has ended, so the client shuts the channel down.
@@ -836,7 +838,7 @@ fn report(event: client.Event, now_ns: u64) !void {
 }
 ```
 
-The exchange's `outcome` says what happened:
+The response's `outcome` says what happened to the exchange:
 
 | Outcome | What it means |
 | --- | --- |
@@ -914,7 +916,7 @@ fn connect_refused() !void {
     // TCP alone.
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     try refused_channel.init(&client_config, known, null);
-    _ = try refused_channel.request(&refused_get);
+    _ = try refused_channel.request(&refused_get, &refused_get_response);
     for (0..events_per_input_max) |_| {
         const received = refused_channel.receive(.none, now_ns);
         switch (received.event orelse return error.ExchangeWrong) {

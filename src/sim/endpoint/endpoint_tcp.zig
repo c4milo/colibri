@@ -90,7 +90,9 @@ pub const Peer = struct {
     client: client.Channel,
     close_reported: bool,
     hostile: deadline_peer.Hostile,
-    exchanges: [exchanges_max]client.HttpExchange,
+    /// Each exchange's request and response, by index (decision 124).
+    requests: [exchanges_max]client.Request,
+    responses: [exchanges_max]client.Response,
     ids: [exchanges_max]?client.Id,
     /// When the endpoint read each of the peer's first requests, and how many it read.
     read_ms: [exchanges_max]u64,
@@ -172,11 +174,13 @@ pub const Peers = struct {
         // TCP alone: the channel is given no receive pool, so it offers no QUIC.
         peer.client.init(config, .{ .addresses = &peers.addresses, .port = endpoint_port }, null) catch return error.PeerFailed;
         const behaviour = &plan.behaviour;
-        for (peer.exchanges[0..behaviour.exchanges_len], 0..) |*exchange, exchange_index| {
-            exchange.* = .{ .method = "GET", .path = "/", .body = &peer.bodies[exchange_index] };
+        const count = behaviour.exchanges_len;
+        for (peer.requests[0..count], peer.responses[0..count], 0..) |*message, *response, exchange_index| {
+            message.* = .{ .method = "GET", .path = "/" };
+            response.* = .{ .body = &peer.bodies[exchange_index] };
             if (behaviour.peer != .upload) continue;
-            exchange.method = "POST";
-            exchange.content = peers.upload[0..behaviour.upload_len[exchange_index]];
+            message.method = "POST";
+            message.content = peers.upload[0..behaviour.upload_len[exchange_index]];
         }
         const at_once = if (one_at_a_time(plan)) 1 else behaviour.exchanges_len;
         for (0..at_once) |_| try request_next(peer);
@@ -228,7 +232,7 @@ pub fn kind_name(plan: *const TcpPeer) []const u8 {
 /// Gives colibri's client its next exchange.
 fn request_next(peer: *Peer) Error!void {
     const index = peer.exchanges_requested;
-    peer.ids[index] = try peer.client.request(&peer.exchanges[index]);
+    peer.ids[index] = try peer.client.request(&peer.requests[index], &peer.responses[index]);
     peer.exchanges_requested += 1;
 }
 
@@ -318,7 +322,7 @@ fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.Event) Error!boo
         },
         .connected, .ticket => return true,
         .finished => |finished| {
-            if (finished.exchange.outcome == .response) peer.exchanges_done += 1;
+            if (finished.response.outcome == .response) peer.exchanges_done += 1;
             const exchanges_left = one_at_a_time(plan) and peer.exchanges_requested < plan.behaviour.exchanges_len;
             if (exchanges_left) try request_next(peer);
             return true;
@@ -346,8 +350,7 @@ pub fn reset_due(peer: *Peer, plan: *const TcpPeer, now_ms: u64) bool {
     const at_ms = reset_ms(peer, plan) orelse return false;
     if (now_ms < at_ms) return false;
     peer.reset_done = true;
-    const exchange = &peer.exchanges[plan.reset_exchange];
-    if (exchange.outcome != .pending) return false;
+    if (peer.responses[plan.reset_exchange].outcome != .pending) return false;
     peer.client.cancel(peer.ids[plan.reset_exchange].?);
     return true;
 }

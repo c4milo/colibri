@@ -70,7 +70,7 @@ pub const Tracker = struct {
     pub fn update(tracker: *Tracker, world: *World) void {
         for (world.channel.entries) |entry| {
             if (entry.stage == .free) continue;
-            const index = world.index_of(entry.exchange);
+            const index = world.index_of(entry.response);
             tracker.moved[index] = entry.moves;
             switch (entry.stage) {
                 .waiting => tracker.carrier[index] = .none,
@@ -98,7 +98,7 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
         state.stage[index] = stage_of(world, index);
         state.carrier[index] = tracker.carrier[index];
         state.holds[index] = holds(world, tracker, index);
-        state.outcome[index] = if (world.ids[index] == null) .pending else outcome_of(world.exchanges[index].outcome);
+        state.outcome[index] = if (world.ids[index] == null) .pending else outcome_of(world.responses[index].outcome);
         state.moved[index] = tracker.moved[index];
         state.seen[index] = seen(world, tracker, index);
         state.processed[index] = world.ledger.processed[index];
@@ -146,7 +146,7 @@ fn carried_stage(world: *World, entry: Entry) Stage {
 
 fn entry_of(world: *World, index: usize) ?Entry {
     for (world.channel.entries) |entry| {
-        if (entry.stage != .free and entry.exchange == &world.exchanges[index]) return entry;
+        if (entry.stage != .free and entry.response == &world.responses[index]) return entry;
     }
     return null;
 }

@@ -1,9 +1,9 @@
 //! The h3 half of a QUIC client connection (decision 100): exchanges written as request streams
 //! through h3's send path, the streams' octets supplied to QUIC, and h3's events recorded in the
-//! exchange whose stream they name (RFC 9114 §4.1).
+//! response whose stream they name (RFC 9114 §4.1).
 //!
 //! A request stream carries the HEADERS frame, then, when the request has content, one DATA frame
-//! whose header the connection keeps with it (decision 79) and whose content is the exchange's.
+//! whose header the connection keeps with it (decision 79) and whose content is the request's.
 //! QUIC reads them by offset and may read them again until the stream closes (RFC 9000 §3.1), so
 //! an ended exchange holds its octets, and its `finished` event, until then.
 const std = @import("std");
@@ -13,13 +13,13 @@ const h3 = @import("h3");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const slots_module = @import("../slots.zig");
-const response = @import("../response.zig");
+const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
 const quic_connection = @import("quic_connection.zig");
 const internal = @import("quic_connection_internal.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
-const HttpExchange = event.HttpExchange;
+const Request = event.Request;
 const Slot = slots_module.Slot;
 const Indexing = h3.qpack.encoder.Indexing;
 const StreamProvider = quic.stream.StreamProvider;
@@ -45,7 +45,7 @@ pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
 /// QUIC. Returns whether the next exchange may be written: false when this one waits for the
 /// server's stream limit (RFC 9000 §4.6).
 fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
-    const exchange = slot.exchange;
+    const content = slot.request.content;
     var indexing: [constants.request_fields_max + pseudo_fields]Indexing = undefined;
     const lines = build_section(connection, slot, &indexing) orelse {
         slots_module.end(slot, .invalid);
@@ -57,15 +57,15 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
         return refused(connection, slot, failure);
     };
     // RFC 9114 §4.1: the content goes in DATA frames after the header section, here one.
-    if (exchange.content.len > 0) connection.h3.write_data_header(id, exchange.content.len, &writer, now_ns) catch unreachable;
+    if (content.len > 0) connection.h3.write_data_header(id, content.len, &writer, now_ns) catch unreachable;
     stream.prefix_len = writer.written().len;
     slot.stream_id = id;
     slot.stage = .sent;
     slot.holds_octets = true;
     // RFC 9000 §2.2: the stream ends with the last octet of the content, which carries FIN.
-    const stream_len = stream.prefix_len + exchange.content.len;
+    const stream_len = stream.prefix_len + content.len;
     quic.connection_stream_send.supply(&connection.transport, .{ .value = id }, stream_len, true) catch unreachable;
-    exchange.content_sent = exchange.content.len;
+    slot.response.content_sent = content.len;
     return true;
 }
 
@@ -96,14 +96,14 @@ const pseudo_fields: usize = 4;
 /// accept-encoding the client adds (decision 101). Returns the line count, or null when the
 /// section does not fit.
 fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants.request_fields_max + pseudo_fields]Indexing) ?usize {
-    const exchange = slot.exchange;
+    const request = slot.request;
     const section = &connection.section;
     section.init();
-    append_pseudo(connection, exchange, indexing) orelse return null;
-    append_fields(section, exchange, indexing) orelse return null;
-    var count = pseudo_fields + exchange.fields.len;
+    append_pseudo(connection, request, indexing) orelse return null;
+    append_fields(section, request, indexing) orelse return null;
+    var count = pseudo_fields + request.fields.len;
     var digits: [constants.content_length_digits_max]u8 = undefined;
-    if (exchange.content_length(&digits)) |value| {
+    if (request.content_length(&digits)) |value| {
         section.append("content-length", value) catch return null;
         indexing[count] = .no_insert;
         count += 1;
@@ -120,27 +120,27 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
 
 /// Appends the request's pseudo-header fields (RFC 9114 §4.3.1), `:path` never-indexed when the
 /// caller marked it (RFC 9204 §4.5.4).
-fn append_pseudo(connection: *QuicConnection, exchange: *const HttpExchange, indexing: []Indexing) ?void {
+fn append_pseudo(connection: *QuicConnection, request: *const Request, indexing: []Indexing) ?void {
     const section = &connection.section;
     // RFC 9114 §4.3.1: `https` is the scheme of every request an h3 connection carries.
     const lines = [pseudo_fields]event.Field{
-        .{ .name = ":method", .value = exchange.method },
+        .{ .name = ":method", .value = request.method },
         .{ .name = ":scheme", .value = "https" },
         .{ .name = ":authority", .value = connection.config.authority },
-        .{ .name = ":path", .value = exchange.path },
+        .{ .name = ":path", .value = request.path },
     };
     for (lines, 0..) |line, index| {
         section.append(line.name, line.value) catch return null;
         indexing[index] = .no_insert;
     }
-    if (exchange.never_indexed.path) indexing[pseudo_fields - 1] = .never_indexed;
+    if (request.never_indexed.path) indexing[pseudo_fields - 1] = .never_indexed;
 }
 
 /// Appends the caller's field lines after the pseudo-header fields, each marked one written
 /// never-indexed (RFC 9204 §4.5.4, §7.1.3).
-fn append_fields(section: *h3.http.FieldSection, exchange: *const HttpExchange, indexing: []Indexing) ?void {
-    const marked = exchange.never_indexed.fields;
-    for (exchange.fields, 0..) |field, index| {
+fn append_fields(section: *h3.http.FieldSection, request: *const Request, indexing: []Indexing) ?void {
+    const marked = request.never_indexed.fields;
+    for (request.fields, 0..) |field, index| {
         section.append(field.name, field.value) catch return null;
         const never = marked.len > 0 and marked[index];
         indexing[pseudo_fields + index] = if (never) .never_indexed else .no_insert;
@@ -148,20 +148,20 @@ fn append_fields(section: *h3.http.FieldSection, exchange: *const HttpExchange, 
 }
 
 /// The provider QUIC reads the request streams from: h3 serves its own streams, and the rest come
-/// from the exchanges (decision 79).
+/// from the requests (decision 79).
 pub fn provider(connection: *QuicConnection) StreamProvider {
     return connection.h3.provider(.{ .context = connection, .vtable = &vtable });
 }
 
 const vtable: quic.stream.stream_provider.VTable = .{ .read = read_request };
 
-/// A request stream's octets from `offset`: its kept frames, then the exchange's content. Every
+/// A request stream's octets from `offset`: its kept frames, then the request's content. Every
 /// call at one offset answers the same octets, which RFC 9000 §2.2 asks of a retransmission.
 fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const connection: *QuicConnection = @ptrCast(@alignCast(context));
     const slot = holding(connection, stream_id) orelse return 0;
     const stream = &connection.streams[connection.slots.index_of(slot)];
-    const content = slot.exchange.content;
+    const content = slot.request.content;
     const from: usize = @intCast(offset);
     if (from >= stream.prefix_len + content.len) return 0;
     var written: usize = 0;
@@ -231,25 +231,25 @@ fn on_response(connection: *QuicConnection, head: h3.connection.Response) void {
     const slot = connection.slots.of_stream(head.stream_id) orelse return;
     // RFC 9114 §4.1: a client reads any number of interim responses before the final one.
     if (head.response.status.is_interim()) {
-        slot.exchange.interims += 1;
+        slot.response.interims += 1;
         return;
     }
     const section = connection.h3.field_section();
-    response.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
-        refuse(connection, slot, response.outcome_of(failure));
+    response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
+        refuse(connection, slot, response_write.outcome_of(failure));
     };
 }
 
 fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {
     const slot = connection.slots.of_stream(data.stream_id) orelse return;
-    response.append_body(slot, data.octets) catch |failure| refuse(connection, slot, response.outcome_of(failure));
+    response_write.append_body(slot, data.octets) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
 }
 
 /// The response ended whole. Decision 101: coded content ends with its stream, or the exchange
 /// ends malformed.
 fn end_response(connection: *QuicConnection, stream_id: u64) void {
     const slot = connection.slots.of_stream(stream_id) orelse return;
-    const outcome: event.Outcome = if (response.end_body(slot)) .response else |failure| response.outcome_of(failure);
+    const outcome: event.Outcome = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
     slots_module.end(slot, outcome);
 }
 
@@ -258,7 +258,7 @@ fn on_reset(connection: *QuicConnection, ended: h3.connection.Ended) void {
     // "can be retried".
     if (ended.error_code == h3.constants.error_request_rejected) return end_stream(connection, ended.stream_id, .refused);
     const slot = connection.slots.of_stream(ended.stream_id) orelse return;
-    slot.exchange.error_code = @truncate(ended.error_code);
+    slot.response.error_code = @truncate(ended.error_code);
     slots_module.end(slot, .reset);
 }
 
@@ -312,16 +312,17 @@ test "RFC 9114 §5.2: a GOAWAY refuses the streams at or past its ID and those n
     connection.slots.init();
     connection.owed = .{};
     connection.draining = false;
-    var exchanges: [3]HttpExchange = @splat(.{ .method = "GET", .path = "/" });
-    for (&exchanges) |*exchange| _ = connection.slots.take(exchange).?;
+    const request: Request = .{ .method = "GET", .path = "/" };
+    var responses: [3]event.Response = @splat(.{});
+    for (&responses) |*response| _ = connection.slots.take(&request, response).?;
     // Streams 0 and 4 are written; the third waits.
     for (connection.slots.slots[0..2], [_]u64{ 0, 4 }) |*slot, id| {
         slot.stage = .sent;
         slot.stream_id = id;
     }
     record(connection, .{ .goaway = 4 });
-    try testing.expectEqual(.pending, exchanges[0].outcome);
-    try testing.expectEqual(.refused, exchanges[1].outcome);
-    try testing.expectEqual(.refused, exchanges[2].outcome);
+    try testing.expectEqual(.pending, responses[0].outcome);
+    try testing.expectEqual(.refused, responses[1].outcome);
+    try testing.expectEqual(.refused, responses[2].outcome);
     try testing.expect(connection.draining and connection.owed.draining);
 }

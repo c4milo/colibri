@@ -51,7 +51,7 @@ pub fn owed(channel: *Channel) ?Event {
         }
     }
     if (oldest(channel, .ended)) |entry| {
-        const reported: event.Finished = .{ .id = entry.id, .exchange = entry.exchange };
+        const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
         entry.* = .{};
         return .{ .finished = reported };
     }
@@ -160,15 +160,15 @@ fn on_connected(channel: *Channel, transport: Transport, protocol: event.Protoco
 fn on_finished(channel: *Channel, transport: Transport, finished: event.Finished) ?Event {
     // A cancelled exchange reports nothing, so every reported one is carried.
     const entry = carried(channel, transport, finished.id).?;
-    assert(entry.exchange == finished.exchange);
+    assert(entry.request == finished.request and entry.response == finished.response);
     if (movable(channel, entry, transport)) {
         // RFC 9114 §4.1.1: a refused request is treated "as though [it] had never been sent".
-        entry.exchange.clear();
-        entry.* = .{ .stage = .waiting, .id = entry.id, .exchange = entry.exchange, .moves = entry.moves + 1 };
+        entry.response.clear();
+        entry.* = .{ .stage = .waiting, .id = entry.id, .request = entry.request, .response = entry.response, .moves = entry.moves + 1 };
         assign_waiting(channel);
         return null;
     }
-    const reported: event.Finished = .{ .id = entry.id, .exchange = entry.exchange };
+    const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
     entry.* = .{};
     return .{ .finished = reported };
 }
@@ -177,7 +177,7 @@ fn on_finished(channel: *Channel, transport: Transport, finished: event.Finished
 /// exchange, and it has moved fewer than `moves_max` times. RFC 9113 §8.7: a client "MAY
 /// automatically retry" a request no server processed.
 fn movable(channel: *const Channel, entry: *const Entry, transport: Transport) bool {
-    if (entry.exchange.outcome != .refused or entry.moves >= constants.moves_max) return false;
+    if (entry.response.outcome != .refused or entry.moves >= constants.moves_max) return false;
     return channel.phase(transport) != .open;
 }
 
@@ -189,8 +189,8 @@ pub fn assign_waiting(channel: *Channel) void {
         const entry = oldest(channel, .waiting) orelse return;
         // The connection holds no more exchanges than the channel, and an open one takes them.
         const carried_id = switch (transport) {
-            .quic => channel.quic.request(entry.exchange),
-            .tcp => channel.tcp.request(entry.exchange),
+            .quic => channel.quic.request(entry.request, entry.response),
+            .tcp => channel.tcp.request(entry.request, entry.response),
         } catch unreachable;
         entry.stage = .carried;
         entry.carrier = transport;
@@ -347,7 +347,7 @@ pub fn learn(channel: *Channel, advert: alt_svc.Advert, now_ns: u64) void {
 fn give_up(channel: *Channel) void {
     for (&channel.entries) |*entry| {
         if (entry.stage != .waiting) continue;
-        entry.exchange.outcome = .refused;
+        entry.response.outcome = .refused;
         entry.stage = .ended;
     }
     end_attempt(channel);

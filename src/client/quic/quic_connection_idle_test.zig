@@ -10,7 +10,7 @@ const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const HttpExchange = support.HttpExchange;
+const Exchange = support.Exchange;
 
 /// Where the tests' exchanges put their responses, outside any stack frame. Test-only.
 var bodies: [bodies_count][body_len]u8 = undefined;
@@ -23,16 +23,16 @@ const closing_rounds: usize = 128;
 const short_idle_timeout_ms: u64 = 1_500;
 const short_margin_ns: u64 = short_idle_timeout_ms * quic.constants.nanoseconds_per_millisecond / constants.quic_idle_margin_timeout_divisor;
 
-fn get(body: []u8) HttpExchange {
-    return .{ .method = "GET", .path = "/dns-query", .body = body };
+fn get(body: []u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/dns-query" }, .response = .{ .body = body } };
 }
 
 /// A connection that carried one exchange to its response, and holds none. Test-only.
 fn answered_once() !void {
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
 }
 
 /// Moves time to `at_ns` and fires the client's deadlines there. Test-only.
@@ -53,7 +53,7 @@ test "RFC 9114 §5.1: an idle connection near its idle timeout takes no new exch
     fire_at(acts_at);
     try testing.expect(connection.retired and connection.draining);
     var later = get(&bodies[1]);
-    try testing.expectError(error.Draining, connection.request(&later));
+    try testing.expectError(error.Draining, connection.request(&later.request, &later.response));
     // It closes with H3_NO_ERROR once its closing period has run, and the server read the close.
     try support.pump(closing_rounds);
     try testing.expect(support.find(.draining) != null and support.find(.closed) != null);
@@ -67,7 +67,7 @@ test "RFC 9000 §10.1.2: a connection awaiting a response sends a PING near its 
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     const first_deadline = quic.connection_idle.deadline_ns(&connection.transport).?;
     const acts_at = first_deadline - constants.quic_idle_margin_ns_min;
@@ -85,7 +85,7 @@ test "RFC 9000 §10.1.2: a connection awaiting a response sends a PING near its 
     support.server_answers = true;
     try support.answer_due();
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expect(!connection.retired);
 }
 

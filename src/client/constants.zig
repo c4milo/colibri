@@ -62,7 +62,7 @@ pub const quic_id_len: usize = 8;
 
 /// Octets of a request stream's frames the QUIC client keeps until the stream closes (decision
 /// 79): the HEADERS frame, the longest field section h3 encodes behind a frame header, then the
-/// DATA frame's header. The exchange's content follows them from the caller's memory.
+/// DATA frame's header. The request's content follows them from the caller's memory.
 pub const request_prefix_len_max: usize = h3.constants.scratch_len + h3.constants.frame_header_len_max;
 
 /// The idle timeout the QUIC client advertises unless the caller names another (RFC 9000 §10.1),

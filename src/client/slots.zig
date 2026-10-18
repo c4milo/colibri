@@ -11,7 +11,8 @@ const constants = @import("constants.zig");
 const event = @import("event.zig");
 
 const Id = event.Id;
-const HttpExchange = event.HttpExchange;
+const Request = event.Request;
+const Response = event.Response;
 const Outcome = event.Outcome;
 
 pub const Stage = enum {
@@ -22,7 +23,7 @@ pub const Stage = enum {
     /// Its head is written. Its content may still be going out, and its response is awaited.
     sent,
     /// h11: its response is read and dropped, because its content did not fit or its caller
-    /// cancelled it. `exchange` is not read, and a cancelled slot reports nothing.
+    /// cancelled it. `request` and `response` are not read, and a cancelled slot reports nothing.
     dropping,
     /// It ended, and its `finished` event is owed.
     ended,
@@ -31,13 +32,16 @@ pub const Stage = enum {
 pub const Slot = struct {
     stage: Stage = .free,
     id: Id = 0,
-    exchange: *HttpExchange = undefined,
+    /// The request the program placed, which the client only reads, and its response, which the
+    /// client writes (decision 124).
+    request: *const Request = undefined,
+    response: *Response = undefined,
     /// The stream the request opened, 0 before it opened one: h2's (RFC 9113 §5.1.1), or QUIC's
     /// (RFC 9000 §2.1), whose client-initiated bidirectional streams start at 0 too, so a QUIC
     /// slot says whether it opened one with `stage`.
     stream_id: u64 = 0,
     /// QUIC: the stream may still send the request's octets again, which it reads from the
-    /// exchange (RFC 9000 §3.1), so an ended exchange is not reported until it is closed.
+    /// request (RFC 9000 §3.1), so an ended exchange is not reported until it is closed.
     holds_octets: bool = false,
     /// The protocol refused the rest of the content, so no more of it is written.
     content_stopped: bool = false,
@@ -57,11 +61,11 @@ pub const Slot = struct {
     offered: std.EnumSet(http.content_coding.Coding) = .initEmpty(),
     coded_len: usize = 0,
 
-    /// Whether no more of the exchange's content is to be written: all of it went out, or the
+    /// Whether no more of the request's content is to be written: all of it went out, or the
     /// protocol refused the rest.
     pub fn content_done(slot: *const Slot) bool {
         assert(slot.stage == .sent);
-        return slot.content_stopped or slot.exchange.content_sent == slot.exchange.content.len;
+        return slot.content_stopped or slot.response.content_sent == slot.request.content.len;
     }
 };
 
@@ -76,10 +80,11 @@ pub const Slots = struct {
         assert(slots.count(.free) == constants.exchanges_max);
     }
 
-    /// Takes a free slot for `exchange` and returns its id, or null when every slot is taken.
-    pub fn take(slots: *Slots, exchange: *HttpExchange) ?Id {
+    /// Takes a free slot for `request` and its `response`, and returns its id, or null when every
+    /// slot is taken.
+    pub fn take(slots: *Slots, request: *const Request, response: *Response) ?Id {
         const slot = slots.first(.free) orelse return null;
-        slot.* = .{ .stage = .queued, .id = slots.next_id, .exchange = exchange };
+        slot.* = .{ .stage = .queued, .id = slots.next_id, .request = request, .response = response };
         slots.next_id += 1;
         assert(slot.id < slots.next_id);
         return slot.id;
@@ -179,7 +184,7 @@ pub fn end(slot: *Slot, outcome: Outcome) void {
     assert(slot.stage == .queued or slot.stage == .sent);
     assert(outcome != .pending);
     give_back(slot);
-    slot.exchange.outcome = outcome;
+    slot.response.outcome = outcome;
     slot.stage = .ended;
 }
 
@@ -187,7 +192,7 @@ pub fn end(slot: *Slot, outcome: Outcome) void {
 /// `finished` event is owed once the response is read; without, the caller cancelled it.
 pub fn drop(slot: *Slot, report: bool) void {
     assert(slot.stage == .sent);
-    assert(!report or slot.exchange.outcome != .pending);
+    assert(!report or slot.response.outcome != .pending);
     give_back(slot);
     slot.stage = .dropping;
     slot.report_after_drop = report;
@@ -219,24 +224,27 @@ pub fn give_back(slot: *Slot) void {
 
 const testing = std.testing;
 
+/// The request each test slot takes. Test-only.
+const test_request: Request = .{ .method = "GET", .path = "/" };
+
 test "ids rise in the order exchanges are taken, and a released slot is taken again" {
     var slots: Slots = undefined;
     slots.init();
-    var exchanges: [constants.exchanges_max + 1]HttpExchange = @splat(.{ .method = "GET", .path = "/" });
-    for (exchanges[0..constants.exchanges_max], 1..) |*exchange, expected| {
-        try testing.expectEqual(expected, slots.take(exchange).?);
+    var responses: [constants.exchanges_max + 1]Response = @splat(.{});
+    for (responses[0..constants.exchanges_max], 1..) |*response, expected| {
+        try testing.expectEqual(expected, slots.take(&test_request, response).?);
     }
-    try testing.expectEqual(null, slots.take(&exchanges[constants.exchanges_max]));
+    try testing.expectEqual(null, slots.take(&test_request, &responses[constants.exchanges_max]));
     release(slots.of_id(3).?);
-    try testing.expectEqual(constants.exchanges_max + 1, slots.take(&exchanges[constants.exchanges_max]).?);
+    try testing.expectEqual(constants.exchanges_max + 1, slots.take(&test_request, &responses[constants.exchanges_max]).?);
     try testing.expectEqual(1, slots.oldest(.queued).?.id);
 }
 
 test "the oldest exchange awaiting its response may be sent or dropping" {
     var slots: Slots = undefined;
     slots.init();
-    var exchanges: [3]HttpExchange = @splat(.{ .method = "GET", .path = "/" });
-    for (&exchanges) |*exchange| _ = slots.take(exchange).?;
+    var responses: [3]Response = @splat(.{});
+    for (&responses) |*response| _ = slots.take(&test_request, response).?;
     for (&slots.slots) |*slot| {
         if (slot.stage == .queued) slot.stage = .sent;
     }
@@ -246,7 +254,7 @@ test "the oldest exchange awaiting its response may be sent or dropping" {
     try testing.expectEqual(2, slots.oldest_awaiting().?.id);
     // A connection that carries nothing more ends every exchange it holds.
     slots.end_all(.refused, .closed);
-    try testing.expectEqual(.closed, exchanges[1].outcome);
+    try testing.expectEqual(.closed, responses[1].outcome);
     try testing.expect(slots.idle());
     try testing.expectEqual(2, slots.count(.ended));
 }

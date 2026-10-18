@@ -1,5 +1,5 @@
-//! One connection of the client over TCP (decision 100, design §8 step 17c). The caller places an
-//! exchange for each request and hands it to `request`, which returns its id. `send` writes the
+//! One connection of the client over TCP (decision 100, design §8 step 17c). The caller places a
+//! request and its response, and hands them to `request`, which returns their id. `send` writes the
 //! requests as the protocol, the room and the peer allow, and the octets the caller read go in
 //! through `receive`, which returns at most one event a call. Every exchange ends in one outcome,
 //! reported by its `finished` event, in h11 and h2 alike.
@@ -17,7 +17,8 @@
 //! After each `send` it loops over `receive` again, even with no new octets: while the output was
 //! full, h2 read no frame past the replies it owed (RFC 9113 §6.5.3), and those frames are read
 //! then. A connection that fails reports it as its exchanges' outcomes and a `closed` event. The
-//! caller owns the struct and every exchange, and colibri allocates nothing (decision 35).
+//! caller owns the struct and every request and response, and colibri allocates nothing (decision
+//! 35).
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
@@ -42,7 +43,8 @@ pub const Id = event.Id;
 pub const Protocol = event.Protocol;
 pub const Event = event.Event;
 pub const Received = event.Received;
-pub const HttpExchange = event.HttpExchange;
+pub const Request = event.Request;
+pub const Response = event.Response;
 pub const Field = event.Field;
 const Slot = slots_module.Slot;
 
@@ -178,24 +180,25 @@ pub const Connection = struct {
         assert(connection.output_len == 0 and connection.plain_in_len == 0);
     }
 
-    /// Takes `exchange`, which `send` writes when the protocol, the room and the peer allow, and
-    /// returns its id. The caller keeps the exchange in place until its `finished` event.
-    pub fn request(connection: *Connection, exchange: *HttpExchange) RequestError!Id {
+    /// Takes the request `message`, which `send` writes when the protocol, the room and the peer
+    /// allow, and the `response` it gets, and returns the exchange's id. The caller keeps both in
+    /// place until the exchange's `finished` event.
+    pub fn request(connection: *Connection, message: *const Request, response: *Response) RequestError!Id {
         // RFC 9113 §5.4.1 and RFC 9112 §9.6: a connection that failed or closed carries no request.
         if (connection.phase == .closed or connection.stopped) return error.ConnectionClosed;
         // RFC 9113 §6.8 and §5.1.1, RFC 9112 §9.6: a connection that heard GOAWAY, spent its
         // identifiers or said it closes opens no new request.
         if (connection.draining) return error.Draining;
-        try check_request(exchange);
-        exchange.clear();
-        const id = connection.slots.take(exchange) orelse return error.Full;
+        try check_request(message);
+        response.clear();
+        const id = connection.slots.take(message, response) orelse return error.Full;
         assert(connection.slots.of_id(id).?.stage == .queued);
         return id;
     }
 
     /// Ends exchange `id` before its response is whole, and reports nothing for it. The client
-    /// reads and writes nothing of the exchange after the call, so its memory is the caller's
-    /// again. One not yet written is dropped. A written one: h2 resets its stream with CANCEL (RFC
+    /// reads and writes nothing of the request or the response after the call, so their memory is
+    /// the caller's again. One not yet written is dropped. A written one: h2 resets its stream with CANCEL (RFC
     /// 9113 §6.4), and h11 reads its response and drops it, or, while its content is going out,
     /// ends the connection.
     pub fn cancel(connection: *Connection, id: Id) void {

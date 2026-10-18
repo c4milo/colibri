@@ -7,7 +7,7 @@ const support = @import("connection_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const HttpExchange = support.HttpExchange;
+const Exchange = support.Exchange;
 const Field = support.Field;
 
 const ok: u16 = 200;
@@ -26,8 +26,8 @@ fn start() !void {
     support.peer_events_len = 0;
 }
 
-fn get(body: []u8) HttpExchange {
-    return .{ .method = "GET", .path = "/", .body = body };
+fn get(body: []u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
 }
 
 /// The first stream reset the h2 peer read, or null. Test-only.
@@ -41,15 +41,15 @@ fn peer_reset() ?h2.connection.StreamReset {
 test "RFC 9113 §8.1: a response that ends before the upload does closes the stream with CANCEL" {
     try start();
     @memset(&upload, 'x');
-    var post: HttpExchange = .{ .method = "POST", .path = "/", .content = &upload, .body = &bodies[0] };
-    _ = try connection.request(&post);
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&post.request, &post.response);
     support.client_send();
     try support.peer_h2_read();
     // The server answers whole while most of the content is still to come.
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, post.outcome);
-    try testing.expect(post.content_sent < upload.len);
+    try testing.expectEqual(.response, post.response.outcome);
+    try testing.expect(post.response.content_sent < upload.len);
     support.peer_events_len = 0;
     try support.pump_h2();
     try testing.expectEqual(h2.constants.error_cancel, peer_reset().?.error_code);
@@ -59,15 +59,15 @@ test "RFC 9113 §6.8: an exchange not yet written when a GOAWAY arrives is refus
     try start();
     var sent = get(&bodies[0]);
     var waiting = get(&bodies[1]);
-    _ = try connection.request(&sent);
+    _ = try connection.request(&sent.request, &sent.response);
     try support.pump_h2();
-    _ = try connection.request(&waiting);
+    _ = try connection.request(&waiting.request, &waiting.response);
     var writer = h2.core.Writer.init(support.to_client[support.to_client_len..]);
     try h2.frame.write_goaway(&writer, 1, h2.constants.error_no_error, "");
     support.to_client_len += writer.written().len;
     try support.client_receive();
-    try testing.expectEqual(.refused, waiting.outcome);
-    try testing.expectEqual(.pending, sent.outcome);
+    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expectEqual(.pending, sent.response.outcome);
 }
 
 test "RFC 9113 §5.1.2: an exchange past the server's stream limit waits for a stream to close" {
@@ -78,27 +78,27 @@ test "RFC 9113 §5.1.2: an exchange past the server's stream limit waits for a s
     try support.client_receive();
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
-    _ = try connection.request(&first);
-    _ = try connection.request(&second);
+    _ = try connection.request(&first.request, &first.response);
+    _ = try connection.request(&second.request, &second.response);
     try support.pump_h2();
     try testing.expectEqual(1, connection.slots.count(.sent));
-    try testing.expectEqual(.pending, second.outcome);
+    try testing.expectEqual(.pending, second.response.outcome);
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.pump_h2();
     // The first stream closed, so the second exchange opened stream 3.
     try support.peer_h2_answer(3, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, first.outcome);
-    try testing.expectEqual(.response, second.outcome);
+    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, second.response.outcome);
 }
 
 test "RFC 9113 §5.1.1: with no stream identifier left, an exchange is refused and the connection drains" {
     try start();
     connection.session.h2.streams.next_local_id = h2.constants.stream_id_max + h2.constants.stream_id_step;
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expect(support.find(.draining) != null);
 }
 
@@ -111,23 +111,23 @@ test "RFC 9113 §4.3: a field section past what h2 sends in one block ends its e
         .{ .name = "x-a", .value = &value }, .{ .name = "x-b", .value = &value }, .{ .name = "x-c", .value = &value },
         .{ .name = "x-d", .value = &value }, .{ .name = "x-e", .value = &value },
     };
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .fields = &fields, .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .fields = &fields }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
-    try testing.expectEqual(.invalid, exchange.outcome);
+    try testing.expectEqual(.invalid, exchange.response.outcome);
 }
 
 test "RFC 9113 §8.1: content before the response's head is malformed, and colibri resets the stream" {
     try start();
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
     var writer = h2.core.Writer.init(support.to_client[support.to_client_len..]);
     try h2.frame.write_data(&writer, 1, "hello", true, 0);
     support.to_client_len += writer.written().len;
     try support.client_receive();
-    try testing.expectEqual(.malformed, exchange.outcome);
-    try testing.expectEqual(0, exchange.body_len);
+    try testing.expectEqual(.malformed, exchange.response.outcome);
+    try testing.expectEqual(0, exchange.response.body_len);
     support.peer_events_len = 0;
     try support.pump_h2();
     try testing.expectEqual(h2.constants.error_protocol_error, peer_reset().?.error_code);
@@ -155,16 +155,18 @@ test "RFC 7541 §7.1.3: the path and a marked field line go out never-indexed, a
     try start();
     const fields = [_]Field{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
     const marks = [_]bool{ true, false };
-    var exchange: HttpExchange = .{
-        .method = "GET",
-        .path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE",
-        .fields = &fields,
-        .never_indexed = .{ .path = true, .fields = &marks },
-        .body = &bodies[0],
+    var exchange: Exchange = .{
+        .request = .{
+            .method = "GET",
+            .path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE",
+            .fields = &fields,
+            .never_indexed = .{ .path = true, .fields = &marks },
+        },
+        .response = .{ .body = &bodies[0] },
     };
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
-    try testing.expect(sent_holds(try representation(":path", exchange.path, .never_indexed)));
+    try testing.expect(sent_holds(try representation(":path", exchange.request.path, .never_indexed)));
     try testing.expect(sent_holds(try representation("authorization", "secret", .never_indexed)));
     try testing.expect(sent_holds(try representation("accept", "application/dns-message", .without_indexing)));
 }

@@ -13,7 +13,7 @@ const client_alt_svc = @import("../alt_svc.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const HttpExchange = support.HttpExchange;
+const Exchange = support.Exchange;
 
 const ok: u16 = 200;
 
@@ -78,16 +78,16 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and an exchange goes out 
     try testing.expectEqual(event.Protocol.h2, support.find(.connected).?.connected);
     support.peer_h2.init(.server);
     try support.peer_h2.attach_tls(server.provider());
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try server_open();
     const request = (try peer_h2_answer("hello")).?;
     // RFC 9110 §4.2.2: a request over TLS names the https scheme.
     try testing.expectEqualStrings("https", request.request.scheme.?);
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqualStrings("hello", exchange.content_received());
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
 }
 
 test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify follows the close" {
@@ -95,8 +95,8 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     try testing.expectEqual(event.Protocol.h11, support.find(.connected).?.connected);
     support.peer_h11.init(.server, .{});
     try support.peer_h11.attach_tls(server.provider());
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try server_open();
     const received = try support.peer_h11.receive(peer_plain[0..tls_support.peer_plain_len], &.{});
@@ -107,7 +107,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     written += try support.peer_h11.write_end(peer_out[written..], &.{});
     try server_seal(peer_out[0..written]);
     try support.client_receive();
-    try testing.expectEqualStrings("hi", exchange.content_received());
+    try testing.expectEqualStrings("hi", exchange.response.content_received());
     try testing.expect(support.find(.closed) != null);
     support.to_peer_len = 0;
     support.client_send();
@@ -123,8 +123,8 @@ test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_
     try start_tls(&support.protocols_h11, &support.protocols_both, "localhost", false);
     support.peer_h11.init(.server, .{});
     try support.peer_h11.attach_tls(server.provider());
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try server_open();
     _ = try support.peer_h11.receive(peer_plain[0..tls_support.peer_plain_len], &.{});
@@ -133,7 +133,7 @@ test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_
     const written = try support.peer_h11.write_response(peer_out, ok, "", &fields);
     try server_seal(peer_out[0..written]);
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
     const advert = connection.take_alt_svc() orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(u16, 8443), advert.h3.port);
     try testing.expectEqual(@as(u64, 60), advert.h3.max_age_s);
@@ -144,14 +144,14 @@ test "RFC 7838 §3: an h2 response's Alt-Svc over TLS names h3 for take_alt_svc"
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
     support.peer_h2.init(.server);
     try support.peer_h2.attach_tls(server.provider());
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try server_open();
     const fields = [_]h2.hpack.Field{.{ .name = "alt-svc", .value = "h3=\":443\"" }};
     _ = try peer_h2_answer_with(&fields, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
     const advert = connection.take_alt_svc() orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(u16, 443), advert.h3.port);
 }
@@ -165,8 +165,8 @@ fn learned_from_altsvc(stream_id: u32, origin: []const u8) !?client_alt_svc.Adve
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
     support.peer_h2.init(.server);
     try support.peer_h2.attach_tls(server.provider());
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try server_open();
     var frame_storage: [altsvc_frame_len]u8 = undefined;
@@ -174,7 +174,7 @@ fn learned_from_altsvc(stream_id: u32, origin: []const u8) !?client_alt_svc.Adve
     try h2.frame.write_altsvc(&writer, stream_id, origin, "h3=\":9443\"; ma=30");
     _ = try peer_h2_answer_after(writer.written(), &.{}, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
     return connection.take_alt_svc();
 }
 
@@ -201,17 +201,17 @@ test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket 
 }
 
 test "RFC 9846 §6.2: a handshake the client refuses ends the connection, and its exchange is refused" {
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     // The certificate names localhost, and the client asks for another name.
     try prepare_tls(&support.protocols_h2, &support.protocols_both, "example.com", false);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try run_handshake();
     try support.client_receive();
     try testing.expectEqual(null, support.find(.connected));
     try testing.expect(connection.failed);
     // The server never saw the request, so it may go on another connection.
-    try testing.expectEqual(.refused, exchange.outcome);
-    try testing.expectError(error.ConnectionClosed, connection.request(&exchange));
+    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectError(error.ConnectionClosed, connection.request(&exchange.request, &exchange.response));
     try testing.expect(support.find(.closed) != null);
     // The alert that says why goes out before the caller closes (RFC 9846 §6.2).
     try testing.expect(!connection.should_close());
@@ -231,14 +231,14 @@ test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol ends t
     support.config = .{ .authority = support.authority, .tls = client_config, .versions = .{ .h11 = false } };
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null);
     try tls_support.start_server();
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     try run_handshake();
     // h2 over TLS runs only where ALPN selected it, so no protocol took the handshake.
     try testing.expectEqual(null, support.find(.connected));
     try testing.expect(support.find(.closed) != null);
     // The server never saw the request, so it may go on another connection.
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     // The client's Finished goes out before the caller closes, and no alert after it.
     try testing.expect(!connection.should_close());
     support.client_send();
@@ -256,8 +256,8 @@ test "RFC 9846 §5.2: a record that does not authenticate ends the connection wi
 /// client answers it with one bad_record_mac alert before the caller closes.
 fn expect_forged_record_refused(server_protocols: []const []const u8) !void {
     try start_tls(server_protocols, &support.protocols_both, "localhost", false);
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     // The server opens the request, so the next record it opens is the client's next one.
     try server_open();
@@ -280,13 +280,13 @@ fn expect_forged_record_refused(server_protocols: []const []const u8) !void {
 
 test "RFC 9846 §6.1: the server's close_notify ends the exchange awaiting its response" {
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     const provider = server.provider();
     support.to_client_len += try provider.vtable.send_close_notify(provider.context, support.to_client[support.to_client_len..]);
     try support.client_receive();
-    try testing.expectEqual(.closed, exchange.outcome);
+    try testing.expectEqual(.closed, exchange.response.outcome);
     try testing.expect(support.find(.closed) != null);
 }
 

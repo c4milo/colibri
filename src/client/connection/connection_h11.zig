@@ -14,12 +14,11 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const slots_module = @import("../slots.zig");
-const response = @import("../response.zig");
+const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
 const event = @import("../event.zig");
 
 const Connection = connection_module.Connection;
-const HttpExchange = event.HttpExchange;
 const Field = event.Field;
 const Slot = slots_module.Slot;
 
@@ -58,13 +57,13 @@ fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
     switch (h11_event) {
         .interim => {
             // RFC 9110 §15.2: a client reads any number of interim responses before the final one.
-            if (slot.stage == .sent) slot.exchange.interims += 1;
+            if (slot.stage == .sent) slot.response.interims += 1;
             return false;
         },
         .response => |head| return on_response(connection, slot, head.line.status.code),
         .data => |octets| {
             if (slot.stage == .dropping) return false;
-            response.append_body(slot, octets) catch |failure| start_dropping(slot, response.outcome_of(failure));
+            response_write.append_body(slot, octets) catch |failure| start_dropping(slot, response_write.outcome_of(failure));
             return false;
         },
         .end => return finish(connection, slot),
@@ -77,8 +76,8 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
     internal.note_alt_svc(connection, &connection.session.h11.section, 0);
     if (slot.stage == .sent) {
         const section = &connection.session.h11.section;
-        response.record_head(slot, status, section, 0) catch |failure| {
-            start_dropping(slot, response.outcome_of(failure));
+        response_write.record_head(slot, status, section, 0) catch |failure| {
+            start_dropping(slot, response_write.outcome_of(failure));
         };
     }
     // A response without a body is read whole with its head (RFC 9112 §6.3).
@@ -89,7 +88,7 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
 /// The content did not fit the caller's memory, or its coding is corrupt: the exchange ends with
 /// `outcome`, and the rest of the response is read and dropped.
 fn start_dropping(slot: *Slot, outcome: event.Outcome) void {
-    slot.exchange.outcome = outcome;
+    slot.response.outcome = outcome;
     slots_module.drop(slot, true);
 }
 
@@ -99,7 +98,7 @@ fn finish(connection: *Connection, slot: *Slot) bool {
         slots_module.settle_drop(slot);
     } else {
         // Decision 101: coded content ends with its stream, or the exchange ends malformed.
-        const outcome: event.Outcome = if (response.end_body(slot)) .response else |failure| response.outcome_of(failure);
+        const outcome: event.Outcome = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
         slots_module.end(slot, outcome);
     }
     // RFC 9112 §9.6: after a response that closes the connection, h11 reads and writes nothing
@@ -190,7 +189,7 @@ fn write_head(connection: *Connection, slot: *Slot) bool {
         slots_module.end(slot, .invalid);
         return true;
     };
-    const written = connection.session.h11.write_request(internal.room(connection), slot.exchange.method, slot.exchange.path, fields) catch |failure| {
+    const written = connection.session.h11.write_request(internal.room(connection), slot.request.method, slot.request.path, fields) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += written;
@@ -224,13 +223,13 @@ fn request_fields(
     digits: *[constants.content_length_digits_max]u8,
     offer: *[coding.offer_len_max]u8,
 ) ?[]const Field {
-    const exchange = slot.exchange;
-    if (exchange.fields.len + constants.added_fields_max > lines.len) return null;
+    const request = slot.request;
+    if (request.fields.len + constants.added_fields_max > lines.len) return null;
     // RFC 9112 §3.2: "A client MUST send a Host header field in all HTTP/1.1 request messages."
     lines[0] = .{ .name = "Host", .value = connection.config.authority };
-    @memcpy(lines[1..][0..exchange.fields.len], exchange.fields);
-    var count = 1 + exchange.fields.len;
-    if (exchange.content_length(digits)) |length| {
+    @memcpy(lines[1..][0..request.fields.len], request.fields);
+    var count = 1 + request.fields.len;
+    if (request.content_length(digits)) |length| {
         lines[count] = .{ .name = "Content-Length", .value = length };
         count += 1;
     }
@@ -243,16 +242,17 @@ fn request_fields(
 
 /// Writes as much of `slot`'s content as the room holds, which h11 takes whole (RFC 9112 §2.1).
 fn write_content(connection: *Connection, slot: *Slot) void {
-    const exchange = slot.exchange;
-    const left = exchange.content.len - exchange.content_sent;
+    const content = slot.request.content;
+    const response = slot.response;
+    const left = content.len - response.content_sent;
     const take = @min(left, internal.room(connection).len);
     if (take == 0) return;
-    const written = connection.session.h11.write_body(internal.room(connection), exchange.content[exchange.content_sent..][0..take]) catch {
+    const written = connection.session.h11.write_body(internal.room(connection), content[response.content_sent..][0..take]) catch {
         // RFC 9112 §9.6: the connection closed, and no more of the body goes out.
         slot.content_stopped = true;
         return;
     };
     connection.output_len += written;
-    exchange.content_sent += take;
-    assert(exchange.content_sent <= exchange.content.len);
+    response.content_sent += take;
+    assert(response.content_sent <= content.len);
 }

@@ -9,7 +9,7 @@ const event = @import("../event.zig");
 
 const testing = std.testing;
 const Channel = channel_module.Channel;
-const HttpExchange = event.HttpExchange;
+const Exchange = support.Exchange;
 const Event = channel_module.Event;
 
 /// The channel the tests drive, its configuration and the events it reported, outside any stack
@@ -43,7 +43,7 @@ const half_size_line = chunked_body[0..1];
 
 /// A channel with no QUIC configured, whose TCP connection speaks h11 in cleartext, with one
 /// exchange written to the peer's buffer.
-fn start(exchange: *HttpExchange) !void {
+fn start(exchange: *Exchange) !void {
     config = .{ .authority = support.authority, .versions = support.only(.h11) };
     try channel.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
     support.peer_h11.init(.server, .{});
@@ -51,7 +51,7 @@ fn start(exchange: *HttpExchange) !void {
     support.to_peer_len = 0;
     support.to_client_len = 0;
     events_len = 0;
-    _ = try channel.request(exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     // The channel asks for TCP, and its connection takes the exchange once it is started.
     try collect();
     try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
@@ -107,8 +107,8 @@ fn count(tag: std.meta.Tag(Event)) usize {
     return counted;
 }
 
-fn get(body: []u8) HttpExchange {
-    return .{ .method = "GET", .path = "/", .body = body };
+fn get(body: []u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
 }
 
 test "design §8 step 21c.3: a channel reads half an h11 head again once its caller passes it whole" {
@@ -120,11 +120,12 @@ test "design §8 step 21c.3: a channel reads half an h11 head again once its cal
     const polled = channel.receive(.none, support.now_ns);
     try testing.expectEqual(0, polled.consumed);
     try testing.expectEqual(null, polled.event);
-    try testing.expectEqual(.pending, exchange.outcome);
+    try testing.expectEqual(.pending, exchange.response.outcome);
     try testing.expectEqual(response.len, try give(response));
-    try testing.expectEqual(&exchange, find(.finished).?.finished.exchange);
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqualStrings("hello", exchange.content_received());
+    try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
+    try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
 }
 
 test "design §8 step 21c.3: a channel reads half a chunk-size line again with the rest of it" {
@@ -135,17 +136,17 @@ test "design §8 step 21c.3: a channel reads half a chunk-size line again with t
     const polled = channel.receive(.none, support.now_ns);
     try testing.expectEqual(0, polled.consumed);
     try testing.expectEqual(null, polled.event);
-    try testing.expectEqual(.pending, exchange.outcome);
+    try testing.expectEqual(.pending, exchange.response.outcome);
     try testing.expectEqual(chunked_body.len, try give(chunked_body));
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqualStrings("hello", exchange.content_received());
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
 }
 
 test "design §8 step 21c.3: a channel carries two h11 exchanges, the last answered with no content" {
     var first = get(&bodies[0]);
     var last = get(&bodies[1]);
     try start(&first);
-    const last_id = try channel.request(&last);
+    const last_id = try channel.request(&last.request, &last.response);
     send();
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "5" }}, "hello");
@@ -156,12 +157,12 @@ test "design §8 step 21c.3: a channel carries two h11 exchanges, the last answe
     try collect();
     try testing.expectEqual(0, support.to_client_len);
     try testing.expectEqual(2, count(.finished));
-    try testing.expectEqual(.response, first.outcome);
-    try testing.expectEqual(ok, first.status);
-    try testing.expectEqualStrings("hello", first.content_received());
-    try testing.expectEqual(.response, last.outcome);
-    try testing.expectEqual(no_content, last.status);
-    try testing.expectEqual(0, last.content_received().len);
+    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(ok, first.response.status);
+    try testing.expectEqualStrings("hello", first.response.content_received());
+    try testing.expectEqual(.response, last.response.outcome);
+    try testing.expectEqual(no_content, last.response.status);
+    try testing.expectEqual(0, last.response.content_received().len);
     try testing.expectEqual(last_id, events[events_len - 1].finished.id);
 }
 
@@ -180,12 +181,12 @@ test "decision 100: a channel reports a closed connection's close before it asks
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
     try start(&first);
-    _ = try channel.request(&second);
+    _ = try channel.request(&second.request, &second.response);
     // RFC 9112 §9.6: a response that says "close" ends the connection after it, so the second
     // exchange waits for another connection, in the same call that reads the connection's end.
     const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
     try testing.expectEqual(response.len, try give(response));
-    try testing.expectEqual(.response, first.outcome);
+    try testing.expectEqual(.response, first.response.outcome);
     try testing.expectEqual(2, count(.open));
     const closed_at = index_of(.close, 0) orelse return error.TestUnexpectedResult;
     try testing.expectEqual(Event{ .close = .tcp }, events[closed_at]);
@@ -197,7 +198,7 @@ test "decision 120: a shut-down channel drops the open of a connection no caller
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
     try start(&first);
-    const second_id = try channel.request(&second);
+    const second_id = try channel.request(&second.request, &second.response);
     // RFC 9112 §9.6: the response closes the connection, so the second exchange waits for another.
     const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
     @memcpy(support.to_client[0..response.len], response);

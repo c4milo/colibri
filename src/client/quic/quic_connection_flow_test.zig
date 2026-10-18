@@ -11,7 +11,7 @@ const event = @import("../event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const HttpExchange = support.HttpExchange;
+const Exchange = support.Exchange;
 
 /// Where the tests' exchanges put their responses, outside any stack frame. Test-only.
 var bodies: [bodies_count][body_len]u8 = undefined;
@@ -20,8 +20,8 @@ const body_len: usize = 1024;
 /// Rounds that run past the closing period, three times the Probe Timeout (RFC 9000 §10.2).
 const closing_rounds: usize = 128;
 
-fn get(body: []u8) HttpExchange {
-    return .{ .method = "GET", .path = "/dns-query", .body = body };
+fn get(body: []u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/dns-query" }, .response = .{ .body = body } };
 }
 
 test "RFC 9114 §4.1.1: content past the caller's memory ends the exchange, and the server stops" {
@@ -29,20 +29,21 @@ test "RFC 9114 §4.1.1: content past the caller's memory ends the exchange, and 
     // The response never ends, so only the client's STOP_SENDING stops it.
     support.answer_open = true;
     var exchange = get(bodies[0][0..2]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.too_large, exchange.outcome);
+    try testing.expectEqual(.too_large, exchange.response.outcome);
     // RFC 9000 §3.5: the server resets the response it was sending, which closes its stream, and
     // the exchange is reported once the client's stream closed too.
     try testing.expect(support.server.streams.lookup(.{ .value = 0 }) != .live);
-    try testing.expectEqual(&exchange, support.find(.finished).?.finished.exchange);
+    try testing.expectEqual(&exchange.response, support.find(.finished).?.finished.response);
+    try testing.expectEqual(&exchange.request, support.find(.finished).?.finished.request);
 }
 
 test "RFC 9114 §4.1.1: a cancelled exchange's stream is reset, and no event reports it" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
     var exchange = get(&bodies[0]);
-    const id = try connection.request(&exchange);
+    const id = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     connection.cancel(id);
     try support.pump(support.rounds_default);
@@ -50,7 +51,7 @@ test "RFC 9114 §4.1.1: a cancelled exchange's stream is reset, and no event rep
     // which closes its stream.
     try testing.expect(support.server.streams.lookup(.{ .value = 0 }) != .live);
     try testing.expectEqual(null, support.find(.finished));
-    try testing.expectEqual(.pending, exchange.outcome);
+    try testing.expectEqual(.pending, exchange.response.outcome);
 }
 
 /// Content past the server's stream window, so its stream still sends after the response ends
@@ -62,14 +63,14 @@ test "RFC 9114 §4.1.1: a cancel after the response resets the stream still send
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_early = true;
     @memset(&upload, 'z');
-    var post: HttpExchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
-    const id = try connection.request(&post);
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    const id = try connection.request(&post.request, &post.response);
     // Bounded: the server answers once the request's head arrives.
     for (0..support.rounds_default) |_| {
-        if (post.outcome != .pending) break;
+        if (post.response.outcome != .pending) break;
         try support.pump(1);
     }
-    try testing.expectEqual(.response, post.outcome);
+    try testing.expectEqual(.response, post.response.outcome);
     try testing.expect(support.answers[0].received < upload_len);
     connection.cancel(id);
     try support.pump(support.rounds_default);
@@ -83,7 +84,7 @@ test "RFC 9114 §4.1.1: a cancel after the response resets the stream still send
 test "RFC 9114 §5.2: a shut-down connection closes with H3_NO_ERROR after its last exchange" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     connection.shutdown();
     var closing_seen = false;
     for (0..closing_rounds) |_| {
@@ -95,7 +96,7 @@ test "RFC 9114 §5.2: a shut-down connection closes with H3_NO_ERROR after its l
         if (!period_over) closing_seen = true;
     }
     try testing.expect(closing_seen);
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expect(support.find(.draining) != null and support.find(.closed) != null);
     // RFC 9000 §10.2: the server read the client's CONNECTION_CLOSE.
     try testing.expect(support.server.termination.state != .active);
@@ -134,10 +135,10 @@ test "RFC 9114 §3.1: a handshake that selects another protocol ends the connect
     const offered = [_][]const u8{ "hq-interop", "h3" };
     try support.start(&offered, &support.alpn_other, false);
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     try testing.expectEqual(null, support.find(.connected));
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expect(support.find(.closed) != null);
     try testing.expectEqual(0, support.answers_len);
 }
@@ -148,10 +149,13 @@ test "RFC 9204 §4.5.4: a marked path and field line go out as literals with the
     const path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE";
     const fields = [_]event.Field{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
     const marks = [_]bool{ true, false };
-    var marked: HttpExchange = .{ .method = "GET", .path = path, .fields = &fields, .never_indexed = .{ .path = true, .fields = &marks }, .body = &bodies[0] };
-    var plain: HttpExchange = .{ .method = "GET", .path = path, .fields = &fields, .body = &bodies[1] };
-    _ = try connection.request(&marked);
-    _ = try connection.request(&plain);
+    var marked: Exchange = .{
+        .request = .{ .method = "GET", .path = path, .fields = &fields, .never_indexed = .{ .path = true, .fields = &marks } },
+        .response = .{ .body = &bodies[0] },
+    };
+    var plain: Exchange = .{ .request = .{ .method = "GET", .path = path, .fields = &fields }, .response = .{ .body = &bodies[1] } };
+    _ = try connection.request(&marked.request, &marked.response);
+    _ = try connection.request(&plain.request, &plain.response);
     try support.pump(support.rounds_default);
     const marked_frames = connection.streams[0].prefix[0..connection.streams[0].prefix_len];
     const plain_frames = connection.streams[1].prefix[0..connection.streams[1].prefix_len];
@@ -175,11 +179,11 @@ test "RFC 9000 §10.2: the server's CONNECTION_CLOSE ends the exchange awaiting 
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
     var exchange = get(&bodies[0]);
-    _ = try connection.request(&exchange);
+    _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     quic.connection_close.owe(&support.server, .{ .layer = .application, .error_code = h3.constants.error_internal, .frame_type = null, .reason = "" });
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.closed, exchange.outcome);
+    try testing.expectEqual(.closed, exchange.response.outcome);
     try testing.expect(support.find(.closed) != null);
 }
 
@@ -187,18 +191,18 @@ test "the transport's close ends a written exchange closed and a waiting one ref
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
     var written = get(&bodies[0]);
-    _ = try connection.request(&written);
+    _ = try connection.request(&written.request, &written.response);
     try support.pump(support.rounds_default);
     var waiting = get(&bodies[1]);
-    _ = try connection.request(&waiting);
+    _ = try connection.request(&waiting.request, &waiting.response);
     connection.transport_closed();
     try support.collect();
-    try testing.expectEqual(.closed, written.outcome);
-    try testing.expectEqual(.refused, waiting.outcome);
+    try testing.expectEqual(.closed, written.response.outcome);
+    try testing.expectEqual(.refused, waiting.response.outcome);
     try testing.expect(support.find(.closed) != null);
     try testing.expect(connection.should_close());
     connection.transport_closed();
-    try testing.expectError(error.ConnectionClosed, connection.request(&waiting));
+    try testing.expectError(error.ConnectionClosed, connection.request(&waiting.request, &waiting.response));
 }
 
 test "RFC 9000 §10.2: an active connection that fails owes its CONNECTION_CLOSE, with INTERNAL_ERROR" {

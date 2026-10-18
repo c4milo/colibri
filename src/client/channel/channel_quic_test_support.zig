@@ -12,7 +12,7 @@ const tls_support = @import("../connection/connection_tls_test_support.zig");
 const event = @import("../event.zig");
 
 const Channel = channel_module.Channel;
-const HttpExchange = event.HttpExchange;
+const Exchange = support.Exchange;
 const Event = channel_module.Event;
 
 /// The channel the tests drive, its configurations and the events it reported, outside any stack
@@ -90,8 +90,8 @@ pub fn values_at(port: u16) channel_module.Values {
     return .{ .addresses = &addresses, .port = port };
 }
 
-pub fn get(body: []u8) HttpExchange {
-    return .{ .method = "GET", .path = "/dns-query", .body = body };
+pub fn get(body: []u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/dns-query" }, .response = .{ .body = body } };
 }
 
 /// Reports every event the channel owes, with no datagram, and keeps them.

@@ -64,43 +64,39 @@ const datagrams_per_turn_max = 32;
 /// Requests one peer makes, at most.
 const requests_max = 5;
 
-/// One request a peer makes, and the memory its response goes into.
+/// One request a peer makes, its response, and the memory the response goes into.
 const Asked = struct {
-    exchange: client.HttpExchange,
+    request: client.Request,
+    response: client.Response,
     /// The content type of a 200, and the Allow value of a 405.
     wanted: [2]client.Wanted,
     values: [content_type.len + greeting_allow.len]u8,
     body: [note.len]u8,
 
-    /// Fills the exchange. `content` is the request's content, or empty for none.
+    /// Fills the request and the response. `content` is the request's content, or empty for none.
     fn place(asked: *Asked, method: []const u8, path: []const u8, content: []const u8) void {
         asked.wanted = .{ .{ .name = "content-type" }, .{ .name = "allow" } };
-        asked.exchange = .{
-            .method = method,
-            .path = path,
-            .wanted = &asked.wanted,
-            .values = &asked.values,
-            .body = &asked.body,
-        };
+        asked.request = .{ .method = method, .path = path };
+        asked.response = .{ .wanted = &asked.wanted, .values = &asked.values, .body = &asked.body };
         if (content.len == 0) return;
-        asked.exchange.fields = &.{.{ .name = "content-type", .value = content_type }};
-        asked.exchange.content = content;
+        asked.request.fields = &.{.{ .name = "content-type", .value = content_type }};
+        asked.request.content = content;
     }
 
     /// Whether the exchange ended in a 200 response with `content` and the content type.
     fn arrived(asked: *const Asked, content: []const u8) bool {
-        const exchange = &asked.exchange;
-        if (exchange.outcome != .response or exchange.status != 200) return false;
+        const response = &asked.response;
+        if (response.outcome != .response or response.status != 200) return false;
         if (!std.mem.eql(u8, asked.wanted[0].value orelse "", content_type)) return false;
-        return std.mem.eql(u8, exchange.content_received(), content);
+        return std.mem.eql(u8, response.content_received(), content);
     }
 
     /// Whether the exchange ended in a response with `status` and no content, whose Allow value
     /// is `allow`, or which has no Allow field when `allow` is null.
     fn refused(asked: *const Asked, status: u16, allow: ?[]const u8) bool {
-        const exchange = &asked.exchange;
-        if (exchange.outcome != .response or exchange.status != status) return false;
-        if (exchange.content_received().len != 0) return false;
+        const response = &asked.response;
+        if (response.outcome != .response or response.status != status) return false;
+        if (response.content_received().len != 0) return false;
         const held = asked.wanted[1].value orelse return allow == null;
         return std.mem.eql(u8, held, allow orelse return false);
     }
@@ -128,7 +124,7 @@ const Peer = struct {
         const asked = &peer.asked[peer.asked_count];
         asked.place(method, path, content);
         peer.asked_count += 1;
-        _ = try peer.channel.request(&asked.exchange);
+        _ = try peer.channel.request(&asked.request, &asked.response);
     }
 };
 
@@ -254,7 +250,7 @@ fn report(peer: *Peer, event: client.Event, now_ns: u64) void {
             if (peer.finished == peer.asked_count) peer.channel.shutdown();
         },
         .connected => |protocol| peer.spoken = protocol,
-        .finished => |ended| finish(peer, ended.exchange),
+        .finished => |ended| finish(peer, ended),
         // These peers open no second connection, so each wipes the ticket the server gives it.
         .ticket => |transport| if (peer.channel.take_ticket(transport)) |ticket| {
             var held = ticket;
@@ -278,9 +274,9 @@ fn open_transport(peer: *Peer, transport: client.Transport, now_ns: u64) void {
 
 /// Counts an exchange that ended. A peer that keeps no connection shuts its channel down once
 /// every exchange has ended.
-fn finish(peer: *Peer, exchange: *const client.HttpExchange) void {
+fn finish(peer: *Peer, ended: client.Finished) void {
     std.debug.print("client: {s}: {s}, {d}\n", .{
-        exchange.path, @tagName(exchange.outcome), exchange.status,
+        ended.request.path, @tagName(ended.response.outcome), ended.response.status,
     });
     peer.finished += 1;
     if (peer.finished == peer.asked_count and !peer.keeps) peer.channel.shutdown();

@@ -1,10 +1,10 @@
-//! What a client connection takes and reports, the same for h11 and h2 (decision 100): an
-//! exchange the caller places in its own memory, which holds the request and where its response
-//! goes, and the events each connection's `receive` returns to the channel.
+//! What a client connection takes and reports, the same for h11 and h2 (decision 100): a request
+//! and a response the caller places in its own memory (decision 124), and the events each
+//! connection's `receive` returns to the channel. A request and its response are one exchange.
 //!
-//! The caller keeps an exchange in place, and every slice it names, from `request` until the
-//! exchange's `finished` event, or until `cancel` returns. The client reads the request's part
-//! and writes the response's part, and the caller reads that part once the event arrives.
+//! The caller keeps the request and the response in place, and every slice they name, from
+//! `request` until the exchange's `finished` event, or until `cancel` returns. The client reads
+//! the request and writes the response, and the caller reads the response once the event arrives.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -22,7 +22,7 @@ pub const Wanted = struct {
     /// Compared case-insensitively (RFC 9110 §5.1).
     name: []const u8,
     /// The value of every field line of the response's header section with this name, joined by
-    /// ", " (RFC 9110 §5.3), in the exchange's `values`. Null when the section has none.
+    /// ", " (RFC 9110 §5.3), in the response's `values`. Null when the section has none.
     value: ?[]const u8 = null,
 };
 
@@ -52,8 +52,8 @@ pub const Outcome = enum {
     too_large,
 };
 
-/// One request and where its response goes, in the caller's memory.
-pub const HttpExchange = struct {
+/// A request the program sends, in its own memory (decision 124). The client only reads it.
+pub const Request = struct {
     /// The request method (RFC 9110 §9).
     method: []const u8,
     /// The target's path and query in origin form (RFC 9112 §3.2.1), which h2 sends as `:path`
@@ -68,6 +68,21 @@ pub const HttpExchange = struct {
     never_indexed: NeverIndexed = .{},
     /// The request's content, sent whole. Empty for none.
     content: []const u8 = "",
+
+    /// The Content-Length value of the request, written into `digits`, or null when it sends none.
+    /// RFC 9110 §8.6: a user agent sends one when the request has content, or when its method gives
+    /// content a meaning, as POST's and PUT's do (RFC 9110 §9.3.3, §9.3.4).
+    pub fn content_length(request: *const Request, digits: []u8) ?[]const u8 {
+        const method = http.method.standard(request.method);
+        const defines_content = method == .post or method == .put;
+        if (request.content.len == 0 and !defines_content) return null;
+        return std.fmt.bufPrint(digits, "{d}", .{request.content.len}) catch unreachable;
+    }
+};
+
+/// Where the response to a request goes, and what arrived, in the program's memory (decision
+/// 123). The client writes it from `request` until the exchange's `finished` event.
+pub const Response = struct {
     /// The response fields the caller reads, and the octets their values are copied into.
     wanted: []Wanted = &.{},
     values: []u8 = &.{},
@@ -84,8 +99,8 @@ pub const HttpExchange = struct {
     body_len: usize = 0,
     /// Octets of `values` the wanted values filled.
     values_len: usize = 0,
-    /// Octets of `content` written. Fewer than all when the response ended first (RFC 9113 §8.1)
-    /// or the exchange ended another way.
+    /// Octets of the request's `content` written. Fewer than all when the response ended first
+    /// (RFC 9113 §8.1) or the exchange ended another way.
     content_sent: usize = 0,
     /// The code of the RST_STREAM that reset the stream (RFC 9113 §7), for `reset`.
     error_code: u32 = 0,
@@ -93,34 +108,24 @@ pub const HttpExchange = struct {
     /// when the content arrived uncoded or in a coding the client passes on as it came.
     coding: ?http.content_coding.Coding = null,
 
-    /// Clears what the client writes, so the exchange can be made again.
-    pub fn clear(exchange: *HttpExchange) void {
-        exchange.outcome = .pending;
-        exchange.status = 0;
-        exchange.interims = 0;
-        exchange.body_len = 0;
-        exchange.values_len = 0;
-        exchange.content_sent = 0;
-        exchange.error_code = 0;
-        exchange.coding = null;
-        for (exchange.wanted) |*wanted| wanted.value = null;
-        assert(exchange.outcome == .pending and exchange.body_len == 0);
-    }
-
-    /// The Content-Length value of the request, written into `digits`, or null when it sends none.
-    /// RFC 9110 §8.6: a user agent sends one when the request has content, or when its method gives
-    /// content a meaning, as POST's and PUT's do (RFC 9110 §9.3.3, §9.3.4).
-    pub fn content_length(exchange: *const HttpExchange, digits: []u8) ?[]const u8 {
-        const method = http.method.standard(exchange.method);
-        const defines_content = method == .post or method == .put;
-        if (exchange.content.len == 0 and !defines_content) return null;
-        return std.fmt.bufPrint(digits, "{d}", .{exchange.content.len}) catch unreachable;
+    /// Clears what the client writes, so the program may pass the response to `request` again.
+    pub fn clear(response: *Response) void {
+        response.outcome = .pending;
+        response.status = 0;
+        response.interims = 0;
+        response.body_len = 0;
+        response.values_len = 0;
+        response.content_sent = 0;
+        response.error_code = 0;
+        response.coding = null;
+        for (response.wanted) |*wanted| wanted.value = null;
+        assert(response.outcome == .pending and response.body_len == 0);
     }
 
     /// The response's content, once the outcome is `response`.
-    pub fn content_received(exchange: *const HttpExchange) []const u8 {
-        assert(exchange.outcome == .response);
-        return exchange.body[0..exchange.body_len];
+    pub fn content_received(response: *const Response) []const u8 {
+        assert(response.outcome == .response);
+        return response.body[0..response.body_len];
     }
 };
 
@@ -128,14 +133,16 @@ pub const HttpExchange = struct {
 pub const NeverIndexed = struct {
     /// The path, which carries the query, as a DoH GET's does (RFC 8484 §4.1).
     path: bool = false,
-    /// One flag for each of the exchange's field lines, in order, or empty for none.
+    /// One flag for each of the request's field lines, in order, or empty for none.
     fields: []const bool = &.{},
 };
 
-/// An exchange that ended: its id, and the exchange, whose outcome says how.
+/// An exchange that ended: its id, the request, and the response, whose outcome says how. The
+/// program may reuse the memory of both.
 pub const Finished = struct {
     id: Id,
-    exchange: *HttpExchange,
+    request: *const Request,
+    response: *Response,
 };
 
 pub const Event = union(enum) {
@@ -162,17 +169,17 @@ pub const Received = struct {
     event: ?Event,
 };
 
-test "clearing an exchange makes it pending again, and leaves its request alone" {
+test "clearing a response makes it pending again, and keeps where the response goes" {
     var wanted = [_]Wanted{.{ .name = "content-type", .value = "text/plain" }};
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .wanted = &wanted };
-    exchange.outcome = .response;
-    exchange.status = 200;
-    exchange.body_len = 3;
-    exchange.coding = .gzip;
-    exchange.clear();
-    try std.testing.expectEqual(.pending, exchange.outcome);
-    try std.testing.expectEqual(0, exchange.body_len);
-    try std.testing.expectEqual(null, exchange.coding);
-    try std.testing.expectEqual(null, exchange.wanted[0].value);
-    try std.testing.expectEqualStrings("GET", exchange.method);
+    var response: Response = .{ .wanted = &wanted };
+    response.outcome = .response;
+    response.status = 200;
+    response.body_len = 3;
+    response.coding = .gzip;
+    response.clear();
+    try std.testing.expectEqual(.pending, response.outcome);
+    try std.testing.expectEqual(0, response.body_len);
+    try std.testing.expectEqual(null, response.coding);
+    try std.testing.expectEqual(null, response.wanted[0].value);
+    try std.testing.expectEqualStrings("content-type", response.wanted[0].name);
 }

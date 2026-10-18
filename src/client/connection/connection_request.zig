@@ -4,7 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("../event.zig");
 
-const HttpExchange = event.HttpExchange;
+const Request = event.Request;
 
 /// What `check_request` refuses, on a connection and on a channel.
 pub const CheckError = error{
@@ -41,18 +41,18 @@ const reserved_names = [_][]const u8{
     "upgrade",
 };
 
-/// Refuses what no protocol could send as an exchange, before the exchange takes a slot.
-pub fn check_request(exchange: *const HttpExchange) CheckError!void {
+/// Refuses a request no protocol could send, before its exchange takes a slot.
+pub fn check_request(request: *const Request) CheckError!void {
     // The caller marks each of its field lines, or none.
-    assert(exchange.never_indexed.fields.len == 0 or exchange.never_indexed.fields.len == exchange.fields.len);
+    assert(request.never_indexed.fields.len == 0 or request.never_indexed.fields.len == request.fields.len);
     // RFC 9110 §9.1: a method is a token, which is never empty.
-    if (exchange.method.len == 0) return error.RequestUnsupported;
+    if (request.method.len == 0) return error.RequestUnsupported;
     // RFC 9113 §8.3.1: `:path` "MUST NOT be empty" for an http or https URI, and RFC 9112 §3.2.1's
     // origin form starts with its absolute path.
-    if (exchange.path.len == 0) return error.RequestUnsupported;
+    if (request.path.len == 0) return error.RequestUnsupported;
     // RFC 9110 §9.3.6: CONNECT asks for a tunnel, which is no exchange of a request and a response.
-    if (std.mem.eql(u8, exchange.method, "CONNECT")) return error.RequestUnsupported;
-    for (exchange.fields) |field| {
+    if (std.mem.eql(u8, request.method, "CONNECT")) return error.RequestUnsupported;
+    for (request.fields) |field| {
         for (reserved_names) |reserved| {
             // RFC 9113 §8.2.2, RFC 9112 §3.2 and RFC 9110 §8.6: see `reserved_names`. Field names
             // are case-insensitive (RFC 9110 §5.1).

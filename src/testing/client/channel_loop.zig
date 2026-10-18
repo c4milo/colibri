@@ -89,7 +89,7 @@ fn request_plan(plans: []const client_exchange.Plan) !void {
     exchanges_count = plans.len;
     for (plans, exchanges[0..plans.len], bodies[0..plans.len]) |plan, *exchange, *body| {
         exchange.* = .init(plan, body);
-        exchange.id = try channel.request(&exchange.carried);
+        exchange.id = try channel.request(&exchange.request, &exchange.response);
     }
 }
 

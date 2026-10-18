@@ -88,7 +88,9 @@ pub const Storage = struct {
     channel: client.Channel,
     to_server: Stream,
     to_client: Stream,
-    exchanges: [limits.exchanges_max]client.HttpExchange,
+    /// Each exchange's request and response, by index (decision 124).
+    requests: [limits.exchanges_max]client.Request,
+    responses: [limits.exchanges_max]client.Response,
     own_offers: [limits.exchanges_max][1]client.Field,
     bodies: [limits.exchanges_max][limits.coded_len_max]u8,
     contents: [limits.exchanges_max][limits.content_len_max]u8,
@@ -175,17 +177,19 @@ fn connect(storage: *Storage, source: tls.Random) Error!void {
 }
 
 fn request(storage: *Storage, planned: *const plan_module.Exchange, index: usize) Error!void {
-    const exchange = &storage.exchanges[index];
-    exchange.* = .{ .method = if (planned.head) "HEAD" else "GET", .path = "/", .body = &storage.bodies[index] };
+    const message = &storage.requests[index];
+    const response = &storage.responses[index];
+    message.* = .{ .method = if (planned.head) "HEAD" else "GET", .path = "/" };
+    response.* = .{ .body = &storage.bodies[index] };
     // A body the client decodes or takes as it came is one octet short of the content when the
     // plan says so; one it passes on coded gets all its room.
     const expected = plan_module.expect_short(planned);
-    if (expected) exchange.body = storage.bodies[index][0 .. planned.content_len - 1];
+    if (expected) response.body = storage.bodies[index][0 .. planned.content_len - 1];
     if (planned.own_offer.value()) |value| {
         storage.own_offers[index] = .{.{ .name = "accept-encoding", .value = value }};
-        exchange.fields = &storage.own_offers[index];
+        message.fields = &storage.own_offers[index];
     }
-    _ = try storage.channel.request(exchange);
+    _ = try storage.channel.request(message, response);
 }
 
 fn fill(random: *Random, buffer: []u8) void {

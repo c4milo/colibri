@@ -36,25 +36,26 @@ test "RFC 9114 §4.1.1: a cancelled exchange a connection carries reports nothin
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     quic_support.server_answers = false;
     var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange);
+    const id = try channel.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     channel.cancel(id);
     quic_support.server_answers = true;
     try pump(quic_support.rounds_default);
     try testing.expectEqual(null, nth(.finished, 0));
-    try testing.expectEqual(.pending, exchange.outcome);
+    try testing.expectEqual(.pending, exchange.response.outcome);
 }
 
 test "RFC 9000 §10: a QUIC transport the caller closed ends its written exchange closed, and asks for no close" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     quic_support.server_answers = false;
     var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     channel.transport_closed(.quic);
     try collect();
-    try testing.expectEqual(.closed, exchange.outcome);
-    try testing.expectEqual(&exchange, nth(.finished, 0).?.finished.exchange);
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(&exchange.response, nth(.finished, 0).?.finished.response);
+    try testing.expectEqual(&exchange.request, nth(.finished, 0).?.finished.request);
     try testing.expectEqual(null, nth(.close, 0));
     try testing.expectEqual(channel_module.Phase.closed, channel.phase(.quic));
 }
@@ -65,16 +66,17 @@ test "RFC 9114 §4.1.1: a QUIC transport the caller closed moves the exchange it
     quic_support.server_streams_bidi = 1;
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
-    _ = try channel.request(&first);
-    _ = try channel.request(&second);
+    _ = try channel.request(&first.request, &first.response);
+    _ = try channel.request(&second.request, &second.response);
     try pump(quic_support.rounds_default);
     // The second exchange waits for the server's stream limit, unwritten, when the flow closes.
     channel.transport_closed(.quic);
     try collect();
-    try testing.expectEqual(.closed, first.outcome);
-    try testing.expectEqual(&first, nth(.finished, 0).?.finished.exchange);
+    try testing.expectEqual(.closed, first.response.outcome);
+    try testing.expectEqual(&first.response, nth(.finished, 0).?.finished.response);
+    try testing.expectEqual(&first.request, nth(.finished, 0).?.finished.request);
     try testing.expectEqual(null, nth(.finished, 1));
-    try testing.expectEqual(.pending, second.outcome);
+    try testing.expectEqual(.pending, second.response.outcome);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
 }
 
@@ -84,8 +86,8 @@ test "RFC 9114 §4.1.1: an exchange a second draining connection refuses has mov
     quic_support.server_streams_bidi = 1;
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
-    _ = try channel.request(&first);
-    const second_id = try channel.request(&second);
+    _ = try channel.request(&first.request, &first.response);
+    const second_id = try channel.request(&second.request, &second.response);
     try pump(quic_support.rounds_default);
     // The GOAWAY refuses the second exchange, waiting for its stream, which moves once. TCP opens
     // for it, and the caller's TCP connection fails before it starts.
@@ -98,21 +100,21 @@ test "RFC 9114 §4.1.1: an exchange a second draining connection refuses has mov
     quic_support.server_answers = true;
     quic_support.server_streams_bidi = 0;
     try pump(rounds_past_probe);
-    try testing.expectEqual(.response, first.outcome);
+    try testing.expectEqual(.response, first.response.outcome);
     try testing.expectEqual(Transport.quic, opened(2).?.transport);
     try testing.expectEqual(channel_module.Phase.open, channel.phase(.quic));
     // RFC 9113 §8.7: a second refusal goes to the caller, who may make the request again.
     try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(second_id, nth(.finished, 1).?.finished.id);
-    try testing.expectEqual(.refused, second.outcome);
+    try testing.expectEqual(.refused, second.response.outcome);
 }
 
 test "RFC 9846 §4.6.1: a QUIC ticket is reported for its transport, and take_ticket hands it over once" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     try quic_support.prepare(&quic_support.alpn_h3, &quic_support.alpn_h3, true);
     var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.quic, nth(.ticket, 0).?.ticket);
     var ticket = channel.take_ticket(.quic) orelse return error.TestUnexpectedResult;
@@ -125,7 +127,7 @@ test "RFC 7838 §3: TCP goes to the origin's port though QUIC went to the altern
     const fresh: channel_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = std.math.maxInt(u64) } };
     try start(&quic_support.alpn_other, fresh, false);
     var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(alternative_port, opened(0).?.to.port);
     try pump(quic_support.rounds_default);
@@ -137,7 +139,7 @@ test "a shut-down channel ends a handshake no exchange waits for, and closes" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     fixture.blocked = true;
     var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange);
+    const id = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(channel_module.Phase.handshake, channel.phase(.quic));
     channel.cancel(id);
@@ -155,14 +157,14 @@ test "a shut-down channel keeps a handshake while it holds an exchange, which co
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     quic_support.server_answers = false;
     var first = get(&bodies[0]);
-    _ = try channel.request(&first);
+    _ = try channel.request(&first.request, &first.response);
     try pump(quic_support.rounds_default);
     // RFC 9114 §5.2: the GOAWAY names stream 4, so the first exchange stays, and the connection
     // takes no second one, which waits for TCP.
     try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
     try pump(quic_support.rounds_default);
     var second = get(&bodies[1]);
-    const second_id = try channel.request(&second);
+    const second_id = try channel.request(&second.request, &second.response);
     try collect();
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     channel.shutdown();
@@ -172,7 +174,7 @@ test "a shut-down channel keeps a handshake while it holds an exchange, which co
     // Once the first exchange ends, the channel holds none, and the handshake ends.
     quic_support.server_answers = true;
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(.response, first.outcome);
+    try testing.expectEqual(.response, first.response.outcome);
     try testing.expectEqual(Transport.tcp, nth(.close, 0).?.close);
 }
 
@@ -184,7 +186,7 @@ const withheld_max: usize = 8;
 test "RFC 9000 §10.2: a handshake the channel abandoned carries nothing, though datagrams in flight complete it" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange);
+    const id = try channel.request(&exchange.request, &exchange.response);
     try collect();
     // The client's Initial reaches the server, and the server's flight is held back.
     for (0..datagrams_per_round_max) |_| {
@@ -214,7 +216,7 @@ test "RFC 9000 §10.2: a handshake the channel abandoned carries nothing, though
 test "a cancelled exchange leaves nothing to open" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange);
+    const id = try channel.request(&exchange.request, &exchange.response);
     channel.cancel(id);
     try collect();
     try testing.expectEqual(null, opened(0));
@@ -226,10 +228,10 @@ const closing_rounds: usize = 128;
 test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the next exchange opens a new one" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     var first = get(&bodies[0]);
-    _ = try channel.request(&first);
+    _ = try channel.request(&first.request, &first.response);
     try collect();
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(.response, first.outcome);
+    try testing.expectEqual(.response, first.response.outcome);
     // Holding no exchange, the connection retires at its idle deadline less the 1 s margin.
     const acts_at = quic.connection_idle.deadline_ns(&channel.quic.transport).? - constants.quic_idle_margin_ns_min;
     try testing.expect(channel.deadline_ns().? <= acts_at);
@@ -245,11 +247,11 @@ test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the ne
     try testing.expectEqual(.closed, channel.phase(.quic));
     // The next exchange opens a new QUIC connection, which carries it, and TCP never opens.
     var second = get(&bodies[1]);
-    _ = try channel.request(&second);
+    _ = try channel.request(&second.request, &second.response);
     try collect();
     try testing.expectEqual(Transport.quic, opened(1).?.transport);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(.response, second.outcome);
+    try testing.expectEqual(.response, second.response.outcome);
     try testing.expectEqual(null, opened(2));
 }
 
@@ -280,7 +282,7 @@ const two_addresses = [_]channel_module.Address{ addresses[0], channel_module.Ad
 test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries nothing, and its attempt goes on" {
     try start(&quic_support.alpn_h3, .{ .addresses = &two_addresses, .port = https_port }, true);
     var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try to_server();
     // The server's SETTINGS and GOAWAY go out in 1-RTT packets behind its Finished (RFC 9001
@@ -299,11 +301,11 @@ test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries
     // QUIC stays counted in it, and the exchange ends refused with no third open.
     channel.transport_closed(.tcp);
     try pump(rounds_past_probe);
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(null, opened(2));
     // The connection the channel abandoned was no failed attempt, so the next request's QUIC
     // connection goes to the same address.
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(Transport.quic, opened(2).?.transport);
     try testing.expect(opened(2).?.to.same_host(&two_addresses[0]));

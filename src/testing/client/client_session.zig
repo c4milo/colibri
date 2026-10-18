@@ -89,7 +89,7 @@ pub const Session = struct {
         session.open_asked = null;
         for (plans, session.exchanges[0..plans.len], bodies[0..plans.len]) |plan, *exchange, *body| {
             exchange.* = .init(plan, body);
-            exchange.id = try session.channel.request(&exchange.carried);
+            exchange.id = try session.channel.request(&exchange.request, &exchange.response);
             session.exchanges_count += 1;
         }
         // The channel takes no request after `shutdown`, so the requests come first.
@@ -287,10 +287,10 @@ test "h2: every exchange of the plan shares the connection, and content past the
     try testing.expect(test_client.succeeded() and test_client.closed);
     try testing.expectEqual(client.Protocol.h2, test_client.protocol.?);
     const upload = &test_client.exchanges[1];
-    try testing.expectEqual(content_len, upload.carried.content_sent);
+    try testing.expectEqual(content_len, upload.response.content_sent);
     try testing.expectEqual(client_exchange.content_crc32(content_len), upload.sent_crc32());
-    try testing.expectEqual(constants.response_status, upload.carried.status);
-    try testing.expectEqualStrings(constants.response_body, test_client.exchanges[0].carried.content_received());
+    try testing.expectEqual(constants.response_status, upload.response.status);
+    try testing.expectEqualStrings(constants.response_body, test_client.exchanges[0].response.content_received());
     // RFC 9113 §6.8: the step that writes the GOAWAY reads again after it, and reports the close,
     // so the caller closes the socket once the GOAWAY is sent.
     try testing.expect(test_close_written.? > 0);
@@ -309,7 +309,7 @@ test "h11: the exchanges go out in order, and the connection ends after the last
     try testing.expect(test_client.succeeded() and test_client.closed);
     try testing.expectEqual(client.Protocol.h11, test_client.protocol.?);
     for (test_client.exchanges_held()) |*exchange| {
-        try testing.expectEqual(constants.response_status, exchange.carried.status);
+        try testing.expectEqual(constants.response_status, exchange.response.status);
     }
 }
 

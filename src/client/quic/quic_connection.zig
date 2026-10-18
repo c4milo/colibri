@@ -7,7 +7,7 @@
 //! come. colibri makes no system call and reads no clock (non-negotiable 3). It does the duties of
 //! a QUIC caller itself (decisions 57 and 62): it hands the provider the transport parameters,
 //! derives the Initial keys, and supplies each request stream's octets, the HEADERS frame and DATA
-//! frame header it keeps (decision 79), then the exchange's content. The channel draws the
+//! frame header it keeps (decision 79), then the request's content. The channel draws the
 //! connection IDs and h3's grease value from the source its caller gives `start_quic` (decision
 //! 120, invariant 5). The receive pool is the caller's (decision 61), and its capacity sets every
 //! window the client advertises.
@@ -15,8 +15,8 @@
 //! The caller loops over `receive` as it does for the TCP connection, until it returns nothing
 //! consumed and no event; a datagram is consumed whole. After each `send` and `on_instant` it loops
 //! again with no datagram, which reports what they changed. An exchange's `finished` event waits
-//! until its stream reads nothing more of the exchange (RFC 9000 §3.1), so the caller may reuse the
-//! exchange's memory once the event arrives.
+//! until its stream reads nothing more of the request (RFC 9000 §3.1), so the caller may reuse the
+//! memory of the request and the response once the event arrives.
 //!
 //! `QuicConnection`'s public functions are the calls that the module's other files make: the
 //! channel's files and the tests. What only the connection's own files call is in
@@ -42,7 +42,8 @@ const internal = @import("quic_connection_internal.zig");
 pub const Id = event.Id;
 pub const Event = event.Event;
 pub const Received = event.Received;
-pub const HttpExchange = event.HttpExchange;
+pub const Request = event.Request;
+pub const Response = event.Response;
 pub const RequestError = connection_module.RequestError;
 pub const PeerAddress = quic.PeerAddress;
 /// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
@@ -195,25 +196,26 @@ pub const QuicConnection = struct {
         connection.session.provider().set_transport_params(writer.written()) catch return error.TlsRefused;
     }
 
-    /// Takes `exchange`, which goes out on a stream of its own once h3 runs and the server's
-    /// stream limit allows (RFC 9000 §4.6), and returns its id.
-    pub fn request(connection: *QuicConnection, exchange: *HttpExchange) RequestError!Id {
+    /// Takes the request `message`, which goes out on a stream of its own once h3 runs and the
+    /// server's stream limit allows (RFC 9000 §4.6), and the `response` it gets, and returns the
+    /// exchange's id.
+    pub fn request(connection: *QuicConnection, message: *const Request, response: *Response) RequestError!Id {
         // RFC 9000 §10 and RFC 9114 §8: a connection that closed or failed carries no request.
         if (connection.closed or connection.stopped) return error.ConnectionClosed;
         // RFC 9114 §5.2: a connection that heard GOAWAY, or is shutting down, opens no request.
         if (connection.draining) return error.Draining;
-        try connection_module.check_request(exchange);
-        exchange.clear();
-        return connection.slots.take(exchange) orelse error.Full;
+        try connection_module.check_request(message);
+        response.clear();
+        return connection.slots.take(message, response) orelse error.Full;
     }
 
     /// Ends exchange `id` and reports nothing for it. Its stream is reset with
-    /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the exchange, so its
-    /// memory is the caller's again.
+    /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the request or writes the
+    /// response, so their memory is the caller's again.
     pub fn cancel(connection: *QuicConnection, id: Id) void {
         const slot = connection.slots.of_id(id) orelse return;
         // RFC 9114 §4.1.1: every direction still open is reset. The stream is live while it holds
-        // the exchange's octets, which QUIC reads until they are acknowledged (RFC 9000 §3.1),
+        // the request's octets, which QUIC reads until they are acknowledged (RFC 9000 §3.1),
         // after the response ended too.
         if (slot.holds_octets) quic_h3.cancel_stream(connection, slot.stream_id);
         slots_module.release(slot);

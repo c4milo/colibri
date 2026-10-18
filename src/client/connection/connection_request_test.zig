@@ -8,7 +8,7 @@ const event = @import("../event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const HttpExchange = support.HttpExchange;
+const Exchange = support.Exchange;
 const Field = support.Field;
 
 const ok: u16 = 200;
@@ -24,36 +24,36 @@ test "RFC 9113 §8.2.2: a request naming a field the client writes, or a connect
     const names = [_][]const u8{ "Host", "content-length", "Connection", "Keep-Alive", "Proxy-Connection", "Transfer-Encoding", "Upgrade" };
     for (names) |name| {
         const fields = [_]Field{.{ .name = name, .value = "x" }};
-        var exchange: HttpExchange = .{ .method = "GET", .path = "/", .fields = &fields };
-        try testing.expectError(error.FieldReserved, connection.request(&exchange));
+        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .fields = &fields } };
+        try testing.expectError(error.FieldReserved, connection.request(&exchange.request, &exchange.response));
     }
     // A field the client does not write goes out as the caller named it.
     const accept = [_]Field{.{ .name = "accept", .value = "application/dns-message" }};
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .fields = &accept };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .fields = &accept } };
+    _ = try connection.request(&exchange.request, &exchange.response);
 }
 
 test "RFC 9110 §9.3.6: CONNECT, an empty method and an empty path are refused" {
     try support.start_cleartext(.h11);
-    var connect: HttpExchange = .{ .method = "CONNECT", .path = "example.com:443" };
-    try testing.expectError(error.RequestUnsupported, connection.request(&connect));
-    var no_method: HttpExchange = .{ .method = "", .path = "/" };
-    try testing.expectError(error.RequestUnsupported, connection.request(&no_method));
-    var no_path: HttpExchange = .{ .method = "GET", .path = "" };
-    try testing.expectError(error.RequestUnsupported, connection.request(&no_path));
+    var connect: Exchange = .{ .request = .{ .method = "CONNECT", .path = "example.com:443" } };
+    try testing.expectError(error.RequestUnsupported, connection.request(&connect.request, &connect.response));
+    var no_method: Exchange = .{ .request = .{ .method = "", .path = "/" } };
+    try testing.expectError(error.RequestUnsupported, connection.request(&no_method.request, &no_method.response));
+    var no_path: Exchange = .{ .request = .{ .method = "GET", .path = "" } };
+    try testing.expectError(error.RequestUnsupported, connection.request(&no_path.request, &no_path.response));
 }
 
 test "every slot taken refuses the next request, until a finished event frees one" {
     try support.start_cleartext(.h11);
-    var exchanges: [support.events_max]HttpExchange = @splat(.{ .method = "GET", .path = "/" });
-    for (exchanges[0..@import("../constants.zig").exchanges_max]) |*exchange| _ = try connection.request(exchange);
-    try testing.expectError(error.Full, connection.request(&exchanges[support.events_max - 1]));
+    var exchanges: [support.events_max]Exchange = @splat(.{ .request = .{ .method = "GET", .path = "/" } });
+    for (exchanges[0..@import("../constants.zig").exchanges_max]) |*exchange| _ = try connection.request(&exchange.request, &exchange.response);
+    try testing.expectError(error.Full, connection.request(&exchanges[support.events_max - 1].request, &exchanges[support.events_max - 1].response));
 }
 
 test "the connected event comes first, and a finished one after it" {
     try support.start_cleartext(.h11);
-    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&exchange);
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, &empty_fields, "");
@@ -66,10 +66,10 @@ test "the connected event comes first, and a finished one after it" {
 test "the connected event comes first, even before an exchange that ended as it was written" {
     try support.start_cleartext(.h11);
     // RFC 9110 §9.1: a method is a token, which a space breaks, so h11 refuses to write it.
-    var bad: HttpExchange = .{ .method = "G ET", .path = "/", .body = &bodies[0] };
-    _ = try connection.request(&bad);
+    var bad: Exchange = .{ .request = .{ .method = "G ET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&bad.request, &bad.response);
     support.client_send();
-    try testing.expectEqual(.invalid, bad.outcome);
+    try testing.expectEqual(.invalid, bad.response.outcome);
     try support.client_receive();
     try testing.expectEqual(.connected, std.meta.activeTag(support.events[0]));
     try testing.expectEqual(.finished, std.meta.activeTag(support.events[1]));
@@ -77,10 +77,10 @@ test "the connected event comes first, even before an exchange that ended as it 
 
 test "a cancel before the exchange is written drops it, and reports nothing" {
     try support.start_cleartext(.h11);
-    var cancelled: HttpExchange = .{ .method = "GET", .path = "/cancelled", .body = &bodies[0] };
-    var kept: HttpExchange = .{ .method = "GET", .path = "/kept", .body = &bodies[1] };
-    const id = try connection.request(&cancelled);
-    _ = try connection.request(&kept);
+    var cancelled: Exchange = .{ .request = .{ .method = "GET", .path = "/cancelled" }, .response = .{ .body = &bodies[0] } };
+    var kept: Exchange = .{ .request = .{ .method = "GET", .path = "/kept" }, .response = .{ .body = &bodies[1] } };
+    const id = try connection.request(&cancelled.request, &cancelled.response);
+    _ = try connection.request(&kept.request, &kept.response);
     connection.cancel(id);
     support.client_send();
     const sent = support.to_peer[0..support.to_peer_len];
@@ -90,21 +90,22 @@ test "a cancel before the exchange is written drops it, and reports nothing" {
     try support.peer_h11_answer(ok, &empty_fields, "");
     try support.client_receive();
     try testing.expectEqual(1, support.count(.finished));
-    try testing.expectEqual(&kept, support.find(.finished).?.finished.exchange);
+    try testing.expectEqual(&kept.response, support.find(.finished).?.finished.response);
+    try testing.expectEqual(&kept.request, support.find(.finished).?.finished.request);
 }
 
 test "RFC 9112 §9.3.1: the transport's close ends a written exchange closed and a waiting one refused" {
     try support.start_cleartext(.h11);
-    var post: HttpExchange = .{ .method = "POST", .path = "/", .content = "query", .body = &bodies[0] };
-    var waiting: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[1] };
-    _ = try connection.request(&post);
-    _ = try connection.request(&waiting);
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "query" }, .response = .{ .body = &bodies[0] } };
+    var waiting: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[1] } };
+    _ = try connection.request(&post.request, &post.response);
+    _ = try connection.request(&waiting.request, &waiting.response);
     // Decision 88: the GET waits for the POST's response, which never comes.
     support.client_send();
     connection.transport_closed();
     try support.client_receive();
-    try testing.expectEqual(.closed, post.outcome);
-    try testing.expectEqual(.refused, waiting.outcome);
+    try testing.expectEqual(.closed, post.response.outcome);
+    try testing.expectEqual(.refused, waiting.response.outcome);
     try testing.expect(support.find(.closed) != null);
     try testing.expect(connection.should_close());
     // A second close changes nothing.
@@ -115,10 +116,10 @@ test "RFC 9112 §9.3.1: the transport's close ends a written exchange closed and
 test "RFC 9110 §8.6: h2 names the content's length, and a GET's none" {
     try support.start_cleartext(.h2);
     support.peer_events_len = 0;
-    var post: HttpExchange = .{ .method = "POST", .path = "/", .content = "query", .body = &bodies[0] };
-    var get: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[1] };
-    _ = try connection.request(&post);
-    _ = try connection.request(&get);
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "query" }, .response = .{ .body = &bodies[0] } };
+    var get: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[1] } };
+    _ = try connection.request(&post.request, &post.response);
+    _ = try connection.request(&get.request, &get.response);
     try support.pump_h2();
     var lengths: [bodies_count]?u64 = @splat(null);
     var seen: usize = 0;

@@ -3,11 +3,11 @@
 //!
 //! A program makes one `Config` for an origin, then a `Channel` to it, in storage it owns
 //! (decision 120). The channel says which transport to open and where, and the program starts the
-//! connection it asked for on the socket it opened. For each request the program places an
-//! `HttpExchange` in its own memory, which holds the request and where the response goes, and
-//! hands it to `request`. It passes what each socket read to `receive`, which returns at most one
-//! event, and sends what `send_stream` and `send_datagram` write. colibri makes no system call and
-//! reads no clock: time is a value the caller passes.
+//! connection it asked for on the socket it opened. For each exchange the program places a
+//! `Request` and a `Response` in its own memory, and hands both to `request` (decision 124). It
+//! passes what each socket read to `receive`, which returns at most one event, and sends what
+//! `send_stream` and `send_datagram` write. colibri makes no system call and reads no clock: time
+//! is a value the caller passes.
 //!
 //! The channel runs each connection's TLS handshake itself, so a program that uses this module
 //! links chapulin. One that wants no TLS uses `h11` or `h2` directly.
@@ -36,7 +36,9 @@ pub const RequestError = files.channel.RequestError;
 pub const Field = files.event.Field;
 pub const Id = files.event.Id;
 pub const Protocol = files.event.Protocol;
-pub const HttpExchange = files.event.HttpExchange;
+/// What a program sends, and where the response goes and what arrived (decision 124).
+pub const Request = files.event.Request;
+pub const Response = files.event.Response;
 pub const Wanted = files.event.Wanted;
 pub const Outcome = files.event.Outcome;
 pub const Finished = files.event.Finished;
@@ -98,17 +100,18 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // Design §8 step 21d takes out `Connection` and `QuicConnection`, which the channel holds, and
     // `Event`, `Received` and `Advert`, which only their calls return (decision 121). It removes
     // the `Channel` prefix from the channel's types, and takes out `ChannelEntry`, which no call
-    // of `Channel` takes or returns.
+    // of `Channel` takes or returns. Step 21f.2 puts `Request` and `Response` in place of
+    // `HttpExchange` (decision 124).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",         "Config",             "Versions",           "StartError",      "RequestError",
-        "Field",             "Id",                 "Protocol",           "HttpExchange",    "Wanted",
-        "Outcome",           "Finished",           "Sent",               "Address",         "Ecn",
-        "Channel",           "Values",             "Https",              "Alternative",     "Input",
-        "Datagram",          "Received",           "Event",              "Open",            "Transport",
-        "Phase",             "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",
-        "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",
-        "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",    "Config",            "Versions",           "StartError",         "RequestError",
+        "Field",        "Id",                "Protocol",           "Request",            "Response",
+        "Wanted",       "Outcome",           "Finished",           "Sent",               "Address",
+        "Ecn",          "Channel",           "Values",             "Https",              "Alternative",
+        "Input",        "Datagram",          "Received",           "Event",              "Open",
+        "Transport",    "Phase",             "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",
+        "Coding",       "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool",
+        "ZstdDecoders", "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 
@@ -145,7 +148,7 @@ test {
     _ = @import("alt_svc.zig");
     _ = @import("versions.zig");
     _ = @import("slots.zig");
-    _ = @import("response.zig");
+    _ = @import("response_write.zig");
     _ = @import("coding.zig");
     _ = @import("coding_pool.zig");
     _ = @import("owed.zig");

@@ -170,7 +170,7 @@ fn check_end(world: *const World) Violation!void {
         if (!world.reported[index] and !world.cancelled[index]) return error.NotReported;
         if (!world.plan.clean or !world.reported[index]) continue;
         // Design §8 step 17d: every request made completes.
-        if (world.exchanges[index].outcome != .response) return error.NoResponse;
+        if (world.responses[index].outcome != .response) return error.NoResponse;
     }
 }
 
@@ -199,7 +199,7 @@ fn result_of(storage: *const Storage) Result {
         result.cancelled += @intFromBool(world.cancelled[index]);
         result.moved += last.moved[index];
         if (!world.reported[index]) continue;
-        switch (world.exchanges[index].outcome) {
+        switch (world.responses[index].outcome) {
             .response => result.responses += 1,
             .refused => result.refused += 1,
             else => result.failed += 1,

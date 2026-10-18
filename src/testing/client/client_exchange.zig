@@ -1,6 +1,7 @@
-//! One exchange of the test-only client, in h2 or h11: the request the command line asks for, and
-//! the `client` module's exchange that carries it (design §8 step 17c). The client module copies
-//! the response into the exchange's own memory, which `client_session.zig` places.
+//! One exchange of the test-only client, in h2 or h11: the request the command line asks for, as
+//! the `client` module's `Request`, and the `Response` it gets (design §8 step 17c, decision 124).
+//! The client module copies the response into the exchange's own memory, which `client_session.zig`
+//! places.
 //!
 //! The content is a pattern and not a file, so a run reads nothing from disk and two runs send the
 //! same octets. A peer that echoes a request returns octets whose checksum `content_crc32` gives,
@@ -26,10 +27,11 @@ pub const Plan = struct {
 /// The field lines every request carries beside the ones `client` adds (RFC 9110 §10.1.5).
 const request_fields = [_]client.Field{.{ .name = "user-agent", .value = constants.user_agent }};
 
-/// One exchange: its plan, the module's exchange carrying it, and its id on the connection.
+/// One exchange: its plan, the module's request and response, and its id on the connection.
 pub const Exchange = struct {
     plan: Plan,
-    carried: client.HttpExchange,
+    request: client.Request,
+    response: client.Response,
     id: client.Id,
     /// Whether the exchange's `finished` event arrived.
     finished: bool,
@@ -40,13 +42,13 @@ pub const Exchange = struct {
         assert(plan.content_len <= constants.request_content_len_max);
         return .{
             .plan = plan,
-            .carried = .{
+            .request = .{
                 .method = plan.method,
                 .path = plan.path,
                 .fields = &request_fields,
                 .content = content[0..plan.content_len],
-                .body = body,
             },
+            .response = .{ .body = body },
             .id = 0,
             .finished = false,
         };
@@ -55,31 +57,31 @@ pub const Exchange = struct {
     /// Whether the exchange ended the way a working peer ends one: a final response read whole,
     /// with the request content sent whole.
     pub fn succeeded(exchange: *const Exchange) bool {
-        if (!exchange.finished or exchange.carried.outcome != .response) return false;
-        return exchange.carried.content_sent == exchange.plan.content_len;
+        if (!exchange.finished or exchange.response.outcome != .response) return false;
+        return exchange.response.content_sent == exchange.plan.content_len;
     }
 
     /// The checksum of the content sent, which a peer that echoes it returns.
     pub fn sent_crc32(exchange: *const Exchange) u32 {
-        return Crc32.hash(content[0..exchange.carried.content_sent]);
+        return Crc32.hash(content[0..exchange.response.content_sent]);
     }
 
     /// The checksum of the response's content.
     pub fn received_crc32(exchange: *const Exchange) u32 {
-        return Crc32.hash(exchange.carried.body[0..exchange.carried.body_len]);
+        return Crc32.hash(exchange.response.body[0..exchange.response.body_len]);
     }
 
     /// Prints the line a run reports for the exchange, which carried it over `protocol`.
     pub fn print(exchange: *const Exchange, protocol: []const u8) void {
-        const carried = &exchange.carried;
+        const response = &exchange.response;
         std.debug.print(line_format, .{
-            protocol,                                            exchange.id,
-            exchange.plan.method,                                exchange.plan.path,
-            carried.status,                                      carried.interims,
-            carried.content_sent,                                exchange.sent_crc32(),
-            carried.body_len,                                    exchange.received_crc32(),
-            carried.outcome,                                     carried.error_code,
-            if (carried.coding) |coding| coding.name() else "-",
+            protocol,                                             exchange.id,
+            exchange.plan.method,                                 exchange.plan.path,
+            response.status,                                      response.interims,
+            response.content_sent,                                exchange.sent_crc32(),
+            response.body_len,                                    exchange.received_crc32(),
+            response.outcome,                                     response.error_code,
+            if (response.coding) |coding| coding.name() else "-",
         });
     }
 };

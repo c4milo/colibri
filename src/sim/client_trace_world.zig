@@ -66,7 +66,9 @@ pub const World = struct {
     /// The receive pool of the channel's QUIC connections (decision 61).
     receive_pool: client.DefaultReceivePool,
     addresses: [1]client.Address,
-    exchanges: [limits.exchanges_max]client.HttpExchange,
+    /// Each exchange's request and response, by index (decision 124).
+    requests: [limits.exchanges_max]client.Request,
+    responses: [limits.exchanges_max]client.Response,
     bodies: [limits.exchanges_max][body_len]u8,
     paths: [limits.exchanges_max][body_len]u8,
     ids: [limits.exchanges_max]?client.Id,
@@ -196,7 +198,7 @@ pub const World = struct {
         for (0..world.plan.exchanges) |index| {
             if (!world.plan.cancel_on_end[index] or world.cancelled[index] or world.reported[index]) continue;
             const id = world.ids[index] orelse continue;
-            if (world.exchanges[index].outcome == .pending) continue;
+            if (world.responses[index].outcome == .pending) continue;
             world.channel.cancel(id);
             world.cancelled[index] = true;
             world.settled_ns = world.now_ns;
@@ -286,13 +288,13 @@ pub const World = struct {
     fn make(world: *World, index: usize) Error!void {
         const path = ledger_module.path_of(index, &world.paths[index]);
         const content_len = world.plan.content_len[index];
-        world.exchanges[index] = .{
+        world.requests[index] = .{
             .method = if (content_len > 0) "POST" else "GET",
             .path = path,
             .content = content_source[0..content_len],
-            .body = &world.bodies[index],
         };
-        world.ids[index] = try world.channel.request(&world.exchanges[index]);
+        world.responses[index] = .{ .body = &world.bodies[index] };
+        world.ids[index] = try world.channel.request(&world.requests[index], &world.responses[index]);
     }
 
     /// Hands each side what arrived by now.
@@ -443,17 +445,18 @@ pub const World = struct {
     }
 
     fn report(world: *World, finished: client.Finished) Error!void {
-        const index = world.index_of(finished.exchange);
+        const index = world.index_of(finished.response);
+        assert(finished.request == &world.requests[index]);
         if (world.reported[index]) return error.ReportedTwice;
         if (world.cancelled[index]) return error.ReportedAfterCancel;
         world.reported[index] = true;
         world.settled_ns = world.now_ns;
     }
 
-    /// The index of the exchange at `exchange`, which the world placed.
-    pub fn index_of(world: *const World, exchange: *const client.HttpExchange) usize {
-        const index = (@intFromPtr(exchange) - @intFromPtr(&world.exchanges[0])) / @sizeOf(client.HttpExchange);
-        assert(index < limits.exchanges_max and &world.exchanges[index] == exchange);
+    /// The index of the exchange whose response is at `response`, which the world placed.
+    pub fn index_of(world: *const World, response: *const client.Response) usize {
+        const index = (@intFromPtr(response) - @intFromPtr(&world.responses[0])) / @sizeOf(client.Response);
+        assert(index < limits.exchanges_max and &world.responses[index] == response);
         return index;
     }
 };

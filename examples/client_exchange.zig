@@ -3,10 +3,10 @@
 //!
 //! The channel carries exchanges to one origin over the QUIC and TCP connections it chooses
 //! between, and tells the program which transport to open (decision 120). This one has a receive
-//! pool and a TLS value, so it offers h3 over QUIC and h2 then h11 over TCP. The program places an
-//! exchange for a GET and one for a POST, which the server's routes serve. It places three more,
-//! which no route serves: a GET of `/echo`, a GET of `/missing` and a DELETE. The channel sends
-//! each exchange over the first connection whose handshake completes.
+//! pool and a TLS value, so it offers h3 over QUIC and h2 then h11 over TCP. The program places a
+//! request and a response for a GET and for a POST, which the server's routes serve. It places
+//! three more, which no route serves: a GET of `/echo`, a GET of `/missing` and a DELETE. The
+//! channel sends each request over the first connection whose handshake completes.
 //!
 //! The network drops every UDP datagram, as some networks do. The run goes in this order:
 //! 1. The channel says `open .quic`, and the program starts the QUIC connection. Each datagram it
@@ -97,8 +97,8 @@ var output: [output_len]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 
 // The client: one configuration for the origin, the pool its QUIC connection holds the server's
-// unread octets in, one channel, and an exchange for each request. An exchange holds the request
-// and the memory its response goes into.
+// unread octets in, one channel, and for each exchange a request and a response. The response
+// holds the memory the answer goes into (decision 124).
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
 const ReceivePool = client.ReceivePool(64 * 1024);
 var client_config: client.Config align(@alignOf(client.Config)) = undefined;
@@ -109,20 +109,19 @@ var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "cont
 var wanted_values: [content_type.len]u8 = undefined;
 var get_body: [greeting.len]u8 = undefined;
 var post_body: [note.len]u8 = undefined;
-var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
-    .method = "GET",
-    .path = "/greeting",
+const get: client.Request = .{ .method = "GET", .path = "/greeting" };
+var get_response: client.Response align(@alignOf(client.Response)) = .{
     .wanted = &wanted,
     .values = &wanted_values,
     .body = &get_body,
 };
-var post: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+const post: client.Request = .{
     .method = "POST",
     .path = "/echo",
     .fields = &.{.{ .name = "content-type", .value = content_type }},
     .content = note,
-    .body = &post_body,
 };
+var post_response: client.Response align(@alignOf(client.Response)) = .{ .body = &post_body };
 
 /// The three requests that no route serves. The route of `/echo` names POST alone, so a GET of it
 /// gets 405 with an Allow value. No route names `/missing`, so its GET gets 404. No route names
@@ -131,23 +130,16 @@ const allow_expected = "POST";
 var allow: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "allow" }};
 var allow_values: [allow_expected.len]u8 = undefined;
 var unanswered_body: [greeting.len]u8 = undefined;
-var get_echo: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
-    .method = "GET",
-    .path = "/echo",
+const get_echo: client.Request = .{ .method = "GET", .path = "/echo" };
+var get_echo_response: client.Response align(@alignOf(client.Response)) = .{
     .wanted = &allow,
     .values = &allow_values,
     .body = &unanswered_body,
 };
-var get_missing: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
-    .method = "GET",
-    .path = "/missing",
-    .body = &unanswered_body,
-};
-var delete_greeting: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
-    .method = "DELETE",
-    .path = "/greeting",
-    .body = &unanswered_body,
-};
+const get_missing: client.Request = .{ .method = "GET", .path = "/missing" };
+var get_missing_response: client.Response align(@alignOf(client.Response)) = .{ .body = &unanswered_body };
+const delete_greeting: client.Request = .{ .method = "DELETE", .path = "/greeting" };
+var delete_greeting_response: client.Response align(@alignOf(client.Response)) = .{ .body = &unanswered_body };
 
 /// What the client saw: exchanges that ended, the version ALPN picked, the transports the channel
 /// opened and said to close, the tickets it took, and whether the shut-down channel is over.
@@ -162,11 +154,8 @@ var channel_closed: bool = false;
 /// The second channel, whose connect fails, and its one exchange.
 var refused_channel: client.Channel align(@alignOf(client.Channel)) = undefined;
 var refused_body: [greeting.len]u8 = undefined;
-var refused_get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
-    .method = "GET",
-    .path = "/greeting",
-    .body = &refused_body,
-};
+const refused_get: client.Request = .{ .method = "GET", .path = "/greeting" };
+var refused_get_response: client.Response align(@alignOf(client.Response)) = .{ .body = &refused_body };
 
 pub fn main() !void {
     try link.init();
@@ -204,14 +193,14 @@ fn start_client(cpu: tls.Cpu) !void {
     // `init` builds the TLS configuration of each transport inside the channel, which stays in
     // place from here on. The pool is what makes the channel offer QUIC.
     try channel.init(&client_config, known, receive_pool.storage());
-    // `request` only takes an exchange. The channel asks for a transport, and sends the exchange
-    // over the first connection that completes its handshake, so a program asks at once and
-    // never waits.
-    _ = try channel.request(&get);
-    _ = try channel.request(&post);
-    _ = try channel.request(&get_echo);
-    _ = try channel.request(&get_missing);
-    _ = try channel.request(&delete_greeting);
+    // `request` only takes a request and its response. The channel asks for a transport, and
+    // sends the request over the first connection that completes its handshake, so a program asks
+    // at once and never waits.
+    _ = try channel.request(&get, &get_response);
+    _ = try channel.request(&post, &post_response);
+    _ = try channel.request(&get_echo, &get_echo_response);
+    _ = try channel.request(&get_missing, &get_missing_response);
+    _ = try channel.request(&delete_greeting, &delete_greeting_response);
 }
 
 /// One turn of the client: pass the channel what each socket read, fire its deadlines, send what
@@ -288,9 +277,9 @@ fn report(event: client.Event, now_ns: u64) !void {
             spoken = protocol;
         },
         .finished => |ended| {
-            const exchange = ended.exchange;
+            // The event names the request and the response, whose memory is the program's again.
             std.debug.print("client: {s}: {s}, {d}\n", .{
-                exchange.path, @tagName(exchange.outcome), exchange.status,
+                ended.request.path, @tagName(ended.response.outcome), ended.response.status,
             });
             finished += 1;
             // Every exchange has ended, so the client shuts the channel down.
@@ -343,7 +332,7 @@ fn connect_refused() !void {
     // TCP alone.
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     try refused_channel.init(&client_config, known, null);
-    _ = try refused_channel.request(&refused_get);
+    _ = try refused_channel.request(&refused_get, &refused_get_response);
     for (0..events_per_input_max) |_| {
         const received = refused_channel.receive(.none, now_ns);
         switch (received.event orelse return error.ExchangeWrong) {
@@ -376,14 +365,14 @@ fn sleep_ns() u64 {
 /// at least one datagram, and took a ticket. The requests that no route serves got 405, 404 and
 /// 501. The refused exchange ended `refused`, and the server saw what it expects.
 fn check() Error!void {
-    const greeted = arrived(&get, 200, greeting);
+    const greeted = arrived(&get_response, 200, greeting);
     const typed = std.mem.eql(u8, wanted[0].value orelse "", content_type);
-    const echoed = arrived(&post, 200, note);
+    const echoed = arrived(&post_response, 200, note);
     const unserved = unserved_arrived();
     const opened = opens.get(.quic) == 1 and opens.get(.tcp) == 1;
     const closed = closes.get(.quic) == 1 and closes.get(.tcp) == 1;
     const lost = datagram_link.dropped > 0;
-    const refused = refused_get.outcome == .refused;
+    const refused = refused_get_response.outcome == .refused;
     const right = spoken == .h2 and greeted and typed and echoed and unserved and tickets > 0 and refused;
     if (right and opened and closed and lost and peer.check()) {
         std.debug.print("client_exchange: every octet arrived as sent\n", .{});
@@ -398,15 +387,15 @@ fn check() Error!void {
     return error.ExchangeWrong;
 }
 
-/// Whether `exchange` ended in a response with `status`, whose content is `content`.
-fn arrived(exchange: *const client.HttpExchange, status: u16, content: []const u8) bool {
-    if (exchange.outcome != .response or exchange.status != status) return false;
-    return std.mem.eql(u8, exchange.content_received(), content);
+/// Whether `response` ended its exchange as a response with `status`, whose content is `content`.
+fn arrived(response: *const client.Response, status: u16, content: []const u8) bool {
+    if (response.outcome != .response or response.status != status) return false;
+    return std.mem.eql(u8, response.content_received(), content);
 }
 
 /// Whether the three requests that no route serves got 405 with the Allow value, 404 and 501.
 fn unserved_arrived() bool {
     const allowed = std.mem.eql(u8, allow[0].value orelse "", allow_expected);
-    return allowed and arrived(&get_echo, 405, "") and arrived(&get_missing, 404, "") and
-        arrived(&delete_greeting, 501, "");
+    return allowed and arrived(&get_echo_response, 405, "") and
+        arrived(&get_missing_response, 404, "") and arrived(&delete_greeting_response, 501, "");
 }

@@ -25,7 +25,8 @@ var coded: [256]u8 = undefined;
 const Endpoint = server_module.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 var asked: client_module.Channel align(@alignOf(client_module.Channel)) = undefined;
-var exchange: client_module.HttpExchange align(@alignOf(client_module.HttpExchange)) = .{ .method = "GET", .path = "/" };
+const get: client_module.Request = .{ .method = "GET", .path = "/" };
+var get_response: client_module.Response align(@alignOf(client_module.Response)) = .{};
 // The octets the client wrote, which the server reads, and the octets the server wrote, which the
 // client reads. The endpoint reports a `send` while `wire` may still hold octets the server has
 // not read, so the server's octets go into a buffer of their own.
@@ -124,7 +125,7 @@ pub fn main() !void {
     const accepted = endpoint.accept(.cleartext, 0) orelse return error.ExchangeWrong;
     // The channel takes what DNS knows as values, and with no receive pool it offers TCP alone.
     try asked.init(&client_config, .{ .addresses = &server_addresses, .port = server_port }, null);
-    _ = try asked.request(&exchange);
+    _ = try asked.request(&get, &get_response);
     // The channel asks for a socket. A program connects one, then starts the connection on it, and
     // reads what the connection then owes: in cleartext, that it is connected.
     const open = asked.receive(.none, 0).event orelse return error.ExchangeWrong;
@@ -134,7 +135,7 @@ pub fn main() !void {
     for (0..exchange_rounds_max) |_| {
         try serve(accepted, asked.send_stream(&wire, 0));
     }
-    if (exchange.outcome != .response or exchange.status != 204) return error.ExchangeWrong;
+    if (get_response.outcome != .response or get_response.status != 204) return error.ExchangeWrong;
     std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
 }
 
@@ -168,7 +169,7 @@ fn send(connection: server_module.ConnectionHandle) !void {
     hear(server_output[0..written]);
 }
 
-/// The client reads `octets`, which the server wrote, and its exchange holds what they say. Each
+/// The client reads `octets`, which the server wrote, and its response holds what they say. Each
 /// call passes the octets it still holds, or `.none` when it holds none.
 fn hear(octets: []u8) void {
     var consumed: usize = 0;

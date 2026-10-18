@@ -46,7 +46,8 @@ const channel_events = @import("channel_events.zig");
 pub const Transport = choice.Transport;
 pub const Phase = choice.Phase;
 pub const Id = event.Id;
-pub const HttpExchange = event.HttpExchange;
+pub const Request = event.Request;
+pub const Response = event.Response;
 pub const Protocol = event.Protocol;
 pub const Finished = event.Finished;
 /// What `Channel.request` returns: what `check_request` refuses, and `Full`.
@@ -107,7 +108,7 @@ pub const Event = union(enum) {
     connected: Protocol,
     /// A transport's server issued a resumption ticket, which `take_ticket` hands over.
     ticket: Transport,
-    /// An exchange ended, and the caller may reuse its memory.
+    /// An exchange ended, and the caller may reuse the memory of its request and its response.
     finished: Finished,
     /// The channel was shut down, every exchange has finished, and every transport closed.
     closed,
@@ -147,7 +148,9 @@ pub const Stage = enum {
 pub const Entry = struct {
     stage: Stage = .free,
     id: Id = 0,
-    exchange: *HttpExchange = undefined,
+    /// The request the program placed, and its response (decision 124).
+    request: *const Request = undefined,
+    response: *Response = undefined,
     carrier: Transport = .quic,
     carried_id: Id = 0,
     /// Times it moved to another connection.
@@ -243,20 +246,23 @@ pub const Channel = struct {
         channel.closed_reported = false;
     }
 
-    /// Takes `exchange`, which goes out on the first connection open to take it, and returns its
-    /// id. The caller makes no request after `shutdown`.
-    pub fn request(channel: *Channel, exchange: *HttpExchange) RequestError!Id {
+    /// Takes the request `message`, which goes out on the first connection open to take it, and
+    /// the `response` it gets, and returns the exchange's id. The caller keeps both in place, and
+    /// each slice they name, until the exchange's `finished` event or until `cancel` returns
+    /// (decision 124). The caller makes no request after `shutdown`.
+    pub fn request(channel: *Channel, message: *const Request, response: *Response) RequestError!Id {
         assert(!channel.shut);
-        try connection_module.check_request(exchange);
+        try connection_module.check_request(message);
         const entry = channel.free_entry() orelse return error.Full;
-        exchange.clear();
-        entry.* = .{ .stage = .waiting, .id = channel.next_id, .exchange = exchange };
+        response.clear();
+        entry.* = .{ .stage = .waiting, .id = channel.next_id, .request = message, .response = response };
         channel.next_id += 1;
         channel_events.assign_waiting(channel);
         return entry.id;
     }
 
-    /// Ends exchange `id`, and reports nothing for it. Its memory is the caller's again.
+    /// Ends exchange `id`, and reports nothing for it. The memory of its request and its response
+    /// is the caller's again.
     pub fn cancel(channel: *Channel, id: Id) void {
         const entry = channel.entry_of(id) orelse return;
         if (entry.stage == .carried) switch (entry.carrier) {

@@ -1,10 +1,10 @@
 //! The h2 half of a client connection (decision 100): exchanges written as streams through h2's
-//! send path, and h2's events recorded in the exchange whose stream they name (RFC 9113 §8.1).
+//! send path, and h2's events recorded in the response whose stream they name (RFC 9113 §8.1).
 //!
 //! Heads go out oldest first, so the stream identifiers follow the order `request` took the
-//! exchanges (RFC 9113 §5.1.1), and each exchange's content follows its head as the windows allow
+//! exchanges (RFC 9113 §5.1.1), and each request's content follows its head as the windows allow
 //! (§6.9). A response's interim heads are counted, its final head and content are written into the
-//! exchange, and its trailer section is read and dropped: RFC 9110 §6.5.1 lets no trailer field
+//! `Response`, and its trailer section is read and dropped: RFC 9110 §6.5.1 lets no trailer field
 //! into the header section the caller's wanted values come from.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -14,13 +14,12 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const slots_module = @import("../slots.zig");
-const response = @import("../response.zig");
+const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
 const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
 
 const Connection = connection_module.Connection;
-const HttpExchange = connection_module.HttpExchange;
 const Slot = slots_module.Slot;
 
 /// Reads frames from `plaintext` until an exchange ends or the connection owes the caller an
@@ -85,16 +84,15 @@ fn on_alt_svc(connection: *Connection, advertised: h2.connection.AltSvc) bool {
 
 fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     const slot = connection.slots.of_stream(head.stream_id) orelse return false;
-    const exchange = slot.exchange;
     // RFC 9110 §15.2: a client reads any number of interim responses before the final one.
     if (head.response.status.is_interim()) {
-        exchange.interims += 1;
+        slot.response.interims += 1;
         return false;
     }
     const section = connection.session.h2.field_section();
     internal.note_alt_svc(connection, section, first_regular(section));
-    response.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
-        return refuse(connection, slot, response.outcome_of(failure));
+    response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
+        return refuse(connection, slot, response_write.outcome_of(failure));
     };
     if (!head.end_stream) return false;
     return finish(connection, slot);
@@ -102,7 +100,7 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
 
 fn on_data(connection: *Connection, data: h2.connection.Data) bool {
     const slot = connection.slots.of_stream(data.stream_id) orelse return false;
-    response.append_body(slot, data.payload) catch |failure| return refuse(connection, slot, response.outcome_of(failure));
+    response_write.append_body(slot, data.payload) catch |failure| return refuse(connection, slot, response_write.outcome_of(failure));
     if (!data.end_stream) return false;
     return finish(connection, slot);
 }
@@ -115,7 +113,7 @@ fn on_reset(connection: *Connection, reset: h2.connection.StreamReset) bool {
         slots_module.end(slot, .refused);
         return true;
     }
-    slot.exchange.error_code = reset.error_code;
+    slot.response.error_code = reset.error_code;
     slots_module.end(slot, .reset);
     return true;
 }
@@ -141,7 +139,7 @@ fn end_response(connection: *Connection, stream_id: u32) bool {
 fn finish(connection: *Connection, slot: *Slot) bool {
     if (!slot.content_done()) cancel_stream(connection, slot.stream_id);
     // Decision 101: coded content ends with its stream, or the exchange ends malformed.
-    const outcome: event.Outcome = if (response.end_body(slot)) .response else |failure| response.outcome_of(failure);
+    const outcome: event.Outcome = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
     slots_module.end(slot, outcome);
     return true;
 }
@@ -191,7 +189,7 @@ fn first_regular(section: *const http.FieldSection) u32 {
 }
 
 /// Writes the heads of the exchanges waiting, oldest first, then as much of each written
-/// exchange's content as the windows and the room allow.
+/// request's content as the windows and the room allow.
 pub fn write_requests(connection: *Connection) void {
     // Bounded: each pass writes or ends an exchange, or stops.
     for (0..constants.exchanges_max) |_| {
@@ -206,7 +204,7 @@ pub fn write_requests(connection: *Connection) void {
 /// Writes the head of `slot`'s request, which opens its stream. Returns whether the next exchange
 /// may be written: false when this one waits for room or for the server's stream limit.
 fn open(connection: *Connection, slot: *Slot) bool {
-    const exchange = slot.exchange;
+    const request = slot.request;
     var lines: [constants.request_fields_max]h2.hpack.Field = undefined;
     var indexing: [constants.request_fields_max]h2.connection.RequestIndexing = undefined;
     var digits: [constants.content_length_digits_max]u8 = undefined;
@@ -218,14 +216,14 @@ fn open(connection: *Connection, slot: *Slot) bool {
     // RFC 9113 §8.3.1: `:scheme` is the target URI's, https over TLS (RFC 9110 §4.2.2).
     const scheme: []const u8 = if (connection.config.tls == null) "http" else "https";
     const head: h2.connection.Request_ = .{
-        .method = exchange.method,
+        .method = request.method,
         .scheme = scheme,
-        .path = exchange.path,
+        .path = request.path,
         .authority = connection.config.authority,
         // RFC 7541 §7.1.3: a value an intermediary must not index goes out never-indexed.
-        .indexing = .{ .path = if (exchange.never_indexed.path) .never_indexed else .without_indexing },
+        .indexing = .{ .path = if (request.never_indexed.path) .never_indexed else .without_indexing },
     };
-    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], exchange.content.len == 0) catch |failure| {
+    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], request.content.len == 0) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += sent.written;
@@ -272,17 +270,17 @@ fn request_fields(
     digits: *[constants.content_length_digits_max]u8,
     offer: *[coding.offer_len_max]u8,
 ) ?[]const h2.hpack.Field {
-    const exchange = slot.exchange;
-    if (exchange.fields.len + constants.added_fields_max > lines.len) return null;
-    const marked = exchange.never_indexed.fields;
-    for (exchange.fields, lines[0..exchange.fields.len], indexing[0..exchange.fields.len], 0..) |field, *line, *how, index| {
+    const request = slot.request;
+    if (request.fields.len + constants.added_fields_max > lines.len) return null;
+    const marked = request.never_indexed.fields;
+    for (request.fields, lines[0..request.fields.len], indexing[0..request.fields.len], 0..) |field, *line, *how, index| {
         line.* = .{ .name = field.name, .value = field.value };
         // RFC 7541 §7.1.3: a line the caller marked goes out never-indexed.
         const never = marked.len > 0 and marked[index];
         how.* = if (never) .never_indexed else .without_indexing;
     }
-    var count = exchange.fields.len;
-    if (exchange.content_length(digits)) |length| {
+    var count = request.fields.len;
+    if (request.content_length(digits)) |length| {
         lines[count] = .{ .name = "content-length", .value = length };
         indexing[count] = .without_indexing;
         count += 1;
@@ -297,18 +295,18 @@ fn request_fields(
 
 /// Writes as much of `slot`'s content as the windows and the room allow (RFC 9113 §6.9.1).
 fn write_content(connection: *Connection, slot: *Slot) void {
-    const content = slot.exchange.content;
+    const content = slot.request.content;
+    const response = slot.response;
     // Bounded: each pass writes a frame, or stops.
     for (0..content.len + 1) |_| {
         if (slot.content_done()) return;
-        const exchange = slot.exchange;
-        const sent = connection.session.h2.write_data(internal.room(connection), @intCast(slot.stream_id), content[exchange.content_sent..], true) catch {
+        const sent = connection.session.h2.write_data(internal.room(connection), @intCast(slot.stream_id), content[response.content_sent..], true) catch {
             // RFC 9113 §5.1: the stream is no longer one the client may send on.
             slot.content_stopped = true;
             return;
         };
         connection.output_len += sent.written;
-        exchange.content_sent += sent.consumed;
+        response.content_sent += sent.consumed;
         // RFC 9113 §6.9: no window, or no room for a frame.
         if (sent.written == 0) return;
     }

@@ -79,42 +79,43 @@ assertions stay on in production.
 
 Most programs use two modules. `client` sends requests and `server` answers them, behind one
 set of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the
-version. A client places an exchange for each request: the request, and the memory its response
-goes into. These lines are from [`examples/client_exchange.zig`](examples/client_exchange.zig):
+version. For each exchange a client places a request, and a response that holds the memory the
+answer goes into. These lines are from
+[`examples/client_exchange.zig`](examples/client_exchange.zig):
 
 ```zig
-var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
-    .method = "GET",
-    .path = "/greeting",
+const get: client.Request = .{ .method = "GET", .path = "/greeting" };
+var get_response: client.Response align(@alignOf(client.Response)) = .{
     .wanted = &wanted,
     .values = &wanted_values,
     .body = &get_body,
 };
 ```
 
-It hands the exchange to a channel. The channel asks for a QUIC or a TCP transport, and sends
-the exchange over the first connection that completes its handshake:
+It hands both to a channel. The channel asks for a QUIC or a TCP transport, and sends the
+request over the first connection that completes its handshake:
 
 ```zig
 const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
 // `init` builds the TLS configuration of each transport inside the channel, which stays in
 // place from here on. The pool is what makes the channel offer QUIC.
 try channel.init(&client_config, known, receive_pool.storage());
-// `request` only takes an exchange. The channel asks for a transport, and sends the exchange
-// over the first connection that completes its handshake, so a program asks at once and
-// never waits.
-_ = try channel.request(&get);
-_ = try channel.request(&post);
+// `request` only takes a request and its response. The channel asks for a transport, and
+// sends the request over the first connection that completes its handshake, so a program asks
+// at once and never waits.
+_ = try channel.request(&get, &get_response);
+_ = try channel.request(&post, &post_response);
 ```
 
 The program moves datagrams and octets between its sockets and the channel's `send_datagram`,
-`send_stream` and `receive`, and every exchange ends in one `finished` event:
+`send_stream` and `receive`, and every exchange ends in one `finished` event, which names the
+request and the response:
 
 ```zig
 .finished => |ended| {
-    const exchange = ended.exchange;
+    // The event names the request and the response, whose memory is the program's again.
     std.debug.print("client: {s}: {s}, {d}\n", .{
-        exchange.path, @tagName(exchange.outcome), exchange.status,
+        ended.request.path, @tagName(ended.response.outcome), ended.response.status,
     });
     finished += 1;
     // Every exchange has ended, so the client shuts the channel down.

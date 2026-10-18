@@ -357,7 +357,7 @@ test "a socket the system never gave ends the channel's attempt, and the exchang
     var none: [0]u8 = .{};
     const stepped = connection.session.step(&none, &none);
     try testing.expect(stepped.done and stepped.open == null);
-    try testing.expectEqual(.refused, connection.session.exchanges[0].carried.outcome);
+    try testing.expectEqual(.refused, connection.session.exchanges[0].response.outcome);
 }
 
 test "a socket the channel asks for while its last one closes waits for that close" {

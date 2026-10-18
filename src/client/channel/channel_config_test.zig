@@ -40,12 +40,12 @@ fn unwritten(built: anytype) bool {
 fn expect_tcp_alone(given: channel_module.Config, pool: ?channel_module.ReceiveStorage) !void {
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, pool);
     var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(Transport.tcp, opened(0).?.transport);
     channel.transport_closed(.tcp);
     try collect();
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(null, opened(1));
     try testing.expectEqual(channel_module.Phase.none, channel.phase(.quic));
 }
@@ -67,7 +67,7 @@ test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP after QUIC fail
     try fixture.start_configured(&quic_support.alpn_other, values_at(https_port), given, fixture.pool());
     fixture.blocked = true;
     var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange);
+    const id = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(Transport.quic, opened(0).?.transport);
     const fallback_at = quic_support.now_ns + fixture.fallback_delay_ns;
@@ -81,7 +81,7 @@ test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP after QUIC fail
     try pump(rounds_past_probe * 4);
     try testing.expectEqual(null, opened(1));
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(channel_module.Phase.none, channel.phase(.tcp));
 }
 
@@ -111,10 +111,10 @@ test "decision 120: a channel whose values allow no transport ends each exchange
     given.versions = h3_alone;
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.pool());
     var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange);
+    const id = try channel.request(&exchange.request, &exchange.response);
     const first = channel.receive(.none, quic_support.now_ns);
     try testing.expectEqual(id, first.event.?.finished.id);
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try collect();
     try testing.expectEqual(null, opened(0));
 }
@@ -151,10 +151,10 @@ test "decision 120: a QUIC connection gets the authority, ECN, the idle timeout,
     // A channel that offers br, zstd and gzip starts its QUIC connection, which carries an
     // exchange.
     var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected);
-    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(idle_timeout_ms, quic_support.server.peer_parameters.?.max_idle_timeout_ms);
 }
 

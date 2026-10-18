@@ -155,7 +155,7 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     for (plan.exchanges[0..plan.exchanges_len], 0..) |*planned, index| {
         const expected = content_coding_plan.expect(plan, planned);
         const arrived = try verify_exchange(storage, planned, expected, index);
-        const outcome = storage.run.exchanges[index].outcome;
+        const outcome = storage.run.responses[index].outcome;
         const coding: []const u8 = if (expected.coded) |coded| coded.name() else "-";
         try line(storage, "exchange={d} outcome={t} status={d} coding={s} decoded={} len={d} crc32=0x{x:0>8}\n", .{
             index,
@@ -174,16 +174,16 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
 
 /// Checks one exchange, and returns the content it delivered: decoded, or as it arrived.
 fn verify_exchange(storage: *Storage, planned: *const content_coding_plan.Exchange, expected: content_coding_plan.Expected, index: usize) Violation![]const u8 {
-    const exchange = &storage.run.exchanges[index];
+    const response = &storage.run.responses[index];
     if (expected.too_large) {
-        if (exchange.outcome != .too_large) return error.ExchangeDiffers;
+        if (response.outcome != .too_large) return error.ExchangeDiffers;
         return &.{};
     }
-    if (exchange.outcome != .response or exchange.status != planned.status) return error.ExchangeDiffers;
+    if (response.outcome != .response or response.status != planned.status) return error.ExchangeDiffers;
     const content: []const u8 = if (planned.head) &.{} else storage.run.contents[index][0..planned.content_len];
     const reported: ?Coding = if (expected.decoded) expected.coded else null;
-    if (exchange.coding != reported) return error.ExchangeDiffers;
-    const received = exchange.content_received();
+    if (response.coding != reported) return error.ExchangeDiffers;
+    const received = response.content_received();
     // Decision 101: the client passes on a coding it did not offer, which the check decodes.
     const arrived = if (expected.coded != null and !expected.decoded) try decode(storage, expected.coded.?, received) else received;
     if (!std.mem.eql(u8, arrived, content)) return error.ExchangeDiffers;

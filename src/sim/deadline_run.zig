@@ -130,7 +130,9 @@ pub const Storage = struct {
     hostile: Hostile,
     to_server: Stream,
     to_client: Stream,
-    exchanges: [limits.exchanges_max]client.HttpExchange,
+    /// Each exchange's request and response, by index (decision 124).
+    requests: [limits.exchanges_max]client.Request,
+    responses: [limits.exchanges_max]client.Response,
     bodies: [limits.exchanges_max][limits.read_content_len_max]u8,
     content: [limits.read_content_len_max]u8,
     /// The content an uploading peer's requests carry.
@@ -212,11 +214,12 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.addresses = .{client.Address.of(&octets, 0)};
     // No receive pool, so the channel offers TCP alone.
     try storage.channel.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
-    for (storage.exchanges[0..plan.exchanges_len], 0..) |*exchange, index| {
-        exchange.* = .{ .method = "GET", .path = "/", .body = &storage.bodies[index] };
+    for (storage.requests[0..plan.exchanges_len], storage.responses[0..plan.exchanges_len], 0..) |*message, *response, index| {
+        message.* = .{ .method = "GET", .path = "/" };
+        response.* = .{ .body = &storage.bodies[index] };
         if (plan.peer == .upload) {
-            exchange.method = "POST";
-            exchange.content = storage.upload[0..plan.upload_len[index]];
+            message.method = "POST";
+            message.content = storage.upload[0..plan.upload_len[index]];
         }
     }
     // An upload's exchanges go one at a time, so each request's body has the whole link.
@@ -239,7 +242,8 @@ fn connect(storage: *Storage, source: tls.Random, now_ns: u64) Error!void {
 
 /// Gives colibri's client its next exchange.
 fn request_next(storage: *Storage) Error!void {
-    _ = try storage.channel.request(&storage.exchanges[storage.exchanges_requested]);
+    const index = storage.exchanges_requested;
+    _ = try storage.channel.request(&storage.requests[index], &storage.responses[index]);
     storage.exchanges_requested += 1;
 }
 
@@ -402,7 +406,7 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
 fn on_event(storage: *Storage, plan: *const Plan, reported: client.Event) Error!void {
     switch (reported) {
         .finished => |finished| {
-            if (finished.exchange.outcome == .response) storage.record.exchanges_done += 1;
+            if (finished.response.outcome == .response) storage.record.exchanges_done += 1;
             if (plan.peer == .upload and storage.exchanges_requested < plan.exchanges_len) try request_next(storage);
         },
         // The peer has one socket, so an exchange that waits for another ends refused.

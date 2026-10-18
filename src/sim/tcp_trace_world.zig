@@ -88,7 +88,9 @@ pub const World = struct {
     socket_closed: bool,
     to_server: Direction,
     to_client: Direction,
-    exchanges: [limits.streams_max]client.HttpExchange,
+    /// Each exchange's request and response, by stream index (decision 124).
+    requests: [limits.streams_max]client.Request,
+    responses: [limits.streams_max]client.Response,
     bodies: [limits.streams_max][body_len_max]u8,
     /// The client's identifier of each request it made: stream index i is its i-th request.
     client_ids: [limits.streams_max]?client.Id,
@@ -250,13 +252,13 @@ pub const World = struct {
         }
         const index = world.requested;
         const carries = plan.request_content[index];
-        world.exchanges[index] = .{
+        world.requests[index] = .{
             .method = if (carries) "POST" else "GET",
             .path = "/",
             .content = if (carries) &content else "",
-            .body = &world.bodies[index],
         };
-        world.client_ids[index] = world.channel.request(&world.exchanges[index]) catch {
+        world.responses[index] = .{ .body = &world.bodies[index] };
+        world.client_ids[index] = world.channel.request(&world.requests[index], &world.responses[index]) catch {
             world.refused += 1;
             return;
         };
@@ -292,7 +294,7 @@ pub const World = struct {
 
     fn client_cancel(world: *World, stream: u32) void {
         const id = world.client_ids[stream - 1] orelse return;
-        if (world.exchanges[stream - 1].outcome != .pending or world.moved(id)) return;
+        if (world.responses[stream - 1].outcome != .pending or world.moved(id)) return;
         world.channel.cancel(id);
         world.client_ids[stream - 1] = null;
         _ = world.channel.send_stream(&.{}, world.now_ns);
@@ -429,8 +431,8 @@ pub const World = struct {
     /// The client reads every octet the server handed out.
     fn deliver_to_client(world: *World) void {
         world.read_client();
-        for (world.exchanges[0..world.requested]) |*exchange| {
-            if (exchange.outcome == .malformed) world.malformed = true;
+        for (world.responses[0..world.requested]) |*response| {
+            if (response.outcome == .malformed) world.malformed = true;
         }
         const h2_client = world.client_h2() orelse return;
         if (world.open_at_goaway == null and h2_client.streams.goaway_received_last_id != null) {

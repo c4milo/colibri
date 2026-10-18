@@ -14,7 +14,7 @@ const event = @import("../event.zig");
 
 const testing = std.testing;
 const Channel = channel_module.Channel;
-const HttpExchange = event.HttpExchange;
+const Exchange = support.Exchange;
 const Event = channel_module.Event;
 const Transport = channel_module.Transport;
 
@@ -42,19 +42,19 @@ const addresses = [_]channel_module.Address{ channel_module.Address.of(&loopback
 /// a server that selects h2. Its client trusts the root for `server_name`, and the server's
 /// certificate names localhost. `exchange` waits, and the connection the channel asked for is
 /// started, to the first address, with nothing sent. Returns the exchange's id.
-fn start(server_name: []const u8, exchange: *HttpExchange) !channel_module.Id {
+fn start(server_name: []const u8, exchange: *Exchange) !channel_module.Id {
     return start_with(.{}, &support.protocols_h2, server_name, exchange);
 }
 
 /// As `start`, with a client that speaks `versions` and a server that selects from
 /// `server_protocols`.
-fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *HttpExchange) !channel_module.Id {
+fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !channel_module.Id {
     try tls_support.prepare_server(server_protocols, false);
     config = .{ .tls = tls_support.client_values(server_name), .versions = versions, .authority = support.authority };
     try channel.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
     try tls_support.start_server();
     events_len = 0;
-    const id = try channel.request(exchange);
+    const id = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(Transport.tcp, find(.open).?.open.transport);
     try testing.expect(find(.open).?.open.to.same_host(&addresses[0]));
@@ -102,8 +102,8 @@ fn count(tag: std.meta.Tag(Event)) usize {
     return counted;
 }
 
-fn get(body: []u8) HttpExchange {
-    return .{ .method = "GET", .path = "/", .body = body };
+fn get(body: []u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
 }
 
 test "RFC 9846 §6.2: a channel asks for its transport's close once the alert of a refused handshake is written" {
@@ -131,13 +131,13 @@ test "RFC 9846 §6.2: a channel asks for its transport's close once the alert of
     try collect();
     try testing.expectEqual(Transport.tcp, find(.close).?.close);
     // No connection carried the exchange, and the attempt has no other transport to open.
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(1, count(.open));
 }
 
 /// The server's flight reaches the client with a record no key sealed after it, in the same
 /// octets, so the client completes its handshake and fails in one call (RFC 9846 §5.2).
-fn fail_at_completion(exchange: *HttpExchange) !void {
+fn fail_at_completion(exchange: *Exchange) !void {
     _ = try start("localhost", exchange);
     send();
     try testing.expectEqual(false, tls_support.server_flight().?);
@@ -165,8 +165,9 @@ test "design §8 step 21c.5: a connection that fails in the call that completes 
     try testing.expectEqual(Transport.tcp, find(.close).?.close);
     // The attempt went on with TCP counted in it, so it opened no second connection.
     try testing.expectEqual(null, find(.connected));
-    try testing.expectEqual(.refused, exchange.outcome);
-    try testing.expectEqual(&exchange, find(.finished).?.finished.exchange);
+    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
+    try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
     try testing.expectEqual(1, count(.open));
 }
 
@@ -175,10 +176,10 @@ test "design §8 step 21c.5: after a connection that carried nothing, the next r
     try fail_at_completion(&exchange);
     send();
     try collect();
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     // The connection counts as a failed attempt, and a new request starts a new one.
     events_len = 0;
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(1, count(.open));
     try testing.expect(find(.open).?.open.to.same_host(&addresses[1]));
@@ -214,13 +215,13 @@ test "design §8 step 21c.5: a handshake that completes with no exchange waiting
     try support.peer_h2.attach_tls(tls_support.server.provider());
     // A later request goes out on that connection, and the channel opens no second one.
     var exchange = get(&bodies[1]);
-    _ = try channel.request(&exchange);
+    _ = try channel.request(&exchange.request, &exchange.response);
     try collect();
     send();
     try answer("hello");
     try collect();
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqualStrings("hello", exchange.content_received());
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
     try testing.expectEqual(1, count(.open));
 }
 
@@ -278,8 +279,8 @@ test "decision 117: a channel whose versions turn h2 off runs h11 over TLS" {
     try testing.expect(std.mem.startsWith(u8, tls_support.peer_plain[0..tls_support.peer_plain_len], h11_request));
     try tls_support.server_seal(h11_response);
     try collect();
-    try testing.expectEqual(.response, exchange.outcome);
-    try testing.expectEqualStrings("hello", exchange.content_received());
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
     try testing.expectEqual(1, count(.open));
 }
 
@@ -311,6 +312,6 @@ test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol closes
     try collect();
     try testing.expectEqual(Transport.tcp, find(.close).?.close);
     // No connection carried the exchange, and the attempt has no other transport to open.
-    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(1, count(.open));
 }
