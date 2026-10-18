@@ -6,17 +6,15 @@ const std = @import("std");
 const h2 = @import("h2");
 const support = @import("../connection/connection_test_support.zig");
 const channel_module = @import("channel.zig");
+const channel_support = @import("channel_test_support.zig");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
 
 const testing = std.testing;
-const Channel = channel_module.Channel;
 const Exchange = support.Exchange;
 const Event = channel_module.Event;
 
-/// The channel the tests drive, its configuration and the events it reported, outside any stack
-/// frame. Test-only.
-var channel: Channel align(@alignOf(Channel)) = undefined;
+/// The channel's configuration and the events it reported, outside any stack frame. Test-only.
 var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
@@ -40,28 +38,9 @@ const unstarted_octet: u8 = 0x01;
 /// Rounds of moving octets a test takes at most.
 const rounds: usize = 8;
 
-/// A channel with no QUIC configured, whose TCP connections speak h2 in cleartext.
-fn start_tcp_only() !void {
-    try start_at(&addresses);
-}
-
-fn start_at(to: []const channel_module.Address) !void {
-    config = .{ .authority = support.authority, .versions = support.only(.h2) };
-    // Every octet 1, so each flag of a connection the channel never started reads as set, and a
-    // read of one shows.
-    @memset(std.mem.asBytes(&channel), unstarted_octet);
-    try channel.init(&config, .{ .addresses = to, .port = https_port }, null);
-    starts = true;
-    support.peer_h2.init(.server);
-    support.to_peer_len = 0;
-    support.to_client_len = 0;
-    support.peer_events_len = 0;
-    events_len = 0;
-}
-
 /// Reports every event the channel owes, taking what the peer sent, starts a transport an `open`
 /// event asks for, and keeps the events.
-fn collect() !void {
+fn collect(channel: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const input: channel_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
@@ -81,11 +60,11 @@ fn collect() !void {
 }
 
 /// Moves octets both ways for a few rounds.
-fn pump() !void {
+fn pump(channel: anytype) !void {
     for (0..rounds) |_| {
         support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
         try support.peer_h2_read();
-        try collect();
+        try collect(channel);
     }
 }
 
@@ -110,138 +89,6 @@ fn count(tag: std.meta.Tag(Event)) usize {
 
 fn get(body: []u8) Exchange {
     return .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
-}
-
-test "decision 100: with no QUIC configured, the channel opens TCP and carries an exchange on it" {
-    try start_tcp_only();
-    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
-    const id = try channel.request(&exchange.request, &exchange.response);
-    try collect();
-    // RFC 9110 §4.2.2: with no HTTPS record, the connection goes to the origin's port.
-    const opened = find(.open).?.open;
-    try testing.expectEqual(channel_module.Transport.tcp, opened.transport);
-    try testing.expectEqual(https_port, opened.to.port);
-    try pump();
-    try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected);
-    try support.peer_h2_answer(1, ok, &.{}, "hello");
-    try collect();
-    const finished = find(.finished).?.finished;
-    try testing.expectEqual(id, finished.id);
-    try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
-    // The channel is not closed until its caller shuts it down.
-    try testing.expectEqual(null, find(.closed));
-}
-
-test "decision 100: a shut-down channel drains its connection, asks for its close, and reports closed" {
-    try start_tcp_only();
-    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    channel.shutdown();
-    try support.peer_h2_answer(1, ok, &.{}, "hello");
-    try pump();
-    try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqual(channel_module.Transport.tcp, find(.close).?.close);
-    // The channel closes once, after its transports did.
-    try testing.expectEqual(1, count(.closed));
-    try testing.expect(index_of(.close).? < index_of(.closed).?);
-    try testing.expectEqual(channel_module.Phase.closed, channel.phase(.tcp));
-    // It ended after its last exchange, not on a failure.
-    try testing.expect(!channel.tcp.failed);
-}
-
-test "RFC 9113 §6.8: a shut-down channel asks for its transport's close once the GOAWAY is written" {
-    try start_tcp_only();
-    var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    channel.shutdown();
-    try support.peer_h2_answer(1, ok, &.{}, "hello");
-    // The channel reads the response and its connection's `closed` in these calls, before any
-    // send: h2 holds its GOAWAY, and the connection's output is empty.
-    try collect();
-    try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqual(null, find(.close));
-    support.peer_events_len = 0;
-    support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
-    try support.peer_h2_read();
-    try testing.expectEqual(.goaway, std.meta.activeTag(support.peer_events[0]));
-    try collect();
-    try testing.expectEqual(channel_module.Transport.tcp, find(.close).?.close);
-    try testing.expectEqual(1, count(.closed));
-}
-
-test "RFC 9113 §8.7: a transport the caller closed moves the exchange it had not written to a new connection" {
-    try start_at(&two_addresses);
-    var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try collect();
-    // The exchange waits in the connection, unwritten, when the caller's transport closes.
-    channel.transport_closed(.tcp);
-    try collect();
-    try testing.expectEqual(null, find(.finished));
-    try testing.expectEqual(2, count(.open));
-    // The connection that closed had taken the exchange, so it was no failed attempt, and the
-    // second one goes to the same address.
-    for (events[0..events_len]) |reported| {
-        if (reported == .open) try testing.expect(reported.open.to.same_host(&two_addresses[0]));
-    }
-    try pump();
-    try support.peer_h2_answer(1, ok, &.{}, "hello");
-    try collect();
-    try testing.expectEqual(.response, exchange.response.outcome);
-}
-
-test "RFC 9110 §9.2.2: a transport the caller closed ends its written POST closed, and asks for no close" {
-    try start_tcp_only();
-    var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "form" }, .response = .{ .body = &bodies[0] } };
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    channel.transport_closed(.tcp);
-    try collect();
-    try testing.expectEqual(.closed, exchange.response.outcome);
-    try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
-    try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
-    try testing.expectEqual(null, find(.close));
-    try testing.expectEqual(channel_module.Phase.closed, channel.phase(.tcp));
-    // A POST is not idempotent, so the channel opens no connection to send it again.
-    try testing.expectEqual(1, count(.open));
-}
-
-test "a channel holds exchanges_max exchanges at once, and refuses one more" {
-    try start_tcp_only();
-    var exchanges: [constants.exchanges_max + 1]Exchange = @splat(get(&bodies[0]));
-    for (exchanges[0..constants.exchanges_max]) |*exchange| _ = try channel.request(&exchange.request, &exchange.response);
-    try testing.expectError(error.Full, channel.request(&exchanges[constants.exchanges_max].request, &exchanges[constants.exchanges_max].response));
-}
-
-test "what a transport with no running connection read is dropped" {
-    try start_tcp_only();
-    var octets: [ipv4_len]u8 = @splat(host_octet);
-    const datagram = channel.receive(.{ .datagram = .{ .octets = &octets } }, support.now_ns);
-    try testing.expectEqual(octets.len, datagram.consumed);
-    try testing.expectEqual(null, datagram.event);
-    const stream = channel.receive(.{ .stream = &octets }, support.now_ns);
-    try testing.expectEqual(octets.len, stream.consumed);
-    try testing.expectEqual(null, stream.event);
-}
-
-test "a transport that failed before its handshake completed tries the next address next time" {
-    try start_at(&two_addresses);
-    starts = false;
-    var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try collect();
-    try testing.expect(find(.open).?.open.to.same_host(&two_addresses[0]));
-    // The caller's connection failed, so no transport is left, and the exchange ends refused.
-    channel.transport_closed(.tcp);
-    try collect();
-    try testing.expectEqual(.refused, exchange.response.outcome);
-    events_len = 0;
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try collect();
-    try testing.expect(find(.open).?.open.to.same_host(&two_addresses[1]));
 }
 
 /// The h2 peer of the next connection the channel opens: it starts again, with nothing read or
@@ -270,138 +117,305 @@ fn peer_read() PeerRead {
     return read;
 }
 
-/// Closes the caller's transport, and reports what the channel then owes to a fresh peer.
-fn close_transport() !void {
-    channel.transport_closed(.tcp);
-    fresh_peer();
-    try collect();
-}
-
-test "RFC 9110 §9.2.2: a GET whose connection closed before any of its response goes out again, and is answered" {
-    try start_tcp_only();
-    var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    try testing.expectEqual(1, peer_read().requests);
-    try close_transport();
-    // RFC 9112 §9.3.1: the channel opens another connection for the request, and reports nothing.
-    try testing.expectEqual(null, find(.finished));
-    try testing.expectEqual(2, count(.open));
-    try pump();
-    try testing.expectEqual(1, peer_read().requests);
-    try support.peer_h2_answer(1, ok, &.{}, "hello");
-    try collect();
-    try testing.expectEqual(id, find(.finished).?.finished.id);
-    try testing.expectEqual(1, count(.finished));
-    try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
-}
-
 /// The content of a PUT the channel sends again. Test-only.
 var upload: [upload_len]u8 = undefined;
 const upload_len: usize = 4096;
 
-test "RFC 9110 §9.2.2: a PUT sent again sends its whole content again" {
-    try start_tcp_only();
-    @memset(&upload, 'u');
-    var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = &bodies[0] } };
-    _ = try channel.request(&put.request, &put.response);
-    try pump();
-    try testing.expectEqual(upload_len, peer_read().content_len);
-    try close_transport();
-    try pump();
-    try testing.expectEqual(PeerRead{ .requests = 1, .content_len = upload_len, .ended = true }, peer_read());
-    try support.peer_h2_answer(1, ok, &.{}, "");
-    try collect();
-    try testing.expectEqual(.response, put.response.outcome);
-    try testing.expectEqual(upload_len, put.response.content_sent);
+test {
+    // Decision 124: each test below runs on the default channel and on one with no QUIC.
+    inline for (channel_support.channels) |Channel| _ = Tests(Channel);
 }
 
-test "RFC 9110 §9.2.2: a GET whose second connection also closed before any of its response ends closed" {
-    try start_tcp_only();
-    var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    try close_transport();
-    try pump();
-    try testing.expectEqual(1, peer_read().requests);
-    // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
-    try close_transport();
-    try testing.expectEqual(.closed, exchange.response.outcome);
-    try testing.expectEqual(1, count(.finished));
-    try testing.expectEqual(2, count(.open));
-}
+/// The tests over a channel of type `Channel`, and the helpers that name the channel itself.
+fn Tests(comptime Channel: type) type {
+    return struct {
+        /// The channel the tests drive, outside any stack frame. Test-only.
+        var channel: Channel align(@alignOf(Channel)) = undefined;
 
-test "RFC 9110 §9.2.2: a GET whose connection closed after a HEADERS frame of its response ends closed" {
-    try start_tcp_only();
-    var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    // The head arrives with no END_STREAM, and the content never does.
-    support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
-    try collect();
-    try close_transport();
-    try testing.expectEqual(.closed, exchange.response.outcome);
-    try testing.expectEqual(ok, exchange.response.status);
-    try testing.expectEqual(1, count(.open));
-}
+        /// A channel with no QUIC configured, whose TCP connections speak h2 in cleartext.
+        fn start_tcp_only() !void {
+            try start_at(&addresses);
+        }
 
-test "RFC 9110 §9.2.2: a request whose method RFC 9110 does not define is not sent again" {
-    try start_tcp_only();
-    var exchange: Exchange = .{ .request = .{ .method = "PATCH", .path = "/object", .content = "diff" }, .response = .{ .body = &bodies[0] } };
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    try close_transport();
-    try testing.expectEqual(.closed, exchange.response.outcome);
-    try testing.expectEqual(1, count(.open));
-}
+        fn start_at(to: []const channel_module.Address) !void {
+            config = .{ .authority = support.authority, .versions = channel_support.versions_for(&channel, support.only(.h2)) };
+            // Every octet 1, so each flag of a connection the channel never started reads as set,
+            // and a read of one shows.
+            @memset(std.mem.asBytes(&channel), unstarted_octet);
+            try channel.init(&config, .{ .addresses = to, .port = https_port }, null);
+            starts = true;
+            support.peer_h2.init(.server);
+            support.to_peer_len = 0;
+            support.to_client_len = 0;
+            support.peer_events_len = 0;
+            events_len = 0;
+        }
 
-/// The h2 peer says GOAWAY before it reads a request, so the GOAWAY names no stream (RFC 9113
-/// §6.8). The channel reads it, and the connection's `close` and the next `open` follow.
-fn goaway_first() !void {
-    support.peer_h2.shutdown(h2.constants.error_no_error);
-    support.peer_h2_owe();
-    try collect();
-    // The draining connection writes what it owes, its GOAWAY last, and no request.
-    _ = channel.send_stream(&support.to_peer, support.now_ns);
-    try collect();
-    fresh_peer();
-}
+        test "decision 100: with no QUIC configured, the channel opens TCP and carries an exchange on it" {
+            try start_tcp_only();
+            var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+            const id = try channel.request(&exchange.request, &exchange.response);
+            try collect(&channel);
+            // RFC 9110 §4.2.2: with no HTTPS record, the connection goes to the origin's port.
+            const opened = find(.open).?.open;
+            try testing.expectEqual(channel_module.Transport.tcp, opened.transport);
+            try testing.expectEqual(https_port, opened.to.port);
+            try pump(&channel);
+            try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected);
+            try support.peer_h2_answer(1, ok, &.{}, "hello");
+            try collect(&channel);
+            const finished = find(.finished).?.finished;
+            try testing.expectEqual(id, finished.id);
+            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            // The channel is not closed until its caller shuts it down.
+            try testing.expectEqual(null, find(.closed));
+        }
 
-test "decision 124: a request a GOAWAY moved, whose next connection closed before any response, ends closed" {
-    try start_tcp_only();
-    var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try collect();
-    try goaway_first();
-    try testing.expectEqual(2, count(.open));
-    try pump();
-    try testing.expectEqual(1, peer_read().requests);
-    // The refusal spent the one move (`moves_max`), so the close sends nothing again.
-    try close_transport();
-    try testing.expectEqual(.closed, exchange.response.outcome);
-    try testing.expectEqual(2, count(.open));
-}
+        test "decision 100: a shut-down channel drains its connection, asks for its close, and reports closed" {
+            try start_tcp_only();
+            var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            channel.shutdown();
+            try support.peer_h2_answer(1, ok, &.{}, "hello");
+            try pump(&channel);
+            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(channel_module.Transport.tcp, find(.close).?.close);
+            // The channel closes once, after its transports did.
+            try testing.expectEqual(1, count(.closed));
+            try testing.expect(index_of(.close).? < index_of(.closed).?);
+            try testing.expectEqual(channel_module.Phase.closed, channel.phase(.tcp));
+            // It ended after its last exchange, not on a failure.
+            try testing.expect(!channel.tcp.failed);
+        }
 
-test "decision 124: a GET sent again that its next connection refuses ends closed, since a server may have processed it" {
-    try start_tcp_only();
-    var exchange = get(&bodies[0]);
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    try close_transport();
-    try goaway_first();
-    try testing.expectEqual(.closed, exchange.response.outcome);
-    try testing.expectEqual(1, count(.finished));
-    try testing.expectEqual(2, count(.open));
-}
+        test "RFC 9113 §6.8: a shut-down channel asks for its transport's close once the GOAWAY is written" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            channel.shutdown();
+            try support.peer_h2_answer(1, ok, &.{}, "hello");
+            // The channel reads the response and its connection's `closed` in these calls, before
+            // any send: h2 holds its GOAWAY, and the connection's output is empty.
+            try collect(&channel);
+            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(null, find(.close));
+            support.peer_events_len = 0;
+            support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+            try support.peer_h2_read();
+            try testing.expectEqual(.goaway, std.meta.activeTag(support.peer_events[0]));
+            try collect(&channel);
+            try testing.expectEqual(channel_module.Transport.tcp, find(.close).?.close);
+            try testing.expectEqual(1, count(.closed));
+        }
 
-test "decision 124: a cancelled exchange is never sent again" {
-    try start_tcp_only();
-    var exchange = get(&bodies[0]);
-    const id = try channel.request(&exchange.request, &exchange.response);
-    try pump();
-    channel.cancel(id);
-    try close_transport();
-    try testing.expectEqual(null, find(.finished));
-    try testing.expectEqual(1, count(.open));
+        test "RFC 9113 §8.7: a transport the caller closed moves the exchange it had not written to a new connection" {
+            try start_at(&two_addresses);
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try collect(&channel);
+            // The exchange waits in the connection, unwritten, when the caller's transport closes.
+            channel.transport_closed(.tcp);
+            try collect(&channel);
+            try testing.expectEqual(null, find(.finished));
+            try testing.expectEqual(2, count(.open));
+            // The connection that closed had taken the exchange, so it was no failed attempt, and
+            // the second one goes to the same address.
+            for (events[0..events_len]) |reported| {
+                if (reported == .open) try testing.expect(reported.open.to.same_host(&two_addresses[0]));
+            }
+            try pump(&channel);
+            try support.peer_h2_answer(1, ok, &.{}, "hello");
+            try collect(&channel);
+            try testing.expectEqual(.response, exchange.response.outcome);
+        }
+
+        test "RFC 9110 §9.2.2: a transport the caller closed ends its written POST closed, and asks for no close" {
+            try start_tcp_only();
+            var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "form" }, .response = .{ .body = &bodies[0] } };
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            channel.transport_closed(.tcp);
+            try collect(&channel);
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
+            try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
+            try testing.expectEqual(null, find(.close));
+            try testing.expectEqual(channel_module.Phase.closed, channel.phase(.tcp));
+            // A POST is not idempotent, so the channel opens no connection to send it again.
+            try testing.expectEqual(1, count(.open));
+        }
+
+        test "a channel holds exchanges_max exchanges at once, and refuses one more" {
+            try start_tcp_only();
+            var exchanges: [constants.exchanges_max + 1]Exchange = @splat(get(&bodies[0]));
+            for (exchanges[0..constants.exchanges_max]) |*exchange| _ = try channel.request(&exchange.request, &exchange.response);
+            try testing.expectError(error.Full, channel.request(&exchanges[constants.exchanges_max].request, &exchanges[constants.exchanges_max].response));
+        }
+
+        test "what a transport with no running connection read is dropped" {
+            try start_tcp_only();
+            var octets: [ipv4_len]u8 = @splat(host_octet);
+            const datagram = channel.receive(.{ .datagram = .{ .octets = &octets } }, support.now_ns);
+            try testing.expectEqual(octets.len, datagram.consumed);
+            try testing.expectEqual(null, datagram.event);
+            const stream = channel.receive(.{ .stream = &octets }, support.now_ns);
+            try testing.expectEqual(octets.len, stream.consumed);
+            try testing.expectEqual(null, stream.event);
+        }
+
+        test "a transport that failed before its handshake completed tries the next address next time" {
+            try start_at(&two_addresses);
+            starts = false;
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try collect(&channel);
+            try testing.expect(find(.open).?.open.to.same_host(&two_addresses[0]));
+            // The caller's connection failed, so no transport is left, and the exchange ends
+            // refused.
+            channel.transport_closed(.tcp);
+            try collect(&channel);
+            try testing.expectEqual(.refused, exchange.response.outcome);
+            events_len = 0;
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try collect(&channel);
+            try testing.expect(find(.open).?.open.to.same_host(&two_addresses[1]));
+        }
+
+        /// Closes the caller's transport, and reports what the channel then owes to a fresh peer.
+        fn close_transport() !void {
+            channel.transport_closed(.tcp);
+            fresh_peer();
+            try collect(&channel);
+        }
+
+        test "RFC 9110 §9.2.2: a GET whose connection closed before any of its response goes out again, and is answered" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            const id = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            try testing.expectEqual(1, peer_read().requests);
+            try close_transport();
+            // RFC 9112 §9.3.1: the channel opens another connection for the request, and reports
+            // nothing.
+            try testing.expectEqual(null, find(.finished));
+            try testing.expectEqual(2, count(.open));
+            try pump(&channel);
+            try testing.expectEqual(1, peer_read().requests);
+            try support.peer_h2_answer(1, ok, &.{}, "hello");
+            try collect(&channel);
+            try testing.expectEqual(id, find(.finished).?.finished.id);
+            try testing.expectEqual(1, count(.finished));
+            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqualStrings("hello", exchange.response.content_received());
+        }
+
+        test "RFC 9110 §9.2.2: a PUT sent again sends its whole content again" {
+            try start_tcp_only();
+            @memset(&upload, 'u');
+            var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = &bodies[0] } };
+            _ = try channel.request(&put.request, &put.response);
+            try pump(&channel);
+            try testing.expectEqual(upload_len, peer_read().content_len);
+            try close_transport();
+            try pump(&channel);
+            try testing.expectEqual(PeerRead{ .requests = 1, .content_len = upload_len, .ended = true }, peer_read());
+            try support.peer_h2_answer(1, ok, &.{}, "");
+            try collect(&channel);
+            try testing.expectEqual(.response, put.response.outcome);
+            try testing.expectEqual(upload_len, put.response.content_sent);
+        }
+
+        test "RFC 9110 §9.2.2: a GET whose second connection also closed before any of its response ends closed" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            try close_transport();
+            try pump(&channel);
+            try testing.expectEqual(1, peer_read().requests);
+            // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
+            try close_transport();
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(1, count(.finished));
+            try testing.expectEqual(2, count(.open));
+        }
+
+        test "RFC 9110 §9.2.2: a GET whose connection closed after a HEADERS frame of its response ends closed" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            // The head arrives with no END_STREAM, and the content never does.
+            support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
+            try collect(&channel);
+            try close_transport();
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(1, count(.open));
+        }
+
+        test "RFC 9110 §9.2.2: a request whose method RFC 9110 does not define is not sent again" {
+            try start_tcp_only();
+            var exchange: Exchange = .{ .request = .{ .method = "PATCH", .path = "/object", .content = "diff" }, .response = .{ .body = &bodies[0] } };
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            try close_transport();
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(1, count(.open));
+        }
+
+        /// The h2 peer says GOAWAY before it reads a request, so the GOAWAY names no stream (RFC
+        /// 9113 §6.8). The channel reads it, and the connection's `close` and the next `open`
+        /// follow.
+        fn goaway_first() !void {
+            support.peer_h2.shutdown(h2.constants.error_no_error);
+            support.peer_h2_owe();
+            try collect(&channel);
+            // The draining connection writes what it owes, its GOAWAY last, and no request.
+            _ = channel.send_stream(&support.to_peer, support.now_ns);
+            try collect(&channel);
+            fresh_peer();
+        }
+
+        test "decision 124: a request a GOAWAY moved, whose next connection closed before any response, ends closed" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try collect(&channel);
+            try goaway_first();
+            try testing.expectEqual(2, count(.open));
+            try pump(&channel);
+            try testing.expectEqual(1, peer_read().requests);
+            // The refusal spent the one move (`moves_max`), so the close sends nothing again.
+            try close_transport();
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(2, count(.open));
+        }
+
+        test "decision 124: a GET sent again that its next connection refuses ends closed, since a server may have processed it" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            try close_transport();
+            try goaway_first();
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(1, count(.finished));
+            try testing.expectEqual(2, count(.open));
+        }
+
+        test "decision 124: a cancelled exchange is never sent again" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            const id = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            channel.cancel(id);
+            try close_transport();
+            try testing.expectEqual(null, find(.finished));
+            try testing.expectEqual(1, count(.open));
+        }
+    };
 }

@@ -122,6 +122,7 @@ With chapulin's host objects:
 | `@FieldType(client.Channel, "tcp")` | 305704 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
 | `@FieldType(client.Channel, "quic")` | 703984 | a channel's QUIC connection, without its receive pool |
 | `client.Channel` | 1012272 | one server's connections, QUIC first and TCP after, without receive pools |
+| `client.ChannelOf(.{ .quic = false })` | 307360 | a channel with no QUIC state, which holds one TCP connection |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a channel, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163392 | the h2 state inside a TCP connection |

@@ -59,34 +59,30 @@ pub const StartError = connection_module.StartError || quic_connection.StartErro
     TooManySuites,
     /// The TLS value orders suites for an object that holds one suite alone (decision 97).
     SuitesUnavailable,
+    /// `versions` allows h3, and the channel holds no QUIC connection to speak it: its
+    /// `Capacity.quic` is false (decision 124).
+    VersionUnavailable,
 };
 
 /// Which transports a channel offers: those `versions` allows a version on.
 pub const Offered = struct { tcp: bool, quic: bool };
 
-/// Where `build` writes: the TLS configuration of each transport, and what each connection
-/// borrows. `build` writes only those of a transport the channel offers.
-pub const Built = struct {
-    tcp_tls: *tls.record.ClientConfig,
-    quic_tls: *tls.quic.ClientConfig,
-    tcp: *connection_module.Config,
-    quic: *quic_connection.Config,
-};
-
-/// Builds the TLS configuration of each transport the channel offers and fills what each
-/// connection borrows. `pool_given` says whether the program placed a receive pool, which QUIC's
-/// connections need (decision 61).
-pub fn build(config: *const Config, pool_given: bool, built: Built) StartError!Offered {
+/// Checks `config`, and returns the transports a channel offers from it. `quic_held` says whether
+/// the channel holds a QUIC connection (decision 124), and `pool_given` whether the program placed
+/// a receive pool, which QUIC's connections need (decision 61). The channel then builds what each
+/// transport it offers needs with `build_quic` and `build_tcp`, in that order.
+pub fn offer(config: *const Config, quic_held: bool, pool_given: bool) StartError!Offered {
     assert(config.authority.len > 0);
     assert(coding.codings_valid(config.codings, .of(config)));
     // Decision 117: `versions` names the protocols, so the TLS value names none.
     if (config.tls) |values| assert(values.alpn.len == 0);
-    const offers = offered(config, pool_given);
+    // RFC 9114 §3.1: h3 runs over QUIC alone, so a channel that holds no QUIC connection cannot
+    // speak it (decision 124).
+    if (!quic_held and config.versions.h3) return error.VersionUnavailable;
+    const offers = offered(config, quic_held and pool_given);
     // RFC 9114 §3.1: a client speaks h3 over QUIC and h11 or h2 over TCP, so a channel that
     // offers neither transport has no version to speak (decision 117).
     if (!offers.tcp and !offers.quic) return error.NoVersion;
-    if (offers.quic) try build_quic(config, built);
-    if (offers.tcp) try build_tcp(config, built);
     return offers;
 }
 
@@ -103,13 +99,15 @@ fn offered(config: *const Config, pool_given: bool) Offered {
 /// The protocol a QUIC connection's handshake offers (RFC 9114 §3.1).
 const alpn_h3 = [_][]const u8{&tls_provider.constants.alpn_h3};
 
-fn build_quic(config: *const Config, built: Built) StartError!void {
+/// Builds QUIC's TLS configuration into `quic_tls`, and what each QUIC connection borrows into
+/// `quic`.
+pub fn build_quic(config: *const Config, quic_tls: *tls.quic.ClientConfig, quic: *quic_connection.Config) StartError!void {
     var values = config.tls.?;
     values.alpn = &alpn_h3;
-    try convert(built.quic_tls, values);
+    try convert(quic_tls, values);
     // The channel names each connection's `server_address` as it starts it.
-    built.quic.* = .{
-        .tls = built.quic_tls,
+    quic.* = .{
+        .tls = quic_tls,
         .authority = config.authority,
         .ecn = config.ecn,
         .idle_timeout_ms = config.idle_timeout_ms,
@@ -126,8 +124,10 @@ const alpn_both = [_][]const u8{ &tls_provider.constants.alpn_h2, tls_provider.c
 const alpn_h2 = [_][]const u8{&tls_provider.constants.alpn_h2};
 const alpn_h11 = [_][]const u8{tls_provider.constants.alpn_http_1_1};
 
-fn build_tcp(config: *const Config, built: Built) StartError!void {
-    built.tcp.* = .{
+/// Builds TCP's TLS configuration into `tcp_tls` when the channel runs over TLS, and what each TCP
+/// connection borrows into `tcp`.
+pub fn build_tcp(config: *const Config, tcp_tls: *tls.record.ClientConfig, tcp: *connection_module.Config) StartError!void {
+    tcp.* = .{
         .tls = null,
         .versions = config.versions,
         .authority = config.authority,
@@ -139,8 +139,8 @@ fn build_tcp(config: *const Config, built: Built) StartError!void {
     var values = config.tls orelse return;
     const versions = config.versions;
     values.alpn = if (versions.h11 and versions.h2) &alpn_both else if (versions.h2) &alpn_h2 else &alpn_h11;
-    try convert(built.tcp_tls, values);
-    built.tcp.tls = built.tcp_tls;
+    try convert(tcp_tls, values);
+    tcp.tls = tcp_tls;
 }
 
 /// Converts `values` into `tls_config`, the TCP object's configuration or the QUIC object's.

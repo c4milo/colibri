@@ -30,7 +30,7 @@ const files = struct {
 
 pub const Config = files.channel.Config;
 pub const Versions = files.versions.Versions;
-/// Why `Channel.init`, `Channel.start_tcp` or `Channel.start_quic` refused (decision 120).
+/// Why `Channel.init`, `Channel.start_tcp` or `Channel.start_quic` refused (decisions 120 and 123).
 pub const StartError = files.channel.StartError;
 pub const RequestError = files.channel.RequestError;
 pub const Field = files.event.Field;
@@ -50,6 +50,11 @@ pub const Address = files.channel.Address;
 /// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
 pub const Channel = files.channel.Channel;
+/// A channel that holds the connections a `Capacity` names (decision 124). `Channel` is
+/// `ChannelOf(.{})`, and a program that never speaks h3 places a `ChannelOf(.{ .quic = false })`,
+/// which holds no QUIC state.
+pub const ChannelOf = files.channel.ChannelOf;
+pub const Capacity = files.channel.Capacity;
 /// What DNS knows of the origin, which `Channel.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a channel learned from Alt-Svc.
 pub const Values = files.channel.Values;
@@ -101,18 +106,51 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Event`, `Received` and `Advert`, which only their calls return (decision 121). It removes
     // the `Channel` prefix from the channel's types, and takes out `ChannelEntry`, which no call
     // of `Channel` takes or returns. Step 21f.2 puts `Request` and `Response` in place of
-    // `HttpExchange` (decision 124).
+    // `HttpExchange` (decision 124). Step 21f.6 adds `ChannelOf` and `Capacity` (decision 124).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",    "Config",            "Versions",           "StartError",         "RequestError",
-        "Field",        "Id",                "Protocol",           "Request",            "Response",
-        "Wanted",       "Outcome",           "Finished",           "Sent",               "Address",
-        "Ecn",          "Channel",           "Values",             "Https",              "Alternative",
-        "Input",        "Datagram",          "Received",           "Event",              "Open",
-        "Transport",    "Phase",             "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",
-        "Coding",       "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool",
-        "ZstdDecoders", "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",          "Config",          "Versions",     "StartError",        "RequestError",
+        "Field",              "Id",              "Protocol",     "Request",           "Response",
+        "Wanted",             "Outcome",         "Finished",     "Sent",              "Address",
+        "Ecn",                "Channel",         "ChannelOf",    "Capacity",          "Values",
+        "Https",              "Alternative",     "Input",        "Datagram",          "Received",
+        "Event",              "Open",            "Transport",    "Phase",             "ReceivePool",
+        "DefaultReceivePool", "ReceiveStorage",  "Coding",       "DecoderPool",       "DefaultDecoderPool",
+        "Decoders",           "ZstdDecoderPool", "ZstdDecoders", "BrotliDecoderPool", "BrotliDecoders",
+        "Features",
     });
+}
+
+test "decision 124: StartError names what Channel.init and the two starts return, and no other error" {
+    // A switch names each member of the set once. A member added to a set, or taken out of it,
+    // stops the test from compiling. A channel with no QUIC returns the same set.
+    const names = struct {
+        fn of(comptime Set: type, failure: Set) []const u8 {
+            return switch (failure) {
+                error.TlsRefused => "TlsRefused",
+                error.NoVersion => "NoVersion",
+                error.TooManyAnchors => "TooManyAnchors",
+                error.TooManySuites => "TooManySuites",
+                error.SuitesUnavailable => "SuitesUnavailable",
+                error.VersionUnavailable => "VersionUnavailable",
+            };
+        }
+
+        fn returned(comptime Call: type) type {
+            return @typeInfo(@typeInfo(Call).@"fn".return_type.?).error_union.error_set;
+        }
+    };
+    const TcpAlone = ChannelOf(.{ .quic = false });
+    const sets = .{
+        StartError,                                 names.returned(@TypeOf(Channel.init)),
+        names.returned(@TypeOf(Channel.start_tcp)), names.returned(@TypeOf(Channel.start_quic)),
+        names.returned(@TypeOf(TcpAlone.init)),
+    };
+    inline for (sets) |Set| {
+        inline for (@typeInfo(Set).error_set.?) |member| {
+            try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));
+        }
+    }
 }
 
 test "decision 121: RequestError names what Channel.request returns, and no other error" {
@@ -158,6 +196,7 @@ test {
     _ = @import("channel/channel_h11_test.zig");
     _ = @import("channel/channel_tls_test.zig");
     _ = @import("channel/channel_limits_test.zig");
+    _ = @import("channel/channel_capacity_test.zig");
     _ = @import("channel/channel_quic_test.zig");
     _ = @import("channel/channel_quic_flow_test.zig");
     _ = @import("quic/quic_connection_test.zig");

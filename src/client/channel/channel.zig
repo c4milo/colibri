@@ -30,11 +30,10 @@
 //! expects: `ReceivePool(capacity)`. The channel stays in place after `init`: the TLS
 //! configurations it built point into it.
 //!
-//! `Channel`'s functions are the calls a program makes, and `phase`, which the simulator's trace
-//! reads. The steps the channel takes on its own are in `channel_events.zig`, which the module's
-//! root does not export (design §8 step 17f).
+//! A channel's functions are the calls a program makes, and `phase`, which the simulator's trace
+//! reads. Their bodies are in `channel_calls.zig`, and the steps the channel takes on its own are
+//! in `channel_events.zig`. The module's root exports neither file (design §8 step 17f).
 const std = @import("std");
-const assert = std.debug.assert;
 const quic = @import("quic");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
@@ -43,7 +42,7 @@ const connection_module = @import("../connection/connection.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const choice = @import("channel_choice.zig");
 const channel_config = @import("channel_config.zig");
-const channel_events = @import("channel_events.zig");
+const channel_calls = @import("channel_calls.zig");
 
 pub const Transport = choice.Transport;
 pub const Phase = choice.Phase;
@@ -195,273 +194,171 @@ pub const Link = struct {
     };
 };
 
-pub const Channel = struct {
-    config: *const Config,
-    values: Values,
-    /// The transports the configuration offers (decision 120): TCP while `versions` allows h11 or
-    /// h2, and QUIC for h3 over TLS with a receive pool given.
-    offered: channel_config.Offered,
-    /// What `init` built from `config`, each written only when its transport is offered: the TLS
-    /// configuration of TCP's connections, when the channel runs over TLS, and of QUIC's, and the
-    /// configuration each connection borrows. QUIC's holds the address the current one sends to.
-    tcp_tls: tls.record.ClientConfig,
-    quic_tls: tls.quic.ClientConfig,
-    tcp_config: connection_module.Config,
-    quic_config: quic_connection.Config,
-    quic: quic_connection.QuicConnection,
-    tcp: connection_module.Connection,
-    links: std.EnumArray(Transport, Link),
-    entries: [constants.exchanges_max]Entry,
-    /// The id the next exchange gets.
-    next_id: Id,
-    /// The transports this attempt opened, and whether the fallback delay passed during QUIC's
-    /// handshake, as spec/tla/client_exchanges names them.
-    tried: std.EnumArray(Transport, bool),
-    fallback: bool,
-    /// The instant the fallback delay passes, once QUIC's connection started.
-    fallback_at_ns: ?u64,
-    /// The caller shut the channel down, and the `closed` event went out.
-    shut: bool,
-    closed_reported: bool,
-    /// The receive pool of each QUIC connection, which the caller placed, or null when it gave
-    /// none.
-    receive_pool: ?ReceiveStorage,
-
-    /// Prepares a channel with nothing opened, and builds the TLS configurations of the transports
-    /// it offers, so the channel stays in place from here on. `receive_pool` is the pool its QUIC
-    /// connections use in turn, or null for a channel that opens no QUIC. `error.NoVersion` says
-    /// the configuration offers neither transport, and the other errors that the TLS value names
-    /// more than a TLS configuration holds.
-    pub fn init(channel: *Channel, config: *const Config, values: Values, receive_pool: ?ReceiveStorage) StartError!void {
-        assert(values.addresses.len > 0);
-        const built: channel_config.Built = .{ .tcp_tls = &channel.tcp_tls, .quic_tls = &channel.quic_tls, .tcp = &channel.tcp_config, .quic = &channel.quic_config };
-        channel.offered = try channel_config.build(config, receive_pool != null, built);
-        // QUIC's connections need the pool, so the channel offers QUIC only with one.
-        assert(!channel.offered.quic or receive_pool != null);
-        channel.receive_pool = receive_pool;
-        channel.config = config;
-        channel.values = values;
-        channel.links = .initFill(.{});
-        channel.entries = @splat(.{});
-        channel.next_id = 1;
-        channel.tried = .initFill(false);
-        channel.fallback = false;
-        channel.fallback_at_ns = null;
-        channel.shut = false;
-        channel.closed_reported = false;
-    }
-
-    /// Takes the request `message`, which goes out on the first connection open to take it, and
-    /// the `response` it gets, and returns the exchange's id. The caller keeps both in place, and
-    /// each slice they name, until the exchange's `finished` event or until `cancel` returns
-    /// (decision 124). The caller makes no request after `shutdown`.
-    pub fn request(channel: *Channel, message: *const Request, response: *Response) RequestError!Id {
-        assert(!channel.shut);
-        try connection_module.check_request(message);
-        const entry = channel.free_entry() orelse return error.Full;
-        response.clear();
-        entry.* = .{ .stage = .waiting, .id = channel.next_id, .request = message, .response = response };
-        channel.next_id += 1;
-        channel_events.assign_waiting(channel);
-        return entry.id;
-    }
-
-    /// Ends exchange `id`, and reports nothing for it. The memory of its request and its response
-    /// is the caller's again.
-    pub fn cancel(channel: *Channel, id: Id) void {
-        const entry = channel.entry_of(id) orelse return;
-        if (entry.stage == .carried) switch (entry.carrier) {
-            .quic => channel.quic.cancel(entry.carried_id),
-            .tcp => channel.tcp.cancel(entry.carried_id),
-        };
-        entry.* = .{};
-    }
-
-    /// Takes no new exchange, and ends every connection once the exchanges it holds have finished.
-    pub fn shutdown(channel: *Channel) void {
-        channel.shut = true;
-    }
-
-    /// Reports what the channel owes, then passes `input` to the connection of the transport that
-    /// read it, and reports what that changed.
-    pub fn receive(channel: *Channel, input: Input, now_ns: u64) Received {
-        if (channel.report(now_ns)) |owed| return .{ .consumed = 0, .event = owed };
-        const fed = channel_events.feed(channel, input, now_ns);
-        return .{ .consumed = fed.len, .event = fed.event };
-    }
-
-    /// The next datagram the QUIC connection owes, written into `output`, or null for none.
-    pub fn send_datagram(channel: *Channel, output: []u8, now_ns: u64) ?Sent {
-        if (channel.links.get(.quic).state != .running) return null;
-        return channel.quic.send(output, now_ns);
-    }
-
-    /// The octets the TCP connection owes, written into `output`.
-    pub fn send_stream(channel: *Channel, output: []u8, now_ns: u64) usize {
-        if (channel.links.get(.tcp).state != .running) return 0;
-        return channel.tcp.send(output, now_ns);
-    }
-
-    /// The instant the channel next wants `on_instant` at: QUIC's next deadline, or the end of the
-    /// fallback delay while the channel offers TCP. Null for none.
-    pub fn deadline_ns(channel: *Channel) ?u64 {
-        var deadline: ?u64 = null;
-        if (channel.links.get(.quic).state == .running) deadline = channel.quic.deadline_ns();
-        if (channel.offered.tcp and !channel.fallback and channel.phase(.quic) == .handshake) {
-            const fallback_at = channel.fallback_at_ns orelse return deadline;
-            deadline = @min(deadline orelse fallback_at, fallback_at);
-        }
-        return deadline;
-    }
-
-    /// Fires whichever deadlines `now_ns` has reached. The end of the fallback delay counts at the
-    /// next `receive`.
-    pub fn on_instant(channel: *Channel, now_ns: u64) void {
-        if (channel.links.get(.quic).state == .running) channel.quic.on_instant(now_ns);
-    }
-
-    /// Starts the QUIC connection the `open` event asked for. The channel draws the connection's
-    /// grease value and its two IDs from `random` (decision 120), then every draw its handshake
-    /// makes comes from `random` too. `resumption` offers a ticket an earlier QUIC connection took.
-    pub fn start_quic(channel: *Channel, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
-        const link = channel.links.getPtr(.quic);
-        if (link.state != .opening) return;
-        assert(!link.open_owed);
-        channel.quic_config.server_address = link.to;
-        // Decision 120: the grease value, then the source ID, then the original destination ID,
-        // then the session's draws, in the order the server's endpoint draws its own.
-        var start: quic_connection.Start = undefined;
-        // RFC 9114 §7.2.4.1, §8.1: h3's reserved setting and error codes come from this value.
-        start.grease = random.int(u64);
-        // RFC 9000 §7.2: the client chooses its Source Connection ID, and its first Destination
-        // Connection ID is "an unpredictable value".
-        random.bytes(&start.source_id);
-        random.bytes(&start.original_destination_id);
-        channel.quic.init(&channel.quic_config, channel.receive_pool.?, start, random, now_seconds, now_ns, resumption) catch |failure| {
-            // The attempt ended before it began: the model's FailHandshake, then Close.
-            channel_events.close_unstarted(channel, .quic);
-            return failure;
-        };
-        link.state = .running;
-        channel.fallback_at_ns = now_ns + channel.config.fallback_delay_ns;
-    }
-
-    /// Starts the TCP connection the `open` event asked for, as `start_quic` does QUIC's.
-    pub fn start_tcp(channel: *Channel, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
-        const link = channel.links.getPtr(.tcp);
-        if (link.state != .opening) return;
-        assert(!link.open_owed);
-        channel.tcp.init(&channel.tcp_config, random, now_seconds, resumption) catch |failure| {
-            // The channel asks for TCP only while `versions` allows h11 or h2, so the TLS stack
-            // alone refuses a start.
-            assert(failure == error.TlsRefused);
-            channel_events.close_unstarted(channel, .tcp);
-            return failure;
-        };
-        link.state = .running;
-    }
-
-    /// The caller's transport closed on its own: the peer closed it, or it failed. Every exchange
-    /// its connection held ends, as the connection's own `transport_closed` rules.
-    pub fn transport_closed(channel: *Channel, transport: Transport) void {
-        const link = channel.links.getPtr(transport);
-        switch (link.state) {
-            .none, .closed => {},
-            .opening => channel_events.close_unstarted(channel, transport),
-            .running => {
-                link.gone = true;
-                switch (transport) {
-                    .quic => channel.quic.transport_closed(),
-                    .tcp => channel.tcp.transport_closed(),
-                }
-            },
-        }
-    }
-
-    /// The resumption ticket the `ticket` event announced for `transport`, which the call hands
-    /// over and clears.
-    pub fn take_ticket(channel: *Channel, transport: Transport) ?tls.Ticket {
-        if (channel.links.get(transport).state != .running) return null;
-        return switch (transport) {
-            .quic => channel.quic.take_ticket(),
-            .tcp => channel.tcp.take_ticket(),
-        };
-    }
-
-    /// The h3 alternative the channel knows of, from the values or a TCP response's Alt-Svc, which
-    /// a caller keeps for a later channel (RFC 7838 §2.2).
-    pub fn alternative(channel: *const Channel) ?Alternative {
-        return channel.values.alternative;
-    }
-
-    /// Where `transport`'s connection stands, as spec/tla/client_exchanges's `phase` names it. A
-    /// program reads the events and never this. The simulator's client trace run reads it (decision
-    /// 105), and its TCP trace run decides by it whether its one connection takes a request.
-    pub fn phase(channel: *const Channel, transport: Transport) Phase {
-        const link = channel.links.get(transport);
-        return switch (link.state) {
-            .none => .none,
-            .closed => .closed,
-            .opening => if (link.abandoned) .failed else .handshake,
-            .running => channel.running_phase(transport, link),
-        };
-    }
-
-    fn running_phase(channel: *const Channel, transport: Transport, link: Link) Phase {
-        const failed = switch (transport) {
-            .quic => channel.quic.failed,
-            .tcp => channel.tcp.failed,
-        };
-        const draining = switch (transport) {
-            .quic => channel.quic.draining,
-            .tcp => channel.tcp.draining,
-        };
-        if (failed) return .failed;
-        if (draining) return .draining;
-        return if (link.won) .open else .handshake;
-    }
-
-    /// The first event the channel owes, after it has read what its connections owe and chosen what
-    /// to open, or null.
-    fn report(channel: *Channel, now_ns: u64) ?Event {
-        channel.check_fallback(now_ns);
-        // Bounded: each pass reads a connection's event, or plans and stops.
-        for (0..constants.channel_events_per_poll_max + 1) |_| {
-            channel_events.plan(channel, now_ns);
-            if (channel_events.owed(channel)) |owed| return owed;
-            const read = channel_events.poll(channel, now_ns) orelse return null;
-            if (read.event) |reported| return reported;
-        }
-        unreachable;
-    }
-
-    /// The fallback delay passed while QUIC's handshake runs, and TCP may open beside it.
-    fn check_fallback(channel: *Channel, now_ns: u64) void {
-        const fallback_at = channel.fallback_at_ns orelse return;
-        if (channel.fallback or channel.phase(.quic) != .handshake) return;
-        if (now_ns >= fallback_at) channel.fallback = true;
-    }
-
-    fn free_entry(channel: *Channel) ?*Entry {
-        for (&channel.entries) |*entry| {
-            if (entry.stage == .free) return entry;
-        }
-        return null;
-    }
-
-    fn entry_of(channel: *Channel, id: Id) ?*Entry {
-        for (&channel.entries) |*entry| {
-            if (entry.stage != .free and entry.id == id) return entry;
-        }
-        return null;
-    }
+/// What a channel holds, fixed at build time (decision 124): whether it holds a QUIC connection. A
+/// channel with no QUIC holds no QUIC connection and no QUIC TLS configuration, and speaks h11 and
+/// h2 over TCP alone.
+pub const Capacity = struct {
+    quic: bool = true,
 };
+
+/// A channel of the default capacity, which tries QUIC first and TCP after (decision 120).
+pub const Channel = ChannelOf(.{});
+
+/// A channel that holds the connections `capacity` names (decision 124). A channel with no QUIC
+/// holds no QUIC state, and its code holds no step on a QUIC connection. Its `init` refuses
+/// `versions` that allow h3, so it never asks for QUIC, and a call of its `start_quic` does not
+/// compile. The body of each call is in `channel_calls.zig`.
+pub fn ChannelOf(comptime capacity: Capacity) type {
+    return struct {
+        const Self = @This();
+        /// The capacity, which `channel_calls.zig` and `channel_events.zig` read at build time.
+        comptime capacity: Capacity = capacity,
+        config: *const Config,
+        values: Values,
+        /// The transports the configuration offers (decision 120): TCP while `versions` allows
+        /// h11 or h2, and QUIC for h3 over TLS with a receive pool given.
+        offered: channel_config.Offered,
+        /// What `init` built from `config`, each written only when its transport is offered: the
+        /// TLS configuration of TCP's connections, when the channel runs over TLS, and of QUIC's,
+        /// and the configuration each connection borrows. QUIC's holds the address the current
+        /// one sends to.
+        tcp_tls: tls.record.ClientConfig,
+        quic_tls: QuicField(capacity, tls.quic.ClientConfig),
+        tcp_config: connection_module.Config,
+        quic_config: QuicField(capacity, quic_connection.Config),
+        quic: QuicField(capacity, quic_connection.QuicConnection),
+        tcp: connection_module.Connection,
+        links: std.EnumArray(Transport, Link),
+        entries: [constants.exchanges_max]Entry,
+        /// The id the next exchange gets.
+        next_id: Id,
+        /// The transports this attempt opened, and whether the fallback delay passed during
+        /// QUIC's handshake, as spec/tla/client_exchanges names them.
+        tried: std.EnumArray(Transport, bool),
+        fallback: bool,
+        /// The instant the fallback delay passes, once QUIC's connection started.
+        fallback_at_ns: ?u64,
+        /// The caller shut the channel down, and the `closed` event went out.
+        shut: bool,
+        closed_reported: bool,
+        /// The receive pool of each QUIC connection, which the caller placed, or null when it
+        /// gave none.
+        receive_pool: QuicField(capacity, ?ReceiveStorage),
+
+        /// Prepares a channel with nothing opened, and builds the TLS configurations of the
+        /// transports it offers, so the channel stays in place from here on. `receive_pool` is
+        /// the pool its QUIC connections use in turn, or null for a channel that opens no QUIC. A
+        /// channel with no QUIC takes null. `error.NoVersion` says the configuration offers
+        /// neither transport, `error.VersionUnavailable` that it allows h3 on a channel with no
+        /// QUIC, and the other errors that the TLS value names more than a TLS configuration holds.
+        pub fn init(channel: *Self, config: *const Config, values: Values, receive_pool: ?ReceiveStorage) StartError!void {
+            return channel_calls.init(channel, config, values, receive_pool);
+        }
+
+        /// Takes the request `message`, which goes out on the first connection open to take it,
+        /// and the `response` it gets, and returns the exchange's id. The caller keeps both in
+        /// place, and each slice they name, until the exchange's `finished` event or until
+        /// `cancel` returns (decision 124). The caller makes no request after `shutdown`.
+        pub fn request(channel: *Self, message: *const Request, response: *Response) RequestError!Id {
+            return channel_calls.request(channel, message, response);
+        }
+
+        /// Ends exchange `id`, and reports nothing for it. The memory of its request and its
+        /// response is the caller's again.
+        pub fn cancel(channel: *Self, id: Id) void {
+            channel_calls.cancel(channel, id);
+        }
+
+        /// Takes no new exchange, and ends every connection once the exchanges it holds have
+        /// finished.
+        pub fn shutdown(channel: *Self) void {
+            channel.shut = true;
+        }
+
+        /// Reports what the channel owes, then passes `input` to the connection of the transport
+        /// that read it, and reports what that changed.
+        pub fn receive(channel: *Self, input: Input, now_ns: u64) Received {
+            return channel_calls.receive(channel, input, now_ns);
+        }
+
+        /// The next datagram the QUIC connection owes, written into `output`, or null for none.
+        pub fn send_datagram(channel: *Self, output: []u8, now_ns: u64) ?Sent {
+            return channel_calls.send_datagram(channel, output, now_ns);
+        }
+
+        /// The octets the TCP connection owes, written into `output`.
+        pub fn send_stream(channel: *Self, output: []u8, now_ns: u64) usize {
+            return channel_calls.send_stream(channel, output, now_ns);
+        }
+
+        /// The instant the channel next wants `on_instant` at: QUIC's next deadline, or the end of
+        /// the fallback delay while the channel offers TCP. Null for none.
+        pub fn deadline_ns(channel: *Self) ?u64 {
+            return channel_calls.deadline_ns(channel);
+        }
+
+        /// Fires whichever deadlines `now_ns` has reached. The end of the fallback delay counts at
+        /// the next `receive`.
+        pub fn on_instant(channel: *Self, now_ns: u64) void {
+            channel_calls.on_instant(channel, now_ns);
+        }
+
+        /// Starts the QUIC connection the `open` event asked for. The channel draws the
+        /// connection's grease value and its two IDs from `random` (decision 120), then every draw
+        /// its handshake makes comes from `random` too. `resumption` offers a ticket an earlier
+        /// QUIC connection took. A call on a channel with no QUIC does not compile (decision 124).
+        pub fn start_quic(channel: *Self, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
+            return channel_calls.start_quic(channel, random, now_seconds, now_ns, resumption);
+        }
+
+        /// Starts the TCP connection the `open` event asked for, as `start_quic` does QUIC's.
+        pub fn start_tcp(channel: *Self, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+            return channel_calls.start_tcp(channel, random, now_seconds, resumption);
+        }
+
+        /// The caller's transport closed on its own: the peer closed it, or it failed. Every
+        /// exchange its connection held ends, as the connection's own `transport_closed` rules.
+        pub fn transport_closed(channel: *Self, transport: Transport) void {
+            channel_calls.transport_closed(channel, transport);
+        }
+
+        /// The resumption ticket the `ticket` event announced for `transport`, which the call
+        /// hands over and clears.
+        pub fn take_ticket(channel: *Self, transport: Transport) ?tls.Ticket {
+            return channel_calls.take_ticket(channel, transport);
+        }
+
+        /// The h3 alternative the channel knows of, from the values or a TCP response's Alt-Svc,
+        /// which a caller keeps for a later channel (RFC 7838 §2.2).
+        pub fn alternative(channel: *const Self) ?Alternative {
+            return channel.values.alternative;
+        }
+
+        /// Where `transport`'s connection stands, as spec/tla/client_exchanges's `phase` names it.
+        /// A program reads the events and never this. The simulator's client trace run reads it
+        /// (decision 105), and its TCP trace run decides by it whether its one connection takes a
+        /// request.
+        pub fn phase(channel: *const Self, transport: Transport) Phase {
+            return channel_calls.phase(channel, transport);
+        }
+    };
+}
+
+/// The type of a field that holds QUIC's state: `Type` in a channel that holds QUIC, and void in
+/// one with no QUIC (decision 124).
+fn QuicField(comptime capacity: Capacity, comptime Type: type) type {
+    return if (capacity.quic) Type else void;
+}
 
 test "design §8 step 17f: the channel's public functions are the calls a program makes, and phase" {
     const public_names = @import("core").public_names;
-    try public_names.expect(Channel, &.{
-        "init",          "request",          "cancel",      "shutdown",    "receive",
-        "send_datagram", "send_stream",      "deadline_ns", "on_instant",  "start_quic",
-        "start_tcp",     "transport_closed", "take_ticket", "alternative", "phase",
-    });
+    // Decision 124: a channel with no QUIC names the same calls, and its `start_quic` does not
+    // compile.
+    inline for (.{ Channel, ChannelOf(.{ .quic = false }) }) |Type| {
+        try public_names.expect(Type, &.{
+            "init",          "request",          "cancel",      "shutdown",    "receive",
+            "send_datagram", "send_stream",      "deadline_ns", "on_instant",  "start_quic",
+            "start_tcp",     "transport_closed", "take_ticket", "alternative", "phase",
+        });
+    }
 }

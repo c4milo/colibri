@@ -44,6 +44,7 @@ const rows = [_]Row{
     .{ .name = "@FieldType(client.Channel, \"tcp\")", .size = @sizeOf(@FieldType(client.Channel, "tcp")), .holds = "a channel's TCP connection: h11 or h2, in cleartext or over TLS" },
     .{ .name = "@FieldType(client.Channel, \"quic\")", .size = @sizeOf(@FieldType(client.Channel, "quic")), .holds = "a channel's QUIC connection, without its receive pool" },
     .{ .name = "client.Channel", .size = @sizeOf(client.Channel), .holds = "one server's connections, QUIC first and TCP after, without receive pools" },
+    .{ .name = "client.ChannelOf(.{ .quic = false })", .size = @sizeOf(client.ChannelOf(.{ .quic = false })), .holds = "a channel with no QUIC state, which holds one TCP connection" },
     .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a program passes to a channel, at its default capacity" },
     .{ .name = "h11.Connection", .size = @sizeOf(h11.Connection), .holds = "the h11 state inside a TCP connection" },
     .{ .name = "h2.Connection", .size = @sizeOf(h2.Connection), .holds = "the h2 state inside a TCP connection" },

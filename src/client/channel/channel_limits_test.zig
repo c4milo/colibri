@@ -12,14 +12,13 @@ const support = @import("../connection/connection_test_support.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
 const quic_channel_support = @import("channel_quic_test_support.zig");
 const channel_module = @import("channel.zig");
+const channel_support = @import("channel_test_support.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
-const Channel = channel_module.Channel;
 const Exchange = support.Exchange;
 
-/// The channel the tests drive and its configuration, outside any stack frame. Test-only.
-var channel: Channel align(@alignOf(Channel)) = undefined;
+/// The channel's configuration, outside any stack frame. Test-only.
 var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
 
 /// The content of a response or a request: two DATA frames of the largest size colibri advertises
@@ -49,14 +48,9 @@ fn get() Exchange {
     return .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
 }
 
-/// Writes what the channel's connection owes into the peer's buffer.
-fn send() void {
-    support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
-}
-
 /// Passes the channel what the peer sent, in calls until one takes nothing and reports nothing,
 /// with `.none` once no octet is left. Starts the TCP connection an `open` event asks for.
-fn collect() !void {
+fn collect(channel: anytype) !void {
     // Bounded: each pass takes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
         const input: channel_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
@@ -77,17 +71,6 @@ fn take(consumed: usize) void {
     support.to_client_len -= consumed;
 }
 
-/// A channel with no QUIC, whose TCP connection speaks `protocol` in cleartext and holds
-/// `exchange`, which `send` has not written yet.
-fn start_cleartext(protocol: event.Protocol, exchange: *Exchange) !void {
-    config = .{ .authority = support.authority, .versions = support.only(protocol) };
-    try channel.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
-    support.to_peer_len = 0;
-    support.to_client_len = 0;
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try collect();
-}
-
 /// A response head of `h11.constants.head_len_max` octets with no content. The whitespace before
 /// its last field value fills it: RFC 9112 §5 lets OWS stand there, and RFC 9110 §5.6.3 lets OWS
 /// hold any number of SP.
@@ -98,57 +81,6 @@ fn head_at_limit() []u8 {
     @memset(head[start.len .. head.len - end.len], ' ');
     @memcpy(head[head.len - end.len ..], end);
     return &head;
-}
-
-test "decision 124: receive takes an h11 head of the longest length from stream_input_len_min octets" {
-    var exchange = get();
-    try start_cleartext(.h11, &exchange);
-    send();
-    const whole = head_at_limit();
-    try testing.expectEqual(h11.constants.head_len_max, whole.len);
-    // The program holds the head and, past it, octets of the next response.
-    @memcpy(support.to_client[0..whole.len], whole);
-    @memcpy(support.to_client[whole.len..][0..whole.len], whole);
-    support.to_client_len = whole.len * 2;
-    // RFC 9112 §2.1: h11 reads the head again from its first octet until the head ends, so one
-    // octet less of it takes nothing.
-    const short = channel.receive(.{ .stream = support.to_client[0 .. whole.len - 1] }, support.now_ns);
-    try testing.expectEqual(0, short.consumed);
-    try testing.expectEqual(null, short.event);
-    const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
-    try testing.expectEqual(whole.len, taken.consumed);
-    try testing.expectEqual(&exchange.response, taken.event.?.finished.response);
-    try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqual(ok, exchange.response.status);
-}
-
-test "decision 124: receive takes an h2 frame of the largest size from stream_input_len_min octets" {
-    var exchange = get();
-    try start_cleartext(.h2, &exchange);
-    support.peer_events_len = 0;
-    // In cleartext, one octet of output takes one octet of what h2 wrote.
-    try testing.expectEqual(1, channel.send_stream(support.to_peer[0..1], support.now_ns));
-    support.to_peer_len = 1;
-    send();
-    // The peer reads the preface and the request, and writes its SETTINGS, which the client reads.
-    support.peer_h2.init(.server);
-    try support.peer_h2_read();
-    try collect();
-    support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
-    try collect();
-    try testing.expectEqual(0, support.to_client_len);
-    // RFC 9113 §4.2: the content goes in frames of the largest size the client advertised.
-    support.to_client_len = try peer_write_content(&support.to_client);
-    // RFC 9113 §4.1: h2 takes whole frames, so one octet less of the first takes nothing.
-    const short = channel.receive(.{ .stream = support.to_client[0 .. constants.frame_len_max - 1] }, support.now_ns);
-    try testing.expectEqual(0, short.consumed);
-    try testing.expectEqual(null, short.event);
-    const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
-    try testing.expectEqual(constants.frame_len_max, taken.consumed);
-    take(taken.consumed);
-    try collect();
-    try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualSlices(u8, &content, exchange.response.content_received());
 }
 
 /// The h2 peer writes `content` on stream 1 into `out`, in frames of the largest size the client
@@ -166,35 +98,6 @@ fn peer_write_content(out: []u8) !usize {
     return written;
 }
 
-/// A channel with no QUIC whose TCP connection runs h2 over TLS, past its handshake, with
-/// `exchange` written. The TLS server has opened every record the client sent, and its h2 peer has
-/// read the preface and the request.
-fn start_tls(exchange: *Exchange) !void {
-    try tls_support.prepare_server(&support.protocols_h2, false);
-    config = .{ .tls = tls_support.client_values(support.authority), .authority = support.authority };
-    try channel.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
-    try tls_support.start_server();
-    _ = try channel.request(&exchange.request, &exchange.response);
-    try collect();
-    send();
-    try testing.expectEqual(false, tls_support.server_flight().?);
-    try collect();
-    send();
-    try testing.expectEqual(true, tls_support.server_flight().?);
-    support.peer_h2.init(.server);
-    try support.peer_h2.attach_tls(tls_support.server.provider());
-    try tls_support.server_open();
-    var consumed: usize = 0;
-    // Bounded: each pass takes a frame, or ends the loop.
-    for (0..tls_support.peer_plain_len + 1) |_| {
-        const received = try support.peer_h2.receive(tls_support.peer_plain[consumed..tls_support.peer_plain_len], support.now_ns);
-        if (received.consumed == 0) break;
-        consumed += received.consumed;
-    }
-    try testing.expectEqual(tls_support.peer_plain_len, consumed);
-    tls_support.peer_plain_len = 0;
-}
-
 /// The TLS server seals `plaintext` for the client: first one record of the most plaintext a record
 /// carries (RFC 9846 §5.1), then the rest. Returns the octets of that first record.
 fn seal_largest_first(plaintext: []const u8) !usize {
@@ -207,44 +110,9 @@ fn seal_largest_first(plaintext: []const u8) !usize {
     return first.written;
 }
 
-test "decision 124: receive takes a TLS record of the most plaintext from stream_input_len_min octets" {
-    var exchange = get();
-    try start_tls(&exchange);
-    // The server's SETTINGS, the response's head, and its content in frames of the largest size.
-    const out = &tls_support.peer_out;
-    var written = support.peer_h2.write_pending(out, support.now_ns);
-    written += try support.peer_h2.write_response(out[written..], 1, ok, &.{}, false);
-    written += try peer_write_content(out[written..]);
-    const record_len = try seal_largest_first(out[0..written]);
-    // RFC 9846 §5.2: the connection opens whole records, so one octet less of the first takes
-    // nothing.
-    const short = channel.receive(.{ .stream = support.to_client[0 .. record_len - 1] }, support.now_ns);
-    try testing.expectEqual(0, short.consumed);
-    try testing.expectEqual(null, short.event);
-    const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
-    try testing.expectEqual(record_len, taken.consumed);
-    take(taken.consumed);
-    try collect();
-    try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualSlices(u8, &content, exchange.response.content_received());
-}
-
-test "decision 124: send_stream writes a TLS record of the most plaintext into stream_output_len_min octets" {
-    var exchange = get();
-    try start_tls(&exchange);
-    // A POST whose content fills more than one record, on a connection that owes nothing else.
-    var posted: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = &content }, .response = .{ .body = &body } };
-    _ = try channel.request(&posted.request, &posted.response);
-    try testing.expectEqual(0, support.to_peer_len);
-    const written = channel.send_stream(&output, support.now_ns);
-    try testing.expect(written > 0 and written <= output.len);
-    // The server opens the first record whole, and it holds the most plaintext a record carries
-    // (RFC 9846 §5.1).
-    const provider = tls_support.server.provider();
-    const opened = try provider.vtable.decrypt_record(provider.context, output[0..written], &tls_support.peer_plain);
-    try testing.expectEqual(.application_data, opened.content);
-    try testing.expectEqual(tls_provider.constants.record_plaintext_len_max, opened.plaintext_len);
-}
+/// The channel of the default capacity, which the test of the events with no input drives with QUIC
+/// offered.
+const default = Tests(channel_module.Channel);
 
 /// What `receive` reported in a run with no input: the calls that reported an event, and whether
 /// one of them was `closed`.
@@ -257,6 +125,7 @@ const Run = struct {
 /// `receive_events_without_input_max`. Each `open` names a transport that does not open, and the
 /// channel shuts down at the last exchange's `finished`.
 fn run_without_input() !Run {
+    const channel = &default.channel;
     var run: Run = .{};
     var finished: usize = 0;
     for (0..constants.receive_events_without_input_max + 1) |_| {
@@ -278,6 +147,7 @@ fn run_without_input() !Run {
 }
 
 test "decision 124: receive_events_without_input_max bounds the events a channel reports with no input" {
+    const channel = &default.channel;
     // QUIC and TCP are offered, and the channel holds as many exchanges as it can.
     config = quic_channel_support.configured(true);
     try channel.init(&config, quic_channel_support.values_at(https_port), quic_channel_support.pool());
@@ -296,4 +166,155 @@ test "decision 124: receive_events_without_input_max bounds the events a channel
     // `connected` and `ticket`. No run that a test reaches holds them beside these.
     const transports_opened = 2;
     try testing.expectEqual(@as(usize, transports_opened + constants.exchanges_max + 1), run.events);
+}
+
+test {
+    // Decision 124: each test below runs on the default channel and on one with no QUIC.
+    inline for (channel_support.channels) |Channel| _ = Tests(Channel);
+}
+
+/// The tests over a channel of type `Channel`, and the helpers that name the channel itself.
+fn Tests(comptime Channel: type) type {
+    return struct {
+        /// The channel the tests drive, outside any stack frame. Test-only.
+        var channel: Channel align(@alignOf(Channel)) = undefined;
+
+        /// Writes what the channel's connection owes into the peer's buffer.
+        fn send() void {
+            support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+        }
+
+        /// A channel with no QUIC, whose TCP connection speaks `protocol` in cleartext and holds
+        /// `exchange`, which `send` has not written yet.
+        fn start_cleartext(protocol: event.Protocol, exchange: *Exchange) !void {
+            config = .{ .authority = support.authority, .versions = channel_support.versions_for(&channel, support.only(protocol)) };
+            try channel.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
+            support.to_peer_len = 0;
+            support.to_client_len = 0;
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try collect(&channel);
+        }
+
+        test "decision 124: receive takes an h11 head of the longest length from stream_input_len_min octets" {
+            var exchange = get();
+            try start_cleartext(.h11, &exchange);
+            send();
+            const whole = head_at_limit();
+            try testing.expectEqual(h11.constants.head_len_max, whole.len);
+            // The program holds the head and, past it, octets of the next response.
+            @memcpy(support.to_client[0..whole.len], whole);
+            @memcpy(support.to_client[whole.len..][0..whole.len], whole);
+            support.to_client_len = whole.len * 2;
+            // RFC 9112 §2.1: h11 reads the head again from its first octet until the head ends, so
+            // one octet less of it takes nothing.
+            const short = channel.receive(.{ .stream = support.to_client[0 .. whole.len - 1] }, support.now_ns);
+            try testing.expectEqual(0, short.consumed);
+            try testing.expectEqual(null, short.event);
+            const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
+            try testing.expectEqual(whole.len, taken.consumed);
+            try testing.expectEqual(&exchange.response, taken.event.?.finished.response);
+            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(ok, exchange.response.status);
+        }
+
+        test "decision 124: receive takes an h2 frame of the largest size from stream_input_len_min octets" {
+            var exchange = get();
+            try start_cleartext(.h2, &exchange);
+            support.peer_events_len = 0;
+            // In cleartext, one octet of output takes one octet of what h2 wrote.
+            try testing.expectEqual(1, channel.send_stream(support.to_peer[0..1], support.now_ns));
+            support.to_peer_len = 1;
+            send();
+            // The peer reads the preface and the request, and writes its SETTINGS, which the client
+            // reads.
+            support.peer_h2.init(.server);
+            try support.peer_h2_read();
+            try collect(&channel);
+            support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
+            try collect(&channel);
+            try testing.expectEqual(0, support.to_client_len);
+            // RFC 9113 §4.2: the content goes in frames of the largest size the client advertised.
+            support.to_client_len = try peer_write_content(&support.to_client);
+            // RFC 9113 §4.1: h2 takes whole frames, so one octet less of the first takes nothing.
+            const short = channel.receive(.{ .stream = support.to_client[0 .. constants.frame_len_max - 1] }, support.now_ns);
+            try testing.expectEqual(0, short.consumed);
+            try testing.expectEqual(null, short.event);
+            const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
+            try testing.expectEqual(constants.frame_len_max, taken.consumed);
+            take(taken.consumed);
+            try collect(&channel);
+            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqualSlices(u8, &content, exchange.response.content_received());
+        }
+
+        /// A channel with no QUIC whose TCP connection runs h2 over TLS, past its handshake, with
+        /// `exchange` written. The TLS server has opened every record the client sent, and its h2
+        /// peer has read the preface and the request.
+        fn start_tls(exchange: *Exchange) !void {
+            try tls_support.prepare_server(&support.protocols_h2, false);
+            config = .{ .tls = tls_support.client_values(support.authority), .versions = channel_support.versions_for(&channel, .{}), .authority = support.authority };
+            try channel.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
+            try tls_support.start_server();
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try collect(&channel);
+            send();
+            try testing.expectEqual(false, tls_support.server_flight().?);
+            try collect(&channel);
+            send();
+            try testing.expectEqual(true, tls_support.server_flight().?);
+            support.peer_h2.init(.server);
+            try support.peer_h2.attach_tls(tls_support.server.provider());
+            try tls_support.server_open();
+            var consumed: usize = 0;
+            // Bounded: each pass takes a frame, or ends the loop.
+            for (0..tls_support.peer_plain_len + 1) |_| {
+                const received = try support.peer_h2.receive(tls_support.peer_plain[consumed..tls_support.peer_plain_len], support.now_ns);
+                if (received.consumed == 0) break;
+                consumed += received.consumed;
+            }
+            try testing.expectEqual(tls_support.peer_plain_len, consumed);
+            tls_support.peer_plain_len = 0;
+        }
+
+        test "decision 124: receive takes a TLS record of the most plaintext from stream_input_len_min octets" {
+            var exchange = get();
+            try start_tls(&exchange);
+            // The server's SETTINGS, the response's head, and its content in frames of the largest
+            // size.
+            const out = &tls_support.peer_out;
+            var written = support.peer_h2.write_pending(out, support.now_ns);
+            written += try support.peer_h2.write_response(out[written..], 1, ok, &.{}, false);
+            written += try peer_write_content(out[written..]);
+            const record_len = try seal_largest_first(out[0..written]);
+            // RFC 9846 §5.2: the connection opens whole records, so one octet less of the first
+            // takes nothing.
+            const short = channel.receive(.{ .stream = support.to_client[0 .. record_len - 1] }, support.now_ns);
+            try testing.expectEqual(0, short.consumed);
+            try testing.expectEqual(null, short.event);
+            const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
+            try testing.expectEqual(record_len, taken.consumed);
+            take(taken.consumed);
+            try collect(&channel);
+            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqualSlices(u8, &content, exchange.response.content_received());
+        }
+
+        test "decision 124: send_stream writes a TLS record of the most plaintext into stream_output_len_min octets" {
+            var exchange = get();
+            try start_tls(&exchange);
+            // A POST whose content fills more than one record, on a connection that owes nothing
+            // else.
+            var posted: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = &content }, .response = .{ .body = &body } };
+            _ = try channel.request(&posted.request, &posted.response);
+            try testing.expectEqual(0, support.to_peer_len);
+            const written = channel.send_stream(&output, support.now_ns);
+            try testing.expect(written > 0 and written <= output.len);
+            // The server opens the first record whole, and it holds the most plaintext a record
+            // carries (RFC 9846 §5.1).
+            const provider = tls_support.server.provider();
+            const opened = try provider.vtable.decrypt_record(provider.context, output[0..written], &tls_support.peer_plain);
+            try testing.expectEqual(.application_data, opened.content);
+            try testing.expectEqual(tls_provider.constants.record_plaintext_len_max, opened.plaintext_len);
+        }
+    };
 }
