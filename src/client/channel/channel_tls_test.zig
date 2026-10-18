@@ -315,3 +315,54 @@ test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol closes
     try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(1, count(.open));
 }
+
+/// A response whose head nears h11's limit, then its content, which the server seals in records
+/// of an odd size. After two records, 24,000 octets of the head wait in the connection, and the
+/// head ends in the third record. That record opens only while the connection holds the head's
+/// first two records beside room for a whole record (RFC 9112 §2.1, RFC 9846 §5.2). Test-only.
+const long_head_len: usize = 30_000;
+const long_content_len: usize = 6_000;
+const odd_record_len: usize = 12_000;
+var long_response: [long_head_len + long_content_len]u8 = undefined;
+var long_body: [long_content_len]u8 = undefined;
+
+/// The response of `long_head_len` octets of head and `long_content_len` of content. The
+/// whitespace before its last field value fills the head: RFC 9112 §5 lets OWS stand there, and
+/// RFC 9110 §5.6.3 lets OWS hold any number of SP.
+fn long_response_octets() []const u8 {
+    const status_and_fields = "HTTP/1.1 200 OK\r\nContent-Length: 6000\r\nPadding:";
+    const end = "a\r\n\r\n";
+    @memcpy(long_response[0..status_and_fields.len], status_and_fields);
+    @memset(long_response[status_and_fields.len .. long_head_len - end.len], ' ');
+    @memcpy(long_response[long_head_len - end.len .. long_head_len], end);
+    @memset(long_response[long_head_len..], 'c');
+    return &long_response;
+}
+
+/// The TLS server seals `plaintext` for the client in records of `record_len` octets of plaintext,
+/// the last one shorter.
+fn seal_in_records(plaintext: []const u8, record_len: usize) !void {
+    // Bounded: each pass seals one record.
+    for (0..plaintext.len / record_len + 1) |index| {
+        const first = index * record_len;
+        if (first == plaintext.len) return;
+        try tls_support.server_seal(plaintext[first..@min(plaintext.len, first + record_len)]);
+    }
+}
+
+test "RFC 9112 §2.1: over TLS, a head near h11's limit in records of an odd size ends, and its content too" {
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &long_body } };
+    _ = try start_with(.{ .h2 = false }, &support.protocols_both, "localhost", &exchange);
+    send();
+    try testing.expectEqual(false, tls_support.server_flight().?);
+    try collect();
+    try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
+    send();
+    try testing.expectEqual(true, tls_support.server_flight().?);
+    try seal_in_records(long_response_octets(), odd_record_len);
+    try collect();
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(long_content_len, exchange.response.body_len);
+    try testing.expectEqual(0, support.to_client_len);
+}

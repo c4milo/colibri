@@ -114,14 +114,14 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 40674448 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323504 | an endpoint that holds one TCP connection |
+| `server.Endpoint` | 40936464 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 339888 | an endpoint that holds one TCP connection |
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2243360 | an endpoint that holds one QUIC connection, with its receive pool |
-| `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 306448 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
+| `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 322824 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721576 | the connection each QUIC slot of an endpoint holds, without its receive pool |
-| `@FieldType(client.Channel, "tcp")` | 289336 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
+| `@FieldType(client.Channel, "tcp")` | 305704 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
 | `@FieldType(client.Channel, "quic")` | 703984 | a channel's QUIC connection, without its receive pool |
-| `client.Channel` | 995904 | one server's connections, QUIC first and TCP after, without receive pools |
+| `client.Channel` | 1012272 | one server's connections, QUIC first and TCP after, without receive pools |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a channel, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163392 | the h2 state inside a TCP connection |

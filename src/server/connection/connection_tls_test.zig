@@ -290,3 +290,69 @@ test "RFC 9113 §6.8: a shutdown asked for during the handshake reaches the prot
     try testing.expectEqual(.h11, connection.protocol().?);
     try testing.expect(connection.stopped);
 }
+
+/// A request whose head nears h11's limit, then its content, which the client seals in records of
+/// an odd size. After two records, 24,000 octets of the head wait in the connection, and the head
+/// ends in the third record. That record opens only while the connection holds the head's first two
+/// records beside room for a whole record (RFC 9112 §2.1, RFC 9846 §5.2). Test-only.
+const long_head_len: usize = 30_000;
+const long_content_len: usize = 6_000;
+const odd_record_len: usize = 12_000;
+var long_request: [long_head_len + long_content_len]u8 = undefined;
+
+/// The request of `long_head_len` octets of head and `long_content_len` of content. The whitespace
+/// before its last field value fills the head: RFC 9112 §5 lets OWS stand there, and RFC 9110
+/// §5.6.3 lets OWS hold any number of SP.
+fn long_request_octets() []const u8 {
+    const start = "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 6000\r\nPadding:";
+    const end = "a\r\n\r\n";
+    @memcpy(long_request[0..start.len], start);
+    @memset(long_request[start.len .. long_head_len - end.len], ' ');
+    @memcpy(long_request[long_head_len - end.len .. long_head_len], end);
+    @memset(long_request[long_head_len..], 'c');
+    return &long_request;
+}
+
+/// Seals `plaintext` as the client's records of `record_len` octets of plaintext, the last one
+/// shorter, from the start of the test input. Returns the octets they take.
+fn seal_in_records(plaintext: []const u8, record_len: usize) !usize {
+    var sealed_len: usize = 0;
+    // Bounded: each pass seals one record.
+    for (0..plaintext.len / record_len + 1) |index| {
+        const start = index * record_len;
+        if (start == plaintext.len) break;
+        sealed_len = try support.seal_all(sealed_len, plaintext[start..@min(plaintext.len, start + record_len)]);
+    }
+    return sealed_len;
+}
+
+test "RFC 9112 §2.1: a head near h11's limit in records of an odd size ends, and its content too" {
+    try support.start_tls(&support.protocols_both, &support.protocols_h11);
+    try testing.expectEqual(.h11, connection.protocol().?);
+    const sealed_len = try seal_in_records(long_request_octets(), odd_record_len);
+    var consumed: usize = 0;
+    var heads: usize = 0;
+    var content_len: usize = 0;
+    var ended = false;
+    // Bounded: each pass takes a record or reports an event, or the connection is stuck.
+    for (0..sealed_len) |_| {
+        const received = try connection.receive(support.input[consumed..sealed_len], support.now_ns);
+        consumed += received.consumed;
+        const reported = received.event orelse {
+            if (received.consumed == 0) break;
+            continue;
+        };
+        switch (reported) {
+            .request => heads += 1,
+            .body => |body| {
+                content_len += body.octets.len;
+                ended = body.end;
+            },
+            else => {},
+        }
+    }
+    try testing.expectEqual(sealed_len, consumed);
+    try testing.expectEqual(1, heads);
+    try testing.expectEqual(long_content_len, content_len);
+    try testing.expect(ended);
+}

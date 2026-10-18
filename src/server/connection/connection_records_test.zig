@@ -10,6 +10,7 @@ const support = @import("connection_test_support.zig");
 const plain_support = @import("../plain_provider_test_support.zig");
 const connection_tls = @import("connection_tls.zig");
 const connection_owed = @import("connection_owed.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -132,16 +133,21 @@ test "RFC 9846 §5.1: a record that has not all arrived waits for its last octet
     try testing.expectEqual(null, received.event);
 }
 
-/// A request whose content is more than `plaintext_in_len` holds at once: three records of the
-/// largest plaintext. Test-only.
-const upload_head = "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 49152\r\n\r\n";
-const upload_records: usize = 3;
+/// A request whose content is more than `plaintext_in_len` holds at once: records of the largest
+/// plaintext, then a record one octet longer than the room they leave in `plaintext_in_len`.
+/// Test-only.
+const upload_records: usize = constants.plaintext_in_len / tls_provider.constants.record_plaintext_len_max;
+const upload_tail_len: usize = constants.plaintext_in_len % tls_provider.constants.record_plaintext_len_max + 1;
+const upload_head = std.fmt.comptimePrint("POST / HTTP/1.1\r\nHost: a\r\nContent-Length: {d}\r\n\r\n", .{
+    upload_records * tls_provider.constants.record_plaintext_len_max + upload_tail_len,
+});
 var upload_content: [tls_provider.constants.record_plaintext_len_max]u8 = @splat('u');
 
 test "RFC 9846 §5.1: records open while the protocol's octets have room, and the rest wait" {
     try attach_plain();
     var sealed = try record_at(0, plain_support.content_application_data, upload_head);
     for (0..upload_records) |_| sealed += try record_at(sealed, plain_support.content_application_data, &upload_content);
+    sealed += try record_at(sealed, plain_support.content_application_data, upload_content[0..upload_tail_len]);
     const received = try connection.receive(support.input[0..sealed], support.now_ns);
     try testing.expect(received.consumed > 0 and received.consumed < sealed);
     try testing.expectEqual(1, received.event.?.request.id.number);

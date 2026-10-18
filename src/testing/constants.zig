@@ -186,11 +186,6 @@ pub const tls_der_len_max: usize = 8 * 1024;
 /// RFC 9846 §5.1 caps at 2^14 of plaintext plus its header and tag.
 pub const tls_record_buffer_len: usize = 18 * 1024;
 
-/// h2's byte stream one TLS connection of the server holds: a frame the session has not finished
-/// reading, and one more record's plaintext after it. The record adapter asks for room for the
-/// record's whole ciphertext, which its plaintext never exceeds (RFC 9846 §5.2).
-pub const tls_plaintext_in_len: usize = read_buffer_len + h2.tls_provider.constants.record_ciphertext_len_max;
-
 /// The most octets the server's handshake flight takes. chapulin writes a flight whole or fails
 /// the handshake (`srv_cfg.h`), so the server's output holds this much before a handshake step
 /// runs. It is the chain's two certificates, at most `tls_der_len_max` each, and the rest.
@@ -374,5 +369,4 @@ comptime {
     // The server's output holds a whole flight, and its input a whole record.
     assert(write_buffer_len >= tls_flight_len_max);
     assert(wire_read_len >= h2.tls_provider.constants.record_write_len_min);
-    assert(tls_plaintext_in_len > read_buffer_len + h2.tls_provider.constants.record_plaintext_len_max);
 }

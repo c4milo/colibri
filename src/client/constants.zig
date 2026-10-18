@@ -19,11 +19,17 @@ pub const exchanges_max: u32 = 16;
 /// §4.1, §4.2).
 pub const frame_len_max: usize = h2.constants.frame_header_len + h2.constants.frame_size_max;
 
-/// Octets of the protocol's stream that records opened and `receive` has not read: a frame waiting
-/// for its last octets, and room to open one more record, so the next record always opens while a
-/// frame is incomplete. A provider opens a record into room for all that follows its header, which
-/// RFC 9846 §5.2 bounds by `record_ciphertext_len_max`, and not only for its plaintext.
-pub const plaintext_in_len: usize = frame_len_max + tls_provider.constants.record_ciphertext_len_max;
+/// Octets of the protocol's stream that records opened and `receive` has not read: the longest
+/// unit that is not whole yet, and room to open one more record after it. So the next record always
+/// opens while a unit waits for its last octets, as the owner ruled on 2026-10-17. A provider opens
+/// a record into room for all that follows its header, and not only for its plaintext. RFC 9846
+/// §5.2 bounds that room by `record_ciphertext_len_max`.
+pub const plaintext_in_len: usize = partial_unit_len_max + tls_provider.constants.record_ciphertext_len_max;
+
+/// The most octets of a unit that is not whole yet: an h11 head or an h2 frame, whichever is
+/// longer, one octet short of its limit. h11 reads a head again from its first octet until the head
+/// ends (RFC 9112 §2.1), and h2 takes whole frames (RFC 9113 §4.1).
+const partial_unit_len_max: usize = @max(h11.constants.head_len_max, frame_len_max) - 1;
 
 /// Octets of the most the client's TLS handshake writes in one call: its largest ClientHello
 /// record, which a HelloRetryRequest may ask for again, then the alert a refused flight owes.
@@ -114,15 +120,16 @@ const connection_events_max: usize = 4;
 const record_len_max: usize = tls_provider.constants.record_header_len + tls_provider.constants.record_ciphertext_len_max;
 
 /// Octets a program holds of what the TCP socket read, from the first octet `receive` did not take
-/// (decision 124). With this many, the octets hold a whole unit that `receive` takes. Each protocol
-/// takes some units whole, and this is the largest of them:
+/// (decision 124). With this many, the octets hold a whole unit, and `receive` takes some of them.
+/// Each protocol takes some units whole, and this is the largest of them:
 /// - h11 reads a head again from its first octet until the head ends (RFC 9112 §2.1), so it needs
 ///   the whole head, at most `h11.constants.head_len_max` octets. A trailer section and a
 ///   chunk-size line are shorter.
 /// - h2 takes whole frames (RFC 9113 §4.1), at most `frame_len_max` octets with the frame size
 ///   colibri advertises (RFC 9113 §4.2).
 /// - Over TLS, the connection opens whole records, at most `record_len_max` octets each (RFC 9846
-///   §5.2).
+///   §5.2). It holds an h11 head or an h2 frame that is not whole yet beside room for one more
+///   record (`plaintext_in_len`), so a whole record always opens.
 pub const stream_input_len_min: usize = @max(h11.constants.head_len_max, @max(frame_len_max, record_len_max));
 
 /// The least `output` with which `send_stream` writes some of what the TCP connection owes, when
@@ -163,8 +170,11 @@ pub const fallback_delay_ns_default: u64 = 250 * quic.constants.nanoseconds_per_
 pub const brotli_window_bits_max: u5 = 24;
 
 comptime {
-    // A frame waiting for its last octets never stops the next record from opening.
-    assert(plaintext_in_len >= frame_len_max + tls_provider.constants.record_ciphertext_len_max);
+    // A unit that waits for its last octets never stops the next record from opening: an h11 head
+    // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one octet short of its limit, then room
+    // for the most that follows a record's header (RFC 9846 §5.2).
+    assert(plaintext_in_len >= h11.constants.head_len_max - 1 + tls_provider.constants.record_ciphertext_len_max);
+    assert(plaintext_in_len >= frame_len_max - 1 + tls_provider.constants.record_ciphertext_len_max);
     // The output holds every flight a handshake writes before a send, and a whole field block
     // with a frame after it.
     assert(output_len >= flights_max * flight_len_max);
