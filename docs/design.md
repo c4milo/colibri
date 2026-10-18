@@ -9962,6 +9962,71 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Owed before the push.** `tools/ci.sh` on the exact tree, which runs the interop and TLS
     checks against the new chapulin.
 
+  **21f, the client's gaps, 2026-10-17.** What `client` lacked for a program that leaves the
+  protocol modules (decision 124). Run on macOS 26 on an Apple M1 Pro, with Zig 0.16.0. The commits
+  were written on the branch `client-gaps-21f` over main fa0842d, and replayed by cherry-pick over
+  main aea97ae; each memory table was rebuilt from its own commit's tree. 21f's own ruling, whether
+  `h11`, `h2`, `h3` and `quic` stay exported, waits for the dependent to leave `h11`.
+  - **The rulings, 2026-10-17.** The owner went with the recommendations for the dependent's gaps,
+    then ruled `client.Request` and `client.Response` in place of `client.HttpExchange`. The
+    dependent's owner then withdrew `Response.response_began`, `ended_by_close` and
+    `Channel.negotiated` ("No leaky abstractions"), and the owner ruled the resend of ruling 3 in
+    their place. The owner also ruled the TLS stall fix of ruling 7, and the endpoint census that
+    it moves.
+  - **The root.** `client` lists 41 names: `HttpExchange` left, and `Request`, `Response`,
+    `ChannelOf` and `Capacity` came. `client.StartError` gains `VersionUnavailable`.
+  - **a2bef06, 21f.1.** Decision 124 and this step's text.
+  - **f044aac, 21f.2.** The split, with every caller in the tree. `Finished` names the request and
+    the response. The simulator's censuses and the client, TCP and deadline trace logs stayed
+    byte-identical. Mutations, each **CAUGHT** by test-client or test-sim-run: the channel's
+    assertion on the request pointer and on the response pointer, each inverted, and the client
+    trace world's new assertion inverted.
+  - **9ec604a and be0a7f2, 21f.3.** An early final response, and a response dropped while the
+    content goes out, end the h11 connection (RFC 9112 §9.5). Raw-octet peers show both, and that
+    a response after all the content keeps the connection. Mutations, each **CAUGHT** by
+    test-client: the rule removed; the connection ended after every final response, or whenever
+    no exchange awaits; the connection left open to write; a response to an earlier exchange that
+    ends it; the drop rule removed; the drop rule after the content is done; the head path and the
+    data path that read on after the end.
+  - **202625c, 21f.4.** The channel sends an idempotent request again, once, after a close before
+    any octet of its response. 23 tests in h11, h2 and h3. Mutations, 13, each **CAUGHT** by
+    test-client: no resend; a POST or a token sent again; a resend after part of the response;
+    each version not marking the start of a response (h11 on entry and on leftover octets, h2,
+    h3); a resend twice; a budget apart from refusals; a cancelled exchange sent again; the
+    refused-to-closed change removed; the `resent` flag not set. The client trace census moved for
+    9 seeds (38, 75, 95, 110, 114, 155, 181, 185, 210), each a GET sent again once: states 2569 to
+    2589, responses 342 to 348, failed 59 to 52, cancelled 48 to 49, moved 4 to 12, resent 9 (a new
+    field), quic 120 to 119, tcp 274 to 279, goaways 49 to 50, learned 60 to 61. With the resend
+    turned off, the old census came back exactly. `spec/tla/client_exchanges` gained the resend
+    and two mutants in `mutants/`. At 7de35d3, `zig build tla` gave each of the model's 21
+    configurations its expected verdict, 9 hold and 12 violated (the largest, `reconnect`, at
+    16,044,834 distinct states), and `tools/client_trace.sh` found 67 of 67 traces behaviors of
+    the model.
+  - **ee272b0, 21f.5.** `stream_input_len_min` (32,768), `stream_output_len_min` (16,645) and
+    `receive_events_without_input_max` (25), each with comptime asserts and a test at its edges.
+    18 mutations: 16 **CAUGHT**; 2 **NOT CAUGHT**, each a constant one less with its assert
+    removed. chapulin's largest record is 16,406 octets, so no run sees the output one octet less.
+    No test reaches more than 19 of the 25 events.
+  - **4fe67f2, 21f.5's fix.** `plaintext_in_len` grows from 33,033 to 49,407 in the client and the
+    server (decision 124 ruling 7). A test in each failed before the fix: a 30,000-octet head in
+    12,000-octet records. The endpoint census moved for seeds 0x25, 0x3a and 0x49, each with a TLS
+    peer whose connection now opens records in fewer calls: crc32 0x560d5625 to 0xf16f98da, wire
+    0x5ec49f44 to 0x1e3dec81, the same in Debug and ReleaseSafe, P1 to P8 held, failed 0.
+    Mutations, on each side: the old value, the h11 term and the record term left out, each
+    **CAUGHT** with and without its assert. **NOT CAUGHT**: the h2 term left out, which the h11
+    term covers; the octet short of the limit; and, as expected, the old value with records of
+    16,384 octets, which fit it.
+  - **0240ce7, 21f.6.** `client.ChannelOf(.{ .quic = false })`: 307,360 octets in place of
+    `client.Channel`'s 1,012,152, with no `start_quic`. The TCP tests run on both types. Mutations,
+    each **CAUGHT**: the QUIC connection kept; `init` that takes h3; the default capacity with no
+    QUIC, at compile time. It closes [#99](https://github.com/c4milo/colibri/issues/99) by the
+    static size, not the resident memory of 64 channels that it first asked for.
+  - **1a12445, 21f.7.** The four doc lines of decision 124 ruling 6, the guide, and the consumer
+    program, which now holds a channel with no QUIC.
+  - `zig build test` on the replayed tree: 183 steps and 3,091 tests.
+  - **Owed before the push.** The review of the step, and `tools/ci.sh` on the exact tree, which
+    runs the TLA+ models, the six trace checks and the interop scripts.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
