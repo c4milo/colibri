@@ -50,15 +50,16 @@ const datagram_module = @import("link_datagram.zig");
 const Link = link_module.Link;
 const DatagramLink = datagram_module.DatagramLink;
 
-/// The octets the client writes before it sends them, at most.
-const output_len = 16384;
-
 /// Turns of the client and the server before the example gives up. The run sleeps about 3 s in
 /// turns of at most `wait_ns_max`, so it needs about 40 turns.
 const turns_max = 256;
 
-/// Events the client takes after one input, and datagrams it reads or writes in one turn, at most.
-const events_per_input_max = 64;
+/// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
+/// link's queue, or reports an event and takes no octet, or ends the loop. At most
+/// `receive_events_without_input_max` calls in a row report an event and take no octet.
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.constants.receive_events_without_input_max + 1);
+
+/// Datagrams the client reads or writes in one turn, at most.
 const datagrams_per_turn_max = 32;
 
 /// The longest either side sleeps when nothing waits, in nanoseconds: 100 ms.
@@ -82,6 +83,12 @@ const server_address: client.Address = .of(&loopback, server_port);
 /// the server's certificates at this instant, which the test identity is valid at.
 const now_seconds = identity.now_seconds;
 
+comptime {
+    // The link's queue holds what the program read of the TCP socket. It holds the octets of each
+    // unit that the channel takes whole.
+    std.debug.assert(link_module.queue_len_max >= client.constants.stream_input_len_min);
+}
+
 pub const Error = error{
     /// The channel was not closed within `turns_max` turns.
     ExchangeUnfinished,
@@ -93,7 +100,9 @@ pub const Error = error{
 // runs on the stream link's loops.
 var link: Link align(@alignOf(Link)) = undefined;
 var datagram_link: DatagramLink align(@alignOf(DatagramLink)) = undefined;
-var output: [output_len]u8 = undefined;
+/// What `send_stream` writes, which the link then sends. It holds the largest TLS record, so the
+/// TLS stack never refuses it for its length.
+var output: [client.constants.stream_output_len_min]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 
 // The client: one configuration for the origin, the pool its QUIC connection holds the server's
@@ -227,7 +236,7 @@ fn read_datagrams(now_ns: u64) !void {
         const datagram = try datagram_link.receive(.client) orelse break;
         // A connection takes a datagram only from the address its server answers from.
         var rest: client.Input = .{ .datagram = .{ .octets = datagram, .from = server_address } };
-        for (0..events_per_input_max) |_| {
+        for (0..receive_calls_max) |_| {
             const received = channel.receive(rest, now_ns);
             if (received.consumed > 0) rest = .none;
             const event = received.event orelse {
@@ -246,7 +255,7 @@ fn read_datagrams(now_ns: u64) !void {
 fn drain(now_ns: u64) !void {
     const input = try link.receive(.client);
     var consumed: usize = 0;
-    for (0..events_per_input_max) |_| {
+    for (0..receive_calls_max) |_| {
         const held = input[consumed..];
         const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
         const received = channel.receive(read, now_ns);
@@ -333,7 +342,7 @@ fn connect_refused() !void {
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     try refused_channel.init(&client_config, known, null);
     _ = try refused_channel.request(&refused_get, &refused_get_response);
-    for (0..events_per_input_max) |_| {
+    for (0..receive_calls_max) |_| {
         const received = refused_channel.receive(.none, now_ns);
         switch (received.event orelse return error.ExchangeWrong) {
             // The connect failed, so the transport closed before its connection started.

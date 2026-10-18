@@ -109,6 +109,46 @@ pub const channel_events_per_poll_max: usize = transports_count * (exchanges_max
 const transports_count: usize = 2;
 const connection_events_max: usize = 4;
 
+/// Octets of the largest TLS record: its header and the most ciphertext RFC 9846 §5.2 lets a record
+/// carry. A peer may send one, and a provider may write one.
+const record_len_max: usize = tls_provider.constants.record_header_len + tls_provider.constants.record_ciphertext_len_max;
+
+/// Octets a program holds of what the TCP socket read, from the first octet `receive` did not take
+/// (decision 124). With this many, the octets hold a whole unit that `receive` takes. Each protocol
+/// takes some units whole, and this is the largest of them:
+/// - h11 reads a head again from its first octet until the head ends (RFC 9112 §2.1), so it needs
+///   the whole head, at most `h11.constants.head_len_max` octets. A trailer section and a
+///   chunk-size line are shorter.
+/// - h2 takes whole frames (RFC 9113 §4.1), at most `frame_len_max` octets with the frame size
+///   colibri advertises (RFC 9113 §4.2).
+/// - Over TLS, the connection opens whole records, at most `record_len_max` octets each (RFC 9846
+///   §5.2).
+pub const stream_input_len_min: usize = @max(h11.constants.head_len_max, @max(frame_len_max, record_len_max));
+
+/// The least `output` with which `send_stream` writes some of what the TCP connection owes, when
+/// it owes octets (decision 124). In cleartext, one octet is enough: `send_stream` copies any part
+/// of what h11 and h2 wrote. Over TLS, a provider writes whole records: the records that hold the
+/// protocol's octets, an alert, and the reply to a KeyUpdate. A provider never refuses an output of
+/// `tls_provider.constants.record_write_len_min` octets, which holds the largest record (RFC 9846
+/// §5.2). It may refuse a shorter output. chapulin seals a shorter record into a shorter output,
+/// but the client keeps to what every provider promises.
+pub const stream_output_len_min: usize = record_len_max;
+
+/// The most `receive` calls in a row that report an event and take no octet (decision 124). The
+/// next call with the same input reports no event. The bound holds while the program does only
+/// this between the calls:
+/// - it starts the transport an `open` names, or calls `transport_closed` when it cannot open it;
+/// - it closes the socket a `close` names, and takes the ticket a `ticket` names;
+/// - it calls `shutdown`.
+/// A call that takes octets, and any other call of the program, start a new count. The events are
+/// one `finished` for each exchange, one `closed`, and `transport_events_max` for each transport.
+pub const receive_events_without_input_max: usize = exchanges_max + transports_count * transport_events_max + 1;
+
+/// The events of one transport in such a run, at most: its `open` and its `close`, and its
+/// connection's `connected` and `ticket`. A connection's `draining` and `closed` go to the channel
+/// alone.
+const transport_events_max: usize = 4;
+
 /// Nanoseconds in a second, which an Alt-Svc freshness lifetime counts (RFC 7838 §3.1).
 pub const nanoseconds_per_second: u64 = 1_000 * quic.constants.nanoseconds_per_millisecond;
 
@@ -141,4 +181,16 @@ comptime {
     assert(quic_idle_margin_timeout_divisor > 1);
     // A fallback delay of zero would open TCP beside every QUIC handshake.
     assert(fallback_delay_ns_default > 0);
+    // The program holds each unit a TCP connection takes whole: an h11 head, trailer section or
+    // chunk-size line, an h2 frame, and a TLS record.
+    assert(stream_input_len_min >= h11.constants.head_len_max);
+    assert(stream_input_len_min >= h11.constants.trailer_len_max);
+    assert(stream_input_len_min > h11.constants.chunk_line_len_max);
+    assert(stream_input_len_min >= frame_len_max);
+    assert(stream_input_len_min >= record_len_max);
+    // An output a provider never refuses for its length holds an alert too.
+    assert(stream_output_len_min >= tls_provider.constants.record_write_len_min);
+    assert(stream_output_len_min >= tls.record.alert_record_len);
+    // Each exchange finishes once, the channel closes once, and each transport gives its events.
+    assert(receive_events_without_input_max >= exchanges_max + transports_count * transport_events_max + 1);
 }

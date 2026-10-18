@@ -157,6 +157,7 @@ test {
     _ = @import("channel/channel_test.zig");
     _ = @import("channel/channel_h11_test.zig");
     _ = @import("channel/channel_tls_test.zig");
+    _ = @import("channel/channel_limits_test.zig");
     _ = @import("channel/channel_quic_test.zig");
     _ = @import("channel/channel_quic_flow_test.zig");
     _ = @import("quic/quic_connection_test.zig");

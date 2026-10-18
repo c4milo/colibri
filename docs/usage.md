@@ -765,7 +765,7 @@ fn read_datagrams(now_ns: u64) !void {
         const datagram = try datagram_link.receive(.client) orelse break;
         // A connection takes a datagram only from the address its server answers from.
         var rest: client.Input = .{ .datagram = .{ .octets = datagram, .from = server_address } };
-        for (0..events_per_input_max) |_| {
+        for (0..receive_calls_max) |_| {
             const received = channel.receive(rest, now_ns);
             if (received.consumed > 0) rest = .none;
             const event = received.event orelse {
@@ -789,7 +789,7 @@ and reads half a head again from its first octet. After each send, each event an
 fn drain(now_ns: u64) !void {
     const input = try link.receive(.client);
     var consumed: usize = 0;
-    for (0..events_per_input_max) |_| {
+    for (0..receive_calls_max) |_| {
         const held = input[consumed..];
         const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
         const received = channel.receive(read, now_ns);
@@ -917,7 +917,7 @@ fn connect_refused() !void {
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     try refused_channel.init(&client_config, known, null);
     _ = try refused_channel.request(&refused_get, &refused_get_response);
-    for (0..events_per_input_max) |_| {
+    for (0..receive_calls_max) |_| {
         const received = refused_channel.receive(.none, now_ns);
         switch (received.event orelse return error.ExchangeWrong) {
             // The connect failed, so the transport closed before its connection started.
