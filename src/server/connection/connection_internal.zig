@@ -45,6 +45,15 @@ fn make_h2_session(connection: *Connection) void {
     connection.session = .{ .h2 = undefined };
 }
 
+/// Makes h11 the session's protocol and leaves its payload's octets as they are, as
+/// `make_h2_session` does for h2. ReleaseSafe would fill all 35,040 octets of `h11.Connection`
+/// with 0xAA on every connection. `h11.Connection.init` then writes every field that code reads.
+/// h11's `connection_init_test.zig` and `connection_internal_test.zig` check it.
+fn make_h11_session(connection: *Connection) void {
+    @setRuntimeSafety(false);
+    connection.session = .{ .h11 = undefined };
+}
+
 /// Makes the protocol's connection, which then serves this one.
 pub fn open_session(connection: *Connection, chosen: Protocol) void {
     switch (chosen) {
@@ -57,7 +66,7 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
             connection.session.h2.limit_peer_streams(connection.config.limits.requests_max);
         },
         .h11 => {
-            connection.session = .{ .h11 = undefined };
+            make_h11_session(connection);
             connection.session.h11.init(.server, .{ .decoders = connection.config.decoders });
         },
         // RFC 9114 §3.1: h3 runs over QUIC alone, which `QuicConnection` serves.

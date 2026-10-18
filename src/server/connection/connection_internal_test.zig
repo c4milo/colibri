@@ -1,8 +1,8 @@
-//! The test that holds `connection_internal.zig`'s `make_h2_session` to its claim: the h2 session
-//! is made with its payload's octets left as they were, so an h2 connection must send the same
-//! octets and report the same events whatever its storage held before. The test fills the whole
-//! connection with one octet, runs one h2 exchange over it, and compares what came out with what
-//! came out over storage filled with another.
+//! The tests of `make_h2_session` and `make_h11_session` in `connection_internal.zig`. Each one
+//! leaves its session's payload unfilled. So a connection must send the same octets and report
+//! the same events, whatever its storage held before. Each test fills the whole connection with
+//! one octet and runs one exchange over it. Then it compares the output with the output over
+//! storage filled with another octet.
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("connection_test_support.zig");
@@ -94,19 +94,83 @@ const fill_undefined: u8 = 0b1010_1010;
 const fill_pattern: u8 = 0b0101_1100;
 const fills = [_]u8{ 0, fill_ones, fill_undefined, fill_pattern };
 
-test "an h2 connection sends and reports the same whatever its storage held before" {
+/// Fails when `run` sends or reports anything else over storage filled with each of `fills` than
+/// over storage filled with the first.
+fn expect_same_over_fills(comptime run: fn (*Record) anyerror!void) !void {
     var first: Record = .{};
     @memset(std.mem.asBytes(connection), fills[0]);
-    try run_exchange(&first);
+    try run(&first);
     try testing.expect(first.len > 0);
     for (fills[1..]) |fill| {
         var again: Record = .{};
         @memset(std.mem.asBytes(connection), fill);
-        try run_exchange(&again);
+        try run(&again);
         if (std.mem.eql(u8, first.written(), again.written())) continue;
         std.debug.print("first difference: storage filled with {x} gives {x}, with {x} gives {x}\n", .{
             fill, again.written(), fills[0], first.written(),
         });
         return error.TestUnexpectedResult;
     }
+}
+
+test "an h2 connection sends and reports the same whatever its storage held before" {
+    try expect_same_over_fills(run_exchange);
+}
+
+/// The h11 exchange's requests. The test answers the first with a body, and the second, which has
+/// content, with chunks and a trailer section. Two more arrive in one read, and the last asks for
+/// the close. Test-only.
+const h11_get = "GET /one HTTP/1.1\r\nHost: example.test\r\n\r\n";
+const h11_post = "POST /two HTTP/1.1\r\nHost: example.test\r\nContent-Length: 5\r\n\r\nhello";
+const h11_fourth = "GET /four HTTP/1.1\r\nHost: example.test\r\n\r\n";
+const h11_pipelined = "GET /three HTTP/1.1\r\nHost: example.test\r\n\r\n" ++ h11_fourth;
+const h11_close = "GET /five HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n";
+
+/// Feeds `octets` to an h11 connection as a program does. Each call passes the octets the last
+/// call left, until a call takes none and reports nothing. Records the kind of each event, and
+/// then what the connection sends.
+fn feed_h11(record: *Record, octets: []const u8) !void {
+    @memcpy(support.input[0..octets.len], octets);
+    var at: usize = 0;
+    for (0..h11_calls_max) |_| {
+        const received = try connection.receive(support.input[at..octets.len], support.now_ns);
+        at += received.consumed;
+        if (received.event) |reported| {
+            try record.add(&.{@intFromEnum(reported)});
+        } else if (received.consumed == 0) {
+            break;
+        }
+    }
+    try record.add(support.drain());
+}
+/// More calls than one exchange's reads take. Test-only.
+const h11_calls_max: usize = 32;
+
+/// One h11 exchange over the connection, in cleartext. Each call answers `connection.current_id`,
+/// the request the connection read last, as a program's call would.
+fn run_h11_exchange(record: *Record) !void {
+    try support.start_cleartext(.h11);
+    try feed_h11(record, h11_get);
+    try connection.respond(connection.current_id, .{ .status = ok, .end = false });
+    _ = try connection.write_body(connection.current_id, .{ .octets = "hello", .end = true });
+    try record.add(support.drain());
+    try feed_h11(record, h11_post);
+    try connection.respond(connection.current_id, .{ .status = ok, .end = false });
+    _ = try connection.write_body(connection.current_id, .{ .octets = "chunked", .end = false });
+    try connection.write_trailers(connection.current_id, &.{.{ .name = "x-done", .value = "1" }});
+    try record.add(support.drain());
+    // The second request waits unread until the first is answered, and then the program passes
+    // its octets again.
+    try feed_h11(record, h11_pipelined);
+    try connection.respond(connection.current_id, .{ .status = ok, .end = true });
+    try feed_h11(record, h11_fourth);
+    try connection.respond(connection.current_id, .{ .status = ok, .end = true });
+    try record.add(support.drain());
+    try feed_h11(record, h11_close);
+    try connection.respond(connection.current_id, .{ .status = ok, .end = true });
+    try feed_h11(record, &.{});
+}
+
+test "an h11 connection sends and reports the same whatever its storage held before" {
+    try expect_same_over_fills(run_h11_exchange);
 }

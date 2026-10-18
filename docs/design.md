@@ -6810,7 +6810,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   ruled on 2026-10-13 for `@setRuntimeSafety(false)` on that one assignment: `make_h2_session`
   holds it alone, so it stores the tag and nothing else. No assertion is turned off; the function
   has none. `h2.Connection.init` then writes every field a read reaches. h11's payload, 35,040
-  octets, is still filled.
+  octets, was still filled until the record below.
 
   What each check printed:
   - A new test in h2's `connection_test.zig` inits a connection of each role over storage of
@@ -6845,6 +6845,51 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   No input loses. On h2-one the server's user instructions per connection fell by 34,910 in the
   first job and by 34,982 in the second, where the disassembly gave about 35,760.
+
+  **`open_session` leaves the h11 session's payload unfilled, 2026-10-18.** The judge of step
+  13g found h11-one at 1.09 to 1.55 times the instructions of each competitor. The owner said to
+  profile h11 and then fix it. A laptop profile of h11-one, one request on each connection, put
+  `memset` first among the server's functions. Most of its samples came from `open_session`.
+
+  `open_session` wrote the session as `.{ .h11 = undefined }`. So ReleaseSafe filled all 35,040
+  octets of `h11.Connection` with 0xAA on every h11 connection. This fix is the one the owner
+  ruled for h2 on 2026-10-13. `make_h11_session` stores the tag alone, under
+  `@setRuntimeSafety(false)`. `h11.Connection.init` then writes every field that code reads.
+
+  What each check printed:
+  - A new test in h11's `connection_init_test.zig` inits a connection of each role over storage
+    of zeros, and again over storage of ones. Every field at every depth must match, except five
+    regions that code reads only after it writes them. These are the ring of outstanding
+    requests, and the octets and lines of the two field sections.
+  - A new test in `connection_internal_test.zig` fills a connection's storage four ways, and
+    runs one h11 exchange over each fill. The exchange holds a body, a chunked body with a trailer
+    section, two pipelined requests, and a request that asks for the close. The test requires the
+    same octets and events from each fill. The h2 test there now shares its loop.
+  - A patch for these runs alone filled each TCP endpoint's storage with 0x00, and again with
+    0xFF, before it started. Then five simulator checks printed what the tree printed with no
+    fill: `zig build sim -Drelease -- --deadline-check 4096`, `--content-coding-check`,
+    `--endpoint-check`, `--tcp-trace-check` and `--deadline-trace-check`. `--tcp-trace-write` and
+    `--deadline-trace-write` wrote the same octets too.
+  - 4 mutations, each **CAUGHT** by h11's tests: an `init` that leaves `answered`,
+    `outstanding_len`, `decoding` or `scanner` as the storage held it. The server's tests catch
+    three of the four and miss `answered`. Each of their exchanges over filled storage starts
+    with a head that parses, and that head writes `answered` before code reads it.
+
+  The judge, [run 39157844257](https://github.com/c4milo/colibri/actions/runs/39157844257),
+  measured `782340c` against `611c7d3`, in instructions per request, or per connection for the
+  `one` inputs. `782340c` is this commit before its review. The review changed comments, documents
+  and the names of a test's parameters, and no code that the judge ran. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h11-one | 111,192 | 102,449 | 0.9214 | 0.9152 | wins in both |
+  | h11-tls-one | 1,821,266 | 1,814,289 | 0.9962 | 0.9963 | within the noise |
+  | h11-many | 37,565 | 37,585 | 1.0005 | 1.0197 | within the noise |
+  | h11-tls-many | 52,223 | 52,109 | 0.9978 | 1.0155 | within the noise |
+
+  No input loses, and each h2 input is within the noise. On h11-one the server's user
+  instructions per connection fell by 7,713 in the first job and by 7,682 in the second. The h2
+  record's rate, 35,760 instructions for 163,384 octets, gives about 7,670 for 35,040 octets.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:

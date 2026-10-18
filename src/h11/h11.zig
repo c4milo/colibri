@@ -103,4 +103,5 @@ test {
     _ = @import("connection/connection_client_test.zig");
     _ = @import("connection/connection_tls_test.zig");
     _ = @import("connection/connection_coding_test.zig");
+    _ = @import("connection/connection_init_test.zig");
 }
