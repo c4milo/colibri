@@ -30,7 +30,7 @@ The name is Spanish for hummingbird.
 
 ## Status
 
-colibri 0.7.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
+colibri 0.8.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
 16 put in the library. 0.2.0 has each TLS session draw from a source its caller passes. 0.3.0 ends
 a connection inside colibri on a TLS or QUIC error, and adds h2's trailers. 0.4.0 adds the `server`
 and `client` modules, whose `Channel` chooses h3 over QUIC or TCP for each server, and qlog. 0.5.0
@@ -41,7 +41,16 @@ client choose the suites it offers, and sends a failed record's alert before it 
 speaks QUIC version 2, and its server switches a client that lists it (RFC 9368). The server ends a
 connection whose peer is too slow or silent, and an h2 peer that resets streams too fast. One build
 runs the AES instructions where the program's probe of its CPU finds them and ChaCha20 elsewhere,
-and both ciphers run faster.
+and both ciphers run faster. 0.8.0 adds a router to the server: literal paths, parameters, a
+trailing wildcard, and HEAD answered by a route's GET. The router refuses a table that hides a
+route. The server holds its TCP connections in its endpoint and runs its deadlines and rate limits
+over h3 too. Each module exports its names from its root alone, and a channel builds its TLS from
+one value. The client sends a `client.Request` and reads a `client.Response` in place of
+`client.HttpExchange`, and `client.ChannelOf` sizes a channel. It sends an idempotent request again
+once after an unanswered close, and holds a long h11 head over TLS. After a KeyUpdate that asks for
+a reply, the client and the server read on, and send the reply before their next application data
+record (RFC 9846 §4.7.3). The client decodes zstd and br, a TLS client can take no tickets, and
+colibri carries chapulin e6e3c1e7, whose clock is a function.
 
 | Protocol | Built | Checked against |
 | --- | --- | --- |
@@ -60,7 +69,7 @@ printed.
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.7.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.8.0
 ```
 
 Then import the modules you use. Each of the fifteen library modules is exported by name: `core`,

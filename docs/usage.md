@@ -12,7 +12,7 @@ under [`src/testing/`](../src/testing/) run every protocol over real sockets.
 Depend on a release tag, or on a commit for a change made since:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.7.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.8.0
 ```
 
 In `build.zig`, import the modules your program uses. Most programs take these three, and a
