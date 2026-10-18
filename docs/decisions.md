@@ -4658,42 +4658,57 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      The rulings:
      1. `client.HttpExchange` leaves the API. A program sends a `client.Request` and reads a
-        `client.Response`, as the owner put it: programs "either write clients or servers and
+        `client.Response`. In the owner's words, programs "either write clients or servers and
         deal with requests and responses".
         - `Request` holds `method`, `path`, `fields`, `never_indexed` and `content`.
-        - `Response` holds where the answer goes, `wanted`, `values` and `body`, and what
-          arrived: `status`, `interims`, `body_len`, `values_len`, `outcome`, `coding`,
+        - `Response` holds where the answer goes: `wanted`, `values` and `body`. It also holds
+          what arrived: `status`, `interims`, `body_len`, `values_len`, `outcome`, `coding`,
           `error_code` and `content_sent`.
-        - The call is `Channel.request(request: *const Request, response: *Response) !Id`. The
-          program keeps both in place, with each slice they name, from `request` until the
-          exchange's `finished` event or until `cancel` returns, as decision 100 ruled for the
+        - The call is `Channel.request(request: *const Request, response: *Response) !Id`.
+        - The program keeps both in place, with each slice they name, until the exchange's
+          `finished` event or until `cancel` returns. Decision 100 ruled the same for the
           exchange.
         - The server already reads a `server.Request` and sends a `server.Response`.
-     2. An early final response ends the h11 connection. When a final response ends while the
-        request's content is still going out, the client stops the content and ends the
-        connection, as `cancel` does (RFC 9112 §9.5). The next exchange goes on another
-        connection.
-     3. The channel sends an idempotent request again. When a connection closes or fails before
-        any octet of a request's response arrives, and the method is idempotent (RFC 9110
-        §9.2.2: PUT, DELETE, and GET, HEAD, OPTIONS and TRACE, which are safe), the channel sends
-        the request again, once, on another connection (RFC 9112 §9.3.1). Any other method ends
-        `closed`, as today. The program sees one outcome. The owner ruled that a program
-        implements no part of HTTP: "No leaky abstractions". An exchange that a connection
-        refused unprocessed still moves once (`moves_max`), and the two moves share that one
-        budget. A request sent again that is then refused ends `closed`, not `refused`: its first
-        attempt may have been processed, and decision 105 keeps `refused` for a request that no
-        server processed.
-     4. `client.ChannelOf(capacity)` takes a `client.Capacity` with `quic: bool = true`, as
-        `server.EndpointOf` takes a `server.Capacity`, and `client.Channel` is
-        `ChannelOf(.{})` ([#99](https://github.com/c4milo/colibri/issues/99)). A channel with no
-        QUIC holds no QUIC connection and no QUIC TLS configuration, and its `init` refuses
-        versions that allow h3 with a new member of `client.StartError`, `VersionUnavailable`. It
-        has no `start_quic`: a call of it does not compile, because such a channel never asks for
-        QUIC.
+     2. An early final response ends the h11 connection.
+        - When a final response ends while the request's content is still going out, the client
+          stops the content and ends the connection, as `cancel` does.
+        - When the client drops a response while the content is still going out, it does the
+          same at the drop.
+        - RFC 9112 §9.5 asks this when the response shows that the server closes the connection.
+          This decision applies it to every such response, because a server may read the whole
+          content before it ends its response.
+        - The next exchange goes on another connection.
+     3. The channel sends an idempotent request again.
+        - The rule: a connection closes or fails before any octet of a request's response
+          arrives, and the method is idempotent (RFC 9110 §9.2.2). Then the channel sends the
+          request again, once, on another connection (RFC 9112 §9.3.1).
+        - The idempotent methods are PUT, DELETE, and the safe methods GET, HEAD, OPTIONS and
+          TRACE. Any other method ends `closed`, as before.
+        - Over h2 and h3, the header of a HEADERS frame on the request's stream counts as an
+          octet of the response, even when its field section does not decode.
+        - After a failed h11 connection, the next connection writes the first request alone
+          until its final response arrives (RFC 9112 §9.3.2).
+        - The program sees one outcome. The owner ruled that a program implements no part of
+          HTTP: "No leaky abstractions".
+        - A refused exchange still moves once (`moves_max`), and the two moves share that one
+          budget.
+        - A request sent again that is then refused ends `closed`, not `refused`. Its first
+          attempt may have been processed, and decision 105 keeps `refused` for a request that
+          no server processed.
+     4. `client.ChannelOf(capacity)` takes a `client.Capacity` with `quic: bool = true`
+        ([#99](https://github.com/c4milo/colibri/issues/99)).
+        - `server.EndpointOf` takes a `server.Capacity` in the same way, and `client.Channel` is
+          `ChannelOf(.{})`.
+        - A channel with no QUIC holds no QUIC connection and no QUIC TLS configuration.
+        - Its `init` refuses versions that allow h3, with a new member of `client.StartError`:
+          `VersionUnavailable`.
+        - It has no `start_quic`, so a call of it does not compile. Such a channel never asks for
+          QUIC.
      5. Three limits in `client.constants`, so a program sizes its memory and bounds its loops at
         init with no name from `h11` or `tls_provider`:
         - `stream_input_len_min`: the octets a program holds so that `receive` on a TCP
-          transport always takes some, in cleartext and over TLS;
+          transport takes some, in cleartext and over TLS, while `send_stream` has written what
+          the connection owes;
         - `stream_output_len_min`: the least `output` with which `send_stream` always writes a
           record that it owes. It is the TLS provider's contract,
           `tls_provider.constants.record_write_len_min`, though chapulin seals a shorter record
@@ -4725,7 +4740,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        rule 8 for a body that runs until the close.
      - `Channel.negotiated(transport)`, the suite a transport settled on. Withdrawn: which suite a
        connection settles on is colibri's and chapulin's to test.
-     - A channel that always holds QUIC state: 703,712 octets that a TCP-only program never uses.
+     - A channel that always holds QUIC state: 704,792 octets, the difference between
+       `client.Channel` and a channel with no QUIC, that a TCP-only program never uses.
      - The TLS stall of ruling 7 as an issue only. A large head over TLS then waits for a
        deadline or for the program's timeout.
 

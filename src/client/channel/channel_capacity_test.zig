@@ -1,5 +1,5 @@
 //! The tests of a channel's capacity (`channel.zig`, decision 124). A channel with no QUIC holds no
-//! QUIC state, refuses `versions` that allow h3, and has no QUIC connection for a call to reach. A
+//! QUIC state, refuses `versions` that allow h3, and has no QUIC connection for a call to use. A
 //! call of its `start_quic` does not compile, so no test makes one. `client.Channel` holds QUIC.
 //! The tests over TCP run on both types (`channel_test_support.zig`).
 const std = @import("std");

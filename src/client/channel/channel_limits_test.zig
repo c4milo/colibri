@@ -1,8 +1,8 @@
 //! The tests of the three limits a program sizes its buffers and bounds its loops by (decision
 //! 123, `constants.zig`): the input from which `receive` takes octets, the output into which
 //! `send_stream` writes a whole TLS record, and the events `receive` reports with no input. Each
-//! test drives a channel to the worst case it can reach. The peers are h11's and h2's server sides
-//! and the TLS server of `connection_tls_test_support.zig`, in the same process.
+//! test drives a channel to the worst case that a test can make. The peers are h11's and h2's
+//! server sides and the TLS server of `connection_tls_test_support.zig`, in the same process.
 const std = @import("std");
 const h2 = @import("h2");
 const h11 = @import("h11");
@@ -161,9 +161,9 @@ test "decision 124: receive_events_without_input_max bounds the events a channel
     try testing.expect(run.events <= constants.receive_events_without_input_max);
     try testing.expectEqual(null, channel.receive(.none, support.now_ns).event);
     for (&exchanges) |*exchange| try testing.expectEqual(.refused, exchange.response.outcome);
-    // The worst case a test reaches: an `open` of each transport, a `finished` of each exchange,
+    // The worst case that a test makes: an `open` of each transport, a `finished` of each exchange,
     // and `closed`. The bound also counts the `close` of each transport and its connection's
-    // `connected` and `ticket`. No run that a test reaches holds them beside these.
+    // `connected` and `ticket`. No run that a test makes holds them beside these.
     const transports_opened = 2;
     try testing.expectEqual(@as(usize, transports_opened + constants.exchanges_max + 1), run.events);
 }

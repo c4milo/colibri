@@ -42,7 +42,7 @@ pub const Outcome = enum {
     /// request written and unanswered, which the server may have processed (RFC 9112 §9.3.1).
     /// The channel first sends an idempotent request again once, when its connection closed before
     /// any of the response arrived (RFC 9110 §9.2.2). A request sent again that is then refused,
-    /// or that no connection takes, ends `closed` too, since the first server may have processed it.
+    /// or that no connection takes, ends `closed` too: the first server may have processed it.
     closed,
     /// colibri refused the response: the protocol's rules make it malformed (RFC 9113 §8.1.1,
     /// RFC 9112 §8), or the content coding the client removes is corrupt or ends early (decision

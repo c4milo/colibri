@@ -120,7 +120,8 @@ const connection_events_max: usize = 4;
 const record_len_max: usize = tls_provider.constants.record_header_len + tls_provider.constants.record_ciphertext_len_max;
 
 /// Octets a program holds of what the TCP socket read, from the first octet `receive` did not take
-/// (decision 124). With this many, the octets hold a whole unit, and `receive` takes some of them.
+/// (decision 124). With this many, the octets hold a whole unit, and `receive` takes some of them
+/// while `send_stream` has written what the connection owes.
 /// Each protocol takes some units whole, and this is the largest of them:
 /// - h11 reads a head again from its first octet until the head ends (RFC 9112 §2.1), so it needs
 ///   the whole head, at most `h11.constants.head_len_max` octets. A trailer section and a

@@ -660,9 +660,12 @@ fallback delay passes. Its server, in [`examples/client_peer.zig`](../examples/c
 an endpoint with no UDP socket.
 
 For each exchange the program places two values in its own memory
-([decision 124](decisions.md)): a `client.Request`, which says what it sends, and a
-`client.Response`, which says where the answer goes and holds what arrived. The client only reads
-the request, so a program may make it a `const`.
+([decision 124](decisions.md)):
+
+- a `client.Request`, which says what it sends;
+- a `client.Response`, which says where the answer goes and holds what arrived.
+
+The client only reads the request, so a program may make it a `const`.
 
 ```zig
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
@@ -744,11 +747,15 @@ var asked: Channel align(@alignOf(Channel)) = undefined;
 ```
 
 `init` builds the TLS configuration of each transport the channel offers, inside the channel, so
-the program does not move the channel after it. It returns `error.NoVersion` when the
-configuration offers neither transport, `error.VersionUnavailable` when it allows h3 on a channel
-with no QUIC, and `error.TooManyAnchors`, `error.TooManySuites` or `error.SuitesUnavailable` when
-the TLS value names more than a TLS configuration holds. A program may call `init` again on a
-channel with no open transport and no exchange, for example with new addresses.
+the program does not move the channel after it. It returns these errors:
+
+- `error.NoVersion`: the configuration offers neither transport.
+- `error.VersionUnavailable`: the configuration allows h3 on a channel with no QUIC.
+- `error.TooManyAnchors`, `error.TooManySuites` or `error.SuitesUnavailable`: the TLS value
+  names more than a TLS configuration holds.
+
+A program may call `init` again on a channel with no open transport and no exchange, for example
+with new addresses.
 
 A program moves datagrams with addresses over QUIC and a stream of octets over TCP, and it keeps
 time for the channel. Each turn passes the channel what each socket read, fires its deadlines,
@@ -825,8 +832,8 @@ A program sizes its memory and bounds its loops with three limits of `client.con
 no name from `h11` or `tls_provider` ([decision 124](decisions.md)):
 
 - `stream_input_len_min`: what the program holds of the TCP socket's octets, at least, so that
-  `receive` always takes some. The channel takes an h11 head, an h2 frame and a TLS record whole,
-  and this is the largest of them.
+  `receive` takes some while `send_stream` has written what the connection owes. The channel takes
+  an h11 head, an h2 frame and a TLS record whole, and this is the largest of them.
 - `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
 - `receive_events_without_input_max`: the most `receive` calls in a row that report an event and
   take no octet.

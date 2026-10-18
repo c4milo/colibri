@@ -105,9 +105,9 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
 /// ended instead, which owes the caller an event.
 fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Outcome) bool {
     if (!slot.content_done()) {
-        // RFC 9112 §9.5: the client "SHOULD immediately cease transmitting the body and close its
-        // side of the connection". A server may read the whole content before it ends its
-        // response, so the client does not wait for that end.
+        // Decision 124 ruling 2: a response dropped while the content goes out ends the connection.
+        // RFC 9112 §9.5 asks this when the server closes the connection. A server may also read
+        // the whole content before it ends its response, so the client does not wait for that end.
         slots_module.end(slot, outcome);
         internal.fail(connection);
         return true;
@@ -131,9 +131,10 @@ fn finish(connection: *Connection, slot: *Slot) bool {
         // more, so no exchange left awaits a response and none waiting is written.
         close(connection);
     } else if (content_left(connection)) {
-        // RFC 9112 §9.5: the client "SHOULD immediately cease transmitting the body and close its
-        // side of the connection" (decision 124). The rest of the content is not written, and the
-        // connection ends as `cancel` ends it.
+        // Decision 124 ruling 2: a final response that ends before the content went out ends the
+        // connection. RFC 9112 §9.5 asks this of a response that shows the server closes the
+        // connection: "cease transmitting the body and close its side of the connection". The rest
+        // of the content is not written, and the connection ends as `cancel` ends it.
         internal.fail(connection);
     }
     return true;
