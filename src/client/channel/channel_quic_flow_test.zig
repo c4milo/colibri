@@ -1,11 +1,13 @@
 //! More tests of the channel to one origin with QUIC offered (`channel.zig`, `channel_events.zig`):
 //! what a cancel, a transport the caller closed, a second refusal, a ticket, a shutdown and a
-//! server that takes no request from its first datagram leave.
+//! server that takes no request from its first datagram leave, and when a request goes out again
+//! after a close (decision 124).
 //! Split out of `channel_quic_test.zig` for length.
 const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
 const quic_support = @import("../quic/quic_test_support.zig");
+const connection_support = @import("../connection/connection_test_support.zig");
 const fixture = @import("channel_quic_test_support.zig");
 const channel_module = @import("channel.zig");
 const event = @import("../event.zig");
@@ -18,6 +20,7 @@ const bodies = &fixture.bodies;
 const start = fixture.start;
 const values_at = fixture.values_at;
 const get = fixture.get;
+const post = fixture.post;
 const collect = fixture.collect;
 const pump = fixture.pump;
 const deliver = fixture.deliver;
@@ -45,10 +48,10 @@ test "RFC 9114 §4.1.1: a cancelled exchange a connection carries reports nothin
     try testing.expectEqual(.pending, exchange.response.outcome);
 }
 
-test "RFC 9000 §10: a QUIC transport the caller closed ends its written exchange closed, and asks for no close" {
+test "RFC 9000 §10: a QUIC transport the caller closed ends its written POST closed, and asks for no close" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     quic_support.server_answers = false;
-    var exchange = get(&bodies[0]);
+    var exchange = post(&bodies[0]);
     _ = try channel.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     channel.transport_closed(.quic);
@@ -58,13 +61,16 @@ test "RFC 9000 §10: a QUIC transport the caller closed ends its written exchang
     try testing.expectEqual(&exchange.request, nth(.finished, 0).?.finished.request);
     try testing.expectEqual(null, nth(.close, 0));
     try testing.expectEqual(channel_module.Phase.closed, channel.phase(.quic));
+    // RFC 9110 §9.2.2: a POST is not idempotent, so the channel opens no connection to send it
+    // again.
+    try testing.expectEqual(null, opened(1));
 }
 
 test "RFC 9114 §4.1.1: a QUIC transport the caller closed moves the exchange it had not written" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     quic_support.server_answers = false;
     quic_support.server_streams_bidi = 1;
-    var first = get(&bodies[0]);
+    var first = post(&bodies[0]);
     var second = get(&bodies[1]);
     _ = try channel.request(&first.request, &first.response);
     _ = try channel.request(&second.request, &second.response);
@@ -309,4 +315,133 @@ test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries
     try collect();
     try testing.expectEqual(Transport.quic, opened(2).?.transport);
     try testing.expect(opened(2).?.to.same_host(&two_addresses[0]));
+}
+
+/// A channel that speaks h3 alone, so a request it sends again waits for the next QUIC connection:
+/// it opens no TCP (decision 120).
+fn start_h3_alone() !void {
+    var given = fixture.configured(true);
+    given.versions = .{ .h11 = false, .h2 = false };
+    try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.pool());
+}
+
+test "RFC 9110 §9.2.2: a GET whose QUIC transport closed before any of its response goes out again, and is answered" {
+    try start_h3_alone();
+    quic_support.server_answers = false;
+    var exchange = get(&bodies[0]);
+    const id = try channel.request(&exchange.request, &exchange.response);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, quic_support.answers_len);
+    channel.transport_closed(.quic);
+    quic_support.server_answers = true;
+    try collect();
+    // RFC 9112 §9.3.1: the channel opens another connection for the request, and reports nothing.
+    try testing.expectEqual(null, nth(.finished, 0));
+    try testing.expectEqual(Transport.quic, opened(1).?.transport);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
+    try testing.expectEqual(null, nth(.finished, 1));
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqual(null, opened(2));
+}
+
+/// The content of a PUT the channel sends again. Test-only.
+var upload: [upload_len]u8 = undefined;
+const upload_len: usize = 2048;
+
+test "RFC 9110 §9.2.2: a PUT sent again over QUIC sends its whole content again" {
+    try start_h3_alone();
+    quic_support.server_answers = false;
+    @memset(&upload, 'u');
+    var put: connection_support.Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    _ = try channel.request(&put.request, &put.response);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(upload_len, quic_support.answers[0].received);
+    channel.transport_closed(.quic);
+    quic_support.server_answers = true;
+    try collect();
+    try pump(quic_support.rounds_default);
+    // The second connection's server read the whole content and the stream's end.
+    try testing.expectEqual(1, quic_support.answers_len);
+    try testing.expectEqual(upload_len, quic_support.answers[0].received);
+    try testing.expect(quic_support.answers[0].ended);
+    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(upload_len, put.response.content_sent);
+}
+
+test "RFC 9110 §9.2.2: a GET whose second QUIC transport also closed before any of its response ends closed" {
+    try start_h3_alone();
+    quic_support.server_answers = false;
+    var exchange = get(&bodies[0]);
+    _ = try channel.request(&exchange.request, &exchange.response);
+    try pump(quic_support.rounds_default);
+    channel.transport_closed(.quic);
+    try collect();
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, quic_support.answers_len);
+    // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
+    channel.transport_closed(.quic);
+    try collect();
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(null, nth(.finished, 1));
+    try testing.expectEqual(null, opened(2));
+}
+
+test "RFC 9110 §9.2.2: a GET whose QUIC transport closed after a HEADERS frame of its response ends closed" {
+    try start_h3_alone();
+    // The server sends the head alone, and never ends the stream.
+    quic_support.answer_open = true;
+    quic_support.answer_content = "";
+    var exchange = get(&bodies[0]);
+    _ = try channel.request(&exchange.request, &exchange.response);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(200, exchange.response.status);
+    channel.transport_closed(.quic);
+    try collect();
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(null, opened(1));
+}
+
+test "decision 124: a request a GOAWAY moved, whose next QUIC connection closed before any response, ends closed" {
+    try start_h3_alone();
+    quic_support.server_answers = false;
+    quic_support.server_streams_bidi = 1;
+    var first = get(&bodies[0]);
+    var second = get(&bodies[1]);
+    _ = try channel.request(&first.request, &first.response);
+    _ = try channel.request(&second.request, &second.response);
+    try pump(quic_support.rounds_default);
+    // The GOAWAY refuses the second exchange, waiting for its stream, which moves once.
+    try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
+    quic_support.server_answers = true;
+    // The first exchange ends, and its connection closes. A second QUIC connection carries the
+    // second exchange, and its server reads it and answers nothing.
+    for (0..rounds_past_probe) |_| {
+        if (opened(1) != null) break;
+        try pump(1);
+    }
+    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(Transport.quic, opened(1).?.transport);
+    quic_support.server_answers = false;
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, quic_support.answers_len);
+    // The refusal spent the one move (`moves_max`), so the close sends nothing again.
+    channel.transport_closed(.quic);
+    try collect();
+    try testing.expectEqual(.closed, second.response.outcome);
+    try testing.expectEqual(null, opened(2));
+}
+
+test "decision 124: a cancelled exchange a QUIC connection carried is never sent again" {
+    try start_h3_alone();
+    quic_support.server_answers = false;
+    var exchange = get(&bodies[0]);
+    const id = try channel.request(&exchange.request, &exchange.response);
+    try pump(quic_support.rounds_default);
+    channel.cancel(id);
+    channel.transport_closed(.quic);
+    try collect();
+    try testing.expectEqual(null, nth(.finished, 0));
+    try testing.expectEqual(null, opened(1));
 }

@@ -94,6 +94,11 @@ pub fn get(body: []u8) Exchange {
     return .{ .request = .{ .method = "GET", .path = "/dns-query" }, .response = .{ .body = body } };
 }
 
+/// A POST, which RFC 9110 §9.2.2 does not make idempotent, so the channel never sends it again.
+pub fn post(body: []u8) Exchange {
+    return .{ .request = .{ .method = "POST", .path = "/dns-query", .content = "query" }, .response = .{ .body = body } };
+}
+
 /// Reports every event the channel owes, with no datagram, and keeps them.
 pub fn collect() !void {
     for (0..support.events_max) |_| {

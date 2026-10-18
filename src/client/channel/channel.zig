@@ -9,7 +9,9 @@
 //! fallback delay passes. The first connection whose handshake completes takes the exchanges, and
 //! the other closes. A TCP response's Alt-Svc teaches the channel h3 for its next connection (RFC
 //! 7838 §3). An exchange that a connection taking no new exchange refused unprocessed moves to
-//! another connection once (RFC 9113 §8.7, RFC 9114 §4.1.1).
+//! another connection once (RFC 9113 §8.7, RFC 9114 §4.1.1). An idempotent request whose
+//! connection closed before any of its response arrived moves too (RFC 9110 §9.2.2, decision 124),
+//! and both moves count against one budget, `moves_max`.
 //!
 //! The caller opens a transport when an `open` event says to, starts its connection with
 //! `start_quic` or `start_tcp`, and closes it when a `close` event says to, dropping the octets it
@@ -155,6 +157,9 @@ pub const Entry = struct {
     carried_id: Id = 0,
     /// Times it moved to another connection.
     moves: u8 = 0,
+    /// The channel sent it again after a connection closed before any of its response arrived
+    /// (decision 124), so a server may have processed it.
+    resent: bool = false,
 };
 
 /// One transport's connection, as the channel tracks it.

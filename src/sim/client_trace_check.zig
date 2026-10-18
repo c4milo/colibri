@@ -10,12 +10,15 @@
 //! request made". Each seed runs twice and must go through the same states (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;
+const client = @import("client");
 const sim = @import("sim");
 const world_module = @import("client_trace_world.zig");
 const state_module = @import("client_trace_state.zig");
+const plan_module = @import("client_trace_plan.zig");
 
 const limits = sim.constants.client_trace;
 const World = world_module.World;
+const Plan = plan_module.Plan;
 const State = state_module.State;
 const Tracker = state_module.Tracker;
 
@@ -24,9 +27,12 @@ pub const Violation = world_module.Error || error{
     HeldAfterReturn,
     /// A stream holds an exchange's octets on a connection that is not live.
     HeldOffLiveConnection,
-    /// An exchange ended refused although a server processed it, or two servers processed it.
+    /// A connection refused an exchange its server processed, the caller heard `refused` for an
+    /// exchange a server processed, two servers processed a request that is not idempotent, or an
+    /// exchange moved more than `moves_max` times (decision 124).
     RefusedProcessed,
     ProcessedTwice,
+    MovedTooOften,
     /// A connection closed while it held an exchange.
     ClosedHolding,
     /// The run moved through more instants than `instants_max`, or through one instant more
@@ -66,6 +72,9 @@ pub const Result = struct {
     failed: u64 = 0,
     cancelled: u64 = 0,
     moved: u64 = 0,
+    /// Exchanges the channel sent again after a connection closed before any of the response
+    /// arrived (decision 124).
+    resent: u64 = 0,
     quic_connections: u64 = 0,
     tcp_connections: u64 = 0,
     goaways: u64 = 0,
@@ -134,7 +143,7 @@ fn run_once(storage: *Storage, seed: u64) Violation!Result {
 fn record(storage: *Storage) Violation!void {
     storage.tracker.update(&storage.world);
     const state = state_module.compute(&storage.world, &storage.tracker);
-    try check_safe(&state, storage.world.plan.exchanges);
+    try check_safe(&state, &storage.world.plan);
     if (storage.states_len > 0 and std.meta.eql(storage.states[storage.states_len - 1], state)) return;
     if (storage.states_len == storage.states.len) return error.TraceFull;
     storage.states[storage.states_len] = state;
@@ -142,8 +151,23 @@ fn record(storage: *Storage) Violation!void {
 }
 
 /// spec/tla/client_exchanges's Safe, over this state.
-fn check_safe(state: *const State, exchanges: u32) Violation!void {
-    for (0..exchanges) |index| try check_exchange(state, index);
+fn check_safe(state: *const State, plan: *const Plan) Violation!void {
+    for (0..plan.exchanges) |index| {
+        try check_exchange(state, index);
+        try check_processed(state, index, plan.idempotent(index));
+    }
+}
+
+/// Safe's rules of what a server processed and how often an exchange moved. A connection refuses
+/// only what its server did not process, and the caller hears `refused` only for an exchange no
+/// server processed. Decision 124: the channel sends an idempotent request again once, so two
+/// servers may process it, and no other request is processed twice.
+fn check_processed(state: *const State, index: usize, idempotent: bool) Violation!void {
+    const refused = state.outcome[index] == .refused;
+    if (refused and state.seen[index]) return error.RefusedProcessed;
+    if (refused and state.stage[index] == .reported and state.processed[index] > 0) return error.RefusedProcessed;
+    if (state.processed[index] > 1 and !idempotent) return error.ProcessedTwice;
+    if (state.moved[index] > client.constants.moves_max) return error.MovedTooOften;
 }
 
 fn check_exchange(state: *const State, index: usize) Violation!void {
@@ -151,8 +175,6 @@ fn check_exchange(state: *const State, index: usize) Violation!void {
     if (returned and state.holds[index]) return error.HeldAfterReturn;
     const quic_live = state.phase[0] == .open or state.phase[0] == .draining;
     if (state.holds[index] and !(state.carrier[index] == .quic and quic_live)) return error.HeldOffLiveConnection;
-    if (state.outcome[index] == .refused and state.processed[index] > 0) return error.RefusedProcessed;
-    if (state.processed[index] > 1) return error.ProcessedTwice;
     const held = state.stage[index] == .queued or state.stage[index] == .sent or state.stage[index] == .ended;
     const phase = switch (state.carrier[index]) {
         .none => return,
@@ -198,6 +220,7 @@ fn result_of(storage: *const Storage) Result {
     for (0..world.plan.exchanges) |index| {
         result.cancelled += @intFromBool(world.cancelled[index]);
         result.moved += last.moved[index];
+        result.resent += @intFromBool(storage.tracker.resent[index]);
         if (!world.reported[index]) continue;
         switch (world.responses[index].outcome) {
             .response => result.responses += 1,
@@ -232,22 +255,23 @@ test "client trace run: every seed closes the channel with each exchange reporte
         return failure;
     };
     // The seeds reached the paths the model checks: QUIC and TCP carried exchanges, exchanges
-    // moved after a refusal, a GOAWAY went out, the channel learned h3, some were cancelled, a
-    // QUIC connection retired near its idle timeout, and PINGs kept others from it. A seed replays
-    // in every build mode (invariant 5), so the census is pinned, as Debug and `-Drelease` both
-    // give it.
+    // moved after a refusal, GETs went out again after a close (decision 124), a GOAWAY went out,
+    // the channel learned h3, some were cancelled, a QUIC connection retired near its idle
+    // timeout, and PINGs kept others from it. A seed replays in every build mode (invariant 5), so
+    // the census is pinned, as Debug and `-Drelease` both give it.
     try testing.expectEqual(Result{
-        .states = 2569,
+        .states = 2589,
         .exchanges = 534,
-        .responses = 342,
+        .responses = 348,
         .refused = 85,
-        .failed = 59,
-        .cancelled = 48,
-        .moved = 4,
-        .quic_connections = 120,
-        .tcp_connections = 274,
-        .goaways = 49,
-        .learned = 60,
+        .failed = 52,
+        .cancelled = 49,
+        .moved = 12,
+        .resent = 9,
+        .quic_connections = 119,
+        .tcp_connections = 279,
+        .goaways = 50,
+        .learned = 61,
         .retired = 1,
         .keep_alives = 4,
     }, census.result);

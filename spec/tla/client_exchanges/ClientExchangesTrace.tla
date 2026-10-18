@@ -22,6 +22,13 @@
 (* reads it, and the model counts it when the client does, so the run      *)
 (* bounds it through GoawaysMax instead: the GOAWAY frames its servers     *)
 (* sent.                                                                   *)
+(*                                                                         *)
+(* The log leaves out answered and resent (decision 124). The run reads    *)
+(* each exchange only after each instant, and in one instant a connection  *)
+(* can end an exchange and the client move it or report it. So the model   *)
+(* chooses them, and the logged outcome and moved hold it to a choice      *)
+(* colibri's rule allows: a request that is not idempotent never moves     *)
+(* after a close, and no exchange moves more than MovesMax times.          *)
 (***************************************************************************)
 EXTENDS ClientExchanges, Sequences
 

@@ -34,9 +34,10 @@ pub fn check(seeds: u64) !void {
     std.debug.print("client-trace: seeds={d} exchanges={d} responses={d} refused={d} failed={d} cancelled={d}", .{
         census.seeds, result.exchanges, result.responses, result.refused, result.failed, result.cancelled,
     });
-    std.debug.print(" moved={d} quic={d} tcp={d} goaways={d} learned={d} retired={d} keep_alives={d}", .{
-        result.moved, result.quic_connections, result.tcp_connections, result.goaways, result.learned, result.retired, result.keep_alives,
+    std.debug.print(" moved={d} resent={d} quic={d} tcp={d} goaways={d} learned={d} retired={d}", .{
+        result.moved, result.resent, result.quic_connections, result.tcp_connections, result.goaways, result.learned, result.retired,
     });
+    std.debug.print(" keep_alives={d}", .{result.keep_alives});
     std.debug.print(" states={d} closing_ms_max={d}\n", .{ result.states, census.closing_max_ns / quic.constants.nanoseconds_per_millisecond });
 }
 

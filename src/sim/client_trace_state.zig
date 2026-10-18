@@ -23,7 +23,7 @@ const transports: usize = 2;
 
 pub const Stage = enum { unmade, waiting, queued, sent, ended, reported, cancelled };
 pub const Carrier = enum { none, quic, tcp };
-pub const Outcome = enum { pending, response, refused, failed };
+pub const Outcome = enum { pending, response, refused, closed, failed };
 pub const Phase = client.Phase;
 /// An entry of `Channel.entries`, named through that field: the root exports no such type.
 const Entry = std.meta.Elem(@FieldType(client.Channel, "entries"));
@@ -49,12 +49,13 @@ pub const State = struct {
 };
 
 /// What the run remembers of each exchange across instants, which the channel forgets once the
-/// exchange is reported: the connection that carried it last, the times it moved, and its QUIC
-/// stream.
+/// exchange is reported: the connection that carried it last, the times it moved, whether the
+/// channel sent it again after a close (decision 124), and its QUIC stream.
 pub const Tracker = struct {
     carrier: [exchanges_max]Carrier,
     generation: [exchanges_max]u64,
     moved: [exchanges_max]u8,
+    resent: [exchanges_max]bool,
     stream_id: [exchanges_max]?u64,
     stream_generation: [exchanges_max]u64,
 
@@ -62,6 +63,7 @@ pub const Tracker = struct {
         tracker.carrier = @splat(.none);
         tracker.generation = @splat(0);
         tracker.moved = @splat(0);
+        tracker.resent = @splat(false);
         tracker.stream_id = @splat(null);
         tracker.stream_generation = @splat(0);
     }
@@ -72,6 +74,7 @@ pub const Tracker = struct {
             if (entry.stage == .free) continue;
             const index = world.index_of(entry.response);
             tracker.moved[index] = entry.moves;
+            tracker.resent[index] = entry.resent;
             switch (entry.stage) {
                 .waiting => tracker.carrier[index] = .none,
                 .carried => tracker.note_carried(world, index, entry),
@@ -156,8 +159,11 @@ fn outcome_of(outcome: client.Outcome) Outcome {
         .pending => .pending,
         .response => .response,
         .refused => .refused,
+        // The connection ended before the response was whole: the model's "closed". An idempotent
+        // request that got none of its response moves after it (decision 124).
+        .closed => .closed,
         // The server may have processed the request: the model's "failed".
-        .reset, .closed, .malformed, .invalid, .too_large => .failed,
+        .reset, .malformed, .invalid, .too_large => .failed,
     };
 }
 

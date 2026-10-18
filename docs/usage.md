@@ -845,7 +845,7 @@ The response's `outcome` says what happened to the exchange:
 | `response` | The final response arrived whole: `status`, `content_received()`, and each wanted value. |
 | `refused` | The server processed none of the request, so the program may send it on another connection. |
 | `reset` | The server reset the stream, and `error_code` names why. |
-| `closed` | The connection ended before the response was whole. The server may have processed the request. |
+| `closed` | The connection ended before the response was whole. The server may have processed the request. When no part of the response arrived, the channel first sent an idempotent request again, once ([decision 124](decisions.md)). |
 | `malformed` | colibri refused the response, because the protocol's rules make it malformed. |
 | `invalid` | The request is one the protocol refuses to send. |
 | `too_large` | The content did not fit `body`, or a wanted value did not fit `values`. |
@@ -934,6 +934,12 @@ fn connect_refused() !void {
 A channel asks for a second TCP socket when an exchange the server refused unprocessed moves to
 another connection (RFC 9113 §8.7). It reports the first socket's `close` before it. A program
 that opens no second socket calls `transport_closed(.tcp)`, and the exchange ends `refused`.
+
+A connection can also close before any of a response arrives. The channel then sends an
+idempotent request again on another connection (RFC 9110 §9.2.2): GET, HEAD, OPTIONS, TRACE, PUT
+and DELETE. A refusal and a close share one budget, `client.constants.moves_max`, so a request goes
+out twice at most. A request with any other method ends `closed`, and the program decides
+whether to send it again.
 
 `deadline_ns` names the instant the channel next needs `on_instant`: the end of the fallback
 delay, or QUIC's next timer. Both sides sleep until the sooner of their deadlines when nothing

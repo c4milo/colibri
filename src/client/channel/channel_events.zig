@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
+const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
@@ -50,11 +51,7 @@ pub fn owed(channel: *Channel) ?Event {
             return .{ .open = .{ .transport = transport, .to = link.to } };
         }
     }
-    if (oldest(channel, .ended)) |entry| {
-        const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
-        entry.* = .{};
-        return .{ .finished = reported };
-    }
+    if (oldest(channel, .ended)) |entry| return .{ .finished = deliver(entry) };
     if (!channel.shut or channel.closed_reported) return null;
     if (!channel.phase(.quic).idle() or !channel.phase(.tcp).idle()) return null;
     // An exchange waiting with no connection opens one or ends, and a finished one was reported
@@ -154,31 +151,61 @@ fn on_connected(channel: *Channel, transport: Transport, protocol: event.Protoco
     return .{ .connected = protocol };
 }
 
-/// A connection reported an exchange's end. One it refused unprocessed while taking no new
-/// exchange moves to another connection (the model's MoveOn), and any other goes to the caller
-/// (its Deliver).
-fn on_finished(channel: *Channel, transport: Transport, finished: event.Finished) ?Event {
+/// A connection reported an exchange's end. One that moves goes to another connection (the model's
+/// MoveOn), and any other goes to the caller (its Deliver).
+fn on_finished(channel: *Channel, transport: Transport, ended: event.Ended) ?Event {
     // A cancelled exchange reports nothing, so every reported one is carried.
-    const entry = carried(channel, transport, finished.id).?;
-    assert(entry.request == finished.request and entry.response == finished.response);
-    if (movable(channel, entry, transport)) {
-        // RFC 9114 §4.1.1: a refused request is treated "as though [it] had never been sent".
+    const entry = carried(channel, transport, ended.id).?;
+    assert(entry.request == ended.request and entry.response == ended.response);
+    if (movable(channel, entry, transport, ended.response_began)) {
+        // RFC 9114 §4.1.1: a refused request is treated "as though [it] had never been sent". A
+        // request sent again starts its response anew, and counts its content again.
+        const resent = entry.resent or entry.response.outcome == .closed;
         entry.response.clear();
-        entry.* = .{ .stage = .waiting, .id = entry.id, .request = entry.request, .response = entry.response, .moves = entry.moves + 1 };
+        entry.* = .{ .stage = .waiting, .id = entry.id, .request = entry.request, .response = entry.response, .moves = entry.moves + 1, .resent = resent };
         assign_waiting(channel);
         return null;
     }
-    const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
-    entry.* = .{};
-    return .{ .finished = reported };
+    return .{ .finished = deliver(entry) };
 }
 
-/// Whether a reported exchange moves: its connection refused it unprocessed and takes no new
-/// exchange, and it has moved fewer than `moves_max` times. RFC 9113 §8.7: a client "MAY
-/// automatically retry" a request no server processed.
-fn movable(channel: *const Channel, entry: *const Entry, transport: Transport) bool {
-    if (entry.response.outcome != .refused or entry.moves >= constants.moves_max) return false;
-    return channel.phase(transport) != .open;
+/// Whether a reported exchange moves: the connection that reported it takes no new exchange, the
+/// exchange moved fewer than `moves_max` times, refusals and resends together, and the connection
+/// refused it unprocessed, or closed before any of its response arrived and its method is
+/// idempotent (decision 124).
+fn movable(channel: *const Channel, entry: *const Entry, transport: Transport, response_began: bool) bool {
+    // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
+    if (entry.moves >= constants.moves_max) return false;
+    if (channel.phase(transport) == .open) return false;
+    return switch (entry.response.outcome) {
+        // RFC 9113 §8.7: a client "MAY automatically retry" a request no server processed.
+        .refused => true,
+        // RFC 9110 §9.2.2, RFC 9112 §9.3.1: an idempotent request is repeated after a failure
+        // "before the client is able to read the server's response".
+        .closed => !response_began and idempotent(entry.request),
+        .pending, .response, .reset, .malformed, .invalid, .too_large => false,
+    };
+}
+
+/// RFC 9110 §9.2.2: "PUT, DELETE, and safe request methods are idempotent", and §9.2.1 names GET,
+/// HEAD, OPTIONS and TRACE safe. A method that RFC 9110 §9.1 does not define is not known to be.
+fn idempotent(request: *const event.Request) bool {
+    const method = http.method.standard(request.method) orelse return false;
+    return switch (method) {
+        .get, .head, .options, .trace, .put, .delete => true,
+        .post, .connect => false,
+    };
+}
+
+/// Gives `entry` back to the caller, and returns its event. A request sent again that a later
+/// connection refused, or that no connection took, ends `closed`: the first server may have
+/// processed it, and `refused` says that no server did (decision 105).
+fn deliver(entry: *Entry) event.Finished {
+    assert(entry.stage == .carried or entry.stage == .ended);
+    if (entry.resent and entry.response.outcome == .refused) entry.response.outcome = .closed;
+    const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
+    entry.* = .{};
+    return reported;
 }
 
 /// Hands each waiting exchange, oldest first, to the open connection (the model's Assign).
@@ -343,7 +370,8 @@ pub fn learn(channel: *Channel, advert: alt_svc.Advert, now_ns: u64) void {
 }
 
 /// Ends each waiting exchange refused, since no connection is left to take it (the model's
-/// GiveUp). RFC 9113 §8.7: no server processed it, so the caller may make it again.
+/// GiveUp). RFC 9113 §8.7: no server processed it, so the caller may make it again. One the channel
+/// sent again ends `closed` once it is reported (`deliver`).
 fn give_up(channel: *Channel) void {
     for (&channel.entries) |*entry| {
         if (entry.stage != .waiting) continue;

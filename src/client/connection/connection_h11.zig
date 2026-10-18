@@ -36,6 +36,9 @@ pub fn receive(connection: *Connection, plaintext: []const u8) usize {
     if (plaintext.len == 0 and connection.unread_len > 0) return 0;
     var consumed: usize = 0;
     defer connection.unread_len = plaintext.len - consumed;
+    // The octets left after a response that ended are the next response's.
+    defer note_arrival(connection, plaintext.len - consumed);
+    note_arrival(connection, plaintext.len);
     // Every pass consumes an octet or ends a response, and a response takes at least one octet,
     // so n octets take at most 2n passes, and one more finds them short.
     for (0..passes_per_octet * plaintext.len + 1) |_| {
@@ -48,6 +51,15 @@ pub fn receive(connection: *Connection, plaintext: []const u8) usize {
         if (record(connection, h11_event)) return consumed;
     }
     return consumed;
+}
+
+/// Notes that some of a response arrived when `left` octets wait to be read, whether or not h11
+/// takes them yet. RFC 9112 §9.2: they answer the oldest request that awaits a response, so the
+/// channel does not send that request again (decision 124).
+fn note_arrival(connection: *Connection, left: usize) void {
+    if (left == 0) return;
+    const slot = connection.slots.oldest_awaiting() orelse return;
+    slot.response_began = true;
 }
 
 /// Records what h11's event means for the exchange it answers. Returns whether the caller is owed

@@ -33,8 +33,11 @@
 (* it. It may refuse a request it did not process (RFC 9113 §8.7, RFC 9114 *)
 (* §4.1.1) and send a GOAWAY (RFC 9113 §6.8, RFC 9114 §5.2), up to         *)
 (* GoawaysMax in all, and its connection may fail. An exchange refused by  *)
-(* a connection that takes no new exchange moves to another connection, at *)
-(* most MovesMax times, as though it was never sent (RFC 9114 §4.1.1).     *)
+(* a connection that takes no new exchange moves to another connection, as *)
+(* though it was never sent (RFC 9114 §4.1.1). An idempotent exchange      *)
+(* whose connection closed before any of its response arrived moves too    *)
+(* (RFC 9110 §9.2.2, decision 124), and a server may then process it a     *)
+(* second time. Both moves count against one budget: MovesMax in all.      *)
 (*                                                                         *)
 (* The model leaves out what other models cover: the streams of h2 and h3  *)
 (* (spec/tla/h2_connection, spec/tla/h3_connection) and QUIC's close       *)
@@ -82,6 +85,12 @@
 (*   TcpWhenAllowed     TCP opens only when the client speaks h11 or h2    *)
 (*                      (RFC 9114 §3.1). Until step 21c a client that      *)
 (*                      spoke h3 alone still asked for TCP.                *)
+(*   ResendIdempotent   only an idempotent exchange moves after its        *)
+(*                      connection closed before any of its response       *)
+(*                      arrived (RFC 9110 §9.2.2, decision 124).           *)
+(*   OneBudget          a move after a close and a move after a refusal    *)
+(*                      count against one budget, MovesMax (decision 124). *)
+(*                      A mutant in mutants/ turns each of the two off.    *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -97,8 +106,10 @@ CONSTANTS
     GoawaysMax,     \* GOAWAY frames the servers send at most
     Refusals,       \* the transports whose server may refuse a request it did not process
     Resets,         \* the transports whose server may reset a request
+    Idempotent,     \* the exchanges whose method is idempotent (RFC 9110 §9.2.2)
     ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases, SentFailsClosed,
-    MoveRefused, RetireStale, KeepAlive, TakeAtHandshake, TcpWhenAllowed
+    MoveRefused, RetireStale, KeepAlive, TakeAtHandshake, TcpWhenAllowed, ResendIdempotent,
+    OneBudget
 
 Transports == {"quic", "tcp"}
 
@@ -108,9 +119,11 @@ ASSUME TcpAllowed \in BOOLEAN
 ASSUME \A set \in {HandshakeFails, Breaks, Goaways, Refusals, Resets} : set \subseteq Transports
 ASSUME \A rule \in {ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases,
                     SentFailsClosed, MoveRefused, RetireStale, KeepAlive,
-                    TakeAtHandshake, TcpWhenAllowed} : rule \in BOOLEAN
+                    TakeAtHandshake, TcpWhenAllowed, ResendIdempotent,
+                    OneBudget} : rule \in BOOLEAN
 
 Exchanges == 1..N
+ASSUME Idempotent \subseteq Exchanges
 \* An exchange's stage: not made; held by the client, which no connection has given it to;
 \* held by a connection, its request not written; written; ended, its event owed; reported;
 \* cancelled.
@@ -119,9 +132,10 @@ Stages == {"unmade", "waiting", "queued", "sent", "ended", "reported", "cancelle
 \* taking none and carrying those it holds; failed, each exchange it held ended; closed, its
 \* `closed` event reported.
 Phases == {"none", "handshake", "open", "draining", "failed", "closed"}
-\* How an exchange ended on its connection. `failed` stands for each outcome after which the
-\* server may have processed the request: `closed`, `reset`, `malformed` and `too_large`.
-Outcomes == {"pending", "response", "refused", "failed"}
+\* How an exchange ended on its connection. `closed`: the connection ended before the response
+\* was whole. `failed` stands for each other outcome after which the server may have processed
+\* the request: `reset`, `malformed` and `too_large`.
+Outcomes == {"pending", "response", "refused", "closed", "failed"}
 
 VARIABLES
     \* Each exchange's stage, the transport of the connection holding it, whether a QUIC stream
@@ -130,6 +144,9 @@ VARIABLES
     \* The times it moved, whether the server of the connection holding it processed it, and
     \* how many servers did.
     moved, seen, processed,
+    \* Whether any of its response arrived on the connection holding it before the response was
+    \* whole, and whether the client sent it again after a connection closed before that.
+    answered, resent,
     \* Each transport's connection, how many it opened, and the GOAWAY frames the servers sent.
     phase, opens, goaways,
     \* The transports this attempt opened, whether the fallback delay passed during QUIC's
@@ -140,7 +157,7 @@ VARIABLES
     \* held one and heard nothing until then (RFC 9000 §10.1).
     stale, quiet
 
-exchangeVars == <<stage, carrier, holds, outcome, moved, seen, processed>>
+exchangeVars == <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent>>
 idleVars == <<stale, quiet>>
 connectionVars == <<phase, opens, goaways, tried, fallback, learned, shut, stale, quiet>>
 vars == <<exchangeVars, connectionVars>>
@@ -150,9 +167,11 @@ TypeOK ==
     /\ carrier \in [Exchanges -> Transports \cup {"none"}]
     /\ holds \in [Exchanges -> BOOLEAN]
     /\ outcome \in [Exchanges -> Outcomes]
-    /\ moved \in [Exchanges -> 0..MovesMax]
+    /\ moved \in [Exchanges -> 0..(MovesMax + 1)]
     /\ seen \in [Exchanges -> BOOLEAN]
-    /\ processed \in [Exchanges -> 0..(MovesMax + 1)]
+    /\ processed \in [Exchanges -> 0..(MovesMax + 2)]
+    /\ answered \in [Exchanges -> BOOLEAN]
+    /\ resent \in [Exchanges -> BOOLEAN]
     /\ phase \in [Transports -> Phases]
     /\ opens \in [Transports -> 0..Opens]
     /\ goaways \in 0..GoawaysMax
@@ -168,6 +187,8 @@ Init ==
     /\ moved = [e \in Exchanges |-> 0]
     /\ seen = [e \in Exchanges |-> FALSE]
     /\ processed = [e \in Exchanges |-> 0]
+    /\ answered = [e \in Exchanges |-> FALSE]
+    /\ resent = [e \in Exchanges |-> FALSE]
     /\ phase = [t \in Transports |-> "none"]
     /\ opens = [t \in Transports |-> 0]
     /\ goaways = 0
@@ -193,7 +214,7 @@ Wanted == Waiting # {} /\ OpenOnes = {}
 Make(e) ==
     /\ stage[e] = "unmade" /\ ~shut
     /\ stage' = [stage EXCEPT ![e] = "waiting"]
-    /\ UNCHANGED <<carrier, holds, outcome, moved, seen, processed>>
+    /\ UNCHANGED <<carrier, holds, outcome, moved, seen, processed, answered, resent>>
     /\ UNCHANGED connectionVars
 
 (* The open connection takes an exchange made while it is open. Without    *)
@@ -203,7 +224,7 @@ Assign(e, t) ==
     /\ stage[e] = "waiting" /\ phase[t] = "open"
     /\ stage' = [stage EXCEPT ![e] = "queued"]
     /\ carrier' = [carrier EXCEPT ![e] = t]
-    /\ UNCHANGED <<holds, outcome, moved, seen, processed>>
+    /\ UNCHANGED <<holds, outcome, moved, seen, processed, answered, resent>>
     /\ UNCHANGED connectionVars
 
 (* The connection writes the request. Over QUIC, its stream holds the      *)
@@ -212,7 +233,7 @@ Send(e) ==
     /\ stage[e] = "queued" /\ Live(carrier[e])
     /\ stage' = [stage EXCEPT ![e] = "sent"]
     /\ holds' = [holds EXCEPT ![e] = (carrier[e] = "quic")]
-    /\ UNCHANGED <<carrier, outcome, moved, seen, processed>>
+    /\ UNCHANGED <<carrier, outcome, moved, seen, processed, answered, resent>>
     /\ UNCHANGED connectionVars
 
 (* The QUIC stream closes or is reset, and reads the exchange's octets no  *)
@@ -221,25 +242,40 @@ Send(e) ==
 Release(e) ==
     /\ holds[e] /\ stage[e] \in {"sent", "ended"}
     /\ holds' = [holds EXCEPT ![e] = FALSE]
-    /\ UNCHANGED <<stage, carrier, outcome, moved, seen, processed>>
+    /\ UNCHANGED <<stage, carrier, outcome, moved, seen, processed, answered, resent>>
     /\ UNCHANGED connectionVars
 
+(* The connection refused exchange e unprocessed (RFC 9113 §8.7).          *)
+RefusedMove(e) == MoveRefused /\ outcome[e] = "refused"
+
+(* The connection closed before any of e's response arrived, and e's       *)
+(* method is idempotent (RFC 9110 §9.2.2, RFC 9112 §9.3.1).                *)
+ClosedMove(e) ==
+    /\ outcome[e] = "closed" /\ ~answered[e]
+    /\ ResendIdempotent => e \in Idempotent
+
 (* Whether the client moves exchange e once its connection reports it: the *)
-(* connection refused it, takes no new exchange, and e may move again.     *)
+(* connection refused it or closed before its response, takes no new       *)
+(* exchange, and e may move again. With OneBudget both moves count against *)
+(* MovesMax; without, a move after a close has a budget of its own.        *)
 Movable(e) ==
-    /\ MoveRefused /\ outcome[e] = "refused" /\ moved[e] < MovesMax
+    /\ RefusedMove(e) \/ ClosedMove(e)
+    /\ IF OneBudget \/ RefusedMove(e) THEN moved[e] < MovesMax ELSE ~resent[e]
     /\ phase[carrier[e]] # "open"
 
 (* The connection reports exchange e's end once no stream holds its        *)
-(* octets, and the client passes the event to the caller.                  *)
+(* octets, and the client passes the event to the caller. One the client   *)
+(* sent again that a later connection refused ends closed: the first       *)
+(* server may have processed it.                                           *)
 Deliver(e) ==
     /\ stage[e] = "ended" /\ (ReportWhenReleased => ~holds[e]) /\ ~Movable(e)
     /\ stage' = [stage EXCEPT ![e] = "reported"]
-    /\ UNCHANGED <<carrier, holds, outcome, moved, seen, processed>>
+    /\ outcome' = [outcome EXCEPT ![e] = IF resent[e] /\ @ = "refused" THEN "closed" ELSE @]
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent>>
     /\ UNCHANGED connectionVars
 
-(* Or the client holds it again for another connection, as though it was   *)
-(* never sent (RFC 9114 §4.1.1).                                           *)
+(* Or the client holds it again for another connection: as though it was   *)
+(* never sent (RFC 9114 §4.1.1), or sent again (RFC 9110 §9.2.2).          *)
 MoveOn(e) ==
     /\ stage[e] = "ended" /\ (ReportWhenReleased => ~holds[e]) /\ Movable(e)
     /\ stage' = [stage EXCEPT ![e] = "waiting"]
@@ -247,6 +283,8 @@ MoveOn(e) ==
     /\ outcome' = [outcome EXCEPT ![e] = "pending"]
     /\ moved' = [moved EXCEPT ![e] = @ + 1]
     /\ seen' = [seen EXCEPT ![e] = FALSE]
+    /\ answered' = [answered EXCEPT ![e] = FALSE]
+    /\ resent' = [resent EXCEPT ![e] = @ \/ outcome[e] = "closed"]
     /\ UNCHANGED <<holds, processed>>
     /\ UNCHANGED connectionVars
 
@@ -257,7 +295,7 @@ Cancel(e) ==
     /\ stage[e] \in {"waiting", "queued", "sent", "ended"}
     /\ stage' = [stage EXCEPT ![e] = "cancelled"]
     /\ holds' = [holds EXCEPT ![e] = IF CancelReleases THEN FALSE ELSE @]
-    /\ UNCHANGED <<carrier, outcome, moved, seen, processed>>
+    /\ UNCHANGED <<carrier, outcome, moved, seen, processed, answered, resent>>
     /\ UNCHANGED connectionVars
 
 -----------------------------------------------------------------------------
@@ -272,13 +310,21 @@ Process(e) ==
     /\ ~seen[e] /\ Live(carrier[e])
     /\ seen' = [seen EXCEPT ![e] = TRUE]
     /\ processed' = [processed EXCEPT ![e] = @ + 1]
-    /\ UNCHANGED <<stage, carrier, holds, outcome, moved>>
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, answered, resent>>
+    /\ UNCHANGED connectionVars
+
+(* The first of the response to a processed request arrives, and the rest  *)
+(* has not: over h11 an octet of it, over h2 and h3 a HEADERS frame.       *)
+Answer(e) ==
+    /\ stage[e] = "sent" /\ seen[e] /\ ~answered[e] /\ Live(carrier[e])
+    /\ answered' = [answered EXCEPT ![e] = TRUE]
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, resent>>
     /\ UNCHANGED connectionVars
 
 EndWith(e, how) ==
     /\ stage' = [stage EXCEPT ![e] = "ended"]
     /\ outcome' = [outcome EXCEPT ![e] = how]
-    /\ UNCHANGED <<carrier, holds, moved, seen, processed>>
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent>>
     /\ UNCHANGED connectionVars
 
 (* The response to a processed request arrives whole.                      *)
@@ -308,7 +354,7 @@ Goaway(t, unprocessed) ==
        /\ outcome' = [e \in Exchanges |-> IF e \in ended THEN "refused" ELSE outcome[e]]
     /\ phase' = [phase EXCEPT ![t] = "draining"]
     /\ goaways' = goaways + 1
-    /\ UNCHANGED <<carrier, holds, moved, seen, processed>>
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent>>
     /\ UNCHANGED <<opens, tried, fallback, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -357,7 +403,7 @@ Handshake(t) ==
                /\ carrier' = [e \in Exchanges |-> IF e \in taken THEN t ELSE carrier[e]]
        ELSE /\ phase' = [phase EXCEPT ![t] = "draining"]
             /\ UNCHANGED <<tried, fallback, stage, carrier>>
-    /\ UNCHANGED <<holds, outcome, moved, seen, processed>>
+    /\ UNCHANGED <<holds, outcome, moved, seen, processed, answered, resent>>
     /\ UNCHANGED <<opens, goaways, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -384,8 +430,8 @@ FailHandshake(t) ==
     /\ UNCHANGED exchangeVars
 
 (* How a connection that fails ends an exchange it holds: `refused` when   *)
-(* its request was not written, `failed` when it was (RFC 9113 §8.7).      *)
-FailedOutcome(e) == IF stage[e] = "queued" \/ ~SentFailsClosed THEN "refused" ELSE "failed"
+(* its request was not written, `closed` when it was (RFC 9113 §8.7).      *)
+FailedOutcome(e) == IF stage[e] = "queued" \/ ~SentFailsClosed THEN "refused" ELSE "closed"
 
 (* Live connection t fails. Each exchange it holds ends, and with          *)
 (* ReleaseOnFail its streams read no exchange's octets any more.            *)
@@ -395,7 +441,7 @@ Fail(t) ==
        /\ outcome' = [e \in Exchanges |-> IF e \in ending THEN FailedOutcome(e) ELSE outcome[e]]
     /\ holds' = [e \in Exchanges |-> IF e \in Held(t) /\ ReleaseOnFail THEN FALSE ELSE holds[e]]
     /\ phase' = [phase EXCEPT ![t] = "failed"]
-    /\ UNCHANGED <<carrier, moved, seen, processed>>
+    /\ UNCHANGED <<carrier, moved, seen, processed, answered, resent>>
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -465,15 +511,17 @@ Close(t) ==
     /\ UNCHANGED exchangeVars
 
 (* No connection is left to take the waiting exchanges, and the attempt    *)
-(* may open no transport. The client ends each waiting exchange refused    *)
-(* and reports it itself, and the next exchange starts another attempt.    *)
+(* may open no transport. The client ends each waiting exchange refused,   *)
+(* or closed when it sent it again, and reports it itself, and the next    *)
+(* exchange starts another attempt.                                        *)
 GiveUp ==
     /\ Waiting # {} /\ \A t \in Transports : Idle(t)
     /\ ~CanOpenQuic /\ ~CanOpenTcp
     /\ stage' = [e \in Exchanges |-> IF e \in Waiting THEN "reported" ELSE stage[e]]
-    /\ outcome' = [e \in Exchanges |-> IF e \in Waiting THEN "refused" ELSE outcome[e]]
+    /\ outcome' = [e \in Exchanges |->
+                    IF e \notin Waiting THEN outcome[e] ELSE IF resent[e] THEN "closed" ELSE "refused"]
     /\ tried' = {} /\ fallback' = FALSE
-    /\ UNCHANGED <<carrier, holds, moved, seen, processed>>
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent>>
     /\ UNCHANGED <<phase, opens, goaways, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -482,7 +530,7 @@ GiveUp ==
 Next ==
     \/ \E e \in Exchanges :
         \/ Make(e) \/ Send(e) \/ Release(e) \/ Deliver(e) \/ MoveOn(e) \/ Cancel(e)
-        \/ Process(e) \/ Respond(e) \/ Refuse(e) \/ Reset(e)
+        \/ Process(e) \/ Answer(e) \/ Respond(e) \/ Refuse(e) \/ Reset(e)
         \/ \E t \in Transports : Assign(e, t)
     \/ \E t \in Transports :
         \/ Open(t) \/ Handshake(t) \/ Abandon(t) \/ FailHandshake(t) \/ Break(t)
@@ -509,15 +557,21 @@ FairSpec == Spec /\ Fairness
 
 -----------------------------------------------------------------------------
 (* Safe: nothing reads the memory of an exchange the caller has back, only *)
-(* a live QUIC connection's stream holds an exchange's octets, a refused   *)
-(* exchange was processed by no server and none is processed by two, and a *)
-(* connection closes holding no exchange.                                  *)
+(* a live QUIC connection's stream holds an exchange's octets, a           *)
+(* connection refuses only what its server did not process, the caller     *)
+(* hears `refused` only for an exchange no server processed, and a         *)
+(* connection closes holding no exchange. An exchange moves at most        *)
+(* MovesMax times, only an idempotent one moves after a close, and no      *)
+(* other exchange is processed by two servers (decision 124).              *)
 
 Safe ==
     /\ \A e \in Exchanges : stage[e] \in {"reported", "cancelled"} => ~holds[e]
     /\ \A e \in Exchanges : holds[e] => carrier[e] = "quic" /\ Live("quic")
-    /\ \A e \in Exchanges : outcome[e] = "refused" => processed[e] = 0
-    /\ \A e \in Exchanges : processed[e] <= 1
+    /\ \A e \in Exchanges : outcome[e] = "refused" => ~seen[e]
+    /\ \A e \in Exchanges : stage[e] = "reported" /\ outcome[e] = "refused" => processed[e] = 0
+    /\ \A e \in Exchanges \ Idempotent : processed[e] <= 1
+    /\ \A e \in Exchanges : moved[e] <= MovesMax
+    /\ \A e \in Exchanges : resent[e] => e \in Idempotent
     /\ \A t \in Transports : phase[t] = "closed" => Held(t) = {}
     /\ Cardinality(OpenOnes) <= 1
 

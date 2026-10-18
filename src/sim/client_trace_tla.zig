@@ -50,12 +50,25 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     const all = "{\"quic\", \"tcp\"}";
     try print(writer, "    HandshakeFails = {s}\n    Breaks = {s}\n    Goaways = {s}\n", .{ all, all, all });
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {s}\n    Resets = {s}\n", .{ goaways, all, all });
+    try write_idempotent(writer, plan);
     try writer.write_bytes("    ReleaseOnFail = TRUE\n    CloseWhenDrained = TRUE\n    ReportWhenReleased = TRUE\n");
     try writer.write_bytes("    CancelReleases = TRUE\n    SentFailsClosed = TRUE\n    MoveRefused = TRUE\n");
     try writer.write_bytes("    RetireStale = TRUE\n    KeepAlive = TRUE\n    TakeAtHandshake = TRUE\n");
-    try writer.write_bytes("    TcpWhenAllowed = TRUE\n");
+    try writer.write_bytes("    TcpWhenAllowed = TRUE\n    ResendIdempotent = TRUE\n    OneBudget = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{steps_max});
+}
+
+/// The model's `Idempotent`: the exchanges the plan makes GETs, counted from 1 (decision 124).
+fn write_idempotent(writer: *Writer, plan: *const Plan) Error!void {
+    try writer.write_bytes("    Idempotent = {");
+    var written: usize = 0;
+    for (0..plan.exchanges) |index| {
+        if (!plan.idempotent(index)) continue;
+        try print(writer, "{s}{d}", .{ separator(written), index + 1 });
+        written += 1;
+    }
+    try writer.write_bytes("}\n");
 }
 
 fn boolean(value: bool) []const u8 {

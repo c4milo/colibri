@@ -1,7 +1,8 @@
 //! The tests of the channel over TCP in cleartext h11 (`channel.zig`, `channel_events.zig`). The
 //! channel reads what its connection owes with a call that passes no octets, and h11 needs the
-//! octets it left unconsumed at the start of the next call's input (design §8 step 21c.3). The
-//! peer is h11's server side in the same process, or a response the test writes itself.
+//! octets it left unconsumed at the start of the next call's input (design §8 step 21c.3). A
+//! request goes out again after a close only while no octet of its response arrived (decision 124).
+//! The peer is h11's server side in the same process, or a response the test writes itself.
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const channel_module = @import("channel.zig");
@@ -253,4 +254,162 @@ test "decision 120: a shut-down channel drops the open of a connection no caller
     // The connection's `close` went out already, and the one the channel never opened has none.
     try testing.expectEqual(0, count(.open) + count(.close));
     try testing.expectEqual(Event.closed, find(.closed).?);
+}
+
+/// The caller's transport closes: the program drops what it held of the socket, and the peer of the
+/// next connection starts with nothing read or written.
+fn close_transport() !void {
+    channel.transport_closed(.tcp);
+    support.peer_h11.init(.server, .{});
+    support.peer_requests = 0;
+    support.to_peer_len = 0;
+    support.to_client_len = 0;
+    try collect();
+}
+
+/// What the h11 peer read: the request heads, the octets of content, and the ends of requests.
+const PeerRead = struct { requests: usize = 0, content_len: usize = 0, ends: usize = 0 };
+
+fn peer_read() !PeerRead {
+    var read: PeerRead = .{};
+    var consumed: usize = 0;
+    // Bounded: each pass consumes an octet or reports an event, and both are finite.
+    for (0..support.to_peer_len + support.events_max) |_| {
+        const received = try support.peer_h11.receive(support.to_peer[consumed..support.to_peer_len], &.{});
+        consumed += received.consumed;
+        switch (received.event orelse break) {
+            .request => read.requests += 1,
+            .data => |octets| read.content_len += octets.len,
+            .end => read.ends += 1,
+            .interim, .response, .tunnel => return error.TestUnexpectedResult,
+        }
+    }
+    support.to_peer_len = 0;
+    return read;
+}
+
+const content_length_5: []const support.Field = &.{.{ .name = "Content-Length", .value = "5" }};
+
+test "RFC 9112 §9.3.1: an h11 GET whose connection closed before any of its response goes out again" {
+    var exchange = get(&bodies[0]);
+    try start(&exchange);
+    try testing.expectEqual(1, (try peer_read()).requests);
+    try close_transport();
+    try testing.expectEqual(null, find(.finished));
+    try testing.expectEqual(2, count(.open));
+    send();
+    try testing.expectEqual(1, (try peer_read()).requests);
+    try support.peer_h11_answer(ok, content_length_5, "hello");
+    try collect();
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqualStrings("hello", exchange.response.content_received());
+}
+
+test "RFC 9110 §9.2.2: an h11 POST whose connection closed before any of its response ends closed" {
+    var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/form", .content = "a=1" }, .response = .{ .body = &bodies[0] } };
+    try start(&exchange);
+    try close_transport();
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(1, count(.open));
+}
+
+test "RFC 9110 §9.2.2: an h11 PUT sent again sends its whole content again" {
+    const put_len: usize = 64;
+    @memset(upload[0..put_len], 'u');
+    var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = upload[0..put_len] }, .response = .{ .body = &bodies[0] } };
+    try start(&put);
+    try testing.expectEqual(PeerRead{ .requests = 1, .content_len = put_len, .ends = 1 }, try peer_read());
+    try close_transport();
+    send();
+    try testing.expectEqual(PeerRead{ .requests = 1, .content_len = put_len, .ends = 1 }, try peer_read());
+    try support.peer_h11_answer(no_content, &.{}, "");
+    try collect();
+    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(put_len, put.response.content_sent);
+}
+
+test "RFC 9110 §9.2.2: an h11 GET whose second connection also closed before any of its response ends closed" {
+    var exchange = get(&bodies[0]);
+    try start(&exchange);
+    try close_transport();
+    send();
+    try testing.expectEqual(1, (try peer_read()).requests);
+    try close_transport();
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(2, count(.open));
+}
+
+test "RFC 9110 §9.2.2: an h11 GET whose connection closed after one octet of its response ends closed" {
+    var exchange = get(&bodies[0]);
+    try start(&exchange);
+    // h11 holds the octet until the rest of the head arrives, and the channel read it.
+    try testing.expectEqual(0, try give(half_head[0..1]));
+    try close_transport();
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(1, count(.open));
+}
+
+test "RFC 9110 §9.2.2: an h11 GET whose connection closed after its whole head ends closed" {
+    var exchange = get(&bodies[0]);
+    try start(&exchange);
+    // h11 takes the head, and the content it names never arrives.
+    const head = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n";
+    try testing.expectEqual(head.len, try give(head));
+    try testing.expectEqual(ok, exchange.response.status);
+    try close_transport();
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(1, count(.open));
+}
+
+test "RFC 9112 §9.2: an octet after an h11 response is the next response's, though the channel read it once" {
+    var first = get(&bodies[0]);
+    var second = get(&bodies[1]);
+    try start(&first);
+    _ = try channel.request(&second.request, &second.response);
+    send();
+    // RFC 9112 §9.3.2: the client pipelines the second request behind the first.
+    try testing.expectEqual(2, channel.tcp.slots.count(.sent));
+    // One call reads the first response whole and leaves the first octet of the second, and the
+    // transport closes before the program passes that octet again.
+    const octets = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloH";
+    @memcpy(support.to_client[0..octets.len], octets);
+    const received = channel.receive(.{ .stream = support.to_client[0..octets.len] }, support.now_ns);
+    try testing.expectEqual(octets.len - 1, received.consumed);
+    try testing.expectEqual(&first.response, received.event.?.finished.response);
+    try close_transport();
+    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.closed, second.response.outcome);
+    try testing.expectEqual(1, count(.open));
+}
+
+test "decision 124: an h11 request a close moved unwritten, whose next connection closed before any response, ends closed" {
+    var first = get(&bodies[0]);
+    var second = get(&bodies[1]);
+    try start(&first);
+    _ = try channel.request(&second.request, &second.response);
+    // RFC 9112 §9.6: the response closes the connection before the second request was written, so
+    // the second is refused and moves.
+    const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+    try testing.expectEqual(response.len, try give(response));
+    try testing.expectEqual(2, count(.connected));
+    support.peer_h11.init(.server, .{});
+    support.to_peer_len = 0;
+    send();
+    try testing.expectEqual(1, (try peer_read()).requests);
+    // The refusal spent the one move (`moves_max`), so the close sends nothing again.
+    try close_transport();
+    try testing.expectEqual(.closed, second.response.outcome);
+    try testing.expectEqual(2, count(.open));
+}
+
+test "decision 124: a cancelled h11 exchange is never sent again" {
+    var exchange = get(&bodies[0]);
+    try start(&exchange);
+    // A channel's first exchange gets id 1.
+    channel.cancel(1);
+    try close_transport();
+    try testing.expectEqual(null, find(.finished));
+    try testing.expectEqual(1, count(.open));
 }

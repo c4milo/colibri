@@ -289,7 +289,7 @@ pub const World = struct {
         const path = ledger_module.path_of(index, &world.paths[index]);
         const content_len = world.plan.content_len[index];
         world.requests[index] = .{
-            .method = if (content_len > 0) "POST" else "GET",
+            .method = if (world.plan.idempotent(index)) "GET" else "POST",
             .path = path,
             .content = content_source[0..content_len],
         };

@@ -33,7 +33,7 @@ pub const Owed = struct {
             return .ticket;
         }
         if (slots.oldest_reportable()) |slot| {
-            const ended: event.Finished = .{ .id = slot.id, .request = slot.request, .response = slot.response };
+            const ended: event.Ended = .{ .id = slot.id, .request = slot.request, .response = slot.response, .response_began = slot.response_began };
             slots_module.release(slot);
             return .{ .finished = ended };
         }

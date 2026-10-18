@@ -84,6 +84,8 @@ fn on_alt_svc(connection: *Connection, advertised: h2.connection.AltSvc) bool {
 
 fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     const slot = connection.slots.of_stream(head.stream_id) orelse return false;
+    // Decision 124: once a HEADERS frame arrived, the channel does not send the request again.
+    slot.response_began = true;
     // RFC 9110 §15.2: a client reads any number of interim responses before the final one.
     if (head.response.status.is_interim()) {
         slot.response.interims += 1;

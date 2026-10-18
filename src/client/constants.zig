@@ -98,8 +98,9 @@ pub const h3_events_per_read_max: usize = quic.constants.receive_pool_len_defaul
 const h3_events_per_exchange_max: usize = 4;
 
 /// Times an exchange moves to another connection after one that takes no new exchange refused it
-/// unprocessed (RFC 9113 §8.7, RFC 9114 §4.1.1): once, so a second refusal is the caller's to
-/// judge.
+/// unprocessed (RFC 9113 §8.7, RFC 9114 §4.1.1), or closed before any of the response to an
+/// idempotent request arrived (RFC 9110 §9.2.2, decision 124): once in all, so a second refusal or
+/// close is the caller's to judge.
 pub const moves_max: u8 = 1;
 
 /// Events the channel reads from its connections in one call at most: each connection's version,

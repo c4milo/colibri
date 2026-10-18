@@ -165,6 +165,12 @@ pub const Plan = struct {
     pub fn made(plan: *const Plan, index: usize) bool {
         return index < plan.exchanges;
     }
+
+    /// Whether exchange `index` is a GET, which RFC 9110 §9.2.2 makes idempotent, so the channel
+    /// may send it again (decision 124). One with content is a POST, which it never sends again.
+    pub fn idempotent(plan: *const Plan, index: usize) bool {
+        return plan.content_len[index] == 0;
+    }
 };
 
 const testing = std.testing;
