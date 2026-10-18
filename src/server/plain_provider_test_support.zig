@@ -100,6 +100,9 @@ pub const PlainProvider = struct {
                 // RFC 9846 §4.7.3: the one post-handshake message this provider reads is a
                 // KeyUpdate that asks for a reply.
                 if (!std.mem.eql(u8, opened.content, &key_update_requested)) return error.TlsFailed;
+                // RFC 9846 §4.7.3: a peer "MUST NOT send another KeyUpdate with request_update set
+                // to "update_requested"" before it receives this side's KeyUpdate.
+                if (plain.owed_len > 0) return error.TlsFailed;
                 plain.owed_len = (seal(content_handshake, &key_update_not_requested, &plain.owed) catch unreachable).len;
                 return .{ .consumed = consumed, .plaintext_len = 0, .content = .key_update };
             },

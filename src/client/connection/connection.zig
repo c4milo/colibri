@@ -130,9 +130,6 @@ pub const Connection = struct {
     output: [constants.output_len]u8,
     output_len: usize,
     records_len: usize,
-    /// A KeyUpdate's reply is owed, and no record opens until `send` has sealed it (RFC 9846
-    /// §4.7.3).
-    reply_owed: bool,
     /// The peer's `close_notify` ended its data (RFC 9846 §6.1).
     peer_closed: bool,
     /// This side's `close_notify` is sealed.
@@ -171,7 +168,6 @@ pub const Connection = struct {
         connection.unread_len = 0;
         connection.output_len = 0;
         connection.records_len = 0;
-        connection.reply_owed = false;
         connection.peer_closed = false;
         connection.close_sent = false;
         connection.stopped = false;
@@ -392,4 +388,5 @@ test {
     _ = @import("connection_h2_flow_test.zig");
     _ = @import("connection_h11_test.zig");
     _ = @import("connection_tls_test.zig");
+    _ = @import("connection_records_test.zig");
 }

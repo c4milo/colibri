@@ -44,25 +44,33 @@ fn record_at(offset: usize, content_type: u8, content: []const u8) !usize {
     return (try plain_support.seal(content_type, content, support.input[offset..])).len;
 }
 
-test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before the next record opens" {
+test "RFC 9846 §4.7.3: records keep opening while a KeyUpdate's reply is owed, which goes out first" {
     try attach_plain();
     const update_len = try record_at(0, plain_support.content_handshake, &plain_support.key_update_requested);
     const request_len = try record_at(update_len, plain_support.content_application_data, request);
-    var received = try connection.receive(support.input[0 .. update_len + request_len], support.now_ns);
-    try testing.expectEqual(update_len, received.consumed);
-    try testing.expectEqual(null, received.event);
+    // The request behind the KeyUpdate opens in the same call, with the reply still owed.
+    const received = try connection.receive(support.input[0 .. update_len + request_len], support.now_ns);
+    try testing.expectEqual(update_len + request_len, received.consumed);
+    try testing.expectEqual(1, received.event.?.request.id.number);
     // Decision 119: the reply is octets `send` owes, which a server's endpoint reports as `send`.
     try testing.expect(connection_owed.owes_octets(connection));
-    // The reply goes out alone, and the next record opens after it.
+    // RFC 9846 §4.7.3: the reply goes out "prior to sending its next Application Data record".
+    try connection.respond(received.event.?.request.id.number, .{ .status = ok, .end = true });
     const sent = support.drain();
     try testing.expect(!connection_owed.owes_octets(connection));
     const reply = plain_support.open(sent).?;
     try testing.expectEqual(plain_support.content_handshake, reply.content_type);
     try testing.expectEqualSlices(u8, &plain_support.key_update_not_requested, reply.content);
-    try testing.expectEqual(header_len + reply.content.len, sent.len);
-    received = try connection.receive(support.input[update_len .. update_len + request_len], support.now_ns);
-    try testing.expectEqual(request_len, received.consumed);
-    try testing.expectEqual(1, received.event.?.request.id.number);
+    const answer = plain_support.open(sent[header_len + reply.content.len ..]).?;
+    try testing.expectEqual(plain_support.content_application_data, answer.content_type);
+    try testing.expect(std.mem.startsWith(u8, answer.content, "HTTP/1.1 200"));
+}
+
+test "RFC 9846 §4.7.3: a second KeyUpdate that asks while a reply is owed ends the connection" {
+    try attach_plain();
+    const first_len = try record_at(0, plain_support.content_handshake, &plain_support.key_update_requested);
+    const second_len = try record_at(first_len, plain_support.content_handshake, &plain_support.key_update_requested);
+    try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0 .. first_len + second_len], support.now_ns));
 }
 
 test "RFC 9846 §6.1: a record after the peer's close_notify is not read" {

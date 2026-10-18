@@ -10075,6 +10075,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Owed before the push.** `tools/ci.sh` on the exact tree, which runs the TLA+ models, the six
     trace checks (`tools/tcp_trace.sh` for the 38 changed logs) and the interop scripts.
 
+  **After 21f, 2026-10-18.** The client and the server keep opening TLS records while a KeyUpdate's
+  reply is owed. A dependent found the hold: after a peer's KeyUpdate that asked for a reply,
+  colibri opened no record until its next `send`, so a program that writes only when its socket
+  has room stopped. RFC 9846 §4.7.3 asks only that the reply go out "prior to sending its next
+  Application Data record", which `send` already does. The owner ruled the fix on 2026-10-17.
+  - **Why it is safe.** RFC 9846 §4.7.3 says a sender "MUST NOT send another KeyUpdate with
+    request_update set to "update_requested"" until it receives the peer's KeyUpdate, so an honest
+    peer leaves one reply owed at most. chapulin's provider holds `key_update_replies_max` (2), and
+    a read that would owe more fails.
+  - **Tests.** Over a provider that protects nothing:
+    - the client opens a response behind the KeyUpdate in the same `receive`, and its next request
+      goes out after the reply;
+    - the server opens a request behind the KeyUpdate, and its response goes out after the reply;
+    - the server ends a connection whose peer asks again while a reply is owed.
+  - **Mutations.**
+    - **CAUGHT**: the old rule restored, in the client and in the server (each new test fails);
+      the plain provider that takes a second request; a read that stops after any record with no
+      data (the close_notify tests).
+    - **NOT CAUGHT**, in the client: a read that stops after a record with no data that is not a
+      close. It is equivalent: the next `receive` opens the record behind it. The server's tests
+      catch it.
+  - `zig build test`: 183 steps and 3,116 tests.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

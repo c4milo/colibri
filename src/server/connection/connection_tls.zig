@@ -88,9 +88,10 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
     var consumed: usize = 0;
     // Bounded: every pass takes a whole record, or ends the loop.
     for (0..input.len + 1) |_| {
-        // RFC 9846 §6.1: nothing after the peer's close_notify is read. RFC 9846 §4.7.3: a
-        // KeyUpdate's reply goes out before the next record opens.
-        if (connection.peer_closed or connection.reply_owed or connection.stopped) return consumed;
+        // RFC 9846 §6.1: nothing after the peer's close_notify is read. RFC 9846 §4.7.3 asks for a
+        // KeyUpdate's reply "prior to sending its next Application Data record", which `seal`
+        // writes first, so records keep opening while the reply is owed.
+        if (connection.peer_closed or connection.stopped) return consumed;
         const room = connection.plain_in[connection.plain_in_len..];
         const record = decrypt(connection, input[consumed..], room, now_ns) catch |failure| switch (failure) {
             // The protocol has not read enough of what earlier records held.
@@ -111,7 +112,6 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
         consumed += record.consumed;
         connection.plain_in_len += record.plaintext_len;
         if (record.end_of_data) connection.peer_closed = true;
-        if (record.owes_handshake) connection.reply_owed = true;
     }
     unreachable; // Each record takes at least its header, so the input ends first.
 }
@@ -155,7 +155,6 @@ fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
         };
         written += sealed.written;
         internal.take_output(connection, sealed.consumed);
-        connection.reply_owed = false;
         if (sealed.consumed == 0) return written;
     }
     return written;
@@ -166,7 +165,6 @@ const Opened = struct {
     consumed: usize,
     plaintext_len: usize,
     end_of_data: bool,
-    owes_handshake: bool,
 };
 
 fn decrypt(connection: *Connection, input: []const u8, plaintext: []u8, now_ns: u64) RecordError!Opened {
@@ -183,7 +181,6 @@ fn opened(decrypted: anytype) Opened {
         .consumed = decrypted.consumed,
         .plaintext_len = decrypted.plaintext_len,
         .end_of_data = decrypted.end_of_data,
-        .owes_handshake = decrypted.owes_handshake,
     };
 }
 

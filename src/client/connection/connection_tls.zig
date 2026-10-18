@@ -52,7 +52,12 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) usize {
 /// Opens the protocol ALPN selected over the finished handshake, after that protocol's checks.
 /// Returns whether the protocol took it.
 fn attach(connection: *Connection) bool {
-    const provider = connection.tls_client.provider();
+    return attach_provider(connection, connection.tls_client.provider());
+}
+
+/// `attach` over `provider`. The connection passes its handshake's own provider, and the record
+/// tests pass one that protects nothing (`plain_provider_test_support.zig`).
+pub fn attach_provider(connection: *Connection, provider: tls_provider.Provider) bool {
     // RFC 7301 §3.2: the protocol the server selected is definitive for the connection, and a
     // selection of none is h11 only while `versions` allows it (decisions 88 and 117).
     internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context), connection.config.versions));
@@ -140,9 +145,10 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Taken {
     var taken: Taken = .{};
     // Bounded: every pass takes a whole record, or ends the loop.
     for (0..input.len + 1) |_| {
-        // RFC 9846 §6.1: nothing after the peer's close_notify is read. RFC 9846 §4.7.3: a
-        // KeyUpdate's reply goes out before the next record opens.
-        if (connection.peer_closed or connection.reply_owed or connection.stopped) return taken;
+        // RFC 9846 §6.1: nothing after the peer's close_notify is read. RFC 9846 §4.7.3 asks for a
+        // KeyUpdate's reply "prior to sending its next Application Data record", which `seal`
+        // writes first, so records keep opening while the reply is owed.
+        if (connection.peer_closed or connection.stopped) return taken;
         const room = connection.plain_in[connection.plain_in_len..];
         const record = decrypt(connection, input[taken.consumed..], room, now_ns) catch |failure| switch (failure) {
             // The protocol has not read enough of what earlier records held.
@@ -167,7 +173,6 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Taken {
 fn keep(connection: *Connection, record: Opened) bool {
     connection.plain_in_len += record.plaintext_len;
     if (record.end_of_data) connection.peer_closed = true;
-    if (record.owes_handshake) connection.reply_owed = true;
     return record.plaintext_len > 0;
 }
 
@@ -213,7 +218,6 @@ fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
         };
         written += sealed.written;
         internal.take_output(connection, sealed.consumed);
-        connection.reply_owed = false;
         if (sealed.consumed == 0) return written;
     }
     return written;
@@ -224,7 +228,6 @@ const Opened = struct {
     consumed: usize,
     plaintext_len: usize,
     end_of_data: bool,
-    owes_handshake: bool,
 };
 
 fn decrypt(connection: *Connection, input: []const u8, plaintext: []u8, now_ns: u64) RecordError!Opened {
@@ -241,7 +244,6 @@ fn opened(decrypted: anytype) Opened {
         .consumed = decrypted.consumed,
         .plaintext_len = decrypted.plaintext_len,
         .end_of_data = decrypted.end_of_data,
-        .owes_handshake = decrypted.owes_handshake,
     };
 }
 

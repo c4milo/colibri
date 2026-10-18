@@ -27,7 +27,8 @@ pub fn owes_octets(connection: *Connection) bool {
     // asks after a `receive`, which writes it.
     if (connection.output_len > 0) return true;
     if (protocol_pending(connection)) return true;
-    // RFC 9846 §4.7.3: a KeyUpdate's reply goes out before the next record opens.
+    // RFC 9846 §4.7.3: a KeyUpdate's reply goes out "prior to sending its next Application Data
+    // record".
     if (connection.config.tls != null and handshake_owed(connection)) return true;
     if (connection_coding.ring_owed(connection)) return true;
     // RFC 9846 §6.1: "Each party MUST send a "close_notify" alert before closing its write side".

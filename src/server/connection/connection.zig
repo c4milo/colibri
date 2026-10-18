@@ -118,9 +118,6 @@ pub const Connection = struct {
     /// h2: the octets at the front of `output` that go out before the last WINDOW_UPDATE written
     /// into it has gone. While any remain, a body's rate deadline waits (decision 110 as amended).
     update_held_len: usize,
-    /// A KeyUpdate's reply is owed, and no record opens until `send` has sealed it (RFC 9846
-    /// §4.7.3).
-    reply_owed: bool,
     /// The peer's `close_notify` ended its data (RFC 9846 §6.1).
     peer_closed: bool,
     /// This side's `close_notify` is sealed.
@@ -184,7 +181,6 @@ pub const Connection = struct {
         connection.output_len = 0;
         connection.records_len = 0;
         connection.update_held_len = 0;
-        connection.reply_owed = false;
         connection.peer_closed = false;
         connection.close_sent = false;
         connection.stopped = false;
