@@ -93,6 +93,8 @@ pub const Alternative = struct {
 /// A transport the caller opens: a UDP flow for QUIC, a TCP connection for TCP.
 pub const Open = struct {
     transport: Transport,
+    /// One of `Values.addresses`, with only its port set to the port the channel chose for the
+    /// transport.
     to: Address,
 };
 
@@ -251,6 +253,8 @@ pub fn ChannelOf(comptime capacity: Capacity) type {
         /// channel with no QUIC takes null. `error.NoVersion` says the configuration offers
         /// neither transport, `error.VersionUnavailable` that it allows h3 on a channel with no
         /// QUIC, and the other errors that the TLS value names more than a TLS configuration holds.
+        /// A program may call `init` again on a channel with no open transport and no exchange,
+        /// for example with new addresses. The ids then count from 1 again.
         pub fn init(channel: *Self, config: *const Config, values: Values, receive_pool: ?ReceiveStorage) StartError!void {
             return channel_calls.init(channel, config, values, receive_pool);
         }
@@ -317,7 +321,8 @@ pub fn ChannelOf(comptime capacity: Capacity) type {
         }
 
         /// The caller's transport closed on its own: the peer closed it, or it failed. Every
-        /// exchange its connection held ends, as the connection's own `transport_closed` rules.
+        /// exchange its connection held ends, as the connection's own `transport_closed` rules. A
+        /// program may also close a transport itself at any time, and then calls this.
         pub fn transport_closed(channel: *Self, transport: Transport) void {
             channel_calls.transport_closed(channel, transport);
         }

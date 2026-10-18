@@ -94,7 +94,8 @@ pub const Response = struct {
 
     /// How the exchange ended, set once it has.
     outcome: Outcome = .pending,
-    /// The final response's status code (RFC 9110 §15).
+    /// The final response's status code (RFC 9110 §15). The client sets it at the final head, so
+    /// it also holds the status when the outcome is `too_large`.
     status: u16 = 0,
     /// Interim responses read before the final one (RFC 9110 §15.2).
     interims: u32 = 0,

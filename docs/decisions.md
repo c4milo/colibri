@@ -4679,25 +4679,37 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         the request again, once, on another connection (RFC 9112 §9.3.1). Any other method ends
         `closed`, as today. The program sees one outcome. The owner ruled that a program
         implements no part of HTTP: "No leaky abstractions". An exchange that a connection
-        refused unprocessed still moves once (`moves_max`).
+        refused unprocessed still moves once (`moves_max`), and the two moves share that one
+        budget. A request sent again that is then refused ends `closed`, not `refused`: its first
+        attempt may have been processed, and decision 105 keeps `refused` for a request that no
+        server processed.
      4. `client.ChannelOf(capacity)` takes a `client.Capacity` with `quic: bool = true`, as
         `server.EndpointOf` takes a `server.Capacity`, and `client.Channel` is
         `ChannelOf(.{})` ([#99](https://github.com/c4milo/colibri/issues/99)). A channel with no
         QUIC holds no QUIC connection and no QUIC TLS configuration, and its `init` refuses
-        versions that allow h3.
+        versions that allow h3 with a new member of `client.StartError`, `VersionUnavailable`. It
+        has no `start_quic`: a call of it does not compile, because such a channel never asks for
+        QUIC.
      5. Three limits in `client.constants`, so a program sizes its memory and bounds its loops at
         init with no name from `h11` or `tls_provider`:
         - `stream_input_len_min`: the octets a program holds so that `receive` on a TCP
           transport always takes some, in cleartext and over TLS;
         - `stream_output_len_min`: the least `output` with which `send_stream` always writes a
-          record that it owes;
+          record that it owes. It is the TLS provider's contract,
+          `tls_provider.constants.record_write_len_min`, though chapulin seals a shorter record
+          into a shorter output;
         - `receive_events_without_input_max`: the most `receive` calls in a row that report an
           event and take no octet.
      6. Doc comments state four rules that the code keeps: `Response.status` holds the final
         status when the outcome is `too_large`; `Channel.init` may run again on a channel with
         no connection and no exchange; a program may close a transport at any time and then
         call `transport_closed`; `Open.to` is one of `Values.addresses` with only its port set.
-     7. Three asks become issues: content sent with no copy into the channel's output
+     7. A connection over TLS holds the longest h11 head that is not whole yet beside one more
+        whole record. Before, `plaintext_in_len` held one h2 frame and one record, so a head longer
+        than a frame, sent in records of an odd size, stopped the connection. The owner ruled the
+        fix on 2026-10-17, in the client and in the server: `plaintext_in_len` grows from 33,033 to
+        49,407 octets (RFC 9112 §2.1, RFC 9846 §5.2), and each TCP connection by about 16 KB.
+     8. Three asks become issues: content sent with no copy into the channel's output
         ([#105](https://github.com/c4milo/colibri/issues/105)), `too_large` at the head
         ([#106](https://github.com/c4milo/colibri/issues/106)), and an IPv6 scope id
         ([#107](https://github.com/c4milo/colibri/issues/107)).
@@ -4714,8 +4726,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `Channel.negotiated(transport)`, the suite a transport settled on. Withdrawn: which suite a
        connection settles on is colibri's and chapulin's to test.
      - A channel that always holds QUIC state: 703,712 octets that a TCP-only program never uses.
+     - The TLS stall of ruling 7 as an issue only. A large head over TLS then waits for a
+       deadline or for the program's timeout.
 
      Cost: a breaking change for every program that names `client.HttpExchange` or reads
      `Finished`'s exchange, in the release that already breaks names under decisions 115 and
      121. A program that sends an idempotent request may see the server process it twice, which
-     RFC 9110 §9.2.2 allows: the intended effect is the same.
+     RFC 9110 §9.2.2 allows: the intended effect is the same. Each TCP connection, in the client
+     and in the server, grows by about 16 KB for ruling 7.

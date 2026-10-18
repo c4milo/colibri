@@ -731,10 +731,24 @@ The channel takes one `client.Config` ([decision 120](decisions.md)):
 offers QUIC only when it has a pool, a `tls` value and `versions.h3`. A program that passes
 `null` for the pool gets TCP alone.
 
+A program that never speaks h3 holds a `client.ChannelOf(.{ .quic = false })` in place of a
+`client.Channel` ([decision 124](decisions.md)). It holds no QUIC connection and no QUIC TLS
+configuration: 307,360 octets in place of 1,012,152 (docs/performance.md). Its `init` takes `null`
+for the pool, and it has no `start_quic`, so a call of it does not compile. The consumer program
+holds one:
+
+```zig
+// The channel speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
+const Channel = client_module.ChannelOf(.{ .quic = false });
+var asked: Channel align(@alignOf(Channel)) = undefined;
+```
+
 `init` builds the TLS configuration of each transport the channel offers, inside the channel, so
 the program does not move the channel after it. It returns `error.NoVersion` when the
-configuration offers neither transport, and `error.TooManyAnchors`, `error.TooManySuites` or
-`error.SuitesUnavailable` when the TLS value names more than a TLS configuration holds.
+configuration offers neither transport, `error.VersionUnavailable` when it allows h3 on a channel
+with no QUIC, and `error.TooManyAnchors`, `error.TooManySuites` or `error.SuitesUnavailable` when
+the TLS value names more than a TLS configuration holds. A program may call `init` again on a
+channel with no open transport and no exchange, for example with new addresses.
 
 A program moves datagrams with addresses over QUIC and a stream of octets over TCP, and it keeps
 time for the channel. Each turn passes the channel what each socket read, fires its deadlines,
@@ -805,6 +819,25 @@ fn drain(now_ns: u64) !void {
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.client, consumed);
 }
+```
+
+A program sizes its memory and bounds its loops with three limits of `client.constants`, and needs
+no name from `h11` or `tls_provider` ([decision 124](decisions.md)):
+
+- `stream_input_len_min`: what the program holds of the TCP socket's octets, at least, so that
+  `receive` always takes some. The channel takes an h11 head, an h2 frame and a TLS record whole,
+  and this is the largest of them.
+- `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
+- `receive_events_without_input_max`: the most `receive` calls in a row that report an event and
+  take no octet.
+
+The example bounds each read of the socket with them:
+
+```zig
+/// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
+/// link's queue, or reports an event and takes no octet, or ends the loop. At most
+/// `receive_events_without_input_max` calls in a row report an event and take no octet.
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.constants.receive_events_without_input_max + 1);
 ```
 
 The channel's events say what the program does next, and an exchange ends in exactly one

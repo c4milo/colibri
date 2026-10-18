@@ -8856,7 +8856,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - 21f.3: an early final response ends the h11 connection (RFC 9112 §9.5).
       - 21f.4: the channel sends an idempotent request again, once, after its connection closed
         before any octet of the response (RFC 9110 §9.2.2, RFC 9112 §9.3.1).
-      - 21f.5: the three limits.
+      - 21f.5: the three limits, and the TLS stall of decision 124 ruling 7.
       - 21f.6: `client.ChannelOf`, and a memory row for a channel with no QUIC.
       - 21f.7: the doc lines of decision 124 ruling 6, the examples and the guide.
       - 21f.8: the step's entry.

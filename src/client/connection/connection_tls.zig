@@ -158,7 +158,8 @@ fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
     for (0..constants.seals_per_send_max) |_| {
         const plaintext = connection.output[0..connection.output_len];
         const sealed = encrypt(connection, plaintext, output[written..], now_ns) catch |failure| switch (failure) {
-            // The output holds no whole record: the rest waits for the next call.
+            // The provider refused `output` as shorter than a record it may write
+            // (`tls_provider.constants.record_write_len_min`): the rest waits for the next call.
             error.NoSpaceLeft => return written,
             // RFC 9846 §6: no data goes out after a failure, and the next pass writes the alert
             // the provider owes.

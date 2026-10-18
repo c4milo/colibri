@@ -24,7 +24,9 @@ var coded: [256]u8 = undefined;
 // connection.
 const Endpoint = server_module.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
-var asked: client_module.Channel align(@alignOf(client_module.Channel)) = undefined;
+// The channel speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
+const Channel = client_module.ChannelOf(.{ .quic = false });
+var asked: Channel align(@alignOf(Channel)) = undefined;
 const get: client_module.Request = .{ .method = "GET", .path = "/" };
 var get_response: client_module.Response align(@alignOf(client_module.Response)) = .{};
 // The octets the client wrote, which the server reads, and the octets the server wrote, which the
@@ -114,16 +116,16 @@ pub fn main() !void {
 
     // The `server` and `client` modules (decision 100), in cleartext h2: the client's request and
     // the server's 204 move between the two in memory, at one instant. The client is a channel
-    // with TCP alone, which allows h2 alone, so it speaks h2 with prior knowledge. The server's
+    // with no QUIC, which allows h2 alone, so it speaks h2 with prior knowledge. The server's
     // endpoint names no version, and the connection it accepts reads h2 from the client's
     // connection preface (decision 117).
     const endpoint_config: server_module.Config = .{};
-    const client_config: client_module.Config = .{ .versions = .{ .h11 = false }, .authority = "example.test" };
+    const client_config: client_module.Config = .{ .versions = .{ .h11 = false, .h3 = false }, .authority = "example.test" };
     try endpoint.init(&endpoint_config, entropy, 0, 0);
     // One call for the socket a program accepted, in cleartext here. The handle names the
     // connection from then on.
     const accepted = endpoint.accept(.cleartext, 0) orelse return error.ExchangeWrong;
-    // The channel takes what DNS knows as values, and with no receive pool it offers TCP alone.
+    // The channel takes what DNS knows as values. A channel with no QUIC takes no receive pool.
     try asked.init(&client_config, .{ .addresses = &server_addresses, .port = server_port }, null);
     _ = try asked.request(&get, &get_response);
     // The channel asks for a socket. A program connects one, then starts the connection on it, and
