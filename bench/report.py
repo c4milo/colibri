@@ -38,6 +38,16 @@ JUDGE_EVENTS = ("instructions:u", "instructions:k", "cycles:u", "cycles:k", "tas
 # The lines h2load writes about a TLS connection, and the order the report names them in.
 H2LOAD_TLS = re.compile(r"^(TLS Protocol|Cipher|Server Temp Key): (.+)$", re.M)
 TLS_NAMES = ("TLS Protocol", "Cipher", "Server Temp Key")
+# The application protocol h2load names for each run of an h2 input: h2 over TLS and h2c in
+# cleartext (RFC 9113 §3).
+H2LOAD_PROTOCOL = re.compile(r"^Application protocol: (\S+)$", re.M)
+H2_PROTOCOLS = ("h2", "h2c")
+# wrk's report of an h11 input (design §8 step 13g): the requests it counted, the answers outside
+# 2xx and 3xx, and its socket errors. wrk speaks h11 alone.
+WRK_REQUESTS = re.compile(r"^\s*(\d+) requests in ", re.M)
+WRK_COMMAND = re.compile(r"^load: wrk(.*)$", re.M)
+WRK_REJECTED = re.compile(r"^\s*Non-2xx or 3xx responses: (\d+)$", re.M)
+WRK_SOCKET_ERRORS = re.compile(r"^\s*Socket errors: connect (\d+), read (\d+), write (\d+), timeout (\d+)$", re.M)
 H2LOAD_REQUESTS = re.compile(r"requests: (\d+) total, (\d+) started, (\d+) done, (\d+) succeeded, (\d+) failed, (\d+) errored, (\d+) timeout")
 # The nanoseconds in one unit of task-clock, by the unit perf stat writes beside it: perf 6.17
 # writes nanoseconds and no unit, and earlier versions milliseconds as "msec".
@@ -64,6 +74,32 @@ def read_counts(path):
     return counts
 
 
+def read_wrk_requests(path, input_name):
+    """The requests wrk's report in `path` counted, which fails on an answer outside 2xx and 3xx
+    and on a socket error. A server closes each connection of a -one input after its answer, as
+    the request's `Connection: close` asks. wrk counts that close as a read error when the answer
+    did not say it, so those inputs may have one for each request. load.sh writes the command it
+    ran first, and a -one input must ask for the close, and a -many one must not."""
+    text = open(path).read()
+    counted = WRK_REQUESTS.search(text)
+    if counted is None or int(counted.group(1)) == 0:
+        sys.exit(f"report.py: {path}: no wrk report with a request")
+    requests = int(counted.group(1))
+    rejected = WRK_REJECTED.search(text)
+    errors = WRK_SOCKET_ERRORS.search(text)
+    connect, read, write, timeout = (int(value) for value in errors.groups()) if errors else (0, 0, 0, 0)
+    one = input_name.endswith("-one")
+    command = WRK_COMMAND.search(text)
+    if command is None or ("Connection: close" in command.group(1)) != one:
+        sys.exit(f"report.py: {path}: the load for {input_name} ran {command.group(0) if command else 'no wrk command'}")
+    read_allowed = requests if one else 0
+    if rejected or connect or write or timeout or read > read_allowed:
+        print_server_log(path)
+        sys.exit(f"report.py: {path}: wrk: {requests} requests, {rejected.group(1) if rejected else 0} "
+                 f"outside 2xx and 3xx, socket errors connect {connect}, read {read}, write {write}, timeout {timeout}")
+    return requests
+
+
 def read_requests(path):
     """The requests h2load's reports in `path` say succeeded, which fails on any that did not."""
     succeeded = 0
@@ -77,6 +113,24 @@ def read_requests(path):
                      f"{errored} errored, {timeout} timed out")
         succeeded += int(ok)
     return succeeded
+
+
+def is_h11(input_name):
+    return input_name.startswith("h11-")
+
+
+def check_protocol(path, input_name):
+    """Fails unless `path` holds the reports of the tool `input_name` takes, speaking its version:
+    wrk for an h11 input, and h2load speaking h2 for an h2 one. Every server here speaks both, so a
+    load sent in the wrong version would pass unseen otherwise."""
+    text = open(path).read()
+    if is_h11(input_name):
+        if WRK_REQUESTS.search(text) is None or H2LOAD_REQUESTS.search(text) is not None:
+            sys.exit(f"report.py: {path}: no wrk report for {input_name}")
+        return
+    spoken = set(H2LOAD_PROTOCOL.findall(text))
+    if not spoken or not spoken <= set(H2_PROTOCOLS):
+        sys.exit(f"report.py: {path}: h2load spoke {', '.join(sorted(spoken)) or 'no protocol'} for {input_name}")
 
 
 def print_server_log(h2load_path):
@@ -152,12 +206,17 @@ def main():
         variant, input_name, round_text, perf_path, h2load_path = line.strip().split(",")
         if int(round_text) < FIRST_COUNTED_ROUND:
             continue
-        units = read_requests(h2load_path)
-        expected = arguments.many_requests if input_name.endswith("-many") else arguments.one_connections
-        if units != expected:
-            sys.exit(f"report.py: {h2load_path}: {units} units where {expected} were planned")
+        check_protocol(h2load_path, input_name)
+        if is_h11(input_name):
+            # wrk counts for a time, so its count is the units.
+            units = read_wrk_requests(h2load_path, input_name)
+        else:
+            units = read_requests(h2load_path)
+            expected = arguments.many_requests if input_name.endswith("-many") else arguments.one_connections
+            if units != expected:
+                sys.exit(f"report.py: {h2load_path}: {units} units where {expected} were planned")
         samples.setdefault((variant, input_name), []).append(per_unit(read_counts(perf_path), units, mode))
-        if "-tls-" in input_name:
+        if "-tls-" in input_name and not is_h11(input_name):
             tls.setdefault(variant, set()).add(read_tls(h2load_path) or "h2load named no TLS parameters")
 
     inputs = sorted({key[1] for key in samples})
@@ -169,14 +228,17 @@ def main():
         unit = "request" if input_name.endswith("-many") else "connection"
         summary = {}
         for variant in variants:
-            runs = samples[(variant, input_name)]
+            # A competitor that does not serve this input, as http.zig serves no TLS, has no runs.
+            runs = samples.get((variant, input_name))
+            if not runs:
+                continue
             summary[variant] = {metric: summarize([run[metric] for run in runs]) for metric in runs[0]}
             cells = " | ".join(f"{number(summary[variant][m][0])} ({summary[variant][m][1] * 100:.2f}%)" for m in summary[variant])
             rows.append(f"| {input_name} | {unit} | {variant} | {len(runs)} | {cells} |")
         if "base" in summary and "change" in summary:
             ratio, noise, verdict = compare(summary, "change", "base", primary, floor)
             verdicts.append((verdict, f"| {input_name} | {ratio:.4f} | {noise * 100:.2f}% | {verdict} |"))
-        for competitor in competitors:
+        for competitor in (c for c in competitors if c in summary and "change" in summary):
             ratio, noise, reading = compare(summary, "change", competitor, primary, floor)
             standings.append((reading, f"| {input_name} | {competitor} | {ratio:.4f} | {noise * 100:.2f}% | {reading} |"))
 
@@ -214,20 +276,26 @@ TEST_FLOOR = 0.05
 # The nanoseconds the server runs a unit in, before a round's factor.
 TEST_NANOSECONDS_PER_UNIT = 4000
 # What h2load writes about a TLS connection, before its count of requests.
-TEST_TLS = "TLS Protocol: TLSv1.3\nCipher: {cipher}\nServer Temp Key: X25519 253 bits\nApplication protocol: h2\n"
+TEST_TLS = "TLS Protocol: TLSv1.3\nCipher: {cipher}\nServer Temp Key: X25519 253 bits\n"
+# A wrk report, with the lines of its errors where `errors` stands.
+TEST_WRK = ("Running 2s test @ http://127.0.0.1:18480/\n  2 threads and 16 connections\n"
+            "  {requests} requests in 2.00s, 8.00MB read\n{errors}Requests/sec:  50000.00\n")
 # Each round's factor on every count. Round 0 is the warm-up and costs half as much again, as a
 # first round can, so that a report that counts it shows a spread past the floor.
 TEST_ROUND_FACTORS = (1.5, 1.004, 0.997, 1.002, 0.999, 1.001)
 
 
 def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), failed_request=False, mode="judge", kernel_only=False,
-                   change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec", competitors=None, with_base=True):
+                   change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec", competitors=None, with_base=True,
+                   change_protocol=None, served=None):
     """Writes the files a run of bench/run.sh leaves, with the change costing `change_factor` times
     the base on each input in `changed_inputs`: in the server's user and kernel instructions both,
     or with `kernel_only` in the kernel's alone, as a change that adds system calls costs. The base
     runs TLS_AES_256_GCM_SHA384 on its TLS input, and the change runs `change_cipher`. The server
     runs TEST_NANOSECONDS_PER_UNIT a unit, which perf writes in `task_clock_unit`. Each competitor
-    in `competitors` costs its factor times the base, and with `with_base` false no base runs."""
+    in `competitors` costs its factor times the base, and with `with_base` false no base runs. Each
+    run speaks h2 over TLS and h2c in cleartext, and the change `change_protocol` if one is given.
+    A competitor that `served` names runs only the inputs it lists there."""
     factors = dict(competitors or {})
     if with_base:
         factors["base"] = 1.0
@@ -237,6 +305,8 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
     for round_number, round_factor in enumerate(TEST_ROUND_FACTORS):
         for input_name, units in TEST_UNITS.items():
             for variant in ["change"] + sorted(factors):
+                if input_name not in (served or {}).get(variant, (input_name,)):
+                    continue
                 name = os.path.join(directory, f"{variant}-{input_name}-{round_number}")
                 changed = variant == "change" and input_name in changed_inputs
                 base_instructions = TEST_INSTRUCTIONS_PER_UNIT[input_name] * units * round_factor * factors.get(variant, 1.0)
@@ -265,6 +335,10 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
                     for run in range(units // per_run):
                         if "-tls-" in input_name:
                             h2load.write(TEST_TLS.format(cipher=cipher))
+                        protocol = "h2" if "-tls-" in input_name else "h2c"
+                        if variant == "change" and change_protocol:
+                            protocol = change_protocol
+                        h2load.write(f"Application protocol: {protocol}\n")
                         lost = failed if run == 0 else 0
                         h2load.write(f"requests: {per_run} total, {per_run} started, {per_run} done, "
                                      f"{per_run - lost} succeeded, {lost} failed, 0 errored, 0 timeout\n")
@@ -369,6 +443,73 @@ class Verdicts(unittest.TestCase):
         self.assertIn("| --- | --- | ---: | ---: | --- |\n| h2-many | nginx | 2.0000 | 5.00% | loses |\n", output)
         self.assertIn("| h2-many | h2o | 0.5000 | 5.00% | wins |", output)
         self.assertIn("| h2-tls-one | connection | nginx | 5 | ", output)
+
+    def test_an_input_whose_load_spoke_another_version_refuses_the_run(self):
+        # An h2 input that h2load sent as h11, as a load script that lost its version would.
+        status, output = self.report(1.0, change_protocol="http/1.1")
+        self.assertNotEqual(status, 0, output)
+        self.assertIn("h2load spoke http/1.1 for h2-", output)
+
+    @staticmethod
+    def written(text):
+        with tempfile.NamedTemporaryFile("w", suffix=".h2load", delete=False) as held:
+            held.write(text)
+        return held.name
+
+    def test_an_h2_input_takes_h2load_and_an_h11_input_wrk(self):
+        h2load = self.written("Application protocol: h2\nrequests: 1 total, 1 started, 1 done, 1 succeeded, 0 failed, 0 errored, 0 timeout\n")
+        wrk = self.written(TEST_WRK.format(requests=100, errors=""))
+        check_protocol(h2load, "h2-tls-one")
+        check_protocol(wrk, "h11-tls-one")
+        for path, input_name in ((h2load, "h11-many"), (wrk, "h2-many")):
+            with self.assertRaises(SystemExit):
+                check_protocol(path, input_name)
+        # An h2 report that names no protocol proves nothing.
+        empty = self.written("requests: 1 total\n")
+        with self.assertRaises(SystemExit):
+            check_protocol(empty, "h2-many")
+        for path in (h2load, wrk, empty):
+            os.unlink(path)
+
+    def test_wrk_counts_its_requests_and_refuses_errors(self):
+        close = "load: wrk -H Connection: close http://127.0.0.1:18480/\n"
+        keep = "load: wrk http://127.0.0.1:18480/\n"
+        cases = (
+            (keep, "", "h11-many", 100),
+            (close, "  Socket errors: connect 0, read 100, write 0, timeout 0\n", "h11-one", 100),
+            (close, "", "h11-one", 100),
+            (keep, "", "h11-one", None),
+            (close, "", "h11-many", None),
+            ("", "", "h11-many", None),
+            (keep, "  Socket errors: connect 0, read 1, write 0, timeout 0\n", "h11-many", None),
+            (close, "  Socket errors: connect 0, read 101, write 0, timeout 0\n", "h11-one", None),
+            (close, "  Socket errors: connect 1, read 100, write 0, timeout 0\n", "h11-one", None),
+            (keep, "  Socket errors: connect 0, read 0, write 0, timeout 1\n", "h11-many", None),
+            (keep, "  Non-2xx or 3xx responses: 1\n", "h11-many", None),
+        )
+        for command, errors, input_name, wanted in cases:
+            path = self.written(command + TEST_WRK.format(requests=100, errors=errors))
+            if wanted is None:
+                with self.assertRaises(SystemExit, msg=command + errors):
+                    read_wrk_requests(path, input_name)
+            else:
+                self.assertEqual(wanted, read_wrk_requests(path, input_name))
+            os.unlink(path)
+        # A report that counted no request measured nothing.
+        path = self.written(keep + TEST_WRK.format(requests=0, errors=""))
+        with self.assertRaises(SystemExit):
+            read_wrk_requests(path, "h11-many")
+        os.unlink(path)
+
+    def test_a_competitor_that_serves_some_inputs_is_compared_on_those_alone(self):
+        # http.zig serves no TLS, so it runs h2-many alone here, and nginx runs both.
+        status, output = self.report(1.0, competitors={"nginx": 1.0, "httpz": 0.5}, with_base=False,
+                                     served={"httpz": ("h2-many",)})
+        self.assertEqual(status, 0, output)
+        self.assertIn("| h2-many | httpz | 2.0000 | 5.00% | loses |", output)
+        self.assertNotIn("| h2-tls-one | httpz |", output)
+        self.assertNotIn("| h2-tls-one | connection | httpz |", output)
+        self.assertIn("| h2-tls-one | nginx | 1.0000 | 5.00% | within the noise |", output)
 
     def test_a_filter_run_compares_cpu_time(self):
         status, output = self.report(1.10, mode="filter")

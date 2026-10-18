@@ -6,16 +6,21 @@
 # this one, and the report gives each input's ratio of the change to the base; the run fails when
 # an input loses past the floor. With --competitors, nginx and h2o answer the same requests from
 # memory, set up by bench/competitors/, in turns with colibri's server, and the report gives
-# colibri's ratio to each without failing the run (design §8 step 13c).
+# colibri's ratio to each without failing the run (design §8 step 13c). hyper, in Rust, and
+# http.zig, in Zig, answer too (design §8 step 13g); BENCH_COMPETITORS names a part of the list.
+# With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
+# counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it).
 #
-#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--rounds <n>] [report.md]
+#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--rounds <n>] [report.md]
 #
 # The judge runs on Linux with perf and taskset, as .github/workflows/bench.yml runs it on the
 # ubuntu-24.04-arm runner. --filter runs without either and reads the server's CPU time from each
 # thread's /proc schedstat: its numbers order candidates on a laptop and are never published
 # (docs/performance.md).
 # It needs Zig, h2load, python3, and Go for the TLS identity unless BENCH_IDENTITY names one, and
-# nginx and h2o on the PATH with --competitors.
+# wrk and curl with --h11. With --competitors it needs nginx and h2o on the PATH, cargo to build
+# hyper, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. BENCH_HYPER and
+# BENCH_HTTPZ name servers built already.
 # BENCH_SERVER and BENCH_BASE_SERVER name servers built already, for a machine with no Zig.
 set -euo pipefail
 
@@ -23,6 +28,7 @@ readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode=judge
 base=""
 competitors=""
+h11=""
 rounds=5
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
@@ -30,6 +36,7 @@ while [ $# -gt 0 ]; do
     --filter) mode=filter; shift ;;
     --base) base="$(cd "$2" && pwd)"; shift 2 ;;
     --competitors) competitors=yes; shift ;;
+    --h11) h11=yes; shift ;;
     --rounds) rounds="$2"; shift 2 ;;
     *) report="$1"; shift ;;
   esac
@@ -52,7 +59,17 @@ readonly one_clients=16
 readonly warm_requests=2000
 # The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
 readonly ready_tries=100
-readonly inputs=(h2-many h2-tls-many h2-one h2-tls-one)
+inputs=(h2-many h2-tls-many h2-one h2-tls-one)
+if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
+readonly inputs
+# The competitors --competitors measures, each in turns with colibri's server.
+read -r -a competitor_names <<<"${BENCH_COMPETITORS:-nginx h2o hyper httpz}"
+readonly competitor_names
+# The seconds wrk sends each h11 input for, and before it the seconds of its warm-up, with one
+# thread on each core of load_cores.
+readonly h11_seconds=2
+readonly h11_warm_seconds=1
+readonly wrk_threads=2
 # The one TLS 1.3 suite h2load offers, so that every server runs the same cipher: colibri's server
 # chooses by its own order, which puts this suite first, and nginx and h2o follow the client's.
 readonly tls_suite=TLS_AES_256_GCM_SHA384
@@ -72,10 +89,36 @@ build() {  # build <tree> <prefix>
 
 url() {  # url <input>
   case "$1" in
-    h2-tls-*) echo "https://127.0.0.1:${port}/" ;;
+    *-tls-*) echo "https://127.0.0.1:${port}/" ;;
     *) echo "http://127.0.0.1:${port}/" ;;
   esac
 }
+
+# What h2load offers for <input>, into the array `offer`: over TLS the one suite of tls_suite.
+offer_of() {  # offer_of <input>
+  offer=()
+  case "$1" in *-tls-*) offer+=(--tls13-ciphers="$tls_suite") ;; esac
+}
+
+# Whether <variant> serves <input>: http.zig has no TLS and speaks h11 alone.
+serves() {  # serves <variant> <input>
+  case "$1" in
+    httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
+    *) true ;;
+  esac
+}
+
+# wrk has no option for TLS 1.3 suites, so OpenSSL's configuration offers tls_suite alone to it.
+cat >"$scratch/openssl.cnf" <<EOF
+openssl_conf = colibri_bench
+[colibri_bench]
+ssl_conf = colibri_bench_ssl
+[colibri_bench_ssl]
+system_default = colibri_bench_tls
+[colibri_bench_tls]
+MinProtocol = TLSv1.3
+Ciphersuites = ${tls_suite}
+EOF
 
 # The load each input names, as a script of its own, because perf runs it under sudo, which keeps
 # no function or variable of this shell. h2load's reports go to standard output.
@@ -83,8 +126,20 @@ cat >"$scratch/load.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 case "\$1" in
-  h2-tls-*) target=https://127.0.0.1:${port}/; options=(--tls13-ciphers=${tls_suite}) ;;
+  *-tls-*) target=https://127.0.0.1:${port}/; options=(--tls13-ciphers=${tls_suite}) ;;
   *) target=http://127.0.0.1:${port}/; options=() ;;
+esac
+# An h11 input: wrk, for the seconds the second argument names, one request at a time on each
+# connection, and with -one a close after each, which the request's Connection asks for. The
+# command goes first in the output, where report.py reads it.
+case "\$1" in
+  h11-*)
+    headers=()
+    case "\$1" in *-one) headers=(-H "Connection: close") ;; esac
+    echo "load: wrk \${headers[*]} \$target"
+    OPENSSL_CONF=${scratch}/openssl.cnf exec wrk -t ${wrk_threads} -c ${many_clients} \\
+      -d "\${2:-${h11_seconds}}s" "\${headers[@]}" "\$target"
+    ;;
 esac
 case "\$1" in
   *-many) h2load "\${options[@]}" -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
@@ -99,6 +154,39 @@ succeeded() {  # succeeded <requests> <h2load arguments...>: whether all of them
   shift
   output="$(h2load "$@" 2>/dev/null)" || true
   [[ "$output" == *", ${requests} succeeded, 0 failed,"* ]]
+}
+
+# Whether wrk's report <output> shows answers, none outside 2xx and 3xx, and no socket error but
+# the read errors that a server's close after `Connection: close` counts as.
+wrk_clean() {  # wrk_clean <output>
+  [[ "$1" == *" requests in "* && "$1" != *"Non-2xx or 3xx responses"* ]] || return 1
+  [[ "$1" != *"Socket errors:"* || "$1" == *"Socket errors: connect 0, read "*", write 0, timeout 0"* ]]
+}
+
+# Whether <input>'s server answers one request: curl for h11, as wrk speaks it, and h2load for h2.
+answers() {  # answers <input>
+  local offer
+  case "$1" in
+    h11-*)
+      [ "$(curl -sk --http1.1 --tls13-ciphers "$tls_suite" -o /dev/null -w '%{http_code}' "$(url "$1")")" = 200 ]
+      ;;
+    *)
+      offer_of "$1"
+      succeeded 1 "${offer[@]}" -n 1 -c 1 "$(url "$1")"
+      ;;
+  esac
+}
+
+# Whether <input>'s warm-up answers every request: load.sh's wrk for h11_warm_seconds, or h2load.
+warms() {  # warms <input>
+  local offer
+  case "$1" in
+    h11-*) wrk_clean "$(bash "$scratch/load.sh" "$1" "$h11_warm_seconds" 2>/dev/null || true)" ;;
+    *)
+      offer_of "$1"
+      succeeded "$warm_requests" "${offer[@]}" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$1")"
+      ;;
+  esac
 }
 
 fail() {  # fail <message> <server log>
@@ -122,10 +210,15 @@ render() {  # render <competitor> <ssl>
 # from the change or from the base, or a competitor configured for cleartext or for TLS.
 server_command() {  # server_command <variant> <input>
   local tls=""
-  case "$2" in h2-tls-*) tls=yes ;; esac
+  case "$2" in *-tls-*) tls=yes ;; esac
   case "$1" in
     nginx)
-      if [ -n "$tls" ]; then render nginx "ssl "; else render nginx ""; fi
+      # The listen parameters. nginx 1.24 speaks no h11 on a cleartext port that has http2, and
+      # over TLS it chooses by ALPN.
+      local listen=http2
+      case "$2" in h11-*) listen="" ;; esac
+      if [ -n "$tls" ]; then listen="ssl http2"; fi
+      render nginx "$listen"
       command=(nginx -p "$scratch" -e "$scratch/nginx.error.log" -c "$scratch/nginx.conf")
       ;;
     h2o)
@@ -135,6 +228,13 @@ server_command() {  # server_command <variant> <input>
         render h2o ""
       fi
       command=(h2o -c "$scratch/h2o.conf")
+      ;;
+    hyper)
+      command=("$hyper_server" --port "$port")
+      if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
+      ;;
+    httpz)
+      command=("$httpz_server" --port "$port")
       ;;
     *)
       if [ "$1" = base ]; then command=("$base_server"); else command=("$change_server"); fi
@@ -154,17 +254,13 @@ start_server() {  # start_server <variant> <input> <log>
     "${command[@]}" >"$3" 2>&1 &
   fi
   server_pid=$!
-  # Over TLS, h2load offers tls_suite alone, as load.sh makes it do.
-  local offer=()
-  case "$2" in h2-tls-*) offer=(--tls13-ciphers="$tls_suite") ;; esac
   local ready=""
   for _ in $(seq 1 "$ready_tries"); do
-    if succeeded 1 "${offer[@]}" -n 1 -c 1 "$(url "$2")"; then ready=yes; break; fi
+    if answers "$2"; then ready=yes; break; fi
     sleep 0.1
   done
   [ -n "$ready" ] || fail "$1 answered no request for $2 in $ready_tries tries" "$3"
-  succeeded "$warm_requests" "${offer[@]}" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$2")" ||
-    fail "the warm-up of $1 for $2 did not succeed in full" "$3"
+  warms "$2" || fail "the warm-up of $1 for $2 did not succeed in full" "$3"
 }
 
 stop_server() {
@@ -228,9 +324,24 @@ machine() {
   echo "memset, change=$(memset_of "$change_server")"
   [ -n "$base" ] && echo "memset, base=$(memset_of "$base_server")"
   echo "h2load=$(h2load --version 2>/dev/null | head -1)"
+  if [ -n "$h11" ]; then
+    echo "wrk=$(wrk --version 2>&1 | head -1 | cut -d' ' -f1-2), TLS 1.3 with ${tls_suite} alone"
+  fi
   if [ -n "$competitors" ]; then
-    echo "nginx=$(nginx -v 2>&1 | sed 's/^nginx version: //'), $(nginx -V 2>&1 | sed -n 's/^built with //p')"
-    echo "h2o=$(h2o --version 2>/dev/null | sed -n 's/^h2o version //p'), $(h2o --version 2>/dev/null | sed -n 's/^OpenSSL: //p')"
+    if wants nginx; then
+      echo "nginx=$(nginx -v 2>&1 | sed 's/^nginx version: //'), $(nginx -V 2>&1 | sed -n 's/^built with //p')"
+    fi
+    if wants h2o; then
+      echo "h2o=$(h2o --version 2>/dev/null | sed -n 's/^h2o version //p'), $(h2o --version 2>/dev/null | sed -n 's/^OpenSSL: //p')"
+    fi
+    # Cargo.lock names each crate's version; rustls's provider is aws-lc-rs.
+    if wants hyper; then
+      # rustc runs in hyper's directory, whose rust-toolchain.toml names the release.
+      echo "hyper=$(locked hyper), hyper-util $(locked hyper-util), tokio $(locked tokio), rustls $(locked rustls), aws-lc-rs $(locked aws-lc-rs), $(cd "$repository_root/bench/competitors/hyper" && rustc --version 2>/dev/null || echo 'rustc unknown')"
+    fi
+    if wants httpz; then
+      echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("${BENCH_ZIG_HTTPZ:-zig}" version 2>/dev/null || echo unknown)"
+    fi
   fi
   [ "$mode" = judge ] && echo "perf=$(sudo -n "${PERF:-perf}" --version)"
   echo "rounds=$rounds"
@@ -255,6 +366,34 @@ if [ -z "$base_server" ] && [ -n "$base" ]; then
   build "$base" "$scratch/base"
   base_server="$scratch/base/bin/http-server"
 fi
+# Whether --competitors measures <competitor>.
+wants() {  # wants <competitor>
+  local name
+  for name in "${competitor_names[@]}"; do [ "$name" = "$1" ] && return 0; done
+  return 1
+}
+
+# The version of <crate> that bench/competitors/hyper/Cargo.lock pins.
+locked() {  # locked <crate>
+  awk -v crate="$1" '$0 == "name = \"" crate "\"" { getline; gsub(/version = |"/, ""); print; exit }' \
+    "$repository_root/bench/competitors/hyper/Cargo.lock"
+}
+
+hyper_server="${BENCH_HYPER:-}"
+if [ -n "$competitors" ] && wants hyper && [ -z "$hyper_server" ]; then
+  echo "run.sh: building hyper" >&2
+  # rustup reads the release that rust-toolchain.toml names in the directory cargo runs in.
+  (cd "$repository_root/bench/competitors/hyper" && cargo build --release --locked --quiet --target-dir "$scratch/hyper")
+  hyper_server="$scratch/hyper/release/colibri-bench-hyper"
+fi
+httpz_server="${BENCH_HTTPZ:-}"
+if [ -n "$competitors" ] && wants httpz && [ -z "$httpz_server" ]; then
+  echo "run.sh: building http.zig" >&2
+  (cd "$repository_root/bench/competitors/httpz" &&
+    "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.0 that builds http.zig}" build \
+      --prefix "$scratch/httpz" --cache-dir "$scratch/httpz-cache" >/dev/null)
+  httpz_server="$scratch/httpz/bin/colibri-bench-httpz"
+fi
 identity="${BENCH_IDENTITY:-}"
 if [ -z "$identity" ]; then
   (cd "$repository_root" && go run tools/h2_interop/tls_identity.go "$scratch/identity")
@@ -264,7 +403,7 @@ machine >"$scratch/machine.txt"
 
 variants=(change)
 if [ -n "$base_server" ]; then variants+=(base); fi
-if [ -n "$competitors" ]; then variants+=(nginx h2o); fi
+if [ -n "$competitors" ]; then variants+=("${competitor_names[@]}"); fi
 
 # Round 0 is the warm-up, which the report discards. Each round after it measures the variants in
 # turns, starting one place later in the list each round, so that each goes first as often.
@@ -272,7 +411,8 @@ for round in $(seq 0 "$rounds"); do
   for input in "${inputs[@]}"; do
     echo "run.sh: round $round, $input" >&2
     for ((place = 0; place < ${#variants[@]}; place++)); do
-      measure "${variants[(round + place) % ${#variants[@]}]}" "$input" "$round"
+      variant="${variants[(round + place) % ${#variants[@]}]}"
+      if serves "$variant" "$input"; then measure "$variant" "$input" "$round"; fi
     done
   done
 done

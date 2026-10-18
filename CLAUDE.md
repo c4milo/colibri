@@ -400,15 +400,18 @@ Everything below exists. Change this section when a step adds or renames a comma
   disk. With `GARDEN_REGISTRY` set it pulls the origins' images from that repository and builds
   only the missing ones, and with `GARDEN_PUSH=1` it pushes what it built; the CI job uses
   `ghcr.io/c4milo/colibri-http-garden` (decision 88 as amended).
-- Bench: `bench/run.sh [--filter] [--base <tree>] [--competitors] [--rounds <n>] [report.md]`, on
+- Bench: `bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--rounds <n>] [report.md]`, on
   Linux only, with the machine written down beside the numbers; macOS produces no published number
   (decision 32). It builds the test-only h2 server in ReleaseSafe and counts the server's
   instructions, cycles and system calls per request and per connection with `perf stat`, run as root
   through `sudo -n`, in cleartext and over TLS (design §8 step 13a). With `--base` it builds a
   second tree, measures the two in turns, and fails when an input loses past the noise.
   `.github/workflows/bench.yml` runs it on the `ubuntu-24.04-arm` runner, the judge, in two jobs
-  when a person starts it (decision 33 as amended). `--competitors` measures nginx and h2o in turns
-  with it, from `bench/competitors/`, and needs both on the PATH (design §8 step 13c). `--filter`
+  when a person starts it (decision 33 as amended). `--competitors` measures nginx, h2o, hyper and
+  http.zig in turns with it, from `bench/competitors/` (design §8 steps 13c and 13g). It needs
+  nginx and h2o on the PATH, cargo to build hyper, and `BENCH_ZIG_HTTPZ` naming the Zig 0.17.0 that
+  builds http.zig; `BENCH_COMPETITORS` names a part of the list. `--h11` adds four h11 inputs,
+  which wrk sends and which http.zig serves in cleartext alone; it needs wrk and curl. `--filter`
   needs neither perf nor taskset and reads the server's CPU time from /proc: its numbers order
   candidates on a laptop and are never published. It needs Zig, h2load, python3, and Go to mint the
   TLS identity. `zig build bench-memory` prints the static memory per connection for the objects the

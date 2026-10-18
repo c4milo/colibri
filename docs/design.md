@@ -4925,6 +4925,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **13e**, QUIC throughput under msquic's `secnetperf`, through the `perf` ALPN endpoint of §9.
   - **13f**, latency percentiles at stated offered loads, from a generator that sends on a
     schedule.
+  - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
+    2026-10-17:
+    - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,
+      pinned by its `Cargo.lock` and its `rust-toolchain.toml`.
+    - http.zig answers over h11 in cleartext alone, since it has no TLS, from
+      `bench/competitors/httpz/`. It is pinned by commit and built with Zig 0.17.0, the release
+      its master targets; colibri stays on Zig 0.16.
+    - `bench/run.sh --h11` adds h11-many, h11-tls-many, h11-one and h11-tls-one. wrk sends them,
+      not h2load: http.zig answers with an empty reason phrase, `HTTP/1.1 200 `, which RFC 9112
+      §4 allows, and h2load records a status only when the reason phrase holds text. wrk sends
+      for a time, one request at a time on each connection, and with `Connection: close` on the
+      `-one` inputs. An OpenSSL configuration offers it TLS_AES_256_GCM_SHA384 alone, as h2load's
+      option does.
+
+    **Check:** the judge's report gives colibri's ratio to each competitor on each input it
+    serves, from a run with `competitors` and `h11` set. `report.py --test` holds the report to
+    wrk's counts and errors, to the tool and the version each input takes, to the close each
+    `-one` h11 input asks for, and to a competitor that serves some inputs alone.
 
   *Medium.*
 
@@ -5004,6 +5022,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     [36813252981](https://github.com/c4milo/colibri/actions/runs/36813252981), failed before it
     measured: h2o, started by the runner's own user, refused the `user` line a container needs.
     cf7bcd2 keeps that line for root alone.
+
+  **13g, 2026-10-18.** `bench/run.sh --competitors --h11` measures hyper and http.zig beside
+  nginx and h2o, over the four h2 inputs and the four h11 ones, which wrk sends. hyper runs 1.12.0
+  on tokio 1.53.3 and rustls 0.23.46 over aws-lc-rs 1.18.2, built with Rust 1.99.0. http.zig runs
+  at e8272bfd, built with Zig 0.17.0. Every TLS input ran TLS_AES_256_GCM_SHA384 over X25519.
+
+  [Run 39100192931](https://github.com/c4milo/colibri/actions/runs/39100192931), on 13d6a5a,
+  printed these medians per request (`-many`) or per connection (`-one`). Its two jobs agree
+  within 3.1% on every ratio, and within 1.2% on all but three; this is the first job's
+  instructions, kernel and user together:
+
+  | Input | colibri | nginx | h2o | hyper | http.zig |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | h2-many | 14,648 | 46,117 | 34,347 | 27,460 | — |
+  | h2-tls-many | 18,576 | 40,674 | 37,699 | 29,058 | — |
+  | h2-one | 146,993 | 142,385 | 143,490 | 213,707 | — |
+  | h2-tls-one | 1,949,599 | 2,590,653 | 2,357,626 | 1,038,078 | — |
+  | h11-many | 37,601 | 28,418 | 52,429 | 27,290 | 73,882 |
+  | h11-tls-many | 52,738 | 51,571 | 75,059 | 32,959 | — |
+  | h11-one | 111,667 | 72,184 | 102,156 | 89,822 | 100,503 |
+  | h11-tls-one | 1,822,806 | 2,141,032 | 2,130,477 | 788,359 | — |
+
+  http.zig serves no TLS and no h2, so it has no number there. Against decision 31's
+  expectations:
+  - Many requests on one connection over h2: colibri takes the fewest instructions of the five,
+    0.32 to 0.53 of each competitor's in cleartext and 0.44 to 0.64 over TLS.
+  - An h2 connection in cleartext: colibri matches nginx and h2o, at 1.02 to 1.03 of theirs, and
+    takes 0.69 of hyper's.
+  - TLS handshakes, where decision 31 expects colibri to match: colibri takes 0.75 of nginx's
+    instructions on h2-tls-one and 0.83 of h2o's, and 0.85 of either's on h11-tls-one. 13c
+    measured 21 to 24 times theirs on chapulin before 0.2.0. hyper takes about half of colibri's:
+    1.88 times on h2-tls-one and 2.31 times on h11-tls-one, where rustls on aws-lc-rs runs the
+    handshake.
+  - h11 is where colibri loses most. Many requests take 1.32 times nginx's instructions and 1.38
+    times hyper's, though 0.72 of h2o's and 0.51 of http.zig's. A connection with one request
+    takes 1.09 to 1.55 times every competitor's. Over TLS with many requests, colibri matches
+    nginx and takes 1.60 times hyper's. colibri's h11 path is the next performance target.
 
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
@@ -10008,8 +10063,10 @@ measured the way chapulin's `bench/sram.sh` measures its SRAM rows and never est
 
 h2load from nghttp2 for h2, and for h3 when built against ngtcp2 and nghttp3 — which stock
 packages are not, so the build is part of the bench. `secnetperf` from msquic for QUIC throughput.
-quiche and quic-go for h3. h2o and nginx as the h2 server bar. aioquic is a correctness reference
-and not a performance target.
+quiche and quic-go for h3. h2o and nginx as the h2 server bar, and for h11 too. hyper, the Rust
+server most Rust programs build on, for h11 and h2, and http.zig, a Zig server, for h11 in
+cleartext (step 13g). wrk sends the h11 inputs, since h2load counts no answer whose reason phrase
+is empty, as http.zig's is. aioquic is a correctness reference and not a performance target.
 
 ### 11.4 Method
 

@@ -63,17 +63,33 @@ with the request's or frame's size beside every speed.
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a
 baseline's binary is sampled by function names to split its time, and its source is not read.
 
-`bench/run.sh --competitors` measures nginx and h2o in turns with colibri's h2 server, over the
-same four inputs (design §8 step 13c), and `bench.yml` does so when its `competitors` input is set.
-Each one is set up so that the three do the same work:
+`bench/run.sh --competitors` measures nginx, h2o, hyper and http.zig in turns with colibri's
+server, over the same inputs (design §8 steps 13c and 13g), and `bench.yml` does so when its
+`competitors` input is set. With `--h11`, and `bench.yml`'s `h11` input, four h11 inputs join the
+four h2 ones. Each competitor is set up so that all of them do the same work:
 
-- Each comes from the runner's Ubuntu 24.04 packages, and the report names the version each
-  binary gives and the OpenSSL it was built with.
+- nginx and h2o come from the runner's Ubuntu 24.04 packages, and the report names the version
+  each binary gives and the OpenSSL it was built with. hyper is a program of
+  `bench/competitors/hyper/`, built with `cargo build --release --locked`: hyper 1 on tokio's
+  single-thread runtime, with rustls over aws-lc-rs for TLS. http.zig is a program of
+  `bench/competitors/httpz/`, built in ReleaseFast with Zig 0.17.0, the release its master
+  targets. The report names each crate's version, the Rust release and http.zig's commit.
 - Each answers every request as colibri's test-only server does, from memory: status 200,
   `text/plain; charset=utf-8` and the eight octets `colibri\n`. nginx answers with `return`, and
-  h2o 2.2 through its mruby handler. `bench/competitors/` holds both configurations.
+  h2o 2.2 through its mruby handler. `bench/competitors/` holds every configuration and program.
 - Each runs one worker on the core the judge pins servers to, and presents the same P-256
-  identity. h2load offers TLS_AES_256_GCM_SHA384 alone, so that all three run one cipher.
+  identity. h2load offers TLS_AES_256_GCM_SHA384 alone, so that all of them run one cipher.
+  http.zig runs one thread that reads connections and one that answers, both on that core.
+- http.zig has no TLS, so it serves the two cleartext h11 inputs, and the report compares
+  colibri with it on those alone.
+- nginx 1.24 speaks no h11 on a cleartext port that has `http2`, so run.sh starts it without
+  `http2` for the cleartext h11 inputs. Over TLS it offers both by ALPN.
+- wrk sends the h11 inputs for a time and counts the requests it finished, which are the units.
+  On the `-one` inputs each request asks for `Connection: close`. wrk counts a close as a socket
+  read error when the answer did not announce it, as http.zig's does not, so the report allows
+  those errors there, one for each request at most. load.sh writes the wrk command first, and the
+  report requires the close on each `-one` input and on no other. wrk sets no ALPN, so each server
+  speaks h11 to it over TLS too.
 - Each keeps its own TLS ticket behavior, and each issues tickets, which h2load never uses.
 - The report gives the change's ratio to each competitor, losses first, and a competitor's numbers
   never fail the run. Decision 31 reports where colibri wins, matches and loses.

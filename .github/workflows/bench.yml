@@ -3,7 +3,8 @@
 # amended). With `base`, each job builds that commit beside the change and measures the two in
 # turns, so that a ratio compares two builds on one machine. The two jobs run on two runners, and
 # a change stays only when it wins past the noise in both. With `competitors`, nginx and h2o from
-# Ubuntu's packages answer the same requests in the same job (design §8 step 13c). The work is
+# Ubuntu's packages, hyper and http.zig answer the same requests in the same job (design §8 steps
+# 13c and 13g), and with `h11` four h11 inputs join the four h2 ones, which wrk sends. The work is
 # bench/run.sh, which a person on Linux with perf runs for the same answer; this file only installs
 # what it needs.
 name: bench
@@ -19,7 +20,11 @@ on:
         type: string
         default: "5"
       competitors:
-        description: "Measure nginx and h2o too, in turns with colibri's server"
+        description: "Measure nginx, h2o, hyper and http.zig too, in turns with colibri's server"
+        type: boolean
+        default: false
+      h11:
+        description: "Measure the four h11 inputs too"
         type: boolean
         default: false
 permissions:
@@ -27,6 +32,9 @@ permissions:
 env:
   ZIG_VERSION: 0.16.0
   ZIG_SHA256: ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
+  # The Zig that builds http.zig alone (design §8 step 13g): its master targets 0.17.0.
+  ZIG_HTTPZ_VERSION: 0.17.0
+  ZIG_HTTPZ_SHA256: 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
 jobs:
   bench:
     name: bench (job ${{ matrix.job }})
@@ -41,6 +49,7 @@ jobs:
       BASE: ${{ inputs.base }}
       ROUNDS: ${{ inputs.rounds }}
       COMPETITORS: ${{ inputs.competitors }}
+      H11: ${{ inputs.h11 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -64,7 +73,7 @@ jobs:
       - name: Install h2load and perf
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends nghttp2-client linux-tools-common "linux-tools-$(uname -r)"
+          sudo apt-get install -y --no-install-recommends nghttp2-client wrk linux-tools-common "linux-tools-$(uname -r)"
           echo "PERF=/usr/lib/linux-tools/$(uname -r)/perf" >>"${GITHUB_ENV}"
       # Each package starts its own service, which run.sh never measures and which would hold a
       # core, so the step stops both. bench/run.sh starts each from bench/competitors/.
@@ -73,6 +82,20 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends nginx h2o
           sudo systemctl stop nginx h2o || true
+      # bench/run.sh builds hyper with cargo, and rustup installs the release that
+      # bench/competitors/hyper/rust-toolchain.toml names on the first call. It builds http.zig
+      # with Zig 0.17.0, which no other step uses.
+      - name: Install Rust and Zig 0.17.0
+        if: env.COMPETITORS == 'true'
+        run: |
+          command -v rustup >/dev/null ||
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "${HOME}/.cargo/bin" >>"${GITHUB_PATH}"
+          curl -sSfL -o zig-httpz.tar.xz "https://ziglang.org/download/${ZIG_HTTPZ_VERSION}/zig-aarch64-linux-${ZIG_HTTPZ_VERSION}.tar.xz"
+          echo "${ZIG_HTTPZ_SHA256}  zig-httpz.tar.xz" | sha256sum -c -
+          mkdir -p "${HOME}/zig-httpz" && tar -xJf zig-httpz.tar.xz -C "${HOME}/zig-httpz" --strip-components=1
+          rm zig-httpz.tar.xz
+          echo "BENCH_ZIG_HTTPZ=${HOME}/zig-httpz/zig" >>"${GITHUB_ENV}"
       # The arm64 job's caches in main.yml, under its keys: this job restores them and saves none.
       - name: Restore the Zig caches
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -97,6 +120,7 @@ jobs:
           arguments=(--rounds "${ROUNDS}")
           if [ -n "${BASE}" ]; then arguments+=(--base base); fi
           if [ "${COMPETITORS}" = true ]; then arguments+=(--competitors); fi
+          if [ "${H11}" = true ]; then arguments+=(--h11); fi
           bench/run.sh "${arguments[@]}" bench-report.md
       - name: Publish the report
         if: always()
