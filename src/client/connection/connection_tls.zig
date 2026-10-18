@@ -81,17 +81,41 @@ pub fn protocol_of(selected: ?[]const u8, versions: Versions) Protocol {
     return if (std.mem.eql(u8, name, &tls_provider.constants.alpn_h2)) .h2 else .h11;
 }
 
-/// Opens the records of `input` that fit, then reads the protocol from what they held until an
-/// exchange ends. Returns the octets of `input` taken.
+/// Opens the records of `input` that fit, one that carries the protocol's octets at a time, and
+/// has the protocol read all it can of each before the next one opens. Returns the octets of
+/// `input` taken. A record that fails ends the protocol's session (RFC 9846 §6), so the protocol
+/// reads what the records before it held first: some of a response arrived, and the channel does
+/// not send the request again (decision 124).
 pub fn read(connection: *Connection, input: []const u8, now_ns: u64) usize {
-    const consumed = open_records(connection, input, now_ns);
+    var consumed: usize = 0;
+    // Bounded: each pass opens a record that carries octets of the input, or ends the loop.
+    for (0..input.len + 1) |_| {
+        read_held(connection, now_ns);
+        const taken = open_records(connection, input[consumed..], now_ns);
+        consumed += taken.consumed;
+        if (taken.failed) {
+            internal.fail(connection);
+            break;
+        }
+        if (!taken.data) break;
+    }
     internal.collect_ticket(connection);
-    const taken = internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);
-    internal.take_plaintext(connection, taken);
     // RFC 9846 §6.1: nothing follows the server's close_notify, so every exchange still awaiting
     // its response has what it will get.
     if (connection.peer_closed and connection.plain_in_len == 0 and !connection.stopped) peer_ended(connection);
     return consumed;
+}
+
+/// Reads the protocol from what earlier records opened until it takes nothing more: it needs more
+/// octets, or it ended. Each exchange that ends is reported later, one a call.
+fn read_held(connection: *Connection, now_ns: u64) void {
+    // Bounded: each pass takes octets, or ends the loop.
+    for (0..connection.plain_in_len + 1) |_| {
+        if (connection.plain_in_len == 0) return;
+        const taken = internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);
+        internal.take_plaintext(connection, taken);
+        if (taken == 0) return;
+    }
 }
 
 /// The server's `close_notify` arrived and every octet before it is read: a body that runs until
@@ -101,33 +125,50 @@ fn peer_ended(connection: *Connection) void {
     internal.fail(connection);
 }
 
-/// Opens whole records into the protocol's octets while one fits, and returns the octets taken.
-fn open_records(connection: *Connection, input: []const u8, now_ns: u64) usize {
-    var consumed: usize = 0;
+/// What `open_records` took: octets of the input, whether a record carried the protocol's octets,
+/// and whether a record failed.
+const Taken = struct {
+    consumed: usize = 0,
+    data: bool = false,
+    failed: bool = false,
+};
+
+/// Opens whole records into the protocol's octets while one fits, up to the first that carries
+/// some, and returns what it took. The caller ends the connection on a failed record, once the
+/// protocol read what the records before it held.
+fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Taken {
+    var taken: Taken = .{};
     // Bounded: every pass takes a whole record, or ends the loop.
     for (0..input.len + 1) |_| {
         // RFC 9846 §6.1: nothing after the peer's close_notify is read. RFC 9846 §4.7.3: a
         // KeyUpdate's reply goes out before the next record opens.
-        if (connection.peer_closed or connection.reply_owed or connection.stopped) return consumed;
+        if (connection.peer_closed or connection.reply_owed or connection.stopped) return taken;
         const room = connection.plain_in[connection.plain_in_len..];
-        const record = decrypt(connection, input[consumed..], room, now_ns) catch |failure| switch (failure) {
+        const record = decrypt(connection, input[taken.consumed..], room, now_ns) catch |failure| switch (failure) {
             // The protocol has not read enough of what earlier records held.
-            error.NoSpaceLeft => return consumed,
+            error.NoSpaceLeft => return taken,
             // An h2 connection error with its GOAWAY queued, or TLS failed with its alert owed.
             error.ConnectionFailed, error.TlsFailed => {
-                internal.fail(connection);
-                return consumed;
+                taken.failed = true;
+                return taken;
             },
             // The protocol took the provider of a finished handshake.
             error.HandshakeIncomplete, error.NoProvider => unreachable,
         };
-        if (record.consumed == 0) return consumed;
-        consumed += record.consumed;
-        connection.plain_in_len += record.plaintext_len;
-        if (record.end_of_data) connection.peer_closed = true;
-        if (record.owes_handshake) connection.reply_owed = true;
+        if (record.consumed == 0) return taken;
+        taken.consumed += record.consumed;
+        taken.data = keep(connection, record);
+        if (taken.data) return taken;
     }
     unreachable; // Each record takes at least its header, so the input ends first.
+}
+
+/// Keeps what an opened record held, and returns whether it carried the protocol's octets.
+fn keep(connection: *Connection, record: Opened) bool {
+    connection.plain_in_len += record.plaintext_len;
+    if (record.end_of_data) connection.peer_closed = true;
+    if (record.owes_handshake) connection.reply_owed = true;
+    return record.plaintext_len > 0;
 }
 
 /// Writes what the handshake owes, or the flight's records, then seals the protocol's octets, then

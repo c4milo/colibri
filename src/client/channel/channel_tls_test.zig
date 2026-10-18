@@ -78,6 +78,21 @@ fn get(body: []u8) Exchange {
 
 /// The h2 server reads what the TLS server opened, and answers stream 1 with `content`.
 fn answer(content: []const u8) !void {
+    try answer_with(content, true);
+}
+
+/// As `answer`, with the head alone when `whole` is false: no DATA, and no END_STREAM.
+fn answer_with(content: []const u8, whole: bool) !void {
+    try peer_h2_read();
+    const out = &tls_support.peer_out;
+    var written = support.peer_h2.write_pending(out, support.now_ns);
+    written += try support.peer_h2.write_response(out[written..], 1, ok, &.{}, false);
+    if (whole) written += (try support.peer_h2.write_data(out[written..], 1, content, true)).written;
+    try tls_support.server_seal(out[0..written]);
+}
+
+/// The h2 server reads every frame the TLS server opened.
+fn peer_h2_read() !void {
     try tls_support.server_open();
     var consumed: usize = 0;
     for (0..tls_support.peer_plain_len + 1) |_| {
@@ -85,11 +100,13 @@ fn answer(content: []const u8) !void {
         if (received.consumed == 0) break;
         consumed += received.consumed;
     }
-    const out = &tls_support.peer_out;
-    var written = support.peer_h2.write_pending(out, support.now_ns);
-    written += try support.peer_h2.write_response(out[written..], 1, ok, &.{}, false);
-    written += (try support.peer_h2.write_data(out[written..], 1, content, true)).written;
-    try tls_support.server_seal(out[0..written]);
+}
+
+/// Puts a record no key sealed after what the server sealed, in the same octets (RFC 9846 §5.2).
+fn forge() void {
+    const forged = tls_support.forged_record;
+    @memcpy(support.to_client[support.to_client_len..][0..forged.len], forged);
+    support.to_client_len += forged.len;
 }
 
 /// The ALPN extension of a ClientHello that offers `list`, each name behind its length: the
@@ -217,9 +234,7 @@ fn Tests(comptime Channel: type) type {
             _ = try start("localhost", exchange);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            const forged = tls_support.forged_record;
-            @memcpy(support.to_client[support.to_client_len..][0..forged.len], forged);
-            support.to_client_len += forged.len;
+            forge();
             try collect(&channel);
             try testing.expect(channel.tcp.failed);
         }
@@ -362,6 +377,67 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqual(Transport.tcp, find(.close).?.close);
             // No connection carried the exchange, and the attempt has no other transport to open.
             try testing.expectEqual(.refused, exchange.response.outcome);
+            try testing.expectEqual(1, count(.open));
+        }
+
+        /// A channel whose TCP connection speaks `protocol` over TLS, its handshake complete and
+        /// `exchange` written. An h2 server reads what follows.
+        fn start_open(protocol: event.Protocol, exchange: *Exchange) !void {
+            const versions: versions_module.Versions = if (protocol == .h11) .{ .h2 = false } else .{};
+            _ = try start_with(versions, &support.protocols_both, "localhost", exchange);
+            send();
+            try testing.expectEqual(false, tls_support.server_flight().?);
+            try collect(&channel);
+            try testing.expectEqual(protocol, find(.connected).?.connected);
+            send();
+            try testing.expectEqual(true, tls_support.server_flight().?);
+            if (protocol == .h11) return;
+            support.peer_h2.init(.server);
+            try support.peer_h2.attach_tls(tls_support.server.provider());
+        }
+
+        test "decision 124: a record that fails after part of an h11 response ends the GET closed, not sent again" {
+            var exchange = get(&bodies[0]);
+            try start_open(.h11, &exchange);
+            try tls_support.server_seal("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel");
+            forge();
+            try collect(&channel);
+            // h11 read the record before the one that failed (RFC 9846 §6), so some of the response
+            // arrived, and the GET is not sent again (RFC 9110 §9.2.2).
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(1, count(.open));
+        }
+
+        test "decision 124: a record that fails after an h2 response's HEADERS ends the GET closed, not sent again" {
+            var exchange = get(&bodies[0]);
+            try start_open(.h2, &exchange);
+            try answer_with("", false);
+            forge();
+            try collect(&channel);
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(1, count(.open));
+        }
+
+        test "decision 124: a record that fails after the HEADERS of a second h2 response ends that GET closed" {
+            var first = get(&bodies[0]);
+            var second = get(&bodies[1]);
+            try start_open(.h2, &first);
+            _ = try channel.request(&second.request, &second.response);
+            send();
+            try peer_h2_read();
+            // One record holds the first response whole and the second's head, and the record
+            // after it fails. The protocol reads both before the failure.
+            const out = &tls_support.peer_out;
+            var written = support.peer_h2.write_pending(out, support.now_ns);
+            written += try support.peer_h2.write_response(out[written..], 1, ok, &.{}, true);
+            written += try support.peer_h2.write_response(out[written..], 3, ok, &.{}, false);
+            try tls_support.server_seal(out[0..written]);
+            forge();
+            try collect(&channel);
+            try testing.expectEqual(.response, first.response.outcome);
+            try testing.expectEqual(.closed, second.response.outcome);
             try testing.expectEqual(1, count(.open));
         }
 

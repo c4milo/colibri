@@ -190,7 +190,7 @@ var test_storage: Storage align(@alignOf(Storage)) = undefined;
 /// `wire_crc32` is the census's, which a change to an octet the client writes changes (design §8
 /// step 21c.2).
 const expected = struct {
-    const states: u64 = 563;
+    const states: u64 = 525;
     const requests: u64 = 129;
     const responses: u64 = 83;
     const refused: u64 = 3;
