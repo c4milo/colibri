@@ -6,7 +6,8 @@
 //! h11 cannot end one exchange alone: a response the caller cancelled, or one whose content did not
 //! fit, is read to its end and dropped, and the connection goes on. A cancel while the request's
 //! content is going out ends the connection, because the server waits for the octets the head
-//! declared (RFC 9112 §6.2).
+//! declared (RFC 9112 §6.2). A final response that ends while the content is going out ends the
+//! connection too, and the rest of the content is not written (RFC 9112 §9.5, decision 124).
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
@@ -101,10 +102,24 @@ fn finish(connection: *Connection, slot: *Slot) bool {
         const outcome: event.Outcome = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
         slots_module.end(slot, outcome);
     }
-    // RFC 9112 §9.6: after a response that closes the connection, h11 reads and writes nothing
-    // more, so no exchange left awaits a response and none waiting is written.
-    if (connection.session.h11.phase == .closed) close(connection);
+    if (connection.session.h11.phase == .closed) {
+        // RFC 9112 §9.6: after a response that closes the connection, h11 reads and writes nothing
+        // more, so no exchange left awaits a response and none waiting is written.
+        close(connection);
+    } else if (content_left(connection)) {
+        // RFC 9112 §9.5: the client "SHOULD immediately cease transmitting the body and close its
+        // side of the connection" (decision 124). The rest of the content is not written, and the
+        // connection ends as `cancel` ends it.
+        internal.fail(connection);
+    }
     return true;
+}
+
+/// Whether h11 still writes the content of the request whose response just ended. h11 writes a
+/// head only after the content before it (RFC 9112 §9.3.2), so a body still open with no exchange
+/// awaiting a response is that request's.
+fn content_left(connection: *Connection) bool {
+    return connection.session.h11.writer.open() and connection.slots.oldest_awaiting() == null;
 }
 
 /// RFC 9112 §9.6: the server closes the connection. The requests it never saw may go on another
@@ -203,6 +218,10 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
         // RFC 9112 §9.3.2: decision 88 holds the request back until the ones before it are
         // answered, or the pipeline is full.
         error.PipelineBlocked, error.PipelineFull => return false,
+        // RFC 9112 §9.3.2: the head waits for the content before it. Only an exchange whose
+        // response is dropped while its content goes out leaves that content open, and the end of
+        // that response ends the connection (RFC 9112 §9.5).
+        error.BodyInProgress => return false,
         // A head that does not fit an empty output never will.
         error.OutputTooSmall => if (connection.output_len > 0) return false else slots_module.end(slot, .invalid),
         // RFC 9112 §9.6: the server said it closes, so it never sees this request.

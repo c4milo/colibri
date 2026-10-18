@@ -194,6 +194,38 @@ test "decision 100: a channel reports a closed connection's close before it asks
     try testing.expectEqual(2, count(.connected));
 }
 
+/// The content of a PUT, which the output of one `send_stream` does not hold. Test-only.
+var upload: [support.buffer_len]u8 = undefined;
+
+test "decision 124: an early h11 response ends its connection, and the next exchange opens another" {
+    @memset(&upload, 'x');
+    var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    try start(&put);
+    try testing.expect(put.response.content_sent < upload.len);
+    // RFC 9110 §15.5.13: the server refuses the precondition before it reads the content, and names
+    // no close option (RFC 9112 §9.6). RFC 9112 §9.5: the client ends the connection.
+    const early_response = "HTTP/1.1 412 Precondition Failed\r\nContent-Length: 0\r\n\r\n";
+    try testing.expectEqual(early_response.len, try give(early_response));
+    try testing.expectEqual(.response, put.response.outcome);
+    const closed_at = index_of(.close, 0) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(Event{ .close = .tcp }, events[closed_at]);
+    // The peer serves the new connection from here on.
+    support.peer_h11.init(.server, .{});
+    support.to_peer_len = 0;
+    var next = get(&bodies[1]);
+    _ = try channel.request(&next.request, &next.response);
+    try collect();
+    try testing.expectEqual(2, count(.open));
+    try testing.expectEqual(2, count(.connected));
+    send();
+    try support.peer_h11_read();
+    try testing.expectEqual(1, support.peer_requests);
+    try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "5" }}, "hello");
+    try collect();
+    try testing.expectEqual(.response, next.response.outcome);
+    try testing.expectEqualStrings("hello", next.response.content_received());
+}
+
 test "decision 120: a shut-down channel drops the open of a connection no caller heard of" {
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);

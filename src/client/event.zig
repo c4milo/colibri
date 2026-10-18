@@ -100,7 +100,7 @@ pub const Response = struct {
     /// Octets of `values` the wanted values filled.
     values_len: usize = 0,
     /// Octets of the request's `content` written. Fewer than all when the response ended first
-    /// (RFC 9113 §8.1) or the exchange ended another way.
+    /// (RFC 9113 §8.1, RFC 9112 §9.5) or the exchange ended another way.
     content_sent: usize = 0,
     /// The code of the RST_STREAM that reset the stream (RFC 9113 §7), for `reset`.
     error_code: u32 = 0,

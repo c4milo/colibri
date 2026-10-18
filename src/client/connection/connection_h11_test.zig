@@ -255,6 +255,114 @@ test "RFC 9112 §8: a malformed response ends its exchange malformed, and the co
     try testing.expect(support.find(.closed) != null);
 }
 
+/// RFC 9110 §15.5.13: 412 Precondition Failed, which a server may send before it reads the
+/// content. The connection stays open, since it names no close option (RFC 9112 §9.6).
+const precondition_failed: u16 = 412;
+const early_response = "HTTP/1.1 412 Precondition Failed\r\nContent-Length: 0\r\n\r\n";
+const ok_response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+
+/// The peer writes `octets` itself, and the client reads them. Test-only.
+fn peer_writes(octets: []const u8) !void {
+    @memcpy(support.to_client[support.to_client_len..][0..octets.len], octets);
+    support.to_client_len += octets.len;
+    try support.client_receive();
+}
+
+/// A PUT of `upload`, which the output of one `send` does not hold. Test-only.
+fn put_upload(body: []u8) Exchange {
+    @memset(&upload, 'x');
+    return .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = body } };
+}
+
+/// Sends until every octet of `put`'s content is written. The peer drops what it gets. Test-only.
+fn send_content(put: *const Exchange) !void {
+    // Bounded: each pass writes some of the content, until all of it is written.
+    for (0..upload.len) |_| {
+        support.client_send();
+        support.to_peer_len = 0;
+        if (put.response.content_sent == upload.len) return;
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "RFC 9112 §9.5: a response that ends before the content went out ends the connection" {
+    try start();
+    var put = put_upload(&bodies[0]);
+    var waiting = get(&bodies[1]);
+    _ = try connection.request(&put.request, &put.response);
+    _ = try connection.request(&waiting.request, &waiting.response);
+    support.client_send();
+    try testing.expect(put.response.content_sent > 0 and put.response.content_sent < upload.len);
+    try peer_writes(early_response);
+    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(precondition_failed, put.response.status);
+    // The server never saw the request that waited, so it may go on another connection.
+    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expect(support.find(.closed) != null);
+    try testing.expect(connection.should_close());
+    // No more of the content is written, and the connection takes no new request.
+    const content_sent = put.response.content_sent;
+    const written = support.to_peer_len;
+    support.client_send();
+    try testing.expectEqual(written, support.to_peer_len);
+    try testing.expectEqual(content_sent, put.response.content_sent);
+    var third = get(&bodies[2]);
+    try testing.expectError(error.ConnectionClosed, connection.request(&third.request, &third.response));
+}
+
+test "RFC 9112 §9.5: a response too large for its memory, which ends before the content, ends it too" {
+    try start();
+    var put = put_upload(bodies[0][0..2]);
+    var waiting = get(&bodies[1]);
+    _ = try connection.request(&put.request, &put.response);
+    _ = try connection.request(&waiting.request, &waiting.response);
+    support.client_send();
+    // The content does not fit the two octets of `body`, so the response is read and dropped.
+    try peer_writes("HTTP/1.1 412 Precondition Failed\r\nContent-Length: 5\r\n\r\nhel");
+    // h11 has not ended the PUT's content, so the next head waits (RFC 9112 §9.3.2).
+    support.client_send();
+    try testing.expectEqual(.pending, waiting.response.outcome);
+    try peer_writes("lo");
+    try testing.expectEqual(.too_large, put.response.outcome);
+    try testing.expect(put.response.content_sent < upload.len);
+    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expect(support.find(.closed) != null);
+}
+
+test "RFC 9112 §9.5: a response that ends after the content went out keeps the connection" {
+    try start();
+    var put = put_upload(&bodies[0]);
+    var next = get(&bodies[1]);
+    _ = try connection.request(&put.request, &put.response);
+    try send_content(&put);
+    try peer_writes(ok_response);
+    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(null, support.find(.closed));
+    _ = try connection.request(&next.request, &next.response);
+    support.client_send();
+    try testing.expect(sent("GET /dns-query"));
+    try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello");
+    try testing.expectEqualStrings("hello", next.response.content_received());
+}
+
+test "RFC 9112 §9.3.2: a response to the exchange before the one whose content goes out keeps it" {
+    try start();
+    var first = get(&bodies[0]);
+    var put = put_upload(&bodies[1]);
+    _ = try connection.request(&first.request, &first.response);
+    _ = try connection.request(&put.request, &put.response);
+    // A GET is idempotent, so the PUT follows it before its response (decision 88).
+    support.client_send();
+    try testing.expect(put.response.content_sent > 0 and put.response.content_sent < upload.len);
+    try peer_writes(ok_response);
+    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(null, support.find(.closed));
+    try send_content(&put);
+    try peer_writes(ok_response);
+    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(null, support.find(.closed));
+}
+
 test "RFC 9112 §6.2: a cancel while the content is going out ends the connection" {
     try start();
     @memset(&upload, 'x');
