@@ -4650,3 +4650,72 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        and the client answer. No pattern repeats, but each send path takes another step.
      - One interval for the whole connection. A peer that sees one skip knows the rest, and leaves
        them out of its forged frames.
+
+124. **What `client` gives a program that leaves the protocol modules.** Ruled by the owner on
+     2026-10-17, for design §8 step 21f. A dependent planned its move from `h11` to
+     `client.Channel` and listed what `client` lacked, with the evidence on both sides. Step
+     21f's own question, whether `h11`, `h2`, `h3` and `quic` stay exported, waits for that move.
+
+     The rulings:
+     1. `client.HttpExchange` leaves the API. A program sends a `client.Request` and reads a
+        `client.Response`, as the owner put it: programs "either write clients or servers and
+        deal with requests and responses".
+        - `Request` holds `method`, `path`, `fields`, `never_indexed` and `content`.
+        - `Response` holds where the answer goes, `wanted`, `values` and `body`, and what
+          arrived: `status`, `interims`, `body_len`, `values_len`, `outcome`, `coding`,
+          `error_code` and `content_sent`.
+        - The call is `Channel.request(request: *const Request, response: *Response) !Id`. The
+          program keeps both in place, with each slice they name, from `request` until the
+          exchange's `finished` event or until `cancel` returns, as decision 100 ruled for the
+          exchange.
+        - The server already reads a `server.Request` and sends a `server.Response`.
+     2. An early final response ends the h11 connection. When a final response ends while the
+        request's content is still going out, the client stops the content and ends the
+        connection, as `cancel` does (RFC 9112 §9.5). The next exchange goes on another
+        connection.
+     3. The channel sends an idempotent request again. When a connection closes or fails before
+        any octet of a request's response arrives, and the method is idempotent (RFC 9110
+        §9.2.2: PUT, DELETE, and GET, HEAD, OPTIONS and TRACE, which are safe), the channel sends
+        the request again, once, on another connection (RFC 9112 §9.3.1). Any other method ends
+        `closed`, as today. The program sees one outcome. The owner ruled that a program
+        implements no part of HTTP: "No leaky abstractions". An exchange that a connection
+        refused unprocessed still moves once (`moves_max`).
+     4. `client.ChannelOf(capacity)` takes a `client.Capacity` with `quic: bool = true`, as
+        `server.EndpointOf` takes a `server.Capacity`, and `client.Channel` is
+        `ChannelOf(.{})` ([#99](https://github.com/c4milo/colibri/issues/99)). A channel with no
+        QUIC holds no QUIC connection and no QUIC TLS configuration, and its `init` refuses
+        versions that allow h3.
+     5. Three limits in `client.constants`, so a program sizes its memory and bounds its loops at
+        init with no name from `h11` or `tls_provider`:
+        - `stream_input_len_min`: the octets a program holds so that `receive` on a TCP
+          transport always takes some, in cleartext and over TLS;
+        - `stream_output_len_min`: the least `output` with which `send_stream` always writes a
+          record that it owes;
+        - `receive_events_without_input_max`: the most `receive` calls in a row that report an
+          event and take no octet.
+     6. Doc comments state four rules that the code keeps: `Response.status` holds the final
+        status when the outcome is `too_large`; `Channel.init` may run again on a channel with
+        no connection and no exchange; a program may close a transport at any time and then
+        call `transport_closed`; `Open.to` is one of `Values.addresses` with only its port set.
+     7. Three asks become issues: content sent with no copy into the channel's output
+        ([#105](https://github.com/c4milo/colibri/issues/105)), `too_large` at the head
+        ([#106](https://github.com/c4milo/colibri/issues/106)), and an IPv6 scope id
+        ([#107](https://github.com/c4milo/colibri/issues/107)).
+
+     The alternatives refused:
+     - One struct under a name without "exchange". One type then still holds both directions.
+     - `HttpExchange` kept as it is.
+     - `Response.response_began`, which a program reads to decide a resend itself. The program
+       then carries RFC 9110 §9.2.2's rule. The dependent's owner withdrew the ask for that
+       reason.
+     - A per-exchange fact that the content ran until the close (`ended_by_close` or a
+       `body_kind`), or `Config.close_delimited_refused`. Withdrawn: colibri keeps RFC 9112 §6.3
+       rule 8 for a body that runs until the close.
+     - `Channel.negotiated(transport)`, the suite a transport settled on. Withdrawn: which suite a
+       connection settles on is colibri's and chapulin's to test.
+     - A channel that always holds QUIC state: 703,712 octets that a TCP-only program never uses.
+
+     Cost: a breaking change for every program that names `client.HttpExchange` or reads
+     `Finished`'s exchange, in the release that already breaks names under decisions 115 and
+     121. A program that sends an idempotent request may see the server process it twice, which
+     RFC 9110 §9.2.2 allows: the intended effect is the same.

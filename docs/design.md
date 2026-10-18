@@ -8846,7 +8846,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass. Each rule has a mutation a test
       catches.
   - **21f, the package.** Whether `h11`, `h2`, `h3` and `quic` stay exported (decision 86).
-    **Check:** the owner's ruling, once the dependent that uses `h11` directly can use `client`.
+    First, what `client` lacks for a program that leaves the protocol modules (decision 124):
+    - **Names.** `client.Request` and `client.Response` replace `client.HttpExchange`;
+      `client.ChannelOf` and `client.Capacity`; `client.constants.stream_input_len_min`,
+      `stream_output_len_min` and `receive_events_without_input_max`.
+    - **Sub-steps.**
+      - 21f.1: decision 124 and this text.
+      - 21f.2: `client.Request` and `client.Response`, with every caller in the tree.
+      - 21f.3: an early final response ends the h11 connection (RFC 9112 §9.5).
+      - 21f.4: the channel sends an idempotent request again, once, after its connection closed
+        before any octet of the response (RFC 9110 §9.2.2, RFC 9112 §9.3.1).
+      - 21f.5: the three limits.
+      - 21f.6: `client.ChannelOf`, and a memory row for a channel with no QUIC.
+      - 21f.7: the doc lines of decision 124 ruling 6, the examples and the guide.
+      - 21f.8: the step's entry.
+    - **Check:** a test for each rule with a mutation it catches; a raw-octet peer that answers
+      before the content went out; a retry in each version, and none for POST; a test that drives
+      `receive` at `stream_input_len_min` and counts the events with no input; the memory table.
+      `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
+    **Check of 21f:** the owner's ruling, once the dependent that uses `h11` directly can use
+    `client`.
 
   *Large.*
 
