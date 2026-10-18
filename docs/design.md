@@ -9965,8 +9965,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **21f, the client's gaps, 2026-10-17.** What `client` lacked for a program that leaves the
   protocol modules (decision 124). Run on macOS 26 on an Apple M1 Pro, with Zig 0.16.0.
   - **Where.** The commits were written on the branch `client-gaps-21f` over main fa0842d. They
-    were replayed by cherry-pick over main aea97ae, and each memory table was rebuilt from its own
-    commit's tree. 21f's own ruling, whether `h11`, `h2`, `h3` and `quic` stay exported, waits
+    were replayed by cherry-pick over main aea97ae, then over main 28649a3. Each memory table was
+    rebuilt from its own commit's tree, and each endpoint census pin from its own merged tree.
+    28649a3 holds decision 123, QUIC's skipped packet numbers, so this step's decision became 124
+    in its text, its code and its commit messages. 21f's own ruling, whether `h11`, `h2`, `h3` and `quic` stay exported, waits
     for the dependent to leave `h11`.
   - **The rulings, 2026-10-17.**
     - The owner went with the recommendations for the dependent's gaps.
@@ -10028,8 +10030,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     server (decision 124 ruling 7). A test in each failed before the fix: a 30,000-octet head in
     12,000-octet records. The endpoint census moved for seeds 0x25, 0x3a and 0x49, each with a TLS
     peer whose connection now opens records in fewer calls: crc32 0x560d5625 to 0xf16f98da, wire
-    0x5ec49f44 to 0x1e3dec81. It was the same in Debug and ReleaseSafe, P1 to P8 held, and failed
-    stayed 0. Mutations, on each side:
+    0x5ec49f44 to 0x1e3dec81, over aea97ae. It was the same in Debug and ReleaseSafe, P1 to P8
+    held, and failed stayed 0. Over 28649a3, whose QUIC connections draw at start, the pin is
+    crc32 0x33a73ac7 and wire 0xf0a61cbb. Mutations, on each side:
     - **CAUGHT**, each with and without its assert: the old value; the h11 term left out; the
       record term left out.
     - **NOT CAUGHT**: the h2 term left out, which the h11 term covers; the octet short of the
@@ -10060,12 +10063,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **The pins that the review's fixes moved,** both from F2:
     - TCP trace states 563 to 525: each of the 38 TLS seeds logs one state fewer, with the same
       first and last state. Its wire crc32 0x553ad660 did not change.
-    - The endpoint census: crc32 0xf16f98da to 0x5f207af3, wire 0x1e3dec81 to 0x734f205d. Only
-      seed 58 changed, and only its wire CRC: its TLS client peer now reads between records.
+    - The endpoint census: crc32 0xf16f98da to 0x5f207af3, wire 0x1e3dec81 to 0x734f205d, over
+      aea97ae. Only seed 58 changed, and only its wire CRC: its TLS client peer now reads between
+      records. Over 28649a3 the pin is crc32 0x81186212 and wire 0x1853ad5a.
   - **x86_64.** The review ran the client and server tests built for x86_64-linux in an amd64
     container: Debug with Zig's own x86_64 backend, 282 and 482 tests, and ReleaseSafe, the same.
     Each exit status was 0.
-  - `zig build test` after the review's fixes: 183 steps and 3,109 tests.
+  - `zig build test` after the review's fixes: 183 steps and 3,109 tests over aea97ae, and 3,114
+    over 28649a3.
   - **Owed before the push.** `tools/ci.sh` on the exact tree, which runs the TLA+ models, the six
     trace checks (`tools/tcp_trace.sh` for the 38 changed logs) and the interop scripts.
 
