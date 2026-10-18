@@ -310,23 +310,58 @@ test "RFC 9112 §9.5: a response that ends before the content went out ends the 
     try testing.expectError(error.ConnectionClosed, connection.request(&third.request, &third.response));
 }
 
-test "RFC 9112 §9.5: a response too large for its memory, which ends before the content, ends it too" {
+test "RFC 9112 §9.5: a response dropped while the content goes out ends the connection at once" {
     try start();
     var put = put_upload(bodies[0][0..2]);
     var waiting = get(&bodies[1]);
     _ = try connection.request(&put.request, &put.response);
     _ = try connection.request(&waiting.request, &waiting.response);
     support.client_send();
-    // The content does not fit the two octets of `body`, so the response is read and dropped.
-    try peer_writes("HTTP/1.1 412 Precondition Failed\r\nContent-Length: 5\r\n\r\nhel");
-    // h11 has not ended the PUT's content, so the next head waits (RFC 9112 §9.3.2).
-    support.client_send();
-    try testing.expectEqual(.pending, waiting.response.outcome);
-    try peer_writes("lo");
+    // The first chunk does not fit the two octets of `body`, and the client reads nothing after
+    // it. The peer reads all of the PUT's content before it writes the last chunk (RFC 9112 §7.1),
+    // so the client must not wait for that chunk.
+    try peer_writes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhel\r\n2\r\nlo\r\n");
     try testing.expectEqual(.too_large, put.response.outcome);
-    try testing.expect(put.response.content_sent < upload.len);
     try testing.expectEqual(.refused, waiting.response.outcome);
     try testing.expect(support.find(.closed) != null);
+    try testing.expect(connection.should_close());
+    // No more of the content is written.
+    const content_sent = put.response.content_sent;
+    try testing.expect(content_sent < upload.len);
+    const written = support.to_peer_len;
+    support.client_send();
+    try testing.expectEqual(written, support.to_peer_len);
+    try testing.expectEqual(content_sent, put.response.content_sent);
+}
+
+test "RFC 9112 §9.5: a response dropped at its head while the content goes out ends the connection" {
+    try start();
+    var wanted = [_]event.Wanted{.{ .name = "content-type" }};
+    var put = put_upload(&bodies[0]);
+    put.response.wanted = &wanted;
+    put.response.values = values[0..2];
+    _ = try connection.request(&put.request, &put.response);
+    support.client_send();
+    // The value does not fit the two octets of `values`.
+    try peer_writes("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhel");
+    try testing.expectEqual(.too_large, put.response.outcome);
+    try testing.expect(put.response.content_sent < upload.len);
+    try testing.expect(support.find(.closed) != null);
+}
+
+test "RFC 9112 §9.2: a response dropped after the content went out keeps the connection" {
+    try start();
+    var put = put_upload(bodies[0][0..2]);
+    var next = get(&bodies[1]);
+    _ = try connection.request(&put.request, &put.response);
+    try send_content(&put);
+    try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello");
+    try testing.expectEqual(.too_large, put.response.outcome);
+    try testing.expectEqual(null, support.find(.closed));
+    _ = try connection.request(&next.request, &next.response);
+    support.client_send();
+    try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nworld");
+    try testing.expectEqualStrings("world", next.response.content_received());
 }
 
 test "RFC 9112 §9.5: a response that ends after the content went out keeps the connection" {

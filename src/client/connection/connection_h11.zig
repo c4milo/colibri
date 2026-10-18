@@ -6,8 +6,9 @@
 //! h11 cannot end one exchange alone: a response the caller cancelled, or one whose content did not
 //! fit, is read to its end and dropped, and the connection goes on. A cancel while the request's
 //! content is going out ends the connection, because the server waits for the octets the head
-//! declared (RFC 9112 §6.2). A final response that ends while the content is going out ends the
-//! connection too, and the rest of the content is not written (RFC 9112 §9.5, decision 124).
+//! declared (RFC 9112 §6.2). A final response that ends, or that the client drops, while the
+//! content is going out ends the connection too, and the rest of the content is not written (RFC
+//! 9112 §9.5, decision 124).
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
@@ -64,7 +65,7 @@ fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
         .response => |head| return on_response(connection, slot, head.line.status.code),
         .data => |octets| {
             if (slot.stage == .dropping) return false;
-            response_write.append_body(slot, octets) catch |failure| start_dropping(slot, response_write.outcome_of(failure));
+            response_write.append_body(slot, octets) catch |failure| return start_dropping(connection, slot, response_write.outcome_of(failure));
             return false;
         },
         .end => return finish(connection, slot),
@@ -78,7 +79,7 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
     if (slot.stage == .sent) {
         const section = &connection.session.h11.section;
         response_write.record_head(slot, status, section, 0) catch |failure| {
-            start_dropping(slot, response_write.outcome_of(failure));
+            if (start_dropping(connection, slot, response_write.outcome_of(failure))) return true;
         };
     }
     // A response without a body is read whole with its head (RFC 9112 §6.3).
@@ -87,10 +88,20 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
 }
 
 /// The content did not fit the caller's memory, or its coding is corrupt: the exchange ends with
-/// `outcome`, and the rest of the response is read and dropped.
-fn start_dropping(slot: *Slot, outcome: event.Outcome) void {
+/// `outcome`, and the rest of the response is read and dropped. Returns whether the connection
+/// ended instead, which owes the caller an event.
+fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Outcome) bool {
+    if (!slot.content_done()) {
+        // RFC 9112 §9.5: the client "SHOULD immediately cease transmitting the body and close its
+        // side of the connection". A server may read the whole content before it ends its
+        // response, so the client does not wait for that end.
+        slots_module.end(slot, outcome);
+        internal.fail(connection);
+        return true;
+    }
     slot.response.outcome = outcome;
     slots_module.drop(slot, true);
+    return false;
 }
 
 /// The response to `slot` ended. Returns whether the caller is owed an event.
@@ -218,10 +229,6 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
         // RFC 9112 §9.3.2: decision 88 holds the request back until the ones before it are
         // answered, or the pipeline is full.
         error.PipelineBlocked, error.PipelineFull => return false,
-        // RFC 9112 §9.3.2: the head waits for the content before it. Only an exchange whose
-        // response is dropped while its content goes out leaves that content open, and the end of
-        // that response ends the connection (RFC 9112 §9.5).
-        error.BodyInProgress => return false,
         // A head that does not fit an empty output never will.
         error.OutputTooSmall => if (connection.output_len > 0) return false else slots_module.end(slot, .invalid),
         // RFC 9112 §9.6: the server said it closes, so it never sees this request.
