@@ -9964,12 +9964,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **21f, the client's gaps, 2026-10-17.** What `client` lacked for a program that leaves the
   protocol modules (decision 124). Run on macOS 26 on an Apple M1 Pro, with Zig 0.16.0.
-  - **Where.** The commits were written on the branch `client-gaps-21f` over main fa0842d. They
-    were replayed by cherry-pick over main aea97ae, then over main 28649a3. Each memory table was
-    rebuilt from its own commit's tree, and each endpoint census pin from its own merged tree.
-    28649a3 holds decision 123, QUIC's skipped packet numbers, so this step's decision became 124
-    in its text, its code and its commit messages. 21f's own ruling, whether `h11`, `h2`, `h3` and `quic` stay exported, waits
-    for the dependent to leave `h11`.
+  - **Where.** The commits were written on the branch `client-gaps-21f` over main fa0842d. They were
+    replayed by cherry-pick over main aea97ae, then over 28649a3, then over 3d240941, which replayed
+    with no conflict. Each memory table was rebuilt from its own commit's tree, and each endpoint
+    census pin from its own merged tree. 28649a3 holds decision 123, QUIC's skipped packet numbers,
+    so this step's decision became 124 in its text, its code and its commit messages. 21f's own
+    ruling, whether `h11`, `h2`, `h3` and `quic` stay exported, waits for the dependent to leave
+    `h11`.
   - **The rulings, 2026-10-17.**
     - The owner went with the recommendations for the dependent's gaps.
     - The owner then ruled `client.Request` and `client.Response` in place of
