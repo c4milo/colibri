@@ -156,8 +156,8 @@ pub const Ended = struct {
     id: Id,
     request: *const Request,
     response: *Response,
-    /// Some of the response arrived: an octet of it over h11, or a HEADERS frame on its stream
-    /// over h2 and h3.
+    /// Some of the response arrived: an octet of it over h11, or the header of a HEADERS frame on
+    /// its stream over h2 and h3.
     response_began: bool,
 };
 

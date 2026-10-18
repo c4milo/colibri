@@ -357,6 +357,43 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqual(1, count(.open));
         }
 
+        /// The h2 peer writes the header of a HEADERS frame on stream 1 that ends its field block,
+        /// then `payload`, which is the frame's payload or the first octets of it.
+        fn peer_headers(payload_len: u32, payload: []const u8) !void {
+            var frame = h2.core.Writer.init(support.to_client[support.to_client_len..]);
+            try h2.frame.write_header(&frame, .{ .length = payload_len, .type = h2.constants.frame_type_headers, .flags = h2.constants.flag_end_headers, .stream_id = 1 });
+            try frame.write_bytes(payload);
+            support.to_client_len += frame.written().len;
+        }
+
+        test "decision 124: a GET whose HEADERS frame fails to decode ends closed, not sent again" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            // RFC 7541 §6.1: "The index value of 0 is not used", so the field block is a
+            // COMPRESSION_ERROR (RFC 9113 §4.3), and the connection fails.
+            const index_zero = [_]u8{0x80};
+            try peer_headers(index_zero.len, &index_zero);
+            try collect(&channel);
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(1, count(.open));
+        }
+
+        test "decision 124: a GET whose connection closed inside a HEADERS frame ends closed, not sent again" {
+            try start_tcp_only();
+            var exchange = get(&bodies[0]);
+            _ = try channel.request(&exchange.request, &exchange.response);
+            try pump(&channel);
+            // The frame's header arrives, and its payload never does.
+            const field_block_len: u32 = 16;
+            try peer_headers(field_block_len, "");
+            try collect(&channel);
+            try close_transport();
+            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(1, count(.open));
+        }
+
         test "RFC 9110 §9.2.2: a request whose method RFC 9110 does not define is not sent again" {
             try start_tcp_only();
             var exchange: Exchange = .{ .request = .{ .method = "PATCH", .path = "/object", .content = "diff" }, .response = .{ .body = &bodies[0] } };

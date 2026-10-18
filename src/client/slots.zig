@@ -45,10 +45,11 @@ pub const Slot = struct {
     holds_octets: bool = false,
     /// The protocol refused the rest of the content, so no more of it is written.
     content_stopped: bool = false,
-    /// Some of the response arrived: an octet of it over h11, read or still held, or a HEADERS
-    /// frame on its stream over h2 and h3, which every frame of a response follows (RFC 9113 §8.1,
-    /// RFC 9114 §4.1). The channel sends a request again only when its connection closed before
-    /// this (decision 124).
+    /// Some of the response arrived: an octet of it over h11, read or still held. Over h2, the
+    /// header of a HEADERS frame on its stream, before h2 reads the frame. Over h3, a HEADERS
+    /// frame h3 took, or the header of one first on its stream when the connection ends. Every
+    /// frame of a response follows a HEADERS frame (RFC 9113 §8.1, RFC 9114 §4.1). The channel
+    /// sends a request again only when its connection closed before this (decision 124).
     response_began: bool = false,
     /// A dropping slot whose exchange ended before its response did, and whose `finished` event
     /// is owed once the response is read.

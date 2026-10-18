@@ -403,6 +403,51 @@ test "RFC 9110 §9.2.2: a GET whose QUIC transport closed after a HEADERS frame 
     try testing.expectEqual(null, opened(1));
 }
 
+/// A HEADERS frame (RFC 9114 §7.2.2) whose field section names entry 127 of QPACK's static table,
+/// which has 99 (RFC 9204 Appendix A): its type and length, a section prefix of no dynamic entry,
+/// and an indexed field line (RFC 9204 §4.5.2). Test-only.
+const undecodable_headers = "\x01\x04\x00\x00\xff\x40";
+/// The first octets of a HEADERS frame whose payload would be 16 octets long. Test-only.
+const headers_start = "\x01\x10\x00";
+
+/// The server answers its first request with `octets` and leaves the stream open.
+fn answer_raw(octets: []const u8) !void {
+    const answer = &quic_support.answers[0];
+    @memcpy(answer.prefix[0..octets.len], octets);
+    answer.prefix_len = octets.len;
+    answer.content = "";
+    answer.answered = true;
+    try quic.connection_stream_send.supply(&quic_support.server, .{ .value = answer.id }, octets.len, false);
+}
+
+test "decision 124: a GET whose h3 HEADERS frame fails to decode ends closed, not sent again" {
+    try start_h3_alone();
+    quic_support.server_answers = false;
+    var exchange = get(&bodies[0]);
+    _ = try channel.request(&exchange.request, &exchange.response);
+    try pump(quic_support.rounds_default);
+    // RFC 9204 §3.1: an invalid static table index is a connection error of type
+    // QPACK_DECOMPRESSION_FAILED, which fails the connection.
+    try answer_raw(undecodable_headers);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(null, opened(1));
+}
+
+test "decision 124: a GET whose QUIC transport closed inside an h3 HEADERS frame ends closed, not sent again" {
+    try start_h3_alone();
+    quic_support.server_answers = false;
+    var exchange = get(&bodies[0]);
+    _ = try channel.request(&exchange.request, &exchange.response);
+    try pump(quic_support.rounds_default);
+    try answer_raw(headers_start);
+    try pump(quic_support.rounds_default);
+    channel.transport_closed(.quic);
+    try collect();
+    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(null, opened(1));
+}
+
 test "decision 124: a request a GOAWAY moved, whose next QUIC connection closed before any response, ends closed" {
     try start_h3_alone();
     quic_support.server_answers = false;

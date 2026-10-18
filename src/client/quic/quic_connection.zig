@@ -333,6 +333,7 @@ pub const QuicConnection = struct {
         connection.closed = true;
         connection.stopped = true;
         for (&connection.slots.slots) |*slot| slot.holds_octets = false;
+        quic_h3.note_heads(connection);
         connection.slots.end_all(.refused, .closed);
         connection.session.close();
         connection.wipe_ticket();

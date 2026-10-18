@@ -197,6 +197,28 @@ pub fn release_closed(connection: *QuicConnection) void {
     }
 }
 
+/// Notes that a response began on each written exchange whose stream holds a HEADERS frame's
+/// header first, which h3 has not taken: a field section that fails to decode, waits for QPACK's
+/// entries, or never arrives whole (RFC 9204 §2.2.1). Called as the connection ends its exchanges
+/// (decision 124).
+pub fn note_heads(connection: *QuicConnection) void {
+    for (&connection.slots.slots) |*slot| {
+        if (slot.stage != .sent or slot.response_began) continue;
+        slot.response_began = headers_first(connection, slot.stream_id);
+    }
+}
+
+/// Whether stream `stream_id` holds the header of a HEADERS frame first (RFC 9114 §7.1): its type
+/// and its length.
+fn headers_first(connection: *QuicConnection, stream_id: u64) bool {
+    var window: [h3.constants.frame_header_len_max]u8 = undefined;
+    const peeked = quic.connection_stream_read.peek(&connection.transport, .{ .value = stream_id }, &window) catch return false;
+    var reader = h3.core.Reader.init(window[0..peeked.len]);
+    const frame_type = h3.wire.varint.decode(&reader) catch return false;
+    _ = h3.wire.varint.decode(&reader) catch return false;
+    return frame_type.value == h3.constants.frame_headers;
+}
+
 /// Reads every event h3 has at `now_ns`, and records what each means for the exchange it names.
 pub fn read_events(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: every event reads at least one octet the pool holds, or ends a stream.

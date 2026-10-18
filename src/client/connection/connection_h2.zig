@@ -29,6 +29,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
     const session = &connection.session.h2;
     var consumed: usize = 0;
     for (0..constants.frames_per_receive_max) |_| {
+        note_head(connection, plaintext[consumed..]);
         const received = session.receive(plaintext[consumed..], now_ns) catch {
             // RFC 9113 §5.4.1: a connection error ends every exchange, and h2's GOAWAY goes out.
             internal.fail(connection);
@@ -45,6 +46,17 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
         if (record(connection, h2_event)) return consumed;
     }
     return consumed;
+}
+
+/// Notes that a response began when `octets` start with the header of a HEADERS frame on the
+/// stream of an exchange, before h2 reads the frame. A field block that fails to decode (RFC 7541
+/// §6.1), or a frame that never arrives whole, still came (decision 124).
+fn note_head(connection: *Connection, octets: []const u8) void {
+    var reader = h2.core.Reader.init(octets);
+    const header = h2.frame.read_header(&reader) catch return;
+    if (header.type != h2.constants.frame_type_headers) return;
+    const slot = connection.slots.of_stream(header.stream_id) orelse return;
+    slot.response_began = true;
 }
 
 /// Records what h2's event means for the exchange it names. Returns whether the caller is owed an
@@ -84,8 +96,6 @@ fn on_alt_svc(connection: *Connection, advertised: h2.connection.AltSvc) bool {
 
 fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     const slot = connection.slots.of_stream(head.stream_id) orelse return false;
-    // Decision 124: once a HEADERS frame arrived, the channel does not send the request again.
-    slot.response_began = true;
     // RFC 9110 §15.2: a client reads any number of interim responses before the final one.
     if (head.response.status.is_interim()) {
         slot.response.interims += 1;

@@ -5,6 +5,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const quic_connection = @import("quic_connection.zig");
+const quic_h3 = @import("quic_connection_h3.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 
@@ -30,6 +31,7 @@ pub fn fail(connection: *QuicConnection) void {
     // RFC 9000 §10.2.1: a connection that closes sends only its CONNECTION_CLOSE from here on,
     // so no stream reads an exchange's octets again.
     for (&connection.slots.slots) |*slot| slot.holds_octets = false;
+    quic_h3.note_heads(connection);
     connection.slots.end_all(.refused, .closed);
     assert(connection.slots.idle());
 }
