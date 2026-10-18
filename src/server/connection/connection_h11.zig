@@ -133,7 +133,7 @@ pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const
     try check_current(connection, id);
     const session = &connection.session.h11;
     defer note_done(connection, id);
-    var lines: [core.constants.field_count_max]Field = undefined;
+    var lines: [core.constants.field_count_max]Field = unfilled_lines();
     const framed = try complete(connection, status, fields, end, &lines);
     const interim = status >= http.constants.status_code_min and status < @intFromEnum(Code.ok);
     // A response that ends with its head keeps room for the last chunk a caller's own
@@ -150,9 +150,18 @@ pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const
     connection.output_len += session.write_end(internal.room(connection), &.{}) catch |failure| return send_error(connection, failure);
 }
 
+/// The array `respond` gives `complete`, with its octets left as they are. ReleaseSafe would
+/// fill all 4,096 octets with 0xAA on every response, whether `complete` adds a line or not.
+/// `complete` writes each line it returns, and code reads no other line. The owner ruled for
+/// this on 2026-10-18.
+fn unfilled_lines() [core.constants.field_count_max]Field {
+    @setRuntimeSafety(false);
+    return undefined;
+}
+
 /// The caller's fields and the lines the server adds: the framing field the response needs when
 /// it names none, and the Alt-Svc line that advertises h3.
-fn complete(connection: *const Connection, status: u16, fields: []const Field, end: bool, lines: *[core.constants.field_count_max]Field) SendError![]const Field {
+pub fn complete(connection: *const Connection, status: u16, fields: []const Field, end: bool, lines: *[core.constants.field_count_max]Field) SendError![]const Field {
     // RFC 9110 §15: a status code is three digits from 100 to 599.
     const code = http.Status.from_code(status) catch return error.StatusInvalid;
     var added: [lines_added_max]Field = undefined;

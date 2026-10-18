@@ -6940,6 +6940,47 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   The server's user instructions per connection fell by 2,449 and 2,452 on h2-one. On h11-one
   they fell by 2,474 and 2,494. The estimate was about 2,470.
 
+  **`respond` leaves an h11 response's lines unfilled, 2026-10-18.** Callgrind counted the
+  server's instructions per function under h11-many's load. The server ran on epoll in a Linux
+  container on the laptop, so the counts only put the costs in order. The fill of `lines` came
+  first. `respond` declared `lines`, an array of `field_count_max` fields, 4,096 octets, before
+  it knew whether `complete` adds a line. So ReleaseSafe filled the array with 0xAA on every
+  response.
+
+  The owner ruled on 2026-10-18 for the method of `make_h2_session` and `make_h11_session`.
+  `unfilled_lines` returns `undefined` under `@setRuntimeSafety(false)`, and holds nothing else. The array is the
+  result of the call, so `respond` keeps every other safety check. A probe compiled in
+  ReleaseSafe for aarch64 shows a `memset` of 0xAA for the plain declaration and none for the
+  call. `complete` writes each line it returns, and `write_response` reads no other. At the h2
+  record's rate, 4,096 octets is about 900 instructions a response: 2.4% of h11-many.
+
+  What each check printed:
+  - A new test in `connection_h11_test.zig` fills an array four ways and gives it to `complete`.
+    It does so for a response that ends with its head, and for one whose content follows. It
+    requires the same section each time: the caller's line, then the framing line the server adds.
+  - 4 mutations, each **CAUGHT**:
+    - `complete` returns one line past those it wrote;
+    - `complete` returns a section that starts one line late;
+    - `complete` does not copy the caller's lines;
+    - `complete` does not copy the lines it adds.
+  - 1 mutation **NOT CAUGHT**: the array filled as before, which is the old code.
+
+  The judge, [run 39163706783](https://github.com/c4milo/colibri/actions/runs/39163706783),
+  measured `f337a45` against `edbc234`, in instructions per request, or per connection for the
+  `one` inputs. These are this commit and the commit above, before their review. Their review
+  changed no code that the judge ran. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h11-many | 37,549 | 36,633 | 0.9756 | 0.9685 | wins in both |
+  | h11-tls-many | 52,161 | 51,317 | 0.9838 | 0.9785 | wins in job 2 |
+  | h11-one | 99,252 | 97,809 | 0.9855 | 0.9841 | within the noise |
+  | h11-tls-one | 1,810,493 | 1,810,090 | 0.9998 | 0.9992 | within the noise |
+
+  No input loses, and each h2 input is within the noise. h11-one sends one response on each
+  connection. There the server's user instructions fell by 930 in the first job and by 951 in the
+  second. On h11-many they fell by 930 and by 1,175 a request, with spreads of 3.9 to 5.2%.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

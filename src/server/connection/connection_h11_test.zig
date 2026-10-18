@@ -1,7 +1,9 @@
 //! The tests of the server's h11 half (`connection_h11.zig`) in cleartext: requests arrive as the
 //! server's events, and responses go out framed as RFC 9112 §6 requires.
 const std = @import("std");
+const core = @import("core");
 const support = @import("connection_test_support.zig");
+const connection_h11 = @import("connection_h11.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -390,4 +392,34 @@ test "RFC 9110 §10.1.1: a request cancelled before its 100 gets none" {
     connection.cancel(1);
     try testing.expectEqualStrings("", support.drain());
     try testing.expectEqual(null, connection.continue_owed);
+}
+
+/// What the array of lines holds before `complete`: zeros, ones, the 0xAA ReleaseSafe writes for
+/// `undefined`, and another pattern, as in `connection_internal_test.zig`.
+const fill_ones: u8 = std.math.maxInt(u8);
+const fill_undefined: u8 = 0b1010_1010;
+const fill_pattern: u8 = 0b0101_1100;
+const fills = [_]u8{ 0, fill_ones, fill_undefined, fill_pattern };
+
+test "a response's section holds the lines complete wrote, whatever its array held before" {
+    try support.start_cleartext(.h11);
+    _ = try expect_request(get_request, 1);
+    // RFC 9110 §8.6 and RFC 9112 §7.1: a head that ends the response gets Content-Length: 0, and
+    // one whose content follows gets chunked.
+    const added = [_]support.Field{
+        .{ .name = "transfer-encoding", .value = "chunked" },
+        .{ .name = "content-length", .value = "0" },
+    };
+    for ([_]bool{ false, true }, added) |end, line| {
+        for (fills) |fill| {
+            var lines: [core.constants.field_count_max]support.Field = undefined;
+            @memset(std.mem.asBytes(&lines), fill);
+            const section = try connection_h11.complete(connection, ok, &content_type, end, &lines);
+            try testing.expectEqual(content_type.len + 1, section.len);
+            // The caller's line is its own slices, compared without a read through them.
+            try testing.expect(std.meta.eql(content_type[0], section[0]));
+            try testing.expectEqualStrings(line.name, section[1].name);
+            try testing.expectEqualStrings(line.value, section[1].value);
+        }
+    }
 }
