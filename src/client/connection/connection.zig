@@ -74,6 +74,13 @@ pub const Config = struct {
     br_decoders: ?coding_pool.BrotliDecoders = null,
 };
 
+/// What one connection starts with beside the configuration it shares with the others.
+pub const Start = struct {
+    /// The connection carries requests a failed connection left unanswered. Over h11 it writes the
+    /// first of them alone, and pipelines only once its final response arrived (RFC 9112 §9.3.2).
+    retrying: bool = false,
+};
+
 pub const StartError = error{
     /// chapulin refused the TLS configuration or the ticket (`tls.record.Error.Refused`).
     TlsRefused,
@@ -136,6 +143,8 @@ pub const Connection = struct {
     /// The connection ended on a failure, or its transport closed before it was over, rather
     /// than after its last exchange.
     failed: bool,
+    /// `Start.retrying`, which h11 takes once a protocol serves the connection.
+    retrying: bool,
     /// What the latest final response's Alt-Svc said of h3 on the origin's host (RFC 7838 §3),
     /// until `take_alt_svc` hands it over.
     alt_svc: ?alt_svc.Advert,
@@ -148,8 +157,9 @@ pub const Connection = struct {
 
     /// Prepares a connection the caller is opening, with nothing read or written. Over TLS, every
     /// draw the handshake makes comes from `random`, `now_seconds` is the instant a Web PKI chain
-    /// is judged at, and `resumption` offers a ticket an earlier connection took.
-    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+    /// is judged at, `resumption` offers a ticket an earlier connection took, and `start` says
+    /// what this connection carries.
+    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption, start: Start) StartError!void {
         assert(coding.codings_valid(config.codings, .of(config)));
         assert(config.authority.len > 0);
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
@@ -166,6 +176,7 @@ pub const Connection = struct {
         connection.stopped = false;
         connection.draining = false;
         connection.failed = false;
+        connection.retrying = start.retrying;
         connection.alt_svc = null;
         connection.slots.init();
         connection.owed = .{};

@@ -65,7 +65,7 @@ pub fn start_server() !void {
 pub fn prepare_tls(server_protocols: []const []const u8, client_protocols: []const []const u8, server_name: []const u8, tickets: bool) !void {
     try prepare_configs(server_protocols, client_protocols, server_name, tickets);
     support.config = .{ .authority = support.authority, .tls = &client_config };
-    try support.connection.init(&support.config, support.stream.random(), support.now_seconds, null);
+    try support.connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
     try start_server();
 }
 

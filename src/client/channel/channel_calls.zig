@@ -132,7 +132,7 @@ pub fn start_tcp(channel: anytype, random: tls.Random, now_seconds: u64, resumpt
     const link = channel.links.getPtr(.tcp);
     if (link.state != .opening) return;
     assert(!link.open_owed);
-    channel.tcp.init(&channel.tcp_config, random, now_seconds, resumption) catch |failure| {
+    channel.tcp.init(&channel.tcp_config, random, now_seconds, resumption, .{ .retrying = retrying(channel) }) catch |failure| {
         // The channel asks for TCP only while `versions` allows h11 or h2, so the TLS stack alone
         // refuses a start.
         assert(failure == error.TlsRefused);
@@ -187,6 +187,15 @@ fn running_phase(channel: anytype, transport: Transport, link: Link) Phase {
     if (failed) return .failed;
     if (draining) return .draining;
     return if (link.won) .open else .handshake;
+}
+
+/// Whether an exchange that waits for the connection starting now went out on a connection that
+/// failed. The connection then writes the first request alone (RFC 9112 §9.3.2).
+fn retrying(channel: anytype) bool {
+    for (&channel.entries) |*entry| {
+        if (entry.stage == .waiting and entry.after_failure) return true;
+    }
+    return false;
 }
 
 /// The first event the channel owes, after it has read what its connections owe and chosen what

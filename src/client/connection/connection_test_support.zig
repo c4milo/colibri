@@ -143,7 +143,7 @@ fn names(offered: []const http.content_coding.Coding, coding: http.content_codin
 fn start_configured(value: Config) !void {
     config = value;
     const protocol = versions_module.cleartext(value.versions).?;
-    try connection.init(&config, stream.random(), 0, null);
+    try connection.init(&config, stream.random(), 0, null, .{});
     to_peer_len = 0;
     to_client_len = 0;
     events_len = 0;

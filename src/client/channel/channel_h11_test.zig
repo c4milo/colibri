@@ -18,7 +18,7 @@ var config: channel_module.Config align(@alignOf(channel_module.Config)) = undef
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
 var bodies: [bodies_count][body_len]u8 = undefined;
-const bodies_count: usize = 2;
+const bodies_count: usize = 3;
 const body_len: usize = 1024;
 
 const ok: u16 = 200;
@@ -77,7 +77,11 @@ fn count(tag: std.meta.Tag(Event)) usize {
 }
 
 fn get(body: []u8) Exchange {
-    return .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
+    return get_at(body, "/");
+}
+
+fn get_at(body: []u8, path: []const u8) Exchange {
+    return .{ .request = .{ .method = "GET", .path = path }, .response = .{ .body = body } };
 }
 
 /// The index of the `n`th event of `tag` the channel reported, counted from 0, or null.
@@ -416,6 +420,51 @@ fn Tests(comptime Channel: type) type {
             try close_transport();
             try testing.expectEqual(.closed, second.response.outcome);
             try testing.expectEqual(2, count(.open));
+        }
+
+        test "RFC 9112 §9.3.2: after a failed connection, the next one writes the first request sent again alone" {
+            var first = get_at(&bodies[0], "/a");
+            var second = get_at(&bodies[1], "/b");
+            try start(&first);
+            _ = try channel.request(&second.request, &second.response);
+            send();
+            try testing.expectEqual(2, channel.tcp.slots.count(.sent));
+            // The transport fails with no octet of either response read, and both go out again.
+            try close_transport();
+            try testing.expectEqual(2, count(.open));
+            send();
+            // RFC 9112 §9.3.2: "a client MUST NOT pipeline immediately after connection
+            // establishment" when it retries after a failed connection.
+            try testing.expectEqual(1, channel.tcp.slots.count(.sent));
+            try testing.expectEqual(1, (try peer_read()).requests);
+            try support.peer_h11_answer(ok, content_length_5, "hello");
+            try collect(&channel);
+            try testing.expectEqual(.response, first.response.outcome);
+            send();
+            try testing.expectEqual(1, (try peer_read()).requests);
+            try support.peer_h11_answer(ok, content_length_5, "hello");
+            try collect(&channel);
+            try testing.expectEqual(.response, second.response.outcome);
+        }
+
+        test "RFC 9112 §9.3.2: after the server's close option, the next connection pipelines the requests sent again" {
+            var first = get(&bodies[0]);
+            var second = get_at(&bodies[1], "/b");
+            var third = get_at(&bodies[2], "/c");
+            try start(&first);
+            _ = try channel.request(&second.request, &second.response);
+            _ = try channel.request(&third.request, &third.response);
+            send();
+            try testing.expectEqual(3, channel.tcp.slots.count(.sent));
+            // RFC 9112 §9.6: the server closes the connection in its last complete response, so
+            // the two requests written after it go out again, and the connection did not fail.
+            const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+            try testing.expectEqual(response.len, try give(response));
+            try testing.expectEqual(2, count(.connected));
+            support.peer_h11.init(.server, .{});
+            support.to_peer_len = 0;
+            send();
+            try testing.expectEqual(2, channel.tcp.slots.count(.sent));
         }
 
         test "decision 124: a cancelled h11 exchange is never sent again" {

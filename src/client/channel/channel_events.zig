@@ -162,9 +162,20 @@ fn on_finished(channel: anytype, transport: Transport, ended: event.Ended) ?Even
     if (movable(channel, entry, transport, ended.response_began)) {
         // RFC 9114 §4.1.1: a refused request is treated "as though [it] had never been sent". A
         // request sent again starts its response anew, and counts its content again.
-        const resent = entry.resent or entry.response.outcome == .closed;
+        const closed = entry.response.outcome == .closed;
+        // RFC 9112 §9.3.2: a failed connection is one "not explicitly closed by the server in its
+        // last complete response", which leaves the connection draining instead.
+        const after_failure = closed and channel.phase(transport) == .failed;
         entry.response.clear();
-        entry.* = .{ .stage = .waiting, .id = entry.id, .request = entry.request, .response = entry.response, .moves = entry.moves + 1, .resent = resent };
+        entry.* = .{
+            .stage = .waiting,
+            .id = entry.id,
+            .request = entry.request,
+            .response = entry.response,
+            .moves = entry.moves + 1,
+            .resent = entry.resent or closed,
+            .after_failure = after_failure,
+        };
         assign_waiting(channel);
         return null;
     }

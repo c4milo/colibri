@@ -23,7 +23,8 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
         },
         .h11 => {
             connection.session = .{ .h11 = undefined };
-            connection.session.h11.init(.client, .{});
+            // RFC 9112 §9.3.2: after a failed connection, the first request goes out alone.
+            connection.session.h11.init(.client, .{ .retrying = connection.retrying });
         },
         // h3 runs over QUIC (`QuicConnection`), never over this connection's TCP.
         .h3 => unreachable,

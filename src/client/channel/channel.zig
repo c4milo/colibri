@@ -161,6 +161,9 @@ pub const Entry = struct {
     /// The channel sent it again after a connection closed before any of its response arrived
     /// (decision 124), so a server may have processed it.
     resent: bool = false,
+    /// It waits to go out again because its connection failed, and not because the server closed
+    /// that connection in its last complete response, so h11 writes it alone (RFC 9112 §9.3.2).
+    after_failure: bool = false,
 };
 
 /// One transport's connection, as the channel tracks it.
