@@ -15,6 +15,7 @@ const receive_at = deadline_support.receive_at;
 const send_at = deadline_support.send_at;
 const early_ns = deadline_support.early_ns;
 const Deadline = @import("../deadline.zig").Deadline;
+const Content = support.Content;
 
 const grace_ns = server_constants.rate_grace_ns;
 const window_ns = server_constants.rate_window_ns;
@@ -111,11 +112,17 @@ test "decision 110: with no send rate and no linger, a connection waits on its p
 /// it.
 fn answer_blocked(stream_window: u32) !void {
     try h2_support.start();
+    try block_first(stream_window, early_ns);
+}
+
+/// At `now_ns`, the client of a started h2 connection asks for streams with a window of
+/// `stream_window` octets. Then the answer to its request on stream 1 waits on the window.
+fn block_first(stream_window: u32, now_ns: u64) !void {
     var frame: [h2.constants.frame_header_len + h2.constants.setting_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_settings(&writer, &.{.{ .id = h2.constants.setting_initial_window_size, .value = stream_window }});
-    _ = try receive_at(writer.written(), early_ns);
-    _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
+    _ = try receive_at(writer.written(), now_ns);
+    _ = try receive_at(try h2_support.request_frame(1, "/", true), now_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
     const written = connection.write_body(1, .{ .octets = &content, .end = true }) catch 0;
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = content[written..], .end = true }));
@@ -284,4 +291,44 @@ test "decision 110: a stream's window meter does not run while another stream's 
     // Stream 3's answer is done, and stream 1 is not cut.
     try testing.expectEqual(3, (try connection.receive(&.{}, first_end_ns)).event.?.done.id.number);
     try testing.expect(try nothing_owed(first_end_ns));
+}
+
+test "decision 110: a held stream takes a freed entry before it writes a new one, so a long connection keeps one" {
+    try answer_blocked(0);
+    connection.cancel(1);
+    // More streams than the table holds, each held by its window until the client opens it.
+    var stream_id: u32 = 3;
+    for (0..server_constants.bodies_max + 4) |_| {
+        _ = try receive_at(try h2_support.request_frame(stream_id, "/", true), early_ns);
+        try connection.respond(stream_id, .{ .status = ok_status, .end = false });
+        const last: Content = .{ .octets = content[0..1], .end = true };
+        try testing.expectError(error.Blocked, connection.write_body(stream_id, last));
+        _ = try receive_at(&(try window_update(stream_id, 1)), early_ns);
+        try testing.expectEqual(1, try connection.write_body(stream_id, last));
+        _ = send_at(early_ns);
+        try testing.expectEqual(stream_id, (try connection.receive(&.{}, early_ns)).event.?.done.id.number);
+        stream_id += 2;
+    }
+    try testing.expectEqual(1, connection.sends.written);
+}
+
+test "decision 110: init forgets the entries the slot's last connection wrote" {
+    // The connection ends while the meters of streams 1 and 3 run from `early_ns`.
+    try answer_blocked(0);
+    _ = try receive_at(try h2_support.request_frame(3, "/", true), early_ns);
+    try connection.respond(3, .{ .status = ok_status, .end = false });
+    try testing.expectError(error.Blocked, connection.write_body(3, .{ .octets = &content, .end = true }));
+    _ = send_at(early_ns);
+    try testing.expectEqual(2, connection.sends.written);
+    // The next connection in the slot starts from no entry written, and its stream's meter runs
+    // from the instant its own window holds it. No scan reads the entry stream 3 left.
+    try h2_support.start();
+    try testing.expectEqual(0, connection.sends.written);
+    try testing.expectEqual(0, connection.sends.used);
+    try block_first(0, early_ns + 1);
+    _ = send_at(early_ns + 1);
+    try testing.expectEqual(1, connection.sends.written);
+    connection.on_instant(first_end_ns);
+    try testing.expect(try nothing_owed(first_end_ns));
+    try testing.expectEqual(first_end_ns + 1, connection.deadline_ns().?);
 }

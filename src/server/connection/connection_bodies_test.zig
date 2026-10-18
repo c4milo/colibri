@@ -274,3 +274,33 @@ test "decision 110 as amended: while the output holds the WINDOW_UPDATE, the sen
     // The body's rate waited, so its stream was not cut first.
     try testing.expectEqual(null, (try connection.receive(&.{}, end_ns)).event);
 }
+
+test "decision 110: a body takes a freed entry before it writes a new one, so a long connection keeps one" {
+    try support.start_cleartext(.h11);
+    // More requests with a body than the table holds, each answered before the next.
+    for (0..server_constants.bodies_max + 4) |_| {
+        const received = try receive_at(short_head, early_ns);
+        try feed(filler[0..short_body_len], early_ns);
+        try testing.expect((try connection.receive(&.{}, early_ns)).event.?.body.end);
+        try deadline_support.answer_at(received, early_ns);
+    }
+    try testing.expectEqual(1, connection.bodies.written);
+}
+
+test "decision 110: init forgets the entries the slot's last connection wrote" {
+    // The slot's h2 connection ends while the bodies of streams 1 and 3 run from `early_ns`.
+    try h2_support.start();
+    try open_upload(1, early_ns);
+    try open_upload(3, early_ns);
+    try testing.expectEqual(2, connection.bodies.written);
+    // The next connection in the slot starts from no entry written, and its body runs from the
+    // instant it begins. No scan reads the entry stream 3 left.
+    try support.start_cleartext(.h11);
+    try testing.expectEqual(0, connection.bodies.written);
+    try testing.expectEqual(0, connection.bodies.used);
+    _ = try receive_at(upload_head, early_ns + 1);
+    try testing.expectEqual(1, connection.bodies.written);
+    try testing.expectEqual(first_end_ns + 1, connection.deadline_ns().?);
+    connection.on_instant(first_end_ns);
+    try testing.expectEqual(null, connection.close_reason());
+}

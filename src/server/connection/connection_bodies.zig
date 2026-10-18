@@ -45,7 +45,12 @@ const Body = struct {
 };
 
 pub const Bodies = struct {
+    /// Only the first `written` entries hold what a body wrote. `init` writes none of them, and a
+    /// body writes the next entry when no freed entry is left. A connection seldom holds more than
+    /// a few bodies, so `init` does not write all `bodies_max` entries on every connection.
     entries: [constants.bodies_max]Body,
+    /// The count of entries written since `init`.
+    written: u32,
     /// The entries in use: those whose `id` is not 0. While it is 0 a lookup or a sweep reads no
     /// entry, which is how most calls find the table: `receive` observes the deadlines after every
     /// event it reads, and fires them at the first call at each instant.
@@ -60,7 +65,7 @@ pub const Bodies = struct {
     cancelled_len: u32,
 
     pub fn init(bodies: *Bodies) void {
-        bodies.entries = @splat(.{});
+        bodies.written = 0;
         bodies.used = 0;
         bodies.waiting = 0;
         bodies.together = .{};
@@ -76,15 +81,27 @@ pub const Bodies = struct {
         return bodies.find_id(id);
     }
 
-    fn find_free(bodies: *Bodies) ?*Body {
-        return bodies.find_id(0);
+    /// A free entry, which the caller writes whole: one written before whose body ended, or else
+    /// the first never written. h11 reads one request at a time, and h2 holds
+    /// `concurrent_streams_max` streams, so a body always finds one.
+    fn take_free(bodies: *Bodies) *Body {
+        if (bodies.find_id(0)) |free| return free;
+        assert(bodies.written < bodies.entries.len);
+        bodies.written += 1;
+        return &bodies.entries[bodies.written - 1];
     }
 
     fn find_id(bodies: *Bodies, id: Number) ?*Body {
-        for (&bodies.entries) |*body| {
+        for (bodies.written_entries()) |*body| {
             if (body.id == id) return body;
         }
         return null;
+    }
+
+    /// The entries written since `init`. Every scan reads these entries and no other.
+    fn written_entries(bodies: *Bodies) []Body {
+        assert(bodies.used <= bodies.written and bodies.written <= bodies.entries.len);
+        return bodies.entries[0..bodies.written];
     }
 };
 
@@ -92,9 +109,7 @@ pub const Bodies = struct {
 pub fn add(connection: *Connection, id: Number) void {
     const bodies = &connection.bodies;
     assert(bodies.find(id) == null);
-    // h11 reads one request at a time, and h2 holds `concurrent_streams_max` streams, so a body
-    // always finds a free entry.
-    const free = bodies.find_free() orelse unreachable;
+    const free = bodies.take_free();
     free.* = .{ .id = id };
     bodies.used += 1;
 }
@@ -133,7 +148,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     if (bodies.used > bodies.waiting) start_waits(connection, now_ns);
     if (bodies.waiting == 0) return;
     const rates_run = !update_held(connection);
-    for (&bodies.entries) |*body| {
+    for (bodies.written_entries()) |*body| {
         if (body.started) connection_sends.start_or_stop(&body.meter, rates_run, now_ns, limits);
     }
     if (connection.session == .h2) connection_sends.start_or_stop(&bodies.together, rates_run, now_ns, limits);
@@ -142,7 +157,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
 /// Starts the wait of each body that has none and owes no 100 (Continue), at `now_ns`.
 fn start_waits(connection: *Connection, now_ns: u64) void {
     const bodies = &connection.bodies;
-    for (&bodies.entries) |*body| {
+    for (bodies.written_entries()) |*body| {
         if (body.id == 0 or body.started) continue;
         // RFC 9110 §10.1.1: a client that expects 100 (Continue) waits for it before it sends the
         // content, so the wait starts once the 100 is written.
@@ -168,7 +183,7 @@ pub fn soonest(connection: *const Connection, current: ?u64) ?u64 {
     assert(bodies.waiting > 0 or !bodies.together.running());
     if (bodies.waiting == 0) return current;
     var at = current;
-    for (&bodies.entries) |*body| {
+    for (bodies.entries[0..bodies.written]) |*body| {
         if (!body.started) continue;
         if (limits.body_ns) |cap_ns| at = earlier(at, body.since_ns + cap_ns);
         const quota = limits.body_quota() orelse continue;
@@ -192,7 +207,7 @@ pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
     // The bodies' meter runs only while a body waits, so with none waiting no deadline passes.
     assert(bodies.waiting > 0 or !bodies.together.running());
     if (bodies.waiting == 0) return null;
-    for (&bodies.entries) |*body| {
+    for (bodies.written_entries()) |*body| {
         if (!body.started) continue;
         const passed = passed_of(connection, body, now_ns) orelse continue;
         if (connection.session == .h11) return passed;

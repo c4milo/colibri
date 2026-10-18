@@ -181,9 +181,10 @@ fn stream_of(connection: *h2.Connection, index: u32, ended: bool, last: ?i64, si
     }
 }
 
-/// Whether colibri's meter of the body on stream `id` runs.
+/// Whether colibri's meter of the body on stream `id` runs. The scan reads only the entries the
+/// connection wrote, as colibri's own scans do.
 fn body_runs(connection: *const world_module.Connection, id: u64) bool {
-    for (&connection.bodies.entries) |*body| {
+    for (connection.bodies.entries[0..connection.bodies.written]) |*body| {
         if (body.id == id) return body.started and body.meter.running();
     }
     return false;
@@ -191,7 +192,7 @@ fn body_runs(connection: *const world_module.Connection, id: u64) bool {
 
 /// Whether colibri's meter of the send on stream `id` runs, a window holding it.
 fn send_runs(connection: *const world_module.Connection, id: u64) bool {
-    for (&connection.sends.entries) |*blocked| {
+    for (connection.sends.entries[0..connection.sends.written]) |*blocked| {
         if (blocked.id == id) return blocked.meter.running();
     }
     return false;

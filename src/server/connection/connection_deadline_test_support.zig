@@ -33,13 +33,14 @@ pub fn send_at(now_ns: u64) []const u8 {
 
 /// Requires each deadline table's counts to be what a scan of its entries gives. A sweep or a
 /// lookup trusts a count of zero and reads no entry, so every read and send of a test checks them.
+/// Each table's scan stops where the code's does, at the entries written since `init`.
 pub fn expect_counts() !void {
     var sends_used: u32 = 0;
-    for (&connection.sends.entries) |*blocked| sends_used += @intFromBool(blocked.id != 0);
+    for (connection.sends.entries[0..connection.sends.written]) |*blocked| sends_used += @intFromBool(blocked.id != 0);
     try testing.expectEqual(sends_used, connection.sends.used);
     var bodies_used: u32 = 0;
     var bodies_waiting: u32 = 0;
-    for (&connection.bodies.entries) |*body| {
+    for (connection.bodies.entries[0..connection.bodies.written]) |*body| {
         bodies_used += @intFromBool(body.id != 0);
         bodies_waiting += @intFromBool(body.started);
     }

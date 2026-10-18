@@ -6891,6 +6891,55 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   instructions per connection fell by 7,713 in the first job and by 7,682 in the second. The h2
   record's rate, 35,760 instructions for 163,384 octets, gives about 7,670 for 35,040 octets.
 
+  **The deadline tables write no entry when a connection starts, 2026-10-18.** The same profile
+  put `Connection.init` second among the callers of `memset`. It wrote all 128 entries of the
+  body table and of the send table on every connection: 6,144 and 5,120 octets. A connection
+  seldom holds more than a few bodies or held streams. Each table now keeps `written`, the count
+  of entries written since `init`, and `init` writes no entry. A body or a held stream takes a
+  freed entry first, or else it writes the next entry whole, and every scan stops at `written`.
+
+  `written` adds 8 octets to each TCP connection, because `Bodies` had no padding to hold it.
+  The table in `docs/performance.md` holds the new sizes. At the h2 record's rate, 11,264 octets
+  is about 2,470 instructions a connection: 2.4% of h11-one and 1.7% of h2-one. Each table alone
+  is under h11-one's noise, so the owner ruled to judge the two as one change.
+
+  What each check printed:
+  - Two new tests for each table. The first runs a connection with more bodies, or held streams,
+    than the table holds. Each one ends before the next begins, so the connection writes one
+    entry. In the second, a connection follows one that wrote two entries. It starts with none
+    written, and the entry past `written` moves no deadline.
+  - `expect_counts`, which the deadline tests call after each read and send, counts each table's
+    entries up to `written`. The simulator's deadline trace reads them up to `written` too.
+  - The patch of the record above filled each TCP endpoint's storage with 0x00, and again with
+    0xFF. Its five simulator checks and two trace writes then printed and wrote what the tree did
+    with no fill. They also printed what the tree of the h11 record printed.
+  - 14 mutations, each **CAUGHT**:
+    - in each table, a lookup, `soonest` or `fire` that reads every entry;
+    - in each table, a freed entry never taken again, a `written` that never moves, and an `init`
+      that keeps `written`;
+    - in the body table, `start_waits` that reads every entry;
+    - in the send table, a new entry not written.
+  - 2 mutations **NOT CAUGHT**: `observe` that reads every entry, in each table. The mutant also
+    starts or stops the meters past `written`. A body or a held stream writes each of those
+    entries whole before code reads it. So the mutant does what the code does.
+
+  The judge, [run 39160745977](https://github.com/c4milo/colibri/actions/runs/39160745977),
+  measured `0eb1a65` against `5faf212`, in instructions per connection. These are this commit and
+  the commit above, before their review. The review renamed `reached` to `written`, and changed
+  comments, a simulator scan and documents. It changed no code that the judge ran. The base and
+  the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-one | 146,126 | 143,935 | 0.9850 | 0.9846 | wins in both |
+  | h11-one | 102,822 | 95,957 | 0.9332 | 0.9674 | wins in job 1 |
+  | h2-tls-one | 1,946,495 | 1,943,887 | 0.9987 | 0.9990 | within the noise |
+  | h11-tls-one | 1,812,238 | 1,810,960 | 0.9993 | 0.9991 | within the noise |
+
+  No input loses, and each `many` input is within the noise. h11-one's noise in job 2 was 3.47%.
+  The server's user instructions per connection fell by 2,449 and 2,452 on h2-one. On h11-one
+  they fell by 2,474 and 2,494. The estimate was about 2,470.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

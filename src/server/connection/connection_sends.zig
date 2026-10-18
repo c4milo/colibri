@@ -37,7 +37,11 @@ const Blocked = struct {
 pub const Sends = struct {
     /// What the peer took of the connection's octets.
     meter: rate.Meter,
+    /// Only the first `written` entries hold what a stream wrote. `init` writes none of them, and
+    /// a held stream writes the next entry whole when no freed entry is left, as a body does.
     entries: [constants.bodies_max]Blocked,
+    /// The count of entries written since `init`.
+    written: u32,
     /// The entries in use: those whose `id` is not 0. While it is 0 a lookup or a sweep reads no
     /// entry, which is how most calls find the table: `receive` observes the deadlines after every
     /// event it reads, and fires them at the first call at each instant.
@@ -45,7 +49,7 @@ pub const Sends = struct {
 
     pub fn init(sends: *Sends) void {
         sends.meter = .{};
-        sends.entries = @splat(.{});
+        sends.written = 0;
         sends.used = 0;
     }
 
@@ -57,19 +61,35 @@ pub const Sends = struct {
         return sends.find_id(id);
     }
 
-    /// A free entry, which the call takes for a stream. h2 holds `concurrent_streams_max` streams,
-    /// and the table one entry for each.
+    /// A free entry, which the call takes for a stream. It is an entry that a stream left, or
+    /// else the first entry not written yet, which the call writes whole. h2 holds
+    /// `concurrent_streams_max` streams, and the table one entry for each.
     fn take_free(sends: *Sends) *Blocked {
         assert(sends.used < sends.entries.len);
+        const free = sends.find_id(0) orelse sends.write_next();
         sends.used += 1;
-        return sends.find_id(0) orelse unreachable;
+        return free;
+    }
+
+    /// The first entry never written, written now with no stream.
+    fn write_next(sends: *Sends) *Blocked {
+        assert(sends.written < sends.entries.len);
+        sends.entries[sends.written] = .{};
+        sends.written += 1;
+        return &sends.entries[sends.written - 1];
     }
 
     fn find_id(sends: *Sends, id: Number) ?*Blocked {
-        for (&sends.entries) |*blocked| {
+        for (sends.written_entries()) |*blocked| {
             if (blocked.id == id) return blocked;
         }
         return null;
+    }
+
+    /// The entries written since `init`. Every scan reads these entries and no other.
+    fn written_entries(sends: *Sends) []Blocked {
+        assert(sends.used <= sends.written and sends.written <= sends.entries.len);
+        return sends.entries[0..sends.written];
     }
 };
 
@@ -107,7 +127,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     const holding = connection.output_len > 0;
     start_or_stop(&sends.meter, holding, now_ns, limits);
     if (sends.used == 0) return;
-    for (&sends.entries) |*blocked| {
+    for (sends.written_entries()) |*blocked| {
         if (blocked.id == 0) continue;
         start_or_stop(&blocked.meter, !holding, now_ns, limits);
     }
@@ -133,7 +153,7 @@ pub fn soonest(connection: *const Connection, current: ?u64) ?u64 {
     var at = current;
     if (sends.meter.check_ns(quota, window_ns)) |check_ns| at = @min(at orelse check_ns, check_ns);
     if (sends.used == 0) return at;
-    for (&sends.entries) |*blocked| {
+    for (sends.entries[0..sends.written]) |*blocked| {
         const check_ns = blocked.meter.check_ns(quota, window_ns) orelse continue;
         at = @min(at orelse check_ns, check_ns);
     }
@@ -149,7 +169,7 @@ pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
     const window_ns = connection.deadlines.rate_window_ns;
     if (sends.meter.short(now_ns, quota, window_ns)) return .send_rate;
     if (sends.used == 0) return null;
-    for (&sends.entries) |*blocked| {
+    for (sends.written_entries()) |*blocked| {
         if (!blocked.meter.short(now_ns, quota, window_ns)) continue;
         if (blocked.connection_window) return .send_rate;
         cancel_stream(connection, blocked.id);
