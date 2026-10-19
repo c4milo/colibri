@@ -30,6 +30,10 @@ Performance section states the rules, and design §11 holds the method's numbers
   gives each input's median and spread, and the ratio of the change to the base with the losses
   first. The run fails when an input loses past the noise: the larger of the two spreads and the
   floor.
+- The report has one block for each protocol of the run, in the order h11, h2 and h3. The heading
+  of a block names its protocol and the client that sends its load: wrk, h2load, or h2load with
+  HTTP/3. Each table of a block has rows for the inputs of that protocol alone. A protocol with no
+  input in the run has no block.
 - For each input counted per connection, the report also gives the connections one core of the
   server completes a second: the reciprocal of the median CPU time per connection. That is design
   §11.2's handshakes per second for a server whose CPU is the limit. It is a time, so it is
