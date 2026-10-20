@@ -46,8 +46,9 @@ The architecture depends on every rule in this section.
    all nine become parameters on five entry points (design §8 step 10). No source file may import
    a clock. `tools/lint/determinism.zig` enforces it.
 4. **TigerStyle.** Zero heap: no `Allocator` anywhere in `src/`, tests included. The caller owns
-   every struct and buffer, and colibri exposes their sizes as comptime constants (decision 35).
-   Every loop and queue bounded. Every limit named in
+   every struct and buffer. colibri exposes their sizes as comptime constants, or, for a count
+   the caller sets at run time, through a pure `memory_bytes(options)` function (decision 35 as
+   amended). Every loop and queue bounded. Every limit named in
    a `constants.zig` and never written inline. Assertions on in production, roughly two per
    function, covering positive and negative space.
 5. **Determinism.** One seed replays byte-identically across hosts and build modes. Nothing on a
