@@ -9,8 +9,9 @@
 # both ends advertise a QPACK dynamic table, so colibri's QPACK meets ls-qpack's too.
 #
 # It needs python3 and a Go toolchain for the identity. chapulin comes from the package
-# build.zig.zon pins (design §8 step 16a). aioquic is pinned and installed once into a cached
-# virtual environment. It is not part of `zig build test`.
+# build.zig.zon pins (design §8 step 16a). aioquic is pinned and installed into a cached virtual
+# environment, which tools/python_venv.sh makes again whole when it does not import aioquic. It is
+# not part of `zig build test`.
 #
 #   tools/quic_aioquic.sh
 #
@@ -36,10 +37,7 @@ trap cleanup EXIT
 echo "quic_aioquic: building the endpoint and the peer"
 zig build
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
-if [ ! -x "$venv/bin/python" ]; then
-  python3 -m venv "$venv"
-  "$venv/bin/pip" install -q "aioquic==${aioquic_version}"
-fi
+tools/python_venv.sh "$venv" aioquic "aioquic==${aioquic_version}"
 peer=("$venv/bin/python" tools/quic_interop/hq_peer.py)
 h3_peer=("$venv/bin/python" tools/quic_interop/h3_peer.py)
 export HQ_PEER_SCRATCH="$scratch"

@@ -185,10 +185,7 @@ echo "channel_interop.sh: building the test-only client"
 (cd "${repository_root}" && zig build install)
 [ -x "${client}" ] || fail "the client was not built at ${client}"
 (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
-if [ ! -x "${venv}/bin/python" ]; then
-  python3 -m venv "${venv}"
-  "${venv}/bin/pip" install -q "aioquic==${aioquic_version}"
-fi
+"${repository_root}/tools/python_venv.sh" "${venv}" aioquic "aioquic==${aioquic_version}"
 mkdir -p "${scratch}/www"
 # Each fits the octets the client keeps of one response (constants.response_content_len_max).
 head -c 1000 /dev/urandom >"${scratch}/www/small"

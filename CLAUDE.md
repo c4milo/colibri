@@ -495,11 +495,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   session. It also checks each connection's qlog files with `tools/qlog_check.py`, which requires
   each record to be a JSON text with the members its event requires. `tools/qlog_to_qvis.py
   <file.sqlog> [output]` rewrites one into the qlog 0.3 form qvis reads (decision 102 as amended).
-  `tools/quic_aioquic.sh` runs the same endpoint against aioquic's, pinned and installed once
-  into a cached virtual environment, over both protocols in both directions, the `h3` mode serving
-  h3. It checks that a handshake colibri's server refuses ends with its CONNECTION_CLOSE, and that
-  the `h3` mode writes the 100 (Continue) a request expects before aioquic's client sends its
-  content; it also needs `python3`. `tools/ci.sh` runs both.
+  `tools/quic_aioquic.sh` runs the same endpoint against aioquic's, pinned and installed into a
+  cached virtual environment, over both protocols in both directions, the `h3` mode serving h3. It
+  checks that a handshake colibri's server refuses ends with its CONNECTION_CLOSE, and that the
+  `h3` mode writes the 100 (Continue) a request expects before aioquic's client sends its content;
+  it also needs `python3`. `tools/ci.sh` runs both. Each check that runs aioquic first calls
+  `tools/python_venv.sh`, which makes the environment again whole when its Python does not import
+  aioquic. `tools/python_venv_check.sh` checks the helper, and `tools/ci.sh` runs it.
 - Channel check: `zig build http-client -- --channel --tls <anchor-prefix> --seconds <unix-seconds>
   [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Channel`, which
   opens QUIC first and TCP once QUIC fails or the fallback delay passes (design §8 step 17d).

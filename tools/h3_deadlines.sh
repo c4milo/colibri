@@ -38,10 +38,7 @@ trap cleanup EXIT
 echo "h3_deadlines: building the endpoint and the peer"
 zig build
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
-if [ ! -x "$venv/bin/python" ]; then
-  python3 -m venv "$venv"
-  "$venv/bin/pip" install -q "aioquic==${aioquic_version}"
-fi
+tools/python_venv.sh "$venv" aioquic "aioquic==${aioquic_version}"
 export HQ_PEER_SCRATCH="$scratch"
 
 mkdir -p "$scratch/www"

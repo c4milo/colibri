@@ -29,10 +29,7 @@ trap 'rm -rf "$scratch"' EXIT
 echo "qif_interop: building the tools"
 zig build
 qif=./zig-out/bin/qif
-if [ ! -x "$venv/bin/python" ]; then
-  python3 -m venv "$venv"
-  "$venv/bin/pip" install -q "aioquic==${aioquic_version}"
-fi
+tools/python_venv.sh "$venv" aioquic "aioquic==${aioquic_version}"
 peer=("$venv/bin/python" tools/quic_interop/qif_peer.py)
 
 # Runs one command with its output in a log, which is printed only when the command fails.

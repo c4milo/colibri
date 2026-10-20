@@ -135,6 +135,7 @@ section "Simulator checks, Debug and ReleaseSafe" simulator_checks
 # TLS and QUIC handshakes: h2spec and the interop in both directions over TLS as well as
 # cleartext, step 5's two handshakes against Go, and step 9e's QUIC checks.
 section "The port helper every network check waits with" tools/listening_port_check.sh
+section "The helper that keeps the aioquic environment whole" tools/python_venv_check.sh
 section "h2spec, cleartext and TLS" tools/h2spec.sh --tls
 h2spec_lines="$(grep -E "^h2spec.sh: [a-z]+: [0-9]+ passed" "${scratch}/last.log")"
 # Design §8 step 12: h3spec against design §9's h3 server (decision 47 as amended). h3spec.sh
