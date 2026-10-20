@@ -33,9 +33,10 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ### INV-1 — colibri never allocates
 
-- **Claim.** colibri never allocates. Every buffer a connection uses is either inside a struct the
-  caller owns, sized at comptime from `constants.zig`, or was handed in by the caller for the
-  duration of one call.
+- **Claim.** colibri never allocates. Every buffer a connection uses is inside a struct the caller
+  owns, sized at comptime from `constants.zig`; or inside memory the caller owns, sized by
+  `memory_bytes` from options the caller passes (decision 35 as amended); or was handed in by the
+  caller for the duration of one call.
 - **Mechanism.** No module takes, holds or names an `Allocator`, and no source under `src/`
   references `std.heap` (decision 35). The caller owns every struct colibri defines and places it
   where it chooses. The connection struct's size is a comptime constant, so `@sizeOf` gives its

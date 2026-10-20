@@ -439,7 +439,8 @@ Every one is declared in a `constants.zig` and never inline. The RFCs leave most
 implementation and say so, so they are named here rather than chosen at a call
 site. A limit that sizes storage sizes storage the caller owns: colibri allocates nothing
 ([decision 35](decisions.md#memory)), exposes each struct's size as a comptime constant, and
-leaves the caller to place the struct.
+leaves the caller to place the struct. A count the caller sets at run time, such as a pool's TCP
+connections, sizes memory through `memory_bytes(options)` (decision 35 as amended).
 
 **Shared** (`core`): `field_name_len_max` · `field_value_len_max` · `field_count_max` ·
 `field_section_size_max` · `connections_max` · `streams_per_connection_max`.
@@ -10346,6 +10347,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `zig build test`: 183 steps and 3,130 tests.
   - **Owed before the push.** `tools/ci.sh` on the exact tree. Its interop checks show whether Go,
     curl, nghttp, h2o or Caddy send a TLS KeyUpdate, and whether a peer waits for the answer.
+
+- **Step 22 — the client's connection pool.** [Decision 125](decisions.md) replaces
+  `client.Channel` with `client.Pool`, which holds up to `tcp_connections` TCP connections and one
+  QUIC connection to one origin ([#108](https://github.com/c4milo/colibri/issues/108)). The
+  program sets the count at run time, in memory that it supplies (decision 35 as amended). A
+  program that sends 16 requests at once over h11 needs 16 connections, because h11 carries one
+  exchange at a time on a connection.
+  - **Names.** `client.Pool`, `client.PoolOf`, `client.Options`, `client.memory_alignment`,
+    `client.ConnectionHandle` and `client.StreamOctets`; `client.Channel` and `client.ChannelOf`
+    leave the root. `Pool.memory_bytes` and `Pool.set_values` are new calls, and `send` is a new
+    event. `client.constants` gains the maximum of each count.
+  - **Sub-steps.**
+    - 22.1: decision 125, this text, and the amendment of decision 35.
+    - 22.2: `Channel` becomes `Pool` and `ChannelOf` becomes `PoolOf`, in the library, the
+      examples, the guide and every caller. No behavior changes, and every census stays
+      byte-identical.
+    - 22.3: the TCP connection, the links and the entries move into the memory that `init` takes,
+      with `Options` and `memory_bytes`, and one TCP connection. Every census stays
+      byte-identical, and the memory table gains a row for one counted connection.
+    - 22.4: events and calls name a `ConnectionHandle`, the `send` event comes in, and
+      `Input.stream` carries the handle. Still one TCP connection.
+    - 22.5: spec/tla/client_exchanges gains a set of TCP connections, the rule that opens one on
+      demand, and the resend to any other connection. The model changes before the code.
+    - 22.6: several TCP connections, decision 125 rulings 4 to 7.
+    - 22.7: `set_values`.
+    - 22.8: the callers: the simulator's runs, the test-only client, the examples, the consumer
+      and docs/usage.md. The test-only client gains `--connections <n>`.
+    - 22.9: the step's entry, the memory table and `tools/ci.sh`.
+  - **Check:** a test for each rule of decision 125 with a mutation it catches. The client trace
+    run gains seeds with 2 and 3 TCP connections, and TLC checks their logs. Each configuration
+    of the model states its state count, and the TLA+ section of CI's checks job grows by at most
+    5 minutes. `tools/h11_interop.sh` runs 16 exchanges at once over 16 connections against Go's
+    server. `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

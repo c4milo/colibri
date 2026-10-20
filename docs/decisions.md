@@ -714,6 +714,37 @@ Entry 35 was ruled after entries 1 to 34 were numbered, so it takes the next num
     knowing. `tools/lint/heap.zig` enforces the rule with no exception by name, and invariant 1
     asserts it at runtime.
 
+    **Amended by the owner on 2026-10-19, for design §8 step 22 (decision 125).** A type may
+    size part of its memory from a count that the caller sets at run time. `client.Pool` is the
+    first such type: the caller sets its count of TCP connections in the options that `init`
+    takes. The owner ruled the count at run time on 2026-10-17.
+    - The type has a pure function `memory_bytes(options)`, which returns the octets that those
+      options need. A caller can call it at comptime to size a static array, or at run time to
+      size memory that it maps.
+    - `init` takes that memory and asserts its length and its alignment. The memory belongs to
+      the type until the caller stops using it. colibri never asks for more.
+    - The struct itself keeps a comptime size. `@sizeOf` plus `memory_bytes(options)` is all the
+      memory of the type, and docs/performance.md gives both terms.
+    - A named maximum in the module's `constants.zig` bounds each count, so every loop over the
+      counted part stays bounded and `memory_bytes` cannot overflow.
+    - A new type that uses this form is a design change. Its step in design §8 names the type and
+      the count. Every other type keeps its sizes as comptime constants.
+
+    The rule against the heap does not change: no `Allocator`, no `std.heap`, and no
+    `error.OutOfMemory`. `tools/lint/heap.zig` needs no change.
+
+    The alternatives refused:
+    - A comptime count, `client.PoolOf(.{ .tcp_connections = 16 })`, as `server.EndpointOf`
+      does. A program then fixes the count when it builds. A program that reads its counts from
+      its configuration must reserve the largest count for each pool, or build again to change
+      one.
+    - A slice of connections that the caller builds. The connection type would become public
+      again, which step 21d removed from each root (decision 121).
+    - An `Allocator` that `init` takes, which this decision refused for the reasons above.
+
+    Cost: the caller makes one call more, and `@sizeOf` alone no longer gives a pool's memory.
+    The comptime assert pins the size of one counted connection and the struct, not the total.
+
 ## Tooling
 
 Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next number.
@@ -4784,3 +4815,70 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      121. A program that sends an idempotent request may see the server process it twice, which
      RFC 9110 §9.2.2 allows: the intended effect is the same. Each TCP connection, in the client
      and in the server, grows by about 16 KB for ruling 7.
+
+125. **`client.Pool` holds several TCP connections to one origin, counted at run time.** Ruled by
+     the owner on 2026-10-17 and 2026-10-19, for design §8 step 22
+     ([#108](https://github.com/c4milo/colibri/issues/108)). A program that sends many requests
+     at once to one origin over h11 needs one TCP connection for each, because h11 carries one
+     exchange at a time on a connection. `client.Channel` holds one TCP connection and one QUIC
+     connection.
+
+     The rulings:
+     1. `client.Pool` replaces `client.Channel`, and `client.PoolOf(capacity)` replaces
+        `client.ChannelOf`. A channel is a pool of one TCP connection, so one type serves both.
+        `client.Capacity` keeps `quic`.
+     2. The counts are set at run time (decision 35 as amended).
+        - `client.Options` holds `tcp_connections` and `exchanges`. Each has a named maximum in
+          `client.constants`.
+        - `Pool.memory_bytes(options)` returns the octets that the options need. `init` takes
+          that memory, aligned to `client.memory_alignment`.
+        - Options outside their limits are a programmer error, and so is memory of another
+          length or alignment: `memory_bytes` and `init` assert.
+     3. A `client.ConnectionHandle` names each connection, as `server.ConnectionHandle` does
+        (decision 119): a slot and a generation. TCP slots come first, and the QUIC connection has
+        the last slot.
+        - The events `open`, `close` and `ticket` name it, and `connected` carries it beside the
+          protocol.
+        - `start_tcp`, `send_stream`, `transport_closed` and `take_ticket` take it. `Input.stream`
+          carries it in a `client.StreamOctets`.
+        - A new event, `send`, names a TCP connection that owes octets, as the server's does. A
+          program then calls `send_stream` for that connection alone.
+     4. Connections open on demand. The pool opens another TCP connection only when an exchange
+        waits, no open connection can take it, and fewer than `tcp_connections` are open or
+        opening.
+        - An h11 connection takes one exchange at a time. An h2 connection takes exchanges up to
+          the server's SETTINGS_MAX_CONCURRENT_STREAMS (RFC 9113 §6.5.2) and its own slots.
+        - QUIC first and TCP after the fallback delay stay as decision 120 rules. The first TCP
+          connection is the fallback.
+        - A pool holds one QUIC connection, because h3 carries many exchanges on one.
+        - The pool opens no connection while no exchange waits, and none on a timer of its own.
+          The fallback delay opens TCP only for exchanges that wait.
+     5. An attempt that fails ends each waiting exchange `refused` when no open connection is left
+        to take it, as the channel does now (spec/tla/client_exchanges's `GiveUp`). The program
+        then decides when to send again. While another connection of the pool is open, a waiting
+        exchange waits for it.
+     6. An idle connection stays open for the next exchange, until the server or `shutdown` ends
+        it. A limit on the time a client connection stays idle is later work.
+     7. The resend of decision 124 ruling 3 and a refused move go to any other connection of the
+        pool, and share `moves_max`. The reconnect bound of decision 120 ruling 8 counts per pool.
+     8. `set_values(values)` gives the pool new addresses while exchanges run. Connections that
+        open after the call use them, and open connections keep their exchanges.
+
+     The alternatives refused:
+     - A comptime count, as `server.EndpointOf` takes. Decision 35 as amended records why.
+     - A `Pool` beside `Channel`. Two types would do much the same, and a program would learn
+       both.
+     - A plain slot index in place of the handle. An index names the next connection in its slot
+       after a `close`, so a late call acts on the wrong connection.
+     - No `send` event, so that a program calls `send_stream` for each connection after each
+       `receive`. With 16 connections that is 16 calls for each event.
+     - The count of exchanges as the comptime `constants.exchanges_max` alone. A pool of 16 h11
+       connections and a pool of one h2 connection then hold the same table.
+     - Every connection opened at `init`. A program that sends one request then opens 16 sockets
+       and runs 16 handshakes.
+     - An `init` that returns an error for bad options. The options are the program's own
+       values, so a bad one is a programmer error.
+
+     Cost: a breaking change in 0.9.0 for every program that names `client.Channel`. Each call
+     and event that names a transport names a connection instead. A program supplies the pool's
+     memory, and calls `memory_bytes` first.
