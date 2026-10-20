@@ -10420,6 +10420,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `TcpDrops` models h11 (e284c267).
     - A test of `set_values` found that a connection to an old address that failed after the
       call moved the index of the new addresses. A flag of each link now stops it (64e1bf07).
+  - **The review.** One agent built, read and tried to break the step. It confirmed these
+    defects, and the commits after 0038dea0 fix them:
+    - 0ef2cd37: with more exchanges than the 16 slots of a connection, an assertion in
+      `on_connected` stopped the program. The hand-over now asks `takes`: room, and a free slot.
+    - 57738930: an exchange that moved to a blocked connection gave it a debt and no `send`.
+    - 1a20f3a4: two failures at one address skipped the next address, and an `open` owed across
+      `set_values` kept the old address. `Link.replaced` goes.
+    - b56e51b5: `init` took memory longer than its options need, and the docs of the event bound
+      and of a second `init` said too little.
+    - ab59aa9d: the pool trace run's safety check left out a response that a connection drops.
+    - Mutations: 9 **CAUGHT**. 2 are **NOT CAUGHT**: a hand-over by room alone, equivalent while
+      the origin's connections share one protocol, and the old length check, since no test passes
+      longer memory.
+    - One finding was no defect: `receive_events_without_input_max` holds for the calls its doc
+      names. A `transport_closed` after a start is new I/O, and the doc now says so.
   - **The memory table.** A pool at the default counts holds 705,952 octets and its memory
     306,392: 1,012,344, 72 more than `client.Channel`. Each TCP connection more adds 305,752.
   - **Owed before the push.** `tools/ci.sh` on the exact tree, whose TLA+ section now runs the
