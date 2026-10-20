@@ -207,6 +207,52 @@ test "decision 100: once every transport failed, each waiting exchange ends refu
     try testing.expectEqual(.refused, exchange.response.outcome);
 }
 
+/// Two hosts that `set_values` gives the pool. Test-only.
+const ipv4_len: usize = 4;
+const second_octet: u8 = 0x0a;
+const third_octet: u8 = 0x0b;
+const second_host: [ipv4_len]u8 = @splat(second_octet);
+const third_host: [ipv4_len]u8 = @splat(third_octet);
+/// Rounds in which a QUIC connection that failed is over: its closing or draining period runs
+/// first (RFC 9000 §10.2). They are four times `rounds_past_probe`, as the tests that give up
+/// pump. The `open` of the second attempt's QUIC is the third.
+const rounds_to_close: usize = 192;
+const second_attempt_open: usize = 2;
+const new_addresses = [_]pool_module.Address{ pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
+
+/// Fails the first QUIC connection at the first address, calls `set_values` with
+/// `new_addresses`, ends the attempt, and returns where the next exchange's QUIC goes. With
+/// `over_first`, the QUIC connection is over before the call.
+fn quic_after_set_values(over_first: bool) !pool_module.Address {
+    try start(&quic_support.alpn_other, values_at(https_port), true);
+    var exchanges = [_]connection_support.Exchange{ get(&bodies[0]), get(&bodies[1]) };
+    _ = try pool.request(&exchanges[0].request, &exchanges[0].response);
+    try collect();
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(Transport.tcp, opened(1).?.transport);
+    if (over_first) try pump(rounds_to_close);
+    pool.set_values(.{ .addresses = &new_addresses, .port = https_port });
+    pool.transport_closed(pool_support.connection_of(pool, .tcp));
+    try pump(rounds_to_close);
+    try testing.expectEqual(.refused, exchanges[0].response.outcome);
+    // The next exchange starts another attempt.
+    _ = try pool.request(&exchanges[1].request, &exchanges[1].response);
+    try collect();
+    const next = opened(second_attempt_open).?;
+    try testing.expectEqual(Transport.quic, next.transport);
+    return next.to;
+}
+
+test "decision 125 ruling 8: after set_values, QUIC opens to the first new address" {
+    const to = try quic_after_set_values(true);
+    try testing.expectEqualSlices(u8, &second_host, to.octets[0..to.len]);
+}
+
+test "decision 125 ruling 8: a QUIC connection to an old address that fails after set_values skips no new one" {
+    const to = try quic_after_set_values(false);
+    try testing.expectEqualSlices(u8, &second_host, to.octets[0..to.len]);
+}
+
 /// The octets `start_quic` draws before the session's first draw: the grease value, then the two
 /// connection IDs.
 const grease_len: usize = @sizeOf(u64);

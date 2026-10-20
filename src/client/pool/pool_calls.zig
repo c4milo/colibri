@@ -70,6 +70,21 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     pool.closed_reported = false;
 }
 
+pub fn set_values(pool: anytype, values: Values) void {
+    assert(values.addresses.len > 0);
+    // RFC 9110 §4.3.1: the port is part of the origin, and a pool carries one origin's exchanges.
+    assert(values.port == pool.values.port);
+    const known = pool.values.alternative;
+    pool.values = values;
+    if (values.alternative == null) pool.values.alternative = known;
+    pool.quic_address_index = 0;
+    pool.tcp_address_index = 0;
+    // Each connection open or opening now went to the old values. The next `open_link` of its
+    // slot clears the flag.
+    for (pool.tcp_links) |*link| link.replaced = true;
+    pool.quic_link.replaced = true;
+}
+
 pub fn request(pool: anytype, message: *const Request, response: *Response) RequestError!Id {
     assert(!pool.shut);
     try connection_module.check_request(message);

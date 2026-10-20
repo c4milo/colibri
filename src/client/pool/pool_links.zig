@@ -54,11 +54,11 @@ fn address_index(pool: anytype, transport: Transport) *usize {
 
 /// `slot`'s connection is over: its transport closes, and the `close` event is owed unless the
 /// caller closed it. A connection that took no exchange, and that the client did not abandon, is
-/// a failed attempt, and the next one tries the next address.
+/// a failed attempt, and the next one tries the next address of the values it opened with.
 pub fn finish_link(pool: anytype, slot: u32) void {
     const link = pool_handle.link(pool, slot);
     const failed = !link.won and !link.abandoned;
-    if (failed) address_index(pool, pool_handle.transport_of(pool, slot)).* += 1;
+    if (failed and !link.replaced) address_index(pool, pool_handle.transport_of(pool, slot)).* += 1;
     link.* = .{
         .state = .closed,
         .opens = link.opens,

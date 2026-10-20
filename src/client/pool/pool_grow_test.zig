@@ -1,7 +1,8 @@
 //! The tests of a pool of several TCP slots (decision 125): a second h11 connection opens for an
 //! exchange that no open connection has room for, a waiting exchange goes to the connection that
 //! frees, a slot that fails is not opened again in the same wait, and no second connection opens
-//! beside an h2 one (RFC 9113 §9.1). The responses are octets the tests write themselves.
+//! beside an h2 one (RFC 9113 §9.1). `set_values` gives the connections that open after it new
+//! addresses. The responses are octets the tests write themselves.
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const pool_module = @import("pool.zig");
@@ -39,6 +40,16 @@ const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
+/// Two more hosts, which `set_values` gives the pool, and two h3 alternatives. Test-only.
+const second_octet: u8 = 0x0a;
+const third_octet: u8 = 0x0b;
+const second_host: [ipv4_len]u8 = @splat(second_octet);
+const third_host: [ipv4_len]u8 = @splat(third_octet);
+const new_addresses = [_]pool_module.Address{ pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
+const learned_port: u16 = 8443;
+const named_port: u16 = 9443;
+const learned: pool_module.Alternative = .{ .port = learned_port, .fresh_until_ns = support.now_ns + 1 };
+const named: pool_module.Alternative = .{ .port = named_port, .fresh_until_ns = support.now_ns + 1 };
 const response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi";
 
 /// A pool of `two_slots` in cleartext, which speaks the versions `versions` allows.
@@ -211,6 +222,64 @@ test "decision 125: a waiting exchange goes to the connection a cancelled exchan
     try testing.expect(std.mem.startsWith(u8, sent(one), "GET /b HTTP/1.1"));
     try give(one, response);
     try testing.expectEqual(.response, second.response.outcome);
+}
+
+/// Whether `open` goes to `host`, at the origin's port.
+fn expect_to(open: pool_module.Open, host: []const u8) !void {
+    try testing.expectEqualSlices(u8, host, open.to.octets[0..open.to.len]);
+    try testing.expectEqual(http_port, open.to.port);
+}
+
+test "decision 125 ruling 8: a connection that opens after set_values goes to a new address" {
+    try start(.{ .h2 = false, .h3 = false });
+    var first = get(&bodies[0], "/a");
+    var second = get(&bodies[1], "/b");
+    _ = try pool.request(&first.request, &first.response);
+    try collect();
+    const one = find(.open, 0).?.open;
+    try expect_to(one, &loopback);
+    pool.set_values(.{ .addresses = &new_addresses, .port = http_port });
+    _ = try pool.request(&second.request, &second.response);
+    try collect();
+    try expect_to(find(.open, 1).?.open, &second_host);
+    // The open connection keeps its exchange.
+    try testing.expect(std.mem.startsWith(u8, sent(one.connection), "GET /a HTTP/1.1"));
+    try give(one.connection, response);
+    try testing.expectEqual(.response, first.response.outcome);
+}
+
+test "decision 125 ruling 8: set_values restarts the address list at its first address" {
+    try start(.{ .h2 = false, .h3 = false });
+    var first = get(&bodies[0], "/a");
+    _ = try pool.request(&first.request, &first.response);
+    starts = false;
+    try collect();
+    // The connect fails, so the next connection would try the next address.
+    pool.transport_closed(find(.open, 0).?.open.connection);
+    pool.set_values(.{ .addresses = &new_addresses, .port = http_port });
+    try collect();
+    try expect_to(find(.open, 1).?.open, &second_host);
+}
+
+test "decision 125 ruling 8: a connect to an old address that fails after set_values skips no new one" {
+    try start(.{ .h2 = false, .h3 = false });
+    var first = get(&bodies[0], "/a");
+    _ = try pool.request(&first.request, &first.response);
+    starts = false;
+    try collect();
+    pool.set_values(.{ .addresses = &new_addresses, .port = http_port });
+    pool.transport_closed(find(.open, 0).?.open.connection);
+    try collect();
+    try expect_to(find(.open, 1).?.open, &second_host);
+}
+
+test "decision 125 ruling 8: set_values keeps the h3 alternative unless the values name one" {
+    config = .{ .authority = support.authority, .versions = .{ .h2 = false, .h3 = false } };
+    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port, .alternative = learned }, two_slots, null);
+    pool.set_values(.{ .addresses = &new_addresses, .port = http_port });
+    try testing.expectEqual(learned, pool.alternative().?);
+    pool.set_values(.{ .addresses = &new_addresses, .port = http_port, .alternative = named });
+    try testing.expectEqual(named, pool.alternative().?);
 }
 
 test "decision 125: a shut-down pool keeps its connections while an exchange waits for one" {

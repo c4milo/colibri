@@ -76,6 +76,9 @@ pub const Link = struct {
     reported_closed: bool = false,
     /// The caller's transport closed on its own, so no `close` event is owed.
     gone: bool = false,
+    /// `set_values` replaced the values the connection opened with, so its failure moves no
+    /// index of the new addresses.
+    replaced: bool = false,
 
     pub const State = enum {
         none,

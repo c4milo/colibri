@@ -272,6 +272,16 @@ pub fn PoolOf(comptime capacity: Capacity) type {
             return pool_calls.init(pool, memory, config, values, options, receive_pool);
         }
 
+        /// Gives the pool new values, for example the addresses of a later DNS answer, while
+        /// exchanges run (decision 125). Each connection that opens after the call goes to
+        /// `values.addresses`, from the first, and each open connection keeps its exchanges. The
+        /// port stays the origin's. The pool keeps the h3 alternative it knows unless
+        /// `values.alternative` names one. The pool reads `values.addresses` until the next
+        /// `set_values` or `init`.
+        pub fn set_values(pool: *Self, values: Values) void {
+            pool_calls.set_values(pool, values);
+        }
+
         /// Takes the request `message`, which goes out on the first connection open to take it,
         /// and the `response` it gets, and returns the exchange's id. The caller keeps both in
         /// place, and each slice they name, until the exchange's `finished` event or until
@@ -374,18 +384,20 @@ fn QuicField(comptime capacity: Capacity, comptime Type: type) type {
 
 test "design §8 step 17f: the pool's public names are the calls a program makes, and phase" {
     // Decision 125: step 22.3 adds `memory_alignment`, `memory_bytes` and
-    // `receive_events_without_input_max`, which size a pool and bound a program's loop.
+    // `receive_events_without_input_max`, which size a pool and bound a program's loop, and step
+    // 22.7 adds `set_values`, which a program calls after a later DNS answer.
     const public_names = @import("core").public_names;
     // Decision 124: a pool with no QUIC names the same calls, and its `start_quic` does not
     // compile.
     inline for (.{ Pool, PoolOf(.{ .quic = false }) }) |Type| {
         try public_names.expect(Type, &.{
             "memory_alignment", "memory_bytes", "receive_events_without_input_max",
-            "init",             "request",      "cancel",
-            "shutdown",         "receive",      "send_datagram",
-            "send_stream",      "deadline_ns",  "on_instant",
-            "start_quic",       "start_tcp",    "transport_closed",
-            "take_ticket",      "alternative",  "phase",
+            "init",             "set_values",   "request",
+            "cancel",           "shutdown",     "receive",
+            "send_datagram",    "send_stream",  "deadline_ns",
+            "on_instant",       "start_quic",   "start_tcp",
+            "transport_closed", "take_ticket",  "alternative",
+            "phase",
         });
     }
 }
