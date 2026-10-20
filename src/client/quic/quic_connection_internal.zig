@@ -1,4 +1,4 @@
-//! What a client QUIC connection's other files and the channel call on it, and no program does
+//! What a client QUIC connection's other files and the pool call on it, and no program does
 //! (design §8 step 17f). `QuicConnection` keeps as methods the calls that the module's other files
 //! make.
 const std = @import("std");

@@ -1,6 +1,6 @@
-//! A channel's configuration (decision 120, design §8 step 21c): one TLS value, the versions the
-//! client speaks, and what its TCP or QUIC connections alone take. `Channel.init` builds from it,
-//! in the channel's own storage, the TLS configuration of each transport the channel offers and
+//! A pool's configuration (decision 120, design §8 step 21c): one TLS value, the versions the
+//! client speaks, and what its TCP or QUIC connections alone take. `Pool.init` builds from it,
+//! in the pool's own storage, the TLS configuration of each transport the pool offers and
 //! the configuration each connection borrows. `client.zig` exports `Config` and `StartError`
 //! under their own names.
 const std = @import("std");
@@ -16,11 +16,11 @@ const versions_module = @import("../versions.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 
-/// What every channel to one origin borrows. The caller keeps it alive and in place while any
-/// channel holds it.
+/// What every pool to one origin borrows. The caller keeps it alive and in place while any
+/// pool holds it.
 pub const Config = struct {
     /// How the client judges the server, given once for TCP and QUIC, or null for cleartext. Its
-    /// `alpn` stays empty: the channel names the protocols `versions` allows (decision 117).
+    /// `alpn` stays empty: the pool names the protocols `versions` allows (decision 117).
     tls: ?tls.Client = null,
     /// The HTTP versions the client speaks (decision 117). A TCP connection speaks h11 or h2, and
     /// a QUIC connection h3 alone (RFC 9114 §3.1).
@@ -29,10 +29,10 @@ pub const Config = struct {
     /// §4.3.1) and Host in h11 (RFC 9112 §3.2).
     authority: []const u8,
     /// The content codings the client offers in each request's Accept-Encoding, in its order of
-    /// preference, and the pools of decoders it removes them with, which channels may share
+    /// preference, and the decoder pools it removes them with, which several pools may share
     /// (decision 101 as amended): `decoders` for `gzip` and `deflate`, `zstd_decoders` and
-    /// `br_decoders`. Each coding is named once at most and has its pool, and each pool given serves
-    /// a coding named.
+    /// `br_decoders`. Each coding is named once at most and has its decoder pool, and each decoder
+    /// pool given serves a coding named.
     codings: []const http.content_coding.Coding = &.{},
     decoders: ?h11.coding.Storage = null,
     zstd_decoders: ?coding_pool.ZstdDecoders = null,
@@ -50,7 +50,7 @@ pub const Config = struct {
     idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
 };
 
-/// Why `Channel.init`, `start_tcp` or `start_quic` refused. `init` returns every member but
+/// Why `Pool.init`, `start_tcp` or `start_quic` refused. `init` returns every member but
 /// `TlsRefused`, before the program opens a socket, and the two starts return `TlsRefused` alone.
 pub const StartError = connection_module.StartError || quic_connection.StartError || error{
     /// The TLS value names more anchors than `tls.record.ClientConfig.anchors_max`.
@@ -59,28 +59,28 @@ pub const StartError = connection_module.StartError || quic_connection.StartErro
     TooManySuites,
     /// The TLS value orders suites for an object that holds one suite alone (decision 97).
     SuitesUnavailable,
-    /// `versions` allows h3, and the channel holds no QUIC connection to speak it: its
+    /// `versions` allows h3, and the pool holds no QUIC connection to speak it: its
     /// `Capacity.quic` is false (decision 124).
     VersionUnavailable,
 };
 
-/// Which transports a channel offers: those `versions` allows a version on.
+/// Which transports a pool offers: those `versions` allows a version on.
 pub const Offered = struct { tcp: bool, quic: bool };
 
-/// Checks `config`, and returns the transports a channel offers from it. `quic_held` says whether
-/// the channel holds a QUIC connection (decision 124), and `pool_given` whether the program placed
-/// a receive pool, which QUIC's connections need (decision 61). The channel then builds what each
+/// Checks `config`, and returns the transports a pool offers from it. `quic_held` says whether
+/// the pool holds a QUIC connection (decision 124), and `pool_given` whether the program placed
+/// a receive pool, which QUIC's connections need (decision 61). The pool then builds what each
 /// transport it offers needs with `build_quic` and `build_tcp`, in that order.
 pub fn offer(config: *const Config, quic_held: bool, pool_given: bool) StartError!Offered {
     assert(config.authority.len > 0);
     assert(coding.codings_valid(config.codings, .of(config)));
     // Decision 117: `versions` names the protocols, so the TLS value names none.
     if (config.tls) |values| assert(values.alpn.len == 0);
-    // RFC 9114 §3.1: h3 runs over QUIC alone, so a channel that holds no QUIC connection cannot
+    // RFC 9114 §3.1: h3 runs over QUIC alone, so a pool that holds no QUIC connection cannot
     // speak it (decision 124).
     if (!quic_held and config.versions.h3) return error.VersionUnavailable;
     const offers = offered(config, quic_held and pool_given);
-    // RFC 9114 §3.1: a client speaks h3 over QUIC and h11 or h2 over TCP, so a channel that
+    // RFC 9114 §3.1: a client speaks h3 over QUIC and h11 or h2 over TCP, so a pool that
     // offers neither transport has no version to speak (decision 117).
     if (!offers.tcp and !offers.quic) return error.NoVersion;
     return offers;
@@ -105,7 +105,7 @@ pub fn build_quic(config: *const Config, quic_tls: *tls.quic.ClientConfig, quic:
     var values = config.tls.?;
     values.alpn = &alpn_h3;
     try convert(quic_tls, values);
-    // The channel names each connection's `server_address` as it starts it.
+    // The pool names each connection's `server_address` as it starts it.
     quic.* = .{
         .tls = quic_tls,
         .authority = config.authority,
@@ -124,7 +124,7 @@ const alpn_both = [_][]const u8{ &tls_provider.constants.alpn_h2, tls_provider.c
 const alpn_h2 = [_][]const u8{&tls_provider.constants.alpn_h2};
 const alpn_h11 = [_][]const u8{tls_provider.constants.alpn_http_1_1};
 
-/// Builds TCP's TLS configuration into `tcp_tls` when the channel runs over TLS, and what each TCP
+/// Builds TCP's TLS configuration into `tcp_tls` when the pool runs over TLS, and what each TCP
 /// connection borrows into `tcp`.
 pub fn build_tcp(config: *const Config, tcp_tls: *tls.record.ClientConfig, tcp: *connection_module.Config) StartError!void {
     tcp.* = .{
@@ -146,7 +146,7 @@ pub fn build_tcp(config: *const Config, tcp_tls: *tls.record.ClientConfig, tcp: 
 /// Converts `values` into `tls_config`, the TCP object's configuration or the QUIC object's.
 fn convert(tls_config: anytype, values: tls.Client) StartError!void {
     tls_config.init(values) catch |failure| switch (failure) {
-        // The channel names two protocols at most, and a client's values name no chain.
+        // The pool names two protocols at most, and a client's values name no chain.
         error.TooManyProtocols, error.TooManyCertificates => unreachable,
         else => |refused| return refused,
     };

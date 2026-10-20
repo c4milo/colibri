@@ -18,7 +18,7 @@ const Exchange = support.Exchange;
 const ok: u16 = 200;
 
 /// The server the tests run against and what it opened and writes, in
-/// `connection_tls_test_support.zig`, which the channel's tests share.
+/// `connection_tls_test_support.zig`, which the pool's tests share.
 const server = &tls_support.server;
 const client_config = &tls_support.client_config;
 const peer_plain = &tls_support.peer_plain;

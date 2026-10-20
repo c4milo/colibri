@@ -1,6 +1,6 @@
 //! What a client connection takes and reports, the same for h11 and h2 (decision 100): a request
 //! and a response the caller places in its own memory (decision 124), and the events each
-//! connection's `receive` returns to the channel. A request and its response are one exchange.
+//! connection's `receive` returns to the pool. A request and its response are one exchange.
 //!
 //! The caller keeps the request and the response in place, and every slice they name, from
 //! `request` until the exchange's `finished` event, or until `cancel` returns. The client reads
@@ -40,7 +40,7 @@ pub const Outcome = enum {
     reset,
     /// The connection ended before the response was whole: it failed, or it closed with the
     /// request written and unanswered, which the server may have processed (RFC 9112 §9.3.1).
-    /// The channel first sends an idempotent request again once, when its connection closed before
+    /// The pool first sends an idempotent request again once, when its connection closed before
     /// any of the response arrived (RFC 9110 §9.2.2). A request sent again that is then refused,
     /// or that no connection takes, ends `closed` too: the first server may have processed it.
     closed,
@@ -125,8 +125,8 @@ pub const Finished = struct {
     response: *Response,
 };
 
-/// An exchange a connection ended, as it reports it to its channel: what `Finished` holds, and
-/// whether any of the response arrived before the end. The channel reads `response_began` to decide
+/// An exchange a connection ended, as it reports it to its pool: what `Finished` holds, and
+/// whether any of the response arrived before the end. The pool reads `response_began` to decide
 /// whether it sends the request again (decision 124), and a program never sees it.
 pub const Ended = struct {
     id: Id,

@@ -1,7 +1,7 @@
 //! One run of the deadline check (`deadline_check.zig`, decision 110): an endpoint that holds one
 //! TCP connection (design §8 step 21b.6), the application that answers its requests
 //! (`deadline_app.zig`), and the peer of the seed's plan, in simulated time. An honest peer is
-//! colibri's client, a channel with TCP alone in cleartext (step 21c). At each instant the
+//! colibri's client, a pool with TCP alone in cleartext (step 21c). At each instant the
 //! run moves octets both ways until nothing moves, then goes to the next instant something is due:
 //! a piece the peer writes or reads, an answer of the application's, or a deadline of the
 //! server's. A run ends when the endpoint says to close the connection's socket, or at the horizon
@@ -25,7 +25,7 @@ const limits = sim.constants.deadline;
 const Plan = plan_module.Plan;
 const Hostile = peer_module.Hostile;
 
-/// The one address the channel opens its socket to, which no socket reads, and the port of an
+/// The one address the pool opens its socket to, which no socket reads, and the port of an
 /// "http" origin whose URI names none (RFC 9110 §4.2.1).
 const ipv4_len: usize = 4;
 const address_octet: u8 = 0x0a;
@@ -126,7 +126,7 @@ pub const Storage = struct {
     ended: ?server.Ended,
     client_config: client.Config,
     addresses: [1]client.Address,
-    channel: client.Channel,
+    pool: client.Pool,
     hostile: Hostile,
     to_server: Stream,
     to_client: Stream,
@@ -212,8 +212,8 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.client_config = .{ .authority = "a.example", .versions = client_versions };
     const octets: [ipv4_len]u8 = @splat(address_octet);
     storage.addresses = .{client.Address.of(&octets, 0)};
-    // No receive pool, so the channel offers TCP alone.
-    try storage.channel.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
+    // No receive pool, so the pool offers TCP alone.
+    try storage.pool.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
     for (storage.requests[0..plan.exchanges_len], storage.responses[0..plan.exchanges_len], 0..) |*message, *response, index| {
         message.* = .{ .method = "GET", .path = "/" };
         response.* = .{ .body = &storage.bodies[index] };
@@ -228,22 +228,22 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     try connect(storage, source, ns_of(plan, 0));
 }
 
-/// Reads the channel's `open`, and starts its connection on the socket it asked for. In cleartext
-/// the connection owes `connected` from its start, and the channel hands it the waiting exchanges
+/// Reads the pool's `open`, and starts its connection on the socket it asked for. In cleartext
+/// the connection owes `connected` from its start, and the pool hands it the waiting exchanges
 /// as it reports it, so the peer's first write carries them.
 fn connect(storage: *Storage, source: tls.Random, now_ns: u64) Error!void {
-    const asked = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    const asked = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(asked.open.transport == .tcp);
-    try storage.channel.start_tcp(source, 0, null);
-    const reported = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    try storage.pool.start_tcp(source, 0, null);
+    const reported = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(reported == .connected);
-    assert(storage.channel.receive(.none, now_ns).event == null);
+    assert(storage.pool.receive(.none, now_ns).event == null);
 }
 
 /// Gives colibri's client its next exchange.
 fn request_next(storage: *Storage) Error!void {
     const index = storage.exchanges_requested;
-    _ = try storage.channel.request(&storage.requests[index], &storage.responses[index]);
+    _ = try storage.pool.request(&storage.requests[index], &storage.responses[index]);
     storage.exchanges_requested += 1;
 }
 
@@ -292,7 +292,7 @@ pub fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool 
         if (plan.peer != .silent) stream.written += try storage.hostile.write_acks(stream.free());
         return stream.deliver(stream.written) or moved;
     }
-    stream.written += storage.channel.send_stream(stream.free(), ns_of(plan, now_ms));
+    stream.written += storage.pool.send_stream(stream.free(), ns_of(plan, now_ms));
     if (!plan.paced()) return stream.deliver(stream.written);
     if (now_ms < storage.next_piece_ms or stream.written == stream.delivered) return false;
     storage.next_piece_ms = now_ms + plan.gap_ms;
@@ -391,7 +391,7 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     }
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.channel.receive(.{ .stream = stream.held() }, ns_of(plan, now_ms));
+        const received = storage.pool.receive(.{ .stream = stream.held() }, ns_of(plan, now_ms));
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;
@@ -412,10 +412,10 @@ fn on_event(storage: *Storage, plan: *const Plan, reported: client.Event) Error!
         // The peer has one socket, so an exchange that waits for another ends refused.
         .open => |asked| {
             assert(asked.transport == .tcp);
-            storage.channel.transport_closed(.tcp);
+            storage.pool.transport_closed(.tcp);
         },
         .connected, .ticket, .close => {},
-        // The peer never shuts its channel down.
+        // The peer never shuts its pool down.
         .closed => unreachable,
     }
 }

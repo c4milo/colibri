@@ -1,15 +1,15 @@
 //! The two clients of `server_exchange.zig`. This file is not an example by itself: it holds what
 //! the server example runs against.
 //!
-//! Each peer is one `client.Channel`:
-//! - the TCP peer holds no receive pool, so its channel opens TCP alone, and ALPN picks h2. It
+//! Each peer is one `client.Pool`:
+//! - the TCP peer holds no receive pool, so its pool opens TCP alone, and ALPN picks h2. It
 //!   sends five requests: a GET and a POST that each match a route, a GET whose path holds a
 //!   parameter, a POST to a path whose route names GET alone, and a GET of a path that no route
-//!   names. It shuts its channel down when all five have finished;
-//! - the QUIC peer holds a receive pool and speaks h3 alone, so its channel opens QUIC alone
+//!   names. It shuts its pool down when all five have finished;
+//! - the QUIC peer holds a receive pool and speaks h3 alone, so its pool opens QUIC alone
 //!   (decision 120). It sends a GET, and keeps its connection open after the response, as a client
 //!   that can ask again does. The server closes the connection when its idle deadline passes, and
-//!   the peer then shuts its channel down.
+//!   the peer then shuts its pool down.
 //!
 //! The TCP peer runs over the stream link and the QUIC peer over the datagram link, on the client's
 //! loop. `docs/usage.md` shows the client's calls with the client example, so the comments here
@@ -102,21 +102,21 @@ const Asked = struct {
     }
 };
 
-/// One client: its configuration, its channel, and what it saw.
+/// One client: its configuration, its pool, and what it saw.
 const Peer = struct {
     config: client.Config,
-    channel: client.Channel,
+    pool: client.Pool,
     asked: [requests_max]Asked,
     asked_count: u32,
     /// Whether the peer keeps its connection open after its exchanges finished.
     keeps: bool,
     finished: u32,
     spoken: ?client.Protocol,
-    /// Transports the channel opened, transports it said to close, and tickets it took.
+    /// Transports the pool opened, transports it said to close, and tickets it took.
     opens: u32,
     closes: u32,
     tickets: u32,
-    /// The shut-down channel is over.
+    /// The shut-down pool is over.
     closed: bool,
 
     /// Places one request: `content` is its content, or empty for none.
@@ -124,7 +124,7 @@ const Peer = struct {
         const asked = &peer.asked[peer.asked_count];
         asked.place(method, path, content);
         peer.asked_count += 1;
-        _ = try peer.channel.request(&asked.request, &asked.response);
+        _ = try peer.pool.request(&asked.request, &asked.response);
     }
 };
 
@@ -146,8 +146,8 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     datagram_link = datagrams;
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     start(&tcp_peer, cpu, .{}, false);
-    // No receive pool: the channel opens TCP alone.
-    try tcp_peer.channel.init(&tcp_peer.config, known, null);
+    // No receive pool: the pool opens TCP alone.
+    try tcp_peer.pool.init(&tcp_peer.config, known, null);
     try tcp_peer.ask("GET", "/greeting", "");
     try tcp_peer.ask("POST", "/echo", note);
     try tcp_peer.ask("GET", "/greetings/" ++ name, "");
@@ -155,9 +155,9 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     try tcp_peer.ask("POST", "/greeting", "");
     // A parameter matches one segment, so no route names this path.
     try tcp_peer.ask("GET", "/greetings", "");
-    // h3 alone: the channel opens QUIC alone, and needs the receive pool for it.
+    // h3 alone: the pool opens QUIC alone, and needs the receive pool for it.
     start(&quic_peer, cpu, .{ .h11 = false, .h2 = false }, true);
-    try quic_peer.channel.init(&quic_peer.config, known, receive_pool.storage());
+    try quic_peer.pool.init(&quic_peer.config, known, receive_pool.storage());
     try quic_peer.ask("GET", "/greeting", "");
 }
 
@@ -186,11 +186,11 @@ pub fn turn() !void {
 fn tcp_turn() !void {
     const now_ns = stream_link.now_ns(.client);
     try drain_stream(now_ns);
-    try stream_link.send(.client, stream_output[0..tcp_peer.channel.send_stream(&stream_output, now_ns)]);
+    try stream_link.send(.client, stream_output[0..tcp_peer.pool.send_stream(&stream_output, now_ns)]);
     try drain_stream(now_ns);
 }
 
-/// Passes the TCP peer's channel the octets the stream link holds, until it consumes nothing and
+/// Passes the TCP peer's pool the octets the stream link holds, until it consumes nothing and
 /// reports nothing. At a `close`, the peer drops the octets it holds.
 fn drain_stream(now_ns: u64) !void {
     const input = try stream_link.receive(.client);
@@ -198,7 +198,7 @@ fn drain_stream(now_ns: u64) !void {
     for (0..events_per_input_max) |_| {
         const held = input[consumed..];
         const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
-        const received = tcp_peer.channel.receive(read, now_ns);
+        const received = tcp_peer.pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
             if (received.consumed == 0) break;
@@ -217,20 +217,20 @@ fn quic_turn() !void {
         datagram_link.consume(.client);
     }
     const now_ns = datagram_link.now_ns(.client);
-    quic_peer.channel.on_instant(now_ns);
+    quic_peer.pool.on_instant(now_ns);
     drain_datagram(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
-        const sent = quic_peer.channel.send_datagram(&datagram_output, now_ns) orelse break;
+        const sent = quic_peer.pool.send_datagram(&datagram_output, now_ns) orelse break;
         try datagram_link.send(.client, sent.octets);
         drain_datagram(.none, now_ns);
     }
 }
 
-/// Passes the QUIC peer's channel `input`, then reads it with `.none` until it reports nothing.
+/// Passes the QUIC peer's pool `input`, then reads it with `.none` until it reports nothing.
 fn drain_datagram(input: client.Input, now_ns: u64) void {
     var rest = input;
     for (0..events_per_input_max) |_| {
-        const received = quic_peer.channel.receive(rest, now_ns);
+        const received = quic_peer.pool.receive(rest, now_ns);
         if (received.consumed > 0) rest = .none;
         const event = received.event orelse {
             if (received.consumed == 0) return;
@@ -240,19 +240,19 @@ fn drain_datagram(input: client.Input, now_ns: u64) void {
     }
 }
 
-/// Acts on one event of a peer's channel.
+/// Acts on one event of a peer's pool.
 fn report(peer: *Peer, event: client.Event, now_ns: u64) void {
     switch (event) {
         .open => |open| open_transport(peer, open.transport, now_ns),
         .close => {
             peer.closes += 1;
             // The server closed a connection the peer kept, and every exchange has ended.
-            if (peer.finished == peer.asked_count) peer.channel.shutdown();
+            if (peer.finished == peer.asked_count) peer.pool.shutdown();
         },
         .connected => |protocol| peer.spoken = protocol,
         .finished => |ended| finish(peer, ended),
         // These peers open no second connection, so each wipes the ticket the server gives it.
-        .ticket => |transport| if (peer.channel.take_ticket(transport)) |ticket| {
+        .ticket => |transport| if (peer.pool.take_ticket(transport)) |ticket| {
             var held = ticket;
             held.wipe();
             peer.tickets += 1;
@@ -265,31 +265,31 @@ fn report(peer: *Peer, event: client.Event, now_ns: u64) void {
 /// would be, and is connected from the start.
 fn open_transport(peer: *Peer, transport: client.Transport, now_ns: u64) void {
     peer.opens += 1;
-    // A start the TLS stack refuses ends the attempt, which the channel reports.
+    // A start the TLS stack refuses ends the attempt, which the pool reports.
     switch (transport) {
-        .tcp => peer.channel.start_tcp(program.random(), now_seconds, null) catch {},
-        .quic => peer.channel.start_quic(program.random(), now_seconds, now_ns, null) catch {},
+        .tcp => peer.pool.start_tcp(program.random(), now_seconds, null) catch {},
+        .quic => peer.pool.start_quic(program.random(), now_seconds, now_ns, null) catch {},
     }
 }
 
-/// Counts an exchange that ended. A peer that keeps no connection shuts its channel down once
+/// Counts an exchange that ended. A peer that keeps no connection shuts its pool down once
 /// every exchange has ended.
 fn finish(peer: *Peer, ended: client.Finished) void {
     std.debug.print("client: {s}: {s}, {d}\n", .{
         ended.request.path, @tagName(ended.response.outcome), ended.response.status,
     });
     peer.finished += 1;
-    if (peer.finished == peer.asked_count and !peer.keeps) peer.channel.shutdown();
+    if (peer.finished == peer.asked_count and !peer.keeps) peer.pool.shutdown();
 }
 
-/// The soonest instant either peer's channel wants `on_instant` at, or null.
+/// The soonest instant either peer's pool wants `on_instant` at, or null.
 pub fn deadline_ns() ?u64 {
-    const tcp_deadline = tcp_peer.channel.deadline_ns();
-    const quic_deadline = quic_peer.channel.deadline_ns() orelse return tcp_deadline;
+    const tcp_deadline = tcp_peer.pool.deadline_ns();
+    const quic_deadline = quic_peer.pool.deadline_ns() orelse return tcp_deadline;
     return @min(tcp_deadline orelse quic_deadline, quic_deadline);
 }
 
-/// Whether both peers' channels are over.
+/// Whether both peers' pools are over.
 pub fn closed() bool {
     return tcp_peer.closed and quic_peer.closed;
 }
@@ -301,7 +301,7 @@ pub fn check() bool {
     const asked = &tcp_peer.asked;
     const routed = asked[0].arrived(greeting) and asked[1].arrived(note) and asked[2].arrived(named_greeting);
     const tcp_arrived = routed and asked[3].refused(405, greeting_allow) and asked[4].refused(404, null);
-    const alternative = tcp_peer.channel.alternative();
+    const alternative = tcp_peer.pool.alternative();
     const advertised = alternative != null and alternative.?.port == server_port;
     const tcp_right = tcp_peer.spoken == .h2 and tcp_arrived and advertised;
     const quic_right = quic_peer.spoken == .h3 and quic_peer.asked[0].arrived(greeting);

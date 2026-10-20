@@ -1,20 +1,20 @@
-//! The tests of the channel over TCP in cleartext h11 (`channel.zig`, `channel_events.zig`). The
-//! channel reads what its connection owes with a call that passes no octets, and h11 needs the
+//! The tests of the pool over TCP in cleartext h11 (`pool.zig`, `pool_events.zig`). The
+//! pool reads what its connection owes with a call that passes no octets, and h11 needs the
 //! octets it left unconsumed at the start of the next call's input (design §8 step 21c.3). A
 //! request goes out again after a close only while no octet of its response arrived (decision 124).
 //! The peer is h11's server side in the same process, or a response the test writes itself.
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
-const channel_module = @import("channel.zig");
-const channel_support = @import("channel_test_support.zig");
+const pool_module = @import("pool.zig");
+const pool_support = @import("pool_test_support.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
 const Exchange = support.Exchange;
-const Event = channel_module.Event;
+const Event = pool_module.Event;
 
-/// The channel's configuration and the events it reported, outside any stack frame. Test-only.
-var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
+/// The pool's configuration and the events it reported, outside any stack frame. Test-only.
+var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
 var bodies: [bodies_count][body_len]u8 = undefined;
@@ -30,7 +30,7 @@ const http_port: u16 = 80;
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
-const addresses = [_]channel_module.Address{channel_module.Address.of(&loopback, 0)};
+const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
 
 /// The start of a response head, which ends inside its status code.
 const half_head = "HTTP/1.1 2";
@@ -40,14 +40,14 @@ const chunked_body = "5\r\nhello\r\n0\r\n\r\n";
 /// The first octet of `chunked_body`: a chunk-size line without its CRLF.
 const half_size_line = chunked_body[0..1];
 
-/// Passes the channel what the peer sent, in calls until one takes nothing and reports nothing,
+/// Passes the pool what the peer sent, in calls until one takes nothing and reports nothing,
 /// with `.none` once no octet is left. Starts the connection an `open` event asks for, and keeps
 /// the events.
-fn collect(channel: anytype) !void {
+fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: channel_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
-        const received = channel.receive(input, support.now_ns);
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+        const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
         const reported = received.event orelse {
@@ -57,12 +57,12 @@ fn collect(channel: anytype) !void {
         if (events_len == events.len) return error.TestUnexpectedResult;
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open) try channel.start_tcp(support.stream.random(), 0, null);
+        if (reported == .open) try pool.start_tcp(support.stream.random(), 0, null);
     }
     return error.TestUnexpectedResult;
 }
 
-/// The first event of `tag` the channel reported, or null.
+/// The first event of `tag` the pool reported, or null.
 fn find(tag: std.meta.Tag(Event)) ?Event {
     for (events[0..events_len]) |reported| {
         if (reported == tag) return reported;
@@ -84,7 +84,7 @@ fn get_at(body: []u8, path: []const u8) Exchange {
     return .{ .request = .{ .method = "GET", .path = path }, .response = .{ .body = body } };
 }
 
-/// The index of the `n`th event of `tag` the channel reported, counted from 0, or null.
+/// The index of the `n`th event of `tag` the pool reported, counted from 0, or null.
 fn index_of(tag: std.meta.Tag(Event), n: usize) ?usize {
     var seen: usize = 0;
     for (events[0..events_len], 0..) |reported, index| {
@@ -122,53 +122,53 @@ fn peer_read() !PeerRead {
 const content_length_5: []const support.Field = &.{.{ .name = "Content-Length", .value = "5" }};
 
 test {
-    // Decision 124: each test below runs on the default channel and on one with no QUIC.
-    inline for (channel_support.channels) |Channel| _ = Tests(Channel);
+    // Decision 124: each test below runs on the default pool and on one with no QUIC.
+    inline for (pool_support.pools) |Pool| _ = Tests(Pool);
 }
 
-/// The tests over a channel of type `Channel`, and the helpers that name the channel itself.
-fn Tests(comptime Channel: type) type {
+/// The tests over a pool of type `Pool`, and the helpers that name the pool itself.
+fn Tests(comptime Pool: type) type {
     return struct {
-        /// The channel the tests drive, outside any stack frame. Test-only.
-        var channel: Channel align(@alignOf(Channel)) = undefined;
+        /// The pool the tests drive, outside any stack frame. Test-only.
+        var pool: Pool align(@alignOf(Pool)) = undefined;
 
-        /// A channel with no QUIC configured, whose TCP connection speaks h11 in cleartext, with
+        /// A pool with no QUIC configured, whose TCP connection speaks h11 in cleartext, with
         /// one exchange written to the peer's buffer.
         fn start(exchange: *Exchange) !void {
-            config = .{ .authority = support.authority, .versions = channel_support.versions_for(&channel, support.only(.h11)) };
-            try channel.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
+            config = .{ .authority = support.authority, .versions = pool_support.versions_for(&pool, support.only(.h11)) };
+            try pool.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
             support.peer_h11.init(.server, .{});
             support.peer_requests = 0;
             support.to_peer_len = 0;
             support.to_client_len = 0;
             events_len = 0;
-            _ = try channel.request(&exchange.request, &exchange.response);
-            // The channel asks for TCP, and its connection takes the exchange once it is started.
-            try collect(&channel);
+            _ = try pool.request(&exchange.request, &exchange.response);
+            // The pool asks for TCP, and its connection takes the exchange once it is started.
+            try collect(&pool);
             try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
             send();
         }
 
-        /// Writes what the channel's connection owes into the peer's buffer.
+        /// Writes what the pool's connection owes into the peer's buffer.
         fn send() void {
-            support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
-        /// Passes the channel `octets` as what its socket holds, and returns how many it took.
+        /// Passes the pool `octets` as what its socket holds, and returns how many it took.
         fn give(octets: []const u8) !usize {
             @memcpy(support.to_client[0..octets.len], octets);
             support.to_client_len = octets.len;
-            try collect(&channel);
+            try collect(&pool);
             return octets.len - support.to_client_len;
         }
 
-        test "design §8 step 21c.3: a channel reads half an h11 head again once its caller passes it whole" {
+        test "design §8 step 21c.3: a pool reads half an h11 head again once its caller passes it whole" {
             var exchange = get(&bodies[0]);
             try start(&exchange);
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
             try testing.expectEqual(0, try give(response[0..half_head.len]));
-            // The caller holds half a head, and reads the channel with no octets, as after a send.
-            const polled = channel.receive(.none, support.now_ns);
+            // The caller holds half a head, and reads the pool with no octets, as after a send.
+            const polled = pool.receive(.none, support.now_ns);
             try testing.expectEqual(0, polled.consumed);
             try testing.expectEqual(null, polled.event);
             try testing.expectEqual(.pending, exchange.response.outcome);
@@ -179,13 +179,13 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqualStrings("hello", exchange.response.content_received());
         }
 
-        test "design §8 step 21c.3: a channel reads half a chunk-size line again with the rest of it" {
+        test "design §8 step 21c.3: a pool reads half a chunk-size line again with the rest of it" {
             var exchange = get(&bodies[0]);
             try start(&exchange);
             // h11 takes the head, and leaves the chunk-size line until its CRLF arrives
             // (RFC 9112 §7.1).
             try testing.expectEqual(chunked_head.len, try give(chunked_head ++ half_size_line));
-            const polled = channel.receive(.none, support.now_ns);
+            const polled = pool.receive(.none, support.now_ns);
             try testing.expectEqual(0, polled.consumed);
             try testing.expectEqual(null, polled.event);
             try testing.expectEqual(.pending, exchange.response.outcome);
@@ -194,11 +194,11 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqualStrings("hello", exchange.response.content_received());
         }
 
-        test "design §8 step 21c.3: a channel carries two h11 exchanges, the last answered with no content" {
+        test "design §8 step 21c.3: a pool carries two h11 exchanges, the last answered with no content" {
             var first = get(&bodies[0]);
             var last = get(&bodies[1]);
             try start(&first);
-            const last_id = try channel.request(&last.request, &last.response);
+            const last_id = try pool.request(&last.request, &last.response);
             send();
             try support.peer_h11_read();
             try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "5" }}, "hello");
@@ -206,7 +206,7 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqual(2, support.peer_requests);
             // RFC 9110 §15.3.5: a 204 response ends with its head, so no octet follows it.
             try support.peer_h11_answer(no_content, &.{}, "");
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(0, support.to_client_len);
             try testing.expectEqual(2, count(.finished));
             try testing.expectEqual(.response, first.response.outcome);
@@ -218,11 +218,11 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqual(last_id, events[events_len - 1].finished.id);
         }
 
-        test "decision 100: a channel reports a closed connection's close before it asks for the next socket" {
+        test "decision 100: a pool reports a closed connection's close before it asks for the next socket" {
             var first = get(&bodies[0]);
             var second = get(&bodies[1]);
             try start(&first);
-            _ = try channel.request(&second.request, &second.response);
+            _ = try pool.request(&second.request, &second.response);
             // RFC 9112 §9.6: a response that says "close" ends the connection after it, so the
             // second exchange waits for another connection, in the same call that reads the
             // connection's end.
@@ -253,45 +253,45 @@ fn Tests(comptime Channel: type) type {
             support.peer_h11.init(.server, .{});
             support.to_peer_len = 0;
             var next = get(&bodies[1]);
-            _ = try channel.request(&next.request, &next.response);
-            try collect(&channel);
+            _ = try pool.request(&next.request, &next.response);
+            try collect(&pool);
             try testing.expectEqual(2, count(.open));
             try testing.expectEqual(2, count(.connected));
             send();
             try support.peer_h11_read();
             try testing.expectEqual(1, support.peer_requests);
             try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "5" }}, "hello");
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, next.response.outcome);
             try testing.expectEqualStrings("hello", next.response.content_received());
         }
 
-        test "decision 120: a shut-down channel drops the open of a connection no caller heard of" {
+        test "decision 120: a shut-down pool drops the open of a connection no caller heard of" {
             var first = get(&bodies[0]);
             var second = get(&bodies[1]);
             try start(&first);
-            const second_id = try channel.request(&second.request, &second.response);
+            const second_id = try pool.request(&second.request, &second.response);
             // RFC 9112 §9.6: the response closes the connection, so the second exchange waits for
             // another.
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
             @memcpy(support.to_client[0..response.len], response);
             support.to_client_len = response.len;
-            // The program reads until the channel says to close the socket, and no further.
+            // The program reads until the pool says to close the socket, and no further.
             for (0..support.buffer_len + support.events_max) |_| {
-                const input: channel_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
-                const received = channel.receive(input, support.now_ns);
+                const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+                const received = pool.receive(input, support.now_ns);
                 std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
                 support.to_client_len -= received.consumed;
                 const reported = received.event orelse continue;
                 if (reported == .close) break;
             } else return error.TestUnexpectedResult;
-            // The program gives the second exchange up and shuts the channel down, before the
-            // `open` the channel owes for it.
-            channel.cancel(second_id);
-            channel.shutdown();
+            // The program gives the second exchange up and shuts the pool down, before the
+            // `open` the pool owes for it.
+            pool.cancel(second_id);
+            pool.shutdown();
             events_len = 0;
-            try collect(&channel);
-            // The connection's `close` went out already, and the one the channel never opened has
+            try collect(&pool);
+            // The connection's `close` went out already, and the one the pool never opened has
             // none.
             try testing.expectEqual(0, count(.open) + count(.close));
             try testing.expectEqual(Event.closed, find(.closed).?);
@@ -300,12 +300,12 @@ fn Tests(comptime Channel: type) type {
         /// The caller's transport closes: the program drops what it held of the socket, and the
         /// peer of the next connection starts with nothing read or written.
         fn close_transport() !void {
-            channel.transport_closed(.tcp);
+            pool.transport_closed(.tcp);
             support.peer_h11.init(.server, .{});
             support.peer_requests = 0;
             support.to_peer_len = 0;
             support.to_client_len = 0;
-            try collect(&channel);
+            try collect(&pool);
         }
 
         test "RFC 9112 §9.3.1: an h11 GET whose connection closed before any of its response goes out again" {
@@ -318,7 +318,7 @@ fn Tests(comptime Channel: type) type {
             send();
             try testing.expectEqual(1, (try peer_read()).requests);
             try support.peer_h11_answer(ok, content_length_5, "hello");
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(1, count(.finished));
             try testing.expectEqual(.response, exchange.response.outcome);
             try testing.expectEqualStrings("hello", exchange.response.content_received());
@@ -342,7 +342,7 @@ fn Tests(comptime Channel: type) type {
             send();
             try testing.expectEqual(PeerRead{ .requests = 1, .content_len = put_len, .ends = 1 }, try peer_read());
             try support.peer_h11_answer(no_content, &.{}, "");
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, put.response.outcome);
             try testing.expectEqual(put_len, put.response.content_sent);
         }
@@ -362,7 +362,7 @@ fn Tests(comptime Channel: type) type {
         test "RFC 9110 §9.2.2: an h11 GET whose connection closed after one octet of its response ends closed" {
             var exchange = get(&bodies[0]);
             try start(&exchange);
-            // h11 holds the octet until the rest of the head arrives, and the channel read it.
+            // h11 holds the octet until the rest of the head arrives, and the pool read it.
             try testing.expectEqual(0, try give(half_head[0..1]));
             try close_transport();
             try testing.expectEqual(.closed, exchange.response.outcome);
@@ -381,19 +381,19 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqual(1, count(.open));
         }
 
-        test "RFC 9112 §9.2: an octet after an h11 response is the next response's, though the channel read it once" {
+        test "RFC 9112 §9.2: an octet after an h11 response is the next response's, though the pool read it once" {
             var first = get(&bodies[0]);
             var second = get(&bodies[1]);
             try start(&first);
-            _ = try channel.request(&second.request, &second.response);
+            _ = try pool.request(&second.request, &second.response);
             send();
             // RFC 9112 §9.3.2: the client pipelines the second request behind the first.
-            try testing.expectEqual(2, channel.tcp.slots.count(.sent));
+            try testing.expectEqual(2, pool.tcp.slots.count(.sent));
             // One call reads the first response whole and leaves the first octet of the second, and
             // the transport closes before the program passes that octet again.
             const octets = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloH";
             @memcpy(support.to_client[0..octets.len], octets);
-            const received = channel.receive(.{ .stream = support.to_client[0..octets.len] }, support.now_ns);
+            const received = pool.receive(.{ .stream = support.to_client[0..octets.len] }, support.now_ns);
             try testing.expectEqual(octets.len - 1, received.consumed);
             try testing.expectEqual(&first.response, received.event.?.finished.response);
             try close_transport();
@@ -406,7 +406,7 @@ fn Tests(comptime Channel: type) type {
             var first = get(&bodies[0]);
             var second = get(&bodies[1]);
             try start(&first);
-            _ = try channel.request(&second.request, &second.response);
+            _ = try pool.request(&second.request, &second.response);
             // RFC 9112 §9.6: the response closes the connection before the second request was
             // written, so the second is refused and moves.
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
@@ -426,24 +426,24 @@ fn Tests(comptime Channel: type) type {
             var first = get_at(&bodies[0], "/a");
             var second = get_at(&bodies[1], "/b");
             try start(&first);
-            _ = try channel.request(&second.request, &second.response);
+            _ = try pool.request(&second.request, &second.response);
             send();
-            try testing.expectEqual(2, channel.tcp.slots.count(.sent));
+            try testing.expectEqual(2, pool.tcp.slots.count(.sent));
             // The transport fails with no octet of either response read, and both go out again.
             try close_transport();
             try testing.expectEqual(2, count(.open));
             send();
             // RFC 9112 §9.3.2: "a client MUST NOT pipeline immediately after connection
             // establishment" when it retries after a failed connection.
-            try testing.expectEqual(1, channel.tcp.slots.count(.sent));
+            try testing.expectEqual(1, pool.tcp.slots.count(.sent));
             try testing.expectEqual(1, (try peer_read()).requests);
             try support.peer_h11_answer(ok, content_length_5, "hello");
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, first.response.outcome);
             send();
             try testing.expectEqual(1, (try peer_read()).requests);
             try support.peer_h11_answer(ok, content_length_5, "hello");
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, second.response.outcome);
         }
 
@@ -452,10 +452,10 @@ fn Tests(comptime Channel: type) type {
             var second = get_at(&bodies[1], "/b");
             var third = get_at(&bodies[2], "/c");
             try start(&first);
-            _ = try channel.request(&second.request, &second.response);
-            _ = try channel.request(&third.request, &third.response);
+            _ = try pool.request(&second.request, &second.response);
+            _ = try pool.request(&third.request, &third.response);
             send();
-            try testing.expectEqual(3, channel.tcp.slots.count(.sent));
+            try testing.expectEqual(3, pool.tcp.slots.count(.sent));
             // RFC 9112 §9.6: the server closes the connection in its last complete response, so
             // the two requests written after it go out again, and the connection did not fail.
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
@@ -464,14 +464,14 @@ fn Tests(comptime Channel: type) type {
             support.peer_h11.init(.server, .{});
             support.to_peer_len = 0;
             send();
-            try testing.expectEqual(2, channel.tcp.slots.count(.sent));
+            try testing.expectEqual(2, pool.tcp.slots.count(.sent));
         }
 
         test "decision 124: a cancelled h11 exchange is never sent again" {
             var exchange = get(&bodies[0]);
             try start(&exchange);
-            // A channel's first exchange gets id 1.
-            channel.cancel(1);
+            // A pool's first exchange gets id 1.
+            pool.cancel(1);
             try close_transport();
             try testing.expectEqual(null, find(.finished));
             try testing.expectEqual(1, count(.open));

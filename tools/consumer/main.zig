@@ -19,14 +19,14 @@ var output: [4096]u8 = undefined;
 var gzip_encoder: gzip.Encoder(.{ .level = 6 }) align(@alignOf(gzip.Encoder(.{ .level = 6 }))) = undefined;
 var gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
 var coded: [256]u8 = undefined;
-// The server's endpoint and the client's channel hold hundreds of kilobytes, so they live outside
+// The server's endpoint and the client's pool hold hundreds of kilobytes, so they live outside
 // the stack. The endpoint holds the one TCP connection this program accepts, and no QUIC
 // connection.
 const Endpoint = server_module.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
-// The channel speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
-const Channel = client_module.ChannelOf(.{ .quic = false });
-var asked: Channel align(@alignOf(Channel)) = undefined;
+// The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
+const Pool = client_module.PoolOf(.{ .quic = false });
+var asked: Pool align(@alignOf(Pool)) = undefined;
 const get: client_module.Request = .{ .method = "GET", .path = "/" };
 var get_response: client_module.Response align(@alignOf(client_module.Response)) = .{};
 // The octets the client wrote, which the server reads, and the octets the server wrote, which the
@@ -115,7 +115,7 @@ pub fn main() !void {
     if (!std.mem.eql(u8, output[0..decoded.written], "colibri")) return error.CodingWrong;
 
     // The `server` and `client` modules (decision 100), in cleartext h2: the client's request and
-    // the server's 204 move between the two in memory, at one instant. The client is a channel
+    // the server's 204 move between the two in memory, at one instant. The client is a pool
     // with no QUIC, which allows h2 alone, so it speaks h2 with prior knowledge. The server's
     // endpoint names no version, and the connection it accepts reads h2 from the client's
     // connection preface (decision 117).
@@ -125,10 +125,10 @@ pub fn main() !void {
     // One call for the socket a program accepted, in cleartext here. The handle names the
     // connection from then on.
     const accepted = endpoint.accept(.cleartext, 0) orelse return error.ExchangeWrong;
-    // The channel takes what DNS knows as values. A channel with no QUIC takes no receive pool.
+    // The pool takes what DNS knows as values. A pool with no QUIC takes no receive pool.
     try asked.init(&client_config, .{ .addresses = &server_addresses, .port = server_port }, null);
     _ = try asked.request(&get, &get_response);
-    // The channel asks for a socket. A program connects one, then starts the connection on it, and
+    // The pool asks for a socket. A program connects one, then starts the connection on it, and
     // reads what the connection then owes: in cleartext, that it is connected.
     const open = asked.receive(.none, 0).event orelse return error.ExchangeWrong;
     if (open != .open) return error.ExchangeWrong;

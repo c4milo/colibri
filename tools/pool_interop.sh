@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The check of docs/design.md §8 step 17d: the test-only client's channel mode (§9) fetches over h3
+# The check of docs/design.md §8 step 17d: the test-only client's pool mode (§9) fetches over h3
 # from other implementations' servers, aioquic's and quic-go's, and falls back to h2 over TLS
 # against Go's server, which listens on TCP alone. Every exchange must end the way the plan says,
 # over the protocol its phase names, with the octets the server holds.
@@ -13,7 +13,7 @@
 # the server or Docker prints, so two runs on one machine do not collide
 # (https://github.com/c4milo/colibri/issues/94).
 #
-# Usage: tools/channel_interop.sh
+# Usage: tools/pool_interop.sh
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -36,7 +36,7 @@ readonly h3_fallback_ms=5000
 readonly listen_wait_tenths=300
 
 fail() {
-  echo "channel_interop.sh: $*" >&2
+  echo "pool_interop.sh: $*" >&2
   exit 1
 }
 
@@ -79,10 +79,10 @@ report=""
 run_client() {
   local protocol="$1" port="$2"
   shift 2
-  report="$("${client}" --channel --port "${port}" --tls "${identity}" --seconds "$(date +%s)" "$@" 2>&1)" ||
+  report="$("${client}" --pool --port "${port}" --tls "${identity}" --seconds "$(date +%s)" "$@" 2>&1)" ||
     { echo "${report}"; fail "the client exited non-zero"; }
   echo "${report}"
-  ! grep -E "^channel " <<<"${report}" | grep -qv " protocol=${protocol} " ||
+  ! grep -E "^pool " <<<"${report}" | grep -qv " protocol=${protocol} " ||
     fail "an exchange ran over another protocol than ${protocol}"
 }
 
@@ -97,7 +97,7 @@ expect() {
 # carries <text>.
 expect_opened() {
   local line
-  line="$(grep -E "^http-client: channel " <<<"${report}" || true)"
+  line="$(grep -E "^http-client: pool " <<<"${report}" || true)"
   [[ "${line}" == *"$1"* ]] || fail "the origin did not end with: $1"
 }
 
@@ -117,7 +117,7 @@ plan_h3() {
 }
 
 run_aioquic() {
-  echo "channel_interop.sh: aioquic ${aioquic_version}"
+  echo "pool_interop.sh: aioquic ${aioquic_version}"
   HQ_PEER_SCRATCH="${scratch}" "${venv}/bin/python" "${repository_root}/tools/quic_interop/h3_peer.py" \
     server 127.0.0.1 0 "${identity}" "${scratch}/www" >"${scratch}/aioquic.log" 2>&1 &
   server_pid=$!
@@ -128,7 +128,7 @@ run_aioquic() {
 }
 
 run_quic_go() {
-  echo "channel_interop.sh: quic-go $(quic_go_version) from ${quic_go_image}"
+  echo "pool_interop.sh: quic-go $(quic_go_version) from ${quic_go_image}"
   mkdir -p "${scratch}/certs" "${scratch}/logs"
   # The runner's server reads its chain and key from /certs, and writes into /logs.
   cp "${identity}.chain.pem" "${scratch}/certs/cert.pem"
@@ -162,7 +162,7 @@ quic_go_version() {
 # Go's server listens on TCP alone, so QUIC's handshake is never answered: TCP opens once the
 # fallback delay passes, and its h2 connection takes every exchange (RFC 9114 §3.1).
 run_fallback() {
-  echo "channel_interop.sh: $(go version), no UDP"
+  echo "pool_interop.sh: $(go version), no UDP"
   (cd "${repository_root}/tools/h2_interop" && go build -o "${scratch}/go_server" go_server.go)
   "${scratch}/go_server" 0 "${identity}" >"${scratch}/go.log" 2>&1 &
   server_pid=$!
@@ -181,7 +181,7 @@ run_fallback() {
 for tool in python3 docker go; do
   command -v "${tool}" >/dev/null 2>&1 || fail "${tool} is not installed"
 done
-echo "channel_interop.sh: building the test-only client"
+echo "pool_interop.sh: building the test-only client"
 (cd "${repository_root}" && zig build install)
 [ -x "${client}" ] || fail "the client was not built at ${client}"
 (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
@@ -195,4 +195,4 @@ head -c 1000000 /dev/urandom >"${scratch}/www/large"
 run_aioquic
 run_quic_go
 run_fallback
-echo "channel_interop.sh: every exchange ended as planned: over h3 from aioquic and quic-go, and over h2 from Go's server with no UDP"
+echo "pool_interop.sh: every exchange ended as planned: over h3 from aioquic and quic-go, and over h2 from Go's server with no UDP"

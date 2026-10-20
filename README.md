@@ -101,22 +101,22 @@ var get_response: client.Response align(@alignOf(client.Response)) = .{
 };
 ```
 
-It hands both to a channel. The channel asks for a QUIC or a TCP transport, and sends the
+It hands both to a pool. The pool asks for a QUIC or a TCP transport, and sends the
 request over the first connection that completes its handshake:
 
 ```zig
 const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
-// `init` builds the TLS configuration of each transport inside the channel, which stays in
-// place from here on. The pool is what makes the channel offer QUIC.
-try channel.init(&client_config, known, receive_pool.storage());
-// `request` only takes a request and its response. The channel asks for a transport, and
+// `init` builds the TLS configuration of each transport inside the pool, which stays in
+// place from here on. The receive pool is what makes the pool offer QUIC.
+try pool.init(&client_config, known, receive_pool.storage());
+// `request` only takes a request and its response. The pool asks for a transport, and
 // sends the request over the first connection that completes its handshake, so a program asks
 // at once and never waits.
-_ = try channel.request(&get, &get_response);
-_ = try channel.request(&post, &post_response);
+_ = try pool.request(&get, &get_response);
+_ = try pool.request(&post, &post_response);
 ```
 
-The program moves datagrams and octets between its sockets and the channel's `send_datagram`,
+The program moves datagrams and octets between its sockets and the pool's `send_datagram`,
 `send_stream` and `receive`, and every exchange ends in one `finished` event, which names the
 request and the response:
 
@@ -127,8 +127,8 @@ request and the response:
         ended.request.path, @tagName(ended.response.outcome), ended.response.status,
     });
     finished += 1;
-    // Every exchange has ended, so the client shuts the channel down.
-    if (finished == exchanges_count) channel.shutdown();
+    // Every exchange has ended, so the client shuts the pool down.
+    if (finished == exchanges_count) pool.shutdown();
 },
 ```
 
@@ -198,7 +198,7 @@ shape: octets in, at most one event out, and the frames colibri owes written int
 
 [`examples/`](examples/) holds whole programs, each a client and a server run over
 [Rotor](https://github.com/c4milo/rotor)'s loop: a server that serves TCP and QUIC through one
-endpoint, a client whose channel tries QUIC and then TCP, and h11 and h2 by themselves. `zig
+endpoint, a client whose pool tries QUIC and then TCP, and h11 and h2 by themselves. `zig
 build examples` runs them, and CI does too.
 
 ## How it is checked

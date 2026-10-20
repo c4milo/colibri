@@ -78,7 +78,7 @@ pub const Trust = union(enum) {
 pub const Client = struct {
     trust: Trust,
     /// Protocols to offer, most preferred first (RFC 7301 §3.1). Empty when the caller names
-    /// none, as `client.Channel` requires: it names the protocols its versions allow (decision
+    /// none, as `client.Pool` requires: it names the protocols its versions allow (decision
     /// 117).
     alpn: []const []const u8 = &.{},
     /// The program's probe of its CPU; there is no default.

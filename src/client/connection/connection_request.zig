@@ -6,7 +6,7 @@ const event = @import("../event.zig");
 
 const Request = event.Request;
 
-/// What `check_request` refuses, on a connection and on a channel.
+/// What `check_request` refuses, on a connection and on a pool.
 pub const CheckError = error{
     /// The method or the path is empty, or the method is CONNECT, whose tunnel is no exchange of
     /// a request and a response (RFC 9110 §9.3.6).
@@ -16,8 +16,8 @@ pub const CheckError = error{
     FieldReserved,
 };
 
-/// What a connection's `request` returns. The channel gives an exchange only to an open
-/// connection, so the channel's own set has no `Draining` or `ConnectionClosed`.
+/// What a connection's `request` returns. The pool gives an exchange only to an open
+/// connection, so the pool's own set has no `Draining` or `ConnectionClosed`.
 pub const RequestError = CheckError || error{
     /// Every slot holds an exchange, until one's `finished` event is reported.
     Full,

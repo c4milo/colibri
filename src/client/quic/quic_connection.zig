@@ -7,7 +7,7 @@
 //! come. colibri makes no system call and reads no clock (non-negotiable 3). It does the duties of
 //! a QUIC caller itself (decisions 57 and 62): it hands the provider the transport parameters,
 //! derives the Initial keys, and supplies each request stream's octets, the HEADERS frame and DATA
-//! frame header it keeps (decision 79), then the request's content. The channel draws the
+//! frame header it keeps (decision 79), then the request's content. The pool draws the
 //! connection IDs and h3's grease value from the source its caller gives `start_quic` (decision
 //! 120, invariant 5). The receive pool is the caller's (decision 61), and its capacity sets every
 //! window the client advertises.
@@ -19,7 +19,7 @@
 //! memory of the request and the response once the event arrives.
 //!
 //! `QuicConnection`'s public functions are the calls that the module's other files make: the
-//! channel's files and the tests. What only the connection's own files call is in
+//! pool's files and the tests. What only the connection's own files call is in
 //! `quic_connection_internal.zig` (design §8 step 17f). The module's root exports neither file
 //! (decision 121).
 const std = @import("std");
@@ -78,7 +78,7 @@ pub const Config = struct {
     br_decoders: ?coding_pool.BrotliDecoders = null,
 };
 
-/// The unpredictable values one connection starts from, which the channel draws in `start_quic`
+/// The unpredictable values one connection starts from, which the pool draws in `start_quic`
 /// (decision 120, invariant 5).
 pub const Start = struct {
     /// The client's Source Connection ID, and the Destination Connection ID of its first Initial,

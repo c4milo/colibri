@@ -171,10 +171,10 @@ section "hq-interop over UDP, colibri to colibri over chapulin" tools/quic_udp.s
 quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic-udp: (fetched|served)" "${scratch}/last.log")"
 section "hq-interop over UDP, colibri against aioquic" tools/quic_aioquic.sh
 quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic_aioquic: " "${scratch}/last.log")"
-# Design §8 step 17d: the client's channel mode fetches over h3 from aioquic and quic-go, and falls
+# Design §8 step 17d: the client's pool mode fetches over h3 from aioquic and quic-go, and falls
 # back to h2 against Go's server, which has no UDP.
-section "Client channel, h3 from aioquic and quic-go, h2 fallback" tools/channel_interop.sh
-quic_lines="${quic_lines}"$'\n'"$(grep -E "^channel_interop.sh: |^http-client: channel " "${scratch}/last.log")"
+section "Client pool, h3 from aioquic and quic-go, h2 fallback" tools/pool_interop.sh
+quic_lines="${quic_lines}"$'\n'"$(grep -E "^pool_interop.sh: |^http-client: pool " "${scratch}/last.log")"
 # Design §8 step 11: the QIF tools of design §9 against ls-qpack, through pylsqpack.
 if command -v python3 >/dev/null 2>&1; then
   section "QIF interop, colibri against ls-qpack" tools/qif_interop.sh

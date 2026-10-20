@@ -1,5 +1,5 @@
 //! The endpoints of the TCP trace run (https://github.com/c4milo/colibri/issues/79): a
-//! `client.Channel` with TCP alone (design §8 step 21c) and a `server.Endpoint` that holds one
+//! `client.Pool` with TCP alone (design §8 step 21c) and a `server.Endpoint` that holds one
 //! connection (step 21b.6), over h2, in cleartext or over TLS, every octet each has handed the
 //! other, and the server's caller, which answers each request as the plan says.
 //!
@@ -23,7 +23,7 @@
 //! `tcp_trace_state.zig` reads the end of such a request from h2's stream table. After its
 //! shutdown the endpoint closes the connection once no request is open, and reads nothing more.
 //!
-//! The run reads the channel only in `deliver_to_client` and at the first request: a read may end
+//! The run reads the pool only in `deliver_to_client` and at the first request: a read may end
 //! a draining connection and queue h2's GOAWAY, which a read elsewhere moves to another action.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -81,9 +81,9 @@ pub const World = struct {
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
-    channel: client.Channel,
-    /// Whether the first request started the channel's connection, whose memory the run reads
-    /// from then on, and whether the channel said to close its socket, which then reads nothing.
+    pool: client.Pool,
+    /// Whether the first request started the pool's connection, whose memory the run reads
+    /// from then on, and whether the pool said to close its socket, which then reads nothing.
     started: bool,
     socket_closed: bool,
     to_server: Direction,
@@ -135,8 +135,8 @@ pub const World = struct {
         const octets: [limits.ipv4_len]u8 = @splat(limits.address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};
         const port = if (over_tls) limits.https_port else limits.http_port;
-        // No receive pool, so the channel offers TCP alone.
-        try world.channel.init(&world.client_config, .{ .addresses = &world.addresses, .port = port }, null);
+        // No receive pool, so the pool offers TCP alone.
+        try world.pool.init(&world.client_config, .{ .addresses = &world.addresses, .port = port }, null);
         world.started = false;
         world.socket_closed = false;
         world.to_server = .{};
@@ -181,20 +181,20 @@ pub const World = struct {
     /// serves it: before its TLS handshake completes.
     pub fn client_h2(world: *World) ?*h2.Connection {
         if (!world.started) return null;
-        return h2_of(&world.channel.tcp.session);
+        return h2_of(&world.pool.tcp.session);
     }
 
     /// The protocol's octets the client's connection wrote that its caller has not handed out:
     /// what `output` holds after the records of the handshake. None before it started.
     pub fn client_pending(world: *const World) []const u8 {
         if (!world.started) return "";
-        const connection = &world.channel.tcp;
+        const connection = &world.pool.tcp;
         return connection.output[connection.records_len..connection.output_len];
     }
 
     /// The plaintext the client's connection opened and has not read. None before it started.
     pub fn client_plain_in_len(world: *const World) usize {
-        return if (world.started) world.channel.tcp.plain_in_len else 0;
+        return if (world.started) world.pool.tcp.plain_in_len else 0;
     }
 
     /// The connection the endpoint holds, for the fields a program has no call for.
@@ -227,10 +227,10 @@ pub const World = struct {
         // Every plan requests before any other action, and the first request starts the
         // connection.
         assert(world.started);
-        _ = world.channel.send_stream(&.{}, world.now_ns);
+        _ = world.pool.send_stream(&.{}, world.now_ns);
         const staged = world.client_pending();
         world.to_server.stage(staged);
-        const written = world.channel.send_stream(world.to_server.room(), world.now_ns);
+        const written = world.pool.send_stream(world.to_server.room(), world.now_ns);
         world.to_server.note_send(staged.len, written, world.client_pending());
     }
 
@@ -258,7 +258,7 @@ pub const World = struct {
             .content = if (carries) &content else "",
         };
         world.responses[index] = .{ .body = &world.bodies[index] };
-        world.client_ids[index] = world.channel.request(&world.requests[index], &world.responses[index]) catch {
+        world.client_ids[index] = world.pool.request(&world.requests[index], &world.responses[index]) catch {
             world.refused += 1;
             return;
         };
@@ -267,43 +267,43 @@ pub const World = struct {
     }
 
     /// Whether the client's connection takes no new request. RFC 9113 §6.8: a client that read a
-    /// GOAWAY makes no new request on the connection. A channel would hold the request for another
+    /// GOAWAY makes no new request on the connection. A pool would hold the request for another
     /// connection, which the run never opens, so the run refuses it itself.
     fn takes_no_request(world: *const World) bool {
-        return switch (world.channel.phase(.tcp)) {
+        return switch (world.pool.phase(.tcp)) {
             .none, .handshake, .open => false,
             .draining, .failed, .closed => true,
         };
     }
 
-    /// Starts the channel's connection at the first request: the channel asks for a socket, and the
+    /// Starts the pool's connection at the first request: the pool asks for a socket, and the
     /// run starts the connection on it. In cleartext the connection owes `connected` from its
-    /// start, and the channel hands it the request as it reports it. Over TLS the read that
+    /// start, and the pool hands it the request as it reports it. Over TLS the read that
     /// completes the handshake reports it, in `deliver_to_client`.
     fn start_client(world: *World) void {
-        const asked = world.channel.receive(.none, world.now_ns).event orelse unreachable;
+        const asked = world.pool.receive(.none, world.now_ns).event orelse unreachable;
         assert(asked.open.transport == .tcp);
-        world.channel.start_tcp(tls.Random.init(&world.tls_random, fill), identity.now_seconds, null) catch {
+        world.pool.start_tcp(tls.Random.init(&world.tls_random, fill), identity.now_seconds, null) catch {
             world.broken = true;
             return;
         };
         world.started = true;
-        const reported = world.channel.receive(.none, world.now_ns).event;
+        const reported = world.pool.receive(.none, world.now_ns).event;
         assert(if (world.tls) reported == null else reported.? == .connected);
     }
 
     fn client_cancel(world: *World, stream: u32) void {
         const id = world.client_ids[stream - 1] orelse return;
         if (world.responses[stream - 1].outcome != .pending or world.moved(id)) return;
-        world.channel.cancel(id);
+        world.pool.cancel(id);
         world.client_ids[stream - 1] = null;
-        _ = world.channel.send_stream(&.{}, world.now_ns);
+        _ = world.pool.send_stream(&.{}, world.now_ns);
     }
 
     /// Whether exchange `id` moved off the connection: a GOAWAY refused it unprocessed, and it
-    /// waits at the channel for another connection, which the run never opens (RFC 9113 §8.7).
+    /// waits at the pool for another connection, which the run never opens (RFC 9113 §8.7).
     fn moved(world: *const World, id: client.Id) bool {
-        for (world.channel.entries) |entry| {
+        for (world.pool.entries) |entry| {
             if (entry.stage != .free and entry.id == id) return entry.moves > 0;
         }
         return false;
@@ -440,16 +440,16 @@ pub const World = struct {
         }
     }
 
-    /// Passes the channel what the socket holds, and does what each event asks. It stops after two
+    /// Passes the pool what the socket holds, and does what each event asks. It stops after two
     /// calls in a row that consume nothing and report nothing: a call that read the connection's
-    /// `draining`, which the channel keeps, reports nothing, and the call after it reads all the
+    /// `draining`, which the pool keeps, reports nothing, and the call after it reads all the
     /// connection owes.
     fn read_client(world: *World) void {
         var quiet: u32 = 0;
         for (0..limits.receives_per_delivery_max) |_| {
             // A closed socket reads nothing more, and the octets in flight stay there.
             const input: client.Input = if (world.socket_closed) .none else .{ .stream = world.to_client.unread() };
-            const received = world.channel.receive(input, world.now_ns);
+            const received = world.pool.receive(input, world.now_ns);
             world.to_client.consumed += received.consumed;
             if (received.event) |reported| world.on_client_event(reported);
             quiet = if (received.consumed == 0 and received.event == null) quiet + 1 else 0;
@@ -458,18 +458,18 @@ pub const World = struct {
         world.broken = true;
     }
 
-    /// What an event of the channel's means to the run. A second `open` gets no socket, so the
+    /// What an event of the pool's means to the run. A second `open` gets no socket, so the
     /// exchanges that wait for it end refused, and a `close` closes the one socket. The run reads
     /// the outcomes, and ignores the rest.
     fn on_client_event(world: *World, reported: client.Event) void {
         switch (reported) {
             .open => |asked| {
                 assert(asked.transport == .tcp);
-                world.channel.transport_closed(.tcp);
+                world.pool.transport_closed(.tcp);
             },
             .close => world.socket_closed = true,
             .connected, .ticket, .finished => {},
-            // The run never shuts the channel down.
+            // The run never shuts the pool down.
             .closed => unreachable,
         }
     }

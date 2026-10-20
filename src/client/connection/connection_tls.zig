@@ -89,7 +89,7 @@ pub fn protocol_of(selected: ?[]const u8, versions: Versions) Protocol {
 /// Opens the records of `input` that fit, one that carries the protocol's octets at a time, and
 /// has the protocol read all it can of each before the next one opens. Returns the octets of
 /// `input` taken. A record that fails ends the protocol's session (RFC 9846 §6), so the protocol
-/// reads what the records before it held first: some of a response arrived, and the channel does
+/// reads what the records before it held first: some of a response arrived, and the pool does
 /// not send the request again (decision 124).
 pub fn read(connection: *Connection, input: []const u8, now_ns: u64) usize {
     var consumed: usize = 0;

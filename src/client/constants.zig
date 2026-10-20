@@ -109,9 +109,9 @@ const h3_events_per_exchange_max: usize = 4;
 /// close is the caller's to judge.
 pub const moves_max: u8 = 1;
 
-/// Events the channel reads from its connections in one call at most: each connection's version,
+/// Events the pool reads from its connections in one call at most: each connection's version,
 /// ticket, draining and close, and one `finished` event for each exchange it may hold.
-pub const channel_events_per_poll_max: usize = transports_count * (exchanges_max + connection_events_max);
+pub const pool_events_per_poll_max: usize = transports_count * (exchanges_max + connection_events_max);
 const transports_count: usize = 2;
 const connection_events_max: usize = 4;
 
@@ -153,16 +153,16 @@ pub const stream_output_len_min: usize = record_len_max;
 pub const receive_events_without_input_max: usize = exchanges_max + transports_count * transport_events_max + 1;
 
 /// The events of one transport in such a run, at most: its `open` and its `close`, and its
-/// connection's `connected` and `ticket`. A connection's `draining` and `closed` go to the channel
+/// connection's `connected` and `ticket`. A connection's `draining` and `closed` go to the pool
 /// alone.
 const transport_events_max: usize = 4;
 
 /// Nanoseconds in a second, which an Alt-Svc freshness lifetime counts (RFC 7838 §3.1).
 pub const nanoseconds_per_second: u64 = 1_000 * quic.constants.nanoseconds_per_millisecond;
 
-/// How long a channel lets QUIC's handshake run before TCP opens beside it, unless the caller
+/// How long a pool lets QUIC's handshake run before TCP opens beside it, unless the caller
 /// names another delay, in nanoseconds: 250 ms (decision 120). No RFC in docs/rfcs gives a value.
-/// It is the delay the test-only client used before the channel had a default.
+/// It is the delay the test-only client used before the pool had a default.
 pub const fallback_delay_ns_default: u64 = 250 * quic.constants.nanoseconds_per_millisecond;
 
 /// The largest window a `br` decoder takes, as the bits RFC 7932 §9.1 names WBITS: 24, a window of
@@ -202,6 +202,6 @@ comptime {
     // An output a provider never refuses for its length holds an alert too.
     assert(stream_output_len_min >= tls_provider.constants.record_write_len_min);
     assert(stream_output_len_min >= tls.record.alert_record_len);
-    // Each exchange finishes once, the channel closes once, and each transport gives its events.
+    // Each exchange finishes once, the pool closes once, and each transport gives its events.
     assert(receive_events_without_input_max >= exchanges_max + transports_count * transport_events_max + 1);
 }

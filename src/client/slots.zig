@@ -48,7 +48,7 @@ pub const Slot = struct {
     /// Some of the response arrived: an octet of it over h11, read or still held. Over h2, the
     /// header of a HEADERS frame on its stream, before h2 reads the frame. Over h3, a HEADERS
     /// frame h3 took, or the header of one first on its stream when the connection ends. Every
-    /// frame of a response follows a HEADERS frame (RFC 9113 §8.1, RFC 9114 §4.1). The channel
+    /// frame of a response follows a HEADERS frame (RFC 9113 §8.1, RFC 9114 §4.1). The pool
     /// sends a request again only when its connection closed before this (decision 124).
     response_began: bool = false,
     /// A dropping slot whose exchange ended before its response did, and whose `finished` event

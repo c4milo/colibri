@@ -424,7 +424,7 @@ test "a rule of chapulin's is chapulin's to report, when a session starts or a s
 }
 
 test "decision 117: a client's values that name no `alpn` convert to a list of no protocol" {
-    // A `client.Channel` names the protocols its versions allow, so its caller leaves `alpn` out.
+    // A `client.Pool` names the protocols its versions allow, so its caller leaves `alpn` out.
     try support.client_config.init(.{ .trust = support.web_pki.trust, .cpu = support.cpu });
     try testing.expectEqual(0, support.client_config.values.alpn.len);
     // A session starts from it, and a server that selects from a list selects none.

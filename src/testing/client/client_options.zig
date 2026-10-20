@@ -1,5 +1,5 @@
 //! The command line of the test-only client (`client_loop.zig`): where it connects, how many
-//! connections it opens, each a `client.Channel`, and the plan of exchanges every one of them runs.
+//! connections it opens, each a `client.Pool`, and the plan of exchanges every one of them runs.
 //! Split off the loop for length.
 const std = @import("std");
 const constants = @import("../constants.zig");
@@ -25,12 +25,12 @@ pub const Run = struct {
     /// The protocol every connection speaks in cleartext: h2 with prior knowledge unless `--h11`
     /// says h11. Over TLS, `--h11` offers `http/1.1` alone, and ALPN picks the protocol.
     protocol: Protocol,
-    /// Whether `--channel` adds QUIC: the plan goes to one `client.Channel` (`channel_loop.zig`),
-    /// which tries h3 over QUIC first and falls back to TCP, where every other run's channels hold
+    /// Whether `--pool` adds QUIC: the plan goes to one `client.Pool` (`pool_loop.zig`),
+    /// which tries h3 over QUIC first and falls back to TCP, where every other run's pools hold
     /// TCP alone. It needs `--tls`, since h3 serves only "https" origins (RFC 9114 §3.1.2), and runs
-    /// one channel, so no `--connections`.
-    channel: bool,
-    /// How long the channel's QUIC handshake runs before TCP opens beside it: `--fallback-ms`.
+    /// one pool, so no `--connections`.
+    pool: bool,
+    /// How long the pool's QUIC handshake runs before TCP opens beside it: `--fallback-ms`.
     fallback_delay_ns: u64,
     /// Whether the client offers gzip and deflate, and decodes a response coded in either:
     /// `--coded` (decision 101).
@@ -48,7 +48,7 @@ const loopback_first: u8 = 127;
 pub const usage =
     \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
     \\                 [--h11] [--coded] [--tls <anchor-prefix> --seconds <unix-seconds>]
-    \\                 [--channel [--fallback-ms <milliseconds>]]
+    \\                 [--pool [--fallback-ms <milliseconds>]]
     \\                 [--connections <count>] (--get <path> | --post <path> <octets>)...
     \\
 ;
@@ -66,8 +66,8 @@ pub fn read_run(arguments: anytype) ?Run {
         .anchor_prefix = null,
         .now_seconds = 0,
         .protocol = .h2,
-        .channel = false,
-        .fallback_delay_ns = constants.channel_fallback_delay_ns,
+        .pool = false,
+        .fallback_delay_ns = constants.pool_fallback_delay_ns,
         .coded = false,
     };
     for (0..constants.client_arguments_max) |_| {
@@ -84,8 +84,8 @@ fn run_ok(run: *const Run) bool {
     const connections_ok = run.connections_count > 0 and run.connections_count <= constants.client_connections_max;
     // A webpki chain is valid only at an instant, so the TLS mode needs one.
     const tls_ok = run.anchor_prefix == null or run.now_seconds > 0;
-    const channel_ok = !run.channel or (run.anchor_prefix != null and run.connections_count == 1);
-    return run.plans_count > 0 and connections_ok and tls_ok and channel_ok;
+    const pool_ok = !run.pool or (run.anchor_prefix != null and run.connections_count == 1);
+    return run.plans_count > 0 and connections_ok and tls_ok and pool_ok;
 }
 
 /// Applies an option that takes no value, or returns false when `option` is not one.
@@ -94,8 +94,8 @@ fn read_flag(run: *Run, option: []const u8) bool {
         run.protocol = .h11;
         return true;
     }
-    if (std.mem.eql(u8, option, "--channel")) {
-        run.channel = true;
+    if (std.mem.eql(u8, option, "--pool")) {
+        run.pool = true;
         return true;
     }
     if (std.mem.eql(u8, option, "--coded")) {
@@ -175,19 +175,19 @@ fn test_read(words: []const []const u8) ?Run {
     return read_run(&arguments);
 }
 
-/// The options every channel run of the tests names. Test-only.
+/// The options every pool run of the tests names. Test-only.
 const test_tls = [_][]const u8{ "--tls", "prefix", "--seconds", "1", "--get", "/" };
 
-test "--channel needs --tls and runs one channel" {
-    try testing.expect(test_read(&[_][]const u8{ "--channel", "--get", "/" }) == null);
-    try testing.expect(test_read(&([_][]const u8{ "--channel", "--connections", "2" } ++ test_tls)) == null);
-    const run = test_read(&([_][]const u8{"--channel"} ++ test_tls)).?;
-    try testing.expect(run.channel and run.connections_count == 1);
-    try testing.expectEqual(constants.channel_fallback_delay_ns, run.fallback_delay_ns);
+test "--pool needs --tls and runs one pool" {
+    try testing.expect(test_read(&[_][]const u8{ "--pool", "--get", "/" }) == null);
+    try testing.expect(test_read(&([_][]const u8{ "--pool", "--connections", "2" } ++ test_tls)) == null);
+    const run = test_read(&([_][]const u8{"--pool"} ++ test_tls)).?;
+    try testing.expect(run.pool and run.connections_count == 1);
+    try testing.expectEqual(constants.pool_fallback_delay_ns, run.fallback_delay_ns);
 }
 
 test "--fallback-ms sets how long QUIC's handshake runs before TCP opens" {
-    const run = test_read(&([_][]const u8{ "--channel", "--fallback-ms", "40" } ++ test_tls)).?;
+    const run = test_read(&([_][]const u8{ "--pool", "--fallback-ms", "40" } ++ test_tls)).?;
     try testing.expectEqual(40 * constants.nanoseconds_per_millisecond, run.fallback_delay_ns);
-    try testing.expect(test_read(&([_][]const u8{ "--channel", "--fallback-ms", "soon" } ++ test_tls)) == null);
+    try testing.expect(test_read(&([_][]const u8{ "--pool", "--fallback-ms", "soon" } ++ test_tls)) == null);
 }

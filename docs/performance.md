@@ -97,7 +97,7 @@ four h2 ones. Each competitor is set up so that all of them do the same work:
 ## Memory per connection
 
 The table gives the size in bytes of each struct a program places, and of the connection in each
-slot of an endpoint and in each transport of a channel. An endpoint holds a server's connections
+slot of an endpoint and in each transport of a client's pool. An endpoint holds a server's connections
 (design §8 step 21b.6). Each size comes from the code that the build compiles (design §8 step 13b,
 §11.2).
 
@@ -106,7 +106,7 @@ fails when the table here differs from it. The sizes depend on which object chap
 and arm64 build its host objects (decision 97 as amended), so one table serves both. Any other
 target builds its device objects, prints another heading, and its test fails until this section
 holds its table. An endpoint holds each QUIC connection's receive pool. A QUIC connection listed by
-itself holds none: a client's program passes one to `Channel.init`, whose default the table lists.
+itself holds none: a client's program passes one to `Pool.init`, whose default the table lists.
 The two endpoints of one slot each hold one connection and the endpoint's fixed part, about 12.7 KB
 of TLS and connection configuration, which every endpoint holds once.
 
@@ -119,11 +119,11 @@ With chapulin's host objects:
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2243360 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 322776 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721576 | the connection each QUIC slot of an endpoint holds, without its receive pool |
-| `@FieldType(client.Channel, "tcp")` | 305648 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
-| `@FieldType(client.Channel, "quic")` | 703984 | a channel's QUIC connection, without its receive pool |
-| `client.Channel` | 1012216 | one server's connections, QUIC first and TCP after, without receive pools |
-| `client.ChannelOf(.{ .quic = false })` | 307304 | a channel with no QUIC state, which holds one TCP connection |
-| `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a channel, at its default capacity |
+| `@FieldType(client.Pool, "tcp")` | 305704 | a pool's TCP connection: h11 or h2, in cleartext or over TLS |
+| `@FieldType(client.Pool, "quic")` | 703984 | a pool's QUIC connection, without its receive pool |
+| `client.Pool` | 1012272 | one server's connections, QUIC first and TCP after, without receive pools |
+| `client.PoolOf(.{ .quic = false })` | 307360 | a pool with no QUIC state, which holds one TCP connection |
+| `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163392 | the h2 state inside a TCP connection |
 | `h3.Connection` | 146312 | the h3 state inside a QUIC connection |

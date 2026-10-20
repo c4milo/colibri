@@ -1,6 +1,6 @@
 //! One run of the content-coding check (`content_coding_check.zig`, decision 101): a colibri
 //! client and a colibri server over two streams, delivered in seeded pieces or whole. The server
-//! is an endpoint with one TCP slot (design §8 step 21b.6), and the client a channel with TCP alone
+//! is an endpoint with one TCP slot (design §8 step 21b.6), and the client a pool with TCP alone
 //! in cleartext (step 21c). The client makes every exchange of the plan, and the server's caller
 //! answers each as the plan says, marked codable or not, in writes of the content, until every
 //! exchange ended.
@@ -32,7 +32,7 @@ pub const DecoderPool = client.DecoderPool(limits.exchanges_max);
 /// The server: one connection in cleartext, and no QUIC.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 
-/// The one address the channel opens its socket to, which no socket reads, and the port of an
+/// The one address the pool opens its socket to, which no socket reads, and the port of an
 /// "http" origin whose URI names none (RFC 9110 §4.2.1).
 const ipv4_len: usize = 4;
 const address_octet: u8 = 0x0a;
@@ -85,7 +85,7 @@ pub const Storage = struct {
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
-    channel: client.Channel,
+    pool: client.Pool,
     to_server: Stream,
     to_client: Stream,
     /// Each exchange's request and response, by index (decision 124).
@@ -108,7 +108,7 @@ pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Ra
     try start(storage, plan, content_seed);
     // Bounded: each round moves octets both ways, and the plan's responses end in fewer.
     for (0..limits.rounds_max) |_| {
-        storage.to_server.written += storage.channel.send_stream(storage.to_server.free(), now_ns);
+        storage.to_server.written += storage.pool.send_stream(storage.to_server.free(), now_ns);
         storage.to_server.deliver(pieces);
         try server_read(storage);
         try server_write(storage, plan);
@@ -151,8 +151,8 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     storage.accepted = storage.endpoint.accept(.cleartext, now_ns) orelse return error.ExchangeRefused;
     const octets: [ipv4_len]u8 = @splat(address_octet);
     storage.addresses = .{client.Address.of(&octets, 0)};
-    // No receive pool, so the channel offers TCP alone.
-    try storage.channel.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
+    // No receive pool, so the pool offers TCP alone.
+    try storage.pool.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
     storage.to_server.reset();
     storage.to_client.reset();
     storage.answers_len = 0;
@@ -164,16 +164,16 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     try connect(storage, source);
 }
 
-/// Reads the channel's `open`, and starts its connection on the socket it asked for. In cleartext
-/// the connection owes `connected` from its start, and the channel hands it the waiting exchanges
+/// Reads the pool's `open`, and starts its connection on the socket it asked for. In cleartext
+/// the connection owes `connected` from its start, and the pool hands it the waiting exchanges
 /// as it reports it, so the first round's send carries them.
 fn connect(storage: *Storage, source: tls.Random) Error!void {
-    const asked = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    const asked = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(asked.open.transport == .tcp);
-    try storage.channel.start_tcp(source, 0, null);
-    const reported = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    try storage.pool.start_tcp(source, 0, null);
+    const reported = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(reported == .connected);
-    assert(storage.channel.receive(.none, now_ns).event == null);
+    assert(storage.pool.receive(.none, now_ns).event == null);
 }
 
 fn request(storage: *Storage, planned: *const plan_module.Exchange, index: usize) Error!void {
@@ -189,7 +189,7 @@ fn request(storage: *Storage, planned: *const plan_module.Exchange, index: usize
         storage.own_offers[index] = .{.{ .name = "accept-encoding", .value = value }};
         message.fields = &storage.own_offers[index];
     }
-    _ = try storage.channel.request(message, response);
+    _ = try storage.pool.request(message, response);
 }
 
 fn fill(random: *Random, buffer: []u8) void {
@@ -287,7 +287,7 @@ fn client_read(storage: *Storage) void {
     const stream = &storage.to_client;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + limits.exchanges_max * events_per_exchange) |_| {
-        const received = storage.channel.receive(.{ .stream = stream.held() }, now_ns);
+        const received = storage.pool.receive(.{ .stream = stream.held() }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;

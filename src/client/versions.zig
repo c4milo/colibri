@@ -1,5 +1,5 @@
 //! The versions a client speaks (decision 117), and the one a TCP connection in cleartext speaks.
-//! A channel builds its ALPN lists from it (decision 120), so `versions` is the one place a
+//! A pool builds its ALPN lists from it (decision 120), so `versions` is the one place a
 //! program names a version. `client.zig` exports `Versions` alone.
 const std = @import("std");
 const testing = std.testing;
@@ -8,7 +8,7 @@ const event = @import("event.zig");
 const Protocol = event.Protocol;
 
 /// Which of h11, h2 and h3 the client speaks, each true by default (decision 117). A TCP
-/// connection speaks h11 or h2, and h3 runs over QUIC alone (RFC 9114 §3.1). A channel opens TCP
+/// connection speaks h11 or h2, and h3 runs over QUIC alone (RFC 9114 §3.1). A pool opens TCP
 /// only while `versions` allows h11 or h2, and QUIC only while it allows h3. Over TLS it offers
 /// the protocols `versions` allows in its ALPN list, h2 before h11 (decision 120), and in
 /// cleartext `cleartext` chooses.

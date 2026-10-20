@@ -56,7 +56,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8) usize {
 
 /// Notes that some of a response arrived when `left` octets wait to be read, whether or not h11
 /// takes them yet. RFC 9112 §9.2: they answer the oldest request that awaits a response, so the
-/// channel does not send that request again (decision 124).
+/// pool does not send that request again (decision 124).
 fn note_arrival(connection: *Connection, left: usize) void {
     if (left == 0) return;
     const slot = connection.slots.oldest_awaiting() orelse return;

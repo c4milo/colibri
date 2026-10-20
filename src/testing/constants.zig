@@ -288,23 +288,23 @@ pub const hq_refused_error_code: u64 = 0;
 /// its receive.
 pub const udp_send_slots: usize = udp_operations_max - 1;
 
-/// Operations the client's channel mode holds for its TCP connection at once: a receive, a send,
-/// and the close that ends them (`client/channel_tcp.zig`). A connect is alone in flight.
-pub const channel_tcp_operations_max: u32 = 3;
+/// Operations the client's pool mode holds for its TCP connection at once: a receive, a send,
+/// and the close that ends them (`client/pool_tcp.zig`). A connect is alone in flight.
+pub const pool_tcp_operations_max: u32 = 3;
 
-/// Datagrams the client's channel mode may have in flight to the kernel: every operation of the
+/// Datagrams the client's pool mode may have in flight to the kernel: every operation of the
 /// loop but its receive and its TCP connection's.
-pub const channel_udp_send_slots: usize = udp_operations_max - 1 - channel_tcp_operations_max;
+pub const pool_udp_send_slots: usize = udp_operations_max - 1 - pool_tcp_operations_max;
 
-/// How long the channel mode's QUIC handshake runs before TCP opens beside it, unless
+/// How long the pool mode's QUIC handshake runs before TCP opens beside it, unless
 /// `--fallback-ms` names another. A handshake on loopback completes in a few milliseconds, and a
 /// run against a server with no UDP waits no longer than this for TCP.
-pub const channel_fallback_delay_ns: u64 = 250 * nanoseconds_per_millisecond;
+pub const pool_fallback_delay_ns: u64 = 250 * nanoseconds_per_millisecond;
 
-/// How long one channel mode run lasts before the client gives it up: past the idle timeout the
+/// How long one pool mode run lasts before the client gives it up: past the idle timeout the
 /// QUIC connection advertises (`client.constants.quic_idle_timeout_ms_default`), so a QUIC
 /// handshake that never completes ends first.
-pub const channel_run_ns_max: u64 = 60 * nanoseconds_per_second;
+pub const pool_run_ns_max: u64 = 60 * nanoseconds_per_second;
 
 /// Connections one UDP QUIC server can hold at once, which sizes its static table. The server's
 /// `connections=<n>` option holds fewer. The QUIC Interop Runner's handshake loss case opens 50
@@ -349,8 +349,8 @@ pub const h3_endpoint_events_max: usize = h3_serve_events_max * quic_connections
 
 comptime {
     assert(hq_paths_max >= hq_requests_max);
-    assert(udp_send_slots > 0 and channel_udp_send_slots > 0);
-    assert(channel_fallback_delay_ns > 0 and channel_run_ns_max > channel_fallback_delay_ns);
+    assert(udp_send_slots > 0 and pool_udp_send_slots > 0);
+    assert(pool_fallback_delay_ns > 0 and pool_run_ns_max > pool_fallback_delay_ns);
     assert(hq_request_len_max > "GET /\r\n".len);
     assert(quic_datagram_len_max <= udp_buffer_bytes);
     assert(quic_rounds_max > 0 and quic_round_ns > 0);

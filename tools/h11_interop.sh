@@ -54,7 +54,7 @@ wait_for_port() {
 # wait_for_container: waits until the peer in ${container} listens on its port 8080. Docker accepts
 # a connection on the published host port before the peer has bound its own, and closes it at once,
 # so `wait_for_port` alone lets the client connect too early. The run reads the container's own TCP
-# sockets too, as tools/channel_interop.sh reads quic-go's UDP ones: 8080 is 1F90 in /proc's
+# sockets too, as tools/pool_interop.sh reads quic-go's UDP ones: 8080 is 1F90 in /proc's
 # hexadecimal, and 0A is the listening state.
 wait_for_container() {
   for _ in $(seq "${listen_wait_seconds}"); do

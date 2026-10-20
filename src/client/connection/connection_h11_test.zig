@@ -44,7 +44,7 @@ fn give(octets: []const u8) event.Received {
     return connection.receive(support.to_client[0..octets.len], support.now_ns);
 }
 
-/// A call with no octets, as the channel makes to read what the connection owes, reads nothing.
+/// A call with no octets, as the pool makes to read what the connection owes, reads nothing.
 fn expect_nothing() !void {
     const polled = give("");
     try testing.expectEqual(0, polled.consumed);

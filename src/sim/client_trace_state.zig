@@ -1,5 +1,5 @@
 //! The state of spec/tla/client_exchanges's model in a client trace run (decision 105): what the
-//! run logs after each instant, computed from the caller's record, the channel, its connections
+//! run logs after each instant, computed from the caller's record, the pool, its connections
 //! and the servers' ledger.
 //!
 //! Whether a QUIC stream holds an exchange's octets is read from the stream itself, not from the
@@ -25,8 +25,8 @@ pub const Stage = enum { unmade, waiting, queued, sent, ended, reported, cancell
 pub const Carrier = enum { none, quic, tcp };
 pub const Outcome = enum { pending, response, refused, closed, failed };
 pub const Phase = client.Phase;
-/// An entry of `Channel.entries`, named through that field: the root exports no such type.
-const Entry = std.meta.Elem(@FieldType(client.Channel, "entries"));
+/// An entry of `Pool.entries`, named through that field: the root exports no such type.
+const Entry = std.meta.Elem(@FieldType(client.Pool, "entries"));
 
 pub const State = struct {
     stage: [exchanges_max]Stage,
@@ -48,9 +48,9 @@ pub const State = struct {
     stale: bool,
 };
 
-/// What the run remembers of each exchange across instants, which the channel forgets once the
+/// What the run remembers of each exchange across instants, which the pool forgets once the
 /// exchange is reported: the connection that carried it last, the times it moved, whether the
-/// channel sent it again after a close (decision 124), and its QUIC stream.
+/// pool sent it again after a close (decision 124), and its QUIC stream.
 pub const Tracker = struct {
     carrier: [exchanges_max]Carrier,
     generation: [exchanges_max]u64,
@@ -68,9 +68,9 @@ pub const Tracker = struct {
         tracker.stream_generation = @splat(0);
     }
 
-    /// Notes where each exchange the channel holds is.
+    /// Notes where each exchange the pool holds is.
     pub fn update(tracker: *Tracker, world: *World) void {
-        for (world.channel.entries) |entry| {
+        for (world.pool.entries) |entry| {
             if (entry.stage == .free) continue;
             const index = world.index_of(entry.response);
             tracker.moved[index] = entry.moves;
@@ -85,12 +85,12 @@ pub const Tracker = struct {
 
     fn note_carried(tracker: *Tracker, world: *World, index: usize, entry: Entry) void {
         tracker.carrier[index] = if (entry.carrier == .quic) .quic else .tcp;
-        tracker.generation[index] = world.channel.links.get(entry.carrier).opens;
+        tracker.generation[index] = world.pool.links.get(entry.carrier).opens;
         if (entry.carrier != .quic) return;
-        const slot = world.channel.quic.slots.of_id(entry.carried_id) orelse return;
+        const slot = world.pool.quic.slots.of_id(entry.carried_id) orelse return;
         if (slot.stage == .queued) return;
         tracker.stream_id[index] = slot.stream_id;
-        tracker.stream_generation[index] = world.channel.links.get(.quic).opens;
+        tracker.stream_generation[index] = world.pool.links.get(.quic).opens;
     }
 };
 
@@ -106,17 +106,17 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
         state.seen[index] = seen(world, tracker, index);
         state.processed[index] = world.ledger.processed[index];
     }
-    const channel = &world.channel;
-    state.phase = .{ channel.phase(.quic), channel.phase(.tcp) };
-    state.opens = .{ channel.links.get(.quic).opens, channel.links.get(.tcp).opens };
-    state.tried = .{ channel.tried.get(.quic), channel.tried.get(.tcp) };
-    state.fallback = channel.fallback;
-    // The model learns only under its "learn" policy, and no run makes the channel forget.
-    state.learned = world.plan.policy == .learn and channel.alternative() != null;
-    state.shut = channel.shut;
-    // The model forgets a QUIC connection's idleness once it closes, and the channel keeps the
+    const pool = &world.pool;
+    state.phase = .{ pool.phase(.quic), pool.phase(.tcp) };
+    state.opens = .{ pool.links.get(.quic).opens, pool.links.get(.tcp).opens };
+    state.tried = .{ pool.tried.get(.quic), pool.tried.get(.tcp) };
+    state.fallback = pool.fallback;
+    // The model learns only under its "learn" policy, and no run makes the pool forget.
+    state.learned = world.plan.policy == .learn and pool.alternative() != null;
+    state.shut = pool.shut;
+    // The model forgets a QUIC connection's idleness once it closes, and the pool keeps the
     // connection's memory until the next one starts in it.
-    state.stale = channel.links.get(.quic).state == .running and channel.quic.retired;
+    state.stale = pool.links.get(.quic).state == .running and pool.quic.retired;
     return state;
 }
 
@@ -127,7 +127,7 @@ fn stage_of(world: *World, index: usize) Stage {
     const entry = entry_of(world, index) orelse unreachable;
     return switch (entry.stage) {
         .waiting => .waiting,
-        // The channel reports an exchange it ended itself before the run logs again.
+        // The pool reports an exchange it ended itself before the run logs again.
         .ended => .reported,
         .carried => carried_stage(world, entry),
         .free => unreachable,
@@ -136,8 +136,8 @@ fn stage_of(world: *World, index: usize) Stage {
 
 fn carried_stage(world: *World, entry: Entry) Stage {
     const slot = switch (entry.carrier) {
-        .quic => world.channel.quic.slots.of_id(entry.carried_id),
-        .tcp => world.channel.tcp.slots.of_id(entry.carried_id),
+        .quic => world.pool.quic.slots.of_id(entry.carried_id),
+        .tcp => world.pool.tcp.slots.of_id(entry.carried_id),
     } orelse unreachable;
     return switch (slot.stage) {
         .queued => .queued,
@@ -148,7 +148,7 @@ fn carried_stage(world: *World, entry: Entry) Stage {
 }
 
 fn entry_of(world: *World, index: usize) ?Entry {
-    for (world.channel.entries) |entry| {
+    for (world.pool.entries) |entry| {
         if (entry.stage != .free and entry.response == &world.responses[index]) return entry;
     }
     return null;
@@ -171,9 +171,9 @@ fn outcome_of(outcome: client.Outcome) Outcome {
 /// running and active, and the stream's sending part may still send (RFC 9000 §3.1).
 fn holds(world: *World, tracker: *const Tracker, index: usize) bool {
     const stream_id = tracker.stream_id[index] orelse return false;
-    const link = world.channel.links.get(.quic);
+    const link = world.pool.links.get(.quic);
     if (link.state != .running or tracker.stream_generation[index] != link.opens) return false;
-    const transport = &world.channel.quic.transport;
+    const transport = &world.pool.quic.transport;
     // RFC 9000 §10.2: a closing or draining connection sends no stream data.
     if (transport.termination.state != .active) return false;
     const stream = switch (transport.streams.lookup(.{ .value = stream_id })) {

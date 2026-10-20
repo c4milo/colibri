@@ -1,6 +1,6 @@
-//! The tests of the channel over TCP and TLS (`channel.zig`, `channel_events.zig`), against the
+//! The tests of the pool over TCP and TLS (`pool.zig`, `pool_events.zig`), against the
 //! TLS server of `connection_tls_test_support.zig` in the same process. A connection that is over
-//! may still hold octets it owes the server, and the channel asks for its transport's close only
+//! may still hold octets it owes the server, and the pool asks for its transport's close only
 //! once `send_stream` wrote them (design §8 step 21c.4). A connection that fails, or takes no new
 //! exchange, in the call that completes its handshake carries nothing, and its transport stays
 //! counted in the attempt that opened it (design §8 step 21c.5).
@@ -8,18 +8,18 @@ const std = @import("std");
 const tls = @import("tls");
 const support = @import("../connection/connection_test_support.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
-const channel_module = @import("channel.zig");
-const channel_support = @import("channel_test_support.zig");
+const pool_module = @import("pool.zig");
+const pool_support = @import("pool_test_support.zig");
 const versions_module = @import("../versions.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
 const Exchange = support.Exchange;
-const Event = channel_module.Event;
-const Transport = channel_module.Transport;
+const Event = pool_module.Event;
+const Transport = pool_module.Transport;
 
-/// The channel's configuration and the events it reported, outside any stack frame. Test-only.
-var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
+/// The pool's configuration and the events it reported, outside any stack frame. Test-only.
+var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
 var bodies: [bodies_count][body_len]u8 = undefined;
@@ -34,16 +34,16 @@ const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 const other_octet: u8 = 0x7e;
 const other_host: [ipv4_len]u8 = @splat(other_octet);
-const addresses = [_]channel_module.Address{ channel_module.Address.of(&loopback, 0), channel_module.Address.of(&other_host, 0) };
+const addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&other_host, 0) };
 
-/// Passes the channel what the server sent, in calls until one takes nothing and reports nothing,
+/// Passes the pool what the server sent, in calls until one takes nothing and reports nothing,
 /// with `.none` once no octet is left. Starts the connection an `open` event asks for, and keeps
 /// the events.
-fn collect(channel: anytype) !void {
+fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: channel_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
-        const received = channel.receive(input, support.now_ns);
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+        const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
         const reported = received.event orelse {
@@ -53,12 +53,12 @@ fn collect(channel: anytype) !void {
         if (events_len == events.len) return error.TestUnexpectedResult;
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open) try channel.start_tcp(support.stream.random(), support.now_seconds, null);
+        if (reported == .open) try pool.start_tcp(support.stream.random(), support.now_seconds, null);
     }
     return error.TestUnexpectedResult;
 }
 
-/// The first event of `tag` the channel reported, or null.
+/// The first event of `tag` the pool reported, or null.
 fn find(tag: std.meta.Tag(Event)) ?Event {
     for (events[0..events_len]) |reported| {
         if (reported == tag) return reported;
@@ -159,58 +159,58 @@ fn seal_in_records(plaintext: []const u8, record_len: usize) !void {
 }
 
 test {
-    // Decision 124: each test below runs on the default channel and on one with no QUIC.
-    inline for (channel_support.channels) |Channel| _ = Tests(Channel);
+    // Decision 124: each test below runs on the default pool and on one with no QUIC.
+    inline for (pool_support.pools) |Pool| _ = Tests(Pool);
 }
 
-/// The tests over a channel of type `Channel`, and the helpers that name the channel itself.
-fn Tests(comptime Channel: type) type {
+/// The tests over a pool of type `Pool`, and the helpers that name the pool itself.
+fn Tests(comptime Pool: type) type {
     return struct {
-        /// The channel the tests drive, outside any stack frame. Test-only.
-        var channel: Channel align(@alignOf(Channel)) = undefined;
+        /// The pool the tests drive, outside any stack frame. Test-only.
+        var pool: Pool align(@alignOf(Pool)) = undefined;
 
-        /// A channel with no receive pool, whose TCP connection runs over TLS and offers h2 and
+        /// A pool with no receive pool, whose TCP connection runs over TLS and offers h2 and
         /// h11, to a server that selects h2. Its client trusts the root for `server_name`, and the
-        /// server's certificate names localhost. `exchange` waits, and the connection the channel
+        /// server's certificate names localhost. `exchange` waits, and the connection the pool
         /// asked for is started, to the first address, with nothing sent. Returns the exchange's
         /// id.
-        fn start(server_name: []const u8, exchange: *Exchange) !channel_module.Id {
+        fn start(server_name: []const u8, exchange: *Exchange) !pool_module.Id {
             return start_with(.{}, &support.protocols_h2, server_name, exchange);
         }
 
         /// As `start`, with a client that speaks `versions` and a server that selects from
         /// `server_protocols`.
-        fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !channel_module.Id {
+        fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !pool_module.Id {
             try tls_support.prepare_server(server_protocols, false);
-            config = .{ .tls = tls_support.client_values(server_name), .versions = channel_support.versions_for(&channel, versions), .authority = support.authority };
-            try channel.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
+            config = .{ .tls = tls_support.client_values(server_name), .versions = pool_support.versions_for(&pool, versions), .authority = support.authority };
+            try pool.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
             try tls_support.start_server();
             events_len = 0;
-            const id = try channel.request(&exchange.request, &exchange.response);
-            try collect(&channel);
+            const id = try pool.request(&exchange.request, &exchange.response);
+            try collect(&pool);
             try testing.expectEqual(Transport.tcp, find(.open).?.open.transport);
             try testing.expect(find(.open).?.open.to.same_host(&addresses[0]));
             return id;
         }
 
-        /// Writes what the channel's connection owes into the server's buffer.
+        /// Writes what the pool's connection owes into the server's buffer.
         fn send() void {
-            support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
-        test "RFC 9846 §6.2: a channel asks for its transport's close once the alert of a refused handshake is written" {
+        test "RFC 9846 §6.2: a pool asks for its transport's close once the alert of a refused handshake is written" {
             var exchange = get(&bodies[0]);
             // The certificate names localhost, and the client asks for another name.
             _ = try start("example.com", &exchange);
             send();
             // The server reads the ClientHello and writes its flight, which the client refuses.
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
-            try testing.expect(channel.tcp.failed);
-            // The caller reads the channel once more with no octets, as it does after each send.
-            // The connection reported its close and holds the alert, so the channel asks for no
+            try collect(&pool);
+            try testing.expect(pool.tcp.failed);
+            // The caller reads the pool once more with no octets, as it does after each send.
+            // The connection reported its close and holds the alert, so the pool asks for no
             // close yet.
-            const polled = channel.receive(.none, support.now_ns);
+            const polled = pool.receive(.none, support.now_ns);
             try testing.expectEqual(0, polled.consumed);
             try testing.expectEqual(null, polled.event);
             try testing.expectEqual(null, find(.close));
@@ -221,7 +221,7 @@ fn Tests(comptime Channel: type) type {
             try testing.expectEqual(null, tls_support.server_flight());
             const provider = tls_support.server.provider();
             try testing.expectEqual(.peer, provider.vtable.take_alert(provider.context).?.origin);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(Transport.tcp, find(.close).?.close);
             // No connection carried the exchange, and the attempt has no other transport to open.
             try testing.expectEqual(.refused, exchange.response.outcome);
@@ -235,8 +235,8 @@ fn Tests(comptime Channel: type) type {
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
             forge();
-            try collect(&channel);
-            try testing.expect(channel.tcp.failed);
+            try collect(&pool);
+            try testing.expect(pool.tcp.failed);
         }
 
         test "design §8 step 21c.5: a connection that fails in the call that completes its handshake carries nothing" {
@@ -252,7 +252,7 @@ fn Tests(comptime Channel: type) type {
             const provider = tls_support.server.provider();
             try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], &tls_support.peer_plain));
             try testing.expectEqual(.bad_record_mac, provider.vtable.take_alert(provider.context).?.description);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(Transport.tcp, find(.close).?.close);
             // The attempt went on with TCP counted in it, so it opened no second connection.
             try testing.expectEqual(null, find(.connected));
@@ -266,12 +266,12 @@ fn Tests(comptime Channel: type) type {
             var exchange = get(&bodies[0]);
             try fail_at_completion(&exchange);
             send();
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.refused, exchange.response.outcome);
             // The connection counts as a failed attempt, and a new request starts a new one.
             events_len = 0;
-            _ = try channel.request(&exchange.request, &exchange.response);
-            try collect(&channel);
+            _ = try pool.request(&exchange.request, &exchange.response);
+            try collect(&pool);
             try testing.expectEqual(1, count(.open));
             try testing.expect(find(.open).?.open.to.same_host(&addresses[1]));
         }
@@ -279,28 +279,28 @@ fn Tests(comptime Channel: type) type {
         test "design §8 step 21c.5: a handshake that completes with no exchange waiting takes the next one" {
             var cancelled = get(&bodies[0]);
             const id = try start("localhost", &cancelled);
-            channel.cancel(id);
+            pool.cancel(id);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             support.peer_h2.init(.server);
             try support.peer_h2.attach_tls(tls_support.server.provider());
-            // A later request goes out on that connection, and the channel opens no second one.
+            // A later request goes out on that connection, and the pool opens no second one.
             var exchange = get(&bodies[1]);
-            _ = try channel.request(&exchange.request, &exchange.response);
-            try collect(&channel);
+            _ = try pool.request(&exchange.request, &exchange.response);
+            try collect(&pool);
             send();
             try answer("hello");
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
             try testing.expectEqualStrings("hello", exchange.response.content_received());
             try testing.expectEqual(1, count(.open));
         }
 
-        /// The ClientHello a channel that speaks `versions` writes first, which no key seals.
+        /// The ClientHello a pool that speaks `versions` writes first, which no key seals.
         fn client_hello(versions: versions_module.Versions) ![]const u8 {
             var exchange = get(&bodies[0]);
             _ = try start_with(versions, &support.protocols_both, "localhost", &exchange);
@@ -308,7 +308,7 @@ fn Tests(comptime Channel: type) type {
             return support.to_peer[0..support.to_peer_len];
         }
 
-        test "decision 120: versions gives the ALPN list a channel offers over TCP, h2 before h11" {
+        test "decision 120: versions gives the ALPN list a pool offers over TCP, h2 before h11" {
             // RFC 9113 §3.2 and decision 88: h2 goes first, which only the ClientHello's octets
             // show, since the server selects in its own order.
             const both = try client_hello(.{});
@@ -325,13 +325,13 @@ fn Tests(comptime Channel: type) type {
             try testing.expect(std.mem.indexOf(u8, without_h3, alpn_extension(alpn_h2 ++ alpn_h11)) != null);
         }
 
-        test "decision 117: a channel whose versions turn h2 off runs h11 over TLS" {
+        test "decision 117: a pool whose versions turn h2 off runs h11 over TLS" {
             var exchange = get(&bodies[0]);
             // The server would select h2, and the client offers http/1.1 alone.
             _ = try start_with(.{ .h2 = false }, &support.protocols_both, "localhost", &exchange);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
@@ -339,7 +339,7 @@ fn Tests(comptime Channel: type) type {
             try tls_support.server_open();
             try testing.expect(std.mem.startsWith(u8, tls_support.peer_plain[0..tls_support.peer_plain_len], h11_request));
             try tls_support.server_seal(h11_response);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
             try testing.expectEqualStrings("hello", exchange.response.content_received());
             try testing.expectEqual(1, count(.open));
@@ -352,7 +352,7 @@ fn Tests(comptime Channel: type) type {
             _ = try start_with(.{}, &.{}, "localhost", &exchange);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
             try testing.expectEqual(null, find(.close));
         }
@@ -362,10 +362,10 @@ fn Tests(comptime Channel: type) type {
             _ = try start_with(.{ .h11 = false }, &.{}, "localhost", &exchange);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
+            try collect(&pool);
             // h2 over TLS runs only where ALPN selected it, so no protocol took the handshake.
             try testing.expectEqual(null, find(.connected));
-            // The connection still holds the client's Finished, so the channel asks for no close
+            // The connection still holds the client's Finished, so the pool asks for no close
             // yet.
             try testing.expectEqual(null, find(.close));
             send();
@@ -373,21 +373,21 @@ fn Tests(comptime Channel: type) type {
             // it.
             try testing.expectEqual(true, tls_support.server_flight().?);
             try testing.expectEqual(0, support.to_peer_len);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(Transport.tcp, find(.close).?.close);
             // No connection carried the exchange, and the attempt has no other transport to open.
             try testing.expectEqual(.refused, exchange.response.outcome);
             try testing.expectEqual(1, count(.open));
         }
 
-        /// A channel whose TCP connection speaks `protocol` over TLS, its handshake complete and
+        /// A pool whose TCP connection speaks `protocol` over TLS, its handshake complete and
         /// `exchange` written. An h2 server reads what follows.
         fn start_open(protocol: event.Protocol, exchange: *Exchange) !void {
             const versions: versions_module.Versions = if (protocol == .h11) .{ .h2 = false } else .{};
             _ = try start_with(versions, &support.protocols_both, "localhost", exchange);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(protocol, find(.connected).?.connected);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
@@ -401,7 +401,7 @@ fn Tests(comptime Channel: type) type {
             try start_open(.h11, &exchange);
             try tls_support.server_seal("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhel");
             forge();
-            try collect(&channel);
+            try collect(&pool);
             // h11 read the record before the one that failed (RFC 9846 §6), so some of the response
             // arrived, and the GET is not sent again (RFC 9110 §9.2.2).
             try testing.expectEqual(.closed, exchange.response.outcome);
@@ -414,7 +414,7 @@ fn Tests(comptime Channel: type) type {
             try start_open(.h2, &exchange);
             try answer_with("", false);
             forge();
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.closed, exchange.response.outcome);
             try testing.expectEqual(ok, exchange.response.status);
             try testing.expectEqual(1, count(.open));
@@ -424,7 +424,7 @@ fn Tests(comptime Channel: type) type {
             var first = get(&bodies[0]);
             var second = get(&bodies[1]);
             try start_open(.h2, &first);
-            _ = try channel.request(&second.request, &second.response);
+            _ = try pool.request(&second.request, &second.response);
             send();
             try peer_h2_read();
             // One record holds the first response whole and the second's head, and the record
@@ -435,7 +435,7 @@ fn Tests(comptime Channel: type) type {
             written += try support.peer_h2.write_response(out[written..], 3, ok, &.{}, false);
             try tls_support.server_seal(out[0..written]);
             forge();
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, first.response.outcome);
             try testing.expectEqual(.closed, second.response.outcome);
             try testing.expectEqual(1, count(.open));
@@ -446,12 +446,12 @@ fn Tests(comptime Channel: type) type {
             _ = try start_with(.{ .h2 = false }, &support.protocols_both, "localhost", &exchange);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             try seal_in_records(long_response_octets(), odd_record_len);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
             try testing.expectEqual(ok, exchange.response.status);
             try testing.expectEqual(long_content_len, exchange.response.body_len);

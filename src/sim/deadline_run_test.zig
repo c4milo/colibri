@@ -1,5 +1,5 @@
 //! The test of the deadline run's honest peer (`deadline_run.zig`) for what no seed of the check
-//! brings: a channel that asks for a second socket (design §8 step 21c). In every seed the server
+//! brings: a pool that asks for a second socket (design §8 step 21c). In every seed the server
 //! closes the socket first, so the test plays the server by hand: an h11 response in cleartext
 //! that closes the connection (RFC 9112 §9.6).
 const std = @import("std");
@@ -19,7 +19,7 @@ const exchanges_len: u8 = 2;
 
 test "decision 120: an honest peer opens no second socket, and the exchange that waits for one ends refused" {
     // An uploading peer makes its exchanges one at a time, so its second one starts once the
-    // first ends, and the channel asks for a socket to carry it.
+    // first ends, and the pool asks for a socket to carry it.
     var plan = std.mem.zeroes(plan_module.Plan);
     plan.protocol = .h11;
     plan.peer = .upload;
@@ -38,5 +38,5 @@ test "decision 120: an honest peer opens no second socket, and the exchange that
     // RFC 9113 §8.7: no server processed the second request, so it ends refused, and the peer
     // started no second connection.
     try testing.expectEqual(.refused, storage.responses[1].outcome);
-    try testing.expectEqual(.closed, storage.channel.phase(.tcp));
+    try testing.expectEqual(.closed, storage.pool.phase(.tcp));
 }

@@ -1,13 +1,13 @@
-//! The TCP connection of one `client.Channel` of the test-only client: one socket at a time, opened
-//! and closed when the channel asks. `client_loop.zig`'s plain modes hold one for each channel of a
-//! run, and `channel_loop.zig`'s channel mode one beside its UDP flow, each on its own Rotor loop.
+//! The TCP connection of one `client.Pool` of the test-only client: one socket at a time, opened
+//! and closed when the pool asks. `client_loop.zig`'s plain modes hold one for each pool of a
+//! run, and `pool_loop.zig`'s pool mode one beside its UDP flow, each on its own Rotor loop.
 //!
 //! A receive writes into `received`, and its octets are appended to `input` when its event
-//! arrives, because the channel moves what is left of `input` and Rotor owns a receive's buffer
-//! until its final event. At most one receive and one send are in flight. A socket the channel asks
+//! arrives, because the pool moves what is left of `input` and Rotor owns a receive's buffer
+//! until its final event. At most one receive and one send are in flight. A socket the pool asks
 //! to close sends what it owes first, and an open drops what the last socket read. An open the
-//! channel asks for while the last socket is still closing waits for that close's event, so the
-//! loop never holds two sockets for one channel.
+//! pool asks for while the last socket is still closing waits for that close's event, so the
+//! loop never holds two sockets for one pool.
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -18,14 +18,14 @@ pub const Kind = enum(u8) { connect, receive, send, close };
 
 const kinds_count: u64 = @typeInfo(Kind).@"enum".fields.len;
 
-/// What an event meant, which the loop tells the channel.
+/// What an event meant, which the loop tells the pool.
 pub const Happened = enum {
-    /// Nothing the channel needs to hear of.
+    /// Nothing the pool needs to hear of.
     none,
-    /// The connect succeeded, and the channel starts its connection.
+    /// The connect succeeded, and the pool starts its connection.
     connected,
-    /// The socket failed, or the peer closed it, before the channel asked for the close: the
-    /// channel hears `transport_closed`.
+    /// The socket failed, or the peer closed it, before the pool asked for the close: the
+    /// pool hears `transport_closed`.
     failed,
     /// The socket closed, and the open that waited for it, if any, failed to start.
     open_failed,
@@ -50,10 +50,10 @@ pub const Socket = struct {
     output_sent: usize,
     receiving: bool,
     sending: bool,
-    /// The channel asked for the close. The socket closes once its octets are sent, and the channel
+    /// The pool asked for the close. The socket closes once its octets are sent, and the pool
     /// hears nothing more of it.
     close_asked: bool,
-    /// An open the channel asked for while the last socket was still closing.
+    /// An open the pool asked for while the last socket was still closing.
     open_pending: ?rotor.Address,
 
     pub const State = enum { idle, connecting, open, closing };
@@ -76,7 +76,7 @@ pub const Socket = struct {
     }
 
     /// Opens a socket to `to` and starts its connect, or waits for the last socket's close. False
-    /// when the system gave no socket, which the channel hears as `transport_closed`.
+    /// when the system gave no socket, which the pool hears as `transport_closed`.
     pub fn open(socket: *Socket, loop: *rotor.Loop, to: rotor.Address) bool {
         assert(socket.open_pending == null);
         if (socket.state != .idle) {
@@ -91,8 +91,8 @@ pub const Socket = struct {
         return true;
     }
 
-    /// The channel is done with the connection. An open still waiting for the last close is the
-    /// one the channel gave up, and it never starts.
+    /// The pool is done with the connection. An open still waiting for the last close is the
+    /// one the pool gave up, and it never starts.
     pub fn close(socket: *Socket, loop: *rotor.Loop) void {
         if (socket.open_pending != null) {
             socket.open_pending = null;
@@ -143,7 +143,7 @@ pub const Socket = struct {
     }
 
     /// Counts what a send took. Every octet gone and no send in flight, the buffer starts again
-    /// at its front, and a socket the channel is done with closes.
+    /// at its front, and a socket the pool is done with closes.
     fn on_sent(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
         socket.sending = false;
         if (socket.state != .open) return .none;
@@ -167,7 +167,7 @@ pub const Socket = struct {
         return if (socket.open(loop, pending)) .none else .open_failed;
     }
 
-    /// Closes the socket, and says whether the channel must hear that its transport failed: it
+    /// Closes the socket, and says whether the pool must hear that its transport failed: it
     /// must unless it asked for the close. Rotor's close cancels the receive and the send first.
     fn end(socket: *Socket, loop: *rotor.Loop) Happened {
         assert(socket.state == .connecting or socket.state == .open);
@@ -181,8 +181,8 @@ pub const Socket = struct {
         if (socket.output_sent == socket.output_len and !socket.sending) _ = socket.end(loop);
     }
 
-    /// Whether the channel's connection writes into the socket and reads from it: it is open, and
-    /// the channel has not closed it.
+    /// Whether the pool's connection writes into the socket and reads from it: it is open, and
+    /// the pool has not closed it.
     pub fn carrying(socket: *const Socket) bool {
         return socket.state == .open and !socket.close_asked;
     }
@@ -192,7 +192,7 @@ pub const Socket = struct {
         return socket.input[0..socket.input_len];
     }
 
-    /// Drops the `consumed` octets the channel took, moving what is left to the front.
+    /// Drops the `consumed` octets the pool took, moving what is left to the front.
     pub fn consume(socket: *Socket, consumed: usize) void {
         assert(consumed <= socket.input_len);
         const rest = socket.input_len - consumed;
@@ -200,7 +200,7 @@ pub const Socket = struct {
         socket.input_len = rest;
     }
 
-    /// Where the channel writes what the socket sends next.
+    /// Where the pool writes what the socket sends next.
     pub fn room(socket: *Socket) []u8 {
         return socket.output[socket.output_len..];
     }
@@ -253,11 +253,11 @@ const testing = std.testing;
 
 test "the socket's user data lies between the UDP send slots' and the UDP receive's" {
     var socket: Socket = undefined;
-    socket.init(constants.channel_udp_send_slots);
-    try testing.expectEqual(@as(u64, constants.channel_udp_send_slots), socket.user_data(.connect));
+    socket.init(constants.pool_udp_send_slots);
+    try testing.expectEqual(@as(u64, constants.pool_udp_send_slots), socket.user_data(.connect));
     try testing.expect(socket.owns(socket.user_data(.connect)));
     try testing.expect(socket.owns(socket.user_data(.close)));
-    try testing.expect(!socket.owns(constants.channel_udp_send_slots - 1));
+    try testing.expect(!socket.owns(constants.pool_udp_send_slots - 1));
     try testing.expect(!socket.owns(socket.user_data(.close) + 1));
     try testing.expect(!socket.owns(std.math.maxInt(u64)));
 }

@@ -1,6 +1,6 @@
 //! Static memory per connection (design §8 step 13b, §11.2). The table gives the size of each
 //! struct a program places, and of the connection in each slot of an endpoint and in each transport
-//! of a channel. An endpoint holds a server's connections (design §8 step 21b.6). Each size comes
+//! of a pool. An endpoint holds a server's connections (design §8 step 21b.6). Each size comes
 //! from the code that the build compiles and is never estimated, as chapulin's `bench/sram.sh`
 //! measures its rows. `zig build bench-memory` prints the table, and the test
 //! requires `docs/performance.md` to hold the same table, so a struct that changes size changes
@@ -41,11 +41,11 @@ const rows = [_]Row{
     .{ .name = "server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })", .size = @sizeOf(server.EndpointOf(one_quic)), .holds = "an endpoint that holds one QUIC connection, with its receive pool" },
     .{ .name = "std.meta.Elem(@FieldType(server.Endpoint, \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Endpoint, "tcp"))), .holds = "the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS" },
     .{ .name = "std.meta.Elem(@FieldType(server.Endpoint, \"quic\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Endpoint, "quic"))), .holds = "the connection each QUIC slot of an endpoint holds, without its receive pool" },
-    .{ .name = "@FieldType(client.Channel, \"tcp\")", .size = @sizeOf(@FieldType(client.Channel, "tcp")), .holds = "a channel's TCP connection: h11 or h2, in cleartext or over TLS" },
-    .{ .name = "@FieldType(client.Channel, \"quic\")", .size = @sizeOf(@FieldType(client.Channel, "quic")), .holds = "a channel's QUIC connection, without its receive pool" },
-    .{ .name = "client.Channel", .size = @sizeOf(client.Channel), .holds = "one server's connections, QUIC first and TCP after, without receive pools" },
-    .{ .name = "client.ChannelOf(.{ .quic = false })", .size = @sizeOf(client.ChannelOf(.{ .quic = false })), .holds = "a channel with no QUIC state, which holds one TCP connection" },
-    .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a program passes to a channel, at its default capacity" },
+    .{ .name = "@FieldType(client.Pool, \"tcp\")", .size = @sizeOf(@FieldType(client.Pool, "tcp")), .holds = "a pool's TCP connection: h11 or h2, in cleartext or over TLS" },
+    .{ .name = "@FieldType(client.Pool, \"quic\")", .size = @sizeOf(@FieldType(client.Pool, "quic")), .holds = "a pool's QUIC connection, without its receive pool" },
+    .{ .name = "client.Pool", .size = @sizeOf(client.Pool), .holds = "one server's connections, QUIC first and TCP after, without receive pools" },
+    .{ .name = "client.PoolOf(.{ .quic = false })", .size = @sizeOf(client.PoolOf(.{ .quic = false })), .holds = "a pool with no QUIC state, which holds one TCP connection" },
+    .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a program passes to a pool, at its default capacity" },
     .{ .name = "h11.Connection", .size = @sizeOf(h11.Connection), .holds = "the h11 state inside a TCP connection" },
     .{ .name = "h2.Connection", .size = @sizeOf(h2.Connection), .holds = "the h2 state inside a TCP connection" },
     .{ .name = "h3.Connection", .size = @sizeOf(h3.Connection), .holds = "the h3 state inside a QUIC connection" },

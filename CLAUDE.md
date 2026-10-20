@@ -503,10 +503,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   it also needs `python3`. `tools/ci.sh` runs both. Each check that runs aioquic first calls
   `tools/python_venv.sh`, which makes the environment again whole when its Python does not import
   aioquic. `tools/python_venv_check.sh` checks the helper, and `tools/ci.sh` runs it.
-- Channel check: `zig build http-client -- --channel --tls <anchor-prefix> --seconds <unix-seconds>
-  [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Channel`, which
-  opens QUIC first and TCP once QUIC fails or the fallback delay passes (design §8 step 17d).
-  `tools/channel_interop.sh` runs it against aioquic's h3 server, against quic-go's from the
+- Pool check: `zig build http-client -- --pool --tls <anchor-prefix> --seconds <unix-seconds>
+  [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Pool`, which
+  opens QUIC first and TCP once QUIC fails or the fallback delay passes (design §8 steps 17d and
+  22). `tools/pool_interop.sh` runs it against aioquic's h3 server, against quic-go's from the
   QUIC Interop Runner's image, pinned by digest, and against Go's h2 server over TLS, which has no
   UDP and which the client falls back to. It needs `python3`, `docker` and `go`, and
   `tools/ci.sh` runs it.
@@ -544,7 +544,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   `spec/tla/server_deadlines`, whose logs also say when three of colibri's clocks run
   (https://github.com/c4milo/colibri/issues/86), and `tools/tcp_trace.sh` for the TCP trace run,
   with `--tcp-trace-write` and `spec/tla/h2_connection`, through `server.Endpoint` and
-  `client.Channel` in cleartext and over TLS (https://github.com/c4milo/colibri/issues/79),
+  `client.Pool` in cleartext and over TLS (https://github.com/c4milo/colibri/issues/79),
   and `tools/h3_deadline_trace.sh` for the h3 deadline trace run, with
   `--h3-deadline-trace-write` and `spec/tla/h3_deadlines`, whose logs hold only the variables
   that map one to one onto colibri (design §8 step 20d). Each needs Java, and `tools/ci.sh` runs

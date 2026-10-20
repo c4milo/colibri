@@ -1,12 +1,12 @@
 //! One connection of the test-only client, on the `client` module (design §8 step 21c): the
-//! plan's exchanges handed to a `client.Channel` with TCP alone, which speaks h2 or h11 and runs TLS
+//! plan's exchanges handed to a `client.Pool` with TCP alone, which speaks h2 or h11 and runs TLS
 //! itself. `client_loop.zig` is the socket around it, and these tests run it against §9's server in
 //! one process.
 //!
 //! Every exchange of the plan is requested at once, so h2 multiplexes them and h11 pipelines them
-//! as decision 88 allows, and the channel is shut down at once: its connection ends after its last
-//! exchange, h2 with its GOAWAY (RFC 9113 §6.8), and the channel reports `closed` once no
-//! connection is left. The channel asks for each socket with an `open` event and is done with it
+//! as decision 88 allows, and the pool is shut down at once: its connection ends after its last
+//! exchange, h2 with its GOAWAY (RFC 9113 §6.8), and the pool reports `closed` once no
+//! connection is left. The pool asks for each socket with an `open` event and is done with it
 //! at a `close` event. An exchange a connection refused unprocessed moves to the next connection,
 //! on a socket of its own (decision 100).
 //!
@@ -22,29 +22,29 @@ const client_exchange = @import("client_exchange.zig");
 const Exchange = client_exchange.Exchange;
 const Plan = client_exchange.Plan;
 
-/// What one step did, and what the channel asked of the socket during it.
+/// What one step did, and what the pool asked of the socket during it.
 pub const Step = struct {
-    /// Octets of the caller's input the channel consumed.
+    /// Octets of the caller's input the pool consumed.
     consumed: usize,
     /// Octets written into the caller's output, to be sent in order.
     written: usize,
-    /// The channel is done with the socket: the caller sends what it holds, then closes it.
+    /// The pool is done with the socket: the caller sends what it holds, then closes it.
     close: bool,
-    /// Where the next socket the channel asked for goes, or null. The caller closes the last socket
+    /// Where the next socket the pool asked for goes, or null. The caller closes the last socket
     /// before it opens this one.
     open: ?client.Address,
-    /// The channel reported `closed`: every exchange ended, and no connection is left.
+    /// The pool reported `closed`: every exchange ended, and no connection is left.
     done: bool,
 };
 
 /// The response content of each exchange of one connection, which `client` fills.
 pub const Bodies = [constants.exchanges_max][constants.response_content_len_max]u8;
 
-/// One connection's client state, in storage the caller places. The channel stays in place after
+/// One connection's client state, in storage the caller places. The pool stays in place after
 /// `init`: the TLS configuration it built points into it.
 pub const Session = struct {
-    channel: client.Channel,
-    /// The server's one address, which the channel reads for each socket it asks for.
+    pool: client.Pool,
+    /// The server's one address, which the pool reads for each socket it asks for.
     addresses: [1]client.Address,
     exchanges: [constants.exchanges_max]Exchange,
     exchanges_count: u32,
@@ -54,15 +54,15 @@ pub const Session = struct {
     now_seconds: u64,
     /// The instant the next step passes (design §4.2).
     now_ns: u64,
-    /// Whether the channel's `closed` event arrived.
+    /// Whether the pool's `closed` event arrived.
     closed: bool,
     /// The protocol of the connection that last reported `connected`.
     protocol: ?client.Protocol,
-    /// What the channel asked of the socket since the step began.
+    /// What the pool asked of the socket since the step began.
     close_asked: bool,
     open_asked: ?client.Address,
 
-    /// Makes a channel that has opened nothing, with every exchange of `plans` requested, to the
+    /// Makes a pool that has opened nothing, with every exchange of `plans` requested, to the
     /// server at `address`, whose port is 0, and `port`. `config`, `plans` and `bodies` must
     /// outlive the session.
     pub fn init(
@@ -79,7 +79,7 @@ pub const Session = struct {
         assert(address.port == 0);
         session.exchanges_count = 0;
         session.addresses = .{address};
-        try session.channel.init(config, .{ .addresses = &session.addresses, .port = port }, null);
+        try session.pool.init(config, .{ .addresses = &session.addresses, .port = port }, null);
         session.random = random;
         session.now_seconds = now_seconds;
         session.now_ns = 0;
@@ -89,22 +89,22 @@ pub const Session = struct {
         session.open_asked = null;
         for (plans, session.exchanges[0..plans.len], bodies[0..plans.len]) |plan, *exchange, *body| {
             exchange.* = .init(plan, body);
-            exchange.id = try session.channel.request(&exchange.request, &exchange.response);
+            exchange.id = try session.pool.request(&exchange.request, &exchange.response);
             session.exchanges_count += 1;
         }
-        // The channel takes no request after `shutdown`, so the requests come first.
-        session.channel.shutdown();
+        // The pool takes no request after `shutdown`, so the requests come first.
+        session.pool.shutdown();
     }
 
     /// Consumes what it can of `input`, the octets the socket read and the caller still holds, and
-    /// writes what it can into `output`. Over TLS the channel opens records in place in `input`.
+    /// writes what it can into `output`. Over TLS the pool opens records in place in `input`.
     pub fn step(session: *Session, input: []u8, output: []u8) Step {
         session.now_ns += constants.tick_ns;
         session.close_asked = false;
         session.open_asked = null;
         var consumed = session.read(input);
-        const written = session.channel.send_stream(output, session.now_ns);
-        // After a send the channel reads again, with the octets the caller still holds: h11 reads
+        const written = session.pool.send_stream(output, session.now_ns);
+        // After a send the pool reads again, with the octets the caller still holds: h11 reads
         // a held octet only once the response before it ends (decision 119).
         consumed += session.read(input[consumed..]);
         return .{
@@ -116,15 +116,15 @@ pub const Session = struct {
         };
     }
 
-    /// The socket the channel asked for connected, so the channel starts its connection on it.
+    /// The socket the pool asked for connected, so the pool starts its connection on it.
     /// False when chapulin refused the start: the attempt ends, and the caller closes the socket,
-    /// since the channel owes no `close` for a connection that never started.
+    /// since the pool owes no `close` for a connection that never started.
     pub fn started(session: *Session) bool {
-        session.channel.start_tcp(session.random, session.now_seconds, null) catch return false;
+        session.pool.start_tcp(session.random, session.now_seconds, null) catch return false;
         return true;
     }
 
-    /// Reads events, passing the octets still held each time, until the channel consumes nothing
+    /// Reads events, passing the octets still held each time, until the pool consumes nothing
     /// and reports nothing.
     fn read(session: *Session, input: []u8) usize {
         var consumed: usize = 0;
@@ -132,7 +132,7 @@ pub const Session = struct {
         for (0..input.len + constants.exchanges_max * constants.steps_per_read_max) |_| {
             const held = input[consumed..];
             const passed: client.Input = if (held.len > 0) .{ .stream = held } else .none;
-            const received = session.channel.receive(passed, session.now_ns);
+            const received = session.pool.receive(passed, session.now_ns);
             consumed += received.consumed;
             const reported = received.event orelse {
                 if (received.consumed == 0) return consumed;
@@ -147,13 +147,13 @@ pub const Session = struct {
         switch (reported) {
             .finished => |ended| session.exchange_of(ended.id).finished = true,
             // The client offers no ticket, so it keeps none it is given.
-            .ticket => |transport| if (session.channel.take_ticket(transport)) |ticket| {
+            .ticket => |transport| if (session.pool.take_ticket(transport)) |ticket| {
                 var held = ticket;
                 held.wipe();
             },
             .closed => session.closed = true,
             .connected => |protocol| session.protocol = protocol,
-            // The channel holds no receive pool, so it offers TCP alone.
+            // The pool holds no receive pool, so it offers TCP alone.
             .open => |asked| {
                 assert(asked.transport == .tcp);
                 session.open_asked = asked.to;
@@ -165,7 +165,7 @@ pub const Session = struct {
         }
     }
 
-    /// The channel is done with a connection. One whose `open` came in this step never had a
+    /// The pool is done with a connection. One whose `open` came in this step never had a
     /// socket, so the caller opens none for it. Any other is the socket's.
     fn asked_close(session: *Session) void {
         if (session.open_asked != null) {
@@ -179,7 +179,7 @@ pub const Session = struct {
         for (session.exchanges[0..session.exchanges_count]) |*exchange| {
             if (exchange.id == id) return exchange;
         }
-        unreachable; // The channel reports only the exchanges `init` requested.
+        unreachable; // The pool reports only the exchanges `init` requested.
     }
 
     /// Whether every exchange ended the way a working peer ends one.
@@ -195,11 +195,11 @@ pub const Session = struct {
         return session.exchanges[0..session.exchanges_count];
     }
 
-    /// The socket ended before the channel was done with it: the peer closed it, it failed, or its
+    /// The socket ended before the pool was done with it: the peer closed it, it failed, or its
     /// connect failed. In h11 the close ends a body that runs until it (RFC 9112 §6.3 rule 8), and
-    /// every exchange left ends or moves. The next step reads what the channel asks for then.
+    /// every exchange left ends or moves. The next step reads what the pool asks for then.
     pub fn peer_closed(session: *Session) void {
-        session.channel.transport_closed(.tcp);
+        session.pool.transport_closed(.tcp);
     }
 };
 
@@ -230,7 +230,7 @@ const test_rounds_max: u32 = 4096;
 
 /// The instant of the server's last step, a tick after the one before. Test-only.
 var test_server_now_ns: u64 = 0;
-/// The octets the step that reported the channel's `close` wrote, once one did. Test-only.
+/// The octets the step that reported the pool's `close` wrote, once one did. Test-only.
 var test_close_written: ?usize = null;
 
 fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
@@ -246,7 +246,7 @@ fn test_start_server() !void {
 }
 
 /// Runs the client against the server until the client is done or neither moves. The one socket
-/// the channel asks for connects at once, to the server's one accepted connection. Test-only.
+/// the pool asks for connects at once, to the server's one accepted connection. Test-only.
 fn test_run() !u32 {
     var to_server_len: usize = 0;
     var to_client_len: usize = 0;
@@ -265,7 +265,7 @@ fn test_run() !u32 {
         to_server_len = test_drop(&test_to_server, to_server_len, served.consumed);
         to_client_len += served.written;
         const moved = stepped.consumed + stepped.written + served.consumed + served.written + opened;
-        // The server has one connection, so the channel asks for one socket alone.
+        // The server has one connection, so the pool asks for one socket alone.
         try testing.expect(opens <= 1);
         if (stepped.done or moved == 0) return @intCast(round + 1);
     }
@@ -323,7 +323,7 @@ test "decision 119: one step reads every pipelined h11 response the socket holds
     client_exchange.fill_content();
     test_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
     try test_client.init(&test_config, test_address, constants.default_port, entropy.random(), 0, &(.{test_get} ** test_pipelined), &test_bodies);
-    // The channel asks for its socket, which connects at once, and its connection writes the
+    // The pool asks for its socket, which connects at once, and its connection writes the
     // requests.
     try testing.expect(test_client.step(test_to_client[0..0], &test_to_server).open != null);
     try testing.expect(test_client.started());

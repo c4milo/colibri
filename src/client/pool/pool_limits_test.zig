@@ -1,7 +1,7 @@
 //! The tests of the three limits a program sizes its buffers and bounds its loops by (decision
 //! 123, `constants.zig`): the input from which `receive` takes octets, the output into which
 //! `send_stream` writes a whole TLS record, and the events `receive` reports with no input. Each
-//! test drives a channel to the worst case that a test can make. The peers are h11's and h2's
+//! test drives a pool to the worst case that a test can make. The peers are h11's and h2's
 //! server sides and the TLS server of `connection_tls_test_support.zig`, in the same process.
 const std = @import("std");
 const h2 = @import("h2");
@@ -10,16 +10,16 @@ const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const support = @import("../connection/connection_test_support.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
-const quic_channel_support = @import("channel_quic_test_support.zig");
-const channel_module = @import("channel.zig");
-const channel_support = @import("channel_test_support.zig");
+const quic_pool_support = @import("pool_quic_test_support.zig");
+const pool_module = @import("pool.zig");
+const pool_support = @import("pool_test_support.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
 const Exchange = support.Exchange;
 
-/// The channel's configuration, outside any stack frame. Test-only.
-var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
+/// The pool's configuration, outside any stack frame. Test-only.
+var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 
 /// The content of a response or a request: two DATA frames of the largest size colibri advertises
 /// (RFC 9113 §4.2). The second frame, or the second record, does not fit beside the first in
@@ -42,30 +42,30 @@ const https_port: u16 = 443;
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
-const addresses = [_]channel_module.Address{channel_module.Address.of(&loopback, 0)};
+const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
 
 fn get() Exchange {
     return .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
 }
 
-/// Passes the channel what the peer sent, in calls until one takes nothing and reports nothing,
+/// Passes the pool what the peer sent, in calls until one takes nothing and reports nothing,
 /// with `.none` once no octet is left. Starts the TCP connection an `open` event asks for.
-fn collect(channel: anytype) !void {
+fn collect(pool: anytype) !void {
     // Bounded: each pass takes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: channel_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
-        const received = channel.receive(input, support.now_ns);
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+        const received = pool.receive(input, support.now_ns);
         take(received.consumed);
         const reported = received.event orelse {
             if (received.consumed == 0) return;
             continue;
         };
-        if (reported == .open) try channel.start_tcp(support.stream.random(), support.now_seconds, null);
+        if (reported == .open) try pool.start_tcp(support.stream.random(), support.now_seconds, null);
     }
     return error.TestUnexpectedResult;
 }
 
-/// Drops the first `consumed` octets the peer sent, which the channel took.
+/// Drops the first `consumed` octets the peer sent, which the pool took.
 fn take(consumed: usize) void {
     std.mem.copyForwards(u8, &support.to_client, support.to_client[consumed..support.to_client_len]);
     support.to_client_len -= consumed;
@@ -110,9 +110,9 @@ fn seal_largest_first(plaintext: []const u8) !usize {
     return first.written;
 }
 
-/// The channel of the default capacity, which the test of the events with no input drives with QUIC
+/// The pool of the default capacity, which the test of the events with no input drives with QUIC
 /// offered.
-const default = Tests(channel_module.Channel);
+const default = Tests(pool_module.Pool);
 
 /// What `receive` reported in a run with no input: the calls that reported an event, and whether
 /// one of them was `closed`.
@@ -123,21 +123,21 @@ const Run = struct {
 
 /// Calls `receive` with no input until a call reports no event, at most one call more than
 /// `receive_events_without_input_max`. Each `open` names a transport that does not open, and the
-/// channel shuts down at the last exchange's `finished`.
+/// pool shuts down at the last exchange's `finished`.
 fn run_without_input() !Run {
-    const channel = &default.channel;
+    const pool = &default.pool;
     var run: Run = .{};
     var finished: usize = 0;
     for (0..constants.receive_events_without_input_max + 1) |_| {
-        const received = channel.receive(.none, support.now_ns);
+        const received = pool.receive(.none, support.now_ns);
         try testing.expectEqual(0, received.consumed);
         const reported = received.event orelse return run;
         run.events += 1;
         switch (reported) {
-            .open => |open| channel.transport_closed(open.transport),
+            .open => |open| pool.transport_closed(open.transport),
             .finished => {
                 finished += 1;
-                if (finished == exchanges.len) channel.shutdown();
+                if (finished == exchanges.len) pool.shutdown();
             },
             .closed => run.closed = true,
             .close, .connected, .ticket => return error.TestUnexpectedResult,
@@ -146,20 +146,20 @@ fn run_without_input() !Run {
     return run;
 }
 
-test "decision 124: receive_events_without_input_max bounds the events a channel reports with no input" {
-    const channel = &default.channel;
-    // QUIC and TCP are offered, and the channel holds as many exchanges as it can.
-    config = quic_channel_support.configured(true);
-    try channel.init(&config, quic_channel_support.values_at(https_port), quic_channel_support.pool());
+test "decision 124: receive_events_without_input_max bounds the events a pool reports with no input" {
+    const pool = &default.pool;
+    // QUIC and TCP are offered, and the pool holds as many exchanges as it can.
+    config = quic_pool_support.configured(true);
+    try pool.init(&config, quic_pool_support.values_at(https_port), quic_pool_support.receive_storage());
     for (&exchanges) |*exchange| {
         exchange.* = .{ .request = .{ .method = "GET", .path = "/" } };
-        _ = try channel.request(&exchange.request, &exchange.response);
+        _ = try pool.request(&exchange.request, &exchange.response);
     }
-    // Neither transport opens, so the channel gives up on every exchange at once, and then closes.
+    // Neither transport opens, so the pool gives up on every exchange at once, and then closes.
     const run = try run_without_input();
     try testing.expect(run.closed);
     try testing.expect(run.events <= constants.receive_events_without_input_max);
-    try testing.expectEqual(null, channel.receive(.none, support.now_ns).event);
+    try testing.expectEqual(null, pool.receive(.none, support.now_ns).event);
     for (&exchanges) |*exchange| try testing.expectEqual(.refused, exchange.response.outcome);
     // The worst case that a test makes: an `open` of each transport, a `finished` of each exchange,
     // and `closed`. The bound also counts the `close` of each transport and its connection's
@@ -169,30 +169,30 @@ test "decision 124: receive_events_without_input_max bounds the events a channel
 }
 
 test {
-    // Decision 124: each test below runs on the default channel and on one with no QUIC.
-    inline for (channel_support.channels) |Channel| _ = Tests(Channel);
+    // Decision 124: each test below runs on the default pool and on one with no QUIC.
+    inline for (pool_support.pools) |Pool| _ = Tests(Pool);
 }
 
-/// The tests over a channel of type `Channel`, and the helpers that name the channel itself.
-fn Tests(comptime Channel: type) type {
+/// The tests over a pool of type `Pool`, and the helpers that name the pool itself.
+fn Tests(comptime Pool: type) type {
     return struct {
-        /// The channel the tests drive, outside any stack frame. Test-only.
-        var channel: Channel align(@alignOf(Channel)) = undefined;
+        /// The pool the tests drive, outside any stack frame. Test-only.
+        var pool: Pool align(@alignOf(Pool)) = undefined;
 
-        /// Writes what the channel's connection owes into the peer's buffer.
+        /// Writes what the pool's connection owes into the peer's buffer.
         fn send() void {
-            support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
-        /// A channel with no QUIC, whose TCP connection speaks `protocol` in cleartext and holds
+        /// A pool with no QUIC, whose TCP connection speaks `protocol` in cleartext and holds
         /// `exchange`, which `send` has not written yet.
         fn start_cleartext(protocol: event.Protocol, exchange: *Exchange) !void {
-            config = .{ .authority = support.authority, .versions = channel_support.versions_for(&channel, support.only(protocol)) };
-            try channel.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
+            config = .{ .authority = support.authority, .versions = pool_support.versions_for(&pool, support.only(protocol)) };
+            try pool.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
             support.to_peer_len = 0;
             support.to_client_len = 0;
-            _ = try channel.request(&exchange.request, &exchange.response);
-            try collect(&channel);
+            _ = try pool.request(&exchange.request, &exchange.response);
+            try collect(&pool);
         }
 
         test "decision 124: receive takes an h11 head of the longest length from stream_input_len_min octets" {
@@ -207,10 +207,10 @@ fn Tests(comptime Channel: type) type {
             support.to_client_len = whole.len * 2;
             // RFC 9112 §2.1: h11 reads the head again from its first octet until the head ends, so
             // one octet less of it takes nothing.
-            const short = channel.receive(.{ .stream = support.to_client[0 .. whole.len - 1] }, support.now_ns);
+            const short = pool.receive(.{ .stream = support.to_client[0 .. whole.len - 1] }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
+            const taken = pool.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
             try testing.expectEqual(whole.len, taken.consumed);
             try testing.expectEqual(&exchange.response, taken.event.?.finished.response);
             try testing.expectEqual(.response, exchange.response.outcome);
@@ -222,44 +222,44 @@ fn Tests(comptime Channel: type) type {
             try start_cleartext(.h2, &exchange);
             support.peer_events_len = 0;
             // In cleartext, one octet of output takes one octet of what h2 wrote.
-            try testing.expectEqual(1, channel.send_stream(support.to_peer[0..1], support.now_ns));
+            try testing.expectEqual(1, pool.send_stream(support.to_peer[0..1], support.now_ns));
             support.to_peer_len = 1;
             send();
             // The peer reads the preface and the request, and writes its SETTINGS, which the client
             // reads.
             support.peer_h2.init(.server);
             try support.peer_h2_read();
-            try collect(&channel);
+            try collect(&pool);
             support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(0, support.to_client_len);
             // RFC 9113 §4.2: the content goes in frames of the largest size the client advertised.
             support.to_client_len = try peer_write_content(&support.to_client);
             // RFC 9113 §4.1: h2 takes whole frames, so one octet less of the first takes nothing.
-            const short = channel.receive(.{ .stream = support.to_client[0 .. constants.frame_len_max - 1] }, support.now_ns);
+            const short = pool.receive(.{ .stream = support.to_client[0 .. constants.frame_len_max - 1] }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
+            const taken = pool.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
             try testing.expectEqual(constants.frame_len_max, taken.consumed);
             take(taken.consumed);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
             try testing.expectEqualSlices(u8, &content, exchange.response.content_received());
         }
 
-        /// A channel with no QUIC whose TCP connection runs h2 over TLS, past its handshake, with
+        /// A pool with no QUIC whose TCP connection runs h2 over TLS, past its handshake, with
         /// `exchange` written. The TLS server has opened every record the client sent, and its h2
         /// peer has read the preface and the request.
         fn start_tls(exchange: *Exchange) !void {
             try tls_support.prepare_server(&support.protocols_h2, false);
-            config = .{ .tls = tls_support.client_values(support.authority), .versions = channel_support.versions_for(&channel, .{}), .authority = support.authority };
-            try channel.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
+            config = .{ .tls = tls_support.client_values(support.authority), .versions = pool_support.versions_for(&pool, .{}), .authority = support.authority };
+            try pool.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
             try tls_support.start_server();
-            _ = try channel.request(&exchange.request, &exchange.response);
-            try collect(&channel);
+            _ = try pool.request(&exchange.request, &exchange.response);
+            try collect(&pool);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
-            try collect(&channel);
+            try collect(&pool);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             support.peer_h2.init(.server);
@@ -288,13 +288,13 @@ fn Tests(comptime Channel: type) type {
             const record_len = try seal_largest_first(out[0..written]);
             // RFC 9846 §5.2: the connection opens whole records, so one octet less of the first
             // takes nothing.
-            const short = channel.receive(.{ .stream = support.to_client[0 .. record_len - 1] }, support.now_ns);
+            const short = pool.receive(.{ .stream = support.to_client[0 .. record_len - 1] }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = channel.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
+            const taken = pool.receive(.{ .stream = support.to_client[0..constants.stream_input_len_min] }, support.now_ns);
             try testing.expectEqual(record_len, taken.consumed);
             take(taken.consumed);
-            try collect(&channel);
+            try collect(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
             try testing.expectEqualSlices(u8, &content, exchange.response.content_received());
         }
@@ -305,9 +305,9 @@ fn Tests(comptime Channel: type) type {
             // A POST whose content fills more than one record, on a connection that owes nothing
             // else.
             var posted: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = &content }, .response = .{ .body = &body } };
-            _ = try channel.request(&posted.request, &posted.response);
+            _ = try pool.request(&posted.request, &posted.response);
             try testing.expectEqual(0, support.to_peer_len);
-            const written = channel.send_stream(&output, support.now_ns);
+            const written = pool.send_stream(&output, support.now_ns);
             try testing.expect(written > 0 and written <= output.len);
             // The server opens the first record whole, and it holds the most plaintext a record
             // carries (RFC 9846 §5.1).

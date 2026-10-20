@@ -1,4 +1,4 @@
-//! The TLS server the client's tests run a connection or a channel against: a `tls.record.Server`
+//! The TLS server the client's tests run a connection or a pool against: a `tls.record.Server`
 //! over the test identity of `connection_test_support.zig`, its configuration and the client's,
 //! the handshake between the two, and the records the server opens and seals. The octets in
 //! flight are the ones of `connection_test_support.zig`. Test-only.
@@ -35,7 +35,7 @@ pub fn prepare_configs(server_protocols: []const []const u8, client_protocols: [
 }
 
 /// The configuration of a server that selects from `server_protocols`, as `prepare_configs` makes
-/// it, for a client that converts its own values, as a channel does.
+/// it, for a client that converts its own values, as a pool does.
 pub fn prepare_server(server_protocols: []const []const u8, tickets: bool) !void {
     try server_config.init(.{
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
