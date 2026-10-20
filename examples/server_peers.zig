@@ -107,6 +107,8 @@ const Peer = struct {
     config: client.Config,
     pool: client.Pool,
     pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    /// The connection the pool's last `open` named (decision 125).
+    connection: client.ConnectionHandle,
     asked: [requests_max]Asked,
     asked_count: u32,
     /// Whether the peer keeps its connection open after its exchanges finished.
@@ -176,6 +178,7 @@ fn start(peer: *Peer, cpu: tls.Cpu, versions: client.Versions, keeps: bool) void
     peer.closes = 0;
     peer.tickets = 0;
     peer.closed = false;
+    peer.connection = .{ .slot = 0, .generation = 0 };
 }
 
 /// One turn of both peers: each reads what arrived, fires its deadlines, and sends what it owes.
@@ -187,7 +190,7 @@ pub fn turn() !void {
 fn tcp_turn() !void {
     const now_ns = stream_link.now_ns(.client);
     try drain_stream(now_ns);
-    try stream_link.send(.client, stream_output[0..tcp_peer.pool.send_stream(&stream_output, now_ns)]);
+    try stream_link.send(.client, stream_output[0..tcp_peer.pool.send_stream(tcp_peer.connection, &stream_output, now_ns)]);
     try drain_stream(now_ns);
 }
 
@@ -198,7 +201,7 @@ fn drain_stream(now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_input_max) |_| {
         const held = input[consumed..];
-        const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
+        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp_peer.connection, .octets = held } } else .none;
         const received = tcp_peer.pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -244,16 +247,18 @@ fn drain_datagram(input: client.Input, now_ns: u64) void {
 /// Acts on one event of a peer's pool.
 fn report(peer: *Peer, event: client.Event, now_ns: u64) void {
     switch (event) {
-        .open => |open| open_transport(peer, open.transport, now_ns),
+        .open => |open| open_transport(peer, open, now_ns),
+        // `tcp_turn` writes what the TCP connection owes at each turn.
+        .send => {},
         .close => {
             peer.closes += 1;
             // The server closed a connection the peer kept, and every exchange has ended.
             if (peer.finished == peer.asked_count) peer.pool.shutdown();
         },
-        .connected => |protocol| peer.spoken = protocol,
+        .connected => |connected| peer.spoken = connected.protocol,
         .finished => |ended| finish(peer, ended),
         // These peers open no second connection, so each wipes the ticket the server gives it.
-        .ticket => |transport| if (peer.pool.take_ticket(transport)) |ticket| {
+        .ticket => |connection| if (peer.pool.take_ticket(connection)) |ticket| {
             var held = ticket;
             held.wipe();
             peer.tickets += 1;
@@ -262,13 +267,14 @@ fn report(peer: *Peer, event: client.Event, now_ns: u64) void {
     }
 }
 
-/// Starts the connection of the transport an `open` event named. The link stands where the socket
-/// would be, and is connected from the start.
-fn open_transport(peer: *Peer, transport: client.Transport, now_ns: u64) void {
+/// Starts the connection an `open` event named. The link stands where the socket would be, and is
+/// connected from the start.
+fn open_transport(peer: *Peer, open: client.Open, now_ns: u64) void {
     peer.opens += 1;
+    peer.connection = open.connection;
     // A start the TLS stack refuses ends the attempt, which the pool reports.
-    switch (transport) {
-        .tcp => peer.pool.start_tcp(program.random(), now_seconds, null) catch {},
+    switch (open.transport) {
+        .tcp => peer.pool.start_tcp(open.connection, program.random(), now_seconds, null) catch {},
         .quic => peer.pool.start_quic(program.random(), now_seconds, now_ns, null) catch {},
     }
 }

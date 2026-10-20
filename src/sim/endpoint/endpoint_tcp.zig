@@ -89,6 +89,8 @@ pub const Peer = struct {
     /// connection is over and wrote what it owed, so the peer closes its socket.
     client: client.Pool,
     client_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    /// The connection the pool's `open` named (decision 125).
+    connection: client.ConnectionHandle,
     close_reported: bool,
     hostile: deadline_peer.Hostile,
     /// Each exchange's request and response, by index (decision 124).
@@ -174,6 +176,8 @@ pub const Peers = struct {
         const config = &peers.configs[@intFromEnum(way_of(plan))];
         // TCP alone: the pool is given no receive pool, so it offers no QUIC.
         peer.client.init(&peer.client_memory, config, .{ .addresses = &peers.addresses, .port = endpoint_port }, .{}, null) catch return error.PeerFailed;
+        // Generation 0 names no connection until the pool's `open`.
+        peer.connection = .{ .slot = 0, .generation = 0 };
         const behaviour = &plan.behaviour;
         const count = behaviour.exchanges_len;
         for (peer.requests[0..count], peer.responses[0..count], 0..) |*message, *response, exchange_index| {
@@ -192,16 +196,23 @@ pub const Peers = struct {
 /// The pool asks for its socket, which the endpoint accepted already, and the peer starts the
 /// connection on it. In cleartext the connection owes `connected` from its start, and the pool
 /// hands it the exchanges as it reports it, so the peer's first write carries them. Over TLS the
-/// read that completes the handshake reports it, in `read`.
+/// read that completes the handshake reports it, in `read`. Either way the pool then asks for a
+/// `send` of what the connection owes (decision 125), which the peer's writes take.
 fn connect(peer: *Peer, now_ns: u64) Error!void {
     const asked = peer.client.receive(.none, now_ns);
     assert(asked.event.?.open.transport == .tcp);
-    peer.client.start_tcp(tls.Random.init(&peer.random, fill), identity.now_seconds, null) catch return error.PeerFailed;
-    const reported = peer.client.receive(.none, now_ns).event orelse return;
-    assert(reported == .connected);
-    const after = peer.client.receive(.none, now_ns);
-    assert(after.event == null);
+    peer.connection = asked.event.?.open.connection;
+    peer.client.start_tcp(peer.connection, tls.Random.init(&peer.random, fill), identity.now_seconds, null) catch return error.PeerFailed;
+    // Bounded: `connected` in cleartext, and one `send`.
+    for (0..connect_events_max + 1) |_| {
+        const reported = peer.client.receive(.none, now_ns).event orelse return;
+        assert(reported == .connected or reported == .send);
+    }
+    unreachable;
 }
+
+/// The events of a connection's start with no octet read: `connected` in cleartext, and `send`.
+const connect_events_max = 2;
 
 /// Whether the peer's exchanges go one at a time: an upload's, so each request's body has the whole
 /// link.
@@ -258,7 +269,7 @@ pub fn write(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64, wire: 
     const stream = &peer.to_server;
     const before = stream.written;
     if (Peer.played_by_client(plan)) {
-        stream.written += peer.client.send_stream(stream.free(), now_ns);
+        stream.written += peer.client.send_stream(peer.connection, stream.free(), now_ns);
     } else {
         try write_script(peer, plan, now_ms);
     }
@@ -297,7 +308,7 @@ pub fn read(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64) Error!b
     }
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.to_client_len + limits.events_per_pass_max) |_| {
-        const received = peer.client.receive(.{ .stream = stream.held() }, now_ns);
+        const received = peer.client.receive(.{ .stream = .{ .connection = peer.connection, .octets = stream.held() } }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         if (try on_event(peer, plan, reported)) moved = true;
@@ -313,14 +324,16 @@ fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.Event) Error!boo
         // opens no other, so each exchange that waits for one ends refused.
         .open => |asked| {
             assert(asked.transport == .tcp);
-            peer.client.transport_closed(.tcp);
+            peer.client.transport_closed(asked.connection);
             return false;
         },
-        .close => |transport| {
-            assert(transport == .tcp);
+        .close => |connection| {
+            assert(connection.slot == peer.connection.slot);
             peer.close_reported = true;
             return false;
         },
+        // The peer writes what the pool owes as its pace allows, so the `send` moves nothing.
+        .send => return false,
         .connected, .ticket => return true,
         .finished => |finished| {
             if (finished.response.outcome == .response) peer.exchanges_done += 1;

@@ -16,9 +16,13 @@
 //!    socket and starts the TCP connection.
 //! 3. ALPN picks h2. The pool reports `connected` and sends the five requests, and each
 //!    exchange ends in one `finished` event.
-//! 4. The program calls `shutdown`. The pool says `close .tcp` once `send_stream` wrote the
-//!    GOAWAY and the TLS close_notify.
-//! 5. The pool says `close .quic` once the abandoned QUIC connection ends, and then `closed`.
+//! 4. The program calls `shutdown`. The pool says `close` of the TCP connection once
+//!    `send_stream` wrote the GOAWAY and the TLS close_notify.
+//! 5. The pool says `close` of the QUIC connection once the abandoned QUIC connection ends, and
+//!    then `closed`.
+//!
+//! Each `open` names the connection it opens, and each later event about it names it too. The
+//! program writes what a TCP connection owes when the pool says `send` (decision 125).
 //!
 //! The QUIC connection ends after its closing period, three PTOs (RFC 9000 §10.2). It has no RTT
 //! sample, so each PTO is about 1 s (RFC 9002 §6.2.2). The run thus waits about 3 s of real time.
@@ -162,6 +166,9 @@ var opens: Counts align(@alignOf(Counts)) = .initFill(0);
 var closes: Counts align(@alignOf(Counts)) = .initFill(0);
 var tickets: u32 = 0;
 var pool_closed: bool = false;
+/// The connection each transport's last `open` named, which the program's calls about it name.
+const Connections = std.EnumArray(client.Transport, client.ConnectionHandle);
+var connections: Connections align(@alignOf(Connections)) = .initFill(.{ .slot = 0, .generation = 0 });
 
 /// The second pool, whose connect fails, and its one exchange.
 var refused_pool: client.Pool align(@alignOf(client.Pool)) = undefined;
@@ -226,7 +233,6 @@ fn client_turn() !void {
     // fallback delay, and report what changed.
     pool.on_instant(now_ns);
     try drain(now_ns);
-    try link.send(.client, output[0..pool.send_stream(&output, now_ns)]);
     for (0..datagrams_per_turn_max) |_| {
         const sent = pool.send_datagram(&datagram_output, now_ns) orelse break;
         try datagram_link.send(.client, sent.octets);
@@ -262,7 +268,8 @@ fn drain(now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..receive_calls_max) |_| {
         const held = input[consumed..];
-        const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
+        const tcp = connections.get(.tcp);
+        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp, .octets = held } } else .none;
         const received = pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -271,7 +278,7 @@ fn drain(now_ns: u64) !void {
         };
         try report(event, now_ns);
         // The octets the closed socket read are its connection's, which is over: they are dropped.
-        if (std.meta.eql(event, .{ .close = .tcp })) consumed = input.len;
+        if (event == .close and transport_of(event.close) == .tcp) consumed = input.len;
     }
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.client, consumed);
@@ -282,13 +289,15 @@ fn drain(now_ns: u64) !void {
 fn report(event: client.Event, now_ns: u64) !void {
     switch (event) {
         .open => |open| try open_transport(open, now_ns),
+        // The TCP connection owes octets, which the program writes into its socket.
+        .send => |connection| try send_owed(connection, now_ns),
         // The connection is over, and the pool reads and writes nothing more on it: the
         // program closes the socket. Over TCP `send_stream` wrote everything first, the TLS
         // close_notify too. The pool has wiped the session's secrets.
-        .close => |transport| closes.getPtr(transport).* += 1,
-        .connected => |protocol| {
-            std.debug.print("client: connected over {s}\n", .{@tagName(protocol)});
-            spoken = protocol;
+        .close => |connection| closes.getPtr(transport_of(connection)).* += 1,
+        .connected => |connected| {
+            std.debug.print("client: connected over {s}\n", .{@tagName(connected.protocol)});
+            spoken = connected.protocol;
         },
         .finished => |ended| {
             // The event names the request and the response, whose memory is the program's again.
@@ -299,7 +308,7 @@ fn report(event: client.Event, now_ns: u64) !void {
             // Every exchange has ended, so the client shuts the pool down.
             if (finished == exchanges_count) pool.shutdown();
         },
-        .ticket => |transport| take_ticket(transport),
+        .ticket => |connection| take_ticket(connection),
         // The shut-down pool is over: every exchange ended and every transport closed.
         .closed => pool_closed = true,
     }
@@ -311,6 +320,7 @@ fn report(event: client.Event, now_ns: u64) !void {
 fn open_transport(open: client.Open, now_ns: u64) !void {
     std.debug.print("client: open {s}\n", .{@tagName(open.transport)});
     opens.getPtr(open.transport).* += 1;
+    connections.set(open.transport, open.connection);
     // A start the TLS stack refuses ends the attempt, which the pool reports.
     switch (open.transport) {
         // The UDP socket needs no connect.
@@ -319,15 +329,35 @@ fn open_transport(open: client.Open, now_ns: u64) !void {
             // The link stands where the socket would be: the server's listener accepts the
             // socket the program connects.
             try peer.accept();
-            pool.start_tcp(program.random(), now_seconds, null) catch {};
+            pool.start_tcp(open.connection, program.random(), now_seconds, null) catch {};
         },
     }
 }
 
+/// Writes what the TCP connection owes into the socket, until a call leaves room in `output`:
+/// that call wrote all the connection owed (decision 125).
+fn send_owed(connection: client.ConnectionHandle, now_ns: u64) !void {
+    for (0..sends_per_debt_max) |_| {
+        const written = pool.send_stream(connection, &output, now_ns);
+        try link.send(.client, output[0..written]);
+        if (written < output.len) return;
+    }
+    return error.ExchangeWrong;
+}
+
+/// Calls of `send_stream` for one `send`, at most: the requests of this run fit in a few
+/// outputs.
+const sends_per_debt_max = 16;
+
+/// The transport whose last `open` named `connection`: a slot holds one transport's connections.
+fn transport_of(connection: client.ConnectionHandle) client.Transport {
+    return if (connection.slot == connections.get(.quic).slot and opens.get(.quic) > 0) .quic else .tcp;
+}
+
 /// Takes the resumption ticket the server issued. This client opens no later connection, so it
 /// wipes the ticket. A program keeps it, and offers it in the last argument of the next start.
-fn take_ticket(transport: client.Transport) void {
-    const ticket = pool.take_ticket(transport) orelse return;
+fn take_ticket(connection: client.ConnectionHandle) void {
+    const ticket = pool.take_ticket(connection) orelse return;
     var held = ticket;
     held.wipe();
     tickets += 1;
@@ -351,10 +381,10 @@ fn connect_refused() !void {
         const received = refused_pool.receive(.none, now_ns);
         switch (received.event orelse return error.ExchangeWrong) {
             // The connect failed, so the transport closed before its connection started.
-            .open => |open| refused_pool.transport_closed(open.transport),
+            .open => |open| refused_pool.transport_closed(open.connection),
             .finished => refused_pool.shutdown(),
             .closed => return,
-            .close, .connected, .ticket => return error.ExchangeWrong,
+            .send, .close, .connected, .ticket => return error.ExchangeWrong,
         }
     }
     return error.ExchangeWrong;

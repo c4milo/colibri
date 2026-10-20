@@ -45,6 +45,8 @@ pub const Bodies = [constants.exchanges_max][constants.response_content_len_max]
 pub const Session = struct {
     pool: client.Pool,
     pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    /// The connection the pool's last `open` named (decision 125). Generation 0 names none.
+    connection: client.ConnectionHandle,
     /// The server's one address, which the pool reads for each socket it asks for.
     addresses: [1]client.Address,
     exchanges: [constants.exchanges_max]Exchange,
@@ -88,6 +90,7 @@ pub const Session = struct {
         session.protocol = null;
         session.close_asked = false;
         session.open_asked = null;
+        session.connection = .{ .slot = 0, .generation = 0 };
         for (plans, session.exchanges[0..plans.len], bodies[0..plans.len]) |plan, *exchange, *body| {
             exchange.* = .init(plan, body);
             exchange.id = try session.pool.request(&exchange.request, &exchange.response);
@@ -104,7 +107,8 @@ pub const Session = struct {
         session.close_asked = false;
         session.open_asked = null;
         var consumed = session.read(input);
-        const written = session.pool.send_stream(output, session.now_ns);
+        // The step writes what the connection owes each time, so it needs no `send` event.
+        const written = session.pool.send_stream(session.connection, output, session.now_ns);
         // After a send the pool reads again, with the octets the caller still holds: h11 reads
         // a held octet only once the response before it ends (decision 119).
         consumed += session.read(input[consumed..]);
@@ -121,7 +125,7 @@ pub const Session = struct {
     /// False when chapulin refused the start: the attempt ends, and the caller closes the socket,
     /// since the pool owes no `close` for a connection that never started.
     pub fn started(session: *Session) bool {
-        session.pool.start_tcp(session.random, session.now_seconds, null) catch return false;
+        session.pool.start_tcp(session.connection, session.random, session.now_seconds, null) catch return false;
         return true;
     }
 
@@ -132,7 +136,7 @@ pub const Session = struct {
         // Bounded: each pass consumes an octet or reports one of the finitely many events.
         for (0..input.len + constants.exchanges_max * constants.steps_per_read_max) |_| {
             const held = input[consumed..];
-            const passed: client.Input = if (held.len > 0) .{ .stream = held } else .none;
+            const passed: client.Input = if (held.len > 0) .{ .stream = .{ .connection = session.connection, .octets = held } } else .none;
             const received = session.pool.receive(passed, session.now_ns);
             consumed += received.consumed;
             const reported = received.event orelse {
@@ -148,21 +152,20 @@ pub const Session = struct {
         switch (reported) {
             .finished => |ended| session.exchange_of(ended.id).finished = true,
             // The client offers no ticket, so it keeps none it is given.
-            .ticket => |transport| if (session.pool.take_ticket(transport)) |ticket| {
+            .ticket => |connection| if (session.pool.take_ticket(connection)) |ticket| {
                 var held = ticket;
                 held.wipe();
             },
             .closed => session.closed = true,
-            .connected => |protocol| session.protocol = protocol,
+            .connected => |connected| session.protocol = connected.protocol,
             // The pool holds no receive pool, so it offers TCP alone.
             .open => |asked| {
                 assert(asked.transport == .tcp);
+                session.connection = asked.connection;
                 session.open_asked = asked.to;
             },
-            .close => |transport| {
-                assert(transport == .tcp);
-                session.asked_close();
-            },
+            .close => session.asked_close(),
+            .send => {},
         }
     }
 
@@ -200,7 +203,7 @@ pub const Session = struct {
     /// connect failed. In h11 the close ends a body that runs until it (RFC 9112 §6.3 rule 8), and
     /// every exchange left ends or moves. The next step reads what the pool asks for then.
     pub fn peer_closed(session: *Session) void {
-        session.pool.transport_closed(.tcp);
+        session.pool.transport_closed(session.connection);
     }
 };
 

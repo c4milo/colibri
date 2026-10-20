@@ -87,6 +87,8 @@ pub const Storage = struct {
     addresses: [1]client.Address,
     pool: client.Pool,
     pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    /// The connection the pool's `open` named (decision 125).
+    connection: client.ConnectionHandle,
     to_server: Stream,
     to_client: Stream,
     /// Each exchange's request and response, by index (decision 124).
@@ -109,7 +111,7 @@ pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Ra
     try start(storage, plan, content_seed);
     // Bounded: each round moves octets both ways, and the plan's responses end in fewer.
     for (0..limits.rounds_max) |_| {
-        storage.to_server.written += storage.pool.send_stream(storage.to_server.free(), now_ns);
+        storage.to_server.written += storage.pool.send_stream(storage.connection, storage.to_server.free(), now_ns);
         storage.to_server.deliver(pieces);
         try server_read(storage);
         try server_write(storage, plan);
@@ -171,9 +173,13 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
 fn connect(storage: *Storage, source: tls.Random) Error!void {
     const asked = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(asked.open.transport == .tcp);
-    try storage.pool.start_tcp(source, 0, null);
+    storage.connection = asked.open.connection;
+    try storage.pool.start_tcp(storage.connection, source, 0, null);
     const reported = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(reported == .connected);
+    // The connection owes the waiting requests (decision 125), which the run sends in its rounds.
+    const owed = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
+    assert(owed == .send);
     assert(storage.pool.receive(.none, now_ns).event == null);
 }
 
@@ -288,7 +294,7 @@ fn client_read(storage: *Storage) void {
     const stream = &storage.to_client;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + limits.exchanges_max * events_per_exchange) |_| {
-        const received = storage.pool.receive(.{ .stream = stream.held() }, now_ns);
+        const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .octets = stream.held() } }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;

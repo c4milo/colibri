@@ -64,6 +64,10 @@ pub const World = struct {
     pool: Pool,
     /// The memory the pool holds its TCP connection and its exchanges in (decision 125).
     pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment),
+    /// The connection each transport's last `open` named (decision 125), which the caller's
+    /// calls about that transport name. Generation 0 names no connection.
+    tcp_connection: client.ConnectionHandle,
+    quic_connection: client.ConnectionHandle,
     pool_config: client.Config,
     /// The receive pool of the pool's QUIC connections (decision 61).
     receive_pool: client.DefaultReceivePool,
@@ -119,6 +123,8 @@ pub const World = struct {
         // A plan whose policy is `never` gives no receive pool, so its pool offers no QUIC.
         const receive = if (world.plan.policy == .never) null else world.receive_pool.storage();
         try world.pool.init(&world.pool_memory, &world.pool_config, world.values(), .{}, receive);
+        world.tcp_connection = .{ .slot = 0, .generation = 0 };
+        world.quic_connection = .{ .slot = 0, .generation = 0 };
         world.quic_server.started = false;
         world.tcp_server.running = false;
     }
@@ -253,12 +259,12 @@ pub const World = struct {
         switch (world.plan.break_kind) {
             .quic_close => if (world.quic_server.started) world.quic_server.close_with_error(),
             .quic_flow => {
-                world.pool.transport_closed(.quic);
+                world.pool.transport_closed(world.quic_connection);
                 world.network.init(world.random.next(), world.schedule());
                 world.quic_server.started = false;
             },
             .tcp_flow => {
-                world.pool.transport_closed(.tcp);
+                world.pool.transport_closed(world.tcp_connection);
                 world.to_server.clear();
                 world.to_client.clear();
                 world.tcp_server.stop();
@@ -340,7 +346,7 @@ pub const World = struct {
         // Bounded: each pass consumes octets or reports an event.
         for (0..limits.tcp_chunks_max) |_| {
             const arrived = world.to_client.arrived(world.now_ns);
-            const received = world.pool.receive(.{ .stream = arrived }, world.now_ns);
+            const received = world.pool.receive(.{ .stream = .{ .connection = world.tcp_connection, .octets = arrived } }, world.now_ns);
             world.to_client.consume(received.consumed);
             if (received.event) |reported| try world.handle(reported);
             if (received.consumed == 0 and received.event == null) return;
@@ -379,7 +385,7 @@ pub const World = struct {
             _ = world.network.send(world.now_ns, .client, sent.octets, .not_ect);
             moved = true;
         }
-        const written = world.pool.send_stream(&world.segment, world.now_ns);
+        const written = world.pool.send_stream(world.tcp_connection, &world.segment, world.now_ns);
         if (written > 0) {
             try world.to_server.push(world.segment[0..written], world.now_ns + limits.tcp_delay_ns);
             moved = true;
@@ -405,10 +411,12 @@ pub const World = struct {
     fn handle(world: *World, reported: client.Event) Error!void {
         switch (reported) {
             .open => |open| switch (open.transport) {
-                .quic => world.open_quic(),
-                .tcp => world.open_tcp(),
+                .quic => world.open_quic(open.connection),
+                .tcp => world.open_tcp(open.connection),
             },
-            .close => |transport| switch (transport) {
+            // The world sends what the pool owes at each of its steps, so it waits for none.
+            .send => {},
+            .close => |connection| switch (world.transport_of(connection)) {
                 // The caller closes the flow, so what was in flight reaches no one.
                 .quic => {
                     world.network.init(world.random.next(), world.schedule());
@@ -420,7 +428,7 @@ pub const World = struct {
                     world.tcp_server.stop();
                 },
             },
-            .ticket => |transport| if (world.pool.take_ticket(transport)) |ticket| {
+            .ticket => |connection| if (world.pool.take_ticket(connection)) |ticket| {
                 var held = ticket;
                 held.wipe();
             },
@@ -430,8 +438,16 @@ pub const World = struct {
         }
     }
 
+    /// The transport whose last `open` named `connection`.
+    fn transport_of(world: *const World, connection: client.ConnectionHandle) client.Transport {
+        if (connection.slot == world.quic_connection.slot and world.quic_connection.generation > 0) return .quic;
+        assert(connection.slot == world.tcp_connection.slot);
+        return .tcp;
+    }
+
     /// Starts the QUIC connection the pool asked for, over a fresh flow to a fresh server.
-    fn open_quic(world: *World) void {
+    fn open_quic(world: *World, connection: client.ConnectionHandle) void {
+        world.quic_connection = connection;
         world.network.init(world.random.next(), world.schedule());
         world.quic_server.reset(world.pool.links.get(.quic).opens);
         // The pool draws the grease value, then the two IDs, then the session's draws, from
@@ -439,11 +455,12 @@ pub const World = struct {
         world.pool.start_quic(tls_source(&world.tls_random), identity.now_seconds, world.now_ns, null) catch {};
     }
 
-    fn open_tcp(world: *World) void {
+    fn open_tcp(world: *World, connection: client.ConnectionHandle) void {
+        world.tcp_connection = connection;
         world.to_server.clear();
         world.to_client.clear();
         world.tcp_server.reset(world.pool.links.get(.tcp).opens, tls_source(&world.tls_random)) catch {};
-        world.pool.start_tcp(tls_source(&world.tls_random), identity.now_seconds, null) catch {};
+        world.pool.start_tcp(connection, tls_source(&world.tls_random), identity.now_seconds, null) catch {};
     }
 
     fn report(world: *World, finished: client.Finished) Error!void {

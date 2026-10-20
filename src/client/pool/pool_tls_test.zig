@@ -42,7 +42,7 @@ const addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), 
 fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
@@ -53,7 +53,7 @@ fn collect(pool: anytype) !void {
         if (events_len == events.len) return error.TestUnexpectedResult;
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open) try pool.start_tcp(support.stream.random(), support.now_seconds, null);
+        if (reported == .open) try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.stream.random(), support.now_seconds, null);
     }
     return error.TestUnexpectedResult;
 }
@@ -196,7 +196,7 @@ fn Tests(comptime Pool: type) type {
 
         /// Writes what the pool's connection owes into the server's buffer.
         fn send() void {
-            support.to_peer_len += pool.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
         test "RFC 9846 §6.2: a pool asks for its transport's close once the alert of a refused handshake is written" {
@@ -209,11 +209,12 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             try testing.expect(pool.tcp[0].failed);
             // The caller reads the pool once more with no octets, as it does after each send.
-            // The connection reported its close and holds the alert, so the pool asks for no
-            // close yet.
+            // The connection reported its close and holds the alert, so the pool asks for its
+            // `send` (decision 125) and for no close yet.
             const polled = pool.receive(.none, support.now_ns);
             try testing.expectEqual(0, polled.consumed);
-            try testing.expectEqual(null, polled.event);
+            try testing.expectEqual(pool_support.slot_of(&pool, .tcp), polled.event.?.send.slot);
+            try testing.expectEqual(null, pool.receive(.none, support.now_ns).event);
             try testing.expectEqual(null, find(.close));
             try testing.expectEqual(0, support.to_peer_len);
             send();
@@ -223,7 +224,7 @@ fn Tests(comptime Pool: type) type {
             const provider = tls_support.server.provider();
             try testing.expectEqual(.peer, provider.vtable.take_alert(provider.context).?.origin);
             try collect(&pool);
-            try testing.expectEqual(Transport.tcp, find(.close).?.close);
+            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // No connection carried the exchange, and the attempt has no other transport to open.
             try testing.expectEqual(.refused, exchange.response.outcome);
             try testing.expectEqual(1, count(.open));
@@ -254,7 +255,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], &tls_support.peer_plain));
             try testing.expectEqual(.bad_record_mac, provider.vtable.take_alert(provider.context).?.description);
             try collect(&pool);
-            try testing.expectEqual(Transport.tcp, find(.close).?.close);
+            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // The attempt went on with TCP counted in it, so it opened no second connection.
             try testing.expectEqual(null, find(.connected));
             try testing.expectEqual(.refused, exchange.response.outcome);
@@ -284,7 +285,7 @@ fn Tests(comptime Pool: type) type {
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);
-            try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected);
+            try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected.protocol);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             support.peer_h2.init(.server);
@@ -333,7 +334,7 @@ fn Tests(comptime Pool: type) type {
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);
-            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
+            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected.protocol);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             send();
@@ -346,6 +347,31 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(1, count(.open));
         }
 
+        test "decision 125: over TLS, an h11 connection's close_notify is a debt that gives a send" {
+            var exchange = get(&bodies[0]);
+            _ = try start_with(.{ .h2 = false }, &support.protocols_both, "localhost", &exchange);
+            send();
+            try testing.expectEqual(false, tls_support.server_flight().?);
+            try collect(&pool);
+            send();
+            try testing.expectEqual(true, tls_support.server_flight().?);
+            send();
+            try tls_support.server_open();
+            try tls_support.server_seal(h11_response);
+            try collect(&pool);
+            try testing.expectEqual(.response, exchange.response.outcome);
+            // h11 owes nothing at its close, so the close_notify goes out alone (RFC 9846 §6.1).
+            const sends = count(.send);
+            pool.shutdown();
+            try collect(&pool);
+            try testing.expectEqual(sends + 1, count(.send));
+            const before = support.to_peer_len;
+            send();
+            try testing.expectEqual(tls.record.alert_record_len, support.to_peer_len - before);
+            try collect(&pool);
+            try testing.expectEqual(pool_support.slot_of(&pool, .tcp), find(.close).?.close.slot);
+        }
+
         test "decision 88: a server that selects no protocol is spoken to in h11 while versions allows it" {
             var exchange = get(&bodies[0]);
             // The server holds no ALPN list, so it selects neither `h2` nor `http/1.1` of the
@@ -354,7 +380,7 @@ fn Tests(comptime Pool: type) type {
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);
-            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
+            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected.protocol);
             try testing.expectEqual(null, find(.close));
         }
 
@@ -375,7 +401,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(true, tls_support.server_flight().?);
             try testing.expectEqual(0, support.to_peer_len);
             try collect(&pool);
-            try testing.expectEqual(Transport.tcp, find(.close).?.close);
+            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // No connection carried the exchange, and the attempt has no other transport to open.
             try testing.expectEqual(.refused, exchange.response.outcome);
             try testing.expectEqual(1, count(.open));
@@ -389,7 +415,7 @@ fn Tests(comptime Pool: type) type {
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);
-            try testing.expectEqual(protocol, find(.connected).?.connected);
+            try testing.expectEqual(protocol, find(.connected).?.connected.protocol);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             if (protocol == .h11) return;
@@ -419,6 +445,12 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(.closed, exchange.response.outcome);
             try testing.expectEqual(ok, exchange.response.status);
             try testing.expectEqual(1, count(.open));
+            // RFC 9846 §6: after the record failed, the alert is all that goes out, and once it is
+            // out the connection owes nothing more (decision 125).
+            const sends = count(.send);
+            send();
+            try collect(&pool);
+            try testing.expectEqual(sends, count(.send));
         }
 
         test "decision 124: a record that fails after the HEADERS of a second h2 response ends that GET closed" {
@@ -448,7 +480,7 @@ fn Tests(comptime Pool: type) type {
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);
-            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
+            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected.protocol);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             try seal_in_records(long_response_octets(), odd_record_len);

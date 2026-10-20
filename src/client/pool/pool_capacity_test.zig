@@ -8,6 +8,7 @@ const tls_support = @import("../connection/connection_tls_test_support.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const versions_module = @import("../versions.zig");
 const pool_module = @import("pool.zig");
+const pool_support = @import("pool_test_support.zig");
 
 const testing = std.testing;
 const Pool = pool_module.Pool;
@@ -76,12 +77,12 @@ test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, a
     try testing.expectEqual(octets.len, dropped.consumed);
     try testing.expectEqual(null, dropped.event);
     try testing.expectEqual(null, pool.send_datagram(&body, support.now_ns));
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     pool.on_instant(support.now_ns);
-    try testing.expectEqual(null, pool.take_ticket(.quic));
+    try testing.expectEqual(null, pool.take_ticket(pool_support.connection_of(pool, .quic)));
     try testing.expectEqual(pool_module.Phase.none, pool.phase(.quic));
     try testing.expectEqual(null, pool.deadline_ns());
-    try pool.start_tcp(support.stream.random(), support.now_seconds, null);
+    try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.stream.random(), support.now_seconds, null);
     try testing.expectEqual(pool_module.Phase.handshake, pool.phase(.tcp));
-    try testing.expect(pool.send_stream(&support.to_peer, support.now_ns) > 0);
+    try testing.expect(pool.send_stream(pool_support.connection_of(pool, .tcp), &support.to_peer, support.now_ns) > 0);
 }

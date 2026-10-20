@@ -91,27 +91,50 @@ pub const Alternative = struct {
     fresh_until_ns: u64,
 };
 
+/// A connection of a pool, by its slot and the generation of the slot (decision 125), as
+/// `server.ConnectionHandle` names one of an endpoint (decision 119). The TCP slots come first,
+/// and the QUIC connection has the slot after them. A slot holds a new connection after the
+/// `close` of the one before, with the next generation, so a handle names nothing once its
+/// connection's `close` went out, and a call with it changes nothing.
+pub const ConnectionHandle = packed struct(u64) {
+    slot: u32,
+    generation: u32,
+};
+
 /// A transport the caller opens: a UDP flow for QUIC, a TCP connection for TCP.
 pub const Open = struct {
+    /// The connection the transport carries, which each later call and event about it names.
+    connection: ConnectionHandle,
     transport: Transport,
     /// One of `Values.addresses`, with only its port set to the port the pool chose for the
     /// transport.
     to: Address,
 };
 
+/// The connection that takes the exchanges, and the version it speaks.
+pub const Connected = struct {
+    connection: ConnectionHandle,
+    protocol: Protocol,
+};
+
 pub const Event = union(enum) {
     /// Open this transport, then start its connection with `start_quic` or `start_tcp`.
     open: Open,
-    /// Close this transport: its connection is over, and the pool reads and writes nothing more
-    /// on it. The program drops the octets it read from the socket and still holds: they are that
-    /// connection's, and the next connection on the transport must not get them.
-    close: Transport,
-    /// The connection carrying the exchanges speaks `Protocol`. The event comes only for a
+    /// The TCP connection owes octets: the program calls `send_stream` for it (decision 125), as a
+    /// server's program does for its endpoint (decision 119). The event comes once for each debt.
+    /// A call of `send_stream` that leaves room in its output ends the debt, and the next debt
+    /// gives the next event.
+    send: ConnectionHandle,
+    /// Close the transport of this connection: the connection is over, and the pool reads and
+    /// writes nothing more on it. The program drops the octets it read from the socket and still
+    /// holds: they are that connection's, and the next connection must not get them.
+    close: ConnectionHandle,
+    /// The connection that takes the exchanges, and its version. The event comes only for a
     /// connection that takes the exchanges. A connection that failed, or that takes no new
     /// exchange, in the call that completed its handshake carries nothing, and no event names it.
-    connected: Protocol,
-    /// A transport's server issued a resumption ticket, which `take_ticket` hands over.
-    ticket: Transport,
+    connected: Connected,
+    /// The connection's server issued a resumption ticket, which `take_ticket` hands over.
+    ticket: ConnectionHandle,
     /// An exchange ended, and the caller may reuse the memory of its request and its response.
     finished: Finished,
     /// The pool was shut down, every exchange has finished, and every transport closed.
@@ -125,11 +148,17 @@ pub const Datagram = struct {
     from: Address = .{},
 };
 
+/// Octets the TCP socket of a connection read.
+pub const StreamOctets = struct {
+    connection: ConnectionHandle,
+    octets: []u8,
+};
+
 /// What the caller read, from the transport that read it.
 pub const Input = union(enum) {
     none,
     datagram: Datagram,
-    stream: []u8,
+    stream: StreamOctets,
 };
 
 /// What one `receive` call took and reported.
@@ -172,6 +201,15 @@ pub const Link = struct {
     state: State = .none,
     /// Connections this transport opened.
     opens: u64 = 0,
+    /// The generation of the slot's current connection, which its handle carries, and the
+    /// generation of the connection whose `close` is owed (decision 125).
+    generation: u32 = 0,
+    close_generation: u32 = 0,
+    /// A `send` event went out for the connection, and no `send_stream` ended its debt yet.
+    send_outstanding: bool = false,
+    /// A `send_stream` wrote nothing: what the connection holds waits for the peer or for room,
+    /// so no `send` goes out until the connection reads octets or the program makes a call.
+    send_blocked: bool = false,
     /// The index in `Values.addresses` the next connection goes to.
     address_index: usize = 0,
     /// Where the current connection goes.
@@ -367,9 +405,10 @@ pub fn PoolOf(comptime capacity: Capacity) type {
             return pool_calls.send_datagram(pool, output, now_ns);
         }
 
-        /// The octets the TCP connection owes, written into `output`.
-        pub fn send_stream(pool: *Self, output: []u8, now_ns: u64) usize {
-            return pool_calls.send_stream(pool, output, now_ns);
+        /// The octets the TCP connection `connection` names owes, written into `output`: 0 for a
+        /// handle that names no running connection.
+        pub fn send_stream(pool: *Self, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
+            return pool_calls.send_stream(pool, connection, output, now_ns);
         }
 
         /// The instant the pool next wants `on_instant` at: QUIC's next deadline, or the end of
@@ -392,22 +431,24 @@ pub fn PoolOf(comptime capacity: Capacity) type {
             return pool_calls.start_quic(pool, random, now_seconds, now_ns, resumption);
         }
 
-        /// Starts the TCP connection the `open` event asked for, as `start_quic` does QUIC's.
-        pub fn start_tcp(pool: *Self, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
-            return pool_calls.start_tcp(pool, random, now_seconds, resumption);
+        /// Starts the TCP connection `connection`, which an `open` event asked for, as
+        /// `start_quic` does QUIC's.
+        pub fn start_tcp(pool: *Self, connection: ConnectionHandle, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+            return pool_calls.start_tcp(pool, connection, random, now_seconds, resumption);
         }
 
-        /// The caller's transport closed on its own: the peer closed it, or it failed. Every
-        /// exchange its connection held ends, as the connection's own `transport_closed` rules. A
-        /// program may also close a transport itself at any time, and then calls this.
-        pub fn transport_closed(pool: *Self, transport: Transport) void {
-            pool_calls.transport_closed(pool, transport);
+        /// The transport of `connection` closed on its own: the peer closed it, or it failed.
+        /// Every exchange the connection held ends, as the connection's own `transport_closed`
+        /// rules. A program may also close a transport itself at any time, and then calls this. A
+        /// handle whose `close` went out names nothing, and the call changes nothing.
+        pub fn transport_closed(pool: *Self, connection: ConnectionHandle) void {
+            pool_calls.transport_closed(pool, connection);
         }
 
-        /// The resumption ticket the `ticket` event announced for `transport`, which the call
+        /// The resumption ticket the `ticket` event announced for `connection`, which the call
         /// hands over and clears.
-        pub fn take_ticket(pool: *Self, transport: Transport) ?tls.Ticket {
-            return pool_calls.take_ticket(pool, transport);
+        pub fn take_ticket(pool: *Self, connection: ConnectionHandle) ?tls.Ticket {
+            return pool_calls.take_ticket(pool, connection);
         }
 
         /// The h3 alternative the pool knows of, from the values or a TCP response's Alt-Svc,

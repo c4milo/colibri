@@ -10,6 +10,7 @@ const quic_support = @import("../quic/quic_test_support.zig");
 const connection_support = @import("../connection/connection_test_support.zig");
 const fixture = @import("pool_quic_test_support.zig");
 const pool_module = @import("pool.zig");
+const pool_support = @import("pool_test_support.zig");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
 
@@ -54,7 +55,7 @@ test "RFC 9000 §10: a QUIC transport the caller closed ends its written POST cl
     var exchange = post(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(.closed, exchange.response.outcome);
     try testing.expectEqual(&exchange.response, nth(.finished, 0).?.finished.response);
@@ -76,7 +77,7 @@ test "RFC 9114 §4.1.1: a QUIC transport the caller closed moves the exchange it
     _ = try pool.request(&second.request, &second.response);
     try pump(quic_support.rounds_default);
     // The second exchange waits for the server's stream limit, unwritten, when the flow closes.
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(.closed, first.response.outcome);
     try testing.expectEqual(&first.response, nth(.finished, 0).?.finished.response);
@@ -100,7 +101,7 @@ test "RFC 9114 §4.1.1: an exchange a second draining connection refuses has mov
     try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
-    pool.transport_closed(.tcp);
+    pool.transport_closed(pool_support.connection_of(pool, .tcp));
     // The first exchange ends, and its connection closes. A second QUIC connection opens, whose
     // server grants no stream, so the second exchange waits on it too.
     quic_support.server_answers = true;
@@ -122,11 +123,11 @@ test "RFC 9846 §4.6.1: a QUIC ticket is reported for its transport, and take_ti
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(Transport.quic, nth(.ticket, 0).?.ticket);
-    var ticket = pool.take_ticket(.quic) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(pool_support.slot_of(pool, .quic), nth(.ticket, 0).?.ticket.slot);
+    var ticket = pool.take_ticket(pool_support.connection_of(pool, .quic)) orelse return error.TestUnexpectedResult;
     defer ticket.wipe();
-    try testing.expectEqual(null, pool.take_ticket(.quic));
-    try testing.expectEqual(null, pool.take_ticket(.tcp));
+    try testing.expectEqual(null, pool.take_ticket(pool_support.connection_of(pool, .quic)));
+    try testing.expectEqual(null, pool.take_ticket(pool_support.connection_of(pool, .tcp)));
 }
 
 test "RFC 7838 §3: TCP goes to the origin's port though QUIC went to the alternative's" {
@@ -155,7 +156,7 @@ test "a shut-down pool ends a handshake no exchange waits for, and closes" {
     // period, and the pool closes after it.
     try testing.expectEqual(pool_module.Phase.failed, pool.phase(.quic));
     try pump(rounds_past_probe * 4);
-    try testing.expectEqual(Transport.quic, nth(.close, 0).?.close);
+    try testing.expectEqual(pool_support.slot_of(pool, .quic), nth(.close, 0).?.close.slot);
     try testing.expect(nth(.closed, 0) != null);
 }
 
@@ -181,7 +182,7 @@ test "a shut-down pool keeps a handshake while it holds an exchange, which could
     quic_support.server_answers = true;
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.response, first.response.outcome);
-    try testing.expectEqual(Transport.tcp, nth(.close, 0).?.close);
+    try testing.expectEqual(pool_support.slot_of(pool, .tcp), nth(.close, 0).?.close.slot);
 }
 
 /// The server's datagrams a test holds back before it delivers them. Test-only.
@@ -249,7 +250,7 @@ test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the ne
     // It closes with H3_NO_ERROR, and once its closing period has run the pool asks the caller
     // to close its flow.
     try pump(closing_rounds);
-    try testing.expectEqual(Transport.quic, nth(.close, 0).?.close);
+    try testing.expectEqual(pool_support.slot_of(pool, .quic), nth(.close, 0).?.close.slot);
     try testing.expectEqual(.closed, pool.phase(.quic));
     // The next exchange opens a new QUIC connection, which carries it, and TCP never opens.
     var second = get(&bodies[1]);
@@ -305,7 +306,7 @@ test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     // The caller's TCP connection fails before it starts, so the attempt has no transport left:
     // QUIC stays counted in it, and the exchange ends refused with no third open.
-    pool.transport_closed(.tcp);
+    pool.transport_closed(pool_support.connection_of(pool, .tcp));
     try pump(rounds_past_probe);
     try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(null, opened(2));
@@ -332,7 +333,7 @@ test "RFC 9110 §9.2.2: a GET whose QUIC transport closed before any of its resp
     const id = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, quic_support.answers_len);
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     quic_support.server_answers = true;
     try collect();
     // RFC 9112 §9.3.1: the pool opens another connection for the request, and reports nothing.
@@ -358,7 +359,7 @@ test "RFC 9110 §9.2.2: a PUT sent again over QUIC sends its whole content again
     _ = try pool.request(&put.request, &put.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(upload_len, quic_support.answers[0].received);
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     quic_support.server_answers = true;
     try collect();
     try pump(quic_support.rounds_default);
@@ -376,12 +377,12 @@ test "RFC 9110 §9.2.2: a GET whose second QUIC transport also closed before any
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, quic_support.answers_len);
     // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(.closed, exchange.response.outcome);
     try testing.expectEqual(null, nth(.finished, 1));
@@ -397,7 +398,7 @@ test "RFC 9110 §9.2.2: a GET whose QUIC transport closed after a HEADERS frame 
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(200, exchange.response.status);
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(.closed, exchange.response.outcome);
     try testing.expectEqual(null, opened(1));
@@ -442,7 +443,7 @@ test "decision 124: a GET whose QUIC transport closed inside an h3 HEADERS frame
     try pump(quic_support.rounds_default);
     try answer_raw(headers_start);
     try pump(quic_support.rounds_default);
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(.closed, exchange.response.outcome);
     try testing.expectEqual(null, opened(1));
@@ -472,7 +473,7 @@ test "decision 124: a request a GOAWAY moved, whose next QUIC connection closed 
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, quic_support.answers_len);
     // The refusal spent the one move (`moves_max`), so the close sends nothing again.
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(.closed, second.response.outcome);
     try testing.expectEqual(null, opened(2));
@@ -485,7 +486,7 @@ test "decision 124: a cancelled exchange a QUIC connection carried is never sent
     const id = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     pool.cancel(id);
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(null, nth(.finished, 0));
     try testing.expectEqual(null, opened(1));

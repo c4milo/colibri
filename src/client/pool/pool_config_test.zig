@@ -10,6 +10,7 @@ const coding_support = @import("../coding_test_support.zig");
 const quic_support = @import("../quic/quic_test_support.zig");
 const fixture = @import("pool_quic_test_support.zig");
 const pool_module = @import("pool.zig");
+const pool_support = @import("pool_test_support.zig");
 const event = @import("../event.zig");
 const versions_module = @import("../versions.zig");
 
@@ -43,7 +44,7 @@ fn expect_tcp_alone(given: pool_module.Config, receive_storage: ?pool_module.Rec
     _ = try pool.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(Transport.tcp, opened(0).?.transport);
-    pool.transport_closed(.tcp);
+    pool.transport_closed(pool_support.connection_of(pool, .tcp));
     try collect();
     try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(null, opened(1));
@@ -153,7 +154,7 @@ test "decision 120: a QUIC connection gets the authority, ECN, the idle timeout,
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected);
+    try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(idle_timeout_ms, quic_support.server.peer_parameters.?.max_idle_timeout_ms);
 }

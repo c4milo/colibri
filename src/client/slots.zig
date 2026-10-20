@@ -158,6 +158,15 @@ pub const Slots = struct {
         return counted;
     }
 
+    /// Whether a request waits to be written, or has content left to write.
+    pub fn unwritten(slots: *const Slots) bool {
+        for (&slots.slots) |*slot| {
+            if (slot.stage == .queued) return true;
+            if (slot.stage == .sent and !slot.content_done()) return true;
+        }
+        return false;
+    }
+
     /// Whether no exchange is queued or awaits its response.
     pub fn idle(slots: *const Slots) bool {
         return slots.count(.queued) == 0 and slots.count(.sent) == 0 and slots.count(.dropping) == 0;

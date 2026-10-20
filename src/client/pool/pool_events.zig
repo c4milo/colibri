@@ -16,6 +16,7 @@ const alt_svc = @import("../alt_svc.zig");
 const quic_internal = @import("../quic/quic_connection_internal.zig");
 const pool_module = @import("pool.zig");
 const choice = @import("pool_choice.zig");
+const pool_handle = @import("pool_handle.zig");
 
 const Transport = pool_module.Transport;
 const Event = pool_module.Event;
@@ -46,12 +47,13 @@ pub fn owed(pool: anytype) ?Event {
         const link = pool.links.getPtr(transport);
         // The caller closes a transport's socket before it opens the next one.
         if (link.close_owed) {
+            const closing = pool_handle.closing_handle(pool, transport);
             link.close_owed = false;
-            return .{ .close = transport };
+            return .{ .close = closing };
         }
         if (link.open_owed) {
             link.open_owed = false;
-            return .{ .open = .{ .transport = transport, .to = link.to } };
+            return .{ .open = .{ .connection = pool_handle.handle_of(pool, transport), .transport = transport, .to = link.to } };
         }
     }
     if (oldest(pool, .ended)) |entry| return .{ .finished = deliver(entry) };
@@ -62,6 +64,24 @@ pub fn owed(pool: anytype) ?Event {
     assert(!any_entry(pool));
     pool.closed_reported = true;
     return .closed;
+}
+
+/// The TCP connection's `send`, once for each debt (decision 125): the connection may owe octets,
+/// no `send` for them is outstanding, and no `send_stream` found it blocked since it last read
+/// octets or the program last made a call.
+pub fn owed_send(pool: anytype) ?Event {
+    const link = pool.links.getPtr(.tcp);
+    if (link.state != .running or link.send_outstanding or link.send_blocked) return null;
+    if (!pool.tcp[0].owes_octets()) return null;
+    link.send_outstanding = true;
+    return .{ .send = pool_handle.handle_of(pool, .tcp) };
+}
+
+/// A request or a cancel may give a blocked connection a debt it can write, so its next `send` may
+/// go out (decision 125). A shutdown gives none: h2's GOAWAY waits until the exchanges end, which
+/// octets the connection reads end.
+pub fn unblock_sends(pool: anytype) void {
+    pool.links.getPtr(.tcp).send_blocked = false;
 }
 
 /// One event a connection reported: the caller's, or null when the pool took it itself.
@@ -102,9 +122,14 @@ pub fn feed(pool: anytype, input: pool_module.Input, now_ns: u64) Fed {
             const reported = received.event orelse return .{ .len = received.consumed, .event = null };
             return .{ .len = received.consumed, .event = handle(pool, .quic, reported) };
         },
-        .stream => |octets| {
+        .stream => |stream| {
+            const octets = stream.octets;
+            // Octets for a handle that names no running TCP connection are an earlier connection's.
+            if (pool_handle.resolve(pool, stream.connection) != .tcp) return .{ .len = octets.len, .event = null };
             if (pool.links.get(.tcp).state != .running) return .{ .len = octets.len, .event = null };
             const received = pool.tcp[0].receive(octets, now_ns);
+            // What the connection read may let what it holds go out.
+            if (received.consumed > 0) unblock_sends(pool);
             if (pool.tcp[0].take_alt_svc()) |advert| learn(pool, advert, now_ns);
             const reported = received.event orelse return .{ .len = received.consumed, .event = null };
             return .{ .len = received.consumed, .event = handle(pool, .tcp, reported) };
@@ -116,7 +141,7 @@ pub fn feed(pool: anytype, input: pool_module.Input, now_ns: u64) Fed {
 fn handle(pool: anytype, transport: Transport, reported: event.Event) ?Event {
     switch (reported) {
         .connected => |protocol| return on_connected(pool, transport, protocol),
-        .ticket => return .{ .ticket = transport },
+        .ticket => return .{ .ticket = pool_handle.handle_of(pool, transport) },
         .finished => |finished| return on_finished(pool, transport, finished),
         // The phase reads the connection's own flag.
         .draining => return null,
@@ -151,7 +176,7 @@ fn on_connected(pool: anytype, transport: Transport, protocol: event.Protocol) ?
     // The connection that reports `connected` took every waiting exchange (the model's
     // TakeAtHandshake).
     assert(!any_waiting(pool));
-    return .{ .connected = protocol };
+    return .{ .connected = .{ .connection = pool_handle.handle_of(pool, transport), .protocol = protocol } };
 }
 
 /// A connection reported an exchange's end. One that moves goes to another connection (the model's
@@ -270,7 +295,7 @@ fn abandon(pool: anytype, transport: Transport) void {
     // the link's last connection and opened it again reported that connection's `close` first.
     if (link.open_owed) {
         assert(link.state == .opening and pool.shut);
-        link.* = .{ .state = .closed, .opens = link.opens, .address_index = link.address_index, .close_owed = link.close_owed };
+        link.* = .{ .state = .closed, .opens = link.opens, .generation = link.generation, .close_generation = link.close_generation, .address_index = link.address_index, .close_owed = link.close_owed };
         return;
     }
     link.abandoned = true;
@@ -323,6 +348,9 @@ fn finish_link(link: *Link) void {
     link.* = .{
         .state = .closed,
         .opens = link.opens,
+        .generation = link.generation,
+        // Decision 125: the `close` names the connection that is over.
+        .close_generation = link.generation,
         .address_index = if (failed) link.address_index + 1 else link.address_index,
         .close_owed = !link.gone,
     };
@@ -349,7 +377,18 @@ fn open_link(pool: anytype, transport: Transport, now_ns: u64) void {
     // Only a connection that is over owes its `close`.
     assert(!link.close_owed or link.state == .closed);
     // The connection this pass closed still owes its `close`, which goes out before the `open`.
-    link.* = .{ .state = .opening, .opens = link.opens + 1, .address_index = link.address_index, .to = to, .open_owed = true, .close_owed = link.close_owed };
+    // Decision 125: the slot's next connection has the next generation, and the `close` still owed
+    // names the one before it.
+    link.* = .{
+        .state = .opening,
+        .opens = link.opens + 1,
+        .generation = link.generation +% 1,
+        .close_generation = link.close_generation,
+        .address_index = link.address_index,
+        .to = to,
+        .open_owed = true,
+        .close_owed = link.close_owed,
+    };
     pool.tried.set(transport, true);
 }
 

@@ -43,7 +43,7 @@ const rounds: usize = 8;
 fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
@@ -54,7 +54,7 @@ fn collect(pool: anytype) !void {
         if (events_len == events.len) return error.TestUnexpectedResult;
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open and starts) try pool.start_tcp(support.stream.random(), 0, null);
+        if (reported == .open and starts) try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.stream.random(), 0, null);
     }
     return error.TestUnexpectedResult;
 }
@@ -62,7 +62,7 @@ fn collect(pool: anytype) !void {
 /// Moves octets both ways for a few rounds.
 fn pump(pool: anytype) !void {
     for (0..rounds) |_| {
-        support.to_peer_len += pool.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+        support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
         try support.peer_h2_read();
         try collect(pool);
     }
@@ -162,7 +162,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(pool_module.Transport.tcp, opened.transport);
             try testing.expectEqual(https_port, opened.to.port);
             try pump(&pool);
-            try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected);
+            try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected.protocol);
             try support.peer_h2_answer(1, ok, &.{}, "hello");
             try collect(&pool);
             const finished = find(.finished).?.finished;
@@ -182,7 +182,7 @@ fn Tests(comptime Pool: type) type {
             try support.peer_h2_answer(1, ok, &.{}, "hello");
             try pump(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqual(pool_module.Transport.tcp, find(.close).?.close);
+            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // The pool closes once, after its transports did.
             try testing.expectEqual(1, count(.closed));
             try testing.expect(index_of(.close).? < index_of(.closed).?);
@@ -204,11 +204,11 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(.response, exchange.response.outcome);
             try testing.expectEqual(null, find(.close));
             support.peer_events_len = 0;
-            support.to_peer_len += pool.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
             try support.peer_h2_read();
             try testing.expectEqual(.goaway, std.meta.activeTag(support.peer_events[0]));
             try collect(&pool);
-            try testing.expectEqual(pool_module.Transport.tcp, find(.close).?.close);
+            try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             try testing.expectEqual(1, count(.closed));
         }
 
@@ -218,7 +218,7 @@ fn Tests(comptime Pool: type) type {
             _ = try pool.request(&exchange.request, &exchange.response);
             try collect(&pool);
             // The exchange waits in the connection, unwritten, when the caller's transport closes.
-            pool.transport_closed(.tcp);
+            pool.transport_closed(pool_support.connection_of(pool, .tcp));
             try collect(&pool);
             try testing.expectEqual(null, find(.finished));
             try testing.expectEqual(2, count(.open));
@@ -238,7 +238,7 @@ fn Tests(comptime Pool: type) type {
             var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "form" }, .response = .{ .body = &bodies[0] } };
             _ = try pool.request(&exchange.request, &exchange.response);
             try pump(&pool);
-            pool.transport_closed(.tcp);
+            pool.transport_closed(pool_support.connection_of(pool, .tcp));
             try collect(&pool);
             try testing.expectEqual(.closed, exchange.response.outcome);
             try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
@@ -262,7 +262,7 @@ fn Tests(comptime Pool: type) type {
             const datagram = pool.receive(.{ .datagram = .{ .octets = &octets } }, support.now_ns);
             try testing.expectEqual(octets.len, datagram.consumed);
             try testing.expectEqual(null, datagram.event);
-            const stream = pool.receive(.{ .stream = &octets }, support.now_ns);
+            const stream = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = &octets } }, support.now_ns);
             try testing.expectEqual(octets.len, stream.consumed);
             try testing.expectEqual(null, stream.event);
         }
@@ -276,7 +276,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expect(find(.open).?.open.to.same_host(&two_addresses[0]));
             // The caller's connection failed, so no transport is left, and the exchange ends
             // refused.
-            pool.transport_closed(.tcp);
+            pool.transport_closed(pool_support.connection_of(pool, .tcp));
             try collect(&pool);
             try testing.expectEqual(.refused, exchange.response.outcome);
             events_len = 0;
@@ -287,7 +287,7 @@ fn Tests(comptime Pool: type) type {
 
         /// Closes the caller's transport, and reports what the pool then owes to a fresh peer.
         fn close_transport() !void {
-            pool.transport_closed(.tcp);
+            pool.transport_closed(pool_support.connection_of(pool, .tcp));
             fresh_peer();
             try collect(&pool);
         }
@@ -413,7 +413,7 @@ fn Tests(comptime Pool: type) type {
             support.peer_h2_owe();
             try collect(&pool);
             // The draining connection writes what it owes, its GOAWAY last, and no request.
-            _ = pool.send_stream(&support.to_peer, support.now_ns);
+            _ = pool.send_stream(pool_support.connection_of(pool, .tcp), &support.to_peer, support.now_ns);
             try collect(&pool);
             fresh_peer();
         }

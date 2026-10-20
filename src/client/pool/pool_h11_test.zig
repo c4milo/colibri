@@ -46,7 +46,7 @@ const half_size_line = chunked_body[0..1];
 fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
@@ -57,7 +57,7 @@ fn collect(pool: anytype) !void {
         if (events_len == events.len) return error.TestUnexpectedResult;
         events[events_len] = reported;
         events_len += 1;
-        if (reported == .open) try pool.start_tcp(support.stream.random(), 0, null);
+        if (reported == .open) try pool.start_tcp(pool_support.connection_of(pool, .tcp), support.stream.random(), 0, null);
     }
     return error.TestUnexpectedResult;
 }
@@ -146,13 +146,13 @@ fn Tests(comptime Pool: type) type {
             _ = try pool.request(&exchange.request, &exchange.response);
             // The pool asks for TCP, and its connection takes the exchange once it is started.
             try collect(&pool);
-            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
+            try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected.protocol);
             send();
         }
 
         /// Writes what the pool's connection owes into the peer's buffer.
         fn send() void {
-            support.to_peer_len += pool.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+            support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
         }
 
         /// Passes the pool `octets` as what its socket holds, and returns how many it took.
@@ -232,7 +232,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(.response, first.response.outcome);
             try testing.expectEqual(2, count(.open));
             const closed_at = index_of(.close, 0) orelse return error.TestUnexpectedResult;
-            try testing.expectEqual(Event{ .close = .tcp }, events[closed_at]);
+            try testing.expectEqual(pool_support.slot_of(&pool, .tcp), events[closed_at].close.slot);
             try testing.expect(closed_at < index_of(.open, 1).?);
             try testing.expectEqual(2, count(.connected));
         }
@@ -249,7 +249,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(early_response.len, try give(early_response));
             try testing.expectEqual(.response, put.response.outcome);
             const closed_at = index_of(.close, 0) orelse return error.TestUnexpectedResult;
-            try testing.expectEqual(Event{ .close = .tcp }, events[closed_at]);
+            try testing.expectEqual(pool_support.slot_of(&pool, .tcp), events[closed_at].close.slot);
             // The peer serves the new connection from here on.
             support.peer_h11.init(.server, .{});
             support.to_peer_len = 0;
@@ -279,7 +279,7 @@ fn Tests(comptime Pool: type) type {
             support.to_client_len = response.len;
             // The program reads until the pool says to close the socket, and no further.
             for (0..support.buffer_len + support.events_max) |_| {
-                const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+                const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
                 const received = pool.receive(input, support.now_ns);
                 std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
                 support.to_client_len -= received.consumed;
@@ -301,7 +301,7 @@ fn Tests(comptime Pool: type) type {
         /// The caller's transport closes: the program drops what it held of the socket, and the
         /// peer of the next connection starts with nothing read or written.
         fn close_transport() !void {
-            pool.transport_closed(.tcp);
+            pool.transport_closed(pool_support.connection_of(pool, .tcp));
             support.peer_h11.init(.server, .{});
             support.peer_requests = 0;
             support.to_peer_len = 0;
@@ -394,7 +394,7 @@ fn Tests(comptime Pool: type) type {
             // the transport closes before the program passes that octet again.
             const octets = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloH";
             @memcpy(support.to_client[0..octets.len], octets);
-            const received = pool.receive(.{ .stream = support.to_client[0..octets.len] }, support.now_ns);
+            const received = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..octets.len] } }, support.now_ns);
             try testing.expectEqual(octets.len - 1, received.consumed);
             try testing.expectEqual(&first.response, received.event.?.finished.response);
             try close_transport();

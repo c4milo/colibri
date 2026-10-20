@@ -83,6 +83,8 @@ pub const World = struct {
     addresses: [1]client.Address,
     pool: client.Pool,
     pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    /// The connection the pool's `open` named (decision 125).
+    connection: client.ConnectionHandle,
     /// Whether the first request started the pool's connection, whose memory the run reads
     /// from then on, and whether the pool said to close its socket, which then reads nothing.
     started: bool,
@@ -140,6 +142,7 @@ pub const World = struct {
         try world.pool.init(&world.pool_memory, &world.client_config, .{ .addresses = &world.addresses, .port = port }, .{}, null);
         world.started = false;
         world.socket_closed = false;
+        world.connection = .{ .slot = 0, .generation = 0 };
         world.to_server = .{};
         world.to_client = .{};
         world.client_ids = @splat(null);
@@ -182,7 +185,7 @@ pub const World = struct {
     /// serves it: before its TLS handshake completes.
     pub fn client_h2(world: *World) ?*h2.Connection {
         if (!world.started) return null;
-        return h2_of(&world.pool.tcp[0].session);
+        return direction_module.h2_of(&world.pool.tcp[0].session);
     }
 
     /// The protocol's octets the client's connection wrote that its caller has not handed out:
@@ -223,10 +226,10 @@ pub const World = struct {
         // Every plan requests before any other action, and the first request starts the
         // connection.
         assert(world.started);
-        _ = world.pool.send_stream(&.{}, world.now_ns);
+        _ = world.pool.send_stream(world.connection, &.{}, world.now_ns);
         const staged = world.client_pending();
         world.to_server.stage(staged);
-        const written = world.pool.send_stream(world.to_server.room(), world.now_ns);
+        const written = world.pool.send_stream(world.connection, world.to_server.room(), world.now_ns);
         world.to_server.note_send(staged.len, written, world.client_pending());
     }
 
@@ -279,13 +282,16 @@ pub const World = struct {
     fn start_client(world: *World) void {
         const asked = world.pool.receive(.none, world.now_ns).event orelse unreachable;
         assert(asked.open.transport == .tcp);
-        world.pool.start_tcp(tls.Random.init(&world.tls_random, fill), identity.now_seconds, null) catch {
+        world.connection = asked.open.connection;
+        world.pool.start_tcp(world.connection, tls.Random.init(&world.tls_random, fill), identity.now_seconds, null) catch {
             world.broken = true;
             return;
         };
         world.started = true;
+        // Over TLS the pool asks for the ClientHello's `send` (decision 125), which the run's own
+        // sends write.
         const reported = world.pool.receive(.none, world.now_ns).event;
-        assert(if (world.tls) reported == null else reported.? == .connected);
+        assert(if (world.tls) reported.? == .send else reported.? == .connected);
     }
 
     fn client_cancel(world: *World, stream: u32) void {
@@ -293,7 +299,7 @@ pub const World = struct {
         if (world.responses[stream - 1].outcome != .pending or world.moved(id)) return;
         world.pool.cancel(id);
         world.client_ids[stream - 1] = null;
-        _ = world.pool.send_stream(&.{}, world.now_ns);
+        _ = world.pool.send_stream(world.connection, &.{}, world.now_ns);
     }
 
     /// Whether exchange `id` moved off the connection: a GOAWAY refused it unprocessed, and it
@@ -444,7 +450,7 @@ pub const World = struct {
         var quiet: u32 = 0;
         for (0..limits.receives_per_delivery_max) |_| {
             // A closed socket reads nothing more, and the octets in flight stay there.
-            const input: client.Input = if (world.socket_closed) .none else .{ .stream = world.to_client.unread() };
+            const input: client.Input = if (world.socket_closed) .none else .{ .stream = .{ .connection = world.connection, .octets = world.to_client.unread() } };
             const received = world.pool.receive(input, world.now_ns);
             world.to_client.consumed += received.consumed;
             if (received.event) |reported| world.on_client_event(reported);
@@ -461,10 +467,11 @@ pub const World = struct {
         switch (reported) {
             .open => |asked| {
                 assert(asked.transport == .tcp);
-                world.pool.transport_closed(.tcp);
+                world.pool.transport_closed(asked.connection);
             },
             .close => world.socket_closed = true,
-            .connected, .ticket, .finished => {},
+            // The run sends at its own actions, the model's.
+            .send, .connected, .ticket, .finished => {},
             // The run never shuts the pool down.
             .closed => unreachable,
         }
@@ -481,15 +488,6 @@ pub const World = struct {
         return open;
     }
 };
-
-/// The h2 connection a session holds, or null while none serves it: before its TLS handshake
-/// completes.
-pub fn h2_of(session: anytype) ?*h2.Connection {
-    return switch (session.*) {
-        .h2 => |*connection| connection,
-        .none, .h11 => null,
-    };
-}
 
 fn fill(random: *Random, buffer: []u8) void {
     for (buffer) |*octet| octet.* = @truncate(random.next());

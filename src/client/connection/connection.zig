@@ -251,6 +251,19 @@ pub const Connection = struct {
         return written;
     }
 
+    /// Whether `send` may write an octet now (decision 125), which a pool's `send` event reports.
+    /// It writes nothing, so it can say yes when `send` then writes nothing: when a request waits
+    /// for the peer or for room.
+    pub fn owes_octets(connection: *const Connection) bool {
+        if (connection.records_len > 0 or connection.output_len > 0) return true;
+        return switch (connection.phase) {
+            // A `receive`, with no octets too, stages each flight of the handshake in the records,
+            // and the pool reads its connection so before it asks for a `send`.
+            .handshake, .closed => false,
+            .open => internal.owes_when_open(connection),
+        };
+    }
+
     /// Ends the connection once the exchanges it holds have finished: no new request is taken, h2
     /// sends GOAWAY (RFC 9113 §6.8), and both close.
     pub fn shutdown(connection: *Connection) void {
@@ -358,13 +371,9 @@ pub const Connection = struct {
 
     /// Whether the record layer failed and `send` has written the alert the provider owed.
     fn failure_sent(connection: *const Connection) bool {
-        return switch (connection.session) {
-            // RFC 9846 §5.2 and §6.2: the connection ends with the alert, so it closes once the
-            // alert is out.
-            .h2 => connection.session.h2.tls_failed and !connection.session.h2.handshake_owed,
-            .h11 => connection.session.h11.tls_failed and !connection.session.h11.handshake_owed,
-            .none => false,
-        };
+        // RFC 9846 §5.2 and §6.2: the connection ends with the alert, so it closes once the alert
+        // is out.
+        return internal.tls_failed(connection) and !internal.handshake_owed(connection);
     }
 };
 
@@ -374,9 +383,9 @@ test "design §8 step 17f: the connection's public functions are the calls the m
     // may call.
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{
-        "init",         "request",      "cancel",           "receive",  "send",
-        "shutdown",     "should_close", "transport_closed", "protocol", "take_ticket",
-        "take_alt_svc",
+        "init",        "request",      "cancel",       "receive",          "send",
+        "owes_octets", "shutdown",     "should_close", "transport_closed", "protocol",
+        "take_ticket", "take_alt_svc",
     });
 }
 

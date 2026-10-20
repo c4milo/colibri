@@ -28,6 +28,8 @@ var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 const Pool = client_module.PoolOf(.{ .quic = false });
 var asked: Pool align(@alignOf(Pool)) = undefined;
 var asked_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
+/// The connection the pool's `open` named, which each later call about it names.
+var asked_connection: client_module.ConnectionHandle align(@alignOf(client_module.ConnectionHandle)) = .{ .slot = 0, .generation = 0 };
 const get: client_module.Request = .{ .method = "GET", .path = "/" };
 var get_response: client_module.Response align(@alignOf(client_module.Response)) = .{};
 // The octets the client wrote, which the server reads, and the octets the server wrote, which the
@@ -133,10 +135,11 @@ pub fn main() !void {
     // reads what the connection then owes: in cleartext, that it is connected.
     const open = asked.receive(.none, 0).event orelse return error.ExchangeWrong;
     if (open != .open) return error.ExchangeWrong;
-    try asked.start_tcp(entropy, 0, null);
+    asked_connection = open.open.connection;
+    try asked.start_tcp(asked_connection, entropy, 0, null);
     hear(server_output[0..0]);
     for (0..exchange_rounds_max) |_| {
-        try serve(accepted, asked.send_stream(&wire, 0));
+        try serve(accepted, asked.send_stream(asked_connection, &wire, 0));
     }
     if (get_response.outcome != .response or get_response.status != 204) return error.ExchangeWrong;
     std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
@@ -178,7 +181,7 @@ fn hear(octets: []u8) void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
         const held = octets[consumed..];
-        const read: client_module.Input = if (held.len > 0) .{ .stream = held } else .none;
+        const read: client_module.Input = if (held.len > 0) .{ .stream = .{ .connection = asked_connection, .octets = held } } else .none;
         const received = asked.receive(read, 0);
         consumed += received.consumed;
         if (received.event == null and received.consumed == 0) return;

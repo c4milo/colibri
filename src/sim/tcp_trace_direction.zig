@@ -7,6 +7,7 @@
 //! reader that consumed the records of whole sends has opened the plaintext those sends sealed.
 const std = @import("std");
 const assert = std.debug.assert;
+const h2 = @import("h2");
 const sim = @import("sim");
 const h2_trace_state = @import("h2_trace_state.zig");
 
@@ -93,6 +94,15 @@ pub const Direction = struct {
 };
 
 const testing = std.testing;
+
+/// The h2 connection a session holds, or null while none serves it: before its TLS handshake
+/// completes.
+pub fn h2_of(session: anytype) ?*h2.Connection {
+    return switch (session.*) {
+        .h2 => |*connection| connection,
+        .none, .h11 => null,
+    };
+}
 
 test "a reader that consumed whole sends over TLS opened what they sealed, and one inside a send is not placed" {
     var direction: Direction = .{};

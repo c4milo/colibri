@@ -4845,7 +4845,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `start_tcp`, `send_stream`, `transport_closed` and `take_ticket` take it. `Input.stream`
           carries it in a `client.StreamOctets`.
         - A new event, `send`, names a TCP connection that owes octets, as the server's does. A
-          program then calls `send_stream` for that connection alone.
+          program then calls `send_stream` for that connection alone, until a call leaves room in
+          its output.
+        - The event comes once for each debt, in a call that passes the connection no octets, so
+          the connection has read what the program held for it before a request goes out.
+        - The connection says what it may owe without writing it. A request that waits for the
+          peer or for room counts, so a `send_stream` may write nothing. That call blocks the
+          connection: its next `send` waits until it reads octets, or until the program makes a
+          request or a cancel. A loop of the program therefore never turns on an empty debt.
      4. Connections open on demand. The pool opens another TCP connection only when an exchange
         waits, no open connection can take it, and fewer than `tcp_connections` are open or
         opening.

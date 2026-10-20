@@ -125,8 +125,8 @@ With chapulin's host objects:
 | `std.meta.Elem(@FieldType(client.Pool, "tcp"))` | 305704 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.Pool, "entries"))` | 40 | each exchange a pool holds at once |
 | `@FieldType(client.Pool, "quic")` | 703984 | a pool's QUIC connection, without its receive pool |
-| `client.Pool` | 705968 | a pool's fixed part: its QUIC connection, its TLS configurations and its links |
-| `client.PoolOf(.{ .quic = false })` | 1056 | the fixed part of a pool with no QUIC state |
+| `client.Pool` | 705984 | a pool's fixed part: its QUIC connection, its TLS configurations and its links |
+| `client.PoolOf(.{ .quic = false })` | 1072 | the fixed part of a pool with no QUIC state |
 | `client.Pool.memory_bytes(.{})` | 306344 | the memory a pool takes at the default counts: one TCP connection and 16 exchanges |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |

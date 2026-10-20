@@ -774,8 +774,9 @@ A program may call `init` again on a pool with no open transport and no exchange
 with new addresses.
 
 A program moves datagrams with addresses over QUIC and a stream of octets over TCP, and it keeps
-time for the pool. Each turn passes the pool what each socket read, fires its deadlines,
-sends what it owes, and reads again:
+time for the pool. Each turn passes the pool what each socket read, fires its deadlines, sends
+the datagrams the QUIC connection owes, and reads again. A TCP connection's octets go out when
+the pool says `send`:
 
 ```zig
 fn client_turn() !void {
@@ -785,7 +786,6 @@ fn client_turn() !void {
     // fallback delay, and report what changed.
     pool.on_instant(now_ns);
     try drain(now_ns);
-    try link.send(.client, output[0..pool.send_stream(&output, now_ns)]);
     for (0..datagrams_per_turn_max) |_| {
         const sent = pool.send_datagram(&datagram_output, now_ns) orelse break;
         try datagram_link.send(.client, sent.octets);
@@ -828,7 +828,8 @@ fn drain(now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..receive_calls_max) |_| {
         const held = input[consumed..];
-        const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
+        const tcp = connections.get(.tcp);
+        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp, .octets = held } } else .none;
         const received = pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -837,7 +838,7 @@ fn drain(now_ns: u64) !void {
         };
         try report(event, now_ns);
         // The octets the closed socket read are its connection's, which is over: they are dropped.
-        if (std.meta.eql(event, .{ .close = .tcp })) consumed = input.len;
+        if (event == .close and transport_of(event.close) == .tcp) consumed = input.len;
     }
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.client, consumed);
@@ -865,19 +866,23 @@ const receive_calls_max = (link_module.queue_len_max + 1) * (client.Pool.receive
 ```
 
 The pool's events say what the program does next, and an exchange ends in exactly one
-`finished` event, whatever happened to it. The event names the request and the response:
+`finished` event, whatever happened to it. The event names the request and the response. Each
+event about a connection names its `client.ConnectionHandle`, which the connection's `open` named
+first ([decision 125](decisions.md)):
 
 ```zig
 fn report(event: client.Event, now_ns: u64) !void {
     switch (event) {
         .open => |open| try open_transport(open, now_ns),
+        // The TCP connection owes octets, which the program writes into its socket.
+        .send => |connection| try send_owed(connection, now_ns),
         // The connection is over, and the pool reads and writes nothing more on it: the
         // program closes the socket. Over TCP `send_stream` wrote everything first, the TLS
         // close_notify too. The pool has wiped the session's secrets.
-        .close => |transport| closes.getPtr(transport).* += 1,
-        .connected => |protocol| {
-            std.debug.print("client: connected over {s}\n", .{@tagName(protocol)});
-            spoken = protocol;
+        .close => |connection| closes.getPtr(transport_of(connection)).* += 1,
+        .connected => |connected| {
+            std.debug.print("client: connected over {s}\n", .{@tagName(connected.protocol)});
+            spoken = connected.protocol;
         },
         .finished => |ended| {
             // The event names the request and the response, whose memory is the program's again.
@@ -888,10 +893,24 @@ fn report(event: client.Event, now_ns: u64) !void {
             // Every exchange has ended, so the client shuts the pool down.
             if (finished == exchanges_count) pool.shutdown();
         },
-        .ticket => |transport| take_ticket(transport),
+        .ticket => |connection| take_ticket(connection),
         // The shut-down pool is over: every exchange ended and every transport closed.
         .closed => pool_closed = true,
     }
+}
+```
+
+A program writes what a TCP connection owes when the pool says `send`, until a call leaves room
+in its output:
+
+```zig
+fn send_owed(connection: client.ConnectionHandle, now_ns: u64) !void {
+    for (0..sends_per_debt_max) |_| {
+        const written = pool.send_stream(connection, &output, now_ns);
+        try link.send(.client, output[0..written]);
+        if (written < output.len) return;
+    }
+    return error.ExchangeWrong;
 }
 ```
 
@@ -909,15 +928,19 @@ The response's `outcome` says what happened to the exchange:
 
 The events:
 
-- `open` names a transport and where it goes. The program opens a UDP flow or connects a TCP
-  socket to `open.to`, then calls `start_quic` or `start_tcp`. QUIC goes first when the origin is
+- `open` names a connection, its transport and where it goes. The program opens a UDP flow or
+  connects a TCP socket to `open.to`, then calls `start_quic`, or `start_tcp` with the
+  connection's handle. Each later call and event about the connection names that handle. QUIC goes first when the origin is
   known to speak h3, or when `Config.quic_first` says to try it. TCP opens when QUIC fails or
   `fallback_delay_ns` passes. The first connection whose handshake completes takes the exchanges.
-- `connected` reports the version that carries the exchanges: h3 over QUIC, or the version ALPN
-  picked over TCP.
+- `send` names a TCP connection that owes octets. The program calls `send_stream` for it until a
+  call leaves room in its output, which ends the debt. The pool says `send` again for the next
+  debt, once the connection read octets or the program made another call.
+- `connected` names the connection that carries the exchanges, and its version: h3 over QUIC, or
+  the version ALPN picked over TCP.
 - `ticket` says the server issued a resumption ticket. `Pool.take_ticket` hands it over, and a
   later connection offers it through the last argument of `start_tcp` or `start_quic`.
-- `close` names a transport whose connection is over. Over TCP, `send_stream` wrote everything
+- `close` names a connection that is over. Over TCP, `send_stream` wrote everything
   first, the TLS close_notify too. The program closes the socket, and drops the octets it read
   from it and still holds: they are that connection's, and the next connection must not get them.
 - After `shutdown`, `closed` says the pool is over: every exchange ended and every transport
@@ -927,8 +950,8 @@ The example opens no later connection, so its `take_ticket` wipes each ticket th
 over:
 
 ```zig
-fn take_ticket(transport: client.Transport) void {
-    const ticket = pool.take_ticket(transport) orelse return;
+fn take_ticket(connection: client.ConnectionHandle) void {
+    const ticket = pool.take_ticket(connection) orelse return;
     var held = ticket;
     held.wipe();
     tickets += 1;
@@ -943,6 +966,7 @@ rest:
 fn open_transport(open: client.Open, now_ns: u64) !void {
     std.debug.print("client: open {s}\n", .{@tagName(open.transport)});
     opens.getPtr(open.transport).* += 1;
+    connections.set(open.transport, open.connection);
     // A start the TLS stack refuses ends the attempt, which the pool reports.
     switch (open.transport) {
         // The UDP socket needs no connect.
@@ -951,7 +975,7 @@ fn open_transport(open: client.Open, now_ns: u64) !void {
             // The link stands where the socket would be: the server's listener accepts the
             // socket the program connects.
             try peer.accept();
-            pool.start_tcp(program.random(), now_seconds, null) catch {};
+            pool.start_tcp(open.connection, program.random(), now_seconds, null) catch {};
         },
     }
 }
@@ -959,7 +983,7 @@ fn open_transport(open: client.Open, now_ns: u64) !void {
 
 In the example the TCP connection completes its handshake first, so the pool abandons the QUIC
 connection. That connection ends only after its closing period, three PTOs (RFC 9000 §10.2). It
-has no RTT sample, so each PTO is about 1 s (RFC 9002 §6.2.2). `close .quic` and `closed` thus
+has no RTT sample, so each PTO is about 1 s (RFC 9002 §6.2.2). Its `close` and `closed` thus
 come about 3 s after `connected`.
 
 A socket that fails to connect, that the peer closed, or that failed later goes to
@@ -978,10 +1002,10 @@ fn connect_refused() !void {
         const received = refused_pool.receive(.none, now_ns);
         switch (received.event orelse return error.ExchangeWrong) {
             // The connect failed, so the transport closed before its connection started.
-            .open => |open| refused_pool.transport_closed(open.transport),
+            .open => |open| refused_pool.transport_closed(open.connection),
             .finished => refused_pool.shutdown(),
             .closed => return,
-            .close, .connected, .ticket => return error.ExchangeWrong,
+            .send, .close, .connected, .ticket => return error.ExchangeWrong,
         }
     }
     return error.ExchangeWrong;
@@ -990,7 +1014,8 @@ fn connect_refused() !void {
 
 A pool asks for a second TCP socket when an exchange the server refused unprocessed moves to
 another connection (RFC 9113 §8.7). It reports the first socket's `close` before it. A program
-that opens no second socket calls `transport_closed(.tcp)`, and the exchange ends `refused`.
+that opens no second socket calls `transport_closed` with the handle the second `open` named,
+and the exchange ends `refused`.
 
 A connection can also close before any of a response arrives. The pool then sends an
 idempotent request again on another connection (RFC 9110 §9.2.2): GET, HEAD, OPTIONS, TRACE, PUT

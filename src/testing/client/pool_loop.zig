@@ -41,6 +41,8 @@ var tcp: pool_tcp.Socket align(@alignOf(pool_tcp.Socket)) = undefined;
 
 var pool: client.Pool align(@alignOf(client.Pool)) = undefined;
 var pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
+/// The TCP connection the pool's last `open` of TCP named (decision 125). Generation 0 names none.
+var tcp_connection: client.ConnectionHandle align(@alignOf(client.ConnectionHandle)) = .{ .slot = 0, .generation = 0 };
 var pool_config: client.Config align(@alignOf(client.Config)) = undefined;
 /// The receive pool of the pool's QUIC connections (decision 61).
 var receive_pool: client.DefaultReceivePool align(@alignOf(client.DefaultReceivePool)) = undefined;
@@ -136,8 +138,8 @@ fn on_tcp_event(event: udp.Event) void {
         .none => {},
         // A start chapulin refuses ends the attempt, and the pool owes no `close` event for a
         // connection that never started, so the socket closes here.
-        .connected => pool.start_tcp(entropy.random(), now_seconds, null) catch tcp.close(&socket.loop),
-        .failed, .open_failed => pool.transport_closed(.tcp),
+        .connected => pool.start_tcp(tcp_connection, entropy.random(), now_seconds, null) catch tcp.close(&socket.loop),
+        .failed, .open_failed => pool.transport_closed(tcp_connection),
     }
 }
 
@@ -145,7 +147,7 @@ fn on_tcp_event(event: udp.Event) void {
 fn pump(now_ns: u64) void {
     pool.on_instant(now_ns);
     _ = drain(.none, now_ns);
-    if (tcp.carrying() and tcp.input_len > 0) tcp.consume(drain(.{ .stream = tcp.unread() }, now_ns));
+    if (tcp.carrying() and tcp.input_len > 0) tcp.consume(drain(.{ .stream = .{ .connection = tcp_connection, .octets = tcp.unread() } }, now_ns));
     send_datagrams(now_ns);
     send_stream(now_ns);
     tcp.arm(&socket.loop);
@@ -175,7 +177,7 @@ fn rest_of(input: Input, consumed: usize) Input {
     return switch (input) {
         .none => .none,
         .datagram => if (consumed > 0) .none else input,
-        .stream => |octets| if (consumed == octets.len) .none else .{ .stream = octets[consumed..] },
+        .stream => |stream| if (consumed == stream.octets.len) .none else .{ .stream = .{ .connection = stream.connection, .octets = stream.octets[consumed..] } },
     };
 }
 
@@ -183,13 +185,18 @@ fn handle(reported: client.Event, now_ns: u64) void {
     switch (reported) {
         .open => |open| switch (open.transport) {
             .quic => start_quic(now_ns),
-            .tcp => if (!tcp.open(&socket.loop, udp_address(open.to))) pool.transport_closed(.tcp),
+            .tcp => {
+                tcp_connection = open.connection;
+                if (!tcp.open(&socket.loop, udp_address(open.to))) pool.transport_closed(open.connection);
+            },
         },
         // Every QUIC connection of the run shares the one UDP socket, which stays open.
-        .close => |transport| if (transport == .tcp) tcp.close(&socket.loop),
-        .connected => |protocol| connected = protocol,
+        .close => |connection| if (connection.slot == tcp_connection.slot) tcp.close(&socket.loop),
+        // `pump` writes what the TCP connection owes at each turn.
+        .send => {},
+        .connected => |established| connected = established.protocol,
         // The client offers no ticket, so it keeps none it is given.
-        .ticket => |transport| if (pool.take_ticket(transport)) |ticket| {
+        .ticket => |connection| if (pool.take_ticket(connection)) |ticket| {
             var held = ticket;
             held.wipe();
         },
@@ -234,7 +241,7 @@ fn send_stream(now_ns: u64) void {
         if (!tcp.carrying()) return;
         const room = tcp.room();
         if (room.len == 0) return;
-        const written = pool.send_stream(room, now_ns);
+        const written = pool.send_stream(tcp_connection, room, now_ns);
         if (written == 0) return;
         tcp.wrote(written);
         _ = drain(.none, now_ns);

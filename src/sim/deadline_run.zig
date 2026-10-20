@@ -128,6 +128,8 @@ pub const Storage = struct {
     addresses: [1]client.Address,
     pool: client.Pool,
     pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    /// The connection the pool's `open` named (decision 125).
+    connection: client.ConnectionHandle,
     hostile: Hostile,
     to_server: Stream,
     to_client: Stream,
@@ -235,9 +237,13 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
 fn connect(storage: *Storage, source: tls.Random, now_ns: u64) Error!void {
     const asked = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(asked.open.transport == .tcp);
-    try storage.pool.start_tcp(source, 0, null);
+    storage.connection = asked.open.connection;
+    try storage.pool.start_tcp(storage.connection, source, 0, null);
     const reported = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
     assert(reported == .connected);
+    // The connection owes the waiting requests (decision 125), which the run sends in its rounds.
+    const owed = storage.pool.receive(.none, now_ns).event orelse return error.RunStalled;
+    assert(owed == .send);
     assert(storage.pool.receive(.none, now_ns).event == null);
 }
 
@@ -293,7 +299,7 @@ pub fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool 
         if (plan.peer != .silent) stream.written += try storage.hostile.write_acks(stream.free());
         return stream.deliver(stream.written) or moved;
     }
-    stream.written += storage.pool.send_stream(stream.free(), ns_of(plan, now_ms));
+    stream.written += storage.pool.send_stream(storage.connection, stream.free(), ns_of(plan, now_ms));
     if (!plan.paced()) return stream.deliver(stream.written);
     if (now_ms < storage.next_piece_ms or stream.written == stream.delivered) return false;
     storage.next_piece_ms = now_ms + plan.gap_ms;
@@ -392,7 +398,7 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     }
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.pool.receive(.{ .stream = stream.held() }, ns_of(plan, now_ms));
+        const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .octets = stream.held() } }, ns_of(plan, now_ms));
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;
@@ -413,9 +419,10 @@ fn on_event(storage: *Storage, plan: *const Plan, reported: client.Event) Error!
         // The peer has one socket, so an exchange that waits for another ends refused.
         .open => |asked| {
             assert(asked.transport == .tcp);
-            storage.pool.transport_closed(.tcp);
+            storage.pool.transport_closed(asked.connection);
         },
-        .connected, .ticket, .close => {},
+        // The run sends what the pool owes at each of its instants.
+        .send, .connected, .ticket, .close => {},
         // The peer never shuts its pool down.
         .closed => unreachable,
     }

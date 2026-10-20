@@ -82,7 +82,7 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     const n: usize = plan.streams;
     const client_h2 = world.client_h2();
     const held = world.server_connection();
-    const server_h2 = world_module.h2_of(&held.session);
+    const server_h2 = direction_module.h2_of(&held.session);
     note_streams(client_h2, server_h2, n, &state);
     const from_client = Written.of(&world.to_server, world.client_pending(), h2.constants.client_preface_len);
     const from_server = Written.of(&world.to_client, pending(held), 0);

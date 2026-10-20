@@ -13,6 +13,7 @@ const quic_connection = @import("../quic/quic_connection.zig");
 const pool_module = @import("pool.zig");
 const pool_config = @import("pool_config.zig");
 const pool_events = @import("pool_events.zig");
+const pool_handle = @import("pool_handle.zig");
 
 const Config = pool_module.Config;
 const Values = pool_module.Values;
@@ -31,6 +32,7 @@ const Link = pool_module.Link;
 const Phase = pool_module.Phase;
 const Transport = pool_module.Transport;
 const Options = pool_module.Options;
+const ConnectionHandle = pool_module.ConnectionHandle;
 
 pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Values, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
@@ -74,6 +76,7 @@ pub fn request(pool: anytype, message: *const Request, response: *Response) Requ
     entry.* = .{ .stage = .waiting, .id = pool.next_id, .request = message, .response = response };
     pool.next_id += 1;
     pool_events.assign_waiting(pool);
+    pool_events.unblock_sends(pool);
     return entry.id;
 }
 
@@ -85,10 +88,14 @@ pub fn cancel(pool: anytype, id: Id) void {
         .tcp => pool.tcp[0].cancel(entry.carried_id),
     };
     entry.* = .{};
+    pool_events.unblock_sends(pool);
 }
 
 pub fn receive(pool: anytype, input: Input, now_ns: u64) Received {
-    if (report(pool, now_ns)) |owed| return .{ .consumed = 0, .event = owed };
+    // Decision 125: a TCP connection's `send` comes in a call that hands it no octets, once it read
+    // what the program held for it, as a program sends once it drained `receive`.
+    const sends = input != .stream or input.stream.octets.len == 0;
+    if (report(pool, now_ns, sends)) |owed| return .{ .consumed = 0, .event = owed };
     const fed = pool_events.feed(pool, input, now_ns);
     return .{ .consumed = fed.len, .event = fed.event };
 }
@@ -98,9 +105,18 @@ pub fn send_datagram(pool: anytype, output: []u8, now_ns: u64) ?Sent {
     return pool.quic.send(output, now_ns);
 }
 
-pub fn send_stream(pool: anytype, output: []u8, now_ns: u64) usize {
-    if (pool.links.get(.tcp).state != .running) return 0;
-    return pool.tcp[0].send(output, now_ns);
+pub fn send_stream(pool: anytype, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
+    const transport = pool_handle.resolve(pool, connection) orelse return 0;
+    // The program sends datagrams through `send_datagram`.
+    assert(transport == .tcp);
+    const link = pool.links.getPtr(.tcp);
+    if (link.state != .running) return 0;
+    const written = pool.tcp[0].send(output, now_ns);
+    // Decision 125: a call that leaves room in `output` wrote everything the connection could, and
+    // one that writes nothing into the least output finds the connection blocked.
+    if (written < output.len) link.send_outstanding = false;
+    if (written == 0 and output.len >= constants.stream_output_len_min) link.send_blocked = true;
+    return written;
 }
 
 pub fn deadline_ns(pool: anytype) ?u64 {
@@ -141,7 +157,8 @@ pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u
     pool.fallback_at_ns = now_ns + pool.config.fallback_delay_ns;
 }
 
-pub fn start_tcp(pool: anytype, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+pub fn start_tcp(pool: anytype, connection: ConnectionHandle, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+    if (pool_handle.resolve(pool, connection) != .tcp) return;
     const link = pool.links.getPtr(.tcp);
     if (link.state != .opening) return;
     assert(!link.open_owed);
@@ -155,7 +172,8 @@ pub fn start_tcp(pool: anytype, random: tls.Random, now_seconds: u64, resumption
     link.state = .running;
 }
 
-pub fn transport_closed(pool: anytype, transport: Transport) void {
+pub fn transport_closed(pool: anytype, connection: ConnectionHandle) void {
+    const transport = pool_handle.resolve(pool, connection) orelse return;
     const link = pool.links.getPtr(transport);
     switch (link.state) {
         .none, .closed => {},
@@ -170,7 +188,8 @@ pub fn transport_closed(pool: anytype, transport: Transport) void {
     }
 }
 
-pub fn take_ticket(pool: anytype, transport: Transport) ?tls.Ticket {
+pub fn take_ticket(pool: anytype, connection: ConnectionHandle) ?tls.Ticket {
+    const transport = pool_handle.resolve(pool, connection) orelse return null;
     if (pool.links.get(transport).state != .running) return null;
     return switch (transport) {
         .quic => if (pool.capacity.quic) pool.quic.take_ticket() else unreachable,
@@ -213,14 +232,17 @@ fn retrying(pool: anytype) bool {
 
 /// The first event the pool owes, after it has read what its connections owe and chosen what
 /// to open, or null.
-fn report(pool: anytype, now_ns: u64) ?Event {
+fn report(pool: anytype, now_ns: u64, sends: bool) ?Event {
     check_fallback(pool, now_ns);
     // Bounded: each pass reads a connection's event, or plans and stops.
     for (0..constants.pool_events_per_poll_max + 1) |_| {
         pool_events.plan(pool, now_ns);
         if (pool_events.owed(pool)) |owed| return owed;
-        const read = pool_events.poll(pool, now_ns) orelse return null;
-        if (read.event) |reported| return reported;
+        if (pool_events.poll(pool, now_ns)) |read| {
+            if (read.event) |reported| return reported;
+            continue;
+        }
+        return if (sends) pool_events.owed_send(pool) else null;
     }
     unreachable;
 }

@@ -151,10 +151,11 @@ pub const stream_input_len_min: usize = @max(h11.constants.head_len_max, @max(fr
 pub const stream_output_len_min: usize = record_len_max;
 
 /// The events of one transport in a run of `receive` calls that take no octet, at most: its `open`
-/// and its `close`, and its connection's `connected` and `ticket`. A connection's `draining` and
-/// `closed` go to the pool alone. `Pool.receive_events_without_input_max` counts it for each
-/// transport (decision 124 as amended by decision 125).
-pub const transport_events_max: usize = 4;
+/// and its `close`, its connection's `connected` and `ticket`, and over TCP one `send`, which
+/// waits for the program's `send_stream`. A connection's `draining` and `closed` go to the pool
+/// alone. `Pool.receive_events_without_input_max` counts it for each transport (decision 124 as
+/// amended by decision 125).
+pub const transport_events_max: usize = 5;
 
 /// Nanoseconds in a second, which an Alt-Svc freshness lifetime counts (RFC 7838 §3.1).
 pub const nanoseconds_per_second: u64 = 1_000 * quic.constants.nanoseconds_per_millisecond;

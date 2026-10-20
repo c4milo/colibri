@@ -11,6 +11,7 @@ const quic_support = @import("../quic/quic_test_support.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const fixture = @import("pool_quic_test_support.zig");
 const pool_module = @import("pool.zig");
+const pool_support = @import("pool_test_support.zig");
 const pool_events = @import("pool_events.zig");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
@@ -48,7 +49,7 @@ test "RFC 9114 §3.1: with h3 offered, QUIC opens first and carries the exchange
     try testing.expect(first.to.eql(&opened(0).?.to));
     try quic_support.server_receive(@constCast(first.octets));
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected);
+    try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
     try testing.expectEqualStrings("hello", exchange.response.content_received());
     try testing.expectEqual(null, opened(1));
@@ -98,8 +99,8 @@ test "the first handshake to complete takes the exchange, and the transport stil
     // QUIC's datagrams get through before the test starts TCP, so QUIC's handshake completes first.
     fixture.blocked = false;
     try pump(rounds_past_probe);
-    try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected);
-    try testing.expectEqual(Transport.tcp, nth(.close, 0).?.close);
+    try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
+    try testing.expectEqual(pool_support.slot_of(pool, .tcp), nth(.close, 0).?.close.slot);
     try testing.expectEqual(pool_module.Phase.closed, pool.phase(.tcp));
     try testing.expectEqual(.response, exchange.response.outcome);
 }
@@ -197,7 +198,7 @@ test "decision 100: once every transport failed, each waiting exchange ends refu
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     // The caller's TCP connection failed before its handshake began.
-    pool.transport_closed(.tcp);
+    pool.transport_closed(pool_support.connection_of(pool, .tcp));
     // RFC 9000 §10.2: the QUIC connection's closing or draining period runs before its transport
     // closes, and the pool gives up once both transports closed.
     try pump(rounds_past_probe * 4);
@@ -233,7 +234,7 @@ test "decision 120: start_quic draws the grease value and the two IDs, anew for 
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.response, first.response.outcome);
     // The caller's flow closed, so the next exchange opens a second QUIC connection.
-    pool.transport_closed(.quic);
+    pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     var second = get(&bodies[1]);
     _ = try pool.request(&second.request, &second.response);
