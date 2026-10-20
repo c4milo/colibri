@@ -10384,7 +10384,47 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     which opens one connection (RFC 9113 §9.1), so its seeds keep one. Each configuration
     of the model states its state count, and the TLA+ section of CI's checks job grows by at most
     5 minutes. `tools/h11_interop.sh` runs 8 exchanges at once over 8 connections against Go's
-    server: 8 is the most a plan of the test-only client holds (`exchanges_max`). `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
+    server: 8 is the most a plan of the test-only client holds (`exchanges_max`). `zig build
+    examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
+  - **2026-10-20, 22.1 to 22.8, on an Apple M1 Pro.** The commits, in order:
+    - **a2292562 and 0e5282c3, 22.1.** Decision 125, this text, the amendment of decision 35, and
+      non-negotiable 4 of CLAUDE.md, which the owner approved.
+    - **2ab40078, 22.2.** The rename. The memory table, the client, TCP and deadline trace logs
+      and six census lines stay byte-identical.
+    - **d1ef4a6b, 22.3.** `Options`, `memory_bytes` and `receive_events_without_input_max(options)`.
+      Every census and trace log stays byte-identical. Mutations, 5 of 5 **CAUGHT**.
+    - **049f2407, 22.4.** `ConnectionHandle` and the `send` event. Mutations, 13 of 13 **CAUGHT**.
+    - **e284c267, 22.5.** The model gains `TcpSlots`, `TcpCapacity` and `TcpDrops`. With
+      `TcpDrops`, an h11 connection keeps a cancelled exchange's room until it drops the
+      response. Each configuration of one slot keeps its state count. `ClientExchanges_pool`
+      holds in 261,547 distinct states and 54 s, and `ClientExchanges_pool_first` in 1,198,311
+      and 14 s. The mutants `take_beyond_room` and `retry_within_wait` are violated.
+    - **5cdec80f, 22.6.** Several TCP connections. Mutations, 10 of 10 **CAUGHT** by
+      test-client.
+    - **378676cb, 22.6b.** The pool trace run. Its census over 256 seeds: 784 exchanges, 512
+      responses, 29 refused, 118 closed, 125 cancelled, 78 moves, 831 connections, 229 seeds that
+      opened more than one slot, and 5,828 states. TLC finds each of 64 seeds' logs a behavior of
+      the model, in 147 s. Mutations, 4 **CAUGHT** by the run. 2 are **NOT CAUGHT** by it, and
+      test-client catches each.
+    - **64e1bf07, 22.7.** `set_values`. Mutations, 7 of 7 **CAUGHT** by test-client.
+    - **e4de13af and 88d4f9f8, 22.8.** The test-only client's `--tcp-connections`, and the
+      example `client_pool.zig`. `tools/h11_interop.sh go` sends 8 GETs through one pool of 8 TCP
+      connections, in cleartext and over TLS, and the pool opens 8. Mutations, 2 of 2 **CAUGHT**
+      by it. Breaks of the example, 9 of 10 **CAUGHT**.
+  - **What the checks found.**
+    - The pool trace run found an exchange that waited beside an idle h11 connection forever.
+      The connection had dropped a cancelled exchange's response, which frees room and reports no
+      event. `plan` now hands waiting exchanges over (5cdec80f).
+    - The same run found that the model freed a cancelled exchange's room at once. That is true
+      of h2 and h3, which reset the stream, and not of h11, which reads the response to its end.
+      `TcpDrops` models h11 (e284c267).
+    - A test of `set_values` found that a connection to an old address that failed after the
+      call moved the index of the new addresses. A flag of each link now stops it (64e1bf07).
+  - **The memory table.** A pool at the default counts holds 705,952 octets and its memory
+    306,392: 1,012,344, 72 more than `client.Channel`. Each TCP connection more adds 305,752.
+  - **Owed before the push.** `tools/ci.sh` on the exact tree, whose TLA+ section now runs the
+    two pool configurations, the two mutants and `tools/pool_trace.sh`: about 4 minutes more on
+    this laptop.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
