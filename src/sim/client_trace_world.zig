@@ -62,6 +62,8 @@ pub const World = struct {
     tls_random: Random,
     now_ns: u64,
     pool: Pool,
+    /// The memory the pool holds its TCP connection and its exchanges in (decision 125).
+    pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment),
     pool_config: client.Config,
     /// The receive pool of the pool's QUIC connections (decision 61).
     receive_pool: client.DefaultReceivePool,
@@ -116,7 +118,7 @@ pub const World = struct {
         try world.configure();
         // A plan whose policy is `never` gives no receive pool, so its pool offers no QUIC.
         const receive = if (world.plan.policy == .never) null else world.receive_pool.storage();
-        try world.pool.init(&world.pool_config, world.values(), receive);
+        try world.pool.init(&world.pool_memory, &world.pool_config, world.values(), .{}, receive);
         world.quic_server.started = false;
         world.tcp_server.running = false;
     }

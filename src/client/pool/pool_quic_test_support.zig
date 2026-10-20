@@ -18,6 +18,7 @@ const Event = pool_module.Event;
 /// The pool the tests drive, its configurations and the events it reported, outside any stack
 /// frame. Test-only.
 pub var pool: Pool align(@alignOf(Pool)) = undefined;
+pub var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
 pub var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 pub var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 pub var events_len: usize = 0;
@@ -81,7 +82,7 @@ pub fn start_configured(server_protocols: []const []const u8, values: pool_modul
     // Every octet 1, so each flag of a connection the pool never started reads as set, and a
     // read of one shows. A configuration `init` leaves unwritten keeps the octet too.
     @memset(std.mem.asBytes(&pool), unstarted_octet);
-    try pool.init(&config, values, given_pool);
+    try pool.init(&pool_memory, &config, values, .{}, given_pool);
     events_len = 0;
     blocked = false;
 }

@@ -137,7 +137,7 @@ fn stage_of(world: *World, index: usize) Stage {
 fn carried_stage(world: *World, entry: Entry) Stage {
     const slot = switch (entry.carrier) {
         .quic => world.pool.quic.slots.of_id(entry.carried_id),
-        .tcp => world.pool.tcp.slots.of_id(entry.carried_id),
+        .tcp => world.pool.tcp[0].slots.of_id(entry.carried_id),
     } orelse unreachable;
     return switch (slot.stage) {
         .queued => .queued,

@@ -56,8 +56,8 @@ const turns_max = 256;
 
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop. At most
-/// `receive_events_without_input_max` calls in a row report an event and take no octet.
-const receive_calls_max = (link_module.queue_len_max + 1) * (client.constants.receive_events_without_input_max + 1);
+/// `Pool.receive_events_without_input_max` calls in a row report an event and take no octet.
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.Pool.receive_events_without_input_max(.{}) + 1);
 
 /// Datagrams the client reads or writes in one turn, at most.
 const datagrams_per_turn_max = 32;
@@ -113,6 +113,9 @@ const ReceivePool = client.ReceivePool(64 * 1024);
 var client_config: client.Config align(@alignOf(client.Config)) = undefined;
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
 var pool: client.Pool align(@alignOf(client.Pool)) = undefined;
+// The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
+// `client.Options` give (decision 125).
+var pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
 /// The fields of the response the client reads. colibri keeps no other field.
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
 var wanted_values: [content_type.len]u8 = undefined;
@@ -162,6 +165,7 @@ var pool_closed: bool = false;
 
 /// The second pool, whose connect fails, and its one exchange.
 var refused_pool: client.Pool align(@alignOf(client.Pool)) = undefined;
+var refused_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
 var refused_body: [greeting.len]u8 = undefined;
 const refused_get: client.Request = .{ .method = "GET", .path = "/greeting" };
 var refused_get_response: client.Response align(@alignOf(client.Response)) = .{ .body = &refused_body };
@@ -200,8 +204,9 @@ fn start_client(cpu: tls.Cpu) !void {
     // The pool takes what DNS knows as values: the server's addresses and its port.
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     // `init` builds the TLS configuration of each transport inside the pool, which stays in
-    // place from here on. The receive pool is what makes the pool offer QUIC.
-    try pool.init(&client_config, known, receive_pool.storage());
+    // place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
+    // which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
+    try pool.init(&pool_memory, &client_config, known, .{}, receive_pool.storage());
     // `request` only takes a request and its response. The pool asks for a transport, and
     // sends the request over the first connection that completes its handshake, so a program asks
     // at once and never waits.
@@ -340,7 +345,7 @@ fn connect_refused() !void {
     // The pools to one origin share its configuration. With no receive pool this one offers
     // TCP alone.
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
-    try refused_pool.init(&client_config, known, null);
+    try refused_pool.init(&refused_memory, &client_config, known, .{}, null);
     _ = try refused_pool.request(&refused_get, &refused_get_response);
     for (0..receive_calls_max) |_| {
         const received = refused_pool.receive(.none, now_ns);

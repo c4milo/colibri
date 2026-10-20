@@ -100,7 +100,7 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     // The client drops the plaintext it read at once, so all it holds is unread. The server holds
     // what its last event pointed into, `plain_in_read` octets, until its next call.
     const server_read = try read_of(&world.to_server, world.tls, held.plain_in_len - held.plain_in_read);
-    const client_read = try read_of(&world.to_client, world.tls, world.client_plain_in_len());
+    const client_read = try read_of(&world.to_client, world.tls, client_plain_in_len(world));
     state.to_server_len = drop_goaways(&state.to_server, try in_flight(from_client, server_read, .preface, null, &state.to_server));
     const heads = world.to_client.heads[0..world.to_client.heads_written];
     state.to_client_len = try in_flight(from_server, client_read, .settings, heads, &state.to_client);
@@ -273,4 +273,9 @@ fn in_flight(written: Written, consumed: usize, preface: Kind, heads: ?[]const H
     len += try h2_trace_state.frames_in(parts.handed, first_heads, frames[len..]);
     len += try h2_trace_state.frames_in(parts.output, second_heads, frames[len..]);
     return len;
+}
+
+/// The plaintext the client's connection opened and has not read. None before it started.
+fn client_plain_in_len(world: *const World) usize {
+    return if (world.started) world.pool.tcp[0].plain_in_len else 0;
 }

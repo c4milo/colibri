@@ -88,6 +88,7 @@ pub const Peer = struct {
     /// colibri's client, a pool that opens TCP alone, and whether it reported `close`: its
     /// connection is over and wrote what it owed, so the peer closes its socket.
     client: client.Pool,
+    client_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
     close_reported: bool,
     hostile: deadline_peer.Hostile,
     /// Each exchange's request and response, by index (decision 124).
@@ -172,7 +173,7 @@ pub const Peers = struct {
         if (!Peer.played_by_client(plan)) return peer.hostile.start(&plan.behaviour);
         const config = &peers.configs[@intFromEnum(way_of(plan))];
         // TCP alone: the pool is given no receive pool, so it offers no QUIC.
-        peer.client.init(config, .{ .addresses = &peers.addresses, .port = endpoint_port }, null) catch return error.PeerFailed;
+        peer.client.init(&peer.client_memory, config, .{ .addresses = &peers.addresses, .port = endpoint_port }, .{}, null) catch return error.PeerFailed;
         const behaviour = &plan.behaviour;
         const count = behaviour.exchanges_len;
         for (peer.requests[0..count], peer.responses[0..count], 0..) |*message, *response, exchange_index| {

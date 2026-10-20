@@ -82,6 +82,7 @@ pub const World = struct {
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
     pool: client.Pool,
+    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
     /// Whether the first request started the pool's connection, whose memory the run reads
     /// from then on, and whether the pool said to close its socket, which then reads nothing.
     started: bool,
@@ -136,7 +137,7 @@ pub const World = struct {
         world.addresses = .{client.Address.of(&octets, 0)};
         const port = if (over_tls) limits.https_port else limits.http_port;
         // No receive pool, so the pool offers TCP alone.
-        try world.pool.init(&world.client_config, .{ .addresses = &world.addresses, .port = port }, null);
+        try world.pool.init(&world.pool_memory, &world.client_config, .{ .addresses = &world.addresses, .port = port }, .{}, null);
         world.started = false;
         world.socket_closed = false;
         world.to_server = .{};
@@ -181,20 +182,15 @@ pub const World = struct {
     /// serves it: before its TLS handshake completes.
     pub fn client_h2(world: *World) ?*h2.Connection {
         if (!world.started) return null;
-        return h2_of(&world.pool.tcp.session);
+        return h2_of(&world.pool.tcp[0].session);
     }
 
     /// The protocol's octets the client's connection wrote that its caller has not handed out:
     /// what `output` holds after the records of the handshake. None before it started.
     pub fn client_pending(world: *const World) []const u8 {
         if (!world.started) return "";
-        const connection = &world.pool.tcp;
+        const connection = &world.pool.tcp[0];
         return connection.output[connection.records_len..connection.output_len];
-    }
-
-    /// The plaintext the client's connection opened and has not read. None before it started.
-    pub fn client_plain_in_len(world: *const World) usize {
-        return if (world.started) world.pool.tcp.plain_in_len else 0;
     }
 
     /// The connection the endpoint holds, for the fields a program has no call for.

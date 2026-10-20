@@ -131,6 +131,7 @@ fn Tests(comptime Pool: type) type {
     return struct {
         /// The pool the tests drive, outside any stack frame. Test-only.
         var pool: Pool align(@alignOf(Pool)) = undefined;
+        var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
 
         /// A pool with no QUIC configured, whose TCP connections speak h2 in cleartext.
         fn start_tcp_only() !void {
@@ -142,7 +143,7 @@ fn Tests(comptime Pool: type) type {
             // Every octet 1, so each flag of a connection the pool never started reads as set,
             // and a read of one shows.
             @memset(std.mem.asBytes(&pool), unstarted_octet);
-            try pool.init(&config, .{ .addresses = to, .port = https_port }, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = to, .port = https_port }, .{}, null);
             starts = true;
             support.peer_h2.init(.server);
             support.to_peer_len = 0;
@@ -187,7 +188,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expect(index_of(.close).? < index_of(.closed).?);
             try testing.expectEqual(pool_module.Phase.closed, pool.phase(.tcp));
             // It ended after its last exchange, not on a failure.
-            try testing.expect(!pool.tcp.failed);
+            try testing.expect(!pool.tcp[0].failed);
         }
 
         test "RFC 9113 §6.8: a shut-down pool asks for its transport's close once the GOAWAY is written" {

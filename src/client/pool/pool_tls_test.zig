@@ -168,6 +168,7 @@ fn Tests(comptime Pool: type) type {
     return struct {
         /// The pool the tests drive, outside any stack frame. Test-only.
         var pool: Pool align(@alignOf(Pool)) = undefined;
+        var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
 
         /// A pool with no receive pool, whose TCP connection runs over TLS and offers h2 and
         /// h11, to a server that selects h2. Its client trusts the root for `server_name`, and the
@@ -183,7 +184,7 @@ fn Tests(comptime Pool: type) type {
         fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !pool_module.Id {
             try tls_support.prepare_server(server_protocols, false);
             config = .{ .tls = tls_support.client_values(server_name), .versions = pool_support.versions_for(&pool, versions), .authority = support.authority };
-            try pool.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
             try tls_support.start_server();
             events_len = 0;
             const id = try pool.request(&exchange.request, &exchange.response);
@@ -206,7 +207,7 @@ fn Tests(comptime Pool: type) type {
             // The server reads the ClientHello and writes its flight, which the client refuses.
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);
-            try testing.expect(pool.tcp.failed);
+            try testing.expect(pool.tcp[0].failed);
             // The caller reads the pool once more with no octets, as it does after each send.
             // The connection reported its close and holds the alert, so the pool asks for no
             // close yet.
@@ -236,7 +237,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(false, tls_support.server_flight().?);
             forge();
             try collect(&pool);
-            try testing.expect(pool.tcp.failed);
+            try testing.expect(pool.tcp[0].failed);
         }
 
         test "design §8 step 21c.5: a connection that fails in the call that completes its handshake carries nothing" {

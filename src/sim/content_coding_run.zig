@@ -86,6 +86,7 @@ pub const Storage = struct {
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
     pool: client.Pool,
+    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
     to_server: Stream,
     to_client: Stream,
     /// Each exchange's request and response, by index (decision 124).
@@ -152,7 +153,7 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     const octets: [ipv4_len]u8 = @splat(address_octet);
     storage.addresses = .{client.Address.of(&octets, 0)};
     // No receive pool, so the pool offers TCP alone.
-    try storage.pool.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
+    try storage.pool.init(&storage.pool_memory, &storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, .{}, null);
     storage.to_server.reset();
     storage.to_client.reset();
     storage.answers_len = 0;

@@ -30,9 +30,17 @@ const Entry = pool_module.Entry;
 const Link = pool_module.Link;
 const Phase = pool_module.Phase;
 const Transport = pool_module.Transport;
+const Options = pool_module.Options;
 
-pub fn init(pool: anytype, config: *const Config, values: Values, receive_pool: ?ReceiveStorage) StartError!void {
+pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Values, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
+    // Decision 35 as amended: the caller's memory holds what the options count, and the pool asks
+    // for no more.
+    const layout = pool_module.Layout.of(options);
+    assert(memory.len >= layout.len);
+    // Until design §8 step 22.6, one TCP connection carries every exchange, and it holds
+    // `exchanges_max` at once.
+    assert(options.exchanges <= constants.exchanges_max);
     // Decision 124: a pool with no QUIC takes no receive pool.
     assert(pool.capacity.quic or receive_pool == null);
     const offered = try pool_config.offer(config, pool.capacity.quic, receive_pool != null);
@@ -45,7 +53,11 @@ pub fn init(pool: anytype, config: *const Config, values: Values, receive_pool: 
     pool.config = config;
     pool.values = values;
     pool.links = .initFill(.{});
-    pool.entries = @splat(.{});
+    pool.options = options;
+    pool.tcp = std.mem.bytesAsSlice(connection_module.Connection, memory[0..layout.tcp_len]);
+    pool.entries = @alignCast(std.mem.bytesAsSlice(Entry, memory[layout.entries_offset..layout.len]));
+    assert(pool.tcp.len == options.tcp_connections and pool.entries.len == options.exchanges);
+    @memset(pool.entries, .{});
     pool.next_id = 1;
     pool.tried = .initFill(false);
     pool.fallback = false;
@@ -70,7 +82,7 @@ pub fn cancel(pool: anytype, id: Id) void {
     if (entry.stage == .carried) switch (entry.carrier) {
         // Only a pool that holds QUIC opens a QUIC connection to carry an exchange.
         .quic => if (pool.capacity.quic) pool.quic.cancel(entry.carried_id) else unreachable,
-        .tcp => pool.tcp.cancel(entry.carried_id),
+        .tcp => pool.tcp[0].cancel(entry.carried_id),
     };
     entry.* = .{};
 }
@@ -88,7 +100,7 @@ pub fn send_datagram(pool: anytype, output: []u8, now_ns: u64) ?Sent {
 
 pub fn send_stream(pool: anytype, output: []u8, now_ns: u64) usize {
     if (pool.links.get(.tcp).state != .running) return 0;
-    return pool.tcp.send(output, now_ns);
+    return pool.tcp[0].send(output, now_ns);
 }
 
 pub fn deadline_ns(pool: anytype) ?u64 {
@@ -133,7 +145,7 @@ pub fn start_tcp(pool: anytype, random: tls.Random, now_seconds: u64, resumption
     const link = pool.links.getPtr(.tcp);
     if (link.state != .opening) return;
     assert(!link.open_owed);
-    pool.tcp.init(&pool.tcp_config, random, now_seconds, resumption, .{ .retrying = retrying(pool) }) catch |failure| {
+    pool.tcp[0].init(&pool.tcp_config, random, now_seconds, resumption, .{ .retrying = retrying(pool) }) catch |failure| {
         // The pool asks for TCP only while `versions` allows h11 or h2, so the TLS stack alone
         // refuses a start.
         assert(failure == error.TlsRefused);
@@ -152,7 +164,7 @@ pub fn transport_closed(pool: anytype, transport: Transport) void {
             link.gone = true;
             switch (transport) {
                 .quic => if (pool.capacity.quic) pool.quic.transport_closed() else unreachable,
-                .tcp => pool.tcp.transport_closed(),
+                .tcp => pool.tcp[0].transport_closed(),
             }
         },
     }
@@ -162,7 +174,7 @@ pub fn take_ticket(pool: anytype, transport: Transport) ?tls.Ticket {
     if (pool.links.get(transport).state != .running) return null;
     return switch (transport) {
         .quic => if (pool.capacity.quic) pool.quic.take_ticket() else unreachable,
-        .tcp => pool.tcp.take_ticket(),
+        .tcp => pool.tcp[0].take_ticket(),
     };
 }
 
@@ -179,11 +191,11 @@ pub fn phase(pool: anytype, transport: Transport) Phase {
 fn running_phase(pool: anytype, transport: Transport, link: Link) Phase {
     const failed = switch (transport) {
         .quic => if (pool.capacity.quic) pool.quic.failed else unreachable,
-        .tcp => pool.tcp.failed,
+        .tcp => pool.tcp[0].failed,
     };
     const draining = switch (transport) {
         .quic => if (pool.capacity.quic) pool.quic.draining else unreachable,
-        .tcp => pool.tcp.draining,
+        .tcp => pool.tcp[0].draining,
     };
     if (failed) return .failed;
     if (draining) return .draining;
@@ -193,7 +205,7 @@ fn running_phase(pool: anytype, transport: Transport, link: Link) Phase {
 /// Whether an exchange that waits for the connection starting now went out on a connection that
 /// failed. The connection then writes the first request alone (RFC 9112 §9.3.2).
 fn retrying(pool: anytype) bool {
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage == .waiting and entry.after_failure) return true;
     }
     return false;
@@ -221,14 +233,14 @@ fn check_fallback(pool: anytype, now_ns: u64) void {
 }
 
 fn free_entry(pool: anytype) ?*Entry {
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage == .free) return entry;
     }
     return null;
 }
 
 fn entry_of(pool: anytype, id: Id) ?*Entry {
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage != .free and entry.id == id) return entry;
     }
     return null;

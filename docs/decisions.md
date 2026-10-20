@@ -4831,7 +4831,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `client.Options` holds `tcp_connections` and `exchanges`. Each has a named maximum in
           `client.constants`.
         - `Pool.memory_bytes(options)` returns the octets that the options need. `init` takes
-          that memory, aligned to `client.memory_alignment`.
+          that memory, aligned to `Pool.memory_alignment`.
+        - `Pool.receive_events_without_input_max(options)` replaces the constant of decision 124
+          ruling 5, because the bound counts each exchange and each transport of the pool. The
+          owner ruled it on 2026-10-20.
         - Options outside their limits are a programmer error, and so is memory of another
           length or alignment: `memory_bytes` and `init` assert.
      3. A `client.ConnectionHandle` names each connection, as `server.ConnectionHandle` does

@@ -131,12 +131,13 @@ fn Tests(comptime Pool: type) type {
     return struct {
         /// The pool the tests drive, outside any stack frame. Test-only.
         var pool: Pool align(@alignOf(Pool)) = undefined;
+        var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
 
         /// A pool with no QUIC configured, whose TCP connection speaks h11 in cleartext, with
         /// one exchange written to the peer's buffer.
         fn start(exchange: *Exchange) !void {
             config = .{ .authority = support.authority, .versions = pool_support.versions_for(&pool, support.only(.h11)) };
-            try pool.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, .{}, null);
             support.peer_h11.init(.server, .{});
             support.peer_requests = 0;
             support.to_peer_len = 0;
@@ -388,7 +389,7 @@ fn Tests(comptime Pool: type) type {
             _ = try pool.request(&second.request, &second.response);
             send();
             // RFC 9112 §9.3.2: the client pipelines the second request behind the first.
-            try testing.expectEqual(2, pool.tcp.slots.count(.sent));
+            try testing.expectEqual(2, pool.tcp[0].slots.count(.sent));
             // One call reads the first response whole and leaves the first octet of the second, and
             // the transport closes before the program passes that octet again.
             const octets = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloH";
@@ -428,14 +429,14 @@ fn Tests(comptime Pool: type) type {
             try start(&first);
             _ = try pool.request(&second.request, &second.response);
             send();
-            try testing.expectEqual(2, pool.tcp.slots.count(.sent));
+            try testing.expectEqual(2, pool.tcp[0].slots.count(.sent));
             // The transport fails with no octet of either response read, and both go out again.
             try close_transport();
             try testing.expectEqual(2, count(.open));
             send();
             // RFC 9112 §9.3.2: "a client MUST NOT pipeline immediately after connection
             // establishment" when it retries after a failed connection.
-            try testing.expectEqual(1, pool.tcp.slots.count(.sent));
+            try testing.expectEqual(1, pool.tcp[0].slots.count(.sent));
             try testing.expectEqual(1, (try peer_read()).requests);
             try support.peer_h11_answer(ok, content_length_5, "hello");
             try collect(&pool);
@@ -455,7 +456,7 @@ fn Tests(comptime Pool: type) type {
             _ = try pool.request(&second.request, &second.response);
             _ = try pool.request(&third.request, &third.response);
             send();
-            try testing.expectEqual(3, pool.tcp.slots.count(.sent));
+            try testing.expectEqual(3, pool.tcp[0].slots.count(.sent));
             // RFC 9112 §9.6: the server closes the connection in its last complete response, so
             // the two requests written after it go out again, and the connection did not fail.
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
@@ -464,7 +465,7 @@ fn Tests(comptime Pool: type) type {
             support.peer_h11.init(.server, .{});
             support.to_peer_len = 0;
             send();
-            try testing.expectEqual(2, pool.tcp.slots.count(.sent));
+            try testing.expectEqual(2, pool.tcp[0].slots.count(.sent));
         }
 
         test "decision 124: a cancelled h11 exchange is never sent again" {

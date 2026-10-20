@@ -10354,10 +10354,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   program sets the count at run time, in memory that it supplies (decision 35 as amended). A
   program that sends 16 requests at once over h11 needs 16 connections, because h11 carries one
   exchange at a time on a connection.
-  - **Names.** `client.Pool`, `client.PoolOf`, `client.Options`, `client.memory_alignment`,
-    `client.ConnectionHandle` and `client.StreamOctets`; `client.Channel` and `client.ChannelOf`
-    leave the root. `Pool.memory_bytes` and `Pool.set_values` are new calls, and `send` is a new
-    event. `client.constants` gains the maximum of each count.
+  - **Names.** `client.Pool`, `client.PoolOf`, `client.Options`, `client.ConnectionHandle` and
+    `client.StreamOctets`; `client.Channel` and `client.ChannelOf` leave the root.
+    `Pool.memory_alignment`, `Pool.memory_bytes`, `Pool.receive_events_without_input_max` and
+    `Pool.set_values` are new, and `send` is a new event. `client.constants` gains the maximum of
+    each count and `transport_events_max`, and loses `receive_events_without_input_max`.
   - **Sub-steps.**
     - 22.1: decision 125, this text, and the amendment of decision 35.
     - 22.2: `Channel` becomes `Pool` and `ChannelOf` becomes `PoolOf`, in the library, the

@@ -16,6 +16,7 @@ const TcpAlone = pool_module.PoolOf(.{ .quic = false });
 /// The pool with no QUIC the tests drive, and its configuration, outside any stack frame.
 /// Test-only.
 var pool: TcpAlone align(@alignOf(TcpAlone)) = undefined;
+var pool_memory: [TcpAlone.memory_bytes(.{})]u8 align(TcpAlone.memory_alignment) = undefined;
 var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 var body: [body_len]u8 = undefined;
 const body_len: usize = 64;
@@ -46,16 +47,16 @@ test "RFC 9114 §3.1: a pool with no QUIC refuses versions that allow h3, in cle
     const with_h3 = [_]versions_module.Versions{ .{}, .{ .h11 = false }, .{ .h2 = false }, .{ .h11 = false, .h2 = false } };
     for (with_h3) |versions| {
         config = .{ .authority = support.authority, .versions = versions };
-        try testing.expectError(error.VersionUnavailable, pool.init(&config, values, null));
+        try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, .{}, null));
         config.tls = tls_support.client_values(support.authority);
-        try testing.expectError(error.VersionUnavailable, pool.init(&config, values, null));
+        try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, .{}, null));
     }
     // With h3 off it offers TCP, and with no version at all it offers nothing (decision 117).
     config = .{ .authority = support.authority, .versions = .{ .h3 = false } };
-    try pool.init(&config, values, null);
+    try pool.init(&pool_memory, &config, values, .{}, null);
     try testing.expect(pool.offered.tcp and !pool.offered.quic);
     config.versions = .{ .h11 = false, .h2 = false, .h3 = false };
-    try testing.expectError(error.NoVersion, pool.init(&config, values, null));
+    try testing.expectError(error.NoVersion, pool.init(&pool_memory, &config, values, .{}, null));
 }
 
 test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, and has no QUIC connection" {
@@ -64,7 +65,7 @@ test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, a
     var known = values;
     known.https = .{ .h3 = true };
     known.alternative = .{ .port = https_port, .fresh_until_ns = support.now_ns + 1 };
-    try pool.init(&config, known, null);
+    try pool.init(&pool_memory, &config, known, .{}, null);
     var exchange: support.Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     _ = try pool.request(&exchange.request, &exchange.response);
     const opened = pool.receive(.none, support.now_ns).event.?.open;

@@ -55,6 +55,8 @@ pub const Pool = files.pool.Pool;
 /// which holds no QUIC state.
 pub const PoolOf = files.pool.PoolOf;
 pub const Capacity = files.pool.Capacity;
+/// The counts a pool holds, set at run time, and which `Pool.memory_bytes` sizes (decision 125).
+pub const Options = files.pool.Options;
 /// What DNS knows of the origin, which `Pool.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a pool learned from Alt-Svc.
 pub const Values = files.pool.Values;
@@ -107,18 +109,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // the `Channel` prefix from the channel's types, and takes out `ChannelEntry`, which no call
     // of `Channel` takes or returns. Step 21f.2 puts `Request` and `Response` in place of
     // `HttpExchange` (decision 124). Step 21f.6 adds `ChannelOf` and `Capacity` (decision 124).
-    // Step 22.2 renames `Channel` to `Pool` and `ChannelOf` to `PoolOf` (decision 125).
+    // Step 22.2 renames `Channel` to `Pool` and `ChannelOf` to `PoolOf`, and step 22.3 adds
+    // `Options` (decision 125).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",          "Versions",     "StartError",        "RequestError",
-        "Field",              "Id",              "Protocol",     "Request",           "Response",
-        "Wanted",             "Outcome",         "Finished",     "Sent",              "Address",
-        "Ecn",                "Pool",            "PoolOf",       "Capacity",          "Values",
-        "Https",              "Alternative",     "Input",        "Datagram",          "Received",
-        "Event",              "Open",            "Transport",    "Phase",             "ReceivePool",
-        "DefaultReceivePool", "ReceiveStorage",  "Coding",       "DecoderPool",       "DefaultDecoderPool",
-        "Decoders",           "ZstdDecoderPool", "ZstdDecoders", "BrotliDecoderPool", "BrotliDecoders",
-        "Features",
+        "constants",          "Config",             "Versions",        "StartError",   "RequestError",
+        "Field",              "Id",                 "Protocol",        "Request",      "Response",
+        "Wanted",             "Outcome",            "Finished",        "Sent",         "Address",
+        "Ecn",                "Pool",               "PoolOf",          "Capacity",     "Options",
+        "Values",             "Https",              "Alternative",     "Input",        "Datagram",
+        "Received",           "Event",              "Open",            "Transport",    "Phase",
+        "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",       "DecoderPool",
+        "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders", "BrotliDecoderPool",
+        "BrotliDecoders",     "Features",
     });
 }
 
@@ -199,6 +202,7 @@ test {
     _ = @import("pool/pool_tls_test.zig");
     _ = @import("pool/pool_limits_test.zig");
     _ = @import("pool/pool_capacity_test.zig");
+    _ = @import("pool/pool_memory_test.zig");
     _ = @import("pool/pool_quic_test.zig");
     _ = @import("pool/pool_quic_flow_test.zig");
     _ = @import("quic/quic_connection_test.zig");

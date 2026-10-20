@@ -15,6 +15,14 @@ const h3 = @import("h3");
 /// yet reported. A request past them is refused until one is reported.
 pub const exchanges_max: u32 = 16;
 
+/// TCP connections one pool holds at most (decision 125). `Options.tcp_connections` is at least 1
+/// and at most this, and it bounds each loop over a pool's TCP connections.
+pub const pool_tcp_connections_max: u16 = 64;
+
+/// Exchanges one pool holds at once at most (decision 125). `Options.exchanges` is at least 1 and
+/// at most this, and it bounds each loop over a pool's table of exchanges.
+pub const pool_exchanges_max: u16 = 1024;
+
 /// Octets of an h2 frame of the largest size colibri advertises, its header included (RFC 9113
 /// §4.1, §4.2).
 pub const frame_len_max: usize = h2.constants.frame_header_len + h2.constants.frame_size_max;
@@ -142,20 +150,11 @@ pub const stream_input_len_min: usize = @max(h11.constants.head_len_max, @max(fr
 /// but the client keeps to what every provider promises.
 pub const stream_output_len_min: usize = record_len_max;
 
-/// The most `receive` calls in a row that report an event and take no octet (decision 124). The
-/// next call with the same input reports no event. The bound holds while the program does only
-/// this between the calls:
-/// - it starts the transport an `open` names, or calls `transport_closed` when it cannot open it;
-/// - it closes the socket a `close` names, and takes the ticket a `ticket` names;
-/// - it calls `shutdown`.
-/// A call that takes octets, and any other call of the program, start a new count. The events are
-/// one `finished` for each exchange, one `closed`, and `transport_events_max` for each transport.
-pub const receive_events_without_input_max: usize = exchanges_max + transports_count * transport_events_max + 1;
-
-/// The events of one transport in such a run, at most: its `open` and its `close`, and its
-/// connection's `connected` and `ticket`. A connection's `draining` and `closed` go to the pool
-/// alone.
-const transport_events_max: usize = 4;
+/// The events of one transport in a run of `receive` calls that take no octet, at most: its `open`
+/// and its `close`, and its connection's `connected` and `ticket`. A connection's `draining` and
+/// `closed` go to the pool alone. `Pool.receive_events_without_input_max` counts it for each
+/// transport (decision 124 as amended by decision 125).
+pub const transport_events_max: usize = 4;
 
 /// Nanoseconds in a second, which an Alt-Svc freshness lifetime counts (RFC 7838 §3.1).
 pub const nanoseconds_per_second: u64 = 1_000 * quic.constants.nanoseconds_per_millisecond;
@@ -202,6 +201,7 @@ comptime {
     // An output a provider never refuses for its length holds an alert too.
     assert(stream_output_len_min >= tls_provider.constants.record_write_len_min);
     assert(stream_output_len_min >= tls.record.alert_record_len);
-    // Each exchange finishes once, the pool closes once, and each transport gives its events.
-    assert(receive_events_without_input_max >= exchanges_max + transports_count * transport_events_max + 1);
+    // A pool of the default size holds the exchanges of one connection.
+    assert(exchanges_max <= pool_exchanges_max);
+    assert(pool_tcp_connections_max > 0);
 }

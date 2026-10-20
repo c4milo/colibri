@@ -43,6 +43,7 @@ const quic_connection = @import("../quic/quic_connection.zig");
 const choice = @import("pool_choice.zig");
 const pool_config = @import("pool_config.zig");
 const pool_calls = @import("pool_calls.zig");
+const assert = std.debug.assert;
 
 pub const Transport = choice.Transport;
 pub const Phase = choice.Phase;
@@ -206,6 +207,52 @@ pub const Capacity = struct {
     quic: bool = true,
 };
 
+/// What a pool holds, set at run time (decision 125, decision 35 as amended). `memory_bytes`
+/// gives the octets the counts need, and `init` takes them from the caller.
+pub const Options = struct {
+    /// TCP connections the pool holds at most: from 1 to `constants.pool_tcp_connections_max`.
+    tcp_connections: u16 = 1,
+    /// Exchanges the pool holds at once: from 1 to `constants.pool_exchanges_max`.
+    exchanges: u16 = constants.exchanges_max,
+
+    /// Whether each count is inside its limits. A count outside them is a programmer error.
+    fn valid(options: Options) bool {
+        if (options.tcp_connections == 0 or options.tcp_connections > constants.pool_tcp_connections_max) return false;
+        return options.exchanges > 0 and options.exchanges <= constants.pool_exchanges_max;
+    }
+};
+
+/// The alignment of the memory a pool's `init` takes: that of a TCP connection and of an entry.
+/// Each pool type names it `memory_alignment`.
+pub const pool_memory_alignment: usize = @max(@alignOf(connection_module.Connection), @alignOf(Entry));
+
+/// Where a pool places what it counts in the memory `init` takes: its TCP connections first, then
+/// its table of exchanges, each part aligned for its type.
+pub const Layout = struct {
+    tcp_len: usize,
+    entries_offset: usize,
+    len: usize,
+
+    pub fn of(options: Options) Layout {
+        // A TCP connection's size keeps the entries after the connections aligned.
+        comptime assert(@sizeOf(connection_module.Connection) % @alignOf(Entry) == 0);
+        assert(options.valid());
+        const tcp_len = @as(usize, options.tcp_connections) * @sizeOf(connection_module.Connection);
+        const len = tcp_len + @as(usize, options.exchanges) * @sizeOf(Entry);
+        assert(len > tcp_len);
+        return .{ .tcp_len = tcp_len, .entries_offset = tcp_len, .len = len };
+    }
+};
+
+/// The most `receive` calls in a row that report an event and take no octet, for a pool of
+/// `options` that holds QUIC or not: one `finished` for each exchange, one `closed`, and
+/// `constants.transport_events_max` for each transport.
+fn events_without_input_max(options: Options, holds_quic: bool) usize {
+    assert(options.valid());
+    const transports = @as(usize, options.tcp_connections) + @intFromBool(holds_quic);
+    return @as(usize, options.exchanges) + transports * constants.transport_events_max + 1;
+}
+
 /// A pool of the default capacity, which tries QUIC first and TCP after (decision 120).
 pub const Pool = PoolOf(.{});
 
@@ -232,9 +279,12 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         tcp_config: connection_module.Config,
         quic_config: QuicField(capacity, quic_connection.Config),
         quic: QuicField(capacity, quic_connection.QuicConnection),
-        tcp: connection_module.Connection,
+        /// The counts `init` took, and the parts of the caller's memory that hold the TCP
+        /// connections and the table of exchanges (decision 125).
+        options: Options,
+        tcp: []connection_module.Connection,
+        entries: []Entry,
         links: std.EnumArray(Transport, Link),
-        entries: [constants.exchanges_max]Entry,
         /// The id the next exchange gets.
         next_id: Id,
         /// The transports this attempt opened, and whether the fallback delay passed during
@@ -250,16 +300,40 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         /// gave none.
         receive_pool: QuicField(capacity, ?ReceiveStorage),
 
+        /// The alignment of the memory `init` takes (decision 35 as amended).
+        pub const memory_alignment = pool_memory_alignment;
+
+        /// The octets of memory `init` takes for `options` (decision 125). The function is pure,
+        /// so a program calls it at comptime to size a static array, or at run time.
+        pub fn memory_bytes(options: Options) usize {
+            return Layout.of(options).len;
+        }
+
+        /// The most `receive` calls in a row that report an event and take no octet, for a pool
+        /// of `options` (decision 124 as amended by decision 125). The next call with the same
+        /// input reports no event. The bound holds while the program does only this between the
+        /// calls:
+        /// - it starts the transport an `open` names, or calls `transport_closed` when it cannot
+        ///   open it;
+        /// - it closes the socket a `close` names, and takes the ticket a `ticket` names;
+        /// - it calls `shutdown`.
+        /// A call that takes octets, and any other call of the program, start a new count.
+        pub fn receive_events_without_input_max(options: Options) usize {
+            return events_without_input_max(options, capacity.quic);
+        }
+
         /// Prepares a pool with nothing opened, and builds the TLS configurations of the
-        /// transports it offers, so the pool stays in place from here on. `receive_pool` is
-        /// the receive pool its QUIC connections use in turn, or null for a pool that opens no QUIC. A
-        /// pool with no QUIC takes null. `error.NoVersion` says the configuration offers
-        /// neither transport, `error.VersionUnavailable` that it allows h3 on a pool with no
-        /// QUIC, and the other errors that the TLS value names more than a TLS configuration holds.
-        /// A program may call `init` again on a pool with no open transport and no exchange,
-        /// for example with new addresses. The ids then count from 1 again.
-        pub fn init(pool: *Self, config: *const Config, values: Values, receive_pool: ?ReceiveStorage) StartError!void {
-            return pool_calls.init(pool, config, values, receive_pool);
+        /// transports it offers, so the pool stays in place from here on. `memory` holds at least
+        /// `memory_bytes(options)` octets, and the pool keeps its TCP connections and its table
+        /// of exchanges there until the program stops using the pool (decision 35 as amended).
+        /// `receive_pool` is the receive pool its QUIC connections use in turn, or null for a
+        /// pool that opens no QUIC. A pool with no QUIC takes null. `error.NoVersion` says the
+        /// configuration offers neither transport, `error.VersionUnavailable` that it allows h3
+        /// on a pool with no QUIC, and the other errors that the TLS value names more than a TLS
+        /// configuration holds. A program may call `init` again on a pool with no open transport
+        /// and no exchange, for example with new addresses. The ids then count from 1 again.
+        pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, values: Values, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
+            return pool_calls.init(pool, memory, config, values, options, receive_pool);
         }
 
         /// Takes the request `message`, which goes out on the first connection open to take it,
@@ -358,15 +432,20 @@ fn QuicField(comptime capacity: Capacity, comptime Type: type) type {
     return if (capacity.quic) Type else void;
 }
 
-test "design §8 step 17f: the pool's public functions are the calls a program makes, and phase" {
+test "design §8 step 17f: the pool's public names are the calls a program makes, and phase" {
+    // Decision 125: step 22.3 adds `memory_alignment`, `memory_bytes` and
+    // `receive_events_without_input_max`, which size a pool and bound a program's loop.
     const public_names = @import("core").public_names;
     // Decision 124: a pool with no QUIC names the same calls, and its `start_quic` does not
     // compile.
     inline for (.{ Pool, PoolOf(.{ .quic = false }) }) |Type| {
         try public_names.expect(Type, &.{
-            "init",          "request",          "cancel",      "shutdown",    "receive",
-            "send_datagram", "send_stream",      "deadline_ns", "on_instant",  "start_quic",
-            "start_tcp",     "transport_closed", "take_ticket", "alternative", "phase",
+            "memory_alignment", "memory_bytes", "receive_events_without_input_max",
+            "init",             "request",      "cancel",
+            "shutdown",         "receive",      "send_datagram",
+            "send_stream",      "deadline_ns",  "on_instant",
+            "start_quic",       "start_tcp",    "transport_closed",
+            "take_ticket",      "alternative",  "phase",
         });
     }
 }

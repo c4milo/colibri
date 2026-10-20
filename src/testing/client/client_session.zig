@@ -44,6 +44,7 @@ pub const Bodies = [constants.exchanges_max][constants.response_content_len_max]
 /// `init`: the TLS configuration it built points into it.
 pub const Session = struct {
     pool: client.Pool,
+    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
     /// The server's one address, which the pool reads for each socket it asks for.
     addresses: [1]client.Address,
     exchanges: [constants.exchanges_max]Exchange,
@@ -79,7 +80,7 @@ pub const Session = struct {
         assert(address.port == 0);
         session.exchanges_count = 0;
         session.addresses = .{address};
-        try session.pool.init(config, .{ .addresses = &session.addresses, .port = port }, null);
+        try session.pool.init(&session.pool_memory, config, .{ .addresses = &session.addresses, .port = port }, .{}, null);
         session.random = random;
         session.now_seconds = now_seconds;
         session.now_ns = 0;

@@ -121,14 +121,17 @@ const Run = struct {
     closed: bool = false,
 };
 
+/// The bound of a default pool, with QUIC and the default counts (decision 125).
+const events_bound = pool_module.Pool.receive_events_without_input_max(.{});
+
 /// Calls `receive` with no input until a call reports no event, at most one call more than
-/// `receive_events_without_input_max`. Each `open` names a transport that does not open, and the
+/// `Pool.receive_events_without_input_max`. Each `open` names a transport that does not open, and the
 /// pool shuts down at the last exchange's `finished`.
 fn run_without_input() !Run {
     const pool = &default.pool;
     var run: Run = .{};
     var finished: usize = 0;
-    for (0..constants.receive_events_without_input_max + 1) |_| {
+    for (0..events_bound + 1) |_| {
         const received = pool.receive(.none, support.now_ns);
         try testing.expectEqual(0, received.consumed);
         const reported = received.event orelse return run;
@@ -146,11 +149,11 @@ fn run_without_input() !Run {
     return run;
 }
 
-test "decision 124: receive_events_without_input_max bounds the events a pool reports with no input" {
+test "decision 124: Pool.receive_events_without_input_max bounds the events a pool reports with no input" {
     const pool = &default.pool;
     // QUIC and TCP are offered, and the pool holds as many exchanges as it can.
     config = quic_pool_support.configured(true);
-    try pool.init(&config, quic_pool_support.values_at(https_port), quic_pool_support.receive_storage());
+    try pool.init(&default.pool_memory, &config, quic_pool_support.values_at(https_port), .{}, quic_pool_support.receive_storage());
     for (&exchanges) |*exchange| {
         exchange.* = .{ .request = .{ .method = "GET", .path = "/" } };
         _ = try pool.request(&exchange.request, &exchange.response);
@@ -158,7 +161,7 @@ test "decision 124: receive_events_without_input_max bounds the events a pool re
     // Neither transport opens, so the pool gives up on every exchange at once, and then closes.
     const run = try run_without_input();
     try testing.expect(run.closed);
-    try testing.expect(run.events <= constants.receive_events_without_input_max);
+    try testing.expect(run.events <= events_bound);
     try testing.expectEqual(null, pool.receive(.none, support.now_ns).event);
     for (&exchanges) |*exchange| try testing.expectEqual(.refused, exchange.response.outcome);
     // The worst case that a test makes: an `open` of each transport, a `finished` of each exchange,
@@ -178,6 +181,7 @@ fn Tests(comptime Pool: type) type {
     return struct {
         /// The pool the tests drive, outside any stack frame. Test-only.
         var pool: Pool align(@alignOf(Pool)) = undefined;
+        var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
 
         /// Writes what the pool's connection owes into the peer's buffer.
         fn send() void {
@@ -188,7 +192,7 @@ fn Tests(comptime Pool: type) type {
         /// `exchange`, which `send` has not written yet.
         fn start_cleartext(protocol: event.Protocol, exchange: *Exchange) !void {
             config = .{ .authority = support.authority, .versions = pool_support.versions_for(&pool, support.only(protocol)) };
-            try pool.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, .{}, null);
             support.to_peer_len = 0;
             support.to_client_len = 0;
             _ = try pool.request(&exchange.request, &exchange.response);
@@ -253,7 +257,7 @@ fn Tests(comptime Pool: type) type {
         fn start_tls(exchange: *Exchange) !void {
             try tls_support.prepare_server(&support.protocols_h2, false);
             config = .{ .tls = tls_support.client_values(support.authority), .versions = pool_support.versions_for(&pool, .{}), .authority = support.authority };
-            try pool.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
             try tls_support.start_server();
             _ = try pool.request(&exchange.request, &exchange.response);
             try collect(&pool);

@@ -107,8 +107,9 @@ request over the first connection that completes its handshake:
 ```zig
 const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
 // `init` builds the TLS configuration of each transport inside the pool, which stays in
-// place from here on. The receive pool is what makes the pool offer QUIC.
-try pool.init(&client_config, known, receive_pool.storage());
+// place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
+// which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
+try pool.init(&pool_memory, &client_config, known, .{}, receive_pool.storage());
 // `request` only takes a request and its response. The pool asks for a transport, and
 // sends the request over the first connection that completes its handshake, so a program asks
 // at once and never waits.

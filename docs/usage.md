@@ -694,6 +694,19 @@ the content into `body`; colibri keeps no other field. `content` is the request'
 The program keeps the request and the response in place, with each slice they name, until the
 exchange's `finished` event or until `cancel` returns.
 
+A program places the pool and the memory it holds its TCP connections and its exchanges in
+([decision 125](decisions.md)). `client.Options` counts them: `tcp_connections`, 1 by default,
+and `exchanges`, 16 by default. `Pool.memory_bytes(options)` gives the octets those counts need.
+It is pure, so a program sizes a static array with it, as here, or maps that many octets at run
+time:
+
+```zig
+var pool: client.Pool align(@alignOf(client.Pool)) = undefined;
+// The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
+// `client.Options` give (decision 125).
+var pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
+```
+
 The client gives one configuration with one TLS value, makes the pool, and hands it each
 request and its response. The program passes what DNS knows as values: the server's addresses
 and its port, and an HTTPS record's `alpn` and `port` when it has one.
@@ -708,8 +721,9 @@ client_config = .{
 // The pool takes what DNS knows as values: the server's addresses and its port.
 const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
 // `init` builds the TLS configuration of each transport inside the pool, which stays in
-// place from here on. The receive pool is what makes the pool offer QUIC.
-try pool.init(&client_config, known, receive_pool.storage());
+// place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
+// which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
+try pool.init(&pool_memory, &client_config, known, .{}, receive_pool.storage());
 // `request` only takes a request and its response. The pool asks for a transport, and
 // sends the request over the first connection that completes its handshake, so a program asks
 // at once and never waits.
@@ -830,23 +844,24 @@ fn drain(now_ns: u64) !void {
 }
 ```
 
-A program sizes its memory and bounds its loops with three limits of `client.constants`, and needs
-no name from `h11` or `tls_provider` ([decision 124](decisions.md)):
+A program sizes its memory and bounds its loops with two limits of `client.constants` and one
+call of the pool, and needs no name from `h11` or `tls_provider` ([decision 124](decisions.md) as
+amended by [decision 125](decisions.md)):
 
 - `stream_input_len_min`: what the program holds of the TCP socket's octets, at least, so that
   `receive` takes some while `send_stream` has written what the connection owes. The pool takes
   an h11 head, an h2 frame and a TLS record whole, and this is the largest of them.
 - `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
-- `receive_events_without_input_max`: the most `receive` calls in a row that report an event and
-  take no octet.
+- `Pool.receive_events_without_input_max(options)`: the most `receive` calls in a row that report
+  an event and take no octet, for a pool of those counts.
 
 The example bounds each read of the socket with them:
 
 ```zig
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop. At most
-/// `receive_events_without_input_max` calls in a row report an event and take no octet.
-const receive_calls_max = (link_module.queue_len_max + 1) * (client.constants.receive_events_without_input_max + 1);
+/// `Pool.receive_events_without_input_max` calls in a row report an event and take no octet.
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.Pool.receive_events_without_input_max(.{}) + 1);
 ```
 
 The pool's events say what the program does next, and an exchange ends in exactly one
@@ -957,7 +972,7 @@ fn connect_refused() !void {
     // The pools to one origin share its configuration. With no receive pool this one offers
     // TCP alone.
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
-    try refused_pool.init(&client_config, known, null);
+    try refused_pool.init(&refused_memory, &client_config, known, .{}, null);
     _ = try refused_pool.request(&refused_get, &refused_get_response);
     for (0..receive_calls_max) |_| {
         const received = refused_pool.receive(.none, now_ns);

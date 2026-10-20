@@ -106,6 +106,7 @@ const Asked = struct {
 const Peer = struct {
     config: client.Config,
     pool: client.Pool,
+    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
     asked: [requests_max]Asked,
     asked_count: u32,
     /// Whether the peer keeps its connection open after its exchanges finished.
@@ -147,7 +148,7 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     start(&tcp_peer, cpu, .{}, false);
     // No receive pool: the pool opens TCP alone.
-    try tcp_peer.pool.init(&tcp_peer.config, known, null);
+    try tcp_peer.pool.init(&tcp_peer.pool_memory, &tcp_peer.config, known, .{}, null);
     try tcp_peer.ask("GET", "/greeting", "");
     try tcp_peer.ask("POST", "/echo", note);
     try tcp_peer.ask("GET", "/greetings/" ++ name, "");
@@ -157,7 +158,7 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     try tcp_peer.ask("GET", "/greetings", "");
     // h3 alone: the pool opens QUIC alone, and needs the receive pool for it.
     start(&quic_peer, cpu, .{ .h11 = false, .h2 = false }, true);
-    try quic_peer.pool.init(&quic_peer.config, known, receive_pool.storage());
+    try quic_peer.pool.init(&quic_peer.pool_memory, &quic_peer.config, known, .{}, receive_pool.storage());
     try quic_peer.ask("GET", "/greeting", "");
 }
 

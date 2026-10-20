@@ -40,6 +40,7 @@ var slot_outbound: [constants.pool_udp_send_slots]udp.Outbound align(@alignOf(ud
 var tcp: pool_tcp.Socket align(@alignOf(pool_tcp.Socket)) = undefined;
 
 var pool: client.Pool align(@alignOf(client.Pool)) = undefined;
+var pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
 var pool_config: client.Config align(@alignOf(client.Config)) = undefined;
 /// The receive pool of the pool's QUIC connections (decision 61).
 var receive_pool: client.DefaultReceivePool align(@alignOf(client.DefaultReceivePool)) = undefined;
@@ -69,7 +70,7 @@ pub fn run_pool(run: *const Run, shared: *const client.Config) !bool {
     pool_config.fallback_delay_ns = run.fallback_delay_ns;
     addresses[0] = Address.of(&run.address, 0);
     now_seconds = run.now_seconds;
-    try pool.init(&pool_config, .{ .addresses = &addresses, .port = run.port }, receive_pool.storage());
+    try pool.init(&pool_memory, &pool_config, .{ .addresses = &addresses, .port = run.port }, .{}, receive_pool.storage());
     try request_plan(run.plans[0..run.plans_count]);
     pool.shutdown();
     // The TCP socket's user data starts just above the index of every UDP send slot, and lies far

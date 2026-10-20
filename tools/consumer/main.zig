@@ -27,6 +27,7 @@ var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 // The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
 const Pool = client_module.PoolOf(.{ .quic = false });
 var asked: Pool align(@alignOf(Pool)) = undefined;
+var asked_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
 const get: client_module.Request = .{ .method = "GET", .path = "/" };
 var get_response: client_module.Response align(@alignOf(client_module.Response)) = .{};
 // The octets the client wrote, which the server reads, and the octets the server wrote, which the
@@ -126,7 +127,7 @@ pub fn main() !void {
     // connection from then on.
     const accepted = endpoint.accept(.cleartext, 0) orelse return error.ExchangeWrong;
     // The pool takes what DNS knows as values. A pool with no QUIC takes no receive pool.
-    try asked.init(&client_config, .{ .addresses = &server_addresses, .port = server_port }, null);
+    try asked.init(&asked_memory, &client_config, .{ .addresses = &server_addresses, .port = server_port }, .{}, null);
     _ = try asked.request(&get, &get_response);
     // The pool asks for a socket. A program connects one, then starts the connection on it, and
     // reads what the connection then owes: in cleartext, that it is connected.

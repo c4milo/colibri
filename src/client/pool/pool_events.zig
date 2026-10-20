@@ -76,7 +76,7 @@ pub fn poll(pool: anytype, now_ns: u64) ?Polled {
         if (pool.links.get(transport).state != .running) continue;
         const received = switch (transport) {
             .quic => if (pool.capacity.quic) pool.quic.receive(&none, .not_ect, .{}, now_ns) else unreachable,
-            .tcp => pool.tcp.receive(&none, now_ns),
+            .tcp => pool.tcp[0].receive(&none, now_ns),
         };
         assert(received.consumed == 0);
         const reported = received.event orelse continue;
@@ -104,8 +104,8 @@ pub fn feed(pool: anytype, input: pool_module.Input, now_ns: u64) Fed {
         },
         .stream => |octets| {
             if (pool.links.get(.tcp).state != .running) return .{ .len = octets.len, .event = null };
-            const received = pool.tcp.receive(octets, now_ns);
-            if (pool.tcp.take_alt_svc()) |advert| learn(pool, advert, now_ns);
+            const received = pool.tcp[0].receive(octets, now_ns);
+            if (pool.tcp[0].take_alt_svc()) |advert| learn(pool, advert, now_ns);
             const reported = received.event orelse return .{ .len = received.consumed, .event = null };
             return .{ .len = received.consumed, .event = handle(pool, .tcp, reported) };
         },
@@ -226,12 +226,12 @@ fn deliver(entry: *Entry) event.Finished {
 pub fn assign_waiting(pool: anytype) void {
     const transport = open_transport(pool) orelse return;
     // Bounded: each pass hands over the oldest waiting exchange, or stops.
-    for (0..constants.exchanges_max) |_| {
+    for (0..pool.entries.len) |_| {
         const entry = oldest(pool, .waiting) orelse return;
         // The connection holds no more exchanges than the pool, and an open one takes them.
         const carried_id = switch (transport) {
             .quic => if (pool.capacity.quic) pool.quic.request(entry.request, entry.response) else unreachable,
-            .tcp => pool.tcp.request(entry.request, entry.response),
+            .tcp => pool.tcp[0].request(entry.request, entry.response),
         } catch unreachable;
         entry.stage = .carried;
         entry.carrier = transport;
@@ -257,7 +257,7 @@ fn drain_if_shut(pool: anytype) void {
 fn shut_connection(pool: anytype, transport: Transport) void {
     switch (transport) {
         .quic => if (pool.capacity.quic) pool.quic.shutdown() else unreachable,
-        .tcp => pool.tcp.shutdown(),
+        .tcp => pool.tcp[0].shutdown(),
     }
 }
 
@@ -278,7 +278,7 @@ fn abandon(pool: anytype, transport: Transport) void {
         .opening => {},
         .running => switch (transport) {
             .quic => if (pool.capacity.quic) abandon_quic(pool) else unreachable,
-            .tcp => pool.tcp.transport_closed(),
+            .tcp => pool.tcp[0].transport_closed(),
         },
         .none, .closed => unreachable,
     }
@@ -304,13 +304,13 @@ fn close_over(pool: anytype, transport: Transport) void {
     // to write.
     const ready = switch (transport) {
         .quic => if (pool.capacity.quic) pool.quic.closed or pool.quic.should_close() else unreachable,
-        .tcp => pool.tcp.should_close(),
+        .tcp => pool.tcp[0].should_close(),
     };
     if (!ready) return;
     // The connection's `transport_closed` wipes its secrets, and a second call changes nothing.
     switch (transport) {
         .quic => if (pool.capacity.quic) pool.quic.transport_closed() else unreachable,
-        .tcp => pool.tcp.transport_closed(),
+        .tcp => pool.tcp[0].transport_closed(),
     }
     finish_link(link);
 }
@@ -392,7 +392,7 @@ pub fn learn(pool: anytype, advert: alt_svc.Advert, now_ns: u64) void {
 /// GiveUp). RFC 9113 §8.7: no server processed it, so the caller may make it again. One the pool
 /// sent again ends `closed` once it is reported (`deliver`).
 fn give_up(pool: anytype) void {
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage != .waiting) continue;
         entry.response.outcome = .refused;
         entry.stage = .ended;
@@ -429,7 +429,7 @@ fn open_transport(pool: anytype) ?Transport {
 /// The entry at `stage` with the lowest id, or null.
 fn oldest(pool: anytype, stage: Stage) ?*Entry {
     var found: ?*Entry = null;
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage != stage) continue;
         if (found == null or entry.id < found.?.id) found = entry;
     }
@@ -437,21 +437,21 @@ fn oldest(pool: anytype, stage: Stage) ?*Entry {
 }
 
 fn carried(pool: anytype, transport: Transport, carried_id: event.Id) ?*Entry {
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage == .carried and entry.carrier == transport and entry.carried_id == carried_id) return entry;
     }
     return null;
 }
 
 fn any_waiting(pool: anytype) bool {
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage == .waiting) return true;
     }
     return false;
 }
 
 fn any_entry(pool: anytype) bool {
-    for (&pool.entries) |*entry| {
+    for (pool.entries) |*entry| {
         if (entry.stage != .free) return true;
     }
     return false;
