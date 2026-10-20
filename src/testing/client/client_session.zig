@@ -10,6 +10,10 @@
 //! at a `close` event. An exchange a connection refused unprocessed moves to the next connection,
 //! on a socket of its own (decision 100).
 //!
+//! A pool of several TCP slots (decision 125) opens a socket for each slot whose connection an
+//! exchange needs: h11 takes one exchange at a time on each. Each slot has its own socket, and
+//! the session keeps what the pool asked of each.
+//!
 //! Time is a value, never a clock: each step reports an instant `tick_ns` after the last (design
 //! §4.2, invariant 6).
 const std = @import("std");
@@ -22,20 +26,27 @@ const client_exchange = @import("client_exchange.zig");
 const Exchange = client_exchange.Exchange;
 const Plan = client_exchange.Plan;
 
-/// What one step did, and what the pool asked of the socket during it.
+/// What one step did. What the pool asked of each slot's socket is in `Session.asked`.
 pub const Step = struct {
     /// Octets of the caller's input the pool consumed.
     consumed: usize,
     /// Octets written into the caller's output, to be sent in order.
     written: usize,
-    /// The pool is done with the socket: the caller sends what it holds, then closes it.
-    close: bool,
-    /// Where the next socket the pool asked for goes, or null. The caller closes the last socket
-    /// before it opens this one.
-    open: ?client.Address,
     /// The pool reported `closed`: every exchange ended, and no connection is left.
     done: bool,
 };
+
+/// What the pool asked of one slot's socket since the caller last took it.
+pub const Asked = struct {
+    /// The pool is done with the socket: the caller sends what it holds, then closes it.
+    close: bool = false,
+    /// Where the slot's next socket goes, or null. The caller closes the last socket before it
+    /// opens this one.
+    open: ?client.Address = null,
+};
+
+/// The TCP slots a session's pool holds at most.
+const slots_max = constants.client_tcp_connections_max;
 
 /// The response content of each exchange of one connection, which `client` fills.
 pub const Bodies = [constants.exchanges_max][constants.response_content_len_max]u8;
@@ -44,9 +55,13 @@ pub const Bodies = [constants.exchanges_max][constants.response_content_len_max]
 /// `init`: the TLS configuration it built points into it.
 pub const Session = struct {
     pool: client.Pool,
-    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
-    /// The connection the pool's last `open` named (decision 125). Generation 0 names none.
-    connection: client.ConnectionHandle,
+    /// The TCP slots the pool holds, which `init` takes in its options.
+    slots: u32,
+    /// Each slot's connection, as the pool's last `open` for the slot named it (decision 125).
+    /// Generation 0 names none.
+    connections: [slots_max]client.ConnectionHandle,
+    /// What the pool asked of each slot's socket since the caller last took it.
+    asked: [slots_max]Asked,
     /// The server's one address, which the pool reads for each socket it asks for.
     addresses: [1]client.Address,
     exchanges: [constants.exchanges_max]Exchange,
@@ -59,17 +74,18 @@ pub const Session = struct {
     now_ns: u64,
     /// Whether the pool's `closed` event arrived.
     closed: bool,
-    /// The protocol of the connection that last reported `connected`.
+    /// The protocol of the connection that last reported `connected`, and the sockets the pool
+    /// asked for.
     protocol: ?client.Protocol,
-    /// What the pool asked of the socket since the step began.
-    close_asked: bool,
-    open_asked: ?client.Address,
+    opens: u32,
 
-    /// Makes a pool that has opened nothing, with every exchange of `plans` requested, to the
-    /// server at `address`, whose port is 0, and `port`. `config`, `plans` and `bodies` must
-    /// outlive the session.
+    /// Makes a pool of `options` in `memory` that has opened nothing, with every exchange of
+    /// `plans` requested, to the server at `address`, whose port is 0, and `port`. `memory`,
+    /// `config`, `plans` and `bodies` must outlive the session.
     pub fn init(
         session: *Session,
+        memory: []align(client.Pool.memory_alignment) u8,
+        options: client.Options,
         config: *const client.Config,
         address: client.Address,
         port: u16,
@@ -80,17 +96,19 @@ pub const Session = struct {
     ) !void {
         assert(plans.len > 0 and plans.len <= constants.exchanges_max);
         assert(address.port == 0);
+        assert(options.tcp_connections > 0 and options.tcp_connections <= slots_max);
         session.exchanges_count = 0;
         session.addresses = .{address};
-        try session.pool.init(&session.pool_memory, config, .{ .addresses = &session.addresses, .port = port }, .{}, null);
+        try session.pool.init(memory, config, .{ .addresses = &session.addresses, .port = port }, options, null);
+        session.slots = options.tcp_connections;
         session.random = random;
         session.now_seconds = now_seconds;
         session.now_ns = 0;
         session.closed = false;
         session.protocol = null;
-        session.close_asked = false;
-        session.open_asked = null;
-        session.connection = .{ .slot = 0, .generation = 0 };
+        session.opens = 0;
+        session.asked = @splat(.{});
+        session.connections = @splat(.{ .slot = 0, .generation = 0 });
         for (plans, session.exchanges[0..plans.len], bodies[0..plans.len]) |plan, *exchange, *body| {
             exchange.* = .init(plan, body);
             exchange.id = try session.pool.request(&exchange.request, &exchange.response);
@@ -100,43 +118,52 @@ pub const Session = struct {
         session.pool.shutdown();
     }
 
-    /// Consumes what it can of `input`, the octets the socket read and the caller still holds, and
-    /// writes what it can into `output`. Over TLS the pool opens records in place in `input`.
-    pub fn step(session: *Session, input: []u8, output: []u8) Step {
+    /// Consumes what it can of `input`, the octets `slot`'s socket read and the caller still
+    /// holds, and writes what it can into `output`. A null `slot` passes no octets and writes
+    /// none, and reports what the pool owes of its own. Over TLS the pool opens records in place
+    /// in `input`.
+    pub fn step(session: *Session, slot: ?u32, input: []u8, output: []u8) Step {
         session.now_ns += constants.tick_ns;
-        session.close_asked = false;
-        session.open_asked = null;
-        var consumed = session.read(input);
+        const carried = slot orelse {
+            assert(input.len == 0 and output.len == 0);
+            _ = session.read(null, input);
+            return .{ .consumed = 0, .written = 0, .done = session.closed };
+        };
+        assert(carried < session.slots);
+        var consumed = session.read(carried, input);
         // The step writes what the connection owes each time, so it needs no `send` event.
-        const written = session.pool.send_stream(session.connection, output, session.now_ns);
+        const written = session.pool.send_stream(session.connections[carried], output, session.now_ns);
         // After a send the pool reads again, with the octets the caller still holds: h11 reads
         // a held octet only once the response before it ends (decision 119).
-        consumed += session.read(input[consumed..]);
-        return .{
-            .consumed = consumed,
-            .written = written,
-            .close = session.close_asked,
-            .open = session.open_asked,
-            .done = session.closed,
-        };
+        consumed += session.read(carried, input[consumed..]);
+        return .{ .consumed = consumed, .written = written, .done = session.closed };
     }
 
-    /// The socket the pool asked for connected, so the pool starts its connection on it.
-    /// False when chapulin refused the start: the attempt ends, and the caller closes the socket,
-    /// since the pool owes no `close` for a connection that never started.
-    pub fn started(session: *Session) bool {
-        session.pool.start_tcp(session.connection, session.random, session.now_seconds, null) catch return false;
+    /// What the pool asked of `slot`'s socket since the last call, which this call clears.
+    pub fn take_asked(session: *Session, slot: u32) Asked {
+        assert(slot < session.slots);
+        const asked = session.asked[slot];
+        session.asked[slot] = .{};
+        return asked;
+    }
+
+    /// The socket the pool asked for in `slot` connected, so the pool starts its connection on
+    /// it. False when chapulin refused the start: the attempt ends, and the caller closes the
+    /// socket, since the pool owes no `close` for a connection that never started.
+    pub fn started(session: *Session, slot: u32) bool {
+        assert(slot < session.slots);
+        session.pool.start_tcp(session.connections[slot], session.random, session.now_seconds, null) catch return false;
         return true;
     }
 
-    /// Reads events, passing the octets still held each time, until the pool consumes nothing
-    /// and reports nothing.
-    fn read(session: *Session, input: []u8) usize {
+    /// Reads events, passing the octets `slot`'s socket still holds each time, until the pool
+    /// consumes nothing and reports nothing. A null `slot` passes no octets.
+    fn read(session: *Session, slot: ?u32, input: []u8) usize {
         var consumed: usize = 0;
         // Bounded: each pass consumes an octet or reports one of the finitely many events.
-        for (0..input.len + constants.exchanges_max * constants.steps_per_read_max) |_| {
+        for (0..input.len + session.slots * constants.exchanges_max * constants.steps_per_read_max) |_| {
             const held = input[consumed..];
-            const passed: client.Input = if (held.len > 0) .{ .stream = .{ .connection = session.connection, .octets = held } } else .none;
+            const passed: client.Input = if (slot != null and held.len > 0) .{ .stream = .{ .connection = session.connections[slot.?], .octets = held } } else .none;
             const received = session.pool.receive(passed, session.now_ns);
             consumed += received.consumed;
             const reported = received.event orelse {
@@ -159,24 +186,26 @@ pub const Session = struct {
             .closed => session.closed = true,
             .connected => |connected| session.protocol = connected.protocol,
             // The pool holds no receive pool, so it offers TCP alone.
-            .open => |asked| {
-                assert(asked.transport == .tcp);
-                session.connection = asked.connection;
-                session.open_asked = asked.to;
+            .open => |open| {
+                assert(open.transport == .tcp and open.connection.slot < session.slots);
+                session.connections[open.connection.slot] = open.connection;
+                session.asked[open.connection.slot].open = open.to;
+                session.opens += 1;
             },
-            .close => session.asked_close(),
+            .close => |connection| session.asked_close(connection),
             .send => {},
         }
     }
 
-    /// The pool is done with a connection. One whose `open` came in this step never had a
-    /// socket, so the caller opens none for it. Any other is the socket's.
-    fn asked_close(session: *Session) void {
-        if (session.open_asked != null) {
-            session.open_asked = null;
+    /// The pool is done with `connection`. One whose `open` the caller has not taken never had a
+    /// socket, so the caller opens none for it. Any other is its slot's socket.
+    fn asked_close(session: *Session, connection: client.ConnectionHandle) void {
+        const asked = &session.asked[connection.slot];
+        if (asked.open != null and session.connections[connection.slot].generation == connection.generation) {
+            asked.open = null;
             return;
         }
-        session.close_asked = true;
+        asked.close = true;
     }
 
     fn exchange_of(session: *Session, id: client.Id) *Exchange {
@@ -199,11 +228,12 @@ pub const Session = struct {
         return session.exchanges[0..session.exchanges_count];
     }
 
-    /// The socket ended before the pool was done with it: the peer closed it, it failed, or its
-    /// connect failed. In h11 the close ends a body that runs until it (RFC 9112 §6.3 rule 8), and
-    /// every exchange left ends or moves. The next step reads what the pool asks for then.
-    pub fn peer_closed(session: *Session) void {
-        session.pool.transport_closed(session.connection);
+    /// `slot`'s socket ended before the pool was done with it: the peer closed it, it failed, or
+    /// its connect failed. In h11 the close ends a body that runs until it (RFC 9112 §6.3 rule
+    /// 8), and every exchange left ends or moves. The next step reads what the pool asks for then.
+    pub fn peer_closed(session: *Session, slot: u32) void {
+        assert(slot < session.slots);
+        session.pool.transport_closed(session.connections[slot]);
     }
 };
 
@@ -218,6 +248,7 @@ const ServerSession = server_session.SessionOf(1);
 /// The two sessions the tests run, their bodies, and the octets each has written that the other
 /// has not read. Placed outside any stack frame. Test-only.
 var test_client: Session align(@alignOf(Session)) = undefined;
+var test_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
 var test_server: ServerSession align(@alignOf(ServerSession)) = undefined;
 /// Decision 117: the server names no version, and reads it from the client's first octets.
 var test_server_config: server_session.server.Config align(@alignOf(server_session.server.Config)) = .{};
@@ -257,13 +288,14 @@ fn test_run() !u32 {
     var opens: u32 = 0;
     test_close_written = null;
     for (0..test_rounds_max) |round| {
-        const stepped = test_client.step(test_to_client[0..to_client_len], test_to_server[to_server_len..]);
+        const stepped = test_client.step(0, test_to_client[0..to_client_len], test_to_server[to_server_len..]);
         to_client_len = test_drop(&test_to_client, to_client_len, stepped.consumed);
         to_server_len += stepped.written;
-        const opened: u32 = @intFromBool(stepped.open != null);
-        if (opened > 0) try testing.expect(test_client.started());
+        const asked = test_client.take_asked(0);
+        const opened: u32 = @intFromBool(asked.open != null);
+        if (opened > 0) try testing.expect(test_client.started(0));
         opens += opened;
-        if (stepped.close) test_close_written = stepped.written;
+        if (asked.close) test_close_written = stepped.written;
         test_server_now_ns += constants.tick_ns;
         const served = test_server.step(0, test_to_server[0..to_server_len], test_to_client[to_client_len..], test_server_now_ns);
         to_server_len = test_drop(&test_to_server, to_server_len, served.consumed);
@@ -283,7 +315,7 @@ test "h2: every exchange of the plan shares the connection, and content past the
     test_config = .{ .authority = "localhost", .versions = .{ .h11 = false } };
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
     const content_len = 3 * 65_535;
-    try test_client.init(&test_config, test_address, constants.default_port, entropy.random(), 0, &.{
+    try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "POST", .path = "/upload", .content_len = content_len },
     }, &test_bodies);
@@ -305,7 +337,7 @@ test "h11: the exchanges go out in order, and the connection ends after the last
     // Decision 117: the server names no version and reads h11 from the client's first octets.
     try test_start_server();
     test_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
-    try test_client.init(&test_config, test_address, constants.default_port, entropy.random(), 0, &.{
+    try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "GET", .path = "/index.html", .content_len = 0 },
     }, &test_bodies);
@@ -326,17 +358,18 @@ const test_short_response = "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx";
 test "decision 119: one step reads every pipelined h11 response the socket holds" {
     client_exchange.fill_content();
     test_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
-    try test_client.init(&test_config, test_address, constants.default_port, entropy.random(), 0, &(.{test_get} ** test_pipelined), &test_bodies);
+    try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &(.{test_get} ** test_pipelined), &test_bodies);
     // The pool asks for its socket, which connects at once, and its connection writes the
     // requests.
-    try testing.expect(test_client.step(test_to_client[0..0], &test_to_server).open != null);
-    try testing.expect(test_client.started());
-    try testing.expect(test_client.step(test_to_client[0..0], &test_to_server).written > 0);
+    _ = test_client.step(0, test_to_client[0..0], &test_to_server);
+    try testing.expect(test_client.take_asked(0).open != null);
+    try testing.expect(test_client.started(0));
+    try testing.expect(test_client.step(0, test_to_client[0..0], &test_to_server).written > 0);
     // h11 reads a held response only once the one before it ends, so the step passes the octets
     // it still holds after each event.
     const held = test_short_response ** test_pipelined;
     @memcpy(test_to_client[0..held.len], held);
-    const stepped = test_client.step(test_to_client[0..held.len], &test_to_server);
+    const stepped = test_client.step(0, test_to_client[0..held.len], &test_to_server);
     try testing.expectEqual(held.len, stepped.consumed);
     try testing.expect(test_client.succeeded());
 }

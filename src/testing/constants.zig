@@ -140,6 +140,11 @@ pub const user_agent = "colibri";
 /// the whole plan, so a run with several is the same exchanges on several connections.
 pub const client_connections_max: u32 = 64;
 
+/// TCP slots each pool of a client run holds at most, and sockets one run holds at most: each
+/// pool's slots, over every pool (decision 125).
+pub const client_tcp_connections_max: u32 = 16;
+pub const client_sockets_max: u32 = client_connections_max;
+
 /// Most command-line arguments the client reads: its options, and two per exchange.
 pub const client_arguments_max: u32 = 16 + 2 * exchanges_max;
 
@@ -158,6 +163,7 @@ pub const client_ticks_max: u32 = 1 << 20;
 
 comptime {
     assert(exchanges_max > 0 and client_connections_max > 0 and client_ticks_max > 0);
+    assert(client_tcp_connections_max > 0 and client_tcp_connections_max <= client_sockets_max);
     assert(response_content_len_max > h2.constants.frame_size_max);
     // The digits hold the largest length a plan may name.
     assert(std.math.pow(u64, port_radix, content_length_digits_max) > request_content_len_max);

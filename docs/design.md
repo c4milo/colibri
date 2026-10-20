@@ -10376,14 +10376,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `tools/pool_trace.sh`, which has TLC check its logs against the model.
     - 22.7: `set_values`.
     - 22.8: the callers: the simulator's runs, the test-only client, the examples, the consumer
-      and docs/usage.md. The test-only client gains `--connections <n>`.
+      and docs/usage.md. The test-only client gains `--tcp-connections <n>`, each pool's
+      `tcp_connections`, beside `--connections <n>`, which counts its pools.
     - 22.9: the step's entry, the memory table and `tools/ci.sh`.
   - **Check:** a test for each rule of decision 125 with a mutation it catches. The pool trace
     run holds 2 and 3 TCP connections, and TLC checks its logs. The client trace run speaks h2,
     which opens one connection (RFC 9113 §9.1), so its seeds keep one. Each configuration
     of the model states its state count, and the TLA+ section of CI's checks job grows by at most
-    5 minutes. `tools/h11_interop.sh` runs 16 exchanges at once over 16 connections against Go's
-    server. `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
+    5 minutes. `tools/h11_interop.sh` runs 8 exchanges at once over 8 connections against Go's
+    server: 8 is the most a plan of the test-only client holds (`exchanges_max`). `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

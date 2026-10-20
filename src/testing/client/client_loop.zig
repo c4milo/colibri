@@ -9,13 +9,15 @@
 //!
 //! No call here waits but the loop's `tick` (decisions 46 and 58,
 //! https://github.com/c4milo/colibri/issues/61). One thread holds every pool of a run on one
-//! Rotor loop, and each pool holds one socket at a time (`pool_tcp.zig`): a connect, then at
-//! most one receive and one send in flight, and a close at the end. A socket the pool asks for
-//! while its last one closes waits for that close. A slow peer holds up nothing but its own
-//! pool. The one wait that ends a run is `client_wait_ns` with no event.
+//! Rotor loop, and each TCP slot of a pool holds one socket at a time (`pool_tcp.zig`): a
+//! connect, then at most one receive and one send in flight, and a close at the end. A socket the
+//! pool asks for while the slot's last one closes waits for that close. A slow peer holds up
+//! nothing but its own pool. The one wait that ends a run is `client_wait_ns` with no event.
 //!
-//! Nothing here allocates: the loop and every pool and buffer are in static storage sized by
-//! `constants.zig`. Nothing here reads a clock: the timeout is the loop's.
+//! Nothing here allocates: the loop, every socket and buffer, and the memory each pool holds its
+//! TCP connections in are in static storage sized by `constants.zig`. Each pool takes a slice of
+//! that memory as large as `--tcp-connections` needs (decision 35 as amended). Nothing here reads
+//! a clock: the timeout is the loop's.
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -44,20 +46,25 @@ const Failure = enum { none, failed, open_failed, refused_start, timed_out };
 const kind_bits = @bitSizeOf(pool_tcp.Kind);
 
 const loop_options: rotor.Loop.Options = .{
-    .operations = constants.client_connections_max * @typeInfo(pool_tcp.Kind).@"enum".fields.len,
+    .operations = constants.client_sockets_max * @typeInfo(pool_tcp.Kind).@"enum".fields.len,
 };
 
-/// One connection of a run, as the command line counts them: a pool, and the one socket it holds
-/// at a time.
+/// One connection of a run, as the command line counts them: a pool, and a socket for each of
+/// its TCP slots.
 const Connection = struct {
     session: Session,
-    socket: pool_tcp.Socket,
+    /// The sockets of the pool's slots, slot 0 first, in `sockets`.
+    sockets: []pool_tcp.Socket,
     failure: Failure,
 
-    /// Whether the pool or its socket still has something to do.
+    /// Whether the pool or one of its sockets still has something to do.
     fn running(connection: *const Connection) bool {
         if (connection.failure == .refused_start) return false;
-        return !connection.session.closed or connection.socket.state != .idle;
+        if (!connection.session.closed) return true;
+        for (connection.sockets) |*socket| {
+            if (socket.state != .idle) return true;
+        }
+        return false;
     }
 
     /// Whether the pool closed with every exchange answered, and every socket it opened ended
@@ -75,6 +82,12 @@ var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_al
 var loop: rotor.Loop align(@alignOf(rotor.Loop)) = undefined;
 var events: [loop_options.operations]rotor.Event align(@alignOf(rotor.Event)) = undefined;
 var connections: [constants.client_connections_max]Connection align(@alignOf(Connection)) = undefined;
+var sockets: [constants.client_sockets_max]pool_tcp.Socket align(@alignOf(pool_tcp.Socket)) = undefined;
+/// The memory every pool of the run holds its TCP connections and its exchanges in, a slice of it
+/// each. A run that holds fewer pools gives each more.
+var pool_memory: [client_options.pool_memory_len]u8 align(client.Pool.memory_alignment) = undefined;
+/// The TCP slots each pool of the run holds, which maps a socket's index to its pool and slot.
+var slots_per_pool: u32 = 1;
 /// The response content of every exchange of every connection. Most of it is never touched, so
 /// the system gives it no memory.
 var bodies: [constants.client_connections_max]client_session.Bodies align(@alignOf(client_session.Bodies)) = undefined;
@@ -101,6 +114,7 @@ fn run_connections(run: *const Run) !u32 {
     assert(run.plans_count > 0);
     try loop.init(&loop_memory, loop_options);
     defer loop.deinit();
+    slots_per_pool = run.tcp_connections;
     const live = connections[0..run.connections_count];
     for (live, 0..) |*connection, index| start_connection(connection, index, run);
     for (0..constants.client_ticks_max) |_| {
@@ -111,9 +125,11 @@ fn run_connections(run: *const Run) !u32 {
     for (live) |*connection| {
         if (connection.failure == .refused_start) continue;
         if (connection.running()) connection.failure = .timed_out;
-        connection.socket.close_now(&loop);
-        // The pool wipes its TLS session's secrets, whether its connection finished or not.
-        connection.session.peer_closed();
+        for (connection.sockets, 0..) |*socket, slot| {
+            socket.close_now(&loop);
+            // The pool wipes its TLS session's secrets, whether its connection finished or not.
+            connection.session.peer_closed(@intCast(slot));
+        }
     }
     loop.cancel_all();
     try loop.drain(&events);
@@ -138,74 +154,101 @@ fn turn(live: []Connection) !bool {
 /// asks for its first socket at once.
 fn start_connection(connection: *Connection, index: usize, run: *const Run) void {
     connection.failure = .none;
-    connection.socket.init(@as(u64, index) << kind_bits);
+    const slots = run.tcp_connections;
+    connection.sockets = sockets[index * slots ..][0..slots];
+    for (connection.sockets, index * slots..) |*socket, socket_index| socket.init(@as(u64, socket_index) << kind_bits);
     const plans = run.plans[0..run.plans_count];
     const address = client.Address.of(&run.address, 0);
-    connection.session.init(&pool_config, address, run.port, entropy.random(), run.now_seconds, plans, &bodies[index]) catch {
+    const options = client_options.pool_options(run);
+    connection.session.init(memory_of(index, options), options, &pool_config, address, run.port, entropy.random(), run.now_seconds, plans, &bodies[index]) catch {
         connection.failure = .refused_start;
         return;
     };
     step_session(connection);
 }
 
+/// The slice of `pool_memory` that pool `index` of a run of `options` holds.
+fn memory_of(index: usize, options: client.Options) []align(client.Pool.memory_alignment) u8 {
+    const len = std.mem.alignForward(usize, client.Pool.memory_bytes(options), client.Pool.memory_alignment);
+    // `client_options.slots_ok` admits no run whose pools need more.
+    assert((index + 1) * len <= pool_memory.len);
+    return @alignCast(pool_memory[index * len ..][0..len]);
+}
+
 fn on_event(live: []Connection, event: rotor.Event) void {
-    const connection = &live[@intCast(event.user_data >> kind_bits)];
-    on_happened(connection, connection.socket.on_event(&loop, event));
+    const socket_index: u32 = @intCast(event.user_data >> kind_bits);
+    const connection = &live[socket_index / slots_per_pool];
+    const slot = socket_index % slots_per_pool;
+    on_happened(connection, slot, connection.sockets[slot].on_event(&loop, event));
     step_session(connection);
 }
 
-/// Tells the pool what a socket's event meant.
-fn on_happened(connection: *Connection, happened: pool_tcp.Happened) void {
+/// Tells the pool what the event of `slot`'s socket meant.
+fn on_happened(connection: *Connection, slot: u32, happened: pool_tcp.Happened) void {
     switch (happened) {
         .none => {},
         // A start chapulin refuses ends the attempt, and the pool owes no `close` event for a
         // connection that never started, so the socket closes here.
-        .connected => if (!connection.session.started()) connection.socket.close(&loop),
-        .failed => socket_ended(connection, .failed),
-        .open_failed => socket_ended(connection, .open_failed),
+        .connected => if (!connection.session.started(slot)) connection.sockets[slot].close(&loop),
+        .failed => socket_ended(connection, slot, .failed),
+        .open_failed => socket_ended(connection, slot, .open_failed),
     }
 }
 
-/// The socket ended before the pool was done with it, which the pool hears. In h11 a peer's
+/// `slot`'s socket ended before the pool was done with it, which the pool hears. In h11 a peer's
 /// close may end a response, so it is a failure only if the run fails.
-fn socket_ended(connection: *Connection, failure: Failure) void {
+fn socket_ended(connection: *Connection, slot: u32, failure: Failure) void {
     connection.failure = failure;
-    connection.session.peer_closed();
+    connection.session.peer_closed(slot);
 }
 
-/// Steps the pool until it stops moving, then hands the socket its receive and its send.
+/// Steps the pool until it stops moving, then hands each socket its receive and its send.
 fn step_session(connection: *Connection) void {
     // Bounded: each pass reads, writes or does what the pool asked, or stops.
     for (0..constants.steps_per_read_max) |_| {
         if (!step_once(connection)) break;
     }
-    connection.socket.arm(&loop);
+    for (connection.sockets) |*socket| socket.arm(&loop);
 }
 
-/// Steps the pool once, and does what it asked of the socket: the close first, then the open.
-/// The step passes the octets the socket read and the room it has, while it carries the pool's
-/// connection. Returns whether anything moved.
+/// Steps the pool once with no socket's octets, then once for each socket that carries a
+/// connection, and does what the pool asked of each socket: the close first, then the open.
+/// Returns whether anything moved.
 fn step_once(connection: *Connection) bool {
-    const socket = &connection.socket;
     var none: [0]u8 = .{};
-    const carrying = socket.carrying();
-    const room = if (carrying) socket.room() else none[0..];
-    // A full output waits for the send in flight, whose event steps the pool again.
-    if (carrying and room.len == 0) return false;
-    const step = connection.session.step(if (carrying) socket.unread() else none[0..], room);
-    if (carrying) {
-        socket.consume(step.consumed);
-        socket.wrote(step.written);
-    }
-    assert(carrying or step.consumed + step.written == 0);
-    if (step.close) socket.close(&loop);
-    if (step.open) |to| open_socket(connection, to);
-    return step.consumed + step.written > 0 or step.close or step.open != null;
+    // What the pool owes of its own: its first `open`, and what a socket's event changed.
+    _ = connection.session.step(null, none[0..], none[0..]);
+    var moved = false;
+    for (0..connection.sockets.len) |slot| moved = step_slot(connection, @intCast(slot)) or moved;
+    for (0..connection.sockets.len) |slot| moved = do_asked(connection, @intCast(slot)) or moved;
+    return moved;
 }
 
-/// Opens the socket the pool asked for, or tells the pool the system gave none.
-fn open_socket(connection: *Connection, to: client.Address) void {
-    if (!connection.socket.open(&loop, rotor_address(to))) socket_ended(connection, .open_failed);
+/// Steps the pool with the octets `slot`'s socket read and the room it has, while it carries the
+/// slot's connection. Returns whether the step read or wrote an octet.
+fn step_slot(connection: *Connection, slot: u32) bool {
+    const socket = &connection.sockets[slot];
+    if (!socket.carrying()) return false;
+    const room = socket.room();
+    // A full output waits for the send in flight, whose event steps the pool again.
+    if (room.len == 0) return false;
+    const step = connection.session.step(slot, socket.unread(), room);
+    socket.consume(step.consumed);
+    socket.wrote(step.written);
+    return step.consumed + step.written > 0;
+}
+
+/// Does what the pool asked of `slot`'s socket. Returns whether it asked anything.
+fn do_asked(connection: *Connection, slot: u32) bool {
+    const asked = connection.session.take_asked(slot);
+    if (asked.close) connection.sockets[slot].close(&loop);
+    if (asked.open) |to| open_socket(connection, slot, to);
+    return asked.close or asked.open != null;
+}
+
+/// Opens the socket the pool asked for in `slot`, or tells the pool the system gave none.
+fn open_socket(connection: *Connection, slot: u32, to: client.Address) void {
+    if (!connection.sockets[slot].open(&loop, rotor_address(to))) socket_ended(connection, slot, .open_failed);
 }
 
 /// The socket address the pool named, in Rotor's form: IPv4, the one family the command line
@@ -226,6 +269,11 @@ fn report(run: *const Run, succeeded: u32) void {
         if (!connection.succeeded()) {
             std.debug.print("connection={d} failure={t} succeeded={}\n", .{ index, connection.failure, session.succeeded() });
         }
+    }
+    if (run.tcp_connections > 1) {
+        var opens: u32 = 0;
+        for (connections[0..run.connections_count]) |*connection| opens += connection.session.opens;
+        std.debug.print("http-client: tcp_connections={d} opens={d}\n", .{ run.tcp_connections, opens });
     }
     std.debug.print("http-client: connections={d} succeeded={d} failed={d}\n", .{
         run.connections_count, succeeded, run.connections_count - succeeded,
@@ -322,11 +370,14 @@ fn test_connection() !*Connection {
     pool_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
     const connection = &connections[0];
     connection.failure = .none;
-    connection.socket.init(0);
+    slots_per_pool = 1;
+    connection.sockets = sockets[0..1];
+    connection.sockets[0].init(0);
     const address = client.Address.of(&test_octets, 0);
-    try connection.session.init(&pool_config, address, constants.default_port, entropy.random(), 0, &test_plan, &bodies[0]);
+    try connection.session.init(memory_of(0, .{}), .{}, &pool_config, address, constants.default_port, entropy.random(), 0, &test_plan, &bodies[0]);
     var none: [0]u8 = .{};
-    try testing.expect(connection.session.step(&none, &none).open != null);
+    _ = connection.session.step(null, &none, &none);
+    try testing.expect(connection.session.take_asked(0).open != null);
     return connection;
 }
 
@@ -334,7 +385,7 @@ fn test_connection() !*Connection {
 /// it has not written: the test reads `connected` from the pool with no send. Test-only.
 fn test_carrying() !*Connection {
     const connection = try test_connection();
-    try testing.expect(connection.session.started());
+    try testing.expect(connection.session.started(0));
     // In cleartext the connection reports `connected`, and the pool hands it the exchange.
     const reported = connection.session.pool.receive(.none, 0).event orelse return error.TestUnexpectedResult;
     try testing.expect(reported == .connected);
@@ -343,20 +394,21 @@ fn test_carrying() !*Connection {
 
 test "a socket that fails before its pool is done tells the pool, which asks for another" {
     const connection = try test_carrying();
-    on_happened(connection, .failed);
+    on_happened(connection, 0, .failed);
     try testing.expectEqual(Failure.failed, connection.failure);
     // RFC 9113 §8.7: the request was never written, so it moves to another connection, and the
     // pool asks for a socket to carry it.
     var none: [0]u8 = .{};
-    try testing.expect(connection.session.step(&none, &none).open != null);
+    _ = connection.session.step(null, &none, &none);
+    try testing.expect(connection.session.take_asked(0).open != null);
 }
 
 test "a socket the system never gave ends the pool's attempt, and the exchange with it" {
     const connection = try test_connection();
-    on_happened(connection, .open_failed);
+    on_happened(connection, 0, .open_failed);
     var none: [0]u8 = .{};
-    const stepped = connection.session.step(&none, &none);
-    try testing.expect(stepped.done and stepped.open == null);
+    const stepped = connection.session.step(null, &none, &none);
+    try testing.expect(stepped.done and connection.session.take_asked(0).open == null);
     try testing.expectEqual(.refused, connection.session.exchanges[0].response.outcome);
 }
 
@@ -364,10 +416,10 @@ test "a socket the pool asks for while its last one closes waits for that close"
     try loop.init(&loop_memory, loop_options);
     defer loop.deinit();
     const connection = try test_carrying();
-    on_happened(connection, .failed);
+    on_happened(connection, 0, .failed);
     // The socket that failed is closing, and its close's event has not arrived.
-    connection.socket.state = .closing;
+    connection.sockets[0].state = .closing;
     try testing.expect(step_once(connection));
-    try testing.expectEqual(.closing, connection.socket.state);
-    try testing.expect(connection.socket.open_pending != null);
+    try testing.expectEqual(.closing, connection.sockets[0].state);
+    try testing.expect(connection.sockets[0].open_pending != null);
 }

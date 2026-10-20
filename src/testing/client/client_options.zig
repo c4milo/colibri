@@ -1,7 +1,8 @@
 //! The command line of the test-only client (`client_loop.zig`): where it connects, how many
-//! connections it opens, each a `client.Pool`, and the plan of exchanges every one of them runs.
-//! Split off the loop for length.
+//! connections it opens, each a `client.Pool`, how many TCP connections each pool holds, and the
+//! plan of exchanges every one of them runs. Split off the loop for length.
 const std = @import("std");
+const client = @import("client");
 const constants = @import("../constants.zig");
 const client_exchange = @import("client_exchange.zig");
 const alpn = @import("../alpn.zig");
@@ -15,6 +16,9 @@ pub const Run = struct {
     port: u16,
     authority: []const u8,
     connections_count: u32,
+    /// The TCP connections each pool holds at most: `--tcp-connections` (decision 125). An h11
+    /// connection carries one exchange at a time, so a plan of several exchanges opens several.
+    tcp_connections: u32,
     plans: [constants.exchanges_max]Plan,
     plans_count: u32,
     /// The prefix of the root's files, which turns the TLS mode on.
@@ -40,6 +44,16 @@ pub const Run = struct {
 /// How many octets an IPv4 address has (RFC 791 §3.1).
 pub const ipv4_octets: usize = 4;
 
+/// The octets of every pool's memory in a run: a pool of one TCP connection for each socket the
+/// run may hold. Each TCP connection of a pool adds the same octets, so a run whose sockets fit
+/// fits this memory too.
+pub const pool_memory_len: usize = constants.client_sockets_max * client.Pool.memory_bytes(.{});
+
+/// The options of each pool of `run`.
+pub fn pool_options(run: *const Run) client.Options {
+    return .{ .tcp_connections = @intCast(run.tcp_connections) };
+}
+
 /// The address a run connects to unless `--address` names another: the loopback, which RFC 1122
 /// §3.2.1.3 reserves for the local host.
 const loopback_octets = [ipv4_octets]u8{ loopback_first, 0, 0, 1 };
@@ -49,7 +63,8 @@ pub const usage =
     \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
     \\                 [--h11] [--coded] [--tls <anchor-prefix> --seconds <unix-seconds>]
     \\                 [--pool [--fallback-ms <milliseconds>]]
-    \\                 [--connections <count>] (--get <path> | --post <path> <octets>)...
+    \\                 [--connections <count>] [--tcp-connections <count>]
+    \\                 (--get <path> | --post <path> <octets>)...
     \\
 ;
 
@@ -61,6 +76,7 @@ pub fn read_run(arguments: anytype) ?Run {
         .port = constants.default_port,
         .authority = "localhost",
         .connections_count = 1,
+        .tcp_connections = 1,
         .plans = undefined,
         .plans_count = 0,
         .anchor_prefix = null,
@@ -84,8 +100,14 @@ fn run_ok(run: *const Run) bool {
     const connections_ok = run.connections_count > 0 and run.connections_count <= constants.client_connections_max;
     // A webpki chain is valid only at an instant, so the TLS mode needs one.
     const tls_ok = run.anchor_prefix == null or run.now_seconds > 0;
-    const pool_ok = !run.pool or (run.anchor_prefix != null and run.connections_count == 1);
-    return run.plans_count > 0 and connections_ok and tls_ok and pool_ok;
+    const pool_ok = !run.pool or (run.anchor_prefix != null and run.connections_count == 1 and run.tcp_connections == 1);
+    return run.plans_count > 0 and connections_ok and tls_ok and pool_ok and slots_ok(run);
+}
+
+/// Whether the run's pools fit the sockets a run holds.
+fn slots_ok(run: *const Run) bool {
+    if (run.tcp_connections == 0 or run.tcp_connections > constants.client_tcp_connections_max) return false;
+    return run.connections_count * run.tcp_connections <= constants.client_sockets_max;
 }
 
 /// Applies an option that takes no value, or returns false when `option` is not one.
@@ -121,14 +143,13 @@ fn read_option(run: *Run, option: []const u8, value: []const u8, arguments: anyt
 /// Applies one option that sets how the run connects, or returns null when it is not one.
 fn read_setting(run: *Run, option: []const u8, value: []const u8) ?void {
     const eql = std.mem.eql;
+    if (eql(u8, option, "--connections") or eql(u8, option, "--tcp-connections")) return read_count(run, option, value);
     if (eql(u8, option, "--address")) {
         run.address = read_address(value) orelse return null;
     } else if (eql(u8, option, "--authority")) {
         run.authority = value;
     } else if (eql(u8, option, "--port")) {
         run.port = std.math.cast(u16, read_number(value) orelse return null) orelse return null;
-    } else if (eql(u8, option, "--connections")) {
-        run.connections_count = read_number(value) orelse return null;
     } else if (eql(u8, option, "--tls")) {
         run.anchor_prefix = value;
     } else if (eql(u8, option, "--seconds")) {
@@ -136,6 +157,17 @@ fn read_setting(run: *Run, option: []const u8, value: []const u8) ?void {
     } else if (eql(u8, option, "--fallback-ms")) {
         run.fallback_delay_ns = @as(u64, read_number(value) orelse return null) * constants.nanoseconds_per_millisecond;
     } else return null;
+}
+
+/// Applies `--connections` or `--tcp-connections`, or returns null when its value is not a
+/// number.
+fn read_count(run: *Run, option: []const u8, value: []const u8) ?void {
+    const count = read_number(value) orelse return null;
+    if (std.mem.eql(u8, option, "--connections")) {
+        run.connections_count = count;
+    } else {
+        run.tcp_connections = count;
+    }
 }
 
 /// An IPv4 address from the command line, or null when it is not one.
@@ -190,4 +222,19 @@ test "--fallback-ms sets how long QUIC's handshake runs before TCP opens" {
     const run = test_read(&([_][]const u8{ "--pool", "--fallback-ms", "40" } ++ test_tls)).?;
     try testing.expectEqual(40 * constants.nanoseconds_per_millisecond, run.fallback_delay_ns);
     try testing.expect(test_read(&([_][]const u8{ "--pool", "--fallback-ms", "soon" } ++ test_tls)) == null);
+}
+
+test "decision 125: --tcp-connections sets each pool's TCP slots, within the sockets of a run" {
+    const one = test_read(&[_][]const u8{ "--get", "/" }).?;
+    try testing.expectEqual(1, one.tcp_connections);
+    const many = test_read(&[_][]const u8{ "--tcp-connections", "8", "--get", "/" }).?;
+    try testing.expectEqual(8, pool_options(&many).tcp_connections);
+    try testing.expect(test_read(&[_][]const u8{ "--tcp-connections", "0", "--get", "/" }) == null);
+    try testing.expect(test_read(&[_][]const u8{ "--tcp-connections", "17", "--get", "/" }) == null);
+    // 4 pools of 16 slots hold every socket a run holds, and 5 hold more.
+    const full = test_read(&[_][]const u8{ "--connections", "4", "--tcp-connections", "16", "--get", "/" }).?;
+    try testing.expect(full.connections_count * client.Pool.memory_bytes(pool_options(&full)) <= pool_memory_len);
+    try testing.expect(test_read(&[_][]const u8{ "--connections", "5", "--tcp-connections", "16", "--get", "/" }) == null);
+    // `--pool` holds one TCP connection.
+    try testing.expect(test_read(&([_][]const u8{ "--pool", "--tcp-connections", "2" } ++ test_tls)) == null);
 }

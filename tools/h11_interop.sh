@@ -10,7 +10,8 @@
 # gets h11 by the server's selection (RFC 7301 §3.2). h2o offers both and prefers h2, so the
 # client offers "http/1.1" alone with --h11. Every exchange must report protocol=h11. With --tls a
 # client that reads a record that does not authenticate after the handshake must answer
-# bad_record_mac.
+# bad_record_mac. Against Go, one pool of several TCP connections carries several exchanges at
+# once, and must open a connection for each (decision 125).
 #
 # Usage: tools/h11_interop.sh [--tls] [go] [h2o] [caddy]
 #        (no peer runs all three)
@@ -31,6 +32,9 @@ readonly listen_wait_seconds=30
 # Seconds one peer of each run waits before it binds its port, so a run that took the published
 # host port for the peer's own would connect too early, every time (`wait_for_container`).
 readonly late_bind_seconds=2
+# Exchanges one pool carries at once, each on a TCP connection of its own: the most a plan of the
+# client holds (`exchanges_max` in src/testing/constants.zig).
+readonly slots_count=8
 
 fail() {
   echo "h11_interop.sh: $*" >&2
@@ -117,6 +121,7 @@ run_go() {
   start_go
   mode_arguments=(--h11)
   plan_go
+  plan_go_slots
   start_go -gzip
   plan_go_coded
   if [ -n "${tls}" ]; then
@@ -124,6 +129,7 @@ run_go() {
     start_go "${identity}"
     mode_arguments=(--tls "${identity}" --seconds "$(date +%s)")
     plan_go
+    plan_go_slots
     start_go -gzip "${identity}"
     plan_go_coded
     forge_record
@@ -178,6 +184,22 @@ plan_go() {
   # RFC 9112 §7.1.2: the content, then a trailer section, in the chunked coding.
   expect /trailers "status=200 interim=0 sent=0 sent_crc32=0x00000000 received=8"
   expect /missing "status=404"
+}
+
+# Decision 125: one pool of ${slots_count} TCP connections takes ${slots_count} GETs at once. h11
+# carries one exchange at a time on a connection, so the pool opens a connection for each.
+plan_go_slots() {
+  local gets=() index output
+  for index in $(seq 1 "${slots_count}"); do gets+=(--get /); done
+  output="$("${client}" --port "${peer_port}" --tcp-connections "${slots_count}" \
+    ${mode_arguments[@]+"${mode_arguments[@]}"} "${gets[@]}" 2>&1)" ||
+    { echo "${output}"; fail "${slots_count} exchanges over ${slots_count} connections failed"; }
+  ! grep -qE " protocol=(h2|none) " <<<"${output}" || fail "an exchange ran over h2, or never connected"
+  grep -qx "http-client: tcp_connections=${slots_count} opens=${slots_count}" <<<"${output}" ||
+    { echo "${output}"; fail "the pool did not open a connection for each exchange"; }
+  [ "$(tail -1 <<<"${output}")" = "http-client: connections=1 succeeded=1 failed=0" ] ||
+    { echo "${output}"; fail "an exchange over ${slots_count} connections did not succeed"; }
+  echo "h11_interop.sh: ${slots_count} exchanges at once over ${slots_count} connections"
 }
 
 # Decision 101: the client offers gzip and deflate, Go's server with -gzip codes each answer in
