@@ -27,9 +27,6 @@ pub fn owes_octets(connection: *Connection) bool {
     // asks after a `receive`, which writes it.
     if (connection.output_len > 0) return true;
     if (protocol_pending(connection)) return true;
-    // RFC 9846 §4.7.3: a KeyUpdate's reply goes out "prior to sending its next Application Data
-    // record".
-    if (connection.config.tls != null and handshake_owed(connection)) return true;
     if (connection_coding.ring_owed(connection)) return true;
     // RFC 9846 §6.1: "Each party MUST send a "close_notify" alert before closing its write side".
     return connection.config.tls != null and !connection.close_sent and connection_close.finished(connection);
@@ -57,7 +54,9 @@ pub fn record_failed(connection: *const Connection) bool {
     };
 }
 
-/// Whether the TLS provider owes handshake octets: a KeyUpdate's reply, or the alert of a failure.
+/// Whether the TLS provider owes handshake octets: the alert of a failure (RFC 9846 §6). The
+/// provider writes the answer to a KeyUpdate only in front of the next record of data (RFC 9846
+/// §4.7.3).
 fn handshake_owed(connection: *const Connection) bool {
     return switch (connection.session) {
         .h2 => connection.session.h2.handshake_owed,

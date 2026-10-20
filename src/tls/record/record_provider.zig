@@ -2,32 +2,32 @@
 //! h2 and h11 make on a connection's records, written once for both roles, because chapulin's
 //! client and server sessions answer the same record calls (`read`, `write`, `close`).
 //!
-//! chapulin's `read` opens one whole record and answers a KeyUpdate itself, into a reply this file
-//! keeps until `handshake_write` hands it over: RFC 9846 §4.7.3's answer is protected under the
-//! keys it replaces, so it goes out before any record sealed after it. A NewSessionTicket and a
-//! KeyUpdate produce no plaintext, and RFC 9113 §9.2.3 permits both after the handshake.
+//! chapulin's `read` opens one whole record. A KeyUpdate that asks for an answer leaves the answer
+//! owed in chapulin's session. chapulin's `write` sends it in front of the next record of data.
+//! RFC 9846 §4.7.3 requires the keys that the answer replaces to protect it. One answer serves
+//! every KeyUpdate that asked, read since the last answer (chapulin's decision 138). A NewSessionTicket and a KeyUpdate
+//! produce no plaintext, and RFC 9113 §9.2.3 permits both after the handshake.
 //!
 //! Each vtable member is a one-line call into a function below that takes the role's session
 //! as `anytype`: a `Client` or a `Server` of `record.zig`, each with `session` and `state`.
 const std = @import("std");
+const assert = std.debug.assert;
 const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin_tcp");
-const constants = @import("../constants.zig");
 
 const c = chapulin.c;
 const provider_module = tls_provider.provider;
 
-/// Room for what one `read` sends: `key_update_replies_max` KeyUpdate answers, and the alert a
-/// failed read raises.
-pub const owed_len_max = chapulin.record.key_update_record_len * constants.key_update_replies_max +
-    chapulin.record.alert_record_len;
+/// Room for what a `read` sends: the alert a failed read raises (RFC 9846 §6). chapulin's `write`
+/// sends the answer to a KeyUpdate, so a `read` sends nothing else.
+pub const owed_len_max = chapulin.record.alert_record_len;
 
 /// RFC 9846 §4.3.1: chapulin speaks TLS 1.3 and nothing else.
 const tls_1_3 = tls_provider.constants.version_tls_1_3;
 
 /// What the provider keeps beside chapulin's session.
 pub const State = struct {
-    /// What chapulin sent from inside `read`, which `handshake_write` hands over whole.
+    /// The alert chapulin sent from inside a failed `read`, which `handshake_write` writes whole.
     owed: [owed_len_max]u8 = undefined,
     owed_len: usize = 0,
     /// The peer's close_notify, which `take_alert` reports once (RFC 9846 §6.1).
@@ -114,14 +114,15 @@ fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) provider_
     return 0;
 }
 
-/// chapulin has no call that starts a record-mode KeyUpdate, and answers the peer's itself.
+/// chapulin has no call that starts a record-mode KeyUpdate. Its `write` answers the peer's.
 fn initiate_key_update(context: *anyopaque, request: provider_module.KeyUpdateRequest, output: []u8) provider_module.KeyUpdateError!usize {
     _ = .{ context, request, output };
     // RFC 9846 §4.7.3: a KeyUpdate this side starts, which chapulin's record mode sends none of.
     return error.Unsupported;
 }
 
-/// What chapulin sent from inside `read`, whole, or nothing when `output` cannot hold it.
+/// The alert chapulin sent from inside a failed `read`, whole, or nothing when `output` cannot
+/// hold it.
 fn hand_over(state: *State, output: []u8) provider_module.HandshakeWriteError!usize {
     if (state.owed_len > output.len) return error.NoSpaceLeft;
     const written = state.owed_len;
@@ -131,7 +132,9 @@ fn hand_over(state: *State, output: []u8) provider_module.HandshakeWriteError!us
 }
 
 /// Seals as much of `plaintext` as `output` holds (RFC 9846 §5.2). chapulin's `write` is all or
-/// nothing, so this asks it for what fits.
+/// nothing, so this asks it for what fits. What fits leaves room for the KeyUpdate that chapulin
+/// owes the peer, which `write` sends first (RFC 9846 §4.7.3). Empty plaintext writes nothing, and
+/// the answer stays owed.
 fn seal(role: anytype, plaintext: []const u8, output: []u8) provider_module.SealError!provider_module.Sealed {
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
     const fits = @min(plaintext.len, role.session.writableLen(output.len));
@@ -151,22 +154,27 @@ fn open(role: anytype, input: []const u8, plaintext: []u8) provider_module.OpenE
     // that long holds all of it and chapulin keeps none back.
     if (plaintext.len < whole - tls_provider.constants.record_header_len) return error.NoSpaceLeft;
     const state = &role.state;
-    const read = role.session.read(input, plaintext, state.owed[state.owed_len..]) catch {
+    // A failed read ends the session, and h2 and h11 read no record after one, so nothing is owed.
+    assert(state.owed_len == 0);
+    const read = role.session.read(input, plaintext, &state.owed) catch {
         // The alert a failed read raised is owed to the peer (RFC 9846 §6).
-        state.owed_len += role.session.replyLen();
-        // RFC 9846 §6.2: an error alert ends the connection.
+        state.owed_len = role.session.replyLen();
+        // RFC 9846 §6.2: an error alert ends the connection. chapulin's `KeyUpdateLimit`, a run of
+        // KeyUpdates past `CH_KEY_UPDATE_RUN_MAX`, ends it too, with unexpected_message.
         return error.TlsFailed;
     };
-    state.owed_len += read.reply_len;
+    // chapulin's `read` sends nothing into `reply` when it succeeds: the answer to a KeyUpdate
+    // waits for `write`.
+    assert(read.reply_len == 0);
     if (read.pt_len > 0) return .{ .consumed = read.consumed, .plaintext_len = read.pt_len, .content = .application_data };
     // RFC 9846 §6.1: chapulin answers 0 for the peer's close_notify.
     if (read.peer_closed) {
         state.pending_alert = .{ .description = .close_notify, .origin = .peer };
         return .{ .consumed = read.consumed, .plaintext_len = 0, .content = .alert };
     }
-    // RFC 9846 §4.7.3: a record that made chapulin answer held a KeyUpdate that asked.
-    const content: tls_provider.Content = if (read.reply_len > 0) .key_update else .new_session_ticket;
-    return .{ .consumed = read.consumed, .plaintext_len = 0, .content = content };
+    // RFC 9846 §4.7.1 and §4.7.3: a NewSessionTicket or a KeyUpdate, or an empty record of
+    // application data (§5.1).
+    return .{ .consumed = read.consumed, .plaintext_len = 0, .content = .without_data };
 }
 
 /// RFC 7301 §3.1: what the handshake selected, from the list the configuration offered.

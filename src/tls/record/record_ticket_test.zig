@@ -17,7 +17,7 @@ fn ticket_after_handshake(resumption: ?values.Resumption) !?values.Ticket {
     try support.handshake_both(resumption);
     const receiver = client.provider();
     const opened = try receiver.vtable.decrypt_record(receiver.context, to_client.held(), scratch);
-    try testing.expectEqual(tls_provider.Content.new_session_ticket, opened.content);
+    try testing.expectEqual(tls_provider.Content.without_data, opened.content);
     return client.take_ticket();
 }
 

@@ -30,11 +30,6 @@ pub const server_name_len_max: usize = 255;
 /// eight intermediates, and the owner set this on 2026-09-26 with room past it.
 pub const certificate_chain_len_max: usize = 16;
 
-/// KeyUpdate answers one record may owe (RFC 9846 §4.7.3). A peer that asks for more in one record
-/// than this fails the read, and with it the connection, which is the fail-closed answer to a
-/// record no honest peer sends.
-pub const key_update_replies_max: usize = 2;
-
 /// Cipher suites a server may name in its order: the three colibri admits (decision 45).
 pub const cipher_suites_max: usize = 3;
 
@@ -70,7 +65,7 @@ pub const server_key_len: usize = 32;
 comptime {
     assert(receive_len > (1 << 14) + 256);
     assert(server_name_len_max > 0 and certificate_chain_len_max > 0);
-    assert(key_update_replies_max > 0 and cipher_suites_max > 0);
+    assert(cipher_suites_max > 0);
     assert(ticket_psk_len_max >= sha256_len);
     assert(crypto_out_len > 0 and transport_parameters_len_max > 0);
 }

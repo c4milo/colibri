@@ -170,8 +170,9 @@ pub const Connection = struct {
     /// Records in a row that carried no application data. The peer chooses how many it sends, so
     /// the run is bounded (`core.constants.records_without_data_max`).
     records_without_data: u32,
-    /// Whether a KeyUpdate may have left the provider owing its reply (RFC 9846 §4.7.3), which
-    /// `connection_tls.encrypt` writes first.
+    /// Whether the provider may owe the alert of a failure (RFC 9846 §6), which
+    /// `connection_tls.encrypt` writes once. The answer to a KeyUpdate is the provider's (RFC 9846
+    /// §4.7.3).
     handshake_owed: bool,
     /// Whether the peer's `close_notify` arrived (RFC 9846 §6.1). Over TLS it alone ends a body
     /// that runs until the close (RFC 9112 §9.8).

@@ -178,7 +178,7 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a st
     // The ticket rides a record after the handshake, which the client opens.
     const receiver = client.provider();
     const opened = try receiver.vtable.decrypt_record(receiver.context, to_client.held(), scratch);
-    try testing.expectEqual(tls_provider.Content.new_session_ticket, opened.content);
+    try testing.expectEqual(tls_provider.Content.without_data, opened.content);
     var ticket = client.take_ticket().?;
     defer ticket.wipe();
     try testing.expectEqual(null, client.take_ticket());

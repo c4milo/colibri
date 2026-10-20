@@ -136,7 +136,7 @@ pub const stream_input_len_min: usize = @max(h11.constants.head_len_max, @max(fr
 /// The least `output` with which `send_stream` writes some of what the TCP connection owes, when
 /// it owes octets (decision 124). In cleartext, one octet is enough: `send_stream` copies any part
 /// of what h11 and h2 wrote. Over TLS, a provider writes whole records: the records that hold the
-/// protocol's octets, an alert, and the reply to a KeyUpdate. A provider never refuses an output of
+/// protocol's octets, an alert, and the answer to a KeyUpdate. A provider never refuses an output of
 /// `tls_provider.constants.record_write_len_min` octets, which holds the largest record (RFC 9846
 /// §5.2). It may refuse a shorter output. chapulin seals a shorter record into a shorter output,
 /// but the client keeps to what every provider promises.

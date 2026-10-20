@@ -23,16 +23,30 @@ pub const handshake_key_update: u8 = 24;
 pub const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, 1 };
 pub const key_update_not_requested = [_]u8{ handshake_key_update, 0, 0, 1, 0 };
 
-/// Room for one owed reply, as a record.
-const owed_len_max: usize = header_len + key_update_not_requested.len;
+/// RFC 9846 §6: the fatal alert the provider sends when a run of KeyUpdates passes its limit.
+const alert_level_fatal: u8 = 2;
+const unexpected_message = [_]u8{ alert_level_fatal, @intFromEnum(tls_provider.Alert.unexpected_message) };
+
+/// Room for the alert of a failure, as a record.
+const owed_len_max: usize = header_len + unexpected_message.len;
+
+/// KeyUpdates in a row the provider reads, chapulin's `CH_KEY_UPDATE_RUN_MAX`. Only a record of
+/// one octet of data or more ends a run.
+pub const key_update_run_max: u32 = 16;
 
 pub const PlainProvider = struct {
     /// The protocol the handshake selected (RFC 7301 §3.2).
     alpn: []const u8,
-    /// The reply a KeyUpdate that asked for one left owed (RFC 9846 §4.7.3).
+    /// The alert of a failure, which `handshake_write` writes (RFC 9846 §6).
     owed: [owed_len_max]u8 = undefined,
     owed_len: usize = 0,
-    /// The peer's close_notify, which `take_alert` reports once.
+    /// KeyUpdates read since the last record of data, as chapulin counts them.
+    key_updates: u32 = 0,
+    /// Whether a KeyUpdate asked for an answer that `encrypt_record` has not written yet (RFC 9846
+    /// §4.7.3). One answer serves every request read before it, as chapulin's does.
+    answer_owed: bool = false,
+    /// The peer's close_notify, or the alert this side sent past a run of KeyUpdates, which
+    /// `take_alert` reports once.
     pending_alert: ?tls_provider.AlertReport = null,
     /// Whether this side's close_notify went out.
     closed: bool = false,
@@ -68,13 +82,21 @@ pub const PlainProvider = struct {
     }
 
     fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) provider_module.SealError!provider_module.Sealed {
+        const plain = held(context);
         // RFC 9846 §6: a provider that failed protects no more records.
-        if (held(context).refuse_seal) return error.TlsFailed;
+        if (plain.refuse_seal) return error.TlsFailed;
+        // RFC 9846 §4.7.3: the answer is owed before the next record of data, so empty plaintext
+        // writes nothing.
         if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
-        if (output.len <= header_len) return error.NoSpaceLeft;
-        const taken = @min(plaintext.len, output.len - header_len, tls_provider.constants.record_plaintext_len_max);
-        const written = seal(content_application_data, plaintext[0..taken], output) catch return error.NoSpaceLeft;
-        return .{ .consumed = taken, .written = written.len };
+        const answer_len: usize = if (plain.answer_owed) header_len + key_update_not_requested.len else 0;
+        // RFC 9846 §5.2: the output holds the answer and a record of one octet, or nothing moves.
+        if (output.len <= answer_len + header_len) return error.NoSpaceLeft;
+        // RFC 9846 §4.7.3: the provider writes the answer first, under the keys it replaces.
+        if (plain.answer_owed) _ = seal(content_handshake, &key_update_not_requested, output) catch unreachable;
+        plain.answer_owed = false;
+        const taken = @min(plaintext.len, output.len - answer_len - header_len, tls_provider.constants.record_plaintext_len_max);
+        const written = seal(content_application_data, plaintext[0..taken], output[answer_len..]) catch unreachable;
+        return .{ .consumed = taken, .written = answer_len + written.len };
     }
 
     fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) provider_module.OpenError!provider_module.Opened {
@@ -86,8 +108,10 @@ pub const PlainProvider = struct {
                 if (plaintext.len < opened.content.len) return error.NoSpaceLeft;
                 @memcpy(plaintext[0..opened.content.len], opened.content);
                 // A record that carries no data counts against the run h2 bounds, as chapulin's do.
-                const content: tls_provider.Content = if (opened.content.len == 0) .new_session_ticket else .application_data;
-                return .{ .consumed = consumed, .plaintext_len = opened.content.len, .content = content };
+                if (opened.content.len == 0) return .{ .consumed = consumed, .plaintext_len = 0, .content = .without_data };
+                // A record of one octet of data or more ends a run of KeyUpdates, as in chapulin.
+                plain.key_updates = 0;
+                return .{ .consumed = consumed, .plaintext_len = opened.content.len, .content = .application_data };
             },
             content_alert => {
                 // RFC 9846 §6.2: any alert but close_notify is an error alert, which ends the
@@ -96,19 +120,29 @@ pub const PlainProvider = struct {
                 plain.pending_alert = .{ .description = .close_notify, .origin = .peer };
                 return .{ .consumed = consumed, .plaintext_len = 0, .content = .alert };
             },
-            content_handshake => {
-                // RFC 9846 §4.7.3: the one post-handshake message this provider reads is a
-                // KeyUpdate that asks for a reply.
-                if (!std.mem.eql(u8, opened.content, &key_update_requested)) return error.TlsFailed;
-                // RFC 9846 §4.7.3: a peer "MUST NOT send another KeyUpdate with request_update set
-                // to "update_requested"" before it receives this side's KeyUpdate.
-                if (plain.owed_len > 0) return error.TlsFailed;
-                plain.owed_len = (seal(content_handshake, &key_update_not_requested, &plain.owed) catch unreachable).len;
-                return .{ .consumed = consumed, .plaintext_len = 0, .content = .key_update };
-            },
+            content_handshake => return plain.read_key_update(opened.content, consumed),
             // RFC 9846 §5.1: a record of any other content type ends the connection.
             else => return error.TlsFailed,
         }
+    }
+
+    /// Reads a KeyUpdate. A request leaves the answer owed to `encrypt_record`.
+    fn read_key_update(plain: *PlainProvider, content: []const u8, consumed: usize) provider_module.OpenError!provider_module.Opened {
+        const requested = std.mem.eql(u8, content, &key_update_requested);
+        // RFC 9846 §4.7.3: the one post-handshake message this provider reads is a KeyUpdate.
+        if (!requested and !std.mem.eql(u8, content, &key_update_not_requested)) return error.TlsFailed;
+        plain.key_updates += 1;
+        // RFC 9846 §4.7.3 sets no limit on a run. chapulin refuses the KeyUpdate past a full run,
+        // with unexpected_message, and so does this provider.
+        if (plain.key_updates > key_update_run_max) {
+            plain.owed_len = (seal(content_alert, &unexpected_message, &plain.owed) catch unreachable).len;
+            // `take_alert` names the alert that this side sent, as chapulin's adapter does.
+            plain.pending_alert = .{ .description = .unexpected_message, .origin = .local };
+            // RFC 9846 §6.2: the error alert ends the connection.
+            return error.TlsFailed;
+        }
+        if (requested) plain.answer_owed = true;
+        return .{ .consumed = consumed, .plaintext_len = 0, .content = .without_data };
     }
 
     fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) provider_module.HandshakeWriteError!usize {
@@ -155,7 +189,7 @@ pub const PlainProvider = struct {
 
     fn initiate_key_update(context: *anyopaque, request: provider_module.KeyUpdateRequest, output: []u8) provider_module.KeyUpdateError!usize {
         _ = .{ context, request, output };
-        // RFC 9846 §4.7.3: this provider only answers a peer's KeyUpdate, and sends none first.
+        // RFC 9846 §4.7.3: this provider only answers a peer's KeyUpdate, and starts none.
         return error.Unsupported;
     }
 

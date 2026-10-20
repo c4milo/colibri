@@ -194,67 +194,24 @@ test "§9.2.3: a post-handshake CertificateRequest is a connection error of PROT
     try testing.expectEqual(constants.error_protocol_error, support.test_connection.failure.?);
 }
 
-test "§9.2.3: a NewSessionTicket and a KeyUpdate are consumed and yield no plaintext" {
+test "§9.2.3: a NewSessionTicket or a KeyUpdate is consumed, yields no plaintext, and owes nothing" {
     Fake.init_table();
     var plaintext: [16]u8 = undefined;
-    for ([_]tls_provider.Content{ .new_session_ticket, .key_update }) |content| {
-        var state: Fake = .{ .content = content, .body = "ignored" };
-        support.test_connection.init(.client);
-        try attach(&support.test_connection, state.provider());
-        const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
-        try testing.expectEqual(0, opened.plaintext_len);
-        try testing.expect(!opened.end_of_data);
-        try testing.expect(!support.test_connection.has_failed());
-        // RFC 9846 §4.7.3: only a KeyUpdate may leave a reply owed.
-        try testing.expectEqual(content == .key_update, opened.owes_handshake);
-    }
-}
-
-/// Room for what a fake record opens to. Test-only.
-const opened_len_max: usize = 16;
-
-/// Opens one KeyUpdate record, which leaves the provider owing `reply`. Test-only.
-fn key_update_owing(state: *Fake, reply: []const u8) !void {
-    var plaintext: [opened_len_max]u8 = undefined;
-    state.content = .key_update;
-    state.owed = reply;
-    const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
-    try testing.expect(opened.owes_handshake);
-}
-
-test "RFC 9846 §4.7.3: a KeyUpdate's reply goes out ahead of every record sealed after it" {
-    Fake.init_table();
-    var state: Fake = .{};
-    support.test_connection.init(.server);
+    var state: Fake = .{ .content = .without_data, .body = "ignored" };
+    support.test_connection.init(.client);
     try attach(&support.test_connection, state.provider());
-    var output: [16]u8 = undefined;
-    try key_update_owing(&state, "reply");
-    const sealed = try encrypt(&support.test_connection, "data", &output, 0);
-    try testing.expectEqual(4, sealed.consumed);
-    try testing.expectEqualStrings("replydata", output[0..sealed.written]);
-    // With nothing to seal, the owed octets still go out.
-    try key_update_owing(&state, "reply");
-    const alone = try encrypt(&support.test_connection, "", &output, 0);
-    try testing.expectEqual(0, alone.consumed);
-    try testing.expectEqualStrings("reply", output[0..alone.written]);
-    // An output that cannot hold the reply takes nothing, and seals nothing after it.
-    try key_update_owing(&state, "reply");
-    try testing.expectError(error.NoSpaceLeft, encrypt(&support.test_connection, "data", output[0..4], 0));
-    try testing.expectEqualStrings("reply", state.owed);
-    // Room for the reply and not for a record: the reply alone.
-    const tight = try encrypt(&support.test_connection, "data", output[0..7], 0);
-    try testing.expectEqual(0, tight.consumed);
-    try testing.expectEqualStrings("reply", output[0..tight.written]);
-    // Once the reply is out nothing is owed, and the provider is not asked again.
-    state.owed = "stray";
-    const after = try encrypt(&support.test_connection, "data", &output, 0);
-    try testing.expectEqualStrings("data", output[0..after.written]);
+    const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
+    try testing.expectEqual(0, opened.plaintext_len);
+    try testing.expect(!opened.end_of_data);
+    try testing.expect(!support.test_connection.has_failed());
+    // RFC 9846 §4.7.3: the answer to a KeyUpdate is the provider's, which `encrypt_record` writes.
+    try testing.expect(!support.test_connection.handshake_owed);
 }
 
-test "without a KeyUpdate, sealing asks the provider for nothing owed" {
+test "encrypt asks the provider for owed octets only after a failure" {
     Fake.init_table();
-    // The provider says it owes octets without any KeyUpdate: colibri does not ask, so the
-    // common record costs one crossing of the vtable.
+    // The provider says that it owes octets, but no failure happened. colibri does not ask for
+    // them, so `encrypt` calls the vtable once for the common record.
     var state: Fake = .{ .owed = "stray" };
     support.test_connection.init(.server);
     try attach(&support.test_connection, state.provider());
@@ -351,7 +308,7 @@ test "RFC 9846 §6.1: a user_canceled is neither the end of data nor an error" {
 
 test "a run of records carrying no data is bounded, and one past it is ENHANCE_YOUR_CALM" {
     Fake.init_table();
-    var state: Fake = .{ .content = .new_session_ticket };
+    var state: Fake = .{ .content = .without_data };
     support.test_connection.init(.client);
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
@@ -372,7 +329,7 @@ test "a run of records carrying no data is bounded, and one past it is ENHANCE_Y
 
 test "a limit passed after another failure names no limit, since the first failure stands" {
     Fake.init_table();
-    var state: Fake = .{ .content = .new_session_ticket };
+    var state: Fake = .{ .content = .without_data };
     support.test_connection.init(.client);
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
@@ -396,7 +353,7 @@ test "a record carrying data ends the run, so an interleaved stream never reache
     var plaintext: [16]u8 = undefined;
     // Many times the bound in total, with one record carrying data after every full run of them.
     for (0..interleaved_runs) |_| {
-        state.content = .new_session_ticket;
+        state.content = .without_data;
         state.body = "";
         for (0..core.constants.records_without_data_max) |_| {
             _ = try decrypt(&support.test_connection, "record", &plaintext, 0);
@@ -433,6 +390,8 @@ fn expect_ended(state: *Fake, alert: []const u8) !void {
     const first = try encrypt(target, "data", &output, 0);
     try testing.expectEqual(0, first.consumed);
     try testing.expectEqualStrings(alert, output[0..first.written]);
+    // Once the alert is out, the connection does not ask the provider again, whatever it owes.
+    state.owed = "stray";
     const second = try encrypt(target, "data", &output, 0);
     try testing.expectEqual(0, second.consumed + second.written);
     try testing.expectEqual(0, try close_notify(target, &output));

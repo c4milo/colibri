@@ -101,10 +101,6 @@ pub const Decrypted = struct {
     /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
     /// sends afterwards is read.
     end_of_data: bool,
-    /// The record was a KeyUpdate, and the provider may now owe its reply (RFC 9846 §4.7.3).
-    /// `encrypt` writes the reply ahead of any record it seals, so a caller seals before it opens
-    /// the next record, and at most one reply is owed at a time.
-    owes_handshake: bool = false,
 };
 
 /// Opens one record the peer sent and applies the rules RFC 9113 places on what it holds. The
@@ -143,11 +139,9 @@ fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8,
         .incomplete => .{ .consumed = 0, .plaintext_len = 0, .end_of_data = false },
         .application_data => with_data(target, opened),
         // RFC 9113 §9.2.3: a NewSessionTicket and a KeyUpdate are permitted after the handshake,
-        // and h2 does nothing with either.
-        .new_session_ticket => try without_data(target, opened.consumed),
-        // RFC 9846 §4.7.3 makes the answering KeyUpdate the provider's, which `handshake_write`
-        // carries and `encrypt` writes first.
-        .key_update => owing(target, try without_data(target, opened.consumed)),
+        // and h2 does nothing with either. RFC 9846 §4.7.3 makes the answer to a KeyUpdate the
+        // provider's, which its next `encrypt_record` writes first.
+        .without_data => try without_data(target, opened.consumed),
         // RFC 9113 §9.2.3: HTTP/2 clients MUST treat a post-handshake CertificateRequest as a
         // connection error of type PROTOCOL_ERROR.
         .certificate_request => return target.fail(constants.error_protocol_error),
@@ -187,14 +181,6 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
     return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = false };
 }
 
-/// A record that carried no data and may have left the provider owing a reply.
-fn owing(target: *Connection, decrypted: Decrypted) Decrypted {
-    target.handshake_owed = true;
-    var owed = decrypted;
-    owed.owes_handshake = true;
-    return owed;
-}
-
 /// What an alert record means to the connection (RFC 9846 §6).
 fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usize) RecordError!Decrypted {
     // RFC 9846 §6: an alert record carries a description, so a provider that classified this
@@ -213,33 +199,32 @@ fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usiz
     };
 }
 
-/// Protects what `write_pending` produced, as one or more records (RFC 9846 §5.2), after the
-/// handshake octets the provider owes. Both buffers are the caller's, and a caller with no
-/// plaintext calls it too, so an owed reply does not wait for h2 to have something to say.
+/// Protects what `write_pending` produced, as one or more records (RFC 9846 §5.2). Both buffers
+/// are the caller's. RFC 9846 §4.7.3: the provider writes the answer to a peer's KeyUpdate in
+/// front of the records, under the keys the answer replaces.
 ///
-/// RFC 9846 §4.7.3: a KeyUpdate's reply is protected under the keys it replaces, and every record
-/// after it under the new ones, so the reply is written first. When the output cannot hold it,
-/// nothing is written and nothing is sealed.
+/// After the record layer failed, it writes only the alert the provider owes, and a caller with
+/// no plaintext calls it too (RFC 9846 §6). When the output cannot hold the alert, nothing is
+/// written.
 pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls_provider.provider.Sealed {
     // RFC 9113 §3.3: a cleartext connection writes its frames straight to the transport.
     const provider = target.provider orelse return error.NoProvider;
     assert(plaintext.len == 0 or plaintext.ptr != output.ptr);
-    const owed = if (target.handshake_owed) try write_owed(target, provider, output, now_ns) else 0;
-    assert(owed <= output.len);
-    // RFC 9846 §6: after the record layer failed, the alert the provider owed is the last octet
-    // that goes out, and no data is sealed.
-    if (plaintext.len == 0 or target.tls_failed) return .{ .consumed = 0, .written = owed };
-    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output[owed..]) catch |failure|
-        return seal_refused(target, failure, owed);
-    assert(sealed.consumed <= plaintext.len and owed + sealed.written <= output.len);
-    return .{ .consumed = sealed.consumed, .written = owed + sealed.written };
+    // RFC 9846 §6: after the record layer failed, the alert the provider owes is the last thing the
+    // connection writes, and the connection seals no data.
+    if (target.tls_failed) return .{ .consumed = 0, .written = try write_owed(target, provider, output, now_ns) };
+    // Only `end_tls` makes the provider owe handshake octets: the alert of the failure.
+    assert(!target.handshake_owed);
+    if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
+    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output) catch |failure|
+        return seal_refused(target, failure);
+    assert(sealed.consumed <= plaintext.len and sealed.written <= output.len);
+    return sealed;
 }
 
-/// What a seal the provider refused leaves. What it owed goes out when only the room was short,
-/// and a refusal ends the connection (RFC 9846 §6).
-fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError, owed: usize) RecordError!tls_provider.provider.Sealed {
-    // What the provider owed is written, and goes out whether or not a record fits after it.
-    if (failure == error.NoSpaceLeft and owed > 0) return .{ .consumed = 0, .written = owed };
+/// What a seal the provider refused leaves. A refusal ends the connection (RFC 9846 §6), and a
+/// short output leaves the plaintext for the next call.
+fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError) RecordError!tls_provider.provider.Sealed {
     // RFC 9846 §6: a record the provider will not seal ends the connection too.
     if (failure == error.TlsFailed or failure == error.KeyExhausted) end_tls(target);
     return switch (failure) {
@@ -249,8 +234,11 @@ fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError, o
     };
 }
 
-/// Writes what the provider owes after a KeyUpdate, whole, and clears the debt once it is out.
+/// Writes the alert the provider owes after a failure, whole, and clears the debt once it is out.
+/// It asks the provider once: after that, nothing is owed.
 fn write_owed(target: *Connection, provider: tls_provider.Provider, output: []u8, now_ns: u64) RecordError!usize {
+    assert(target.tls_failed);
+    if (!target.handshake_owed) return 0;
     const written = provider.vtable.handshake_write(provider.context, output, now_ns) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,

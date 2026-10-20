@@ -39,7 +39,9 @@ pub const HandshakeWriteError = error{
 /// Why a provider did not protect a record.
 pub const SealError = error{
     TlsFailed,
-    /// The output cannot hold a header, one octet of plaintext and the tag (RFC 9846 §5.2).
+    /// The output cannot hold the KeyUpdate the provider owes, if any, and then a header, one
+    /// octet of plaintext and the tag (RFC 9846 §5.2). Nothing was written, and the answer stays
+    /// owed.
     NoSpaceLeft,
     /// There are no application traffic keys yet: RFC 9846 §7.1 derives them from the transcript
     /// through the Finished. colibri asserts `handshake_complete` before it calls, so a provider
@@ -54,8 +56,9 @@ pub const SealError = error{
 
 /// Why a provider did not open a record.
 pub const OpenError = error{
-    /// RFC 9846 §5.2: the record failed to decrypt or its length is past what §5.1 permits. The
-    /// provider has raised the alert and `take_alert` names it.
+    /// RFC 9846 §5.2: the record failed to decrypt or its length is past what §5.1 permits, or
+    /// the provider refused what the record held. The provider has raised the alert and
+    /// `take_alert` names it.
     TlsFailed,
     /// The plaintext buffer cannot hold the record's fragment (RFC 9846 §5.1).
     NoSpaceLeft,
@@ -110,12 +113,15 @@ pub const Content = enum {
     incomplete,
     /// The h2 byte stream. colibri reads the plaintext only for this one.
     application_data,
-    /// RFC 9113 §9.2.3 permits it after the handshake, and h2 does nothing with it.
-    new_session_ticket,
-    /// RFC 9113 §9.2.3 permits it. RFC 9846 §4.7.3 may require an answering KeyUpdate, which
-    /// `handshake_write` carries. A provider at §4.7.3's cap ignores the request and carries
-    /// nothing, as that section says it SHOULD, and the connection goes on.
-    key_update,
+    /// A whole record that held no application data and no alert: a NewSessionTicket, a
+    /// KeyUpdate, or an empty record of application data. RFC 9113 §9.2.3 permits the first two,
+    /// and RFC 9846 §5.1 permits the third. h2 and h11 count each against
+    /// `core.constants.records_without_data_max`.
+    ///
+    /// A KeyUpdate may ask for an answer (RFC 9846 §4.7.3), which the next `encrypt_record` writes
+    /// in front of its records. A provider at §4.7.3's cap ignores the request and writes no
+    /// answer, as that section says it SHOULD, and the connection continues.
+    without_data,
     /// RFC 9113 §9.2.3: an HTTP/2 client MUST treat a post-handshake CertificateRequest as a
     /// connection error of type PROTOCOL_ERROR.
     certificate_request,
@@ -165,13 +171,18 @@ pub const VTable = struct {
     handshake_read: *const fn (context: *anyopaque, input: []const u8, now_ns: u64) HandshakeReadError!usize,
 
     /// Writes the handshake octets the provider owes and returns how many. 0 means it owes
-    /// nothing. RFC 9846 §4.7.3 makes a peer's `update_requested` owe a KeyUpdate, so colibri
-    /// calls this for the life of the connection and not only until the handshake completes.
+    /// nothing. After the handshake it owes only the alert of a record that failed (RFC 9846 §6).
+    /// `encrypt_record` writes the answer to a peer's KeyUpdate (§4.7.3).
     handshake_write: *const fn (context: *anyopaque, output: []u8, now_ns: u64) HandshakeWriteError!usize,
 
     /// Protects the plaintext as one or more records (RFC 9846 §5.2). Returning what it consumed
     /// as well as what it wrote lets colibri hand over a whole pass of output at once, which is
     /// one crossing of the boundary per pass rather than one per record.
+    ///
+    /// When the peer asked for a KeyUpdate, the output starts with this side's KeyUpdate,
+    /// `update_not_requested`, under the keys it replaces (RFC 9846 §4.7.3). The records after it
+    /// use the new keys. One KeyUpdate answers every request read since this side's last one, and
+    /// `Sealed.written` counts it. Empty plaintext writes nothing, and the answer stays owed.
     encrypt_record: *const fn (context: *anyopaque, plaintext: []const u8, output: []u8) SealError!Sealed,
 
     /// Opens one record. The input and the plaintext buffer never overlap, which colibri asserts
@@ -201,7 +212,8 @@ pub const VTable = struct {
 
     /// Writes the `close_notify` RFC 9846 §6.1 requires before closing the write side, and
     /// returns how many octets. A second call returns 0, which is unambiguous because a short
-    /// buffer is an error and not a count.
+    /// buffer is an error and not a count. It writes no owed KeyUpdate first, because RFC 9846
+    /// §4.7.3 requires the answer only before application data.
     send_close_notify: *const fn (context: *anyopaque, output: []u8) CloseError!usize,
 
     /// Writes a KeyUpdate and switches the sending keys (RFC 9846 §4.7.3). colibri never starts

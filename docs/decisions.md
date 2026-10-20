@@ -2662,6 +2662,34 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Each `tls` session holds one more word, `instant`. With chapulin's own changes, the rows
       of the memory table in docs/performance.md move by 8 octets down to 48 up.
 
+    **Amended by the owner on 2026-10-18 and 2026-10-19, a third time: the pin moves to chapulin
+    main 50d7d17b.** It is 20 commits after e6e3c1e7. chapulin's decision 138 moves the answer to
+    a peer's KeyUpdate from `read` to `write`.
+    - chapulin's `write` sends the answer in front of its first record of data, under the keys
+      it replaces (RFC 9846 §4.7.3). One answer serves every request read since this side's last
+      KeyUpdate, and `close` sends none.
+    - chapulin's `read` sends only the alert of a failure. It reads 16 KeyUpdates in a row,
+      `CH_KEY_UPDATE_RUN_MAX`, and fails the read of the 17th with unexpected_message.
+    - The adapter keeps only that alert, so `tls.constants.key_update_replies_max` is removed.
+      `State.owed` holds 24 octets in place of 78.
+    - colibri drops the rule of 5368f5b that a second request ends the connection while an
+      answer is owed. RFC 9846 §4.7.3 puts its rule on the sender of the request, and describes
+      "a single update" for several requests.
+    - `tls_provider.Content` merges `new_session_ticket` and `key_update` into `without_data`.
+      h2 and h11 now do the same thing with each, and with an empty record of application data.
+
+    The alternatives refused:
+    - The rule of 5368f5b kept in colibri. chapulin's `Read` does not say that a record asked for
+      an answer, so it needs a chapulin change first.
+    - The rule kept in the test providers alone. The tests would then hold a rule that no
+      production provider holds.
+    - Both members of `Content` kept. chapulin's adapter then reports a KeyUpdate as
+      `new_session_ticket`, and one name means three things.
+
+    Cost: a program that names `new_session_ticket`, `key_update` or `key_update_replies_max`
+    changes. A peer that waits for the answer before it sends more data waits until colibri
+    sends data.
+
 95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.

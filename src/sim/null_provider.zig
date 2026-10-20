@@ -252,7 +252,8 @@ pub fn write_application_record(output: []u8, body: []const u8) error{NoSpaceLef
 /// What a record holds, in the terms colibri's vtable reports (RFC 9846 §5.1, §4).
 fn classify(content: ContentType, body: []const u8) tls_provider.Content {
     return switch (content) {
-        .application_data => .application_data,
+        // RFC 9846 §5.1 permits an empty record of application data, which carries no data.
+        .application_data => if (body.len == 0) .without_data else .application_data,
         .alert => .alert,
         .handshake => classify_handshake(body),
     };
@@ -260,13 +261,12 @@ fn classify(content: ContentType, body: []const u8) tls_provider.Content {
 
 /// The handshake message a post-handshake record holds (RFC 9846 §4).
 fn classify_handshake(body: []const u8) tls_provider.Content {
-    if (body.len == 0) return .new_session_ticket;
+    if (body.len == 0) return .without_data;
     // RFC 9113 §9.2.3 names the three a post-handshake record may hold, and CertificateRequest is
-    // the one an HTTP/2 client must refuse.
+    // the one an HTTP/2 client must refuse. A NewSessionTicket and a KeyUpdate carry no data.
     return switch (body[0]) {
-        @intFromEnum(HandshakeType.key_update) => .key_update,
         @intFromEnum(HandshakeType.certificate_request) => .certificate_request,
-        else => .new_session_ticket,
+        else => .without_data,
     };
 }
 
@@ -285,6 +285,18 @@ test "a record carries the sizes RFC 9846 §5.1 gives it, and round-trips its bo
     try testing.expectEqual(sealed.written, opened.consumed);
     try testing.expectEqualStrings("hello", plaintext[0..opened.plaintext_len]);
     try testing.expectEqual(tls_provider.Content.application_data, opened.content);
+}
+
+test "§5.1: an empty record of application data carries no data" {
+    NullProvider.install();
+    var endpoint: NullProvider = .{};
+    var output: [64]u8 = undefined;
+    const written = try write_application_record(&output, "");
+    var plaintext: [64]u8 = undefined;
+    const opened = try NullProvider.decrypt_record(@ptrCast(&endpoint), output[0..written], &plaintext);
+    try testing.expectEqual(written, opened.consumed);
+    try testing.expectEqual(0, opened.plaintext_len);
+    try testing.expectEqual(tls_provider.Content.without_data, opened.content);
 }
 
 test "a record that is not whole yet is incomplete, not an error" {
@@ -306,8 +318,8 @@ test "§4: the handshake message type decides what a post-handshake record holds
     var output: [64]u8 = undefined;
     var plaintext: [64]u8 = undefined;
     const cases = [_]struct { HandshakeType, tls_provider.Content }{
-        .{ .new_session_ticket, .new_session_ticket },
-        .{ .key_update, .key_update },
+        .{ .new_session_ticket, .without_data },
+        .{ .key_update, .without_data },
         .{ .certificate_request, .certificate_request },
     };
     for (cases) |case| {

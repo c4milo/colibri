@@ -114,22 +114,22 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 40936592 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 339888 | an endpoint that holds one TCP connection |
+| `server.Endpoint` | 40935696 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 339840 | an endpoint that holds one TCP connection |
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2243360 | an endpoint that holds one QUIC connection, with its receive pool |
-| `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 322832 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
+| `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 322776 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721576 | the connection each QUIC slot of an endpoint holds, without its receive pool |
-| `@FieldType(client.Channel, "tcp")` | 305704 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
+| `@FieldType(client.Channel, "tcp")` | 305648 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
 | `@FieldType(client.Channel, "quic")` | 703984 | a channel's QUIC connection, without its receive pool |
-| `client.Channel` | 1012272 | one server's connections, QUIC first and TCP after, without receive pools |
-| `client.ChannelOf(.{ .quic = false })` | 307360 | a channel with no QUIC state, which holds one TCP connection |
+| `client.Channel` | 1012216 | one server's connections, QUIC first and TCP after, without receive pools |
+| `client.ChannelOf(.{ .quic = false })` | 307304 | a channel with no QUIC state, which holds one TCP connection |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a channel, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163392 | the h2 state inside a TCP connection |
 | `h3.Connection` | 146312 | the h3 state inside a QUIC connection |
 | `quic.Connection` | 141760 | the QUIC state inside an h3 connection |
-| `tls.record.Client` | 40536 | a TLS client session over TCP |
-| `tls.record.Server` | 39896 | a TLS server session over TCP |
+| `tls.record.Client` | 40480 | a TLS client session over TCP |
+| `tls.record.Server` | 39840 | a TLS server session over TCP |
 | `tls.quic.Client` | 90008 | a TLS client session inside QUIC |
 | `tls.quic.Server` | 89440 | a TLS server session inside QUIC |
 

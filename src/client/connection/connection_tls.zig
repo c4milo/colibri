@@ -146,8 +146,8 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Taken {
     // Bounded: every pass takes a whole record, or ends the loop.
     for (0..input.len + 1) |_| {
         // RFC 9846 §6.1: nothing after the peer's close_notify is read. RFC 9846 §4.7.3 asks for a
-        // KeyUpdate's reply "prior to sending its next Application Data record", which `seal`
-        // writes first, so records keep opening while the reply is owed.
+        // KeyUpdate's answer "prior to sending its next Application Data record". The provider
+        // writes the answer in front of that record, so this loop opens records while it is owed.
         if (connection.peer_closed or connection.stopped) return taken;
         const room = connection.plain_in[connection.plain_in_len..];
         const record = decrypt(connection, input[taken.consumed..], room, now_ns) catch |failure| switch (failure) {
@@ -196,8 +196,8 @@ pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
     return written;
 }
 
-/// Seals as much of the protocol's octets as `output` holds. A provider that owes a KeyUpdate's
-/// reply, or the alert of a failure, writes it first.
+/// Seals as much of the protocol's octets as `output` holds. A provider that owes the answer to a
+/// KeyUpdate writes it in front of the first record. After a failure, it writes only its alert.
 fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
     var written: usize = 0;
     // Bounded: a pass seals a record at least, or ends the loop.

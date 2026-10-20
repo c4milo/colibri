@@ -173,6 +173,7 @@ layer". The full list is [decision 8](decisions.md#what-the-caller-supplies); th
 | ALPN | `negotiated_alpn` | `negotiated_alpn` |
 | alerts | `take_alert` | `take_alert`, mapped to `0x0100 + AlertDescription` |
 | key update | `initiate_key_update` | forbidden — QUIC's Key Phase instead |
+| a peer's KeyUpdate | answered in front of the records of the next `encrypt_record` | a connection error of 0x010a (RFC 9001 §6) |
 | exporter | `export_keying_material` | `export_keying_material` |
 
 Two facts constrain the ALPN half and are easy to get wrong. In TLS 1.3 the selected protocol
@@ -10232,6 +10233,90 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       close. It is equivalent: the next `receive` opens the record behind it. The server's tests
       catch it.
   - `zig build test`: 183 steps and 3,116 tests.
+
+  **chapulin 50d7d17b, 2026-10-19.** The chapulin pin moves from e6e3c1e7 to 50d7d17b (decision 94
+  as amended a third time). chapulin's decision 138 moves the answer to a peer's KeyUpdate from
+  `read` to `write`. `write` sends one answer in front of its first record of data, for every
+  request read since this side's last KeyUpdate. `read` sends only the alert of a failure. It reads
+  16 KeyUpdates in a row, `CH_KEY_UPDATE_RUN_MAX`, and fails the 17th with unexpected_message.
+  - **The owner's rulings, 2026-10-18 and 2026-10-19.**
+    - The pin moves after the three performance changes of 2026-10-18, and the TCP TLS paths
+      change with it.
+    - The rule of 5368f5b that a second request ends the connection while an answer is owed is
+      dropped. One answer serves the run (RFC 9846 §4.7.3), and chapulin's limit of 16 bounds it.
+    - `tls_provider.Content` merges `new_session_ticket` and `key_update` into `without_data`.
+    - `tls.constants.key_update_replies_max` is removed.
+    - A run past chapulin's limit gets its own name, `server.Limit.key_updates`. This commit still
+      ends such a run as `TlsFailed`, and the next commit adds the name.
+  - **What changed.**
+    - The adapter keeps only the alert of a failed read, so `State.owed` holds 24 octets in place
+      of 78. It asserts that nothing is owed before a read, and that a read that succeeds sends
+      nothing.
+    - h2 and h11 lose `Decrypted.owes_handshake`. `handshake_owed` now means only the alert of a
+      failure, and `encrypt` asserts it. `encrypt` writes no owed octets in front of data, so
+      `seal_refused` loses its branch for them.
+    - The server's `owes_octets` no longer reports `send` for an answer alone. No chapulin call
+      sends the answer without data, and RFC 9846 §4.7.3 permits the wait.
+    - Both plain providers model chapulin 50d7d17b in three rules:
+      - A run count over both kinds of KeyUpdate. Only a record of one octet of data or more ends
+        a run.
+      - One answer, which `encrypt_record` writes in front of data.
+      - An unexpected_message alert past 16 KeyUpdates in a row, which `take_alert` names.
+    - The simulator's null provider reports an empty record of application data as
+      `without_data`, as `Content` now says. No pinned census of test-sim, test-sim-run or
+      test-sim-run-quic moved, because no check of the simulator writes an empty record.
+  - **What older records said that no longer holds.**
+    - The record of 2026-09-24 ([#62](https://github.com/c4milo/colibri/issues/62)) and step 16b
+      say that `handshake_write` writes the answer to a KeyUpdate. They also say that the provider
+      holds `key_update_replies_max` answers.
+    - The record "After 21f, 2026-10-18" says that an honest peer leaves one answer owed at most.
+      When requests cross, a second request can be legal (RFC 9846 §4.7.3).
+  - **Tests.**
+    - test-tls-keylog, over chapulin:
+      - The answer is in front of the next record of data, and empty plaintext writes none.
+      - Two requests in a row get one answer.
+      - The close_notify after a request is the alert alone, under the first keys.
+      - The 17th KeyUpdate in a row fails the read. The adapter sends only its alert, under the
+        first keys.
+    - test-server:
+      - The server reads a second KeyUpdate that asks while the answer is owed, and one answer
+        serves both.
+      - A run past the provider's limit ends the connection over h11 and h2. The server sends only
+        the alert, and `take_alert` names it.
+      - A record of data ends a run, so the server reads a second run of 16 KeyUpdates. One more
+        KeyUpdate ends the connection.
+    - test-client: a record of data ends a run, and one KeyUpdate past the second run ends the
+      connection. The client sends only the alert, and `take_alert` names it.
+    - test-sim: the null provider reports an empty record of application data as `without_data`.
+    - test-h2 and test-h11: a record without data leaves nothing owed, and after a failure
+      colibri asks the provider once.
+  - **Mutations.**
+    - **CAUGHT**, each one:
+      - The alert of a failed read not kept.
+      - `owed_len_max` one octet short.
+      - `seal` without `writableLen`, and `seal` that asks chapulin to seal empty plaintext.
+      - A record without data reported as data, in the adapter and in the null provider.
+      - The old `owing` restored, in h2 and in h11.
+      - `write_owed` that asks the provider again after the alert, in h2 and in h11.
+      - A plain provider that fails a second request, or writes the answer in front of every
+        record.
+      - A plain provider that never ends a run, in the server and in the client.
+      - A plain provider whose `take_alert` stays null past the run, in the server and in the
+        client.
+      - An adapter that writes the owed answer in front of the close_notify. chapulin's `close`
+        sends no answer, so the mutant calls `write` with one octet when `writableLen` shows the
+        answer owed. It then copies the answer in front of the alert.
+    - **NOT CAUGHT**: the `owes_octets` branch for `handshake_owed` restored. It is equivalent:
+      only a failure sets `handshake_owed` now, and the line above it returns first for a failure.
+  - The memory table: each `tls.record` session falls by 56 octets, to 40,480 for the client and
+    39,840 for the server. Each row that holds a TCP connection falls by 56 octets, or by 48 for
+    an endpoint of one TCP connection, after alignment. `server.Endpoint` falls by 896.
+  - **x86_64.** The tests of `tls_provider`, h2, h11, the server, the client, the simulator and
+    tls-keylog ran in an amd64 container. Each was a Debug build for x86_64-linux, with Zig's own
+    x86_64 backend. They passed 8, 385, 126, 492, 303, 79 and 68 tests, and each exit status was 0.
+  - `zig build test`: 183 steps and 3,128 tests.
+  - **Owed before the push.** `tools/ci.sh` on the exact tree. Its interop checks show whether Go,
+    curl, nghttp, h2o or Caddy send a TLS KeyUpdate, and whether a peer waits for the answer.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

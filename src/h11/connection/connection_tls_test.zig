@@ -178,18 +178,17 @@ test "application data reaches the caller's buffer, and a cleartext connection h
     try testing.expectEqual(error.NoProvider, close_notify(&test_connection, &test_output));
 }
 
-test "RFC 9846 §4.7.3: a KeyUpdate yields nothing, and its reply goes out ahead of the next record" {
-    var state: Fake = .{ .content = .key_update, .body = "ignored", .owed = "reply" };
+test "RFC 9846 §4.7.3: a record without data yields nothing, and colibri asks for nothing owed" {
+    // The provider says it owes octets, and no failure happened: the answer to a KeyUpdate is the
+    // provider's, which `encrypt_record` writes.
+    var state: Fake = .{ .content = .without_data, .body = "ignored", .owed = "stray" };
     const target = try attached(.client, &state);
     const opened = try decrypt(target, "record", &test_plaintext);
     try testing.expectEqual(0, opened.plaintext_len);
-    try testing.expect(opened.owes_handshake);
-    const sealed = try encrypt(target, "data", &test_output, 0);
-    try testing.expectEqualStrings("replydata", test_output[0..sealed.written]);
-    // The reply went out once, and nothing more is owed.
     try testing.expect(!target.handshake_owed);
-    const again = try encrypt(target, "more", &test_output, 0);
-    try testing.expectEqualStrings("more", test_output[0..again.written]);
+    const sealed = try encrypt(target, "data", &test_output, 0);
+    try testing.expectEqualStrings("data", test_output[0..sealed.written]);
+    try testing.expectEqualStrings("stray", state.owed);
 }
 
 test "RFC 9846 §6.1: close_notify ends the data, user_canceled does not, and other alerts are fatal" {
@@ -209,13 +208,13 @@ test "RFC 9846 §6.1: close_notify ends the data, user_canceled does not, and ot
 }
 
 test "a run of records carrying no data is bounded, and one carrying data resets it" {
-    var state: Fake = .{ .content = .new_session_ticket };
+    var state: Fake = .{ .content = .without_data };
     const target = try attached(.server, &state);
     for (0..core.constants.records_without_data_max) |_| _ = try decrypt(target, "record", &test_plaintext);
     state.content = .application_data;
     _ = try decrypt(target, "record", &test_plaintext);
     try testing.expectEqual(0, target.records_without_data);
-    state.content = .new_session_ticket;
+    state.content = .without_data;
     for (0..core.constants.records_without_data_max) |_| _ = try decrypt(target, "record", &test_plaintext);
     try testing.expectEqual(error.ConnectionFailed, decrypt(target, "record", &test_plaintext));
     try testing.expectEqual(error.RecordsWithoutData, target.failure.?);
@@ -258,6 +257,8 @@ fn expect_ended(target: *Connection, state: *Fake, alert: []const u8) !void {
     const first = try encrypt(target, "data", &test_output, 0);
     try testing.expectEqual(0, first.consumed);
     try testing.expectEqualStrings(alert, test_output[0..first.written]);
+    // Once the alert is out, the connection does not ask the provider again, whatever it owes.
+    state.owed = "stray";
     const second = try encrypt(target, "data", &test_output, 0);
     try testing.expectEqual(0, second.consumed + second.written);
     try testing.expectEqual(0, try close_notify(target, &test_output));

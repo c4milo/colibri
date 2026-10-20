@@ -180,7 +180,7 @@ fn read_until_data(socket: std.c.fd_t) !void {
         };
         input.take(opened.consumed);
         switch (opened.content) {
-            .new_session_ticket, .key_update => messages += 1,
+            .without_data => messages += 1,
             .application_data => {
                 std.debug.print("tls-handshake: records ok, {d} carried no data, then {d} octets of data\n", .{
                     messages,
