@@ -771,7 +771,7 @@ the program does not move the pool after it. It returns these errors:
   names more than a TLS configuration holds.
 
 A program may call `init` again on a pool with no open transport and no exchange, for example
-with new addresses.
+with new addresses. While exchanges run, it calls `set_values` instead (below).
 
 A program moves datagrams with addresses over QUIC and a stream of octets over TCP, and it keeps
 time for the pool. Each turn passes the pool what each socket read, fires its deadlines, sends
@@ -843,6 +843,67 @@ fn drain(now_ns: u64) !void {
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.client, consumed);
 }
+```
+
+A pool holds more than one TCP connection when `client.Options.tcp_connections` says so
+([decision 125](decisions.md)). h11 carries one exchange at a time on a connection. So a pool of
+h11 connections opens another connection when an exchange waits and no open connection has room
+for it. It opens no second h2 connection, as RFC 9113 §9.1 asks. The pool example
+([`client_pool.zig`](../examples/client_pool.zig)) holds four:
+
+```zig
+const Pool = client.PoolOf(.{ .quic = false });
+const options: client.Options = .{ .tcp_connections = link_module.streams_max };
+var pool: Pool align(@alignOf(Pool)) = undefined;
+var pool_memory: [Pool.memory_bytes(options)]u8 align(Pool.memory_alignment) = undefined;
+```
+
+Each connection is a socket of its own. The handle of each `open` names the connection's slot,
+and the program keeps one socket for each slot. Each later event names the connection too:
+`send` when it owes octets, and `close` when it is over. The program reads each socket with the
+handle of its connection:
+
+```zig
+fn client_turn() !void {
+    try link.receive(.client);
+    const now_ns = link.now_ns(.client);
+    for (0..link_module.streams_max) |slot| try drain(@intCast(slot), now_ns);
+}
+
+/// Passes the pool the octets the socket of `slot` read, until it consumes nothing and reports
+/// nothing. With no socket in the slot it passes `.none`, which reports what the pool owes.
+fn drain(slot: u32, now_ns: u64) !void {
+    const socket = sockets[slot];
+    const input = link.queue(slot, .client);
+    var consumed: usize = 0;
+    for (0..receive_calls_max) |_| {
+        const held = input[consumed..];
+        // An event may close this socket, or open another in its slot: its octets then go to no
+        // connection.
+        const current = socket != null and std.meta.eql(sockets[slot], socket);
+        const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .octets = held } } else .none;
+        const received = pool.receive(read, now_ns);
+        consumed += received.consumed;
+        const event = received.event orelse {
+            if (received.consumed == 0) break;
+            continue;
+        };
+        try report(event, now_ns);
+    }
+    // A socket closed during the read dropped its octets with it.
+    if (socket != null and std.meta.eql(sockets[slot], socket)) link.consume(slot, .client, consumed);
+}
+```
+
+A program that gets a later DNS answer gives it to the pool with `set_values`, while exchanges
+run. Each connection that opens after the call goes to the new addresses, from the first. Each
+open connection keeps its exchanges. The port stays the origin's. The pool keeps the h3
+alternative it learned, unless the new values name one.
+
+```zig
+        // A later DNS answer names another address. Each connection that opens from now on goes
+        // to it, and each open connection keeps its exchanges.
+        pool.set_values(.{ .addresses = &second_addresses, .port = server_port });
 ```
 
 A program sizes its memory and bounds its loops with two limits of `client.constants` and one
