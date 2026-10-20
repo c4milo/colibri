@@ -1,11 +1,11 @@
 ------------------------ MODULE ClientExchangesTrace ------------------------
 (***************************************************************************)
-(* Trace validation of ClientExchanges against colibri (decision 105).     *)
-(* The simulator's client trace run logs every variable of ClientExchanges *)
-(* but goaways after each instant, and a seed's module gives that log as   *)
-(* Trace: a sequence of records whose functions over Exchanges are         *)
-(* sequences, exchange 1 first, and whose functions over the transports    *)
-(* are records.                                                            *)
+(* Trace validation of ClientExchanges against colibri (decision 105). The *)
+(* simulator's client trace run logs every variable of ClientExchanges but *)
+(* goaways after each instant, and its pool trace run after each event     *)
+(* (decision 125). A seed's module gives that log as Trace: a sequence of  *)
+(* records whose functions over Exchanges are sequences, exchange 1 first, *)
+(* and whose functions over the transports are records.                    *)
 (*                                                                         *)
 (* One instant of the run can take several of the model's steps: a         *)
 (* datagram can end two exchanges and carry a GOAWAY. So between two       *)
@@ -49,7 +49,7 @@ Matches(i) ==
     /\ stage = AsFunction(t.stage) /\ carrier = AsFunction(t.carrier)
     /\ holds = AsFunction(t.holds) /\ outcome = AsFunction(t.outcome)
     /\ moved = AsFunction(t.moved) /\ seen = AsFunction(t.seen)
-    /\ processed = AsFunction(t.processed)
+    /\ processed = AsFunction(t.processed) /\ drops = AsFunction(t.drops)
     /\ phase = t.phase /\ opens = t.opens /\ tried = t.tried
     /\ fallback = t.fallback /\ learned = t.learned /\ shut = t.shut
     /\ stale = t.stale

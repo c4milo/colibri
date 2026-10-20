@@ -51,10 +51,16 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     try print(writer, "    HandshakeFails = {s}\n    Breaks = {s}\n    Goaways = {s}\n", .{ all, all, all });
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {s}\n    Resets = {s}\n", .{ goaways, all, all });
     try write_idempotent(writer, plan);
+    // Decision 125: the run's pool holds one TCP connection, which holds every exchange at once.
+    try print(writer, "    TcpSlots = {{\"tcp\"}}\n    TcpCapacity = {d}\n", .{plan.exchanges});
+    // h2 resets a cancelled exchange's stream with CANCEL (RFC 9113 §6.4), so its TCP connection
+    // drops no response.
+    try writer.write_bytes("    TcpDrops = FALSE\n");
     try writer.write_bytes("    ReleaseOnFail = TRUE\n    CloseWhenDrained = TRUE\n    ReportWhenReleased = TRUE\n");
     try writer.write_bytes("    CancelReleases = TRUE\n    SentFailsClosed = TRUE\n    MoveRefused = TRUE\n");
     try writer.write_bytes("    RetireStale = TRUE\n    KeepAlive = TRUE\n    TakeAtHandshake = TRUE\n");
     try writer.write_bytes("    TcpWhenAllowed = TRUE\n    ResendIdempotent = TRUE\n    OneBudget = TRUE\n");
+    try writer.write_bytes("    TakeWithinRoom = TRUE\n    TryOncePerWait = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{steps_max});
 }
@@ -85,6 +91,9 @@ fn write_state(writer: *Writer, exchanges: u32, state: *const State) Error!void 
     try write_numbers(writer, "moved", state.moved[0..n]);
     try write_booleans(writer, "seen", state.seen[0..n]);
     try write_numbers(writer, "processed", state.processed[0..n]);
+    try writer.write_bytes("drops |-> <<");
+    for (0..n) |index| try print(writer, "{s}FALSE", .{separator(index)});
+    try writer.write_bytes(">>, ");
     try print(writer, "phase |-> [quic |-> \"{t}\", tcp |-> \"{t}\"], ", .{ state.phase[0], state.phase[1] });
     try print(writer, "opens |-> [quic |-> {d}, tcp |-> {d}], ", .{ state.opens[0], state.opens[1] });
     try writer.write_bytes("tried |-> {");
