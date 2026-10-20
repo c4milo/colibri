@@ -156,11 +156,13 @@ fn open(role: anytype, input: []const u8, plaintext: []u8) provider_module.OpenE
     const state = &role.state;
     // A failed read ends the session, and h2 and h11 read no record after one, so nothing is owed.
     assert(state.owed_len == 0);
-    const read = role.session.read(input, plaintext, &state.owed) catch {
+    const read = role.session.read(input, plaintext, &state.owed) catch |failure| {
         // The alert a failed read raised is owed to the peer (RFC 9846 §6).
         state.owed_len = role.session.replyLen();
-        // RFC 9846 §6.2: an error alert ends the connection. chapulin's `KeyUpdateLimit`, a run of
-        // KeyUpdates past `CH_KEY_UPDATE_RUN_MAX`, ends it too, with unexpected_message.
+        // RFC 9846 §4.7.3 sets no limit on a run of KeyUpdates. chapulin's decision 138 fails the
+        // KeyUpdate past `CH_KEY_UPDATE_RUN_MAX` with unexpected_message, and this error names it.
+        if (failure == error.KeyUpdateLimit) return error.KeyUpdates;
+        // RFC 9846 §6.2: an error alert ends the connection.
         return error.TlsFailed;
     };
     // chapulin's `read` sends nothing into `reply` when it succeeds: the answer to a KeyUpdate

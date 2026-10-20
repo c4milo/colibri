@@ -247,7 +247,7 @@ test "RFC 9846 §4.7.3: a KeyUpdate asking for neither answer fails with illegal
     try testing.expectEqual(tls_provider.AlertReport.Origin.local, report.origin);
 }
 
-test "a run of KeyUpdates past chapulin's limit fails the read, and only its alert is sent" {
+test "a run of KeyUpdates past chapulin's limit fails the read as KeyUpdates, and the provider sends only its alert" {
     try connect();
     const receiver = support.server.provider();
     var secret = logged.client;
@@ -259,7 +259,7 @@ test "a run of KeyUpdates past chapulin's limit fails the read, and only its ale
         secret = next_secret(secret);
     }
     const past = try seal(Keys.of(secret), 0, content_handshake, &key_update_requested, &sealed_storage);
-    try testing.expectError(error.TlsFailed, receiver.vtable.decrypt_record(receiver.context, past, &support.scratch));
+    try testing.expectError(error.KeyUpdates, receiver.vtable.decrypt_record(receiver.context, past, &support.scratch));
     // The alert alone is owed, under the server's first keys: no answer was sent.
     const owed_len = try receiver.vtable.handshake_write(receiver.context, &output_storage, 0);
     try testing.expectEqual(chapulin.record.alert_record_len, owed_len);

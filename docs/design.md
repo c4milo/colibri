@@ -10246,8 +10246,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       dropped. One answer serves the run (RFC 9846 §4.7.3), and chapulin's limit of 16 bounds it.
     - `tls_provider.Content` merges `new_session_ticket` and `key_update` into `without_data`.
     - `tls.constants.key_update_replies_max` is removed.
-    - A run past chapulin's limit gets its own name, `server.Limit.key_updates`. This commit still
-      ends such a run as `TlsFailed`, and the next commit adds the name.
+    - A run past chapulin's limit gets its own name, after the pattern of `records_without_data`.
+      `tls_provider` names it `OpenError.KeyUpdates`, h2 names it `h2.Limit.key_updates`, and h11
+      names it `error.KeyUpdates`. The server maps each by name to `server.Limit.key_updates`.
   - **What changed.**
     - The adapter keeps only the alert of a failed read, so `State.owed` holds 24 octets in place
       of 78. It asserts that nothing is owed before a read, and that a read that succeeds sends
@@ -10315,6 +10316,34 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     tls-keylog ran in an amd64 container. Each was a Debug build for x86_64-linux, with Zig's own
     x86_64 backend. They passed 8, 385, 126, 492, 303, 79 and 68 tests, and each exit status was 0.
   - `zig build test`: 183 steps and 3,128 tests.
+  - **The name of the run limit, 2026-10-20.** A second commit names a run past the provider's
+    limit. The first commit ended such a run as `TlsFailed`, with no close reason.
+    - `tls_provider.provider.OpenError` gains `KeyUpdates`. The adapter keeps the alert of the
+      failed read, then maps chapulin's `KeyUpdateLimit` to it.
+    - h2 ends the record layer and sets `failure_limit` to the new `h2.Limit.key_updates`. It
+      queues no GOAWAY, because colibri sends no frame after the alert (RFC 9846 §6). h11 fails
+      with `error.KeyUpdates`. Both return `TlsFailed`, so neither `RecordError` changes.
+    - `server.Limit.key_updates` is new, and `passed_limit` maps h2's limit and h11's failure to
+      it. Both plain providers fail with `KeyUpdates` past 16.
+    - Tests:
+      - The 17th KeyUpdate fails chapulin's read with `KeyUpdates`.
+      - h2 and h11 name the limit and write the alert alone.
+      - h2 names no limit after another failure.
+      - The server names `key_updates` over h11 and h2. It names it too when one KeyUpdate passes
+        the second run, after a record of data ended the first one.
+    - Mutations, each **CAUGHT**:
+      - `KeyUpdateLimit` mapped to `TlsFailed`, and its alert not kept.
+      - h2 with no `failure_limit`, h2 through `fail_limit` in place of `end_tls`, and h2 that
+        names the limit after another failure.
+      - h11 that records `TlsFailed`, or that does not end the record layer.
+      - h11's branch in `passed_limit` removed.
+      - A plain provider that fails with `TlsFailed`.
+      - A plain provider that never ends a run, or whose `take_alert` stays null past the run, in
+        the server and in the client.
+    - **x86_64.** The tests of `tls_provider`, h2, h11, the server, the client, the simulator and
+      tls-keylog ran as above. They passed 8, 386, 127, 492, 303, 79 and 68 tests, and each exit
+      status was 0.
+    - `zig build test`: 183 steps and 3,130 tests.
   - **Owed before the push.** `tools/ci.sh` on the exact tree. Its interop checks show whether Go,
     curl, nghttp, h2o or Caddy send a TLS KeyUpdate, and whether a peer waits for the answer.
 

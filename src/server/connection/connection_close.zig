@@ -87,10 +87,13 @@ fn passed_limit(connection: *const Connection) ?Limit {
         .h2 => |*session| switch (session.failure_limit orelse return null) {
             inline else => |limit| return @field(Limit, @tagName(limit)),
         },
-        // h11 names its failure with an error, and the one limit it keeps is on records.
+        // h11 names its failure with an error: the limit it keeps on records, or the provider's
+        // limit on KeyUpdates.
         .h11 => |*session| {
             const failure = session.failure orelse return null;
-            return if (failure == error.RecordsWithoutData) .records_without_data else null;
+            if (failure == error.RecordsWithoutData) return .records_without_data;
+            if (failure == error.KeyUpdates) return .key_updates;
+            return null;
         },
         .none => return null,
     }

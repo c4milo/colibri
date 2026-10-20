@@ -72,8 +72,9 @@ pub const RecordError = error{
     /// connection is closed.
     ConnectionFailed,
     /// The provider refused the record, or the peer sent an error alert. RFC 9846 §6 forbids data in
-    /// either direction afterwards, so the connection is closed: `encrypt`, called with no
-    /// plaintext, writes the alert the provider owes, and the caller sends it and closes.
+    /// either direction afterwards, so the connection is closed. `encrypt`, called with no
+    /// plaintext, writes the alert the provider owes, and the caller sends it and closes. When a
+    /// run of KeyUpdates passed the provider's limit, `failure` is `error.KeyUpdates`.
     TlsFailed,
     /// The plaintext buffer cannot hold the record's fragment (RFC 9846 §5.1), or the output
     /// cannot hold one record (§5.2). Nothing moved.
@@ -88,6 +89,9 @@ pub const RecordError = error{
 pub const Failure = error{
     /// More than `records_without_data_max` records in a row carried no application data.
     RecordsWithoutData,
+    /// More KeyUpdates in a row than the provider reads. The provider's alert ends the connection
+    /// (RFC 9846 §6).
+    KeyUpdates,
 };
 
 /// What `decrypt` took from the peer's octets.
@@ -113,19 +117,33 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8) RecordEr
     // The provider writes into the caller's buffer and reads the caller's input; the two are
     // never the same storage.
     assert(input.ptr != plaintext.ptr);
-    return open(target, provider, input, plaintext) catch |failure| {
-        // RFC 9846 §5.2 and §6.2: a record the provider refused, or an error alert, ends the
-        // connection, whose last octets are the alert the provider owes.
-        if (failure == error.TlsFailed) end_tls(target);
-        return failure;
+    return open(target, provider, input, plaintext) catch |failure| switch (failure) {
+        error.TlsFailed => {
+            end_tls(target, error.TlsFailed);
+            // RFC 9846 §5.2 and §6.2: a record the provider refused, or an error alert, ends the
+            // connection. Its last octets are the alert that the provider owes.
+            return error.TlsFailed;
+        },
+        error.KeyUpdates => {
+            end_tls(target, error.KeyUpdates);
+            // RFC 9846 §6.2: the provider's alert ends the connection. RFC 9846 §4.7.3 sets no
+            // limit on a run of KeyUpdates, so `failure` names the provider's limit.
+            return error.TlsFailed;
+        },
+        else => |other| return other,
     };
 }
 
+/// What `open` fails with: a `RecordError`, or the provider's limit on KeyUpdates, which `decrypt`
+/// names and then returns as `TlsFailed`.
+const OpenError = RecordError || error{KeyUpdates};
+
 /// Opens the record through the provider and says what it held.
-fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8, plaintext: []u8) RecordError!Decrypted {
+fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8, plaintext: []u8) OpenError!Decrypted {
     const opened = provider.vtable.decrypt_record(provider.context, input, plaintext) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,
+            error.KeyUpdates => error.KeyUpdates,
             error.NoSpaceLeft => error.NoSpaceLeft,
             error.HandshakeIncomplete => error.HandshakeIncomplete,
         };
@@ -208,13 +226,13 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
     return sealed;
 }
 
-/// Ends the connection at the record layer (RFC 9846 §6). The provider may owe the alert that says
-/// why, which `encrypt` writes. No HTTP octet goes out after it, so a server owes no error
-/// response either.
-fn end_tls(target: *Connection) void {
+/// Ends the connection at the record layer (RFC 9846 §6), with `failure` as the reason. The
+/// provider may owe the alert that says why, which `encrypt` writes. colibri sends no HTTP octet
+/// after it, so a server owes no error response either.
+fn end_tls(target: *Connection, failure: error{ TlsFailed, KeyUpdates }) void {
     target.tls_failed = true;
     target.handshake_owed = true;
-    const ended = target.fail(error.TlsFailed, null);
+    const ended = target.fail(failure, null);
     assert(ended == error.ConnectionFailed);
     assert(target.phase == .closed and !target.has_pending());
 }
@@ -223,7 +241,7 @@ fn end_tls(target: *Connection) void {
 /// short output leaves the plaintext for the next call.
 fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError) RecordError!tls_provider.provider.Sealed {
     // RFC 9846 §6: a record the provider will not seal ends the connection too.
-    if (failure == error.TlsFailed or failure == error.KeyExhausted) end_tls(target);
+    if (failure == error.TlsFailed or failure == error.KeyExhausted) end_tls(target, error.TlsFailed);
     return switch (failure) {
         error.TlsFailed, error.KeyExhausted => error.TlsFailed,
         error.NoSpaceLeft => error.NoSpaceLeft,

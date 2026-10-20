@@ -478,7 +478,9 @@ Three more things a server sets:
   ([decision 110](decisions.md)). Two more bound resets in one second, 100 each by default:
   `peer_resets_max`, the requests a client may cancel, and `resets_sent_max`, the streams the
   server may reset because the client broke them. One more ends the connection, and its
-  `CloseReason` names the limit.
+  `CloseReason` names the limit. Over TLS, the provider bounds a run of KeyUpdates, and `limits`
+  does not hold that bound. chapulin reads 16 in a row, and the 17th ends the connection with
+  the limit `key_updates`.
 
 ### Router
 

@@ -33,9 +33,9 @@ const Fake = struct {
     /// The handshake octets the provider owes, which `handshake_write` hands over whole once.
     /// Test-only.
     owed: []const u8 = "",
-    /// Whether the next `decrypt_record` refuses the record, owing `refusal_alert` as chapulin
-    /// owes the alert of a record it could not open. Test-only.
-    refuse: bool = false,
+    /// The error that the next `decrypt_record` returns, or null. The provider then owes
+    /// `refusal_alert`, as chapulin owes the alert of a record it could not open. Test-only.
+    refusal: ?tls_provider.provider.OpenError = null,
     /// Whether `encrypt_record` refuses to seal. Test-only.
     refuse_seal: bool = false,
     /// Calls to `encrypt_record` and to `send_close_notify`. Test-only.
@@ -64,10 +64,10 @@ const Fake = struct {
 
     fn open(context: *anyopaque, input: []const u8, plaintext: []u8) tls_provider.provider.OpenError!tls_provider.provider.Opened {
         const self: *Fake = @ptrCast(@alignCast(context));
-        if (self.refuse) {
+        if (self.refusal) |failure| {
             self.owed = refusal_alert;
             // RFC 9846 §5.2: a record that does not authenticate fails, and its alert is owed.
-            return error.TlsFailed;
+            return failure;
         }
         if (self.body.len > plaintext.len) return error.NoSpaceLeft;
         @memcpy(plaintext[0..self.body.len], self.body);
@@ -266,11 +266,19 @@ fn expect_ended(target: *Connection, state: *Fake, alert: []const u8) !void {
 }
 
 test "RFC 9846 §5.2: a record the provider refuses ends the connection, and only its alert goes out" {
-    var state: Fake = .{ .refuse = true };
+    var state: Fake = .{ .refusal = error.TlsFailed };
     const target = try attached(.client, &state);
     try testing.expectEqual(error.TlsFailed, decrypt(target, "record", &test_plaintext));
     try expect_ended(target, &state, Fake.refusal_alert);
     try testing.expectEqual(0, state.seals);
+}
+
+test "a run of KeyUpdates past the provider's limit ends the connection with its alert, and the failure names the limit" {
+    var state: Fake = .{ .refusal = error.KeyUpdates };
+    const target = try attached(.server, &state);
+    try testing.expectEqual(error.TlsFailed, decrypt(target, "record", &test_plaintext));
+    try testing.expectEqual(error.KeyUpdates, target.failure.?);
+    try expect_ended(target, &state, Fake.refusal_alert);
 }
 
 test "RFC 9846 §6.2: an error alert from the peer ends the connection, and nothing is owed" {
@@ -290,7 +298,7 @@ test "RFC 9846 §6: a record the provider will not seal ends the connection too"
 }
 
 test "RFC 9846 §6: a server whose record layer failed owes no error response" {
-    var state: Fake = .{ .refuse = true };
+    var state: Fake = .{ .refusal = error.TlsFailed };
     const target = try attached(.server, &state);
     // RFC 9112 §2.2: a request that broke the framing leaves the server owing a 400.
     try testing.expectEqual(error.ConnectionFailed, target.fail(error.HeadMalformed, 400));

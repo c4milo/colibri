@@ -138,8 +138,8 @@ pub const PlainProvider = struct {
             plain.owed_len = (seal(content_alert, &unexpected_message, &plain.owed) catch unreachable).len;
             // `take_alert` names the alert that this side sent, as chapulin's adapter does.
             plain.pending_alert = .{ .description = .unexpected_message, .origin = .local };
-            // RFC 9846 §6.2: the error alert ends the connection.
-            return error.TlsFailed;
+            // RFC 9846 §6.2: the error alert ends the connection, and the error names the limit.
+            return error.KeyUpdates;
         }
         if (requested) plain.answer_owed = true;
         return .{ .consumed = consumed, .plaintext_len = 0, .content = .without_data };

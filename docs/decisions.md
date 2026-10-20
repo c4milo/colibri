@@ -2677,6 +2677,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       "a single update" for several requests.
     - `tls_provider.Content` merges `new_session_ticket` and `key_update` into `without_data`.
       h2 and h11 now do the same thing with each, and with an empty record of application data.
+    - A run past chapulin's limit has a name, as `records_without_data` has: `OpenError.KeyUpdates`
+      in `tls_provider`, `h2.Limit.key_updates` and h11's `error.KeyUpdates`. The server maps each
+      by name to the close reason `server.Limit.key_updates`.
 
     The alternatives refused:
     - The rule of 5368f5b kept in colibri. chapulin's `Read` does not say that a record asked for
@@ -2685,9 +2688,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       production provider holds.
     - Both members of `Content` kept. chapulin's adapter then reports a KeyUpdate as
       `new_session_ticket`, and one name means three things.
+    - `KeyUpdates` in the `RecordError` of h2 and of h11, with the cause kept in the server. The
+      switches of the server and the client then each need one more arm.
 
     Cost: a program that names `new_session_ticket`, `key_update` or `key_update_replies_max`
-    changes. A peer that waits for the answer before it sends more data waits until colibri
+    changes. A program that switches over `server.Limit` or `h2.Limit` needs an arm for
+    `key_updates`. A peer that waits for the answer before it sends more data waits until colibri
     sends data.
 
 95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on

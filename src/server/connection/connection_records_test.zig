@@ -119,13 +119,14 @@ test "RFC 9846 §4.7.3: the connection reads a second KeyUpdate that asks while 
     try testing.expectEqual(plain_support.content_application_data, plain_support.open(sent).?.content_type);
 }
 
-test "a run of KeyUpdates past the provider's limit ends the connection, and only its alert is sent" {
+test "a run of KeyUpdates past the provider's limit ends the connection, and the close reason names the limit" {
     for ([_][]const u8{ "http/1.1", "h2" }) |alpn| {
         support.config = .{ .versions = support.only(.h11) };
         try attach_plain_with(.{ .alpn = alpn });
         const sealed = try key_updates_at(0, plain_support.key_update_run_max + 1);
         try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..sealed], support.now_ns));
         try expect_run_alert();
+        try testing.expectEqual(.key_updates, connection.close_reason().?.limit);
     }
 }
 
@@ -145,6 +146,7 @@ test "a record of data ends a run of KeyUpdates, so the next run has the whole l
     const past_len = try key_updates_at(0, 1);
     try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..past_len], support.now_ns));
     try expect_run_alert();
+    try testing.expectEqual(.key_updates, connection.close_reason().?.limit);
 }
 
 test "RFC 9846 §6.1: a record after the peer's close_notify is not read" {

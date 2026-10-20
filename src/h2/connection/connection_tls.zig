@@ -79,8 +79,9 @@ pub const RecordError = error{
     /// code and the GOAWAY is queued.
     ConnectionFailed,
     /// The provider refused the record, or the peer sent an error alert. RFC 9846 §6 forbids data in
-    /// either direction afterwards, so the connection has failed: `encrypt`, called with no
-    /// plaintext, writes the alert the provider owes, and the caller sends it and closes.
+    /// either direction afterwards, so the connection has failed. `encrypt`, called with no
+    /// plaintext, writes the alert the provider owes, and the caller sends it and closes. When a
+    /// run of KeyUpdates passed the provider's limit, `failure_limit` names it.
     TlsFailed,
     /// The plaintext buffer cannot hold the record's fragment (RFC 9846 §5.1), or the output
     /// cannot hold one record (§5.2). Nothing moved.
@@ -115,19 +116,28 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
     // The provider writes into the caller's buffer and reads the caller's input; the two are
     // never the same storage.
     assert(input.ptr != plaintext.ptr);
-    return open(target, provider, input, plaintext) catch |failure| {
-        // RFC 9846 §5.2 and §6.2: a record the provider refused, or an error alert, ends the
-        // connection, whose last octets are the alert the provider owes.
-        if (failure == error.TlsFailed) end_tls(target);
-        return failure;
+    return open(target, provider, input, plaintext) catch |failure| switch (failure) {
+        error.TlsFailed => {
+            end_tls(target);
+            // RFC 9846 §5.2 and §6.2: a record the provider refused, or an error alert, ends the
+            // connection. Its last octets are the alert that the provider owes.
+            return error.TlsFailed;
+        },
+        error.KeyUpdates => return past_key_updates(target),
+        else => |other| return other,
     };
 }
 
+/// What `open` fails with: a `RecordError`, or the provider's limit on KeyUpdates, which `decrypt`
+/// names and then returns as `TlsFailed`.
+const OpenError = RecordError || error{KeyUpdates};
+
 /// Opens the record through the provider and says what it held.
-fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8, plaintext: []u8) RecordError!Decrypted {
+fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8, plaintext: []u8) OpenError!Decrypted {
     const opened = provider.vtable.decrypt_record(provider.context, input, plaintext) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,
+            error.KeyUpdates => error.KeyUpdates,
             error.NoSpaceLeft => error.NoSpaceLeft,
             error.HandshakeIncomplete => error.HandshakeIncomplete,
         };
@@ -155,6 +165,17 @@ fn end_tls(target: *Connection) void {
     target.tls_failed = true;
     target.handshake_owed = true;
     assert(target.has_failed());
+}
+
+/// The provider read more KeyUpdates in a row than it allows, and its alert ends the connection
+/// (RFC 9846 §6.2). No GOAWAY follows the alert, so this function names the limit, and
+/// `fail_limit` does not. The first failure stands.
+fn past_key_updates(target: *Connection) RecordError {
+    end_tls(target);
+    if (target.failure == null) target.failure_limit = .key_updates;
+    // RFC 9846 §6.2: the provider's alert ends the connection. RFC 9846 §4.7.3 sets no limit on a
+    // run of KeyUpdates, so `failure_limit` names the provider's limit.
+    return error.TlsFailed;
 }
 
 /// A record that carried application data, which ends any run of records that carried none.

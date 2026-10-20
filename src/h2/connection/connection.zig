@@ -57,8 +57,9 @@ pub const SendError = connection_send.Error;
 pub const DataWritten = connection_send.DataWritten;
 pub const ShortBy = connection_send.ShortBy;
 
-/// The limit that ended a connection with ENHANCE_YOUR_CALM: a peer used a feature more than
-/// colibri allows (RFC 9113 §10.5).
+/// The limit that ended a connection: a peer used a feature more than colibri or its provider
+/// allows. Each one ends the connection with ENHANCE_YOUR_CALM (RFC 9113 §10.5), except
+/// `key_updates`.
 pub const Limit = enum {
     /// More CONTINUATION frames in one field block than `continuation_count_max` (§6.10).
     continuation_frames,
@@ -69,6 +70,9 @@ pub const Limit = enum {
     /// More streams the peer opened and reset in one period than `peer_resets_max`: Rapid Reset,
     /// CVE-2023-44487.
     peer_resets,
+    /// More KeyUpdates in a row than the provider reads. The provider's alert ends the connection,
+    /// and no GOAWAY follows it (RFC 9846 §6).
+    key_updates,
 };
 
 /// Why a request the caller asked for did not go out (`connection_request.zig`).
@@ -195,7 +199,8 @@ pub const Connection = struct {
     first_frame_read: bool,
     /// The code of the GOAWAY colibri queued once the peer broke the protocol, or null (§5.4.1).
     failure: ?u32,
-    /// The limit that ended the connection, when `failure` is ENHANCE_YOUR_CALM for one (§10.5).
+    /// The limit that ended the connection: with ENHANCE_YOUR_CALM in `failure` (§10.5), or with
+    /// the provider's alert for `key_updates`.
     failure_limit: ?Limit,
     /// The decoder of the field blocks the peer sends, with colibri's own table limit (§4.3).
     decoder: hpack.Decoder,

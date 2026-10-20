@@ -64,6 +64,11 @@ pub const OpenError = error{
     NoSpaceLeft,
     /// A protected record arrived before the keys that open it exist (RFC 9846 §7.1).
     HandshakeIncomplete,
+    /// The peer sent more KeyUpdates in a row than the provider reads, with no record of data
+    /// between them. RFC 9846 §4.7.3 sets no such limit. The provider raised an alert,
+    /// `take_alert` names it, and `handshake_write` writes it. The connection ends, as for
+    /// `TlsFailed`.
+    KeyUpdates,
 };
 
 /// Why a provider did not write a `close_notify` (RFC 9846 §6.1).
