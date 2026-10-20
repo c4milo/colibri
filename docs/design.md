@@ -4907,7 +4907,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Every check step 12 names has passed, and the step owes nothing more.
 
 - **Step 13 — `bench/`.** The judge, the competitor matrix and the memory measurement, under
-  §11's method on the `ubuntu-24.04-arm` runner (decision 33 as amended on 2026-09-30). Six parts;
+  §11's method on the `ubuntu-24.04-arm` runner (decision 33 as amended on 2026-09-30). Seven parts;
   the owner ruled on 2026-09-30 that 13a and 13b come first:
   - **13a**, the judge. `bench/run.sh` builds colibri's test-only servers in ReleaseSafe, pins each
     server and h2load to cores of their own, and counts the server's instructions, cycles and
@@ -5061,6 +5061,46 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     times hyper's, though 0.72 of h2o's and 0.51 of http.zig's. A connection with one request
     takes 1.09 to 1.55 times every competitor's. Over TLS with many requests, colibri matches
     nginx and takes 1.60 times hyper's. colibri's h11 path is the next performance target.
+
+  **13d, 2026-10-20.** On 2026-10-18 the owner asked for the judge by protocol. The owner ruled
+  for h11 on wrk, h2 on Ubuntu's h2load, and h3 on `h2load --alpn-list=h3` from `tools/h3load/`'s
+  image.
+  quic-go is the one h3 competitor. quiche's images are x86-64 alone, so the arm64 judge cannot run
+  it yet. Ubuntu's nginx 1.24 and h2o 2.2.5 serve no h3, and hyper and http.zig have none.
+
+  `bench/run.sh --h3` adds h3-many and h3-one against the test-only UDP server in its `h3` mode.
+  Each h3 request asks for a file, because quic-go's server answers from files alone. The report
+  prints one block for each protocol, in the order h11, h2, h3, and names the client of each.
+
+  [Run 39426505696](https://github.com/c4milo/colibri/actions/runs/39426505696), on 34fb00b, ran
+  `--competitors --h11 --h3` in 22 minutes. Its two jobs give the same verdict on each of the 28
+  ratios, and agree within 3% on each. The medians are the first job's instructions per request
+  (`-many`) or per connection (`-one`), kernel and user together:
+
+  | Input | colibri | nginx | h2o | hyper | http.zig | quic-go |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+  | h11-many | 36,638 | 28,580 | 52,475 | 27,463 | 74,054 | — |
+  | h11-tls-many | 51,054 | 51,517 | 75,117 | 33,011 | — | — |
+  | h11-one | 98,207 | 72,119 | 102,162 | 89,907 | 103,090 | — |
+  | h11-tls-one | 1,810,280 | 2,140,834 | 2,128,399 | 787,721 | — | — |
+  | h2-many | 14,637 | 46,137 | 34,356 | 27,470 | — | — |
+  | h2-tls-many | 18,347 | 41,434 | 37,737 | 29,045 | — | — |
+  | h2-one | 144,484 | 141,603 | 143,923 | 204,963 | — | — |
+  | h2-tls-one | 1,943,613 | 2,589,974 | 2,353,865 | 1,033,615 | — | — |
+  | h3-many | 148,595 | — | — | — | — | 213,717 |
+  | h3-one | 3,589,765 | — | — | — | — | 3,278,417 |
+
+  What the run shows:
+  - h3, many requests on a connection: colibri takes 0.69 to 0.70 of quic-go's instructions.
+  - h3, one request on each connection: colibri takes 1.09 to 1.10 times quic-go's instructions.
+    It still completes 2,079 connections a second of one core, against quic-go's 1,527, because
+    it takes fewer cycles.
+  - h3-many costs about ten times h2-many's instructions a request. Each h3 request costs 5.08
+    system calls, where an h2 request costs 0.07. This is the next h3 cost to profile.
+  - h11, after the three changes of 7496cdc..ab1e2164: h11-one now takes 0.95 to 0.96 of h2o's
+    and http.zig's instructions. It takes 1.08 to 1.09 times hyper's, and 1.35 to 1.36 times
+    nginx's. h11-many takes 1.28 to 1.36 times nginx's and hyper's.
+  - h2: each verdict is the one 13g recorded.
 
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
