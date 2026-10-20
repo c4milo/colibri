@@ -135,14 +135,17 @@ fn record(storage: *Storage) Violation!void {
     storage.states_len += 1;
 }
 
-/// spec/tla/client_exchanges's Safe, over this state.
+/// spec/tla/client_exchanges's Safe, over this state: no closed connection holds an exchange or
+/// drops a response, and none holds more than one at once.
 fn check_safe(state: *const State, plan: *const Plan) Violation!void {
     var held: [limits.slots_max]u32 = @splat(0);
     for (0..plan.exchanges) |index| {
         try check_processed(state, index, plan.idempotent(index));
         const carrier = state.carrier[index] orelse continue;
-        const holding = state.stage[index] == .queued or state.stage[index] == .sent or state.stage[index] == .ended;
-        if (!holding) continue;
+        // The model's Held(t) and Dropping(t): an h11 connection keeps a cancelled exchange's room
+        // until it drops the response.
+        const carried = state.stage[index] == .queued or state.stage[index] == .sent or state.stage[index] == .ended;
+        if (!carried and !state.drops[index]) continue;
         if (state.phase[carrier] == .closed) return error.ClosedHolding;
         held[carrier] += 1;
     }
