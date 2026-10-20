@@ -10436,7 +10436,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - One finding was no defect: `receive_events_without_input_max` holds for the calls its doc
       names. A `transport_closed` after a start is new I/O, and the doc now says so.
   - **The memory table.** A pool at the default counts holds 705,952 octets and its memory
-    306,392: 1,012,344, 72 more than `client.Channel`. Each TCP connection more adds 305,752.
+    306,336: 1,012,288, 72 more than `client.Channel`. Each TCP connection more adds 305,696.
   - **Owed before the push.** `tools/ci.sh` on the exact tree, whose TLA+ section now runs the
     two pool configurations, the two mutants and `tools/pool_trace.sh`: about 4 minutes more on
     this laptop.

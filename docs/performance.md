@@ -122,13 +122,13 @@ With chapulin's host objects:
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2243360 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 322776 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721576 | the connection each QUIC slot of an endpoint holds, without its receive pool |
-| `std.meta.Elem(@FieldType(client.Pool, "tcp"))` | 305704 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
+| `std.meta.Elem(@FieldType(client.Pool, "tcp"))` | 305648 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.Pool, "tcp_links"))` | 48 | what a pool tracks of each TCP slot's connection |
 | `std.meta.Elem(@FieldType(client.Pool, "entries"))` | 40 | each exchange a pool holds at once |
 | `@FieldType(client.Pool, "quic")` | 703984 | a pool's QUIC connection, without its receive pool |
 | `client.Pool` | 705952 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
 | `client.PoolOf(.{ .quic = false })` | 1040 | the fixed part of a pool with no QUIC state |
-| `client.Pool.memory_bytes(.{})` | 306392 | the memory a pool takes at the default counts: one TCP connection, its link and 16 exchanges |
+| `client.Pool.memory_bytes(.{})` | 306336 | the memory a pool takes at the default counts: one TCP connection, its link and 16 exchanges |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163392 | the h2 state inside a TCP connection |

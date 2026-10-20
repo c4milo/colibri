@@ -752,8 +752,8 @@ offers QUIC only when it has a pool, a `tls` value and `versions.h3`. A program 
 
 A program that never speaks h3 holds a `client.PoolOf(.{ .quic = false })` in place of a
 `client.Pool` ([decision 124](decisions.md)). It holds no QUIC connection and no QUIC TLS
-configuration. At the default counts it takes 307,432 octets with its memory, in place of
-1,012,344 (docs/performance.md). Its `init` takes `null` for the pool, and it has no
+configuration. At the default counts it takes 307,376 octets with its memory, in place of
+1,012,288 (docs/performance.md). Its `init` takes `null` for the pool, and it has no
 `start_quic`, so a call of it does not compile. The consumer program holds one:
 
 ```zig
