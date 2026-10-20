@@ -167,6 +167,11 @@ pub const Slots = struct {
         return false;
     }
 
+    /// Whether every slot holds an exchange, so the next `take` returns null.
+    pub fn full(slots: *const Slots) bool {
+        return slots.count(.free) == 0;
+    }
+
     /// Whether no exchange is queued or awaits its response.
     pub fn idle(slots: *const Slots) bool {
         return slots.count(.queued) == 0 and slots.count(.sent) == 0 and slots.count(.dropping) == 0;

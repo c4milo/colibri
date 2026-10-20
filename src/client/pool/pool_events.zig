@@ -185,9 +185,9 @@ fn on_connected(pool: anytype, slot: u32, protocol: event.Protocol) ?Event {
     pool_links.end_attempt(pool);
     abandon_other(pool, transport);
     assign_waiting(pool);
-    // The connection that reports `connected` took every waiting exchange it had room for (the
-    // model's TakeAtHandshake).
-    assert(!any_waiting(pool) or slot_with_room(pool) == null);
+    // The connection that reports `connected` took every waiting exchange it could (the model's
+    // TakeAtHandshake).
+    assert(!any_waiting(pool) or slot_taking(pool) == null);
     return .{ .connected = .{ .connection = pool_handle.handle_of(pool, slot), .protocol = protocol } };
 }
 
@@ -284,7 +284,7 @@ pub fn assign_waiting(pool: anytype) void {
     // Bounded: each pass hands over the oldest waiting exchange, or stops.
     for (0..pool.entries.len) |_| {
         const entry = oldest(pool, .waiting) orelse return;
-        const slot = slot_with_room(pool) orelse return;
+        const slot = slot_taking(pool) orelse return;
         // A connection whose slots are full takes no more until one ends.
         const carried_id = pool_connection.request(pool, slot, entry.request, entry.response) catch return;
         entry.stage = .carried;
@@ -294,11 +294,22 @@ pub fn assign_waiting(pool: anytype) void {
     }
 }
 
-/// The open connection with room for another exchange, the QUIC one first, or null.
+/// The open connection with room for another exchange, the QUIC one first, or null. A connection
+/// with room may still hold every exchange its slots take: then no other connection opens beside
+/// it, and the exchanges wait (`slot_taking`).
 fn slot_with_room(pool: anytype) ?u32 {
     for (0..pool_handle.slots_count(pool)) |index| {
         const slot = slot_at(pool, index);
         if (pool.phase(slot) == .open and pool_connection.room(pool, slot)) return slot;
+    }
+    return null;
+}
+
+/// The open connection that takes an exchange now, the QUIC one first, or null.
+fn slot_taking(pool: anytype) ?u32 {
+    for (0..pool_handle.slots_count(pool)) |index| {
+        const slot = slot_at(pool, index);
+        if (pool.phase(slot) == .open and pool_connection.takes(pool, slot)) return slot;
     }
     return null;
 }

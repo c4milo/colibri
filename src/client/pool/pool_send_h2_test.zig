@@ -1,11 +1,12 @@
-//! The tests of a pool's `send` event over h2 in cleartext (decision 125): a connection that an
-//! upload blocked on h2's flow control (RFC 9113 §6.9) gets its next `send` from a call of the
-//! program that gives it a debt it can write. The peer is h2's server side in the same process,
-//! and it reads nothing, so it opens no window.
+//! The tests of a pool over h2 in cleartext (decision 125): a connection that an upload blocked
+//! on h2's flow control (RFC 9113 §6.9) gets its next `send` from a call of the program that gives
+//! it a debt it can write, and exchanges past one connection's slots wait for a slot. The peer is
+//! h2's server side in the same process, and it reads nothing, so it opens no window.
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const Exchange = support.Exchange;
@@ -117,4 +118,41 @@ test "decision 125: a cancel gives a blocked h2 connection its next send, for it
     try collect();
     try testing.expectEqual(sends + 1, count(.send));
     try testing.expect(send(connection) > 0);
+}
+
+/// More exchanges than the slots of one connection hold, their memory and their bodies.
+/// Test-only.
+const many_count: u16 = constants.exchanges_max + many_waiting;
+const many_waiting: u16 = 4;
+var many_memory: [Pool.memory_bytes(.{ .exchanges = many_count })]u8 align(Pool.memory_alignment) = undefined;
+var many_bodies: [many_count][body_len]u8 = undefined;
+var many: [many_count]Exchange align(@alignOf(Exchange)) = undefined;
+
+/// The exchanges that wait for a connection. Test-only.
+fn waiting() usize {
+    var counted: usize = 0;
+    for (pool.entries) |entry| counted += @intFromBool(entry.stage == .waiting);
+    return counted;
+}
+
+test "decision 125: exchanges past an h2 connection's slots wait for a slot, and no other connection opens" {
+    config = .{ .authority = support.authority, .versions = .{ .h11 = false, .h3 = false } };
+    try pool.init(&many_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{ .exchanges = many_count }, null);
+    support.to_peer_len = 0;
+    events_len = 0;
+    var first: pool_module.Id = 0;
+    for (&many, &many_bodies, 0..) |*exchange, *body, index| {
+        exchange.* = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
+        const id = try pool.request(&exchange.request, &exchange.response);
+        if (index == 0) first = id;
+    }
+    try collect();
+    // RFC 9113 §9.1: one h2 connection, whose slots take `exchanges_max` exchanges.
+    try testing.expectEqual(1, count(.open));
+    try testing.expectEqual(many_count - constants.exchanges_max, waiting());
+    // A cancel frees a slot, which the oldest waiting exchange takes.
+    pool.cancel(first);
+    try collect();
+    try testing.expectEqual(many_count - constants.exchanges_max - 1, waiting());
+    try testing.expectEqual(1, count(.open));
 }

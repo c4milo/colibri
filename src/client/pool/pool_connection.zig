@@ -77,3 +77,12 @@ pub fn room(pool: anytype, slot: u32) bool {
     if (pool.tcp.len == 1 or connection.protocol() != Protocol.h11) return true;
     return connection.slots.idle();
 }
+
+/// Whether the open connection of `slot` takes an exchange now: it has room, and a free slot of
+/// its own. A connection with room and no free slot holds the waiting exchanges back until one of
+/// its exchanges ends.
+pub fn takes(pool: anytype, slot: u32) bool {
+    if (!room(pool, slot)) return false;
+    if (is_quic(pool, slot)) return !pool.quic.slots.full();
+    return !pool.tcp[slot].slots.full();
+}
