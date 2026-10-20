@@ -34,6 +34,7 @@ pub const client_trace_plan = @import("client_trace_plan.zig");
 pub const client_trace_ledger = @import("client_trace_ledger.zig");
 pub const client_trace_link = @import("client_trace_link.zig");
 pub const client_trace_check = @import("client_trace_check.zig");
+pub const pool_trace_check = @import("pool_trace_check.zig");
 pub const h11_plan = @import("h11_plan.zig");
 pub const h11_split_check = @import("h11_split_check.zig");
 pub const h11_exchange_plan = @import("h11_exchange_plan.zig");
@@ -113,5 +114,7 @@ test {
     _ = client_trace_ledger;
     _ = client_trace_link;
     _ = client_trace_check;
+    _ = pool_trace_check;
+    _ = @import("pool_trace_tla.zig");
     _ = run_main;
 }

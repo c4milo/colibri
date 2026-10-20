@@ -41,6 +41,9 @@
 //!     sim --tcp-trace-write <directory> each seed's trace as TLA+, for tools/tcp_trace.sh
 //!     sim --endpoint-seed <hex>        one seed's TCP and QUIC peers through one endpoint
 //!     sim --endpoint-check [seeds]     (design §8 step 21b.5)
+//!     sim --pool-trace-seed <hex>      one seed's pool of several TCP slots in the client
+//!     sim --pool-trace-check [seeds]   model's terms (design §8 step 22)
+//!     sim --pool-trace-write <directory> each seed's trace as TLA+, for tools/pool_trace.sh
 //!
 //! `run_main.zig` runs the command `parse` returns.
 const std = @import("std");
@@ -71,7 +74,8 @@ pub const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --h3-deadline-trace-check [seeds] | --h3-deadline-trace-write <directory>" ++
     " | --h2-stall-seed <hex> | --h2-stall-check [seeds]" ++
     " | --tcp-trace-check [seeds] | --tcp-trace-write <directory>" ++
-    " | --endpoint-seed <hex> | --endpoint-check [seeds]\n";
+    " | --endpoint-seed <hex> | --endpoint-check [seeds]" ++
+    " | --pool-trace-seed <hex> | --pool-trace-check [seeds] | --pool-trace-write <directory>\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -114,6 +118,9 @@ pub const Command = union(enum) {
     tcp_trace_write: []const u8,
     endpoint_seed: u64,
     endpoint_check: u64,
+    pool_trace_seed: u64,
+    pool_trace_check: u64,
+    pool_trace_write: []const u8,
 };
 
 /// The command `arguments`, the program name left out, asks for.
@@ -212,6 +219,14 @@ fn parse_tcp_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
 fn parse_endpoint(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--endpoint-seed")) return .{ .endpoint_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--endpoint-check")) return .{ .endpoint_check = if (value == null) constants.endpoint.check_seeds_default else try parse_seeds(value) };
+    return parse_pool_trace(flag, value);
+}
+
+/// The commands of the pool trace run, decision 125 (design §8 step 22).
+fn parse_pool_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
+    if (std.mem.eql(u8, flag, "--pool-trace-seed")) return .{ .pool_trace_seed = try parse_seed(value) };
+    if (std.mem.eql(u8, flag, "--pool-trace-check")) return .{ .pool_trace_check = if (value == null) constants.pool_trace.written_seeds else try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--pool-trace-write")) return .{ .pool_trace_write = value orelse return error.Usage };
     return error.Usage;
 }
 

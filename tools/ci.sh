@@ -197,6 +197,10 @@ if command -v java >/dev/null 2>&1; then
   # Decision 105: the client trace run's logs against the model of the client's exchanges.
   section "client traces against the TLA+ model" tools/client_trace.sh
   tla_lines="${tla_lines}"$'\n'"$(grep -E "^client_trace.sh: " "${scratch}/last.log")"
+  # Decision 125: the pool trace run's logs, from a pool of several h11 connections, against the
+  # same model.
+  section "pool traces against the TLA+ model" tools/pool_trace.sh
+  tla_lines="${tla_lines}"$'\n'"$(grep -E "^pool_trace.sh: " "${scratch}/last.log")"
   # https://github.com/c4milo/colibri/issues/86: the deadline trace run's logs against the model of
   # decision 110's deadlines.
   section "deadline traces against the TLA+ model" tools/deadline_trace.sh

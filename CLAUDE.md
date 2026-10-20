@@ -540,7 +540,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   `spec/tla/h3_connection` (decision 87). `tools/h2_trace.sh` does the same for the h2 trace run,
   with `--h2-trace-write` and `spec/tla/h2_connection` (decision 104), `tools/client_trace.sh`
   for the client trace run, with `--client-trace-write` and `spec/tla/client_exchanges` (decision
-  105), `tools/deadline_trace.sh` for the deadline trace run, with `--deadline-trace-write` and
+  105), `tools/pool_trace.sh` for the pool trace run, with `--pool-trace-write` and the same
+  model, through a `client.Pool` of two or three h11 connections (decision 125),
+  `tools/deadline_trace.sh` for the deadline trace run, with `--deadline-trace-write` and
   `spec/tla/server_deadlines`, whose logs also say when three of colibri's clocks run
   (https://github.com/c4milo/colibri/issues/86), and `tools/tcp_trace.sh` for the TCP trace run,
   with `--tcp-trace-write` and `spec/tla/h2_connection`, through `server.Endpoint` and
@@ -548,7 +550,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   and `tools/h3_deadline_trace.sh` for the h3 deadline trace run, with
   `--h3-deadline-trace-write` and `spec/tla/h3_deadlines`, whose logs hold only the variables
   that map one to one onto colibri (design §8 step 20d). Each needs Java, and `tools/ci.sh` runs
-  all six beside `zig build tla`.
+  all seven beside `zig build tla`.
 - Proofs: `zig build lean` builds the Lean proofs in `spec/lean/` with lake, through pepegrillo's
   `lean` tool, and checks that the vector files the Zig tests read (such as
   `src/qpack/insert_count_vectors.txt` and the files beside `src/wire/varint.zig`) are what the
