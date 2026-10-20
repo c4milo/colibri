@@ -249,17 +249,18 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         /// of `options` (decision 124 as amended by decision 125). The next call with the same
         /// input reports no event. The bound holds while the program does only this between the
         /// calls:
-        /// - it starts the transport an `open` names, or calls `transport_closed` when it cannot
-        ///   open it;
+        /// - it starts the transport an `open` names, or calls `transport_closed` in place of the
+        ///   start when it cannot open the transport;
         /// - it closes the socket a `close` names, and takes the ticket a `ticket` names;
         /// - it calls `shutdown`.
-        /// A call that takes octets, and any other call of the program, start a new count.
+        /// A call that takes octets, a `transport_closed` after the start, and any other call of
+        /// the program, start a new count.
         pub fn receive_events_without_input_max(options: Options) usize {
             return pool_state.events_without_input_max(options, capacity.quic);
         }
 
         /// Prepares a pool with nothing opened, and builds the TLS configurations of the
-        /// transports it offers, so the pool stays in place from here on. `memory` holds at least
+        /// transports it offers, so the pool stays in place from here on. `memory` holds exactly
         /// `memory_bytes(options)` octets, and the pool keeps its TCP connections and its table
         /// of exchanges there until the program stops using the pool (decision 35 as amended).
         /// `receive_pool` is the receive pool its QUIC connections use in turn, or null for a
@@ -267,7 +268,8 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         /// configuration offers neither transport, `error.VersionUnavailable` that it allows h3
         /// on a pool with no QUIC, and the other errors that the TLS value names more than a TLS
         /// configuration holds. A program may call `init` again on a pool with no open transport
-        /// and no exchange, for example with new addresses. The ids then count from 1 again.
+        /// and no exchange, for example with new addresses. The ids then count from 1 again, and
+        /// the handles count again too, so the program keeps no id and no handle from before.
         pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, values: Values, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
             return pool_calls.init(pool, memory, config, values, options, receive_pool);
         }

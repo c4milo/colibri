@@ -115,7 +115,9 @@ pub const World = struct {
         const octets: [ipv4_len]u8 = @splat(address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};
         const options: client.Options = .{ .tcp_connections = @intCast(world.plan.slots), .exchanges = @intCast(world.plan.exchanges) };
-        try world.pool.init(&world.pool_memory, &world.client_config, .{ .addresses = &world.addresses, .port = http_port }, options, null);
+        // Decision 125 ruling 2: the pool takes the memory its options need, and no more.
+        const memory = world.pool_memory[0..Pool.memory_bytes(options)];
+        try world.pool.init(memory, &world.client_config, .{ .addresses = &world.addresses, .port = http_port }, options, null);
         world.sockets = @splat(.{});
         world.ids = @splat(null);
         world.cancelled = @splat(false);

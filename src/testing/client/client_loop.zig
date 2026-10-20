@@ -172,7 +172,8 @@ fn memory_of(index: usize, options: client.Options) []align(client.Pool.memory_a
     const len = std.mem.alignForward(usize, client.Pool.memory_bytes(options), client.Pool.memory_alignment);
     // `client_options.slots_ok` admits no run whose pools need more.
     assert((index + 1) * len <= pool_memory.len);
-    return @alignCast(pool_memory[index * len ..][0..len]);
+    // Decision 125 ruling 2: the pool takes the memory its options need, and no more.
+    return @alignCast(pool_memory[index * len ..][0..client.Pool.memory_bytes(options)]);
 }
 
 fn on_event(live: []Connection, event: rotor.Event) void {

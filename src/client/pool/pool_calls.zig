@@ -37,10 +37,10 @@ const ConnectionHandle = pool_module.ConnectionHandle;
 
 pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Values, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
-    // Decision 35 as amended: the caller's memory holds what the options count, and the pool asks
-    // for no more.
+    // Decision 125 ruling 2: memory of another length than the options need is a programmer
+    // error.
     const layout = pool_module.Layout.of(options);
-    assert(memory.len >= layout.len);
+    assert(memory.len == layout.len);
     // Decision 124: a pool with no QUIC takes no receive pool.
     assert(pool.capacity.quic or receive_pool == null);
     const offered = try pool_config.offer(config, pool.capacity.quic, receive_pool != null);
