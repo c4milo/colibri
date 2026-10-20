@@ -15,7 +15,7 @@ var storage: run_module.Storage align(@alignOf(run_module.Storage)) = undefined;
 const closing_response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 /// The content each request of the uploading peer carries, and its exchanges.
 const upload_len: u32 = 16;
-const exchanges_len: u8 = 2;
+const requests_count: u8 = 2;
 
 test "decision 120: an honest peer opens no second socket, and the exchange that waits for one ends refused" {
     // An uploading peer makes its exchanges one at a time, so its second one starts once the
@@ -24,7 +24,7 @@ test "decision 120: an honest peer opens no second socket, and the exchange that
     plan.protocol = .h11;
     plan.peer = .upload;
     plan.deadlines = .{};
-    plan.exchanges_len = exchanges_len;
+    plan.requests_count = requests_count;
     plan.upload_len = @splat(upload_len);
     plan.piece_len = upload_len;
     try run_module.start(&storage, &plan, 0);
@@ -33,8 +33,8 @@ test "decision 120: an honest peer opens no second socket, and the exchange that
     @memcpy(stream.octets[stream.written..][0..closing_response.len], closing_response);
     stream.written += closing_response.len;
     _ = try run_module.peer_read(&storage, &plan, 0);
-    try testing.expectEqual(1, storage.record.exchanges_done);
-    try testing.expectEqual(exchanges_len, storage.exchanges_requested);
+    try testing.expectEqual(1, storage.record.requests_done);
+    try testing.expectEqual(requests_count, storage.requests_made);
     // RFC 9113 §8.7: no server processed the second request, so it ends refused, and the peer
     // started no second connection.
     try testing.expectEqual(.refused, storage.responses[1].outcome);

@@ -114,7 +114,7 @@ pub const QuicConnection = struct {
     section: h3.http.FieldSection,
     body: [constants.quic_read_len]u8,
     /// Each slot's request stream frames, at the slot's index.
-    streams: [constants.exchanges_max]quic_h3.RequestStream,
+    streams: [constants.requests_max]quic_h3.RequestStream,
     slots: slots_module.Slots,
     owed: owed_module.Owed,
     start_values: Start,

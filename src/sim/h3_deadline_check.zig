@@ -47,7 +47,7 @@ pub const check_name = "h3-deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0x9050e8bf;
+pub const census_crc32_expected: u32 = 0x8742d7c9;
 
 /// The CRC-32 of the runs' datagram CRC-32s, in seed order. It follows what the wire carried apart
 /// from what the application reads, so a change to how the server reports events keeps it, and a
@@ -86,7 +86,7 @@ pub const Result = struct {
 /// What `run_check` counted over its seeds.
 pub const Census = struct {
     seeds: u64 = 0,
-    exchanges: u64 = 0,
+    requests: u64 = 0,
     first_request: u64 = 0,
     idle: u64 = 0,
     body_rate: u64 = 0,
@@ -132,7 +132,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
             return failure;
         };
         census.seeds += 1;
-        census.exchanges += result.record.exchanges_done;
+        census.requests += result.record.requests_done;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
         var wire_octets: [@sizeOf(u32)]u8 = undefined;
@@ -199,7 +199,7 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     const record = &storage.run.record;
     try write_trace(storage, plan, seed);
     // An honest peer's exchanges end whole, however long the application takes (decision 110).
-    if (plan.honest() and record.exchanges_done != plan.exchanges_len) return error.ExchangeLost;
+    if (plan.honest() and record.requests_done != plan.requests_count) return error.ExchangeLost;
     // INV-30: the connection stopped before its peer read the close, so each request has ended.
     for (record.app.answers[0..record.app.answers_len]) |answered| {
         if (answered.done_ms == null and answered.cancelled_ms == null) return error.RequestUnended;
@@ -383,8 +383,8 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     try line(storage, " rates={d}/{d}/{d}/{d}", .{
         deadlines.body_rate_min.?, deadlines.send_rate_min.?, ms_of(deadlines.rate_grace_ns), ms_of(deadlines.rate_window_ns),
     });
-    try line(storage, " exchanges={d} gap_ms={d} piece_len={d} read={d}/{d} link={d} batch={d}\n", .{
-        plan.exchanges_len, plan.gap_ms, plan.piece_len, plan.read_len, plan.read_gap_ms, plan.link_rate, plan.flood_batch_len,
+    try line(storage, " requests={d} gap_ms={d} piece_len={d} read={d}/{d} link={d} batch={d}\n", .{
+        plan.requests_count, plan.gap_ms, plan.piece_len, plan.read_len, plan.read_gap_ms, plan.link_rate, plan.flood_batch_len,
     });
     for (record.app.answers[0..record.app.answers_len], 0..) |answered, index| {
         try line(storage, "answer={d} read_ms={d} content_end_ms={?d} answered_ms={?d} finished_ms={?d} done_ms={?d} cancelled={?t}@{?d}\n", .{
@@ -392,8 +392,8 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
             answered.finished_ms, answered.done_ms, answered.cancelled,      answered.cancelled_ms,
         });
     }
-    try line(storage, "end={t} at_ms={d} exchanges_done={d} requests={d} goaway_ms={?d}", .{
-        record.end, record.end_ms, record.exchanges_done, record.requests_opened, record.goaway_ms,
+    try line(storage, "end={t} at_ms={d} requests_done={d} requests={d} goaway_ms={?d}", .{
+        record.end, record.end_ms, record.requests_done, record.requests_opened, record.goaway_ms,
     });
     if (record.close) |close| try line(storage, " close=0x{x}@{d}", .{ close.error_code, close.at_ms });
     if (record.close_reason) |reason| switch (reason) {
@@ -420,7 +420,7 @@ test "decision 110: every h3 seed replays, honest peers finish their exchanges, 
         std.debug.print("h3-deadline: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
-    try std.testing.expect(census.exchanges > 0 and census.requests_cut > 0);
+    try std.testing.expect(census.requests > 0 and census.requests_cut > 0);
     try std.testing.expect(census.first_request > 0 and census.idle > 0 and census.peer_resets > 0);
     try std.testing.expect(census.body_rate > 0 and census.send_rate > 0);
     try std.testing.expectEqual(census_crc32_expected, census.crc32.final());

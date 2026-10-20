@@ -41,7 +41,7 @@ const answer_status: u16 = 200;
 const halves: usize = 2;
 
 pub const Application = struct {
-    answers: [limits.exchanges_max]Answer,
+    answers: [limits.honest_requests_max]Answer,
     answers_len: u8,
     /// The requests the server reported, the application's answers and a flooder's among them.
     requests_read: u32,
@@ -75,7 +75,7 @@ pub const Application = struct {
     fn note_request(app: *Application, id: server.Id, now_ms: u64) void {
         app.requests_read += 1;
         // The application answers as many requests as a peer makes whole.
-        if (app.answers_len == limits.exchanges_max) return;
+        if (app.answers_len == limits.honest_requests_max) return;
         app.answers[app.answers_len] = .{ .id = id, .read_ms = now_ms };
         app.answers_len += 1;
     }

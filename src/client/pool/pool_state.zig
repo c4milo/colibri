@@ -92,13 +92,13 @@ pub const Link = struct {
 pub const Options = struct {
     /// TCP connections the pool holds at most: from 1 to `constants.pool_tcp_connections_max`.
     tcp_connections: u16 = 1,
-    /// Exchanges the pool holds at once: from 1 to `constants.pool_exchanges_max`.
-    exchanges: u16 = constants.exchanges_max,
+    /// Requests the pool holds at once, each until its `finished` event: from 1 to `constants.pool_requests_max`.
+    requests: u16 = constants.requests_max,
 
     /// Whether each count is inside its limits. A count outside them is a programmer error.
     pub fn valid(options: Options) bool {
         if (options.tcp_connections == 0 or options.tcp_connections > constants.pool_tcp_connections_max) return false;
-        return options.exchanges > 0 and options.exchanges <= constants.pool_exchanges_max;
+        return options.requests > 0 and options.requests <= constants.pool_requests_max;
     }
 };
 
@@ -122,7 +122,7 @@ pub const Layout = struct {
         const tcp_count: usize = options.tcp_connections;
         const tcp_len = tcp_count * @sizeOf(connection_module.Connection);
         const entries_offset = tcp_len + tcp_count * @sizeOf(Link);
-        const len = entries_offset + @as(usize, options.exchanges) * @sizeOf(Entry);
+        const len = entries_offset + @as(usize, options.requests) * @sizeOf(Entry);
         assert(len > entries_offset and entries_offset > tcp_len);
         return .{ .tcp_len = tcp_len, .links_offset = tcp_len, .entries_offset = entries_offset, .len = len };
     }
@@ -134,5 +134,5 @@ pub const Layout = struct {
 pub fn events_without_input_max(options: Options, holds_quic: bool) usize {
     assert(options.valid());
     const transports = @as(usize, options.tcp_connections) + @intFromBool(holds_quic);
-    return @as(usize, options.exchanges) + transports * constants.transport_events_max + 1;
+    return @as(usize, options.requests) + transports * constants.transport_events_max + 1;
 }

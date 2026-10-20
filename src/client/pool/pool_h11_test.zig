@@ -195,7 +195,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqualStrings("hello", exchange.response.content_received());
         }
 
-        test "design §8 step 21c.3: a pool carries two h11 exchanges, the last answered with no content" {
+        test "design §8 step 21c.3: a pool carries two h11 requests, the last answered with no content" {
             var first = get(&bodies[0]);
             var last = get(&bodies[1]);
             try start(&first);

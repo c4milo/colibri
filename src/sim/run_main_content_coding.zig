@@ -23,11 +23,11 @@ pub fn check(seeds: u64) !void {
         std.debug.print("content-coding: seed 0x{x} failed: {t}; rerun it with --content-coding-seed\n", .{ failed_seed.?, failure });
         return failure;
     };
-    const census_format = "content-coding: seeds={d} exchanges={d} decoded={d} passed_on={d} too_large={d}" ++
+    const census_format = "content-coding: seeds={d} requests={d} decoded={d} passed_on={d} too_large={d}" ++
         " trace_octets={d} crc32=0x{x:0>8} wire_crc32=0x{x:0>8}\n";
     std.debug.print(census_format, .{
         census.seeds,
-        census.exchanges,
+        census.requests,
         census.decoded,
         census.passed_on,
         census.too_large,

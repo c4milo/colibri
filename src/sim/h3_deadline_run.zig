@@ -64,8 +64,8 @@ pub const Record = struct {
     end_ms: u64,
     /// The requests the application read, answered, and was told were done or cancelled.
     app: app_module.Application,
-    /// Exchanges an honest peer ended with a whole response.
-    exchanges_done: u8,
+    /// Requests an honest peer ended with a whole response.
+    requests_done: u8,
     /// The requests the peer opened, and what it saw of the first ones.
     requests_opened: u32,
     seen: [kept_fetches]Seen,
@@ -147,7 +147,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .end = .held,
         .end_ms = 0,
         .app = undefined,
-        .exchanges_done = 0,
+        .requests_done = 0,
         .requests_opened = 0,
         .seen = @splat(.{}),
         .close = null,
@@ -313,10 +313,10 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
             .reset_ms = fetch.reset_ms,
             .ended_ms = fetch.ended_ms,
         };
-        if (index >= plan.exchanges_len or !plan.honest()) continue;
+        if (index >= plan.requests_count or !plan.honest()) continue;
         // An honest peer's exchange is whole: 200, every octet of its content, and its end.
         const whole = fetch.status == ok_status and fetch.ended_ms != null and fetch.received_len == plan.content_len[index];
-        if (whole) record.exchanges_done += 1;
+        if (whole) record.requests_done += 1;
     }
 }
 

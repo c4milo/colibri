@@ -33,7 +33,7 @@ const records_held: usize = 8;
 const records_sealed: usize = 10;
 /// Frames or records one call reads at most, each at least a header long.
 const reads_max: usize = input_len / h2.constants.frame_header_len + 1;
-const requests_max: usize = limits.exchanges_max;
+const requests_max: usize = limits.requests_max;
 const status_digits_len: usize = 3;
 const length_digits_max: usize = 20;
 const ok_status: u16 = 200;

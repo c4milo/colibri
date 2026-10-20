@@ -32,8 +32,8 @@ const ok_status: u16 = 200;
 const window: u64 = 1_048_576;
 const stream_window: u64 = 262_144;
 const idle_timeout_ms: u64 = 30_000;
-/// Requests one connection's server reads at most: every exchange of a seed.
-const requests_max: usize = limits.exchanges_max;
+/// Requests one connection's server reads at most: every request of a seed.
+const requests_max: usize = limits.requests_max;
 
 const server_id: [id_len]u8 = @splat(server_id_octet);
 
@@ -259,7 +259,7 @@ pub const QuicServer = struct {
 pub const contents = [_][]const u8{ "response 0", "response 1", "response 2" };
 
 comptime {
-    assert(contents.len == limits.exchanges_max);
+    assert(contents.len == limits.requests_max);
 }
 
 const alpn_h3 = [_][]const u8{"h3"};

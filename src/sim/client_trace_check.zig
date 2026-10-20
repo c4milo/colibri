@@ -66,7 +66,7 @@ pub const Storage = struct {
 /// One seed's counts.
 pub const Result = struct {
     states: u64 = 0,
-    exchanges: u64 = 0,
+    requests: u64 = 0,
     responses: u64 = 0,
     refused: u64 = 0,
     failed: u64 = 0,
@@ -152,7 +152,7 @@ fn record(storage: *Storage) Violation!void {
 
 /// spec/tla/client_exchanges's Safe, over this state.
 fn check_safe(state: *const State, plan: *const Plan) Violation!void {
-    for (0..plan.exchanges) |index| {
+    for (0..plan.requests) |index| {
         try check_exchange(state, index);
         try check_processed(state, index, plan.idempotent(index));
     }
@@ -188,7 +188,7 @@ fn check_end(world: *const World) Violation!void {
     if (!world.closed) return error.NotClosed;
     // A connection that ends only at its idle timeout once it holds nothing was never closed.
     if (world.now_ns - closing_from_ns(world) > limits.closing_max_ns) return error.ClosedLate;
-    for (0..world.plan.exchanges) |index| {
+    for (0..world.plan.requests) |index| {
         if (!world.reported[index] and !world.cancelled[index]) return error.NotReported;
         if (!world.plan.clean or !world.reported[index]) continue;
         // Design §8 step 17d: every request made completes.
@@ -205,7 +205,7 @@ fn result_of(storage: *const Storage) Result {
     const world = &storage.world;
     var result: Result = .{
         .states = storage.states_len,
-        .exchanges = world.plan.exchanges,
+        .requests = world.plan.requests,
         .quic_connections = world.pool.quic_link.opens,
         .tcp_connections = world.pool.tcp_links[0].opens,
         .goaways = world.ledger.goaways,
@@ -217,7 +217,7 @@ fn result_of(storage: *const Storage) Result {
         result.retired += @intFromBool(now.stale and !before.stale);
     }
     const last = &storage.states[storage.states_len - 1];
-    for (0..world.plan.exchanges) |index| {
+    for (0..world.plan.requests) |index| {
         result.cancelled += @intFromBool(world.cancelled[index]);
         result.moved += last.moved[index];
         result.resent += @intFromBool(storage.tracker.resent[index]);
@@ -261,7 +261,7 @@ test "client trace run: every seed closes the pool with each exchange reported o
     // the census is pinned, as Debug and `-Drelease` both give it.
     try testing.expectEqual(Result{
         .states = 2589,
-        .exchanges = 534,
+        .requests = 534,
         .responses = 348,
         .refused = 85,
         .failed = 52,

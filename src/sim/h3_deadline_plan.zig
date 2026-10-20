@@ -67,9 +67,9 @@ pub const Plan = struct {
     base_ms: u64,
     /// The server's limits: decision 110's defaults, or shorter ones.
     deadlines: server.Deadlines,
-    /// The exchanges the peer makes whole: every one of an honest peer's, and the first one of a
+    /// The requests the peer makes whole: every one of an honest peer's, and the first one of a
     /// peer that ends slow.
-    exchanges_len: u8,
+    requests_count: u8,
     /// The gap between two pieces of content, or two PINGs, or a head and its last octet, or a
     /// response's end and a slow second head, in milliseconds, and the octets in one piece.
     gap_ms: u64,
@@ -77,19 +77,19 @@ pub const Plan = struct {
     /// The requests a peer that floods opens and cancels in one batch.
     flood_batch_len: u32,
     /// The content each request of an uploading peer carries.
-    upload_len: [limits.exchanges_max]u32,
+    upload_len: [limits.honest_requests_max]u32,
     /// How a peer that reads slowly reads: `read_len` octets every `read_gap_ms`.
     read_gap_ms: u64,
     read_len: u32,
     /// Octets a second the link from the server to the peer carries, or 0 for a link with no rate.
     link_rate: u32,
     /// How long the application takes to answer each request, from the instant its content ended.
-    answer_delay_ms: [limits.exchanges_max]u64,
+    answer_delay_ms: [limits.honest_requests_max]u64,
     /// How long after the first half of an answer's content the application writes the rest and
     /// ends the response, or 0 for an answer it writes whole.
-    answer_gap_ms: [limits.exchanges_max]u64,
+    answer_gap_ms: [limits.honest_requests_max]u64,
     /// The content of each response.
-    content_len: [limits.exchanges_max]u32,
+    content_len: [limits.honest_requests_max]u32,
 
     /// Whether no deadline may end the peer's requests.
     pub fn honest(plan: *const Plan) bool {
@@ -146,7 +146,7 @@ pub fn draw(random: *Random) Plan {
         .peer = peer,
         .base_ms = random.below(limits.base_ms_max),
         .deadlines = if (peer == .long_body) long_body_deadlines(random) else draw_deadlines(random),
-        .exchanges_len = exchanges_of(peer, random),
+        .requests_count = requests_of(peer, random),
         .gap_ms = 0,
         .piece_len = 0,
         .flood_batch_len = 0,
@@ -164,7 +164,7 @@ pub fn draw(random: *Random) Plan {
         const factor: u32 = @intCast(random.between(limits.link_rate_factor_min, limits.link_rate_factor_max));
         plan.link_rate = factor * plan.deadlines.send_rate_min.?;
     }
-    for (0..limits.exchanges_max) |index| {
+    for (0..limits.honest_requests_max) |index| {
         plan.answer_delay_ms[index] = random.below(limits.answer_delay_ms_max + 1);
         plan.content_len[index] = @intCast(random.below(limits.content_len_max + 1));
         if (peer == .upload) plan.upload_len[index] = @intCast(random.between(1, limits.upload_len_max));
@@ -172,14 +172,14 @@ pub fn draw(random: *Random) Plan {
         // One answer in two to an honest peer is written in two halves, a gap apart.
         if (plan.honest() and random.below(answers_in_two_one_in) == 0) plan.answer_gap_ms[index] = random.between(1, limits.answer_gap_ms_max);
     }
-    assert(plan.exchanges_len <= limits.exchanges_max);
+    assert(plan.requests_count <= limits.honest_requests_max);
     return plan;
 }
 
-/// The exchanges `peer` makes whole.
-fn exchanges_of(peer: Peer, random: *Random) u8 {
+/// The requests `peer` makes whole.
+fn requests_of(peer: Peer, random: *Random) u8 {
     return switch (peer) {
-        .honest, .slow_honest, .upload, .slow_reader, .slow_link => @intCast(random.between(1, limits.exchanges_max)),
+        .honest, .slow_honest, .upload, .slow_reader, .slow_link => @intCast(random.between(1, limits.honest_requests_max)),
         .idle_pinger, .slow_second_head => 1,
         // Each of these makes one request, which a deadline ends.
         .slow_body, .long_body, .deaf, .holds_credit, .holds_connection_credit, .reads_slowly => 1,

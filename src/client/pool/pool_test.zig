@@ -249,11 +249,11 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(1, count(.open));
         }
 
-        test "a pool holds exchanges_max exchanges at once, and refuses one more" {
+        test "a pool holds requests_max requests at once, and refuses one more" {
             try start_tcp_only();
-            var exchanges: [constants.exchanges_max + 1]Exchange = @splat(get(&bodies[0]));
-            for (exchanges[0..constants.exchanges_max]) |*exchange| _ = try pool.request(&exchange.request, &exchange.response);
-            try testing.expectError(error.Full, pool.request(&exchanges[constants.exchanges_max].request, &exchanges[constants.exchanges_max].response));
+            var exchanges: [constants.requests_max + 1]Exchange = @splat(get(&bodies[0]));
+            for (exchanges[0..constants.requests_max]) |*exchange| _ = try pool.request(&exchange.request, &exchange.response);
+            try testing.expectError(error.Full, pool.request(&exchanges[constants.requests_max].request, &exchanges[constants.requests_max].response));
         }
 
         test "what a transport with no running connection read is dropped" {

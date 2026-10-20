@@ -49,7 +49,7 @@ pub const Asked = struct {
 const slots_max = constants.client_tcp_connections_max;
 
 /// The response content of each exchange of one connection, which `client` fills.
-pub const Bodies = [constants.exchanges_max][constants.response_content_len_max]u8;
+pub const Bodies = [constants.requests_max][constants.response_content_len_max]u8;
 
 /// One connection's client state, in storage the caller places. The pool stays in place after
 /// `init`: the TLS configuration it built points into it.
@@ -64,8 +64,8 @@ pub const Session = struct {
     asked: [slots_max]Asked,
     /// The server's one address, which the pool reads for each socket it asks for.
     addresses: [1]client.Address,
-    exchanges: [constants.exchanges_max]Exchange,
-    exchanges_count: u32,
+    exchanges: [constants.requests_max]Exchange,
+    requests_count: u32,
     /// What each connection's start takes: the source its TLS session draws from, and the instant
     /// chapulin judges the server's chain at, in seconds since 1970-01-01T00:00:00Z.
     random: tls.Random,
@@ -94,10 +94,10 @@ pub const Session = struct {
         plans: []const Plan,
         bodies: *Bodies,
     ) !void {
-        assert(plans.len > 0 and plans.len <= constants.exchanges_max);
+        assert(plans.len > 0 and plans.len <= constants.requests_max);
         assert(address.port == 0);
         assert(options.tcp_connections > 0 and options.tcp_connections <= slots_max);
-        session.exchanges_count = 0;
+        session.requests_count = 0;
         session.addresses = .{address};
         try session.pool.init(memory, config, .{ .addresses = &session.addresses, .port = port }, options, null);
         session.slots = options.tcp_connections;
@@ -112,7 +112,7 @@ pub const Session = struct {
         for (plans, session.exchanges[0..plans.len], bodies[0..plans.len]) |plan, *exchange, *body| {
             exchange.* = .init(plan, body);
             exchange.id = try session.pool.request(&exchange.request, &exchange.response);
-            session.exchanges_count += 1;
+            session.requests_count += 1;
         }
         // The pool takes no request after `shutdown`, so the requests come first.
         session.pool.shutdown();
@@ -161,7 +161,7 @@ pub const Session = struct {
     fn read(session: *Session, slot: ?u32, input: []u8) usize {
         var consumed: usize = 0;
         // Bounded: each pass consumes an octet or reports one of the finitely many events.
-        for (0..input.len + session.slots * constants.exchanges_max * constants.steps_per_read_max) |_| {
+        for (0..input.len + session.slots * constants.requests_max * constants.steps_per_read_max) |_| {
             const held = input[consumed..];
             const passed: client.Input = if (slot != null and held.len > 0) .{ .stream = .{ .connection = session.connections[slot.?], .octets = held } } else .none;
             const received = session.pool.receive(passed, session.now_ns);
@@ -209,7 +209,7 @@ pub const Session = struct {
     }
 
     fn exchange_of(session: *Session, id: client.Id) *Exchange {
-        for (session.exchanges[0..session.exchanges_count]) |*exchange| {
+        for (session.exchanges[0..session.requests_count]) |*exchange| {
             if (exchange.id == id) return exchange;
         }
         unreachable; // The pool reports only the exchanges `init` requested.
@@ -217,7 +217,7 @@ pub const Session = struct {
 
     /// Whether every exchange ended the way a working peer ends one.
     pub fn succeeded(session: *const Session) bool {
-        for (session.exchanges[0..session.exchanges_count]) |*exchange| {
+        for (session.exchanges[0..session.requests_count]) |*exchange| {
             if (!exchange.succeeded()) return false;
         }
         return true;
@@ -225,7 +225,7 @@ pub const Session = struct {
 
     /// The exchanges of the plan, as they stand.
     pub fn exchanges_held(session: *const Session) []const Exchange {
-        return session.exchanges[0..session.exchanges_count];
+        return session.exchanges[0..session.requests_count];
     }
 
     /// `slot`'s socket ended before the pool was done with it: the peer closed it, it failed, or

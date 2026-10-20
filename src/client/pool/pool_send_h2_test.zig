@@ -120,11 +120,11 @@ test "decision 125: a cancel gives a blocked h2 connection its next send, for it
     try testing.expect(send(connection) > 0);
 }
 
-/// More exchanges than the slots of one connection hold, their memory and their bodies.
+/// More requests than the slots of one connection hold, their memory and their bodies.
 /// Test-only.
-const many_count: u16 = constants.exchanges_max + many_waiting;
+const many_count: u16 = constants.requests_max + many_waiting;
 const many_waiting: u16 = 4;
-var many_memory: [Pool.memory_bytes(.{ .exchanges = many_count })]u8 align(Pool.memory_alignment) = undefined;
+var many_memory: [Pool.memory_bytes(.{ .requests = many_count })]u8 align(Pool.memory_alignment) = undefined;
 var many_bodies: [many_count][body_len]u8 = undefined;
 var many: [many_count]Exchange align(@alignOf(Exchange)) = undefined;
 
@@ -137,7 +137,7 @@ fn waiting() usize {
 
 test "decision 125: exchanges past an h2 connection's slots wait for a slot, and no other connection opens" {
     config = .{ .authority = support.authority, .versions = .{ .h11 = false, .h3 = false } };
-    try pool.init(&many_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{ .exchanges = many_count }, null);
+    try pool.init(&many_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{ .requests = many_count }, null);
     support.to_peer_len = 0;
     events_len = 0;
     var first: pool_module.Id = 0;
@@ -147,12 +147,12 @@ test "decision 125: exchanges past an h2 connection's slots wait for a slot, and
         if (index == 0) first = id;
     }
     try collect();
-    // RFC 9113 §9.1: one h2 connection, whose slots take `exchanges_max` exchanges.
+    // RFC 9113 §9.1: one h2 connection, whose slots take `requests_max` requests.
     try testing.expectEqual(1, count(.open));
-    try testing.expectEqual(many_count - constants.exchanges_max, waiting());
+    try testing.expectEqual(many_count - constants.requests_max, waiting());
     // A cancel frees a slot, which the oldest waiting exchange takes.
     pool.cancel(first);
     try collect();
-    try testing.expectEqual(many_count - constants.exchanges_max - 1, waiting());
+    try testing.expectEqual(many_count - constants.requests_max - 1, waiting());
     try testing.expectEqual(1, count(.open));
 }

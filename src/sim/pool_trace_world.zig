@@ -25,7 +25,7 @@ const Plan = plan_module.Plan;
 
 pub const Pool = client.PoolOf(.{ .quic = false });
 const Endpoint = server.EndpointOf(.{ .tcp_connections = limits.endpoint_slots, .quic_connections = 0 });
-const memory_len = Pool.memory_bytes(.{ .tcp_connections = limits.slots_max, .exchanges = limits.exchanges_max });
+const memory_len = Pool.memory_bytes(.{ .tcp_connections = limits.slots_max, .requests = limits.requests_max });
 const now_ns: u64 = 0;
 const ok: u16 = 200;
 const http_port: u16 = 80;
@@ -90,17 +90,17 @@ pub const World = struct {
     client_config: client.Config,
     addresses: [1]client.Address,
     sockets: [limits.slots_max]Socket,
-    paths: [limits.exchanges_max][path_len]u8,
-    requests: [limits.exchanges_max]client.Request,
-    responses: [limits.exchanges_max]client.Response,
-    bodies: [limits.exchanges_max][limits.body_len]u8,
-    ids: [limits.exchanges_max]?client.Id,
-    cancelled: [limits.exchanges_max]bool,
-    reported: [limits.exchanges_max]bool,
+    paths: [limits.requests_max][path_len]u8,
+    requests: [limits.requests_max]client.Request,
+    responses: [limits.requests_max]client.Response,
+    bodies: [limits.requests_max][limits.body_len]u8,
+    ids: [limits.requests_max]?client.Id,
+    cancelled: [limits.requests_max]bool,
+    reported: [limits.requests_max]bool,
     /// Times a server passed each request to its application, and the slot and the pool's
     /// generation of the connection that did last.
-    processed: [limits.exchanges_max]u8,
-    processed_on: [limits.exchanges_max]?client.ConnectionHandle,
+    processed: [limits.requests_max]u8,
+    processed_on: [limits.requests_max]?client.ConnectionHandle,
     instant: u32,
     shut: bool,
     closed: bool,
@@ -114,7 +114,7 @@ pub const World = struct {
         try world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.random, fill), 0, now_ns);
         const octets: [ipv4_len]u8 = @splat(address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};
-        const options: client.Options = .{ .tcp_connections = @intCast(world.plan.slots), .exchanges = @intCast(world.plan.exchanges) };
+        const options: client.Options = .{ .tcp_connections = @intCast(world.plan.slots), .requests = @intCast(world.plan.requests) };
         // Decision 125 ruling 2: the pool takes the memory its options need, and no more.
         const memory = world.pool_memory[0..Pool.memory_bytes(options)];
         try world.pool.init(memory, &world.client_config, .{ .addresses = &world.addresses, .port = http_port }, options, null);
@@ -127,7 +127,7 @@ pub const World = struct {
         world.instant = 0;
         world.shut = false;
         world.closed = false;
-        for (0..world.plan.exchanges) |index| world.prepare(index);
+        for (0..world.plan.requests) |index| world.prepare(index);
     }
 
     fn prepare(world: *World, index: usize) void {
@@ -139,7 +139,7 @@ pub const World = struct {
     /// The caller's acts at this instant, then one turn of the pool and one of the server. The
     /// world calls `observer.observe()` after each act and each event.
     pub fn step(world: *World, observer: anytype) !void {
-        for (0..world.plan.exchanges) |index| {
+        for (0..world.plan.requests) |index| {
             world.act(index);
             try observer.observe();
         }
@@ -312,7 +312,7 @@ pub const World = struct {
     /// The index of the exchange whose response is at `response`, which the world placed.
     pub fn index_of(world: *const World, response: *const client.Response) usize {
         const index = (@intFromPtr(response) - @intFromPtr(&world.responses[0])) / @sizeOf(client.Response);
-        assert(index < world.plan.exchanges and &world.responses[index] == response);
+        assert(index < world.plan.requests and &world.responses[index] == response);
         return index;
     }
 };

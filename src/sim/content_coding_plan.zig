@@ -52,8 +52,8 @@ pub const Plan = struct {
     server_codings_len: u8,
     client_codings: [coding_count]Coding,
     client_codings_len: u8,
-    exchanges: [limits.exchanges_max]Exchange,
-    exchanges_len: u8,
+    exchanges: [limits.requests_max]Exchange,
+    requests_count: u8,
 
     pub fn server_offers(plan: *const Plan) []const Coding {
         return plan.server_codings[0..plan.server_codings_len];
@@ -78,8 +78,8 @@ pub fn draw(random: *Random) Plan {
     plan.protocol = if (coin(random)) .h11 else .h2;
     plan.server_codings_len = draw_codings(random, &plan.server_codings);
     plan.client_codings_len = draw_codings(random, &plan.client_codings);
-    plan.exchanges_len = @intCast(random.between(1, limits.exchanges_max));
-    for (plan.exchanges[0..plan.exchanges_len]) |*exchange| exchange.* = draw_exchange(random);
+    plan.requests_count = @intCast(random.between(1, limits.requests_max));
+    for (plan.exchanges[0..plan.requests_count]) |*exchange| exchange.* = draw_exchange(random);
     return plan;
 }
 
@@ -166,7 +166,7 @@ test "decision 101: the server applies the client's first coding it has, and onl
         .client_codings = .{ .deflate, .gzip },
         .client_codings_len = 2,
         .exchanges = undefined,
-        .exchanges_len = 1,
+        .requests_count = 1,
     };
     const get: Exchange = .{ .head = false, .own_offer = .none, .codable = true, .status = ok, .content_len = 10, .compressible = true, .body_short = false };
     try testing.expectEqual(Coding.deflate, expect(&plan, &get).coded.?);

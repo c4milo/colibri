@@ -20,10 +20,10 @@ pub const horizon_ms: u64 = 600_000;
 /// decision 110 are what ends a run, and not RFC 9000 §10.1's silence.
 pub const quic_idle_timeout_ms: u64 = 1_200_000;
 
-/// The exchanges an honest peer makes.
-pub const exchanges_max: u32 = 3;
+/// The requests an honest peer makes.
+pub const honest_requests_max: u32 = 3;
 
-/// The requests a run holds at most: an honest peer's exchanges, or the streams a peer that
+/// The requests a run holds at most: an honest peer's requests, or the streams a peer that
 /// floods opens before the server closes its connection.
 pub const requests_max: u32 = 128;
 
@@ -156,17 +156,17 @@ pub const events_per_pass_max: u32 = 4_096;
 /// Octets of a check's trace line, and of a trace: its first line, a line for each exchange, and
 /// the line of its end.
 pub const line_len_max: u32 = 256;
-pub const trace_len_max: u32 = line_len_max * (exchanges_max + trace_lines_besides_answers);
+pub const trace_len_max: u32 = line_len_max * (honest_requests_max + trace_lines_besides_answers);
 const trace_lines_besides_answers: u32 = 2;
 
 comptime {
     assert(read_gap_ms_min <= read_gap_ms_max and read_rate_factor_min <= read_rate_factor_max);
     assert(upload_gap_ms_min <= upload_gap_ms_max and upload_rate_factor_min <= upload_rate_factor_max);
     assert(slow_read_rate_min <= slow_read_rate_max and slow_body_rate_min <= slow_body_rate_max);
-    assert(hostile_gap_ms_min <= hostile_gap_ms_max and exchanges_max > 0 and content_len_max > 0);
+    assert(hostile_gap_ms_min <= hostile_gap_ms_max and honest_requests_max > 0 and content_len_max > 0);
     assert(read_content_len_min <= read_content_len_max and reader_stream_window < window_quota_min);
     assert(short_rate_ms_min <= short_limit_ms_min and quic_idle_timeout_ms > horizon_ms);
-    assert(requests_max >= exchanges_max and flood_batch_len_max > 0 and flood_gap_ms > 0);
+    assert(requests_max >= honest_requests_max and flood_batch_len_max > 0 and flood_gap_ms > 0);
     assert(late_head_ms_min <= late_head_ms_max and late_head_ms_max * 2 <= short_limit_ms_min);
     assert(long_body_cap_ms_min <= long_body_cap_ms_max and long_body_gap_ms_min <= long_body_gap_ms_max);
     assert(long_body_rate_factor > 1);

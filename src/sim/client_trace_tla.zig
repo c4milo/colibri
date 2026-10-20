@@ -33,7 +33,7 @@ pub fn write_module(writer: *Writer, name: []const u8, plan: *const Plan, states
     assert(states.len > 0);
     try print(writer, "---- MODULE {s} ----\nEXTENDS ClientExchangesTrace\n\nSeedTrace == <<\n", .{name});
     for (states, 0..) |*state, index| {
-        try write_state(writer, plan.exchanges, state);
+        try write_state(writer, plan.requests, state);
         try writer.write_bytes(if (index + 1 < states.len) ",\n" else "\n");
     }
     try writer.write_bytes(">>\n\nSeedGoal == Len(SeedTrace)\n\n====\n");
@@ -44,7 +44,7 @@ pub fn write_module(writer: *Writer, name: []const u8, plan: *const Plan, states
 pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaways: u32, steps_max: u64) Error!void {
     try writer.write_bytes("\\* expect: violated\nSPECIFICATION TraceSpec\nCONSTANTS\n");
     const opens = @max(1, @max(last.opens[0], last.opens[1]));
-    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.exchanges, opens, client.constants.moves_max });
+    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.moves_max });
     // The run's client speaks h2 over TCP, so TCP is allowed in every seed.
     try print(writer, "    QuicPolicy = \"{t}\"\n    TcpAllowed = TRUE\n", .{plan.policy});
     const all = "{\"quic\", \"tcp\"}";
@@ -52,7 +52,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {s}\n    Resets = {s}\n", .{ goaways, all, all });
     try write_idempotent(writer, plan);
     // Decision 125: the run's pool holds one TCP connection, which holds every exchange at once.
-    try print(writer, "    TcpSlots = {{\"tcp\"}}\n    TcpCapacity = {d}\n", .{plan.exchanges});
+    try print(writer, "    TcpSlots = {{\"tcp\"}}\n    TcpCapacity = {d}\n", .{plan.requests});
     // h2 resets a cancelled exchange's stream with CANCEL (RFC 9113 §6.4), so its TCP connection
     // drops no response.
     try writer.write_bytes("    TcpDrops = FALSE\n");
@@ -69,7 +69,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
 fn write_idempotent(writer: *Writer, plan: *const Plan) Error!void {
     try writer.write_bytes("    Idempotent = {");
     var written: usize = 0;
-    for (0..plan.exchanges) |index| {
+    for (0..plan.requests) |index| {
         if (!plan.idempotent(index)) continue;
         try print(writer, "{s}{d}", .{ separator(written), index + 1 });
         written += 1;
@@ -81,8 +81,8 @@ fn boolean(value: bool) []const u8 {
     return if (value) "TRUE" else "FALSE";
 }
 
-fn write_state(writer: *Writer, exchanges: u32, state: *const State) Error!void {
-    const n: usize = exchanges;
+fn write_state(writer: *Writer, requests: u32, state: *const State) Error!void {
+    const n: usize = requests;
     try writer.write_bytes("[");
     try write_names(writer, "stage", state.stage[0..n]);
     try write_names(writer, "carrier", state.carrier[0..n]);

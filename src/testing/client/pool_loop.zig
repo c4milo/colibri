@@ -47,13 +47,13 @@ var pool_config: client.Config align(@alignOf(client.Config)) = undefined;
 /// The receive pool of the pool's QUIC connections (decision 61).
 var receive_pool: client.DefaultReceivePool align(@alignOf(client.DefaultReceivePool)) = undefined;
 var addresses: [1]Address align(@alignOf(Address)) = undefined;
-var exchanges: [constants.exchanges_max]client_exchange.Exchange align(@alignOf(client_exchange.Exchange)) = undefined;
-var exchanges_count: usize = 0;
+var exchanges: [constants.requests_max]client_exchange.Exchange align(@alignOf(client_exchange.Exchange)) = undefined;
+var requests_count: usize = 0;
 var bodies: client_session.Bodies align(@alignOf(client_session.Bodies)) = undefined;
 /// The protocol of the connection that last reported `connected`, and each exchange's when its
 /// `finished` event arrived.
 var connected: ?client.Protocol align(@alignOf(client.Protocol)) = null;
-var protocols: [constants.exchanges_max]?client.Protocol align(@alignOf(client.Protocol)) = @splat(null);
+var protocols: [constants.requests_max]?client.Protocol align(@alignOf(client.Protocol)) = @splat(null);
 /// Seconds since 1970-01-01T00:00:00Z, which the command line gave: chapulin judges each chain at
 /// that instant.
 var now_seconds: u64 = 0;
@@ -66,7 +66,7 @@ var closed: bool = false;
 /// run offers and their pools, which both transports share (decision 101).
 pub fn run_pool(run: *const Run, shared: *const client.Config) !bool {
     assert(run.pool and shared.tls != null);
-    assert(run.plans_count > 0 and run.plans_count <= constants.exchanges_max);
+    assert(run.plans_count > 0 and run.plans_count <= constants.requests_max);
     // `--h11` turns h2 off, so TCP offers `http/1.1` alone, and QUIC still offers h3.
     pool_config = shared.*;
     pool_config.fallback_delay_ns = run.fallback_delay_ns;
@@ -89,7 +89,7 @@ pub fn run_pool(run: *const Run, shared: *const client.Config) !bool {
 
 /// Requests every exchange of the plan, which go out once a connection is open to take them.
 fn request_plan(plans: []const client_exchange.Plan) !void {
-    exchanges_count = plans.len;
+    requests_count = plans.len;
     for (plans, exchanges[0..plans.len], bodies[0..plans.len]) |plan, *exchange, *body| {
         exchange.* = .init(plan, body);
         exchange.id = try pool.request(&exchange.request, &exchange.response);
@@ -159,7 +159,7 @@ fn drain(first: Input, now_ns: u64) usize {
     var input = first;
     var consumed: usize = 0;
     // Bounded: each pass consumes an octet or reports one of the finitely many events.
-    for (0..constants.wire_read_len + constants.exchanges_max * constants.steps_per_read_max) |_| {
+    for (0..constants.wire_read_len + constants.requests_max * constants.steps_per_read_max) |_| {
         const received = pool.receive(input, now_ns);
         consumed += received.consumed;
         input = rest_of(input, received.consumed);
@@ -214,7 +214,7 @@ fn start_quic(now_ns: u64) void {
 
 /// Marks exchange `id` finished, over the protocol of the connection that last connected.
 fn on_finished(id: client.Id) void {
-    for (exchanges[0..exchanges_count], 0..) |*exchange, index| {
+    for (exchanges[0..requests_count], 0..) |*exchange, index| {
         if (exchange.id != id) continue;
         exchange.finished = true;
         protocols[index] = connected;
@@ -266,14 +266,14 @@ fn udp_address(address: Address) udp.Address {
 /// succeeded and the pool closed.
 fn report() bool {
     var succeeded: usize = 0;
-    for (exchanges[0..exchanges_count], protocols[0..exchanges_count]) |*exchange, protocol| {
+    for (exchanges[0..requests_count], protocols[0..requests_count]) |*exchange, protocol| {
         std.debug.print("pool ", .{});
         exchange.print(if (protocol) |spoken| @tagName(spoken) else "none");
         if (exchange.succeeded()) succeeded += 1;
     }
-    std.debug.print("http-client: pool closed={} quic_opens={d} tcp_opens={d} exchanges={d} succeeded={d}\n", .{
-        closed,          pool.quic_link.opens, pool.tcp_links[0].opens,
-        exchanges_count, succeeded,
+    std.debug.print("http-client: pool closed={} quic_opens={d} tcp_opens={d} requests={d} succeeded={d}\n", .{
+        closed,         pool.quic_link.opens, pool.tcp_links[0].opens,
+        requests_count, succeeded,
     });
-    return closed and succeeded == exchanges_count;
+    return closed and succeeded == requests_count;
 }

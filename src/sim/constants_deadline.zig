@@ -16,8 +16,8 @@ pub const check_seeds_default: u64 = 256;
 /// 110 names, so a connection the server never ends is still open here.
 pub const horizon_ms: u64 = 600_000;
 
-/// The exchanges an honest peer makes.
-pub const exchanges_max: u32 = 3;
+/// The requests an honest peer makes.
+pub const requests_max: u32 = 3;
 
 /// The longest the application takes to answer a request, in milliseconds: past the head deadline,
 /// so a request the application holds is one no deadline may end (decision 110).
@@ -144,20 +144,20 @@ pub const passes_per_instant_max: u32 = 64;
 /// Octets of a check's trace line, and of a trace: its first line, a line for each answer, and
 /// the line of its end.
 pub const line_len_max: u32 = 256;
-pub const trace_len_max: u32 = line_len_max * (exchanges_max + trace_lines_besides_answers);
+pub const trace_len_max: u32 = line_len_max * (requests_max + trace_lines_besides_answers);
 const trace_lines_besides_answers: u32 = 2;
 
 comptime {
     assert(honest_gap_ms_min <= honest_gap_ms_max and honest_piece_len_min <= honest_piece_len_max);
     assert(hostile_gap_ms_min <= hostile_gap_ms_max and hostile_piece_len_max > 0);
     assert(pieces_max > horizon_ms / hostile_gap_ms_min);
-    assert(exchanges_max > 0 and content_len_max > 0 and continuation_frames > 0);
+    assert(requests_max > 0 and content_len_max > 0 and continuation_frames > 0);
     assert(upload_gap_ms_min <= upload_gap_ms_max and upload_rate_factor_min <= upload_rate_factor_max);
     assert(slow_body_rate_min <= slow_body_rate_max and slow_body_rate_max * slow_body_ms / ms_per_s < script_len_max);
-    assert(exchanges_max * (upload_len_max + content_len_max) < stream_len_max);
+    assert(requests_max * (upload_len_max + content_len_max) < stream_len_max);
     assert(short_rate_ms_min <= short_limit_ms_min and long_body_rate_min > 0);
     assert(long_body_cap_ms_max < long_body_ms and long_body_gap_ms_max * 4 <= short_rate_ms_min);
-    assert(exchanges_max * read_content_len_max < stream_len_max and read_content_len_min <= read_content_len_max);
+    assert(requests_max * read_content_len_max < stream_len_max and read_content_len_min <= read_content_len_max);
     assert(read_gap_ms_min <= read_gap_ms_max and read_rate_factor_min <= read_rate_factor_max);
     assert(slow_read_rate_min <= slow_read_rate_max);
     assert(long_body_rate * long_body_ms / ms_per_s + long_body_ms / long_body_gap_ms_min * data_frame_header_len < script_len_max);

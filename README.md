@@ -129,7 +129,7 @@ request and the response:
     });
     finished += 1;
     // Every exchange has ended, so the client shuts the pool down.
-    if (finished == exchanges_count) pool.shutdown();
+    if (finished == requests_count) pool.shutdown();
 },
 ```
 

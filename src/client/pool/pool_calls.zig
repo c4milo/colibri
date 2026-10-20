@@ -57,7 +57,7 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     pool.tcp_links = @alignCast(std.mem.bytesAsSlice(Link, memory[layout.links_offset..layout.entries_offset]));
     pool.entries = @alignCast(std.mem.bytesAsSlice(Entry, memory[layout.entries_offset..layout.len]));
     assert(pool.tcp.len == options.tcp_connections and pool.tcp_links.len == options.tcp_connections);
-    assert(pool.entries.len == options.exchanges);
+    assert(pool.entries.len == options.requests);
     @memset(pool.tcp_links, .{});
     @memset(pool.entries, .{});
     pool.quic_link = .{};

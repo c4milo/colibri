@@ -94,7 +94,7 @@ fn draw_tcp(random: *Random) TcpPeer {
         .reset_after_ms = random.below(limits.reset_after_ms_max + 1),
         .close_after_ms = random.below(limits.close_after_ms_max + 1),
     };
-    if (behaviour.exchanges_len > 0) peer.reset_exchange = @intCast(random.below(behaviour.exchanges_len));
+    if (behaviour.requests_count > 0) peer.reset_exchange = @intCast(random.below(behaviour.requests_count));
     return peer;
 }
 

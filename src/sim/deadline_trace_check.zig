@@ -210,15 +210,15 @@ var test_storage: Storage align(@alignOf(Storage)) = undefined;
 /// reach the states the clocks' rules are about.
 const expected = struct {
     const states: u64 = 3837;
-    const exchanges: u64 = 69;
+    const requests: u64 = 69;
     const bodies_timed: u64 = 798;
     const sends_timed: u64 = 21;
 };
 const census_expected: Census = .{
     .seeds = limits.written_seeds,
     .states = expected.states,
-    .requests = expected.exchanges,
-    .responses = expected.exchanges,
+    .requests = expected.requests,
+    .responses = expected.requests,
     .bodies_timed = expected.bodies_timed,
     .sends_timed = expected.sends_timed,
 };

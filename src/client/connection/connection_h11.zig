@@ -187,7 +187,7 @@ pub fn cancel(connection: *Connection, slot: *Slot) void {
 /// being written, then the next head and its content.
 pub fn write_requests(connection: *Connection) void {
     // Bounded: each pass finishes an exchange's request, or stops.
-    for (0..constants.exchanges_max + 1) |_| {
+    for (0..constants.requests_max + 1) |_| {
         const slot = writing(connection) orelse (connection.slots.oldest(.queued) orelse return);
         if (!write_request(connection, slot)) return;
     }

@@ -18,7 +18,7 @@ const plan_module = @import("endpoint_plan.zig");
 
 const Random = sim.Random;
 const limits = sim.constants.endpoint;
-const exchanges_max = sim.constants.deadline.exchanges_max;
+const requests_max = sim.constants.deadline.requests_max;
 const TcpPeer = plan_module.TcpPeer;
 
 pub const Error = client.RequestError || deadline_peer.Error || error{
@@ -94,15 +94,15 @@ pub const Peer = struct {
     close_reported: bool,
     hostile: deadline_peer.Hostile,
     /// Each exchange's request and response, by index (decision 124).
-    requests: [exchanges_max]client.Request,
-    responses: [exchanges_max]client.Response,
-    ids: [exchanges_max]?client.Id,
+    requests: [requests_max]client.Request,
+    responses: [requests_max]client.Response,
+    ids: [requests_max]?client.Id,
     /// When the endpoint read each of the peer's first requests, and how many it read.
-    read_ms: [exchanges_max]u64,
+    read_ms: [requests_max]u64,
     reads: u8,
-    bodies: [exchanges_max][limits.answer_long_len_max]u8,
-    exchanges_requested: u8,
-    exchanges_done: u8,
+    bodies: [requests_max][limits.answer_long_len_max]u8,
+    requests_made: u8,
+    requests_done: u8,
     reset_done: bool,
     to_server: Stream(limits.to_server_len),
     to_client: Stream(limits.to_client_len),
@@ -149,7 +149,7 @@ pub const Peers = struct {
             peer.waited = false;
             peer.accepted_ms = null;
             peer.closed = false;
-            peer.exchanges_done = 0;
+            peer.requests_done = 0;
             peer.random = Random.init(seed ^ limits.peer_salt ^ index);
         }
     }
@@ -166,8 +166,8 @@ pub const Peers = struct {
         peer.to_client.reset();
         peer.next_piece_ms = now_ms;
         peer.next_read_ms = now_ms;
-        peer.exchanges_requested = 0;
-        peer.exchanges_done = 0;
+        peer.requests_made = 0;
+        peer.requests_done = 0;
         peer.reads = 0;
         peer.reset_done = false;
         peer.ids = @splat(null);
@@ -179,7 +179,7 @@ pub const Peers = struct {
         // Generation 0 names no connection until the pool's `open`.
         peer.connection = .{ .slot = 0, .generation = 0 };
         const behaviour = &plan.behaviour;
-        const count = behaviour.exchanges_len;
+        const count = behaviour.requests_count;
         for (peer.requests[0..count], peer.responses[0..count], 0..) |*message, *response, exchange_index| {
             message.* = .{ .method = "GET", .path = "/" };
             response.* = .{ .body = &peer.bodies[exchange_index] };
@@ -187,7 +187,7 @@ pub const Peers = struct {
             message.method = "POST";
             message.content = peers.upload[0..behaviour.upload_len[exchange_index]];
         }
-        const at_once = if (one_at_a_time(plan)) 1 else behaviour.exchanges_len;
+        const at_once = if (one_at_a_time(plan)) 1 else behaviour.requests_count;
         for (0..at_once) |_| try request_next(peer);
         try connect(peer, now_ns);
     }
@@ -243,14 +243,14 @@ pub fn kind_name(plan: *const TcpPeer) []const u8 {
 
 /// Gives colibri's client its next exchange.
 fn request_next(peer: *Peer) Error!void {
-    const index = peer.exchanges_requested;
+    const index = peer.requests_made;
     peer.ids[index] = try peer.client.request(&peer.requests[index], &peer.responses[index]);
-    peer.exchanges_requested += 1;
+    peer.requests_made += 1;
 }
 
 /// The endpoint read a request of the peer's connection at `now_ms`.
 pub fn note_read(peer: *Peer, now_ms: u64) void {
-    if (peer.reads == exchanges_max) return;
+    if (peer.reads == requests_max) return;
     peer.read_ms[peer.reads] = now_ms;
     peer.reads += 1;
 }
@@ -336,9 +336,9 @@ fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.Event) Error!boo
         .send => return false,
         .connected, .ticket => return true,
         .finished => |finished| {
-            if (finished.response.outcome == .response) peer.exchanges_done += 1;
-            const exchanges_left = one_at_a_time(plan) and peer.exchanges_requested < plan.behaviour.exchanges_len;
-            if (exchanges_left) try request_next(peer);
+            if (finished.response.outcome == .response) peer.requests_done += 1;
+            const requests_left = one_at_a_time(plan) and peer.requests_made < plan.behaviour.requests_count;
+            if (requests_left) try request_next(peer);
             return true;
         },
         // The peer never shuts its pool down.
@@ -417,7 +417,7 @@ fn earlier(current: ?u64, candidate: u64) u64 {
 comptime {
     // Every answer to every exchange of a peer, with the TLS handshake and h2's own frames, fits
     // the socket toward it, with room for one more call of `send_stream` (P7).
-    assert(limits.to_client_len >= exchanges_max * (limits.answer_long_len_max + limits.answer_slack_len) +
+    assert(limits.to_client_len >= requests_max * (limits.answer_long_len_max + limits.answer_slack_len) +
         limits.server_output_slack_len + server.constants.output_len);
     assert(limits.to_client_len / server.constants.output_len + 1 <= limits.sends_per_event_max);
 }

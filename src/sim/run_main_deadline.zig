@@ -25,11 +25,11 @@ pub fn check(seeds: u64) !void {
         std.debug.print("deadline: seed 0x{x} failed: {t}; rerun it with --deadline-seed\n", .{ failed_seed.?, failure });
         return failure;
     };
-    const format = "deadline: seeds={d} exchanges={d} first_request={d} idle={d} head={d} body_rate={d} body={d}" ++
+    const format = "deadline: seeds={d} requests={d} first_request={d} idle={d} head={d} body_rate={d} body={d}" ++
         " send_rate={d} settings={d} drain={d} streams_cut={d} streams_refused={d} held={d} trace_octets={d} crc32=0x{x:0>8} wire_crc32=0x{x:0>8}\n";
     std.debug.print(format, .{
         census.seeds,
-        census.exchanges,
+        census.requests,
         census.first_request,
         census.idle,
         census.head,

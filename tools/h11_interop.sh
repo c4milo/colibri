@@ -32,8 +32,8 @@ readonly listen_wait_seconds=30
 # Seconds one peer of each run waits before it binds its port, so a run that took the published
 # host port for the peer's own would connect too early, every time (`wait_for_container`).
 readonly late_bind_seconds=2
-# Exchanges one pool carries at once, each on a TCP connection of its own: the most a plan of the
-# client holds (`exchanges_max` in src/testing/constants.zig).
+# Requests one pool carries at once, each on a TCP connection of its own: the most a plan of the
+# client holds (`requests_max` in src/testing/constants.zig).
 readonly slots_count=8
 
 fail() {
@@ -193,13 +193,13 @@ plan_go_slots() {
   for index in $(seq 1 "${slots_count}"); do gets+=(--get /); done
   output="$("${client}" --port "${peer_port}" --tcp-connections "${slots_count}" \
     ${mode_arguments[@]+"${mode_arguments[@]}"} "${gets[@]}" 2>&1)" ||
-    { echo "${output}"; fail "${slots_count} exchanges over ${slots_count} connections failed"; }
+    { echo "${output}"; fail "${slots_count} requests over ${slots_count} connections failed"; }
   ! grep -qE " protocol=(h2|none) " <<<"${output}" || fail "an exchange ran over h2, or never connected"
   grep -qx "http-client: tcp_connections=${slots_count} opens=${slots_count}" <<<"${output}" ||
     { echo "${output}"; fail "the pool did not open a connection for each exchange"; }
   [ "$(tail -1 <<<"${output}")" = "http-client: connections=1 succeeded=1 failed=0" ] ||
     { echo "${output}"; fail "an exchange over ${slots_count} connections did not succeed"; }
-  echo "h11_interop.sh: ${slots_count} exchanges at once over ${slots_count} connections"
+  echo "h11_interop.sh: ${slots_count} requests at once over ${slots_count} connections"
 }
 
 # Decision 101: the client offers gzip and deflate, Go's server with -gzip codes each answer in

@@ -36,7 +36,7 @@ pub const RequestStream = struct {
 /// order `request` took them (RFC 9000 §2.1).
 pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: each pass writes or ends an exchange, or stops.
-    for (0..constants.exchanges_max) |_| {
+    for (0..constants.requests_max) |_| {
         const slot = connection.slots.oldest(.queued) orelse return;
         if (!open(connection, slot, now_ns)) return;
     }

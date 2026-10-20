@@ -62,7 +62,7 @@ pub const Storage = struct {
 /// One seed's counts.
 pub const Result = struct {
     states: u64 = 0,
-    exchanges: u64 = 0,
+    requests: u64 = 0,
     responses: u64 = 0,
     refused: u64 = 0,
     closed: u64 = 0,
@@ -139,7 +139,7 @@ fn record(storage: *Storage) Violation!void {
 /// drops a response, and none holds more than one at once.
 fn check_safe(state: *const State, plan: *const Plan) Violation!void {
     var held: [limits.slots_max]u32 = @splat(0);
-    for (0..plan.exchanges) |index| {
+    for (0..plan.requests) |index| {
         try check_processed(state, index, plan.idempotent(index));
         const carrier = state.carrier[index] orelse continue;
         // The model's Held(t) and Dropping(t): an h11 connection keeps a cancelled exchange's room
@@ -168,14 +168,14 @@ fn check_processed(state: *const State, index: usize, idempotent: bool) Violatio
 
 fn check_end(world: *const World) Violation!void {
     if (!world.closed) return error.NotClosed;
-    for (0..world.plan.exchanges) |index| {
+    for (0..world.plan.requests) |index| {
         if (!world.reported[index] and !world.cancelled[index]) return error.NotReported;
     }
 }
 
 fn result_of(storage: *const Storage) Result {
     const world = &storage.world;
-    var result: Result = .{ .states = storage.states_len, .exchanges = world.plan.exchanges };
+    var result: Result = .{ .states = storage.states_len, .requests = world.plan.requests };
     var slots_used: u32 = 0;
     for (world.pool.tcp_links[0..world.plan.slots]) |link| {
         result.connections += link.opens;
@@ -183,7 +183,7 @@ fn result_of(storage: *const Storage) Result {
     }
     result.grown = @intFromBool(slots_used > 1);
     const last = &storage.states[storage.states_len - 1];
-    for (0..world.plan.exchanges) |index| {
+    for (0..world.plan.requests) |index| {
         result.cancelled += @intFromBool(world.cancelled[index]);
         result.moved += last.moved[index];
         if (!world.reported[index]) continue;
@@ -224,7 +224,7 @@ test "pool trace run: every seed closes the pool with each exchange reported onc
     // (invariant 5), so the census is pinned, as Debug and `-Drelease` both give it.
     try testing.expectEqual(Result{
         .states = 5828,
-        .exchanges = 784,
+        .requests = 784,
         .responses = 512,
         .refused = 29,
         .closed = 118,

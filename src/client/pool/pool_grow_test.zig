@@ -16,8 +16,8 @@ const ConnectionHandle = pool_module.ConnectionHandle;
 
 /// A pool of two TCP slots, and room for the exchanges of each test.
 const slots_count: u16 = 2;
-const exchanges_count: u16 = 4;
-const two_slots: pool_module.Options = .{ .tcp_connections = slots_count, .exchanges = exchanges_count };
+const requests_count: u16 = 4;
+const two_slots: pool_module.Options = .{ .tcp_connections = slots_count, .requests = requests_count };
 
 /// The pool the tests drive, its memory, its configuration and the events it reported, outside
 /// any stack frame. Test-only.
@@ -301,7 +301,7 @@ test "decision 125 ruling 8: an open still owed when set_values comes goes to a 
 }
 
 /// Three hosts, a pool of three slots, and its memory. Test-only.
-const three_slots: pool_module.Options = .{ .tcp_connections = slots_count + 1, .exchanges = exchanges_count };
+const three_slots: pool_module.Options = .{ .tcp_connections = slots_count + 1, .requests = requests_count };
 const three_addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
 var three_memory: [Pool.memory_bytes(three_slots)]u8 align(Pool.memory_alignment) = undefined;
 

@@ -68,7 +68,7 @@ const path_len_max: usize = 8;
 
 comptime {
     // An index of at most six digits fits after `/e`.
-    assert(constants.h3_long_check_exchanges_max < 1_000_000);
+    assert(constants.h3_long_check_requests_max < 1_000_000);
 }
 /// The ID step between a client's bidirectional streams (RFC 9000 §2.1).
 const request_stream_step: u64 = 4;
@@ -82,8 +82,8 @@ pub const Endpoint = struct {
     requests_sent: u32,
     /// At a client, the exchanges whose response ended.
     responses_ended: u32,
-    progress: [constants.h3_long_check_exchanges_max]Progress,
-    kept: [constants.h3_long_check_exchanges_max]Kept,
+    progress: [constants.h3_long_check_requests_max]Progress,
+    kept: [constants.h3_long_check_requests_max]Kept,
     body: [constants.h3_check_content_len_max]u8,
     section: FieldSection,
     expected: FieldSection,

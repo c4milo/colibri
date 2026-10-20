@@ -70,13 +70,13 @@ pub fn h3_check_seeds(seeds: u64, shape: h3_check.Shape) !void {
         std.debug.print("{s}: seed 0x{x} failed: {t}\n", .{ label_of(shape), failed_seed.?, failure });
         return failure;
     };
-    std.debug.print("{s}: seeds={d} exchanges={d} content={d} inserts={d} acknowledged_dropped={d} datagrams={d} dropped={d} crc32=0x{x:0>8}\n", .{
-        label_of(shape),             census.seeds,     census.exchanges, census.content_len,   census.inserts,
-        census.acknowledged_dropped, census.datagrams, census.dropped,   census.crc32.final(),
+    std.debug.print("{s}: seeds={d} requests={d} content={d} inserts={d} acknowledged_dropped={d} datagrams={d} dropped={d} crc32=0x{x:0>8}\n", .{
+        label_of(shape),             census.seeds,     census.requests, census.content_len,   census.inserts,
+        census.acknowledged_dropped, census.datagrams, census.dropped,  census.crc32.final(),
     });
 }
 
 /// The name a census line starts with, which `tools/ci.sh` looks for.
 fn label_of(shape: h3_check.Shape) []const u8 {
-    return if (shape.exchanges_max == h3_check.Shape.long.exchanges_max) "h3-long" else "h3";
+    return if (shape.requests_max == h3_check.Shape.long.requests_max) "h3-long" else "h3";
 }

@@ -10,7 +10,7 @@ const world_module = @import("pool_trace_world.zig");
 
 const limits = sim.constants.pool_trace;
 const World = world_module.World;
-const exchanges_max = limits.exchanges_max;
+const requests_max = limits.requests_max;
 const slots_max = limits.slots_max;
 
 pub const Stage = enum { unmade, waiting, queued, sent, ended, reported, cancelled };
@@ -20,15 +20,15 @@ pub const Phase = client.Phase;
 const Entry = std.meta.Elem(@FieldType(world_module.Pool, "entries"));
 
 pub const State = struct {
-    stage: [exchanges_max]Stage,
+    stage: [requests_max]Stage,
     /// The slot of the connection that carries each exchange, or null for none.
-    carrier: [exchanges_max]?u32,
-    outcome: [exchanges_max]Outcome,
-    moved: [exchanges_max]u8,
-    seen: [exchanges_max]bool,
-    processed: [exchanges_max]u8,
+    carrier: [requests_max]?u32,
+    outcome: [requests_max]Outcome,
+    moved: [requests_max]u8,
+    seen: [requests_max]bool,
+    processed: [requests_max]u8,
     /// Whether the connection of a cancelled exchange still reads its response to drop it.
-    drops: [exchanges_max]bool,
+    drops: [requests_max]bool,
     /// Each TCP slot's, in order.
     phase: [slots_max]Phase,
     opens: [slots_max]u64,
@@ -39,9 +39,9 @@ pub const State = struct {
 /// What the run remembers of each exchange, which the pool forgets once the exchange is reported
 /// or cancelled: the connection that carried it last, its id there, and the times it moved.
 pub const Tracker = struct {
-    carrier: [exchanges_max]?client.ConnectionHandle,
-    carried_id: [exchanges_max]client.Id,
-    moved: [exchanges_max]u8,
+    carrier: [requests_max]?client.ConnectionHandle,
+    carried_id: [requests_max]client.Id,
+    moved: [requests_max]u8,
 
     pub fn init(tracker: *Tracker) void {
         tracker.carrier = @splat(null);
@@ -70,7 +70,7 @@ pub const Tracker = struct {
 /// The model's state now.
 pub fn compute(world: *World, tracker: *const Tracker) State {
     var state: State = undefined;
-    for (0..exchanges_max) |index| compute_exchange(world, tracker, &state, index);
+    for (0..requests_max) |index| compute_exchange(world, tracker, &state, index);
     for (0..slots_max) |slot| {
         const held = slot < world.plan.slots;
         state.phase[slot] = if (held) world.pool.phase(@intCast(slot)) else .none;
@@ -83,7 +83,7 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
 
 /// Exchange `index`'s part of the model's state.
 fn compute_exchange(world: *World, tracker: *const Tracker, state: *State, index: usize) void {
-    const made = index < world.plan.exchanges;
+    const made = index < world.plan.requests;
     state.stage[index] = if (made) stage_of(world, index) else .unmade;
     state.carrier[index] = if (tracker.carrier[index]) |connection| connection.slot else null;
     state.outcome[index] = if (world.ids[index] == null) .pending else outcome_of(world.responses[index].outcome);

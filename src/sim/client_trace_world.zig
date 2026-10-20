@@ -73,14 +73,14 @@ pub const World = struct {
     receive_pool: client.DefaultReceivePool,
     addresses: [1]client.Address,
     /// Each exchange's request and response, by index (decision 124).
-    requests: [limits.exchanges_max]client.Request,
-    responses: [limits.exchanges_max]client.Response,
-    bodies: [limits.exchanges_max][body_len]u8,
-    paths: [limits.exchanges_max][body_len]u8,
-    ids: [limits.exchanges_max]?client.Id,
+    requests: [limits.requests_max]client.Request,
+    responses: [limits.requests_max]client.Response,
+    bodies: [limits.requests_max][body_len]u8,
+    paths: [limits.requests_max][body_len]u8,
+    ids: [limits.requests_max]?client.Id,
     /// What the caller did with each exchange and heard of it.
-    cancelled: [limits.exchanges_max]bool,
-    reported: [limits.exchanges_max]bool,
+    cancelled: [limits.requests_max]bool,
+    reported: [limits.requests_max]bool,
     /// The instant the last exchange was reported or cancelled.
     settled_ns: u64,
     shut: bool,
@@ -203,7 +203,7 @@ pub const World = struct {
     /// reported it. Returns whether it cancelled one.
     fn cancel_on_end(world: *World) bool {
         var cancelled = false;
-        for (0..world.plan.exchanges) |index| {
+        for (0..world.plan.requests) |index| {
             if (!world.plan.cancel_on_end[index] or world.cancelled[index] or world.reported[index]) continue;
             const id = world.ids[index] orelse continue;
             if (world.responses[index].outcome == .pending) continue;
@@ -218,7 +218,7 @@ pub const World = struct {
     /// The plan's next action after the last instant, or null.
     fn plan_due_ns(world: *const World) ?u64 {
         var at: ?u64 = null;
-        for (0..world.plan.exchanges) |index| at = earliest(at, world.exchange_due_ns(index));
+        for (0..world.plan.requests) |index| at = earliest(at, world.exchange_due_ns(index));
         if (!world.shut) at = earliest(at, world.plan.shutdown_at_ns);
         if (!world.goaway_sent) at = earliest(at, world.not_passed(world.plan.goaway_at_ns));
         if (!world.broken) at = earliest(at, world.not_passed(world.plan.break_at_ns));
@@ -239,7 +239,7 @@ pub const World = struct {
     }
 
     fn act_on_plan(world: *World) Error!void {
-        for (0..world.plan.exchanges) |index| {
+        for (0..world.plan.requests) |index| {
             if (world.ids[index] == null and !world.shut and world.plan.make_at_ns[index] <= world.now_ns) try world.make(index);
             world.cancel_if_due(index);
         }
@@ -475,7 +475,7 @@ pub const World = struct {
     /// The index of the exchange whose response is at `response`, which the world placed.
     pub fn index_of(world: *const World, response: *const client.Response) usize {
         const index = (@intFromPtr(response) - @intFromPtr(&world.responses[0])) / @sizeOf(client.Response);
-        assert(index < limits.exchanges_max and &world.responses[index] == response);
+        assert(index < limits.requests_max and &world.responses[index] == response);
         return index;
     }
 };

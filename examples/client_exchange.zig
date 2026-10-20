@@ -306,7 +306,7 @@ fn report(event: client.Event, now_ns: u64) !void {
             });
             finished += 1;
             // Every exchange has ended, so the client shuts the pool down.
-            if (finished == exchanges_count) pool.shutdown();
+            if (finished == requests_count) pool.shutdown();
         },
         .ticket => |connection| take_ticket(connection),
         // The shut-down pool is over: every exchange ended and every transport closed.
@@ -364,7 +364,7 @@ fn take_ticket(connection: client.ConnectionHandle) void {
 }
 
 /// The exchanges `start_client` requested.
-const exchanges_count = 5;
+const requests_count = 5;
 
 /// A second pool to the origin, whose connect fails, as when the server's listener is down.
 /// The program tells the pool with `transport_closed`, and calls it too for a socket that the

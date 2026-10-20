@@ -42,7 +42,7 @@ pub const check_name = "deadline";
 /// of the seeds' `Result.wire`. A change to the plan, to what the server does or to the trace
 /// format changes the first, and one to an octet a peer writes changes the second. Each is
 /// committed with its new value once the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0x9369abbc;
+pub const census_crc32_expected: u32 = 0xf90d85a5;
 pub const census_wire_crc32_expected: u32 = 0xe6434a84;
 
 pub const Violation = deadline_run.Error || error{
@@ -76,7 +76,7 @@ pub const Result = struct {
 /// What `run_check` counted over its seeds.
 pub const Census = struct {
     seeds: u64 = 0,
-    exchanges: u64 = 0,
+    requests: u64 = 0,
     first_request: u64 = 0,
     idle: u64 = 0,
     head: u64 = 0,
@@ -126,7 +126,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
             return failure;
         };
         census.seeds += 1;
-        census.exchanges += result.record.exchanges_done;
+        census.requests += result.record.requests_done;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
         var wire_octets: [@sizeOf(u32)]u8 = undefined;
@@ -156,7 +156,7 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     const record = &storage.run.record;
     try write_trace(storage, plan, seed);
     // An honest peer's exchanges end whole, however long the application takes (decision 110).
-    if (plan.honest() and record.exchanges_done != plan.exchanges_len) return error.ExchangeLost;
+    if (plan.honest() and record.requests_done != plan.requests_count) return error.ExchangeLost;
     const expected = expect(plan, record) orelse {
         if (record.end != .held or record.close_reason != null) return error.EndedWrong;
         return;
@@ -377,13 +377,13 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     try line(storage, " body={d}/{d}/{d}/{d}", .{
         deadlines.body_rate_min.?, ms_of(deadlines.rate_grace_ns), ms_of(deadlines.rate_window_ns), ms_of(deadlines.body_ns.?),
     });
-    try line(storage, " exchanges={d} gap_ms={d} piece_len={d}\n", .{ plan.exchanges_len, plan.gap_ms, plan.piece_len });
+    try line(storage, " requests={d} gap_ms={d} piece_len={d}\n", .{ plan.requests_count, plan.gap_ms, plan.piece_len });
     for (record.app.answers[0..record.app.answers_len], 0..) |answered, index| {
         try line(storage, "answer={d} read_ms={d} body_end_ms={?d} answered_ms={?d} sent={d} drained_ms={?d}\n", .{
             index, answered.read_ms, answered.body_end_ms, answered.answered_ms, answered.content_sent, answered.drained_ms,
         });
     }
-    try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d}", .{ record.end, record.end_ms, record.deadline_passed(), record.exchanges_done });
+    try line(storage, "end={t} at_ms={d} deadline={?t} requests_done={d}", .{ record.end, record.end_ms, record.deadline_passed(), record.requests_done });
     try line(storage, " timeout_response={} status={?d} reset={?d} reset_at_ms={?d} cancelled={?t} goaway={?d}", .{
         record.saw_timeout_response, record.response_status, record.reset_code, record.reset_at_ms, record.app.cancelled, record.goaway_code,
     });
@@ -404,7 +404,7 @@ test "decision 110: every seed replays, honest peers finish their exchanges, and
         std.debug.print("deadline: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
-    try std.testing.expect(census.exchanges > 0);
+    try std.testing.expect(census.requests > 0);
     try std.testing.expectEqual(census_crc32_expected, census.crc32.final());
     try std.testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }
@@ -474,11 +474,11 @@ test "a peer that reads nothing has read nothing when the server closes" {
 /// The first seed whose honest peer reads so slowly that the server's output has no room for a
 /// second answer's head when it is due, and the seed's exchanges.
 const no_room_seed: u64 = 0x1f4c;
-const no_room_seed_exchanges: u8 = 3;
+const no_room_seed_requests: u8 = 3;
 
 test "an answer whose head finds no room is written once the peer has read, and its exchange ends whole" {
     const result = try run_seed(&check_storage, no_room_seed);
-    try std.testing.expectEqual(no_room_seed_exchanges, result.record.exchanges_done);
+    try std.testing.expectEqual(no_room_seed_requests, result.record.requests_done);
     // The second answer waited for octets of the first to leave the output, and the others
     // found room.
     const answers = result.record.app.answers;
@@ -490,10 +490,10 @@ test "an answer whose head finds no room is written once the peer has read, and 
 /// The first seed whose honest peer still has octets of its last response to read from the socket
 /// when the idle deadline closes the connection, and the seed's exchanges.
 const unread_seed: u64 = 0x3be9;
-const unread_seed_exchanges: u8 = 3;
+const unread_seed_requests: u8 = 3;
 
 test "decision 110: a slow reader reads what the socket holds after the idle deadline closes the connection" {
     const result = try run_seed(&check_storage, unread_seed);
-    try std.testing.expectEqual(unread_seed_exchanges, result.record.exchanges_done);
+    try std.testing.expectEqual(unread_seed_requests, result.record.requests_done);
     try std.testing.expectEqual(server.Deadline.idle, result.record.deadline_passed().?);
 }

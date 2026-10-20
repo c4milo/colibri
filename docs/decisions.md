@@ -4828,8 +4828,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         `client.ChannelOf`. A channel is a pool of one TCP connection, so one type serves both.
         `client.Capacity` keeps `quic`.
      2. The counts are set at run time (decision 35 as amended).
-        - `client.Options` holds `tcp_connections` and `exchanges`. Each has a named maximum in
+        - `client.Options` holds `tcp_connections` and `requests`. Each has a named maximum in
           `client.constants`.
+        - Counts and limits say requests, since a program calls `request`, and a request with its
+          response keeps the name exchange, as RFC 9110 §7.5 calls it. The owner ruled it on
+          2026-10-20, over a rename everywhere: "request" already names the message, as in
+          `client.Request`.
         - `Pool.memory_bytes(options)` returns the octets that the options need. `init` takes
           that memory, aligned to `Pool.memory_alignment`.
         - `Pool.receive_events_without_input_max(options)` replaces the constant of decision 124
@@ -4886,7 +4890,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        after a `close`, so a late call acts on the wrong connection.
      - No `send` event, so that a program calls `send_stream` for each connection after each
        `receive`. With 16 connections that is 16 calls for each event.
-     - The count of exchanges as the comptime `constants.exchanges_max` alone. A pool of 16 h11
+     - The count of requests as the comptime `constants.requests_max` alone. A pool of 16 h11
        connections and a pool of one h2 connection then hold the same table.
      - Every connection opened at `init`. A program that sends one request then opens 16 sockets
        and runs 16 handshakes.

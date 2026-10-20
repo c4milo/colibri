@@ -17,7 +17,7 @@ const ledger_module = @import("client_trace_ledger.zig");
 const limits = sim.constants.client_trace;
 const World = world_module.World;
 const Transport = client.Transport;
-const exchanges_max = limits.exchanges_max;
+const requests_max = limits.requests_max;
 /// QUIC and TCP.
 const transports: usize = 2;
 
@@ -29,13 +29,13 @@ pub const Phase = client.Phase;
 const Entry = std.meta.Elem(@FieldType(client.Pool, "entries"));
 
 pub const State = struct {
-    stage: [exchanges_max]Stage,
-    carrier: [exchanges_max]Carrier,
-    holds: [exchanges_max]bool,
-    outcome: [exchanges_max]Outcome,
-    moved: [exchanges_max]u8,
-    seen: [exchanges_max]bool,
-    processed: [exchanges_max]u8,
+    stage: [requests_max]Stage,
+    carrier: [requests_max]Carrier,
+    holds: [requests_max]bool,
+    outcome: [requests_max]Outcome,
+    moved: [requests_max]u8,
+    seen: [requests_max]bool,
+    processed: [requests_max]u8,
     /// Each transport's, QUIC first.
     phase: [transports]Phase,
     opens: [transports]u64,
@@ -52,12 +52,12 @@ pub const State = struct {
 /// exchange is reported: the connection that carried it last, the times it moved, whether the
 /// pool sent it again after a close (decision 124), and its QUIC stream.
 pub const Tracker = struct {
-    carrier: [exchanges_max]Carrier,
-    generation: [exchanges_max]u64,
-    moved: [exchanges_max]u8,
-    resent: [exchanges_max]bool,
-    stream_id: [exchanges_max]?u64,
-    stream_generation: [exchanges_max]u64,
+    carrier: [requests_max]Carrier,
+    generation: [requests_max]u64,
+    moved: [requests_max]u8,
+    resent: [requests_max]bool,
+    stream_id: [requests_max]?u64,
+    stream_generation: [requests_max]u64,
 
     pub fn init(tracker: *Tracker) void {
         tracker.carrier = @splat(.none);
@@ -98,7 +98,7 @@ pub const Tracker = struct {
 /// The model's state now.
 pub fn compute(world: *World, tracker: *const Tracker) State {
     var state: State = undefined;
-    for (0..exchanges_max) |index| {
+    for (0..requests_max) |index| {
         state.stage[index] = stage_of(world, index);
         state.carrier[index] = tracker.carrier[index];
         state.holds[index] = holds(world, tracker, index);

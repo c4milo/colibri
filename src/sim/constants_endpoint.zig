@@ -162,10 +162,10 @@ comptime {
     assert(piece_len_min / piece_len_divisor > 0);
     // A hostile peer's script, or an honest peer's requests and their content, fit the socket
     // toward the endpoint.
-    assert(to_server_len >= @max(deadline.script_len_max, deadline.exchanges_max * deadline.upload_len_max) + peer_output_slack_len);
+    assert(to_server_len >= @max(deadline.script_len_max, deadline.requests_max * deadline.upload_len_max) + peer_output_slack_len);
     assert(to_server_len >= h3_deadline.slow_body_len);
     // Every answer to every exchange of a peer fits the socket toward it.
-    assert(to_client_len >= deadline.exchanges_max * (answer_long_len_max + answer_slack_len) + server_output_slack_len);
+    assert(to_client_len >= deadline.requests_max * (answer_long_len_max + answer_slack_len) + server_output_slack_len);
     // Every request the peers can open: each TCP peer's flood of streams, and each QUIC peer's.
     assert(requests_max >= tcp_peers * deadline.many_streams_len + quic_peers * h3_deadline.requests_max);
     // A connection for each peer of each kind, and more.

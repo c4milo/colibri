@@ -19,8 +19,8 @@ const response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi";
 const ok: u16 = 200;
 
 /// Where each response's content goes: the test makes two exchanges. Test-only.
-const exchanges_count = 2;
-var bodies: [exchanges_count][response.len]u8 = undefined;
+const requests_count = 2;
+var bodies: [requests_count][response.len]u8 = undefined;
 
 /// A connection over `plain` that selected http/1.1, as one whose handshake just completed. The
 /// ClientHello that `init` staged never goes out. Test-only.

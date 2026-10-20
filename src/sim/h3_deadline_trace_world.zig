@@ -481,7 +481,7 @@ fn honest_plan() deadline_plan.Plan {
         .peer = .honest,
         .base_ms = 0,
         .deadlines = .{},
-        .exchanges_len = 0,
+        .requests_count = 0,
         .gap_ms = 0,
         .piece_len = 0,
         .flood_batch_len = 0,

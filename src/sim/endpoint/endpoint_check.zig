@@ -35,7 +35,7 @@ pub const check_name = "endpoint";
 /// of the runs' wire CRC-32s. A change to the plan, to what the endpoint does or to the trace
 /// format changes the first, and one to what goes over the wire changes the second. Each is
 /// committed with its new value once the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0x81186212;
+pub const census_crc32_expected: u32 = 0x29a4f339;
 pub const census_wire_crc32_expected: u32 = 0x1853ad5a;
 
 pub const Violation = run_module.Error || error{
@@ -166,8 +166,8 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     storage.trace_len = 0;
     try line(storage, "{s} seed=0x{x} base_ms={d} shutdown_ms={?d}\n", .{ check_name, seed, plan.base_ms, plan.shutdown_ms });
     for (&plan.tcp, &run.tcp.peers, 0..) |*peer_plan, *peer, index| {
-        try line(storage, "{s} peer={t} overlay={t} arrive_ms={d} accepted_ms={?d} exchanges_done={d}", .{
-            tcp_module.kind_name(peer_plan), peer_plan.behaviour.peer, peer_plan.overlay, peer_plan.arrive_ms, peer.accepted_ms, peer.exchanges_done,
+        try line(storage, "{s} peer={t} overlay={t} arrive_ms={d} accepted_ms={?d} requests_done={d}", .{
+            tcp_module.kind_name(peer_plan), peer_plan.behaviour.peer, peer_plan.overlay, peer_plan.arrive_ms, peer.accepted_ms, peer.requests_done,
         });
         try connection_line(storage, .tcp, index);
     }

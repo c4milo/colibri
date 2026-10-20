@@ -7,8 +7,8 @@ const assert = std.debug.assert;
 /// TCP slots a seed's pool holds, and exchanges its caller makes: the model's `TcpSlots` and `N`.
 pub const slots_min: u32 = 2;
 pub const slots_max: u32 = 3;
-pub const exchanges_min: u32 = 2;
-pub const exchanges_max: u32 = 4;
+pub const requests_min: u32 = 2;
+pub const requests_max: u32 = 4;
 
 /// The instants the caller makes its exchanges in, and the most a cancel comes after its
 /// exchange. One exchange in `cancel_one_in` is cancelled, and one in `post_one_in` is a POST.
@@ -51,6 +51,6 @@ pub const module_len_max: u32 = states_max * state_len_max;
 
 comptime {
     assert(slots_min > 1 and slots_max >= slots_min);
-    assert(exchanges_min > 1 and exchanges_max >= exchanges_min);
+    assert(requests_min > 1 and requests_max >= requests_min);
     assert(make_window > 0 and instants_max > make_window + cancel_after_max + shutdown_after_max);
 }

@@ -19,7 +19,7 @@ pub const Run = struct {
     /// The TCP connections each pool holds at most: `--tcp-connections` (decision 125). An h11
     /// connection carries one exchange at a time, so a plan of several exchanges opens several.
     tcp_connections: u32,
-    plans: [constants.exchanges_max]Plan,
+    plans: [constants.requests_max]Plan,
     plans_count: u32,
     /// The prefix of the root's files, which turns the TLS mode on.
     anchor_prefix: ?[]const u8,
@@ -183,7 +183,7 @@ fn read_number(text: []const u8) ?u32 {
 
 /// Appends one exchange to the plan, or returns null when the plan is full or the path is empty.
 fn add_plan(run: *Run, plan: Plan) ?void {
-    if (run.plans_count == constants.exchanges_max or plan.path.len == 0) return null;
+    if (run.plans_count == constants.requests_max or plan.path.len == 0) return null;
     run.plans[run.plans_count] = plan;
     run.plans_count += 1;
 }

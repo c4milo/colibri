@@ -240,7 +240,7 @@ pub const Hostile = struct {
         var slow_start_ms = start_ms + block_after_opening_ms;
         // A peer that makes one exchange sends its request whole, in its opening, and a slow body's
         // head leaves its stream open.
-        if (plan.exchanges_len > 0) try hostile.write_request(&writer, whole_stream_id, "GET", "/", true);
+        if (plan.requests_count > 0) try hostile.write_request(&writer, whole_stream_id, "GET", "/", true);
         if (plan.peer == .slow_body or plan.peer == .long_body) try hostile.write_request(&writer, whole_stream_id, "POST", "/upload", false);
         if (plan.peer == .slow_second_head) slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
         try hostile.add(start_ms, writer.written());

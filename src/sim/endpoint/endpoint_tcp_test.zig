@@ -26,15 +26,15 @@ const upload_len: u32 = 16;
 /// A response with no content, after which the server closes the connection (RFC 9112 §9.6).
 const closing_response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 
-/// The plan of a peer colibri's client plays over h11 in cleartext, which makes `exchanges_len`
-/// exchanges. Every field the tests do not name is 0: the peer arrives at once and has no overlay.
-fn plan_of(behaviour: deadline_plan.Peer, exchanges_len: u8) TcpPeer {
+/// The plan of a peer colibri's client plays over h11 in cleartext, which makes `requests_count`
+/// requests. Every field the tests do not name is 0: the peer arrives at once and has no overlay.
+fn plan_of(behaviour: deadline_plan.Peer, requests_count: u8) TcpPeer {
     var plan = std.mem.zeroes(TcpPeer);
     plan.security = .cleartext;
     plan.overlay = .none;
     plan.behaviour.protocol = .h11;
     plan.behaviour.peer = behaviour;
-    plan.behaviour.exchanges_len = exchanges_len;
+    plan.behaviour.requests_count = requests_count;
     plan.behaviour.upload_len = @splat(upload_len);
     plan.behaviour.piece_len = limits.to_server_len;
     return plan;
@@ -74,7 +74,7 @@ test "decision 120: a peer closes its socket once its pool reported close, and n
     try testing.expect(!tcp_module.closes(peer, &plan, now_ms));
     answer(peer, closing_response);
     try testing.expect(try tcp_module.read(peer, &plan, now_ns, now_ms));
-    try testing.expectEqual(1, peer.exchanges_done);
+    try testing.expectEqual(1, peer.requests_done);
     try testing.expectEqual(.response, peer.responses[0].outcome);
     // RFC 9112 §9.6: the server closes, so the connection is over, and the pool says so.
     try testing.expect(tcp_module.closes(peer, &plan, now_ms));
@@ -93,8 +93,8 @@ test "decision 120: a peer opens no second socket, and the exchange that waited 
     const written = peer.to_server.written;
     answer(peer, closing_response);
     try testing.expect(try tcp_module.read(peer, &plan, now_ns, now_ms));
-    try testing.expectEqual(1, peer.exchanges_done);
-    try testing.expectEqual(2, peer.exchanges_requested);
+    try testing.expectEqual(1, peer.requests_done);
+    try testing.expectEqual(2, peer.requests_made);
     // RFC 9113 §8.7: no server processed the request, so it ends refused.
     try testing.expectEqual(.refused, peer.responses[1].outcome);
     // The pool reported the first connection's close before it asked for a second socket.

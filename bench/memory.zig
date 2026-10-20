@@ -47,7 +47,7 @@ const rows = [_]Row{
     .{ .name = "@FieldType(client.Pool, \"quic\")", .size = @sizeOf(@FieldType(client.Pool, "quic")), .holds = "a pool's QUIC connection, without its receive pool" },
     .{ .name = "client.Pool", .size = @sizeOf(client.Pool), .holds = "a pool's fixed part: its QUIC connection and link, and its TLS configurations" },
     .{ .name = "client.PoolOf(.{ .quic = false })", .size = @sizeOf(client.PoolOf(.{ .quic = false })), .holds = "the fixed part of a pool with no QUIC state" },
-    .{ .name = "client.Pool.memory_bytes(.{})", .size = client.Pool.memory_bytes(.{}), .holds = "the memory a pool takes at the default counts: one TCP connection, its link and 16 exchanges" },
+    .{ .name = "client.Pool.memory_bytes(.{})", .size = client.Pool.memory_bytes(.{}), .holds = "the memory a pool takes at the default counts: one TCP connection, its link and 16 requests" },
     .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a program passes to a pool, at its default capacity" },
     .{ .name = "h11.Connection", .size = @sizeOf(h11.Connection), .holds = "the h11 state inside a TCP connection" },
     .{ .name = "h2.Connection", .size = @sizeOf(h2.Connection), .holds = "the h2 state inside a TCP connection" },

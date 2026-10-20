@@ -10383,8 +10383,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     run holds 2 and 3 TCP connections, and TLC checks its logs. The client trace run speaks h2,
     which opens one connection (RFC 9113 §9.1), so its seeds keep one. Each configuration
     of the model states its state count, and the TLA+ section of CI's checks job grows by at most
-    5 minutes. `tools/h11_interop.sh` runs 8 exchanges at once over 8 connections against Go's
-    server: 8 is the most a plan of the test-only client holds (`exchanges_max`). `zig build
+    5 minutes. `tools/h11_interop.sh` runs 8 requests at once over 8 connections against Go's
+    server: 8 is the most a plan of the test-only client holds (`requests_max`). `zig build
     examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass.
   - **2026-10-20, 22.1 to 22.8, on an Apple M1 Pro.** The commits, in order:
     - **a2292562 and 0e5282c3, 22.1.** Decision 125, this text, the amendment of decision 35, and
@@ -10401,7 +10401,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       and 14 s. The mutants `take_beyond_room` and `retry_within_wait` are violated.
     - **5cdec80f, 22.6.** Several TCP connections. Mutations, 10 of 10 **CAUGHT** by
       test-client.
-    - **378676cb, 22.6b.** The pool trace run. Its census over 256 seeds: 784 exchanges, 512
+    - **378676cb, 22.6b.** The pool trace run. Its census over 256 seeds: 784 requests, 512
       responses, 29 refused, 118 closed, 125 cancelled, 78 moves, 831 connections, 229 seeds that
       opened more than one slot, and 5,828 states. TLC finds each of 64 seeds' logs a behavior of
       the model, in 147 s. Mutations, 4 **CAUGHT** by the run. 2 are **NOT CAUGHT** by it, and

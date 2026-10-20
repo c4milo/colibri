@@ -110,8 +110,8 @@ pub const Peer = struct {
     mute_pending: bool,
     close: ?Close,
     goaway_ms: ?u64,
-    /// The script: the exchanges begun, the next instant it acts at, and the next it reads at.
-    exchanges_begun: u8,
+    /// The script: the requests begun, the next instant it acts at, and the next it reads at.
+    requests_begun: u8,
     next_act_ms: ?u64,
     next_read_ms: u64,
     pings: u32,
@@ -156,7 +156,7 @@ pub const Peer = struct {
         peer.mute_pending = false;
         peer.close = null;
         peer.goaway_ms = null;
-        peer.exchanges_begun = 0;
+        peer.requests_begun = 0;
         peer.next_act_ms = null;
         peer.next_read_ms = 0;
         peer.pings = 0;

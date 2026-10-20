@@ -199,7 +199,7 @@ test "decision 125: TCP grows while it carries the exchanges in h11 and an excha
     view.waiting = 2;
     view.all_idle = false;
     try testing.expectEqual(Choice{ .tcp = 1 }, next_open(&view).?);
-    // Beside one handshake that runs, another opens only while more exchanges wait.
+    // Beside one handshake that runs, another opens only while more requests wait.
     view.tcp_opening = 1;
     try testing.expectEqual(Choice{ .tcp = 1 }, next_open(&view).?);
     view.waiting = 1;

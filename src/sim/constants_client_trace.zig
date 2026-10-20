@@ -4,8 +4,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Exchanges a seed's caller makes at most: the model's `N`.
-pub const exchanges_max: u32 = 3;
+/// Requests a seed's caller makes at most: the model's `N`.
+pub const requests_max: u32 = 3;
 
 /// The window the caller makes its exchanges in, and the most a cancel comes after its exchange.
 pub const make_window_ns: u64 = 400_000_000;
@@ -88,12 +88,12 @@ pub const written_seeds: u64 = 64;
 /// QUIC connection or kept one alive (design §8 step 17g), so TLC checks both idle rules: a QUIC
 /// connection carries exchanges in few seeds, since TCP often wins the race.
 pub const idle_seeds_written_max: u64 = 16;
-pub const steps_between_max: u64 = steps_per_exchange * exchanges_max + steps_per_instant;
+pub const steps_between_max: u64 = steps_per_exchange * requests_max + steps_per_instant;
 const steps_per_exchange: u64 = 6;
 const steps_per_instant: u64 = 12;
 
 comptime {
-    assert(exchanges_max > 0 and cancel_one_in > 0 and post_one_in > 0);
+    assert(requests_max > 0 and cancel_one_in > 0 and post_one_in > 0);
     // A slow QUIC loses the race to TCP: its first round trip is past the fallback delay.
     assert(slow_delay_min_ns > fallback_delay_ns);
     assert(tcp_delay_ns < fallback_delay_ns);

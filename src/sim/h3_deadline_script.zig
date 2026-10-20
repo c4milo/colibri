@@ -49,12 +49,12 @@ pub fn finish_begun(peer: *Peer, plan: *const Plan, now_ms: u64) bool {
 /// Opens every exchange of the plan at once, each a GET whose stream ends with its head. A deaf
 /// peer is muted once this instant's datagrams have left.
 fn begin_all(peer: *Peer, plan: *const Plan, now_ns: u64) Error!bool {
-    if (peer.exchanges_begun > 0) return false;
-    for (0..plan.exchanges_len) |_| {
+    if (peer.requests_begun > 0) return false;
+    for (0..plan.requests_count) |_| {
         const fetch = try peer.stage("GET", 0, now_ns) orelse return error.PeerFailed;
         peer.supply(fetch, fetch.prefix_len, true);
     }
-    peer.exchanges_begun = plan.exchanges_len;
+    peer.requests_begun = plan.requests_count;
     peer.next_act_ms = null;
     peer.mute_pending = plan.peer == .deaf;
     return true;
@@ -63,12 +63,12 @@ fn begin_all(peer: *Peer, plan: *const Plan, now_ns: u64) Error!bool {
 /// Opens the plan's next exchange once the one before it has ended, with `content_len` octets of
 /// content, of which it sends none yet.
 fn begin_next(peer: *Peer, plan: *const Plan, content_len: usize, now_ns: u64) Error!bool {
-    if (peer.exchanges_begun == plan.exchanges_len) return false;
-    if (peer.exchanges_begun > 0 and peer.fetches[peer.exchanges_begun - 1].ended_ms == null) return false;
+    if (peer.requests_begun == plan.requests_count) return false;
+    if (peer.requests_begun > 0 and peer.fetches[peer.requests_begun - 1].ended_ms == null) return false;
     const method = if (content_len > 0) "POST" else "GET";
     const fetch = try peer.stage(method, content_len, now_ns) orelse return error.PeerFailed;
     peer.supply(fetch, fetch.prefix_len, content_len == 0);
-    peer.exchanges_begun += 1;
+    peer.requests_begun += 1;
     return true;
 }
 
@@ -76,11 +76,11 @@ fn begin_next(peer: *Peer, plan: *const Plan, content_len: usize, now_ns: u64) E
 /// its last octet, and that octet a gap after.
 fn late_heads(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
     if (peer.next_act_ms != null) return finish_head(peer, now_ms);
-    if (peer.exchanges_begun == plan.exchanges_len) return false;
-    if (peer.exchanges_begun > 0 and peer.fetches[peer.exchanges_begun - 1].ended_ms == null) return false;
+    if (peer.requests_begun == plan.requests_count) return false;
+    if (peer.requests_begun > 0 and peer.fetches[peer.requests_begun - 1].ended_ms == null) return false;
     const fetch = try peer.stage("GET", 0, now_ns) orelse return error.PeerFailed;
     peer.supply(fetch, fetch.prefix_len - 1, false);
-    peer.exchanges_begun += 1;
+    peer.requests_begun += 1;
     peer.next_act_ms = now_ms + plan.gap_ms;
     return true;
 }
@@ -97,7 +97,7 @@ fn finish_head(peer: *Peer, now_ms: u64) bool {
 
 /// An honest upload: one exchange at a time, its content a piece every gap.
 fn upload(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
-    const next_len = if (peer.exchanges_begun < plan.exchanges_len) plan.upload_len[peer.exchanges_begun] else 0;
+    const next_len = if (peer.requests_begun < plan.requests_count) plan.upload_len[peer.requests_begun] else 0;
     if (try begin_next(peer, plan, next_len, now_ns)) {
         peer.next_act_ms = now_ms;
         return true;
@@ -156,7 +156,7 @@ fn partial_head(peer: *Peer, now_ns: u64) Error!bool {
 /// One exchange, then a partial head the plan's gap after its response ended.
 fn slow_second_head(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
     if (try begin_all(peer, plan, now_ns)) return true;
-    if (peer.fetches_len > plan.exchanges_len) return false;
+    if (peer.fetches_len > plan.requests_count) return false;
     const ended_ms = peer.fetches[0].ended_ms orelse return false;
     const due_ms = ended_ms + plan.gap_ms;
     if (now_ms < due_ms) {
@@ -172,7 +172,7 @@ fn slow_body(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!boo
     if (peer.fetches_len == 0) {
         const fetch = try peer.stage("POST", limits.slow_body_len, now_ns) orelse return error.PeerFailed;
         peer.supply(fetch, fetch.prefix_len, false);
-        peer.exchanges_begun = 1;
+        peer.requests_begun = 1;
         peer.next_act_ms = now_ms + plan.gap_ms;
         return true;
     }

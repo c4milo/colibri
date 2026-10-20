@@ -57,24 +57,24 @@ pub const Answer = enum {
 };
 
 pub const Plan = struct {
-    /// Exchanges the caller makes: the model's `N`.
-    exchanges: u32,
+    /// Requests the caller makes: the model's `N`.
+    requests: u32,
     /// The instant each is made, and the instant it is cancelled, if it is.
-    make_at_ns: [limits.exchanges_max]u64,
-    cancel_at_ns: [limits.exchanges_max]?u64,
+    make_at_ns: [limits.requests_max]u64,
+    cancel_at_ns: [limits.requests_max]?u64,
     /// Octets of each request's content: none for a GET, some for a POST.
-    content_len: [limits.exchanges_max]u32,
+    content_len: [limits.requests_max]u32,
     /// Whether the caller cancels a POST once its connection ended it and before the pool
     /// reported it, while its stream may still send the content (RFC 9000 §3.1).
-    cancel_on_end: [limits.exchanges_max]bool,
+    cancel_on_end: [limits.requests_max]bool,
     policy: Policy,
     /// Whether the values carry an HTTPS record: one naming h3 under `first`, and one naming no h3
     /// under `learn`.
     https: bool,
     quic: Quic,
     /// How each server answers each exchange, and how long it takes to.
-    quic_answers: [limits.exchanges_max]Answer,
-    tcp_answers: [limits.exchanges_max]Answer,
+    quic_answers: [limits.requests_max]Answer,
+    tcp_answers: [limits.requests_max]Answer,
     answer_delay_ns: u64,
     /// Whether a server answers a request as soon as its head arrives, before its content has.
     answer_early: bool,
@@ -93,10 +93,10 @@ pub const Plan = struct {
     pub const Transport = enum { quic, tcp };
 
     pub fn draw(plan: *Plan, random: *Random) void {
-        plan.exchanges = 1 + @as(u32, @intCast(random.below(limits.exchanges_max)));
+        plan.requests = 1 + @as(u32, @intCast(random.below(limits.requests_max)));
         plan.clean = random.below(limits.rough_one_in) != 0;
         var last_make_ns: u64 = 0;
-        for (0..limits.exchanges_max) |index| {
+        for (0..limits.requests_max) |index| {
             plan.make_at_ns[index] = random.below(limits.make_window_ns);
             last_make_ns = @max(last_make_ns, plan.make_at_ns[index]);
             plan.cancel_at_ns[index] = null;
@@ -113,7 +113,7 @@ pub const Plan = struct {
         plan.answer_delay_ns = random.below(limits.answer_delay_max_ns);
         // Design §8 step 17g: a QUIC connection idle near its timeout, and one waiting past it.
         if (random.below(limits.late_one_in) == 0) {
-            const late = plan.exchanges - 1;
+            const late = plan.requests - 1;
             const late_ns = limits.late_gap_min_ns + random.below(limits.late_gap_max_ns - limits.late_gap_min_ns);
             const moved_ns = limits.make_window_ns + late_ns - plan.make_at_ns[late];
             plan.make_at_ns[late] += moved_ns;
@@ -128,7 +128,7 @@ pub const Plan = struct {
         plan.break_kind = @enumFromInt(random.below(std.meta.fields(Break).len));
         plan.break_at_ns = if (plan.clean) null else plan.first_make_ns() + random.below(limits.break_window_ns);
         plan.shutdown_at_ns = last_make_ns + 1 + random.below(limits.shutdown_after_max_ns);
-        assert(plan.exchanges >= 1 and plan.exchanges <= limits.exchanges_max);
+        assert(plan.requests >= 1 and plan.requests <= limits.requests_max);
     }
 
     fn draw_answer(plan: *const Plan, random: *Random) Answer {
@@ -157,7 +157,7 @@ pub const Plan = struct {
     /// The instant the first exchange is made.
     fn first_make_ns(plan: *const Plan) u64 {
         var first: u64 = std.math.maxInt(u64);
-        for (plan.make_at_ns[0..plan.exchanges]) |make_at_ns| first = @min(first, make_at_ns);
+        for (plan.make_at_ns[0..plan.requests]) |make_at_ns| first = @min(first, make_at_ns);
         return first;
     }
 
@@ -184,7 +184,7 @@ test "a plan is drawn from its seed alone, and its caller shuts the pool down af
         random = Random.init(seed);
         second.draw(&random);
         try testing.expect(std.meta.eql(first, second));
-        for (first.make_at_ns[0..first.exchanges]) |make_at_ns| try testing.expect(make_at_ns < first.shutdown_at_ns);
+        for (first.make_at_ns[0..first.requests]) |make_at_ns| try testing.expect(make_at_ns < first.shutdown_at_ns);
         if (first.clean) for (first.quic_answers, first.tcp_answers) |quic, tcp| {
             try testing.expect(quic == .respond and tcp == .respond);
         };

@@ -21,16 +21,16 @@ pub const Answer = enum {
 };
 
 pub const Plan = struct {
-    /// TCP slots the pool holds, and exchanges the caller makes: the model's `TcpSlots` and `N`.
+    /// TCP slots the pool holds, and requests the caller makes: the model's `TcpSlots` and `N`.
     slots: u32,
-    exchanges: u32,
+    requests: u32,
     /// The instant each exchange is made, and the instant it is cancelled, if it is.
-    make_at: [limits.exchanges_max]u32,
-    cancel_at: [limits.exchanges_max]?u32,
+    make_at: [limits.requests_max]u32,
+    cancel_at: [limits.requests_max]?u32,
     /// Whether each request is a POST, which RFC 9110 §9.2.2 does not let the pool send again.
-    post: [limits.exchanges_max]bool,
+    post: [limits.requests_max]bool,
     /// How the server answers each exchange's request, each time it reads it.
-    answers: [limits.exchanges_max]Answer,
+    answers: [limits.requests_max]Answer,
     /// Whether each slot's first connect fails.
     connect_fails: [limits.slots_max]bool,
     /// The instant the caller shuts the pool down.
@@ -38,9 +38,9 @@ pub const Plan = struct {
 
     pub fn draw(plan: *Plan, random: *Random) void {
         plan.slots = limits.slots_min + @as(u32, @intCast(random.below(limits.slots_max - limits.slots_min + 1)));
-        plan.exchanges = limits.exchanges_min + @as(u32, @intCast(random.below(limits.exchanges_max - limits.exchanges_min + 1)));
+        plan.requests = limits.requests_min + @as(u32, @intCast(random.below(limits.requests_max - limits.requests_min + 1)));
         var last_make: u32 = 0;
-        for (0..limits.exchanges_max) |index| {
+        for (0..limits.requests_max) |index| {
             plan.make_at[index] = @intCast(random.below(limits.make_window));
             plan.cancel_at[index] = null;
             if (random.below(limits.cancel_one_in) == 0) {
@@ -48,7 +48,7 @@ pub const Plan = struct {
             }
             plan.post[index] = random.below(limits.post_one_in) == 0;
             plan.answers[index] = draw_answer(random);
-            if (index < plan.exchanges) last_make = @max(last_make, plan.make_at[index]);
+            if (index < plan.requests) last_make = @max(last_make, plan.make_at[index]);
         }
         for (&plan.connect_fails) |*fails| fails.* = random.below(limits.connect_fail_one_in) == 0;
         plan.shutdown_at = last_make + 1 + @as(u32, @intCast(random.below(limits.shutdown_after_max)));
@@ -62,7 +62,7 @@ pub const Plan = struct {
 
     /// Whether exchange `index`'s method is idempotent (RFC 9110 §9.2.2).
     pub fn idempotent(plan: *const Plan, index: usize) bool {
-        assert(index < plan.exchanges);
+        assert(index < plan.requests);
         return !plan.post[index];
     }
 
@@ -70,7 +70,7 @@ pub const Plan = struct {
     /// GOAWAY frames.
     pub fn closes(plan: *const Plan) u32 {
         var counted: u32 = 0;
-        for (plan.answers[0..plan.exchanges]) |answer| counted += @intFromBool(answer == .close);
+        for (plan.answers[0..plan.requests]) |answer| counted += @intFromBool(answer == .close);
         return counted;
     }
 };

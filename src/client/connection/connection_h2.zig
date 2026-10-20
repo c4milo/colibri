@@ -205,7 +205,7 @@ fn first_regular(section: *const http.FieldSection) u32 {
 /// request's content as the windows and the room allow.
 pub fn write_requests(connection: *Connection) void {
     // Bounded: each pass writes or ends an exchange, or stops.
-    for (0..constants.exchanges_max) |_| {
+    for (0..constants.requests_max) |_| {
         const slot = connection.slots.oldest(.queued) orelse break;
         if (!open(connection, slot)) break;
     }

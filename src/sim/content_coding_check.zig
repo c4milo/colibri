@@ -60,7 +60,7 @@ pub const Storage = struct {
 };
 
 /// Octets of one seed's trace: its first line, and a line for each exchange.
-const trace_len_max: usize = line_len_max * (limits.exchanges_max + 1);
+const trace_len_max: usize = line_len_max * (limits.requests_max + 1);
 const line_len_max: usize = 128;
 
 /// What distinguishes the pieces' seed from the plan's.
@@ -68,7 +68,7 @@ const pieces_mark: u64 = 0x7069_6563_6573_2121;
 
 pub const Result = struct {
     trace: []const u8,
-    exchanges: u32,
+    requests: u32,
     /// The CRC-32 of every octet the client wrote to the server in the first run.
     wire: u32,
 };
@@ -76,7 +76,7 @@ pub const Result = struct {
 /// What `run_check` counted over its seeds.
 pub const Census = struct {
     seeds: u64 = 0,
-    exchanges: u64 = 0,
+    requests: u64 = 0,
     decoded: u64 = 0,
     passed_on: u64 = 0,
     too_large: u64 = 0,
@@ -107,7 +107,7 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     try content_coding_run.run(&storage.run, &plan, seed, null);
     try verify(storage, &plan, seed);
     if (!same_trace(storage)) return error.SplitChangedResult;
-    return .{ .trace = storage.first[0..storage.first_len], .exchanges = plan.exchanges_len, .wire = wire };
+    return .{ .trace = storage.first[0..storage.first_len], .requests = plan.requests_count, .wire = wire };
 }
 
 /// The CRC-32 of every octet the last run's client wrote to the server.
@@ -127,7 +127,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
             return failure;
         };
         census.seeds += 1;
-        census.exchanges += result.exchanges;
+        census.requests += result.requests;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
         var wire_octets: [@sizeOf(u32)]u8 = undefined;
@@ -142,7 +142,7 @@ fn count(storage: *const Storage, census: *Census, seed: u64) void {
     _ = storage;
     var plan_random = Random.init(seed);
     const plan = content_coding_plan.draw(&plan_random);
-    for (plan.exchanges[0..plan.exchanges_len]) |*planned| {
+    for (plan.exchanges[0..plan.requests_count]) |*planned| {
         const expected = content_coding_plan.expect(&plan, planned);
         if (expected.too_large) census.too_large += 1 else if (expected.decoded) census.decoded += 1 else if (expected.coded != null) census.passed_on += 1;
     }
@@ -152,7 +152,7 @@ fn count(storage: *const Storage, census: *Census, seed: u64) void {
 fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     storage.trace_len = 0;
     try line(storage, "{s} seed=0x{x} protocol={t}\n", .{ check_name, seed, plan.protocol });
-    for (plan.exchanges[0..plan.exchanges_len], 0..) |*planned, index| {
+    for (plan.exchanges[0..plan.requests_count], 0..) |*planned, index| {
         const expected = content_coding_plan.expect(plan, planned);
         const arrived = try verify_exchange(storage, planned, expected, index);
         const outcome = storage.run.responses[index].outcome;
@@ -168,8 +168,8 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
         });
     }
     const run = &storage.run;
-    if (run.encoders.free_count() != limits.exchanges_max) return error.PoolLeaked;
-    if (run.decoders.storage().free_count() != limits.exchanges_max) return error.PoolLeaked;
+    if (run.encoders.free_count() != limits.requests_max) return error.PoolLeaked;
+    if (run.decoders.storage().free_count() != limits.requests_max) return error.PoolLeaked;
 }
 
 /// Checks one exchange, and returns the content it delivered: decoded, or as it arrived.

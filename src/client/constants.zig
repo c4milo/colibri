@@ -11,17 +11,17 @@ const tls_provider = @import("tls_provider");
 const quic = @import("quic");
 const h3 = @import("h3");
 
-/// Exchanges one connection holds at once: waiting to be written, in flight, or finished and not
-/// yet reported. A request past them is refused until one is reported.
-pub const exchanges_max: u32 = 16;
+/// Requests one connection holds at once, each with its response: waiting to be written, in
+/// flight, or finished and not yet reported. A request past them is refused until one is reported.
+pub const requests_max: u32 = 16;
 
 /// TCP connections one pool holds at most (decision 125). `Options.tcp_connections` is at least 1
 /// and at most this, and it bounds each loop over a pool's TCP connections.
 pub const pool_tcp_connections_max: u16 = 64;
 
-/// Exchanges one pool holds at once at most (decision 125). `Options.exchanges` is at least 1 and
+/// Requests one pool holds at once at most (decision 125). `Options.requests` is at least 1 and
 /// at most this, and it bounds each loop over a pool's table of exchanges.
-pub const pool_exchanges_max: u16 = 1024;
+pub const pool_requests_max: u16 = 1024;
 
 /// Octets of an h2 frame of the largest size colibri advertises, its header included (RFC 9113
 /// §4.1, §4.2).
@@ -108,7 +108,7 @@ pub const quic_read_len: usize = 16_384;
 
 /// Events one read of h3 reports at most: one for each octet the receive pool holds, and a few
 /// that consume none, such as a stream's end, for each exchange and for the connection.
-pub const h3_events_per_read_max: usize = quic.constants.receive_pool_len_default + exchanges_max * h3_events_per_exchange_max + 1;
+pub const h3_events_per_read_max: usize = quic.constants.receive_pool_len_default + requests_max * h3_events_per_exchange_max + 1;
 const h3_events_per_exchange_max: usize = 4;
 
 /// Times an exchange moves to another connection after one that takes no new exchange refused it
@@ -119,7 +119,7 @@ pub const moves_max: u8 = 1;
 
 /// Events the pool reads from its connections in one call at most: each connection's version,
 /// ticket, draining and close, and one `finished` event for each exchange it may hold.
-pub const pool_events_per_poll_max: usize = transports_count * (exchanges_max + connection_events_max);
+pub const pool_events_per_poll_max: usize = transports_count * (requests_max + connection_events_max);
 const transports_count: usize = 2;
 const connection_events_max: usize = 4;
 
@@ -183,7 +183,7 @@ comptime {
     // The client adds its lines to at least one of the caller's.
     assert(request_fields_max > added_fields_max);
     // h11 queues every exchange the connection holds, or the rest wait for room (RFC 9112 §9.3.2).
-    assert(exchanges_max > 0 and h11.constants.pipeline_depth_max > 0);
+    assert(requests_max > 0 and h11.constants.pipeline_depth_max > 0);
     // `std.math.maxInt(usize)` has at most this many decimal digits.
     assert(std.fmt.count("{d}", .{std.math.maxInt(usize)}) <= content_length_digits_max);
     // A margin shorter than the idle timeout the client advertises leaves the connection time to
@@ -203,6 +203,6 @@ comptime {
     assert(stream_output_len_min >= tls_provider.constants.record_write_len_min);
     assert(stream_output_len_min >= tls.record.alert_record_len);
     // A pool of the default size holds the exchanges of one connection.
-    assert(exchanges_max <= pool_exchanges_max);
+    assert(requests_max <= pool_requests_max);
     assert(pool_tcp_connections_max > 0);
 }

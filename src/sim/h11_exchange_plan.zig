@@ -49,13 +49,13 @@ const statuses = [_]u16{
 
 pub const Plan = struct {
     count: u32,
-    exchanges: [constants.h11_exchange_count_max]Exchange,
+    exchanges: [constants.h11_requests_max]Exchange,
     /// Each exchange's request and response body octets.
-    request_octets: [constants.h11_exchange_count_max][constants.h11_exchange_body_len_max]u8,
-    response_octets: [constants.h11_exchange_count_max][constants.h11_exchange_body_len_max]u8,
+    request_octets: [constants.h11_requests_max][constants.h11_exchange_body_len_max]u8,
+    response_octets: [constants.h11_requests_max][constants.h11_exchange_body_len_max]u8,
 
     pub fn draw(plan: *Plan, random: *Random) void {
-        plan.count = @intCast(random.between(1, constants.h11_exchange_count_max));
+        plan.count = @intCast(random.between(1, constants.h11_requests_max));
         const early_close = random.below(constants.h11_exchange_close_one_in) == 0;
         const closing: u32 = if (early_close) @intCast(random.below(plan.count)) else plan.count;
         for (0..plan.count) |index| {

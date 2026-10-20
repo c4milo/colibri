@@ -1,5 +1,5 @@
 //! What one seed of the h3 check exchanges (design §8 step 12): each endpoint's QPACK settings and
-//! grease value, and up to `h3_check_exchanges_max` requests with their responses, which the
+//! grease value, and up to `h3_check_requests_max` requests with their responses, which the
 //! client sends in rounds of `h3_check_round_len`.
 //!
 //! A message is its pseudo-header fields, up to `h3_check_lines_max` regular lines and some
@@ -57,17 +57,17 @@ pub const Direction = enum(u1) { request, response };
 
 /// How large a seed's plan may be: the normal check's, or the long check's.
 pub const Shape = struct {
-    exchanges_max: u32,
+    requests_max: u32,
     content_len_max: u32,
 
-    pub const normal: Shape = .{ .exchanges_max = constants.h3_check_exchanges_max, .content_len_max = constants.h3_check_content_len_max };
-    pub const long: Shape = .{ .exchanges_max = constants.h3_long_check_exchanges_max, .content_len_max = constants.h3_long_check_content_len_max };
+    pub const normal: Shape = .{ .requests_max = constants.h3_check_requests_max, .content_len_max = constants.h3_check_content_len_max };
+    pub const long: Shape = .{ .requests_max = constants.h3_long_check_requests_max, .content_len_max = constants.h3_long_check_content_len_max };
 };
 
 pub const Plan = struct {
     client: h3.connection.Options,
     server: h3.connection.Options,
-    exchanges: [constants.h3_long_check_exchanges_max]Exchange,
+    exchanges: [constants.h3_long_check_requests_max]Exchange,
     len: u32,
     /// The values the seed drew, which the lines point into.
     value_octets: [constants.h3_check_values][constants.h3_check_value_len_max]u8,
@@ -75,14 +75,14 @@ pub const Plan = struct {
 
     /// Draws a plan into `plan`, which is too large for a stack frame.
     pub fn draw(plan: *Plan, random: *Random, shape: Shape) void {
-        assert(shape.exchanges_max <= plan.exchanges.len);
+        assert(shape.requests_max <= plan.exchanges.len);
         plan.client = .{ .role = .client, .qpack = draw_settings(random), .grease = random.next() };
         plan.server = .{ .role = .server, .qpack = draw_settings(random), .grease = random.next() };
         for (&plan.value_octets, &plan.value_lens) |*octets, *len| {
             len.* = @intCast(random.between(1, constants.h3_check_value_len_max));
             for (octets[0..len.*]) |*octet| octet.* = value_alphabet[random.below(value_alphabet.len)];
         }
-        plan.len = @intCast(random.between(1, shape.exchanges_max));
+        plan.len = @intCast(random.between(1, shape.requests_max));
         for (plan.exchanges[0..plan.len]) |*exchange| plan.draw_exchange(exchange, random, shape);
         assert(plan.len > 0);
     }

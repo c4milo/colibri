@@ -647,12 +647,13 @@ round trip while it is not. `Config.logs` gives each connection a qlog log
 
 ## The client
 
-The `client` module sends requests behind one set of calls too. A program makes one
-`client.Config` for an origin, and a `client.Pool` that carries its exchanges there
-([decision 120](decisions.md)). The pool carries them over the QUIC and TCP connections it
-chooses between, and tells the program which transport to open ([decision 105](decisions.md)).
-Over QUIC its connection speaks h3. Over TCP with TLS, ALPN picks h2 or h11. In cleartext its
-connection speaks h11, or h2 with prior knowledge when `versions` turns h11 off
+The `client` module sends requests behind one set of calls too. An exchange is one request with its
+response, from the call of `request` to the request's one `finished` event. RFC 9110 §7.5 calls it a
+"request/response exchange". A program makes one `client.Config` for an origin, and a `client.Pool`
+that carries its exchanges there ([decision 120](decisions.md)). The pool carries them over the QUIC
+and TCP connections it chooses between, and tells the program which transport to open ([decision
+105](decisions.md)). Over QUIC its connection speaks h3. Over TCP with TLS, ALPN picks h2 or h11. In
+cleartext its connection speaks h11, or h2 with prior knowledge when `versions` turns h11 off
 ([decision 117](decisions.md)).
 
 The code in this section is from [`examples/client_exchange.zig`](../examples/client_exchange.zig),
@@ -696,7 +697,7 @@ exchange's `finished` event or until `cancel` returns.
 
 A program places the pool and the memory it holds its TCP connections and its exchanges in
 ([decision 125](decisions.md)). `client.Options` counts them: `tcp_connections`, 1 by default,
-and `exchanges`, 16 by default. `Pool.memory_bytes(options)` gives the octets those counts need.
+and `requests`, 16 by default. `Pool.memory_bytes(options)` gives the octets those counts need.
 It is pure, so a program sizes a static array with it, as here, or maps that many octets at run
 time:
 
@@ -952,7 +953,7 @@ fn report(event: client.Event, now_ns: u64) !void {
             });
             finished += 1;
             // Every exchange has ended, so the client shuts the pool down.
-            if (finished == exchanges_count) pool.shutdown();
+            if (finished == requests_count) pool.shutdown();
         },
         .ticket => |connection| take_ticket(connection),
         // The shut-down pool is over: every exchange ended and every transport closed.

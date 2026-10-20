@@ -111,9 +111,9 @@ pub const response_status: u16 = 200;
 /// (RFC 9110 §8.6).
 pub const response_content_length = "8";
 
-/// Most exchanges one client session runs, each a request and the response to it on a stream of
-/// its own. It bounds the plan the command line reads and the array the session holds.
-pub const exchanges_max: u32 = 8;
+/// Most requests one client session runs, each with the response to it on a stream of its own.
+/// It bounds the plan the command line reads and the array the session holds.
+pub const requests_max: u32 = 8;
 
 /// Most octets of request content one exchange sends. It is past the 65,535-octet window a stream
 /// starts with (RFC 9113 §6.9.2) several times over, so a plan can make the peer's WINDOW_UPDATE
@@ -146,7 +146,7 @@ pub const client_tcp_connections_max: u32 = 16;
 pub const client_sockets_max: u32 = client_connections_max;
 
 /// Most command-line arguments the client reads: its options, and two per exchange.
-pub const client_arguments_max: u32 = 16 + 2 * exchanges_max;
+pub const client_arguments_max: u32 = 16 + 2 * requests_max;
 
 /// Nanoseconds the client's loop waits for any event before it gives the run up: ten seconds,
 /// the most one Rotor tick waits. A peer that stops answering ends the run with a failure instead
@@ -162,7 +162,7 @@ const ns_per_s: u64 = 1_000_000_000;
 pub const client_ticks_max: u32 = 1 << 20;
 
 comptime {
-    assert(exchanges_max > 0 and client_connections_max > 0 and client_ticks_max > 0);
+    assert(requests_max > 0 and client_connections_max > 0 and client_ticks_max > 0);
     assert(client_tcp_connections_max > 0 and client_tcp_connections_max <= client_sockets_max);
     assert(response_content_len_max > h2.constants.frame_size_max);
     // The digits hold the largest length a plan may name.

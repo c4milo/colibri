@@ -55,7 +55,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State) Erro
     try writer.write_bytes("\\* expect: violated\nSPECIFICATION TraceSpec\nCONSTANTS\n");
     var opens: u64 = 1;
     for (last.opens[0..plan.slots]) |slot_opens| opens = @max(opens, slot_opens);
-    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.exchanges, opens, client.constants.moves_max });
+    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.moves_max });
     try writer.write_bytes("    QuicPolicy = \"never\"\n    TcpAllowed = TRUE\n");
     try write_slot_set(writer, "HandshakeFails", plan);
     try write_slot_set(writer, "Breaks", plan);
@@ -90,7 +90,7 @@ fn write_slot_set(writer: *Writer, name: []const u8, plan: *const Plan) Error!vo
 fn write_idempotent(writer: *Writer, plan: *const Plan) Error!void {
     try writer.write_bytes("    Idempotent = {");
     var written: usize = 0;
-    for (0..plan.exchanges) |index| {
+    for (0..plan.requests) |index| {
         if (!plan.idempotent(index)) continue;
         try print(writer, "{s}{d}", .{ separator(written), index + 1 });
         written += 1;
@@ -103,7 +103,7 @@ fn boolean(value: bool) []const u8 {
 }
 
 fn write_state(writer: *Writer, plan: *const Plan, state: *const State) Error!void {
-    const n: usize = plan.exchanges;
+    const n: usize = plan.requests;
     try writer.write_bytes("[");
     try write_names(writer, "stage", state.stage[0..n]);
     try writer.write_bytes("carrier |-> <<");

@@ -52,8 +52,8 @@ pub const Record = struct {
     end_ms: u64,
     /// The requests the application answered, and the deadline that cancelled one.
     app: app_module.Application,
-    /// Exchanges an honest peer ended with a whole response.
-    exchanges_done: u8,
+    /// Requests an honest peer ended with a whole response.
+    requests_done: u8,
     /// Whether a hostile h11 peer read a 408, and in h2 the status of the last response, the code
     /// of the first RST_STREAM and its instant, and the code of the GOAWAY a hostile peer read.
     saw_timeout_response: bool,
@@ -134,14 +134,14 @@ pub const Storage = struct {
     to_server: Stream,
     to_client: Stream,
     /// Each exchange's request and response, by index (decision 124).
-    requests: [limits.exchanges_max]client.Request,
-    responses: [limits.exchanges_max]client.Response,
-    bodies: [limits.exchanges_max][limits.read_content_len_max]u8,
+    requests: [limits.requests_max]client.Request,
+    responses: [limits.requests_max]client.Response,
+    bodies: [limits.requests_max][limits.read_content_len_max]u8,
     content: [limits.read_content_len_max]u8,
     /// The content an uploading peer's requests carry.
     upload: [limits.upload_len_max]u8,
-    /// The exchanges colibri's client was given: all at once, or for an upload one at a time.
-    exchanges_requested: u8,
+    /// The requests colibri's client was given: all at once, or for an upload one at a time.
+    requests_made: u8,
     record: Record,
     /// When a paced honest peer delivers its next piece, and when a slow reader reads its next.
     next_piece_ms: u64,
@@ -191,7 +191,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .end = .held,
         .end_ms = 0,
         .app = undefined,
-        .exchanges_done = 0,
+        .requests_done = 0,
         .saw_timeout_response = false,
         .response_status = null,
         .reset_code = null,
@@ -204,7 +204,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.record.app.init();
     storage.next_piece_ms = 0;
     storage.next_read_ms = 0;
-    storage.exchanges_requested = 0;
+    storage.requests_made = 0;
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     for (&storage.upload, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     if (!plan.honest()) return storage.hostile.start(plan);
@@ -217,7 +217,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.addresses = .{client.Address.of(&octets, 0)};
     // No receive pool, so the pool offers TCP alone.
     try storage.pool.init(&storage.pool_memory, &storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, .{}, null);
-    for (storage.requests[0..plan.exchanges_len], storage.responses[0..plan.exchanges_len], 0..) |*message, *response, index| {
+    for (storage.requests[0..plan.requests_count], storage.responses[0..plan.requests_count], 0..) |*message, *response, index| {
         message.* = .{ .method = "GET", .path = "/" };
         response.* = .{ .body = &storage.bodies[index] };
         if (plan.peer == .upload) {
@@ -226,7 +226,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         }
     }
     // An upload's exchanges go one at a time, so each request's body has the whole link.
-    const at_once = if (plan.peer == .upload) 1 else plan.exchanges_len;
+    const at_once = if (plan.peer == .upload) 1 else plan.requests_count;
     for (0..at_once) |_| try request_next(storage);
     try connect(storage, source, ns_of(plan, 0));
 }
@@ -249,9 +249,9 @@ fn connect(storage: *Storage, source: tls.Random, now_ns: u64) Error!void {
 
 /// Gives colibri's client its next exchange.
 fn request_next(storage: *Storage) Error!void {
-    const index = storage.exchanges_requested;
+    const index = storage.requests_made;
     _ = try storage.pool.request(&storage.requests[index], &storage.responses[index]);
-    storage.exchanges_requested += 1;
+    storage.requests_made += 1;
 }
 
 /// The octets of each response's content: letters alone, so no content reads as a status line.
@@ -356,7 +356,7 @@ fn note_event(storage: *Storage, plan: *const Plan, reported: server.Event, now_
 /// `writable`, and the connection's `send`, `close` and `ended`.
 const events_per_exchange: usize = 4;
 const events_per_connection: usize = 3;
-const events_max: usize = limits.exchanges_max * events_per_exchange + events_per_connection;
+const events_max: usize = limits.requests_max * events_per_exchange + events_per_connection;
 
 /// The server writes into the socket as much as its room takes.
 fn server_send(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
@@ -413,8 +413,8 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
 fn on_event(storage: *Storage, plan: *const Plan, reported: client.Event) Error!void {
     switch (reported) {
         .finished => |finished| {
-            if (finished.response.outcome == .response) storage.record.exchanges_done += 1;
-            if (plan.peer == .upload and storage.exchanges_requested < plan.exchanges_len) try request_next(storage);
+            if (finished.response.outcome == .response) storage.record.requests_done += 1;
+            if (plan.peer == .upload and storage.requests_made < plan.requests_count) try request_next(storage);
         },
         // The peer has one socket, so an exchange that waits for another ends refused.
         .open => |asked| {

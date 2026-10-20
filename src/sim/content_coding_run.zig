@@ -25,9 +25,9 @@ pub const Error = client.RequestError || client.StartError || server.StartError 
 
 /// The pools each side codes with: one encoder or decoder for each exchange, so neither side runs
 /// out, which the modules' own tests cover.
-pub const EncoderPool = server.EncoderPool(limits.exchanges_max, encoder_level);
+pub const EncoderPool = server.EncoderPool(limits.requests_max, encoder_level);
 const encoder_level: u4 = 1;
-pub const DecoderPool = client.DecoderPool(limits.exchanges_max);
+pub const DecoderPool = client.DecoderPool(limits.requests_max);
 
 /// The server: one connection in cleartext, and no QUIC.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
@@ -92,12 +92,12 @@ pub const Storage = struct {
     to_server: Stream,
     to_client: Stream,
     /// Each exchange's request and response, by index (decision 124).
-    requests: [limits.exchanges_max]client.Request,
-    responses: [limits.exchanges_max]client.Response,
-    own_offers: [limits.exchanges_max][1]client.Field,
-    bodies: [limits.exchanges_max][limits.coded_len_max]u8,
-    contents: [limits.exchanges_max][limits.content_len_max]u8,
-    answers: [limits.exchanges_max]Answer,
+    requests: [limits.requests_max]client.Request,
+    responses: [limits.requests_max]client.Response,
+    own_offers: [limits.requests_max][1]client.Field,
+    bodies: [limits.requests_max][limits.coded_len_max]u8,
+    contents: [limits.requests_max][limits.content_len_max]u8,
+    answers: [limits.requests_max]Answer,
     answers_len: u8,
     finished: u8,
     tls_random: Random,
@@ -119,7 +119,7 @@ pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Ra
         storage.to_client.written += storage.endpoint.send_stream(storage.accepted, storage.to_client.free(), now_ns);
         storage.to_client.deliver(pieces);
         client_read(storage);
-        if (storage.finished == plan.exchanges_len) return;
+        if (storage.finished == plan.requests_count) return;
     }
     return error.RunStalled;
 }
@@ -160,7 +160,7 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     storage.to_client.reset();
     storage.answers_len = 0;
     storage.finished = 0;
-    for (plan.exchanges[0..plan.exchanges_len], 0..) |*planned, index| {
+    for (plan.exchanges[0..plan.requests_count], 0..) |*planned, index| {
         fill_content(storage.contents[index][0..planned.content_len], planned.compressible, content_seed +% index);
         try request(storage, planned, index);
     }
@@ -218,7 +218,7 @@ const text_skew_max: u64 = 2;
 fn server_read(storage: *Storage) Error!void {
     const stream = &storage.to_server;
     // Bounded: each pass consumes an octet or reports an event.
-    for (0..limits.stream_len_max + limits.exchanges_max * events_per_exchange) |_| {
+    for (0..limits.stream_len_max + limits.requests_max * events_per_exchange) |_| {
         const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .octets = stream.held() } }, now_ns);
         // The endpoint keeps a failed read to itself until the connection ends: the run reads it.
         if (storage.endpoint.failed[storage.accepted.slot]) return error.ExchangeRefused;
@@ -293,7 +293,7 @@ fn write_content(storage: *Storage, answer: *Answer, planned: *const plan_module
 fn client_read(storage: *Storage) void {
     const stream = &storage.to_client;
     // Bounded: each pass consumes an octet or reports an event.
-    for (0..limits.stream_len_max + limits.exchanges_max * events_per_exchange) |_| {
+    for (0..limits.stream_len_max + limits.requests_max * events_per_exchange) |_| {
         const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .octets = stream.held() } }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse {

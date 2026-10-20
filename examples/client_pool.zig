@@ -64,7 +64,7 @@ const second_addresses = [_]client.Address{.of(&second_host, 0)};
 /// Exchanges of the first round, and of the second.
 const first_round = 2;
 const second_round = 4;
-const exchanges_count = first_round + second_round;
+const requests_count = first_round + second_round;
 
 pub const Error = error{
     /// The pool was not closed within `turns_max` turns.
@@ -98,8 +98,8 @@ const receive_calls_max = (link_module.queue_len_max + 1) * (Pool.receive_events
 var sockets: [link_module.streams_max]?client.ConnectionHandle align(@alignOf(client.ConnectionHandle)) = @splat(null);
 
 const get: client.Request = .{ .method = "GET", .path = "/greeting" };
-var bodies: [exchanges_count][greeting.len]u8 = undefined;
-var responses: [exchanges_count]client.Response align(@alignOf(client.Response)) = undefined;
+var bodies: [requests_count][greeting.len]u8 = undefined;
+var responses: [requests_count]client.Response align(@alignOf(client.Response)) = undefined;
 var requested: u32 = 0;
 
 /// What the client saw: exchanges that ended, opens to each address, closes, and whether the
@@ -238,7 +238,7 @@ fn on_finished(ended: client.Finished) !void {
         pool.set_values(.{ .addresses = &second_addresses, .port = server_port });
         try request(second_round);
     }
-    if (finished == exchanges_count) pool.shutdown();
+    if (finished == requests_count) pool.shutdown();
 }
 
 /// How long both sides may sleep: until the server's next deadline, and never longer than
@@ -255,7 +255,7 @@ fn sleep_ns() u64 {
 fn check() Error!void {
     const opened = opens_first == first_round and opens_second == second_round - first_round;
     const opens = opens_first + opens_second;
-    if (finished == exchanges_count and opened and closes == opens and peer.check(exchanges_count, opens)) {
+    if (finished == requests_count and opened and closes == opens and peer.check(requests_count, opens)) {
         std.debug.print("client_pool: every octet arrived as sent\n", .{});
         return;
     }

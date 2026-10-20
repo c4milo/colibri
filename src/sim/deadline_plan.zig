@@ -69,24 +69,24 @@ pub const Plan = struct {
     base_ms: u64,
     /// The server's limits: decision 110's defaults, or shorter ones.
     deadlines: server.Deadlines,
-    /// The exchanges the peer makes whole: every one of an honest peer's, and the first one of a
+    /// The requests the peer makes whole: every one of an honest peer's, and the first one of a
     /// peer that ends slow.
-    exchanges_len: u8,
+    requests_count: u8,
     /// The gap between two pieces, or two PINGs, in milliseconds.
     gap_ms: u64,
     /// The octets in one piece.
     piece_len: u32,
     /// The content each request of an uploading peer carries.
-    upload_len: [limits.exchanges_max]u32,
+    upload_len: [limits.requests_max]u32,
     /// How a peer that reads slowly reads: a piece of `read_len` octets every `read_gap_ms`.
     read_gap_ms: u64,
     read_len: u32,
     /// The rate a slow body arrives at, in octets a second.
     body_rate: u32,
     /// How long the application takes to answer each request, from the instant its body ended.
-    answer_delay_ms: [limits.exchanges_max]u64,
+    answer_delay_ms: [limits.requests_max]u64,
     /// The content of each response.
-    content_len: [limits.exchanges_max]u32,
+    content_len: [limits.requests_max]u32,
 
     /// Whether colibri's client plays the peer.
     pub fn honest(plan: *const Plan) bool {
@@ -132,7 +132,7 @@ pub fn draw(random: *Random) Plan {
         .peer = peer,
         .base_ms = random.below(limits.base_ms_max),
         .deadlines = if (peer == .long_body) long_body_deadlines(random, protocol) else draw_deadlines(random),
-        .exchanges_len = exchanges_of(peer, random),
+        .requests_count = requests_of(peer, random),
         .gap_ms = 0,
         .piece_len = 0,
         .upload_len = @splat(0),
@@ -144,13 +144,13 @@ pub fn draw(random: *Random) Plan {
     };
     draw_pace(&plan, random);
     draw_read_pace(&plan, random);
-    for (0..limits.exchanges_max) |index| {
+    for (0..limits.requests_max) |index| {
         plan.answer_delay_ms[index] = random.below(limits.answer_delay_ms_max + 1);
         plan.content_len[index] = @intCast(random.below(limits.content_len_max + 1));
         if (peer == .upload) plan.upload_len[index] = @intCast(random.between(1, limits.upload_len_max));
         if (reads_long(peer)) plan.content_len[index] = @intCast(random.between(limits.read_content_len_min, limits.read_content_len_max));
     }
-    assert(plan.exchanges_len <= limits.exchanges_max);
+    assert(plan.requests_count <= limits.requests_max);
     return plan;
 }
 
@@ -207,9 +207,9 @@ fn shorter_ns(random: *Random, min_ms: u64, default_ns: u64) u64 {
     return limit_ms * limits.ns_per_ms;
 }
 
-fn exchanges_of(peer: Peer, random: *Random) u8 {
+fn requests_of(peer: Peer, random: *Random) u8 {
     return switch (peer) {
-        .honest, .slow_honest, .upload, .slow_reader => @intCast(random.between(1, limits.exchanges_max)),
+        .honest, .slow_honest, .upload, .slow_reader => @intCast(random.between(1, limits.requests_max)),
         .slow_second_head, .idle_pinger, .reads_nothing, .reads_slowly, .opens_window_slowly, .opens_no_connection_window => 1,
         .silent, .slow_head, .pinger, .slow_body, .long_body, .many_streams => 0,
     };
@@ -294,7 +294,7 @@ test "a plan's pace fits its peer, and an h11 peer never pings" {
             .slow_second_head, .idle_pinger, .reads_nothing, .reads_slowly, .opens_window_slowly, .opens_no_connection_window => true,
             else => false,
         };
-        try testing.expectEqual(plan.honest(), plan.exchanges_len > 0 and !hostile_exchange);
+        try testing.expectEqual(plan.honest(), plan.requests_count > 0 and !hostile_exchange);
         try testing.expect(plan.deadlines.body_quota().? >= limits.window_quota_min or plan.peer == .long_body);
         try expect_write_pace(&plan);
         try expect_read_pace(&plan);

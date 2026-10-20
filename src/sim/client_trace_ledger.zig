@@ -19,8 +19,8 @@ pub const Connection = struct {
 
 pub const Ledger = struct {
     /// Servers that processed each exchange, and the connection whose server did last.
-    processed: [limits.exchanges_max]u8,
-    processed_by: [limits.exchanges_max]?Connection,
+    processed: [limits.requests_max]u8,
+    processed_by: [limits.requests_max]?Connection,
     /// GOAWAY frames the servers sent.
     goaways: u32,
 
@@ -32,7 +32,7 @@ pub const Ledger = struct {
 
     /// A server passed exchange `index`'s request to its application.
     pub fn process(ledger: *Ledger, index: usize, connection: Connection) void {
-        assert(index < limits.exchanges_max);
+        assert(index < limits.requests_max);
         ledger.processed[index] += 1;
         ledger.processed_by[index] = connection;
     }
@@ -49,7 +49,7 @@ pub fn exchange_of(path: []const u8) ?usize {
     const prefix = "/e/";
     if (!std.mem.startsWith(u8, path, prefix)) return null;
     const index = std.fmt.parseInt(usize, path[prefix.len..], decimal_base) catch return null;
-    return if (index < limits.exchanges_max) index else null;
+    return if (index < limits.requests_max) index else null;
 }
 
 const decimal_base: u8 = 10;

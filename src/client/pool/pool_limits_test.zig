@@ -31,7 +31,7 @@ var content: [content_len]u8 = @splat(content_octet);
 var body: [content_len]u8 = undefined;
 /// An h11 response head of the longest length h11 reads (RFC 9112 §2.1).
 var head: [h11.constants.head_len_max]u8 = undefined;
-var exchanges: [constants.exchanges_max]Exchange align(@alignOf(Exchange)) = undefined;
+var exchanges: [constants.requests_max]Exchange align(@alignOf(Exchange)) = undefined;
 var output: [constants.stream_output_len_min]u8 = undefined;
 
 const ok: u16 = 200;
@@ -168,7 +168,7 @@ test "decision 124: Pool.receive_events_without_input_max bounds the events a po
     // and `closed`. The bound also counts the `close` of each transport and its connection's
     // `connected` and `ticket`. No run that a test makes holds them beside these.
     const transports_opened = 2;
-    try testing.expectEqual(@as(usize, transports_opened + constants.exchanges_max + 1), run.events);
+    try testing.expectEqual(@as(usize, transports_opened + constants.requests_max + 1), run.events);
 }
 
 test {

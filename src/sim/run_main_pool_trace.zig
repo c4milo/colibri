@@ -34,8 +34,8 @@ pub fn check(seeds: u64) !void {
         return failure;
     };
     const result = census.result;
-    std.debug.print("pool-trace: seeds={d} exchanges={d} responses={d} refused={d} closed={d} cancelled={d}", .{
-        census.seeds, result.exchanges, result.responses, result.refused, result.closed, result.cancelled,
+    std.debug.print("pool-trace: seeds={d} requests={d} responses={d} refused={d} closed={d} cancelled={d}", .{
+        census.seeds, result.requests, result.responses, result.refused, result.closed, result.cancelled,
     });
     std.debug.print(" moved={d} connections={d} grown={d} states={d}\n", .{ result.moved, result.connections, result.grown, result.states });
 }

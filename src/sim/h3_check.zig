@@ -4,7 +4,7 @@
 //!
 //! Each endpoint is `h3_endpoint.zig`'s: step 9e's QUIC endpoint with the null provider and suite,
 //! and an h3 connection over it. Each seed draws both endpoints' QPACK settings and grease values
-//! and up to `h3_check_exchanges_max` exchanges (`h3_plan.zig`). The run passes when the client
+//! and up to `h3_check_requests_max` exchanges (`h3_plan.zig`). The run passes when the client
 //! has read every response to its end, each field section and content octet as the plan has it,
 //! and the connection then settles within `h3_check_settle_steps_max` steps:
 //! - every request stream's slot is free again on both sides;
@@ -77,7 +77,7 @@ pub const Storage = struct {
 pub const Result = struct {
     datagrams: u64 = 0,
     octets_crc32: u32 = 0,
-    exchanges: u64 = 0,
+    requests: u64 = 0,
     content_len: u64 = 0,
     /// Entries each endpoint's QPACK encoder inserted (RFC 9204 §3.2).
     inserts: u64 = 0,
@@ -93,7 +93,7 @@ pub const Result = struct {
 pub const Census = struct {
     seeds: u64 = 0,
     datagrams: u64 = 0,
-    exchanges: u64 = 0,
+    requests: u64 = 0,
     content_len: u64 = 0,
     inserts: u64 = 0,
     acknowledged_dropped: u64 = 0,
@@ -108,7 +108,7 @@ pub const Census = struct {
     fn count(census: *Census, storage: *const Storage, result: Result) void {
         census.seeds += 1;
         census.datagrams += result.datagrams;
-        census.exchanges += result.exchanges;
+        census.requests += result.requests;
         census.content_len += result.content_len;
         census.inserts += result.inserts;
         census.acknowledged_dropped += result.acknowledged_dropped;
@@ -241,7 +241,7 @@ const Run = struct {
         var result: Result = .{
             .datagrams = run.datagrams,
             .octets_crc32 = run.digest.final(),
-            .exchanges = run.storage.plan.len,
+            .requests = run.storage.plan.len,
             .qlog_len = run.qlog_len,
             .qlog_crc32 = run.qlog_digest.final(),
         };
