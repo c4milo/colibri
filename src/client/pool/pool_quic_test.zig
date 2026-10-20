@@ -13,6 +13,7 @@ const fixture = @import("pool_quic_test_support.zig");
 const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
 const pool_events = @import("pool_events.zig");
+const pool_links = @import("pool_links.zig");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
 
@@ -62,7 +63,7 @@ test "RFC 9114 §3.1: a QUIC handshake whose server speaks no h3 fails, and TCP 
     try collect();
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
-    try testing.expectEqual(pool_module.Phase.handshake, pool.phase(.tcp));
+    try testing.expectEqual(pool_module.Phase.handshake, pool.phase(pool_support.slot_of(pool, .tcp)));
     try testing.expectEqual(.pending, exchange.response.outcome);
     // The fallback delay counts only while QUIC's handshake runs, and QUIC's failed.
     try pump(rounds_before_fallback);
@@ -101,7 +102,7 @@ test "the first handshake to complete takes the exchange, and the transport stil
     try pump(rounds_past_probe);
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
     try testing.expectEqual(pool_support.slot_of(pool, .tcp), nth(.close, 0).?.close.slot);
-    try testing.expectEqual(pool_module.Phase.closed, pool.phase(.tcp));
+    try testing.expectEqual(pool_module.Phase.closed, pool.phase(pool_support.slot_of(pool, .tcp)));
     try testing.expectEqual(.response, exchange.response.outcome);
 }
 
@@ -117,7 +118,7 @@ test "RFC 9114 §5.2: an exchange a GOAWAY left unprocessed moves, and TCP opens
     // The server took stream 0 alone, and the second exchange waits for its stream limit.
     try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(pool_module.Phase.draining, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.draining, pool.phase(pool_support.slot_of(pool, .quic)));
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     // RFC 9114 §4.1.1: the refused exchange is made again as though never sent, so no event
     // reports it, and its outcome is pending once more.
@@ -179,14 +180,14 @@ test "RFC 7838 §3.1: what Alt-Svc says replaces what the pool knew, fresh for i
     try start(&quic_support.alpn_h3, values_at(https_port), false);
     const now_ns = quic_support.now_ns;
     const max_age_s: u64 = 60;
-    pool_events.learn(pool, .{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
+    pool_links.learn(pool, .{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
     try testing.expectEqual(alternative_port, pool.alternative().?.port);
     try testing.expectEqual(now_ns + max_age_s * 1_000_000_000, pool.alternative().?.fresh_until_ns);
-    try testing.expect(pool_events.quic_allowed(pool, now_ns));
-    pool_events.learn(pool, .none, now_ns);
+    try testing.expect(pool_links.quic_allowed(pool, now_ns));
+    pool_links.learn(pool, .none, now_ns);
     try testing.expectEqual(null, pool.alternative());
-    pool_events.learn(pool, .{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
-    pool_events.learn(pool, .clear, now_ns);
+    pool_links.learn(pool, .{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
+    pool_links.learn(pool, .clear, now_ns);
     try testing.expectEqual(null, pool.alternative());
 }
 

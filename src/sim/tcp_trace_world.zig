@@ -269,7 +269,7 @@ pub const World = struct {
     /// GOAWAY makes no new request on the connection. A pool would hold the request for another
     /// connection, which the run never opens, so the run refuses it itself.
     fn takes_no_request(world: *const World) bool {
-        return switch (world.pool.phase(.tcp)) {
+        return switch (world.pool.phase(0)) {
             .none, .handshake, .open => false,
             .draining, .failed, .closed => true,
         };

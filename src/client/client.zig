@@ -212,6 +212,10 @@ test {
     _ = @import("pool/pool_memory_test.zig");
     _ = @import("pool/pool_send_test.zig");
     _ = @import("pool/pool_send_h2_test.zig");
+    _ = @import("pool/pool_grow_test.zig");
+    _ = @import("pool/pool_connection.zig");
+    _ = @import("pool/pool_links.zig");
+    _ = @import("pool/pool_state.zig");
     _ = @import("pool/pool_handle.zig");
     _ = @import("pool/pool_quic_test.zig");
     _ = @import("pool/pool_quic_flow_test.zig");

@@ -146,7 +146,7 @@ pub fn pump(rounds: usize) !void {
 /// Passes a datagram the server sent to the pool. RFC 9000 §9: a client discards a datagram from
 /// an address other than its server's, so it comes from the address the pool opened.
 pub fn deliver(octets: []u8) !void {
-    const from = pool.links.get(.quic).to;
+    const from = pool.quic_link.to;
     // Bounded: each pass consumes the datagram or reports one of the pool's events.
     for (0..support.events_max) |_| {
         const received = pool.receive(.{ .datagram = .{ .octets = octets, .from = from } }, quic_support.now_ns);

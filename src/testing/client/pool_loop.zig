@@ -272,7 +272,7 @@ fn report() bool {
         if (exchange.succeeded()) succeeded += 1;
     }
     std.debug.print("http-client: pool closed={} quic_opens={d} tcp_opens={d} exchanges={d} succeeded={d}\n", .{
-        closed,          pool.links.get(.quic).opens, pool.links.get(.tcp).opens,
+        closed,          pool.quic_link.opens, pool.tcp_links[0].opens,
         exchanges_count, succeeded,
     });
     return closed and succeeded == exchanges_count;

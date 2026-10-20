@@ -48,7 +48,7 @@ fn expect_tcp_alone(given: pool_module.Config, receive_storage: ?pool_module.Rec
     try collect();
     try testing.expectEqual(.refused, exchange.response.outcome);
     try testing.expectEqual(null, opened(1));
-    try testing.expectEqual(pool_module.Phase.none, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.none, pool.phase(pool_support.slot_of(pool, .quic)));
 }
 
 test "RFC 9114 §3.1.2: a pool in cleartext, with no receive pool, or with h3 off opens no QUIC" {
@@ -83,7 +83,7 @@ test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP after QUIC fail
     try testing.expectEqual(null, opened(1));
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
     try testing.expectEqual(.refused, exchange.response.outcome);
-    try testing.expectEqual(pool_module.Phase.none, pool.phase(.tcp));
+    try testing.expectEqual(pool_module.Phase.none, pool.phase(pool_support.slot_of(pool, .tcp)));
 }
 
 test "decision 117: init refuses a configuration that offers neither transport" {

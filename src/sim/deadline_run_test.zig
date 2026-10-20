@@ -38,5 +38,5 @@ test "decision 120: an honest peer opens no second socket, and the exchange that
     // RFC 9113 §8.7: no server processed the second request, so it ends refused, and the peer
     // started no second connection.
     try testing.expectEqual(.refused, storage.responses[1].outcome);
-    try testing.expectEqual(.closed, storage.pool.phase(.tcp));
+    try testing.expectEqual(.closed, storage.pool.phase(0));
 }

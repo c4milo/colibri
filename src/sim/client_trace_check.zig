@@ -206,8 +206,8 @@ fn result_of(storage: *const Storage) Result {
     var result: Result = .{
         .states = storage.states_len,
         .exchanges = world.plan.exchanges,
-        .quic_connections = world.pool.links.get(.quic).opens,
-        .tcp_connections = world.pool.links.get(.tcp).opens,
+        .quic_connections = world.pool.quic_link.opens,
+        .tcp_connections = world.pool.tcp_links[0].opens,
         .goaways = world.ledger.goaways,
         .learned = @intFromBool(world.plan.policy == .learn and world.pool.alternative() != null),
         .keep_alives = world.keep_alives,

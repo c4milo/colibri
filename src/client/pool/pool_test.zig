@@ -186,7 +186,7 @@ fn Tests(comptime Pool: type) type {
             // The pool closes once, after its transports did.
             try testing.expectEqual(1, count(.closed));
             try testing.expect(index_of(.close).? < index_of(.closed).?);
-            try testing.expectEqual(pool_module.Phase.closed, pool.phase(.tcp));
+            try testing.expectEqual(pool_module.Phase.closed, pool.phase(pool_support.slot_of(pool, .tcp)));
             // It ended after its last exchange, not on a failure.
             try testing.expect(!pool.tcp[0].failed);
         }
@@ -244,7 +244,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
             try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
             try testing.expectEqual(null, find(.close));
-            try testing.expectEqual(pool_module.Phase.closed, pool.phase(.tcp));
+            try testing.expectEqual(pool_module.Phase.closed, pool.phase(pool_support.slot_of(pool, .tcp)));
             // A POST is not idempotent, so the pool opens no connection to send it again.
             try testing.expectEqual(1, count(.open));
         }

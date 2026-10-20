@@ -11,6 +11,7 @@ const testing = std.testing;
 const Pool = pool_module.Pool;
 const TcpAlone = pool_module.PoolOf(.{ .quic = false });
 const Entry = pool_module.Entry;
+const Link = pool_module.Link;
 const Connection = connection_module.Connection;
 
 /// A pool of fewer exchanges than one connection holds, so a request past them is refused.
@@ -38,10 +39,10 @@ test "decision 125: memory_bytes counts each TCP connection and each exchange, a
     // The function is pure, so a program sizes a static array with it.
     const default_len = comptime Pool.memory_bytes(.{});
     try testing.expectEqual(default_len, TcpAlone.memory_bytes(.{}));
-    // One TCP connection and `exchanges_max` entries after it.
-    try testing.expectEqual(@sizeOf(Connection) + constants.exchanges_max * @sizeOf(Entry), default_len);
+    // One TCP connection, its link, and `exchanges_max` entries after them.
+    try testing.expectEqual(@sizeOf(Connection) + @sizeOf(Link) + constants.exchanges_max * @sizeOf(Entry), default_len);
     // Each TCP connection and each exchange more adds its size.
-    const counted_len = @as(usize, counted_tcp) * @sizeOf(Connection) + @as(usize, few_exchanges) * @sizeOf(Entry);
+    const counted_len = @as(usize, counted_tcp) * (@sizeOf(Connection) + @sizeOf(Link)) + @as(usize, few_exchanges) * @sizeOf(Entry);
     try testing.expectEqual(counted_len, Pool.memory_bytes(counted));
     try testing.expectEqual(default_len + @sizeOf(Entry), Pool.memory_bytes(.{ .exchanges = constants.exchanges_max + 1 }));
     // The alignment serves both parts.

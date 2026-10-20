@@ -14,6 +14,8 @@ const pool_module = @import("pool.zig");
 const pool_config = @import("pool_config.zig");
 const pool_events = @import("pool_events.zig");
 const pool_handle = @import("pool_handle.zig");
+const pool_connection = @import("pool_connection.zig");
+const pool_links = @import("pool_links.zig");
 
 const Config = pool_module.Config;
 const Values = pool_module.Values;
@@ -30,7 +32,6 @@ const Event = pool_module.Event;
 const Entry = pool_module.Entry;
 const Link = pool_module.Link;
 const Phase = pool_module.Phase;
-const Transport = pool_module.Transport;
 const Options = pool_module.Options;
 const ConnectionHandle = pool_module.ConnectionHandle;
 
@@ -40,9 +41,6 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     // for no more.
     const layout = pool_module.Layout.of(options);
     assert(memory.len >= layout.len);
-    // Until design §8 step 22.6, one TCP connection carries every exchange, and it holds
-    // `exchanges_max` at once.
-    assert(options.exchanges <= constants.exchanges_max);
     // Decision 124: a pool with no QUIC takes no receive pool.
     assert(pool.capacity.quic or receive_pool == null);
     const offered = try pool_config.offer(config, pool.capacity.quic, receive_pool != null);
@@ -54,14 +52,18 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     if (pool.capacity.quic) pool.receive_pool = receive_pool;
     pool.config = config;
     pool.values = values;
-    pool.links = .initFill(.{});
     pool.options = options;
     pool.tcp = std.mem.bytesAsSlice(connection_module.Connection, memory[0..layout.tcp_len]);
+    pool.tcp_links = @alignCast(std.mem.bytesAsSlice(Link, memory[layout.links_offset..layout.entries_offset]));
     pool.entries = @alignCast(std.mem.bytesAsSlice(Entry, memory[layout.entries_offset..layout.len]));
-    assert(pool.tcp.len == options.tcp_connections and pool.entries.len == options.exchanges);
+    assert(pool.tcp.len == options.tcp_connections and pool.tcp_links.len == options.tcp_connections);
+    assert(pool.entries.len == options.exchanges);
+    @memset(pool.tcp_links, .{});
     @memset(pool.entries, .{});
+    pool.quic_link = .{};
+    pool.quic_address_index = 0;
+    pool.tcp_address_index = 0;
     pool.next_id = 1;
-    pool.tried = .initFill(false);
     pool.fallback = false;
     pool.fallback_at_ns = null;
     pool.shut = false;
@@ -82,11 +84,7 @@ pub fn request(pool: anytype, message: *const Request, response: *Response) Requ
 
 pub fn cancel(pool: anytype, id: Id) void {
     const entry = entry_of(pool, id) orelse return;
-    if (entry.stage == .carried) switch (entry.carrier) {
-        // Only a pool that holds QUIC opens a QUIC connection to carry an exchange.
-        .quic => if (pool.capacity.quic) pool.quic.cancel(entry.carried_id) else unreachable,
-        .tcp => pool.tcp[0].cancel(entry.carried_id),
-    };
+    if (entry.stage == .carried) pool_connection.cancel(pool, entry.carrier, entry.carried_id);
     entry.* = .{};
     pool_events.unblock_sends(pool);
 }
@@ -101,17 +99,17 @@ pub fn receive(pool: anytype, input: Input, now_ns: u64) Received {
 }
 
 pub fn send_datagram(pool: anytype, output: []u8, now_ns: u64) ?Sent {
-    if (!pool.capacity.quic or pool.links.get(.quic).state != .running) return null;
+    if (!pool.capacity.quic or pool.quic_link.state != .running) return null;
     return pool.quic.send(output, now_ns);
 }
 
 pub fn send_stream(pool: anytype, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
-    const transport = pool_handle.resolve(pool, connection) orelse return 0;
+    const slot = pool_handle.resolve(pool, connection) orelse return 0;
     // The program sends datagrams through `send_datagram`.
-    assert(transport == .tcp);
-    const link = pool.links.getPtr(.tcp);
+    assert(pool_handle.transport_of(pool, slot) == .tcp);
+    const link = &pool.tcp_links[slot];
     if (link.state != .running) return 0;
-    const written = pool.tcp[0].send(output, now_ns);
+    const written = pool.tcp[slot].send(output, now_ns);
     // Decision 125: a call that leaves room in `output` wrote everything the connection could, and
     // one that writes nothing into the least output finds the connection blocked.
     if (written < output.len) link.send_outstanding = false;
@@ -121,8 +119,8 @@ pub fn send_stream(pool: anytype, connection: ConnectionHandle, output: []u8, no
 
 pub fn deadline_ns(pool: anytype) ?u64 {
     var deadline: ?u64 = null;
-    if (pool.capacity.quic and pool.links.get(.quic).state == .running) deadline = pool.quic.deadline_ns();
-    if (pool.offered.tcp and !pool.fallback and phase(pool, .quic) == .handshake) {
+    if (pool.capacity.quic and pool.quic_link.state == .running) deadline = pool.quic.deadline_ns();
+    if (pool.offered.tcp and !pool.fallback and quic_phase(pool) == .handshake) {
         const fallback_at = pool.fallback_at_ns orelse return deadline;
         deadline = @min(deadline orelse fallback_at, fallback_at);
     }
@@ -130,12 +128,12 @@ pub fn deadline_ns(pool: anytype) ?u64 {
 }
 
 pub fn on_instant(pool: anytype, now_ns: u64) void {
-    if (pool.capacity.quic and pool.links.get(.quic).state == .running) pool.quic.on_instant(now_ns);
+    if (pool.capacity.quic and pool.quic_link.state == .running) pool.quic.on_instant(now_ns);
 }
 
 pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
     if (!pool.capacity.quic) @compileError("a pool with no QUIC never asks for QUIC, so it has no start_quic");
-    const link = pool.links.getPtr(.quic);
+    const link = &pool.quic_link;
     if (link.state != .opening) return;
     assert(!link.open_owed);
     pool.quic_config.server_address = link.to;
@@ -150,7 +148,7 @@ pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u
     random.bytes(&start.original_destination_id);
     pool.quic.init(&pool.quic_config, pool.receive_pool.?, start, random, now_seconds, now_ns, resumption) catch |failure| {
         // The attempt ended before it began: the model's FailHandshake, then Close.
-        pool_events.close_unstarted(pool, .quic);
+        pool_links.close_unstarted(pool, pool_handle.quic_slot(pool));
         return failure;
     };
     link.state = .running;
@@ -158,67 +156,60 @@ pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u
 }
 
 pub fn start_tcp(pool: anytype, connection: ConnectionHandle, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
-    if (pool_handle.resolve(pool, connection) != .tcp) return;
-    const link = pool.links.getPtr(.tcp);
+    const slot = pool_handle.resolve(pool, connection) orelse return;
+    if (pool_handle.transport_of(pool, slot) != .tcp) return;
+    const link = &pool.tcp_links[slot];
     if (link.state != .opening) return;
     assert(!link.open_owed);
-    pool.tcp[0].init(&pool.tcp_config, random, now_seconds, resumption, .{ .retrying = retrying(pool) }) catch |failure| {
+    pool.tcp[slot].init(&pool.tcp_config, random, now_seconds, resumption, .{ .retrying = retrying(pool) }) catch |failure| {
         // The pool asks for TCP only while `versions` allows h11 or h2, so the TLS stack alone
         // refuses a start.
         assert(failure == error.TlsRefused);
-        pool_events.close_unstarted(pool, .tcp);
+        pool_links.close_unstarted(pool, slot);
         return failure;
     };
     link.state = .running;
 }
 
 pub fn transport_closed(pool: anytype, connection: ConnectionHandle) void {
-    const transport = pool_handle.resolve(pool, connection) orelse return;
-    const link = pool.links.getPtr(transport);
+    const slot = pool_handle.resolve(pool, connection) orelse return;
+    const link = pool_handle.link(pool, slot);
     switch (link.state) {
         .none, .closed => {},
-        .opening => pool_events.close_unstarted(pool, transport),
+        .opening => pool_links.close_unstarted(pool, slot),
         .running => {
             link.gone = true;
-            switch (transport) {
-                .quic => if (pool.capacity.quic) pool.quic.transport_closed() else unreachable,
-                .tcp => pool.tcp[0].transport_closed(),
-            }
+            pool_connection.transport_closed(pool, slot);
         },
     }
 }
 
 pub fn take_ticket(pool: anytype, connection: ConnectionHandle) ?tls.Ticket {
-    const transport = pool_handle.resolve(pool, connection) orelse return null;
-    if (pool.links.get(transport).state != .running) return null;
-    return switch (transport) {
-        .quic => if (pool.capacity.quic) pool.quic.take_ticket() else unreachable,
-        .tcp => pool.tcp[0].take_ticket(),
-    };
+    const slot = pool_handle.resolve(pool, connection) orelse return null;
+    if (pool_handle.link(pool, slot).state != .running) return null;
+    return pool_connection.take_ticket(pool, slot);
 }
 
-pub fn phase(pool: anytype, transport: Transport) Phase {
-    const link = pool.links.get(transport);
+pub fn phase(pool: anytype, slot: u32) Phase {
+    const link = pool_handle.link(pool, slot);
     return switch (link.state) {
         .none => .none,
         .closed => .closed,
         .opening => if (link.abandoned) .failed else .handshake,
-        .running => running_phase(pool, transport, link),
+        .running => running_phase(pool, slot, link.*),
     };
 }
 
-fn running_phase(pool: anytype, transport: Transport, link: Link) Phase {
-    const failed = switch (transport) {
-        .quic => if (pool.capacity.quic) pool.quic.failed else unreachable,
-        .tcp => pool.tcp[0].failed,
-    };
-    const draining = switch (transport) {
-        .quic => if (pool.capacity.quic) pool.quic.draining else unreachable,
-        .tcp => pool.tcp[0].draining,
-    };
-    if (failed) return .failed;
-    if (draining) return .draining;
+fn running_phase(pool: anytype, slot: u32, link: Link) Phase {
+    if (pool_connection.failed(pool, slot)) return .failed;
+    if (pool_connection.draining(pool, slot)) return .draining;
     return if (link.won) .open else .handshake;
+}
+
+/// The QUIC slot's phase, or none in a pool with no QUIC.
+fn quic_phase(pool: anytype) Phase {
+    if (!pool.capacity.quic) return .none;
+    return phase(pool, pool_handle.quic_slot(pool));
 }
 
 /// Whether an exchange that waits for the connection starting now went out on a connection that
@@ -234,8 +225,10 @@ fn retrying(pool: anytype) bool {
 /// to open, or null.
 fn report(pool: anytype, now_ns: u64, sends: bool) ?Event {
     check_fallback(pool, now_ns);
-    // Bounded: each pass reads a connection's event, or plans and stops.
-    for (0..constants.pool_events_per_poll_max + 1) |_| {
+    // Bounded: each pass reads a connection's event, or plans and stops. Each connection reports
+    // at most `pool_events_per_poll_max / 2` events in one call.
+    const passes = @as(usize, pool_handle.slots_count(pool)) * constants.pool_events_per_poll_max + 1;
+    for (0..passes) |_| {
         pool_events.plan(pool, now_ns);
         if (pool_events.owed(pool)) |owed| return owed;
         if (pool_events.poll(pool, now_ns)) |read| {
@@ -250,7 +243,7 @@ fn report(pool: anytype, now_ns: u64, sends: bool) ?Event {
 /// The fallback delay passed while QUIC's handshake runs, and TCP may open beside it.
 fn check_fallback(pool: anytype, now_ns: u64) void {
     const fallback_at = pool.fallback_at_ns orelse return;
-    if (pool.fallback or phase(pool, .quic) != .handshake) return;
+    if (pool.fallback or quic_phase(pool) != .handshake) return;
     if (now_ns >= fallback_at) pool.fallback = true;
 }
 

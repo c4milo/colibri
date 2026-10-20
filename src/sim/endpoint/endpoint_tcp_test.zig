@@ -102,5 +102,5 @@ test "decision 120: a peer opens no second socket, and the exchange that waited 
     // The peer started no second connection, so it writes nothing more into its one socket.
     try write_all(peer, &plan);
     try testing.expectEqual(written, peer.to_server.written);
-    try testing.expectEqual(.closed, peer.client.phase(.tcp));
+    try testing.expectEqual(.closed, peer.client.phase(0));
 }

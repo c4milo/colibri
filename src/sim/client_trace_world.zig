@@ -191,7 +191,7 @@ pub const World = struct {
     /// Fires the pool's deadlines at the instant, and counts a keep-alive its QUIC connection
     /// owes from then.
     fn fire_pool(world: *World) void {
-        const quic_link = &world.pool.links.get(.quic);
+        const quic_link = &world.pool.quic_link;
         const running = quic_link.state == .running;
         const owed_before = running and quic.connection_idle.keep_alive_owed(&world.pool.quic.transport);
         world.pool.on_instant(world.now_ns);
@@ -318,7 +318,7 @@ pub const World = struct {
         for (0..sim.constants.network_in_flight_max) |_| {
             const delivery = world.network.receive(world.now_ns, .client) orelse break;
             @memcpy(world.crossing[0..delivery.octets.len], delivery.octets);
-            try world.to_pool(.{ .datagram = .{ .octets = world.crossing[0..delivery.octets.len], .from = world.pool.links.get(.quic).to } });
+            try world.to_pool(.{ .datagram = .{ .octets = world.crossing[0..delivery.octets.len], .from = world.pool.quic_link.to } });
         }
         const arrived = world.to_server.arrived(world.now_ns);
         world.tcp_server.take(arrived) catch {};
@@ -327,7 +327,7 @@ pub const World = struct {
     }
 
     fn quic_open(world: *const World) bool {
-        return world.pool.links.get(.quic).state == .running;
+        return world.pool.quic_link.state == .running;
     }
 
     /// Passes a datagram to the pool, reporting each event it owes first.
@@ -449,7 +449,7 @@ pub const World = struct {
     fn open_quic(world: *World, connection: client.ConnectionHandle) void {
         world.quic_connection = connection;
         world.network.init(world.random.next(), world.schedule());
-        world.quic_server.reset(world.pool.links.get(.quic).opens);
+        world.quic_server.reset(world.pool.quic_link.opens);
         // The pool draws the grease value, then the two IDs, then the session's draws, from
         // this one source (decision 120). A start chapulin refuses is the pool's to report.
         world.pool.start_quic(tls_source(&world.tls_random), identity.now_seconds, world.now_ns, null) catch {};
@@ -459,7 +459,7 @@ pub const World = struct {
         world.tcp_connection = connection;
         world.to_server.clear();
         world.to_client.clear();
-        world.tcp_server.reset(world.pool.links.get(.tcp).opens, tls_source(&world.tls_random)) catch {};
+        world.tcp_server.reset(world.pool.tcp_links[0].opens, tls_source(&world.tls_random)) catch {};
         world.pool.start_tcp(connection, tls_source(&world.tls_random), identity.now_seconds, null) catch {};
     }
 

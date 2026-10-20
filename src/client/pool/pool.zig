@@ -43,6 +43,7 @@ const quic_connection = @import("../quic/quic_connection.zig");
 const choice = @import("pool_choice.zig");
 const pool_config = @import("pool_config.zig");
 const pool_calls = @import("pool_calls.zig");
+const pool_state = @import("pool_state.zig");
 const assert = std.debug.assert;
 
 pub const Transport = choice.Transport;
@@ -167,76 +168,9 @@ pub const Received = struct {
     event: ?Event,
 };
 
-/// Where an exchange is, at the pool.
-pub const Stage = enum {
-    free,
-    /// The pool holds it until a connection is open to take it.
-    waiting,
-    /// A connection holds it, by `carried_id`.
-    carried,
-    /// It ended at the pool, refused, and its `finished` event is owed.
-    ended,
-};
-
-pub const Entry = struct {
-    stage: Stage = .free,
-    id: Id = 0,
-    /// The request the program placed, and its response (decision 124).
-    request: *const Request = undefined,
-    response: *Response = undefined,
-    carrier: Transport = .quic,
-    carried_id: Id = 0,
-    /// Times it moved to another connection.
-    moves: u8 = 0,
-    /// The pool sent it again after a connection closed before any of its response arrived
-    /// (decision 124), so a server may have processed it.
-    resent: bool = false,
-    /// It waits to go out again because its connection failed, and not because the server closed
-    /// that connection in its last complete response, so h11 writes it alone (RFC 9112 §9.3.2).
-    after_failure: bool = false,
-};
-
-/// One transport's connection, as the pool tracks it.
-pub const Link = struct {
-    state: State = .none,
-    /// Connections this transport opened.
-    opens: u64 = 0,
-    /// The generation of the slot's current connection, which its handle carries, and the
-    /// generation of the connection whose `close` is owed (decision 125).
-    generation: u32 = 0,
-    close_generation: u32 = 0,
-    /// A `send` event went out for the connection, and no `send_stream` ended its debt yet.
-    send_outstanding: bool = false,
-    /// A `send_stream` wrote nothing: what the connection holds waits for the peer or for room,
-    /// so no `send` goes out until the connection reads octets or the program makes a call.
-    send_blocked: bool = false,
-    /// The index in `Values.addresses` the next connection goes to.
-    address_index: usize = 0,
-    /// Where the current connection goes.
-    to: Address = .{},
-    /// The `open` event of the current connection is owed.
-    open_owed: bool = false,
-    /// The `close` event is owed: of the current connection once it is over, or of the one before
-    /// it when the pass that closed that one opened this one. It goes out before the `open`.
-    close_owed: bool = false,
-    /// The connection reported `connected` and took the exchanges when it did.
-    won: bool = false,
-    /// The client abandoned the connection before it was started.
-    abandoned: bool = false,
-    /// The connection reported `closed`.
-    reported_closed: bool = false,
-    /// The caller's transport closed on its own, so no `close` event is owed.
-    gone: bool = false,
-
-    pub const State = enum {
-        none,
-        /// The `open` event went out or is owed, and the connection is not started.
-        opening,
-        /// The connection's memory holds it.
-        running,
-        closed,
-    };
-};
+pub const Stage = pool_state.Stage;
+pub const Entry = pool_state.Entry;
+pub const Link = pool_state.Link;
 
 /// What a pool holds, fixed at build time (decision 124): whether it holds a QUIC connection. A
 /// pool with no QUIC holds no QUIC connection and no QUIC TLS configuration, and speaks h11 and
@@ -245,51 +179,10 @@ pub const Capacity = struct {
     quic: bool = true,
 };
 
-/// What a pool holds, set at run time (decision 125, decision 35 as amended). `memory_bytes`
-/// gives the octets the counts need, and `init` takes them from the caller.
-pub const Options = struct {
-    /// TCP connections the pool holds at most: from 1 to `constants.pool_tcp_connections_max`.
-    tcp_connections: u16 = 1,
-    /// Exchanges the pool holds at once: from 1 to `constants.pool_exchanges_max`.
-    exchanges: u16 = constants.exchanges_max,
-
-    /// Whether each count is inside its limits. A count outside them is a programmer error.
-    fn valid(options: Options) bool {
-        if (options.tcp_connections == 0 or options.tcp_connections > constants.pool_tcp_connections_max) return false;
-        return options.exchanges > 0 and options.exchanges <= constants.pool_exchanges_max;
-    }
-};
-
-/// The alignment of the memory a pool's `init` takes: that of a TCP connection and of an entry.
-/// Each pool type names it `memory_alignment`.
-pub const pool_memory_alignment: usize = @max(@alignOf(connection_module.Connection), @alignOf(Entry));
-
-/// Where a pool places what it counts in the memory `init` takes: its TCP connections first, then
-/// its table of exchanges, each part aligned for its type.
-pub const Layout = struct {
-    tcp_len: usize,
-    entries_offset: usize,
-    len: usize,
-
-    pub fn of(options: Options) Layout {
-        // A TCP connection's size keeps the entries after the connections aligned.
-        comptime assert(@sizeOf(connection_module.Connection) % @alignOf(Entry) == 0);
-        assert(options.valid());
-        const tcp_len = @as(usize, options.tcp_connections) * @sizeOf(connection_module.Connection);
-        const len = tcp_len + @as(usize, options.exchanges) * @sizeOf(Entry);
-        assert(len > tcp_len);
-        return .{ .tcp_len = tcp_len, .entries_offset = tcp_len, .len = len };
-    }
-};
-
-/// The most `receive` calls in a row that report an event and take no octet, for a pool of
-/// `options` that holds QUIC or not: one `finished` for each exchange, one `closed`, and
-/// `constants.transport_events_max` for each transport.
-fn events_without_input_max(options: Options, holds_quic: bool) usize {
-    assert(options.valid());
-    const transports = @as(usize, options.tcp_connections) + @intFromBool(holds_quic);
-    return @as(usize, options.exchanges) + transports * constants.transport_events_max + 1;
-}
+pub const Options = pool_state.Options;
+pub const Layout = pool_state.Layout;
+/// The alignment of the memory a pool's `init` takes. Each pool type names it `memory_alignment`.
+pub const pool_memory_alignment = pool_state.memory_alignment;
 
 /// A pool of the default capacity, which tries QUIC first and TCP after (decision 120).
 pub const Pool = PoolOf(.{});
@@ -318,16 +211,21 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         quic_config: QuicField(capacity, quic_connection.Config),
         quic: QuicField(capacity, quic_connection.QuicConnection),
         /// The counts `init` took, and the parts of the caller's memory that hold the TCP
-        /// connections and the table of exchanges (decision 125).
+        /// connections, the link of each TCP slot and the table of exchanges (decision 125).
         options: Options,
         tcp: []connection_module.Connection,
+        tcp_links: []Link,
         entries: []Entry,
-        links: std.EnumArray(Transport, Link),
+        /// The QUIC slot's link, which a pool with no QUIC never opens.
+        quic_link: Link,
+        /// The index in `Values.addresses` the next connection of each transport goes to. The
+        /// TCP slots share theirs, so a new slot starts where the others are.
+        quic_address_index: usize,
+        tcp_address_index: usize,
         /// The id the next exchange gets.
         next_id: Id,
-        /// The transports this attempt opened, and whether the fallback delay passed during
-        /// QUIC's handshake, as spec/tla/client_exchanges names them.
-        tried: std.EnumArray(Transport, bool),
+        /// Whether the fallback delay passed during QUIC's handshake, as
+        /// spec/tla/client_exchanges names it. Each link says whether this attempt opened it.
         fallback: bool,
         /// The instant the fallback delay passes, once QUIC's connection started.
         fallback_at_ns: ?u64,
@@ -357,7 +255,7 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         /// - it calls `shutdown`.
         /// A call that takes octets, and any other call of the program, start a new count.
         pub fn receive_events_without_input_max(options: Options) usize {
-            return events_without_input_max(options, capacity.quic);
+            return pool_state.events_without_input_max(options, capacity.quic);
         }
 
         /// Prepares a pool with nothing opened, and builds the TLS configurations of the
@@ -457,12 +355,13 @@ pub fn PoolOf(comptime capacity: Capacity) type {
             return pool.values.alternative;
         }
 
-        /// Where `transport`'s connection stands, as spec/tla/client_exchanges's `phase` names it.
-        /// A program reads the events and never this. The simulator's client trace run reads it
+        /// Where the connection of `slot` stands, as spec/tla/client_exchanges's `phase` names it:
+        /// the TCP slots count from 0, and the QUIC slot is the one after them (decision 125). A
+        /// program reads the events and never this. The simulator's client trace run reads it
         /// (decision 105), and its TCP trace run decides by it whether its one connection takes a
         /// request.
-        pub fn phase(pool: *const Self, transport: Transport) Phase {
-            return pool_calls.phase(pool, transport);
+        pub fn phase(pool: *const Self, slot: u32) Phase {
+            return pool_calls.phase(pool, slot);
         }
     };
 }

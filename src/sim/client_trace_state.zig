@@ -84,13 +84,14 @@ pub const Tracker = struct {
     }
 
     fn note_carried(tracker: *Tracker, world: *World, index: usize, entry: Entry) void {
-        tracker.carrier[index] = if (entry.carrier == .quic) .quic else .tcp;
-        tracker.generation[index] = world.pool.links.get(entry.carrier).opens;
-        if (entry.carrier != .quic) return;
+        const on_quic = entry.carrier == quic_slot(world);
+        tracker.carrier[index] = if (on_quic) .quic else .tcp;
+        tracker.generation[index] = if (on_quic) world.pool.quic_link.opens else world.pool.tcp_links[entry.carrier].opens;
+        if (!on_quic) return;
         const slot = world.pool.quic.slots.of_id(entry.carried_id) orelse return;
         if (slot.stage == .queued) return;
         tracker.stream_id[index] = slot.stream_id;
-        tracker.stream_generation[index] = world.pool.links.get(.quic).opens;
+        tracker.stream_generation[index] = world.pool.quic_link.opens;
     }
 };
 
@@ -107,17 +108,23 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
         state.processed[index] = world.ledger.processed[index];
     }
     const pool = &world.pool;
-    state.phase = .{ pool.phase(.quic), pool.phase(.tcp) };
-    state.opens = .{ pool.links.get(.quic).opens, pool.links.get(.tcp).opens };
-    state.tried = .{ pool.tried.get(.quic), pool.tried.get(.tcp) };
+    // Decision 125: the run's pool holds one TCP slot, the model's "tcp".
+    state.phase = .{ pool.phase(quic_slot(world)), pool.phase(0) };
+    state.opens = .{ pool.quic_link.opens, pool.tcp_links[0].opens };
+    state.tried = .{ pool.quic_link.tried, pool.tcp_links[0].tried };
     state.fallback = pool.fallback;
     // The model learns only under its "learn" policy, and no run makes the pool forget.
     state.learned = world.plan.policy == .learn and pool.alternative() != null;
     state.shut = pool.shut;
     // The model forgets a QUIC connection's idleness once it closes, and the pool keeps the
     // connection's memory until the next one starts in it.
-    state.stale = pool.links.get(.quic).state == .running and pool.quic.retired;
+    state.stale = pool.quic_link.state == .running and pool.quic.retired;
     return state;
+}
+
+/// The pool's QUIC slot: the one after its TCP slots (decision 125).
+fn quic_slot(world: *const World) u32 {
+    return @intCast(world.pool.tcp.len);
 }
 
 fn stage_of(world: *World, index: usize) Stage {
@@ -135,10 +142,11 @@ fn stage_of(world: *World, index: usize) Stage {
 }
 
 fn carried_stage(world: *World, entry: Entry) Stage {
-    const slot = switch (entry.carrier) {
-        .quic => world.pool.quic.slots.of_id(entry.carried_id),
-        .tcp => world.pool.tcp[0].slots.of_id(entry.carried_id),
-    } orelse unreachable;
+    const found = if (entry.carrier == quic_slot(world))
+        world.pool.quic.slots.of_id(entry.carried_id)
+    else
+        world.pool.tcp[entry.carrier].slots.of_id(entry.carried_id);
+    const slot = found orelse unreachable;
     return switch (slot.stage) {
         .queued => .queued,
         .sent, .dropping => .sent,
@@ -171,7 +179,7 @@ fn outcome_of(outcome: client.Outcome) Outcome {
 /// running and active, and the stream's sending part may still send (RFC 9000 §3.1).
 fn holds(world: *World, tracker: *const Tracker, index: usize) bool {
     const stream_id = tracker.stream_id[index] orelse return false;
-    const link = world.pool.links.get(.quic);
+    const link = world.pool.quic_link;
     if (link.state != .running or tracker.stream_generation[index] != link.opens) return false;
     const transport = &world.pool.quic.transport;
     // RFC 9000 §10.2: a closing or draining connection sends no stream data.

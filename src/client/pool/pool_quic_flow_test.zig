@@ -61,7 +61,7 @@ test "RFC 9000 §10: a QUIC transport the caller closed ends its written POST cl
     try testing.expectEqual(&exchange.response, nth(.finished, 0).?.finished.response);
     try testing.expectEqual(&exchange.request, nth(.finished, 0).?.finished.request);
     try testing.expectEqual(null, nth(.close, 0));
-    try testing.expectEqual(pool_module.Phase.closed, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.closed, pool.phase(pool_support.slot_of(pool, .quic)));
     // RFC 9110 §9.2.2: a POST is not idempotent, so the pool opens no connection to send it
     // again.
     try testing.expectEqual(null, opened(1));
@@ -109,7 +109,7 @@ test "RFC 9114 §4.1.1: an exchange a second draining connection refuses has mov
     try pump(rounds_past_probe);
     try testing.expectEqual(.response, first.response.outcome);
     try testing.expectEqual(Transport.quic, opened(2).?.transport);
-    try testing.expectEqual(pool_module.Phase.open, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.open, pool.phase(pool_support.slot_of(pool, .quic)));
     // RFC 9113 §8.7: a second refusal goes to the caller, who may make the request again.
     try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
     try pump(quic_support.rounds_default);
@@ -148,13 +148,13 @@ test "a shut-down pool ends a handshake no exchange waits for, and closes" {
     var exchange = get(&bodies[0]);
     const id = try pool.request(&exchange.request, &exchange.response);
     try collect();
-    try testing.expectEqual(pool_module.Phase.handshake, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.handshake, pool.phase(pool_support.slot_of(pool, .quic)));
     pool.cancel(id);
     pool.shutdown();
     try collect();
     // RFC 9000 §10.2: the abandoned connection owes its CONNECTION_CLOSE, then runs its closing
     // period, and the pool closes after it.
-    try testing.expectEqual(pool_module.Phase.failed, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.failed, pool.phase(pool_support.slot_of(pool, .quic)));
     try pump(rounds_past_probe * 4);
     try testing.expectEqual(pool_support.slot_of(pool, .quic), nth(.close, 0).?.close.slot);
     try testing.expect(nth(.closed, 0) != null);
@@ -177,7 +177,7 @@ test "a shut-down pool keeps a handshake while it holds an exchange, which could
     pool.shutdown();
     pool.cancel(second_id);
     try collect();
-    try testing.expectEqual(pool_module.Phase.handshake, pool.phase(.tcp));
+    try testing.expectEqual(pool_module.Phase.handshake, pool.phase(pool_support.slot_of(pool, .tcp)));
     // Once the first exchange ends, the pool holds none, and the handshake ends.
     quic_support.server_answers = true;
     try pump(quic_support.rounds_default);
@@ -213,7 +213,7 @@ test "RFC 9000 §10.2: a handshake the pool abandoned carries nothing, though da
     pool.cancel(id);
     pool.shutdown();
     try collect();
-    try testing.expectEqual(pool_module.Phase.failed, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.failed, pool.phase(pool_support.slot_of(pool, .quic)));
     for (withheld[0..withheld_count], withheld_lens[0..withheld_count]) |*octets, len| try deliver(octets[0..len]);
     try collect();
     try testing.expect(pool.quic.transport.handshake_complete);
@@ -246,12 +246,12 @@ test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the ne
     pool.on_instant(acts_at);
     try collect();
     try testing.expect(pool.quic.retired);
-    try testing.expectEqual(.draining, pool.phase(.quic));
+    try testing.expectEqual(.draining, pool.phase(pool_support.slot_of(pool, .quic)));
     // It closes with H3_NO_ERROR, and once its closing period has run the pool asks the caller
     // to close its flow.
     try pump(closing_rounds);
     try testing.expectEqual(pool_support.slot_of(pool, .quic), nth(.close, 0).?.close.slot);
-    try testing.expectEqual(.closed, pool.phase(.quic));
+    try testing.expectEqual(.closed, pool.phase(pool_support.slot_of(pool, .quic)));
     // The next exchange opens a new QUIC connection, which carries it, and TCP never opens.
     var second = get(&bodies[1]);
     _ = try pool.request(&second.request, &second.response);
@@ -302,7 +302,7 @@ test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries
     try testing.expect(pool.quic.started and pool.quic.draining);
     try testing.expectEqual(null, nth(.connected, 0));
     // The pool abandons the connection, and the attempt that opened it opens TCP.
-    try testing.expectEqual(pool_module.Phase.failed, pool.phase(.quic));
+    try testing.expectEqual(pool_module.Phase.failed, pool.phase(pool_support.slot_of(pool, .quic)));
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     // The caller's TCP connection fails before it starts, so the attempt has no transport left:
     // QUIC stays counted in it, and the exchange ends refused with no third open.

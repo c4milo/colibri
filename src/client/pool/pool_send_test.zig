@@ -151,7 +151,7 @@ test "decision 125: a handle names nothing once its connection's close went out"
     try testing.expectEqual(stale.len, dropped.consumed);
     try testing.expectEqual(null, pool.take_ticket(old));
     pool.transport_closed(old);
-    try testing.expectEqual(pool_module.Phase.open, pool.phase(.tcp));
+    try testing.expectEqual(pool_module.Phase.open, pool.phase(pool_support.slot_of(pool, .tcp)));
     // The next connection carries the second exchange.
     try testing.expectEqual(next, find(.send, count(.send) - 1).?.send);
 }

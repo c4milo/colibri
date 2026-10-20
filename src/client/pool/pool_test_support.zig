@@ -19,11 +19,14 @@ pub fn versions_for(pool: anytype, versions: versions_module.Versions) versions_
 /// The handle of the current connection of `transport` at `pool`, which a test passes where a
 /// program passes the handle its `open` event named (decision 125).
 pub fn connection_of(pool: anytype, transport: pool_module.Transport) pool_module.ConnectionHandle {
-    return pool_handle.handle_of(pool, transport);
+    return pool_handle.handle_of(pool, slot_of(pool, transport));
 }
 
 /// The slot of `transport`'s connections at `pool`, which a test compares with the handle an
 /// event named (decision 125).
 pub fn slot_of(pool: anytype, transport: pool_module.Transport) u32 {
-    return pool_handle.slot_of(pool, transport);
+    return switch (transport) {
+        .tcp => 0,
+        .quic => pool_handle.quic_slot(pool),
+    };
 }

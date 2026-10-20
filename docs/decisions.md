@@ -4856,8 +4856,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      4. Connections open on demand. The pool opens another TCP connection only when an exchange
         waits, no open connection can take it, and fewer than `tcp_connections` are open or
         opening.
-        - An h11 connection takes one exchange at a time. An h2 connection takes exchanges up to
-          the server's SETTINGS_MAX_CONCURRENT_STREAMS (RFC 9113 §6.5.2) and its own slots.
+        - In a pool of more than one TCP slot, an h11 connection takes one exchange at a time. A
+          pool of one TCP slot pipelines on it, as decision 88 rules.
+        - RFC 9113 §9.1: a client "SHOULD NOT open more than one HTTP/2 connection to a given
+          host and port pair". So the pool opens another TCP connection only while TCP speaks
+          h11. An h2 connection takes every exchange its slots hold, and the server's
+          SETTINGS_MAX_CONCURRENT_STREAMS (RFC 9113 §6.5.2) holds the rest back on it.
         - QUIC first and TCP after the fallback delay stay as decision 120 rules. The first TCP
           connection is the fallback.
         - A pool holds one QUIC connection, because h3 carries many exchanges on one.
