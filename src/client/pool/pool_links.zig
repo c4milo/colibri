@@ -13,6 +13,7 @@ const pool_handle = @import("pool_handle.zig");
 const pool_connection = @import("pool_connection.zig");
 
 const Link = pool_module.Link;
+const Address = pool_module.Address;
 const Alternative = pool_module.Alternative;
 const Transport = pool_module.Transport;
 
@@ -54,11 +55,11 @@ fn address_index(pool: anytype, transport: Transport) *usize {
 
 /// `slot`'s connection is over: its transport closes, and the `close` event is owed unless the
 /// caller closed it. A connection that took no exchange, and that the client did not abandon, is
-/// a failed attempt, and the next one tries the next address of the values it opened with.
+/// a failed attempt, and the next one tries the next address.
 pub fn finish_link(pool: anytype, slot: u32) void {
     const link = pool_handle.link(pool, slot);
     const failed = !link.won and !link.abandoned;
-    if (failed and !link.replaced) address_index(pool, pool_handle.transport_of(pool, slot)).* += 1;
+    if (failed) move_past(pool, pool_handle.transport_of(pool, slot), &link.to);
     link.* = .{
         .state = .closed,
         .opens = link.opens,
@@ -138,6 +139,30 @@ pub fn end_attempt(pool: anytype) void {
 pub fn clear_tried(pool: anytype) void {
     pool.quic_link.tried = false;
     for (pool.tcp_links) |*link| link.tried = false;
+}
+
+/// A connection of `transport` to `to` failed, so the next one tries the address after it. The
+/// index moves only while it names `to`'s host: another connection to that address may have
+/// failed first and moved it, or `set_values` may have given new addresses since.
+fn move_past(pool: anytype, transport: Transport, to: *const Address) void {
+    const index = address_index(pool, transport);
+    const addresses = pool.values.addresses;
+    if (addresses[index.* % addresses.len].same_host(to)) index.* += 1;
+}
+
+/// Sends each `open` still owed to the first of the values `set_values` gave, at the port it
+/// chose: the program has not opened its transport yet.
+pub fn retarget_owed(pool: anytype) void {
+    for (pool.tcp_links) |*link| retarget(pool, link, .tcp);
+    retarget(pool, &pool.quic_link, .quic);
+}
+
+fn retarget(pool: anytype, link: *Link, transport: Transport) void {
+    if (!link.open_owed) return;
+    const addresses = pool.values.addresses;
+    var to = addresses[address_index(pool, transport).* % addresses.len];
+    to.port = link.to.port;
+    link.to = to;
 }
 
 /// The port `transport` connects to: a fresh Alt-Svc alternative's for QUIC (RFC 7838 §3), else

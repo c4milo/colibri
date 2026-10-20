@@ -253,6 +253,21 @@ test "decision 125 ruling 8: a QUIC connection to an old address that fails afte
     try testing.expectEqualSlices(u8, &second_host, to.octets[0..to.len]);
 }
 
+test "decision 125 ruling 8: a QUIC open still owed when set_values comes goes to a new address" {
+    try start(&quic_support.alpn_h3, values_at(https_port), true);
+    var exchange = get(&bodies[0]);
+    _ = try pool.request(&exchange.request, &exchange.response);
+    // The pool asks for QUIC, and the program has not read the `open` yet.
+    pool_events.plan(pool, quic_support.now_ns);
+    try testing.expect(pool.quic_link.open_owed);
+    pool.set_values(.{ .addresses = &new_addresses, .port = https_port });
+    try collect();
+    const open = opened(0).?;
+    try testing.expectEqual(Transport.quic, open.transport);
+    try testing.expectEqualSlices(u8, &second_host, open.to.octets[0..open.to.len]);
+    try testing.expectEqual(https_port, open.to.port);
+}
+
 /// The octets `start_quic` draws before the session's first draw: the grease value, then the two
 /// connection IDs.
 const grease_len: usize = @sizeOf(u64);

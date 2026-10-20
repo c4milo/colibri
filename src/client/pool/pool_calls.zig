@@ -79,10 +79,7 @@ pub fn set_values(pool: anytype, values: Values) void {
     if (values.alternative == null) pool.values.alternative = known;
     pool.quic_address_index = 0;
     pool.tcp_address_index = 0;
-    // Each connection open or opening now went to the old values. The next `open_link` of its
-    // slot clears the flag.
-    for (pool.tcp_links) |*link| link.replaced = true;
-    pool.quic_link.replaced = true;
+    pool_links.retarget_owed(pool);
 }
 
 pub fn request(pool: anytype, message: *const Request, response: *Response) RequestError!Id {

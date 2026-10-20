@@ -51,6 +51,8 @@ const named_port: u16 = 9443;
 const learned: pool_module.Alternative = .{ .port = learned_port, .fresh_until_ns = support.now_ns + 1 };
 const named: pool_module.Alternative = .{ .port = named_port, .fresh_until_ns = support.now_ns + 1 };
 const response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi";
+/// A response after which the server closes the connection (RFC 9112 §9.6). Test-only.
+const closing_response = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nhi";
 
 /// A pool of `two_slots` in cleartext, which speaks the versions `versions` allows.
 fn start(versions: versions_module.Versions) !void {
@@ -271,6 +273,61 @@ test "decision 125 ruling 8: a connect to an old address that fails after set_va
     pool.transport_closed(find(.open, 0).?.open.connection);
     try collect();
     try expect_to(find(.open, 1).?.open, &second_host);
+}
+
+test "decision 125 ruling 8: an open still owed when set_values comes goes to a new address" {
+    try start(.{ .h2 = false, .h3 = false });
+    var exchanges = [_]Exchange{ get(&bodies[0], "/a"), get(&bodies[1], "/b"), get(&bodies[2], "/c") };
+    for (&exchanges) |*exchange| _ = try pool.request(&exchange.request, &exchange.response);
+    try collect();
+    const one = find(.open, 0).?.open.connection;
+    _ = sent(one);
+    // The first connection ends after its response, and its slot opens again for the third
+    // exchange. The `close` goes out first, and the `open` is still owed after it.
+    var held: [support.buffer_len]u8 = undefined;
+    @memcpy(held[0..closing_response.len], closing_response);
+    var consumed: usize = 0;
+    for (0..closing_response.len + support.events_max) |_| {
+        const rest = held[consumed..closing_response.len];
+        const input: pool_module.Input = if (rest.len > 0) .{ .stream = .{ .connection = one, .octets = rest } } else .none;
+        const received = pool.receive(input, support.now_ns);
+        consumed += received.consumed;
+        const reported = received.event orelse continue;
+        if (reported == .close) break;
+    } else return error.TestUnexpectedResult;
+    pool.set_values(.{ .addresses = &new_addresses, .port = http_port });
+    try collect();
+    try expect_to(find(.open, 2).?.open, &second_host);
+}
+
+/// Three hosts, a pool of three slots, and its memory. Test-only.
+const three_slots: pool_module.Options = .{ .tcp_connections = slots_count + 1, .exchanges = exchanges_count };
+const three_addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
+var three_memory: [Pool.memory_bytes(three_slots)]u8 align(Pool.memory_alignment) = undefined;
+
+test "decision 125: two connections to one address that both fail skip no other address" {
+    config = .{ .authority = support.authority, .versions = .{ .h2 = false, .h3 = false } };
+    try pool.init(&three_memory, &config, .{ .addresses = &three_addresses, .port = http_port }, three_slots, null);
+    events_len = 0;
+    var exchanges = [_]Exchange{ get(&bodies[0], "/a"), get(&bodies[1], "/b"), get(&bodies[2], "/c") };
+    for (&exchanges) |*exchange| _ = try pool.request(&exchange.request, &exchange.response);
+    starts = false;
+    try collect();
+    const one = find(.open, 0).?.open.connection;
+    try pool.start_tcp(one, support.stream.random(), 0, null);
+    // The first connection carries the first exchange, and two more open, both to the first
+    // address. Both fail.
+    try collect();
+    try expect_to(find(.open, 1).?.open, &loopback);
+    try expect_to(find(.open, 2).?.open, &loopback);
+    pool.transport_closed(find(.open, 1).?.open.connection);
+    pool.transport_closed(find(.open, 2).?.open.connection);
+    try collect();
+    // The first connection's exchange ends, and it takes the second. The third waits, and the
+    // next connection goes to the second address.
+    _ = sent(one);
+    try give(one, response);
+    try expect_to(find(.open, 3).?.open, &second_host);
 }
 
 test "decision 125 ruling 8: set_values keeps the h3 alternative unless the values name one" {
