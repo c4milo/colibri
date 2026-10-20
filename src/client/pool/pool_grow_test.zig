@@ -282,6 +282,29 @@ test "decision 125 ruling 8: set_values keeps the h3 alternative unless the valu
     try testing.expectEqual(named, pool.alternative().?);
 }
 
+test "decision 125: an exchange that moves gives a blocked connection its next send" {
+    try start(.{ .h2 = false, .h3 = false });
+    var first = get(&bodies[0], "/a");
+    var second = get(&bodies[1], "/b");
+    _ = try pool.request(&first.request, &first.response);
+    _ = try pool.request(&second.request, &second.response);
+    try collect();
+    const one = find(.open, 0).?.open.connection;
+    const two = find(.open, 1).?.open.connection;
+    try testing.expect(std.mem.startsWith(u8, sent(one), "GET /a HTTP/1.1"));
+    try testing.expect(std.mem.startsWith(u8, sent(two), "GET /b HTTP/1.1"));
+    try give(two, response);
+    // A call that writes nothing blocks the idle connection's next `send`.
+    try testing.expectEqual(0, sent(two).len);
+    const sends = count(.send);
+    // RFC 9110 §9.2.2: the first connection fails before any of its response, so its GET moves to
+    // the second, which then owes it.
+    pool.transport_closed(one);
+    try collect();
+    try testing.expectEqual(sends + 1, count(.send));
+    try testing.expect(std.mem.startsWith(u8, sent(two), "GET /a HTTP/1.1"));
+}
+
 test "decision 125: a shut-down pool keeps its connections while an exchange waits for one" {
     try start(.{ .h2 = false, .h3 = false });
     var exchanges = [_]Exchange{ get(&bodies[0], "/a"), get(&bodies[1], "/b"), get(&bodies[2], "/c") };

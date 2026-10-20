@@ -278,8 +278,9 @@ fn deliver(entry: *Entry) event.Finished {
     return reported;
 }
 
-/// Hands each waiting exchange, oldest first, to an open connection with room (the model's
-/// Assign), which ends the attempt's tries.
+/// Hands each waiting exchange, oldest first, to an open connection that takes it (the model's
+/// Assign), which ends the attempt's tries. The connection then owes the request, so a `send` the
+/// connection blocked may go out (decision 125).
 pub fn assign_waiting(pool: anytype) void {
     // Bounded: each pass hands over the oldest waiting exchange, or stops.
     for (0..pool.entries.len) |_| {
@@ -291,6 +292,7 @@ pub fn assign_waiting(pool: anytype) void {
         entry.carrier = slot;
         entry.carried_id = carried_id;
         pool_links.clear_tried(pool);
+        if (pool_handle.transport_of(pool, slot) == .tcp) pool.tcp_links[slot].send_blocked = false;
     }
 }
 
