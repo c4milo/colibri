@@ -8,10 +8,11 @@
 # peers and tests are the runner's comma-separated names; the defaults are below. It needs Docker
 # with docker compose, python3, and tshark from Wireshark 4.5.0 or newer, which the runner reads
 # packet captures with. The runner is cloned at a pinned commit into a cache directory, with its
-# requirements in a virtual environment there, and colibri is registered in that clone's
-# implementations_quic.json. The clone carries two patches, quic_interop/count_handshakes.patch
-# (decision 99) and quic_interop/rebind_challenges.patch (decision 106). Test cases the endpoint
-# does not build exit 127 and show as unsupported. A failed case fails the run unless
+# requirements in a virtual environment there, which tools/python_venv.sh makes again whole when it
+# does not import pyshark. colibri is registered in that clone's implementations_quic.json. The
+# clone carries two patches, quic_interop/count_handshakes.patch (decision 99) and
+# quic_interop/rebind_challenges.patch (decision 106). Test cases the endpoint does not build exit
+# 127 and show as unsupported. A failed case fails the run unless
 # quic_interop/known_failures.py lists it as one a peer fails on its own side, which the run
 # reports instead (decision 112). Every qlog file colibri's endpoint wrote must pass
 # tools/qlog_check.py (design §8 step 18c). It is not part of `zig build test`, and it takes
@@ -58,10 +59,7 @@ git -C "$runner" apply "$count_patch"
 readonly rebind_patch="$repository_root/tools/quic_interop/rebind_challenges.patch"
 git -C "$runner" checkout -q "$runner_commit" -- testcases_quic.py
 git -C "$runner" apply "$rebind_patch"
-if [ ! -x "$runner/venv/bin/python" ]; then
-  python3 -m venv "$runner/venv"
-  "$runner/venv/bin/pip" install -q -r "$runner/requirements.txt"
-fi
+"$repository_root/tools/python_venv.sh" "$runner/venv" pyshark -r "$runner/requirements.txt"
 python3 - "$runner/implementations_quic.json" "$image" <<'PY'
 import json, sys
 path, image = sys.argv[1], sys.argv[2]

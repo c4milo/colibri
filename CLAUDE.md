@@ -502,9 +502,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   cached virtual environment, over both protocols in both directions, the `h3` mode serving h3. It
   checks that a handshake colibri's server refuses ends with its CONNECTION_CLOSE, and that the
   `h3` mode writes the 100 (Continue) a request expects before aioquic's client sends its content;
-  it also needs `python3`. `tools/ci.sh` runs both. Each check that runs aioquic first calls
-  `tools/python_venv.sh`, which makes the environment again whole when its Python does not import
-  aioquic. `tools/python_venv_check.sh` checks the helper, and `tools/ci.sh` runs it.
+  it also needs `python3`. `tools/ci.sh` runs both. Each check that runs aioquic, and
+  `tools/interop.sh` for the runner, first calls `tools/python_venv.sh`, which makes the
+  environment again whole when its Python does not import the module the check needs.
+  `tools/python_venv_check.sh` checks the helper, and `tools/ci.sh` runs it.
 - Pool check: `zig build http-client -- --pool --tls <anchor-prefix> --seconds <unix-seconds>
   [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Pool`, which
   opens QUIC first and TCP once QUIC fails or the fallback delay passes (design §8 steps 17d and
