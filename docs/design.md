@@ -7064,7 +7064,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - its limit refuses a head one line early.
   - 1 mutation **NOT CAUGHT**: the array filled as before, which is the old code.
 
-  The judge: owed.
+  The judge, [run 39549115441](https://github.com/c4milo/colibri/actions/runs/39549115441),
+  measured `cf8604e` against `d0d4e4b` with `--h11`. The rule docs/performance.md states for the
+  h11 inputs decides it. The change wins on h11-one: its user instructions a connection fell by
+  904 and by 957, ratios 0.9634 and 0.9614, past a noise of 0.50% in each job. No input's total
+  instructions lose past the noise in either job. On the total, each h11 input is within the noise,
+  and h11-one's spreads were 9.04% and 4.20%. This commit is `cf8604e` replayed over the change
+  that reads the field lines once, so `write_head_with_close` also takes the pass over the fields.
 
   **`Scanner.scan` keeps its fields in locals, 2026-10-20.** Callgrind counted the server's
   instructions per source line under h11-many's load, in a Linux container on the laptop. The
@@ -7142,7 +7148,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `scanned` counted after `step`;
     - the span read from `scanner`, not from the copy.
 
-  The judge: owed.
+  The judge, [run 39549122678](https://github.com/c4milo/colibri/actions/runs/39549122678),
+  measured `d695701` against `25c3d57` with `--h11`. The rule docs/performance.md states for the
+  h11 inputs decides it. The change wins on h11-one: its user instructions a connection fell by
+  787 and by 813, ratios 0.9681 and 0.9671, past a noise of 0.50% in each job. In the second job,
+  h11-many and h11-tls-many also win on the total, at 0.9836 and 0.9899. No input's total
+  instructions lose past the noise in either job.
 
   **h11 reads the field lines of a head it writes once, 2026-10-21.** Callgrind counted the
   server's instructions per source line under h11-many's load, in a Linux container on the
@@ -7246,7 +7257,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - x86_64 Debug: `zig build test-h11 -Dtarget=x86_64-linux-gnu` built the tests, and an
     `ubuntu:24.04` container for `linux/amd64` ran them. All 150 passed.
 
-  The judge: owed.
+  The judge, [run 39549129900](https://github.com/c4milo/colibri/actions/runs/39549129900),
+  measured `4da3535` against `574bf60`, the fix above, with `--h11`. The rule docs/performance.md
+  states for the h11 inputs decides it. The change wins on h11-one: its user instructions a
+  connection fell by 747 and by 750, ratios 0.9697 and 0.9696, past a noise of 0.50% in each job.
+  On the total, h11-many wins in the first job at 0.9591, and h11-tls-many in the second at 0.9725.
+  No input's total instructions lose past the noise in either job.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
