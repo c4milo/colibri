@@ -98,11 +98,15 @@ run_client() {
   echo "${report}"
   # Every exchange ran over h2, whichever way the connection chose it.
   ! grep -qE " protocol=(h11|none) " <<<"${report}" || fail "an exchange ran over h11, or never connected"
-  local many
-  many="$("${client}" --port "${peer_port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1 | tail -1)" ||
-    fail "64 connections: ${many}"
-  echo "${many}"
-  [ "${many}" = "http-client: connections=64 succeeded=64 failed=0" ] || fail "64 connections did not all succeed"
+  # On a failure, the lines that are not a response say why: each exchange that got none, and the
+  # `failure=` line of each connection that failed.
+  local many summary
+  many="$("${client}" --port "${peer_port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1)" ||
+    { grep -v " outcome=response " <<<"${many}" || true; fail "64 connections: $(tail -1 <<<"${many}")"; }
+  summary="$(tail -1 <<<"${many}")"
+  echo "${summary}"
+  [ "${summary}" = "http-client: connections=64 succeeded=64 failed=0" ] ||
+    { grep -v " outcome=response " <<<"${many}" || true; fail "64 connections did not all succeed"; }
 }
 
 # expect <path> <text>: the report's line for <path> carries <text>.
