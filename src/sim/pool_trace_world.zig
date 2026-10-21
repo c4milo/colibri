@@ -109,8 +109,8 @@ pub const World = struct {
         world.random = Random.init(seed);
         world.plan.draw(&world.random);
         // Decision 125: h11 alone, so each TCP connection holds one exchange at a time.
-        world.endpoint_config = .{ .versions = .{ .h2 = false } };
-        world.client_config = .{ .authority = "pool.test", .versions = .{ .h2 = false, .h3 = false } };
+        world.endpoint_config = .{ .protocols = .{ .h2 = false } };
+        world.client_config = .{ .authority = "pool.test", .protocols = .{ .h2 = false, .h3 = false } };
         try world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.random, fill), 0, now_ns);
         const octets: [ipv4_len]u8 = @splat(address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};

@@ -8,7 +8,7 @@ const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const internal = @import("quic_connection_internal.zig");
-const Deadline = @import("../deadline.zig").Deadline;
+const Timeout = @import("../deadline.zig").Timeout;
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -29,8 +29,8 @@ const short_ns: u64 = short_seconds * constants.nanoseconds_per_second;
 /// A server whose idle and drain limits are `short_ns`, and a client, connected.
 fn connected() !void {
     try support.start();
-    support.config.deadlines.idle_ns = short_ns;
-    support.config.deadlines.drain_ns = short_ns;
+    support.config.timeouts.idle_ns = short_ns;
+    support.config.timeouts.drain_ns = short_ns;
     try support.connect();
 }
 
@@ -62,7 +62,7 @@ test "RFC 9114 §5.2: a connection its idle deadline ends sends a GOAWAY, takes 
     try connected();
     try one_exchange();
     server_at(connection.clock.idle_since_ns.? + short_ns);
-    try testing.expectEqual(Deadline.idle, connection.close_reason().?.deadline);
+    try testing.expectEqual(Timeout.idle, connection.close_reason().?.timeout);
     try testing.expect(connection.h3.goaway_sent != null and connection.transport.pending_close == null);
     // One round carries the GOAWAY to the client, whose acknowledgment has not come back.
     try support.pump(1);
@@ -87,7 +87,7 @@ test "decision 110: a client that acknowledges no GOAWAY is closed at the drain 
     try testing.expectEqual(null, connection.transport.pending_close);
     server_at(idle_end_ns + short_ns);
     try testing.expect(closing_with_no_error());
-    try testing.expectEqual(Deadline.idle, connection.close_reason().?.deadline);
+    try testing.expectEqual(Timeout.idle, connection.close_reason().?.timeout);
 }
 
 test "decision 110: requests a shutdown leaves open end with the connection when the drain passes" {
@@ -105,7 +105,7 @@ test "decision 110: requests a shutdown leaves open end with the connection when
     server_at(drain_end_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     server_at(drain_end_ns);
-    try testing.expectEqual(Deadline.drain, connection.close_reason().?.deadline);
+    try testing.expectEqual(Timeout.drain, connection.close_reason().?.timeout);
     try testing.expect(closing_with_no_error() and connection.requests.idle());
 }
 
@@ -120,7 +120,7 @@ test "decision 110: a shutdown whose requests finish in time closes with no dead
     try testing.expectEqual(null, connection.close_reason());
 
     try support.start();
-    support.config.deadlines.drain_ns = null;
+    support.config.timeouts.drain_ns = null;
     try support.connect();
     _ = try support.request("GET", "/", "");
     try support.pump(rounds_few);
@@ -150,7 +150,7 @@ test "decision 110: a connection that is shutting down runs no first-request and
     try testing.expect(drain_end_ns < connection.clock.opened_ns + constants.first_request_timeout_ns);
     try testing.expectEqual(drain_end_ns, quic_deadline.soonest(connection).?);
     server_at(drain_end_ns);
-    try testing.expectEqual(Deadline.drain, connection.close_reason().?.deadline);
+    try testing.expectEqual(Timeout.drain, connection.close_reason().?.timeout);
 }
 
 test "RFC 9114 §4.1.1: a connection its idle deadline ends rejects each request whose head is not whole" {
@@ -162,7 +162,7 @@ test "RFC 9114 §4.1.1: a connection its idle deadline ends rejects each request
     try testing.expectEqual(late.id, connection.h3.oldest_head_wait().?.stream_id);
     // Each head's own deadline is further off than the idle deadline, so neither gets a 408.
     server_at(connection.clock.idle_since_ns.? + short_ns);
-    try testing.expectEqual(Deadline.idle, connection.close_reason().?.deadline);
+    try testing.expectEqual(Timeout.idle, connection.close_reason().?.timeout);
     try testing.expectEqual(null, connection.h3.oldest_head_wait());
     try support.pump(support.rounds_default);
     try testing.expectEqual(h3.constants.error_request_rejected, late.reset.?);
@@ -198,11 +198,11 @@ test "decision 110: a head that is late at the instant the idle deadline passes 
     const wait = connection.h3.oldest_head_wait().?;
     // Both deadlines pass at one instant: the head's, and the idle deadline that began before it.
     const at_ns = wait.since_ns + short_ns;
-    try connection.set_deadlines(.{ .head_ns = short_ns, .idle_ns = at_ns - idle_since_ns, .drain_ns = short_ns });
+    try connection.set_timeouts(.{ .head_ns = short_ns, .idle_ns = at_ns - idle_since_ns, .drain_ns = short_ns });
     server_at(at_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     server_at(at_ns);
-    try testing.expectEqual(Deadline.idle, connection.close_reason().?.deadline);
+    try testing.expectEqual(Timeout.idle, connection.close_reason().?.timeout);
     try support.pump(support.rounds_default);
     try testing.expectEqual(request_timeout, late.status);
     try testing.expect(late.ended and late.reset == null);

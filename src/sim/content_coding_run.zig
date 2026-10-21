@@ -129,20 +129,20 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     const decoders = storage.decoders.storage();
     decoders.reset(.none());
     // Decision 117: each side allows the plan's version alone, so each speaks it from the start.
-    const server_versions: server.Versions = switch (plan.protocol) {
+    const server_versions: server.Protocols = switch (plan.protocol) {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    const client_versions: client.Versions = switch (plan.protocol) {
+    const client_versions: client.Protocols = switch (plan.protocol) {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    storage.endpoint_config = .{ .versions = server_versions };
+    storage.endpoint_config = .{ .protocols = server_versions };
     if (plan.server_codings_len > 0) {
         storage.endpoint_config.codings = plan.server_offers();
         storage.endpoint_config.encoders = storage.encoders.encoders();
     }
-    storage.client_config = .{ .authority = "a.example", .versions = client_versions };
+    storage.client_config = .{ .authority = "a.example", .protocols = client_versions };
     if (plan.client_codings_len > 0) {
         storage.client_config.codings = plan.client_offers();
         storage.client_config.decoders = decoders;

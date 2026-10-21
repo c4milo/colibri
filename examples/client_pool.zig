@@ -81,7 +81,7 @@ var pool: Pool align(@alignOf(Pool)) = undefined;
 var pool_memory: [Pool.memory_bytes(options)]u8 align(Pool.memory_alignment) = undefined;
 var client_config: client.Config align(@alignOf(client.Config)) = .{
     .authority = origin,
-    .versions = .{ .h2 = false, .h3 = false },
+    .protocols = .{ .h2 = false, .h3 = false },
 };
 
 // The link holds every queue, so it lives outside the stack.

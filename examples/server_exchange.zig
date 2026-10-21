@@ -18,7 +18,7 @@
 //! The server also shows:
 //! - `set_user_data`, which names the server's own state for a request in each later event of it;
 //! - `transport_closed`, for a socket whose peer closes it before it sends an octet;
-//! - `set_deadlines`, which shortens the idle deadline of the one QUIC connection the endpoint
+//! - `set_timeouts`, which shortens the idle deadline of the one QUIC connection the endpoint
 //!   holds once it has a request, so the server closes it when its client keeps it open;
 //! - `h3_alternative`, with which each TLS connection advertises the server's h3 port;
 //! - `shutdown`, once both clients are done, and the `closed` event that follows it.
@@ -180,7 +180,7 @@ fn start_server(cpu: tls.Cpu) !void {
     program.fill(&ticket_key);
     endpoint_config = .{
         // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
-        // as `versions` allows by default, and names h3 for its QUIC connections.
+        // as `protocols` allows by default, and names h3 for its QUIC connections.
         .tls = .{
             .ecdsa_p256 = .{
                 .chain = &chain,
@@ -191,9 +191,9 @@ fn start_server(cpu: tls.Cpu) !void {
             .ticket_key = &ticket_key,
             .cpu = cpu,
         },
-        // Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit
-        // a server, and this one ends an idle connection sooner.
-        .deadlines = .{ .idle_ns = idle_ns },
+        // Decision 110: timeouts bound how long a peer may hold a connection. The defaults suit a
+        // server, and this one ends an idle connection sooner.
+        .timeouts = .{ .idle_ns = idle_ns },
         // Each TLS connection advertises h3 on the server's UDP port (RFC 7838).
         .h3_alternative = .{ .port = peers.server_port },
     };
@@ -318,7 +318,7 @@ fn take_request(request: server.Request) !void {
         // The endpoint holds one QUIC connection at a time. A client can keep its connection
         // open after the response, so the server shortens its idle deadline, and the slot is
         // free sooner.
-        try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
+        try endpoint.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
     try route(request, state);
 }
@@ -409,7 +409,7 @@ fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {
 /// Counts a connection that is over. `failed` says colibri closed it because its peer broke a
 /// protocol rule or its record layer failed, which does not happen here. `reason` names the
 /// deadline or the limit colibri closed it for: here the idle deadline of the QUIC connection
-/// alone, which `set_deadlines` shortened, so it passes before `idle_ns` could.
+/// alone, which `set_timeouts` shortened, so it passes before `idle_ns` could.
 fn count_ended(over: server.Ended, now_ns: u64) !void {
     if (over.failed) return error.ExchangeWrong;
     connections_ended += 1;
@@ -419,7 +419,7 @@ fn count_ended(over: server.Ended, now_ns: u64) !void {
         inline else => |value| @tagName(value),
     };
     std.debug.print("server: closed for {s}\n", .{name});
-    if (!std.meta.eql(reason, .{ .deadline = .idle })) return error.ExchangeWrong;
+    if (!std.meta.eql(reason, .{ .timeout = .idle })) return error.ExchangeWrong;
     idle_ended += 1;
 }
 

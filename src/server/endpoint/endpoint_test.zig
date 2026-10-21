@@ -480,14 +480,14 @@ test "decision 102: a connection the provider gives no log writes none, and hand
 test "decision 110 as amended: an endpoint refuses, when it starts, deadlines a connection would refuse" {
     try support.start_endpoint(null);
     const config = &endpoint_support.endpoint_config;
-    // A limit of 0 is one `Deadlines.validate` refuses: null says no limit.
-    config.deadlines.idle_ns = 0;
-    try testing.expectError(error.DeadlineInvalid, endpoint_support.restart());
+    // A limit of 0 is one `Timeouts.validate` refuses: null says no limit.
+    config.timeouts.idle_ns = 0;
+    try testing.expectError(error.TimeoutInvalid, endpoint_support.restart());
     // A body rate of one octet a second is one `validate_units` refuses: twice that rate over a
     // window brings less than a unit.
-    config.deadlines = .{ .body_rate_min = 1 };
-    try testing.expectError(error.DeadlineInvalid, endpoint_support.restart());
+    config.timeouts = .{ .body_rate_min = 1 };
+    try testing.expectError(error.TimeoutInvalid, endpoint_support.restart());
     // The default limits are ones an endpoint takes.
-    config.deadlines = .{};
+    config.timeouts = .{};
     try endpoint_support.restart();
 }

@@ -12,7 +12,7 @@ const http = @import("http");
 const constants = @import("../constants.zig");
 const coding = @import("../coding.zig");
 const coding_pool = @import("../coding_pool.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 
@@ -24,7 +24,7 @@ pub const Config = struct {
     tls: ?tls.Client = null,
     /// The HTTP versions the client speaks (decision 117). A TCP connection speaks h11 or h2, and
     /// a QUIC connection h3 alone (RFC 9114 §3.1).
-    versions: versions_module.Versions = .{},
+    protocols: protocols_module.Protocols = .{},
     /// The authority every request names: `:authority` in h2 and h3 (RFC 9113 §8.3.1, RFC 9114
     /// §4.3.1) and Host in h11 (RFC 9112 §3.2).
     authority: []const u8,
@@ -78,7 +78,7 @@ pub fn offer(config: *const Config, quic_held: bool, pool_given: bool) StartErro
     if (config.tls) |values| assert(values.alpn.len == 0);
     // RFC 9114 §3.1: h3 runs over QUIC alone, so a pool that holds no QUIC connection cannot
     // speak it (decision 124).
-    if (!quic_held and config.versions.h3) return error.VersionUnavailable;
+    if (!quic_held and config.protocols.h3) return error.VersionUnavailable;
     const offers = offered(config, quic_held and pool_given);
     // RFC 9114 §3.1: a client speaks h3 over QUIC and h11 or h2 over TCP, so a pool that
     // offers neither transport has no version to speak (decision 117).
@@ -89,10 +89,10 @@ pub fn offer(config: *const Config, quic_held: bool, pool_given: bool) StartErro
 fn offered(config: *const Config, pool_given: bool) Offered {
     return .{
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3.
-        .tcp = versions_module.cleartext(config.versions) != null,
+        .tcp = protocols_module.cleartext(config.protocols) != null,
         // RFC 9114 §3.1.2: h3 serves "https" origins alone, so QUIC needs the TLS value, and
         // `versions` may turn h3 off (decision 117).
-        .quic = pool_given and config.tls != null and config.versions.h3,
+        .quic = pool_given and config.tls != null and config.protocols.h3,
     };
 }
 
@@ -129,7 +129,7 @@ const alpn_h11 = [_][]const u8{tls_provider.constants.alpn_http_1_1};
 pub fn build_tcp(config: *const Config, tcp_tls: *tls.record.ClientConfig, tcp: *connection_module.Config) StartError!void {
     tcp.* = .{
         .tls = null,
-        .versions = config.versions,
+        .protocols = config.protocols,
         .authority = config.authority,
         .codings = config.codings,
         .decoders = config.decoders,
@@ -137,7 +137,7 @@ pub fn build_tcp(config: *const Config, tcp_tls: *tls.record.ClientConfig, tcp: 
         .br_decoders = config.br_decoders,
     };
     var values = config.tls orelse return;
-    const versions = config.versions;
+    const versions = config.protocols;
     values.alpn = if (versions.h11 and versions.h2) &alpn_both else if (versions.h2) &alpn_h2 else &alpn_h11;
     try convert(tcp_tls, values);
     tcp.tls = tcp_tls;

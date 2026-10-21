@@ -133,7 +133,7 @@ pub const World = struct {
                 .cpu = identity.cpu,
             },
             .idle_timeout_ms = run_limits.quic_idle_timeout_ms,
-            .deadlines = deadlines(),
+            .timeouts = deadlines(),
         };
         world.server_random = Random.init(seed);
         world.peer_random = Random.init(~seed);
@@ -463,7 +463,7 @@ fn headers_len_of(prefix: []const u8) ?usize {
 
 /// The run's limits: decision 110's first-request deadline, shorter idle, head, body and drain
 /// deadlines, and no body rate.
-fn deadlines() server.Deadlines {
+fn deadlines() server.Timeouts {
     const second = server.constants.nanoseconds_per_second;
     return .{
         .first_request_ns = limits.first_request_seconds * second,

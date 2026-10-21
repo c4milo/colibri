@@ -12,7 +12,7 @@ const fixture = @import("pool_quic_test_support.zig");
 const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
 const event = @import("../event.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 
 const testing = std.testing;
 const Transport = pool_module.Transport;
@@ -29,7 +29,7 @@ const rounds_before_fallback = fixture.rounds_before_fallback;
 const rounds_past_probe = fixture.rounds_past_probe;
 
 /// The versions of a client that speaks h3 alone.
-const h3_alone: versions_module.Versions = .{ .h11 = false, .h2 = false };
+const h3_alone: protocols_module.Protocols = .{ .h11 = false, .h2 = false };
 
 /// Whether `init` left `built` as the fixture filled it: no octet of it written.
 fn unwritten(built: anytype) bool {
@@ -57,13 +57,13 @@ test "RFC 9114 §3.1.2: a pool in cleartext, with no receive pool, or with h3 of
     try expect_tcp_alone(cleartext, fixture.receive_storage());
     try expect_tcp_alone(fixture.configured(true), null);
     var without_h3 = fixture.configured(true);
-    without_h3.versions.h3 = false;
+    without_h3.protocols.h3 = false;
     try expect_tcp_alone(without_h3, fixture.receive_storage());
 }
 
 test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP after QUIC fails, and names no fallback instant" {
     var given = fixture.configured(true);
-    given.versions = h3_alone;
+    given.protocols = h3_alone;
     // The server speaks no h3, so the QUIC handshake fails once its datagrams cross.
     try fixture.start_configured(&quic_support.alpn_other, values_at(https_port), given, fixture.receive_storage());
     fixture.blocked = true;
@@ -88,10 +88,10 @@ test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP after QUIC fail
 
 test "decision 117: init refuses a configuration that offers neither transport" {
     var given = fixture.configured(true);
-    given.versions = .{ .h11 = false, .h2 = false, .h3 = false };
+    given.protocols = .{ .h11 = false, .h2 = false, .h3 = false };
     try testing.expectError(error.NoVersion, fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage()));
     // RFC 9114 §3.1: h3 runs over QUIC alone, which a pool with no receive pool does not offer.
-    given.versions = h3_alone;
+    given.protocols = h3_alone;
     try testing.expectError(error.NoVersion, fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, null));
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage());
 }
@@ -102,14 +102,14 @@ test "RFC 9846 §4.5.1.3: init refuses more anchors than a TLS configuration hol
     given.tls.?.trust = .{ .web_pki = .{ .anchors = &many, .server_name = support.authority } };
     // With TCP alone, and with QUIC alone, whose configuration holds as many.
     try testing.expectError(error.TooManyAnchors, fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, null));
-    given.versions = h3_alone;
+    given.protocols = h3_alone;
     try testing.expectError(error.TooManyAnchors, fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage()));
 }
 
 test "decision 120: a pool whose values allow no transport ends each exchange refused, with nothing opened" {
     // h3 alone, and neither the configuration, an HTTPS record nor Alt-Svc says to try QUIC.
     var given = fixture.configured(false);
-    given.versions = h3_alone;
+    given.protocols = h3_alone;
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage());
     var exchange = get(&bodies[0]);
     const id = try pool.request(&exchange.request, &exchange.response);
@@ -171,7 +171,7 @@ test "decision 120: init converts no TLS value for a transport the pool does not
     try testing.expect(unwritten(&pool.quic_tls) and unwritten(&pool.quic_config));
     // With h3 alone, TCP's is not written.
     var given = fixture.configured(true);
-    given.versions = h3_alone;
+    given.protocols = h3_alone;
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage());
     try testing.expect(!unwritten(&pool.quic_tls) and !unwritten(&pool.quic_config));
     try testing.expect(unwritten(&pool.tcp_tls) and unwritten(&pool.tcp_config));

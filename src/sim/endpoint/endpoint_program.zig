@@ -214,12 +214,12 @@ pub const Program = struct {
 
     /// Sets a live connection's deadlines. A set the connection refuses keeps the ones it has, and
     /// is counted.
-    pub fn set_deadlines(program: *Program, handle: Handle, deadlines: server.Deadlines) Violation!void {
-        const set = program.endpoint.set_deadlines(handle, deadlines);
-        try program.called("set_deadlines");
+    pub fn set_timeouts(program: *Program, handle: Handle, deadlines: server.Timeouts) Violation!void {
+        const set = program.endpoint.set_timeouts(handle, deadlines);
+        try program.called("set_timeouts");
         set catch |failure| switch (failure) {
-            error.DeadlineInvalid => program.counts.deadlines_refused += 1,
-            error.ConnectionUnknown => return program.fail(error.RequestLost, "set_deadlines", handle, 0),
+            error.TimeoutInvalid => program.counts.deadlines_refused += 1,
+            error.ConnectionUnknown => return program.fail(error.RequestLost, "set_timeouts", handle, 0),
         };
     }
 

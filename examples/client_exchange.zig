@@ -203,7 +203,7 @@ pub fn main() !void {
 
 fn start_client(cpu: tls.Cpu) !void {
     // One configuration serves both transports. Its TLS value names no protocol: the pool
-    // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `versions` allows them.
+    // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them.
     client_config = .{
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
         .authority = origin,

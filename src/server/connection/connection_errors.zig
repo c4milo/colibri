@@ -8,7 +8,7 @@ pub const Error = error{ConnectionFailed};
 /// What `Endpoint.init` returns (decision 121).
 pub const StartError = error{
     /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
-    DeadlineInvalid,
+    TimeoutInvalid,
     /// `Config.versions` allows neither h11 nor h2, which leaves a TCP connection nothing to speak
     /// (RFC 9114 §3.1, decision 117). Or an endpoint has no TLS identity, or `versions` turns h3
     /// off, which leaves its QUIC connections nothing to speak.

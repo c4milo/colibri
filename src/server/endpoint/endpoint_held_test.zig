@@ -93,7 +93,7 @@ test "INV-30: requests open when their connection fails end with cancelled, and 
     try testing.expectEqual(first_id.connection, ended.connection);
     try testing.expect(ended.failed and ended.reason == null);
     // Its handle names nothing from here on.
-    try testing.expectError(error.ConnectionUnknown, endpoint.set_deadlines(ended.connection, .{}));
+    try testing.expectError(error.ConnectionUnknown, endpoint.set_timeouts(ended.connection, .{}));
     try testing.expectEqual(null, endpoint.server_name(ended.connection));
 }
 

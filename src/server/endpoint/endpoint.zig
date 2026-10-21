@@ -107,8 +107,8 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// issued at, or 0 for none. It builds the TLS configuration of each transport it serves
         /// from `config.tls` and checks that its key signs. `error.NoVersion` says no slot it
         /// holds serves a version `versions` allows: its TCP slots no h11 or h2, and its QUIC
-        /// slots no h3 or no identity. `error.DeadlineInvalid` says that
-        /// `config.deadlines` holds a limit `Deadlines.validate` or `validate_units` refuses
+        /// slots no h3 or no identity. `error.TimeoutInvalid` says that
+        /// `config.deadlines` holds a limit `Timeouts.validate` or `validate_units` refuses
         /// (decision 110 as amended). `error.IdentityRefused`, `TooManyCertificates`,
         /// `TooManySuites` and `SuitesUnavailable` say the TLS configuration refused the
         /// identity. The endpoint reads `config` while it runs.
@@ -251,8 +251,8 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
 
         /// Replaces one connection's limits (decision 110), for a caller short of connections that
         /// shortens its deadlines.
-        pub fn set_deadlines(endpoint: *Self, connection: ConnectionHandle, deadlines: deadline.Deadlines) error{ DeadlineInvalid, ConnectionUnknown }!void {
-            return endpoint.held.set_deadlines(connection, deadlines);
+        pub fn set_timeouts(endpoint: *Self, connection: ConnectionHandle, deadlines: deadline.Timeouts) error{ TimeoutInvalid, ConnectionUnknown }!void {
+            return endpoint.held.set_timeouts(connection, deadlines);
         }
 
         /// The server_name the connection's client sent (RFC 9846 §9.2), or null.
@@ -269,7 +269,7 @@ test "design §8 step 17f: the endpoint's public functions are the calls a progr
     try public_names.expect(Endpoint, &.{
         "init",             "accept",         "receive",     "set_user_data", "respond",
         "write_body",       "write_trailers", "cancel",      "shutdown",      "send_stream",
-        "transport_closed", "send_datagram",  "deadline_ns", "on_instant",    "set_deadlines",
+        "transport_closed", "send_datagram",  "deadline_ns", "on_instant",    "set_timeouts",
         "server_name",
     });
 }

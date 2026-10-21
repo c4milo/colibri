@@ -128,7 +128,7 @@ pub const World = struct {
     pub fn init(world: *World, seed: u64) !void {
         world.now_ns = limits.start_ns;
         // Decision 117: h2 alone, which the server speaks from the start.
-        world.endpoint_config = .{ .versions = .{ .h11 = false } };
+        world.endpoint_config = .{ .protocols = .{ .h11 = false } };
         world.tls_random = Random.init(seed);
         const source = tls.Random.init(&world.tls_random, fill);
         try world.endpoint.init(&world.endpoint_config, source, 0, world.now_ns);

@@ -92,7 +92,7 @@ pub const Census = struct {
         census.requests += counts.requests;
         census.done += counts.done;
         census.cancelled_peer_reset += counts.cancelled[@intFromEnum(server.CancelReason.peer_reset)];
-        census.cancelled_deadline += counts.cancelled[@intFromEnum(std.meta.Tag(server.CancelReason).deadline)];
+        census.cancelled_deadline += counts.cancelled[@intFromEnum(std.meta.Tag(server.CancelReason).timeout)];
         census.cancelled_closed += counts.cancelled[@intFromEnum(server.CancelReason.closed)];
         census.cancelled_program += counts.cancelled[@intFromEnum(server.CancelReason.program)];
         census.writable += counts.writable;
@@ -198,7 +198,7 @@ fn connection_line(storage: *Storage, kind: ledger_module.Kind, index: usize) Vi
             connection.handle.slot, connection.handle.generation, connection.requests, connection.done, connection.cancelled, connection.ended_ms, connection.failed,
         });
         if (connection.reason) |reason| switch (reason) {
-            .deadline => |passed| try line(storage, " deadline={t}", .{passed}),
+            .timeout => |passed| try line(storage, " deadline={t}", .{passed}),
             .limit => |passed| try line(storage, " limit={t}", .{passed}),
         };
     }

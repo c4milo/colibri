@@ -139,10 +139,10 @@ pub const Peers = struct {
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
             .cpu = identity.cpu,
         };
-        peers.configs[@intFromEnum(Way.cleartext_h11)] = .{ .authority = identity.authority, .versions = .{ .h2 = false } };
-        peers.configs[@intFromEnum(Way.cleartext_h2)] = .{ .authority = identity.authority, .versions = .{ .h11 = false } };
-        peers.configs[@intFromEnum(Way.tls_h11)] = .{ .authority = identity.authority, .versions = .{ .h2 = false }, .tls = trust };
-        peers.configs[@intFromEnum(Way.tls_h2)] = .{ .authority = identity.authority, .versions = .{ .h11 = false }, .tls = trust };
+        peers.configs[@intFromEnum(Way.cleartext_h11)] = .{ .authority = identity.authority, .protocols = .{ .h2 = false } };
+        peers.configs[@intFromEnum(Way.cleartext_h2)] = .{ .authority = identity.authority, .protocols = .{ .h11 = false } };
+        peers.configs[@intFromEnum(Way.tls_h11)] = .{ .authority = identity.authority, .protocols = .{ .h2 = false }, .tls = trust };
+        peers.configs[@intFromEnum(Way.tls_h2)] = .{ .authority = identity.authority, .protocols = .{ .h11 = false }, .tls = trust };
         for (&peers.upload, 0..) |*octet, index| octet.* = letters[index % letters.len];
         for (&peers.peers, 0..) |*peer, index| {
             peer.state = .away;

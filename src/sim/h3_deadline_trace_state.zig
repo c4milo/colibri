@@ -94,7 +94,7 @@ pub fn compute(world: *const World, plan: *const Plan) Error!State {
     return state;
 }
 
-fn timed_out_of(passed: ?server.Deadline) Error!TimedOut {
+fn timed_out_of(passed: ?server.Timeout) Error!TimedOut {
     const deadline = passed orelse return .none;
     return switch (deadline) {
         .first_request => .first_request,

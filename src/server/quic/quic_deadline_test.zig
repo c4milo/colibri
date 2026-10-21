@@ -7,7 +7,7 @@ const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const internal = @import("quic_connection_internal.zig");
-const Deadline = @import("../deadline.zig").Deadline;
+const Timeout = @import("../deadline.zig").Timeout;
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -26,7 +26,7 @@ const wakes_max: usize = 64;
 /// A server and a client whose handshake completed, the server with `idle_ns` as its idle limit.
 fn connected(idle_ns: ?u64) !void {
     try support.start();
-    support.config.deadlines.idle_ns = idle_ns;
+    support.config.timeouts.idle_ns = idle_ns;
     try support.connect();
 }
 
@@ -67,7 +67,7 @@ test "decision 110: a connection that brings no whole request head by its first-
     server_at(at_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     server_at(at_ns);
-    try testing.expectEqual(Deadline.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(Timeout.first_request, connection.close_reason().?.timeout);
     // RFC 9114 §5.2: a GOAWAY goes first, and the close follows its acknowledgment.
     try testing.expect(connection.h3.goaway_sent != null and connection.transport.pending_close == null);
     try support.pump(rounds_few);
@@ -87,7 +87,7 @@ test "RFC 9000 §10.2.3: a client that never completes its handshake is closed a
     server_at(at_ns - 1);
     try testing.expectEqual(null, connection.clock.timed_out);
     server_at(at_ns);
-    try testing.expectEqual(Deadline.first_request, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.first_request, connection.clock.timed_out.?);
     // The close leaves in a packet the client holds the keys of, and ends its connection.
     try support.pump(rounds_few);
     try testing.expect(!support.server_failed);
@@ -104,7 +104,7 @@ test "decision 110: a caller that wakes at deadline_ns meets the first-request d
         if (connection.clock.timed_out != null) break;
     }
     try testing.expectEqual(at_ns, woke_ns);
-    try testing.expectEqual(Deadline.first_request, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.first_request, connection.clock.timed_out.?);
 }
 
 test "decision 110: a deadline that passed fires at the next receive, with no call to on_instant" {
@@ -112,28 +112,28 @@ test "decision 110: a deadline that passed fires at the next receive, with no ca
     const at_ns = connection.clock.opened_ns + constants.first_request_timeout_ns;
     support.now_ns = at_ns;
     try testing.expectEqual(null, (try connection.receive(at_ns)).event);
-    try testing.expectEqual(Deadline.first_request, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.first_request, connection.clock.timed_out.?);
 }
 
 test "decision 110: a program changes one connection's limits, null turns one off, and what a start refuses is refused" {
     try connected(constants.idle_timeout_ns);
-    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .idle_ns = 0 }));
+    try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .idle_ns = 0 }));
     // Twice 819 octets a second over a window of 10 s is under a unit of 16,384 octets.
-    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = unit_bound_rate - 1 }));
-    try testing.expectEqual(constants.first_request_timeout_ns, connection.deadlines.first_request_ns.?);
-    try connection.set_deadlines(.{ .first_request_ns = null });
+    try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = unit_bound_rate - 1 }));
+    try testing.expectEqual(constants.first_request_timeout_ns, connection.timeouts.first_request_ns.?);
+    try connection.set_timeouts(.{ .first_request_ns = null });
     try testing.expectEqual(null, quic_deadline.soonest(connection));
     // A shorter limit counts from the start the deadline already has.
-    try connection.set_deadlines(.{ .first_request_ns = idle_short_ns });
+    try connection.set_timeouts(.{ .first_request_ns = idle_short_ns });
     try testing.expectEqual(connection.clock.opened_ns + idle_short_ns, quic_deadline.soonest(connection).?);
 }
 
-/// The least body rate `Deadlines.validate_units` takes at the default window.
+/// The least body rate `Timeouts.validate_units` takes at the default window.
 const unit_bound_rate: u32 = 820;
 
 test "decision 110: a deadline set to null does not run" {
     try support.start();
-    support.config.deadlines.first_request_ns = null;
+    support.config.timeouts.first_request_ns = null;
     try support.connect();
     try testing.expectEqual(null, quic_deadline.soonest(connection));
     server_at(connection.clock.opened_ns + constants.first_request_timeout_ns);
@@ -157,7 +157,7 @@ test "decision 110: an idle connection closes at its idle deadline, counted from
     server_at(at_ns - 1);
     try testing.expectEqual(null, connection.clock.timed_out);
     server_at(at_ns);
-    try testing.expectEqual(Deadline.idle, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.idle, connection.clock.timed_out.?);
     try support.pump(rounds_few);
     try testing.expect(closing_with_no_error());
 }
@@ -171,7 +171,7 @@ test "decision 110: a request stream whose head is not whole does not stop the i
     try testing.expectEqual(late.id, connection.h3.oldest_head_wait().?.stream_id);
     try testing.expectEqual(idle_since_ns, connection.clock.idle_since_ns.?);
     server_at(idle_since_ns + idle_short_ns);
-    try testing.expectEqual(Deadline.idle, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.idle, connection.clock.timed_out.?);
 }
 
 test "RFC 9110 §15.5.9: a request whose head is late gets a 408, the server stops reading it, and the connection goes on" {

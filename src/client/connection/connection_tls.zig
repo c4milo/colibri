@@ -17,7 +17,7 @@ const event = @import("../event.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const connection_h11 = @import("connection_h11.zig");
-const Versions = @import("../versions.zig").Versions;
+const Protocols = @import("../protocols.zig").Protocols;
 
 const Connection = connection_module.Connection;
 const Protocol = event.Protocol;
@@ -60,7 +60,7 @@ fn attach(connection: *Connection) bool {
 pub fn attach_provider(connection: *Connection, provider: tls_provider.Provider) bool {
     // RFC 7301 §3.2: the protocol the server selected is definitive for the connection, and a
     // selection of none is h11 only while `versions` allows it (decisions 88 and 117).
-    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context), connection.config.versions));
+    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context), connection.config.protocols));
     // RFC 9113 §3.2, §3.3, §9.2 and decision 88: the handshake is checked before any HTTP octet
     // moves, and h2 refuses one that did not select it.
     const attached = switch (connection.session) {
@@ -81,7 +81,7 @@ pub fn attach_provider(connection: *Connection, provider: tls_provider.Provider)
 /// when it selected "http/1.1". A selection of none is h11 while `versions` allows it (decision
 /// 88), and otherwise h2, whose own check then refuses the handshake: RFC 9113 §3.3 has h2 over
 /// TLS "use protocol negotiation in TLS" (decision 117).
-pub fn protocol_of(selected: ?[]const u8, versions: Versions) Protocol {
+pub fn protocol_of(selected: ?[]const u8, versions: Protocols) Protocol {
     const name = selected orelse return if (versions.h11) .h11 else .h2;
     return if (std.mem.eql(u8, name, &tls_provider.constants.alpn_h2)) .h2 else .h11;
 }

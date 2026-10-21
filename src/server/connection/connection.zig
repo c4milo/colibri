@@ -27,7 +27,7 @@
 //! `send` end the connection first when their instant is past a deadline. A deadline counts only
 //! what colibri has seen, so the caller hands `receive` every octet its socket holds and calls
 //! `send` whenever its socket takes octets, before it calls `on_instant`. `close_reason` names the
-//! deadline that ended the connection, or the limit its peer passed, and `set_deadlines` changes
+//! deadline that ended the connection, or the limit its peer passed, and `set_timeouts` changes
 //! one connection's limits.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -52,7 +52,7 @@ const connection_events = @import("connection_events.zig");
 const connection_close = @import("connection_close.zig");
 const connection_cleartext = @import("connection_cleartext.zig");
 const internal = @import("connection_internal.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 const deadline = @import("../deadline.zig");
 const close_reason_module = @import("../close_reason.zig");
 const done = @import("../done.zig");
@@ -66,8 +66,8 @@ pub const Protocol = event.Protocol;
 pub const Event = event.Event;
 pub const ReceiveResult = event.ReceiveResult;
 pub const Field = http.Field;
-pub const Deadline = deadline.Deadline;
-pub const Deadlines = deadline.Deadlines;
+pub const Timeout = deadline.Timeout;
+pub const Timeouts = deadline.Timeouts;
 pub const CloseReason = close_reason_module.CloseReason;
 
 pub const Config = connection_config.Config;
@@ -152,7 +152,7 @@ pub const Connection = struct {
     /// The requests whose responses may be coded, and the coded responses (decision 101).
     coding: connection_coding.Table,
     /// This connection's limits and where its deadlines stand (decision 110).
-    deadlines: Deadlines,
+    deadlines: Timeouts,
     clock: connection_deadline.Clock,
     bodies: connection_bodies.Bodies,
     sends: connection_sends.Sends,
@@ -162,15 +162,15 @@ pub const Connection = struct {
     /// tickets are issued at, or 0 for none.
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) InitError!void {
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
-        const choice = versions_module.tcp_choice(config.versions) orelse return error.NoVersion;
+        const choice = protocols_module.tcp_choice(config.protocols) orelse return error.NoVersion;
         assert((config.codings.len == 0) == (config.encoders == null));
         for (config.codings) |coding| assert(coding_pool.encodes(coding));
         assert(config.limits.data_frame_len_min <= h2.constants.max_frame_size_initial);
         assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.concurrent_streams_max);
         assert(config.limits.peer_resets_max > 0 and config.limits.resets_sent_max > 0);
-        try config.deadlines.validate();
-        if (connection_config.whole_units(config)) try config.deadlines.validate_units();
-        connection.deadlines = config.deadlines;
+        try config.timeouts.validate();
+        if (connection_config.whole_units(config)) try config.timeouts.validate_units();
+        connection.deadlines = config.timeouts;
         connection.clock = .init(now_ns);
         connection.bodies.init();
         connection.sends.init();
@@ -342,7 +342,7 @@ pub const Connection = struct {
     /// Replaces this connection's limits (decision 110), for a caller short of connections that
     /// shortens its deadlines. It refuses what `init` refuses. A deadline that has started keeps
     /// its start.
-    pub fn set_deadlines(connection: *Connection, deadlines: Deadlines) error{DeadlineInvalid}!void {
+    pub fn set_timeouts(connection: *Connection, deadlines: Timeouts) error{TimeoutInvalid}!void {
         try deadlines.validate();
         if (internal.whole_units(connection)) try deadlines.validate_units();
         connection.deadlines = deadlines;
@@ -399,9 +399,9 @@ test "design §8 step 17f: the connection's public functions are the calls the m
     // may call.
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{
-        "init",          "receive",      "respond",      "write_body",       "write_trailers",
-        "cancel",        "shutdown",     "send",         "deadline_ns",      "on_instant",
-        "set_deadlines", "close_reason", "should_close", "transport_closed", "protocol",
+        "init",         "receive",      "respond",      "write_body",       "write_trailers",
+        "cancel",       "shutdown",     "send",         "deadline_ns",      "on_instant",
+        "set_timeouts", "close_reason", "should_close", "transport_closed", "protocol",
         "server_name",
     });
 }

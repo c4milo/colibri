@@ -164,10 +164,10 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     try quic_peer.ask("GET", "/greeting", "");
 }
 
-fn start(peer: *Peer, cpu: tls.Cpu, versions: client.Versions, keeps: bool) void {
+fn start(peer: *Peer, cpu: tls.Cpu, protocols: client.Protocols, keeps: bool) void {
     peer.config = .{
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
-        .versions = versions,
+        .protocols = protocols,
         .authority = origin,
     };
     peer.asked_count = 0;

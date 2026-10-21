@@ -32,7 +32,7 @@ test "decision 110: a connection that sends nothing ends at the first-request de
     try testing.expectEqual(null, connection.close_reason());
     try testing.expect(!connection.should_close());
     connection.on_instant(first_request_ns);
-    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
     try testing.expectEqual(0, send_at(first_request_ns).len);
     try testing.expect(connection.should_close());
     try testing.expectEqual(null, connection.deadline_ns());
@@ -41,13 +41,13 @@ test "decision 110: a connection that sends nothing ends at the first-request de
 test "decision 110: send fires a deadline its instant has passed, as receive and on_instant do" {
     try support.start_cleartext(.h11);
     try testing.expectEqual(0, send_at(first_request_ns).len);
-    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
     try testing.expect(connection.should_close());
 }
 
 test "decision 110: the idle deadline runs only after a first request" {
     try support.start_cleartext(.h11);
-    try connection.set_deadlines(.{ .first_request_ns = null });
+    try connection.set_timeouts(.{ .first_request_ns = null });
     connection.on_instant(early_ns);
     connection.on_instant(early_ns + 2 * idle_ns);
     try testing.expectEqual(null, connection.close_reason());
@@ -58,7 +58,7 @@ test "decision 110: octets that arrive at the deadline's instant are not read" {
     try support.start_cleartext(.h11);
     const received = try receive_at(whole_request, first_request_ns);
     try testing.expectEqual(null, received.event);
-    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
 }
 
 test "RFC 9110 §15.5.9: a request head that began and did not end gets a 408 at the deadline" {
@@ -86,7 +86,7 @@ test "decision 110: no deadline runs while the application holds a request, and 
     connection.on_instant(answered_ns + idle_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(answered_ns + idle_ns);
-    try testing.expectEqual(.idle, connection.close_reason().?.deadline);
+    try testing.expectEqual(.idle, connection.close_reason().?.timeout);
     // RFC 9112 §9.5: an idle connection closes without a 408.
     try testing.expectEqual(0, send_at(answered_ns + idle_ns).len);
     try testing.expect(connection.should_close());
@@ -162,7 +162,7 @@ test "decision 110: a later head that does not end in time gets a 408" {
     const began_ns = early_ns + idle_ns / 2;
     _ = try receive_at("GET /b HTTP/1.1\r\nHo", began_ns);
     connection.on_instant(began_ns + head_ns);
-    try testing.expectEqual(.head, connection.close_reason().?.deadline);
+    try testing.expectEqual(.head, connection.close_reason().?.timeout);
     try testing.expect(std.mem.startsWith(u8, send_at(began_ns + head_ns), "HTTP/1.1 408 "));
 }
 
@@ -173,7 +173,7 @@ test "decision 110: an h2 peer that sends only PINGs gets a GOAWAY with NO_ERROR
     _ = try receive_at(&(try ping_frame()), first_request_ns - 1);
     try testing.expectEqual(first_request_ns, connection.deadline_ns().?);
     connection.on_instant(first_request_ns);
-    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
     try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(first_request_ns)));
     try testing.expect(connection.should_close());
 }
@@ -190,7 +190,7 @@ test "RFC 9113 §6.10: an h2 field block left unfinished ends the connection wit
     _ = try receive_at(open_block[0..frame.len], began_ns);
     try testing.expectEqual(began_ns + head_ns, connection.deadline_ns().?);
     connection.on_instant(began_ns + head_ns);
-    try testing.expectEqual(.head, connection.close_reason().?.deadline);
+    try testing.expectEqual(.head, connection.close_reason().?.timeout);
     try testing.expectEqual(h2.constants.error_enhance_your_calm, try goaway_code(send_at(began_ns + head_ns)));
 }
 
@@ -203,28 +203,28 @@ test "decision 110: an idle h2 connection gets a GOAWAY with NO_ERROR at the idl
     _ = send_at(early_ns + idle_ns / 2);
     try testing.expectEqual(early_ns + idle_ns, connection.deadline_ns().?);
     connection.on_instant(early_ns + idle_ns);
-    try testing.expectEqual(.idle, connection.close_reason().?.deadline);
+    try testing.expectEqual(.idle, connection.close_reason().?.timeout);
     try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(early_ns + idle_ns)));
 }
 
 test "decision 110: a TLS handshake that does not end in time closes the connection with nothing sent" {
     try support.begin_tls(&support.protocols_both, &support.protocols_both);
     connection.on_instant(first_request_ns);
-    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
     try testing.expectEqual(0, send_at(first_request_ns).len);
     try testing.expect(connection.should_close());
 }
 
 test "decision 110: a caller changes one connection's limits, null turns one off, and 0 is refused" {
     try support.start_cleartext(.h11);
-    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .idle_ns = 0 }));
-    try connection.set_deadlines(.{ .first_request_ns = null });
+    try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .idle_ns = 0 }));
+    try connection.set_timeouts(.{ .first_request_ns = null });
     try testing.expectEqual(null, connection.deadline_ns());
     // A shorter limit counts from the start the deadline already has.
-    try connection.set_deadlines(.{ .first_request_ns = early_ns });
+    try connection.set_timeouts(.{ .first_request_ns = early_ns });
     try testing.expectEqual(early_ns, connection.deadline_ns().?);
-    support.config = .{ .versions = support.only(.h11), .deadlines = .{ .head_ns = 0 } };
-    try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
+    support.config = .{ .protocols = support.only(.h11), .timeouts = .{ .head_ns = 0 } };
+    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
 }
 
 test "decision 110: a limit shortened after a call passes at that call's instant, on the next call" {
@@ -232,33 +232,33 @@ test "decision 110: a limit shortened after a call passes at that call's instant
     connection.on_instant(early_ns);
     try testing.expectEqual(null, connection.close_reason());
     // The connection was checked at this instant, and the shorter limit has passed by it.
-    try connection.set_deadlines(.{ .first_request_ns = early_ns });
+    try connection.set_timeouts(.{ .first_request_ns = early_ns });
     connection.on_instant(early_ns);
-    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
 }
 
 test "decision 110 as amended: where bodies arrive in units, a rate an honest peer can fall short of is refused" {
     // Twice 819 octets a second over the default 10 s window is 16,380 octets, under a unit of
     // 16,384 (spec/lean/Colibri/Server/RateMeter.lean), and twice 820 is over it.
     try support.start_cleartext(.h2);
-    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = 819 }));
-    try connection.set_deadlines(.{ .body_rate_min = 820 });
-    support.config = .{ .versions = support.only(.h2), .deadlines = .{ .body_rate_min = 819 } };
-    try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
+    try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = 819 }));
+    try connection.set_timeouts(.{ .body_rate_min = 820 });
+    support.config = .{ .protocols = support.only(.h2), .timeouts = .{ .body_rate_min = 819 } };
+    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
     // Decision 117: a connection in cleartext that may speak both chooses by its first octets,
     // which may choose h2, so it refuses the rate as well.
-    support.config = .{ .deadlines = .{ .body_rate_min = 819 } };
-    try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
+    support.config = .{ .timeouts = .{ .body_rate_min = 819 } };
+    try testing.expectError(error.TimeoutInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
     // h11 in cleartext reads a body octet by octet, so any rate stands.
     try support.start_cleartext(.h11);
-    try connection.set_deadlines(.{ .body_rate_min = 819 });
+    try connection.set_timeouts(.{ .body_rate_min = 819 });
     // Over TLS a body arrives a record at a time, whichever protocol ALPN picks.
     try support.begin_tls(&support.protocols_both, &support.protocols_both);
-    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = 819 }));
+    try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = 819 }));
 }
 
 test "decision 110: the configuration's limits apply from the instant init is given" {
-    support.config = .{ .versions = support.only(.h11), .deadlines = .{ .first_request_ns = early_ns } };
+    support.config = .{ .protocols = support.only(.h11), .timeouts = .{ .first_request_ns = early_ns } };
     try connection.init(&support.config, support.stream.random(), 0, idle_ns);
     try testing.expectEqual(idle_ns + early_ns, connection.deadline_ns().?);
 }
@@ -276,7 +276,7 @@ test "RFC 9113 §6.5.3: a peer that never acknowledges the server's SETTINGS get
     connection.on_instant(overdue_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(overdue_ns);
-    try testing.expectEqual(.settings, connection.close_reason().?.deadline);
+    try testing.expectEqual(.settings, connection.close_reason().?.timeout);
     try testing.expectEqual(h2.constants.error_settings_timeout, try goaway_code(send_at(overdue_ns)));
 }
 
@@ -301,7 +301,7 @@ test "decision 110 as amended: a SETTINGS deadline pauses while a body arrives, 
     connection.on_instant(resumed_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(resumed_ns);
-    try testing.expectEqual(.settings, connection.close_reason().?.deadline);
+    try testing.expectEqual(.settings, connection.close_reason().?.timeout);
 }
 
 test "decision 110: an acknowledged SETTINGS runs no deadline" {
@@ -322,7 +322,7 @@ test "decision 110: requests a shutdown leaves open end with the connection when
     connection.on_instant(early_ns + drain_ns);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(early_ns + 1 + drain_ns);
-    try testing.expectEqual(.drain, connection.close_reason().?.deadline);
+    try testing.expectEqual(.drain, connection.close_reason().?.timeout);
     try testing.expect(connection.should_close());
     // h2: its GOAWAY went out with the shutdown.
     try h2_support.start();
@@ -330,7 +330,7 @@ test "decision 110: requests a shutdown leaves open end with the connection when
     connection.shutdown();
     try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(early_ns + 1)));
     connection.on_instant(early_ns + 1 + drain_ns);
-    try testing.expectEqual(.drain, connection.close_reason().?.deadline);
+    try testing.expectEqual(.drain, connection.close_reason().?.timeout);
     try testing.expect(connection.should_close());
 }
 
@@ -345,7 +345,7 @@ test "decision 110: a shutdown whose requests finish in time closes without a de
     // Decision 110: the response is out, so no linger runs.
     try testing.expectEqual(null, connection.deadline_ns());
     try support.start_cleartext(.h11);
-    try connection.set_deadlines(.{ .drain_ns = null });
+    try connection.set_timeouts(.{ .drain_ns = null });
     _ = try receive_at(whole_request, early_ns);
     connection.shutdown();
     _ = send_at(early_ns + 1);
@@ -355,12 +355,12 @@ test "decision 110: a shutdown whose requests finish in time closes without a de
 test "decision 110: a drain that passes before a protocol serves the connection closes it" {
     try support.begin_tls(&support.protocols_both, &support.protocols_both);
     // No first-request deadline, so the drain alone ends a handshake that never completes.
-    try connection.set_deadlines(.{ .first_request_ns = null, .drain_ns = early_ns });
+    try connection.set_timeouts(.{ .first_request_ns = null, .drain_ns = early_ns });
     connection.shutdown();
     connection.on_instant(0);
     try testing.expectEqual(early_ns, connection.deadline_ns().?);
     connection.on_instant(early_ns);
-    try testing.expectEqual(.drain, connection.close_reason().?.deadline);
+    try testing.expectEqual(.drain, connection.close_reason().?.timeout);
     try testing.expect(connection.should_close());
     try testing.expectEqual(null, connection.deadline_ns());
 }

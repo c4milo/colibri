@@ -322,7 +322,7 @@ test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries
 /// it opens no TCP (decision 120).
 fn start_h3_alone() !void {
     var given = fixture.configured(true);
-    given.versions = .{ .h11 = false, .h2 = false };
+    given.protocols = .{ .h11 = false, .h2 = false };
     try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage());
 }
 

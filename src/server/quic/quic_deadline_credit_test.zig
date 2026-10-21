@@ -11,7 +11,7 @@ const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const internal = @import("quic_connection_internal.zig");
-const Deadline = @import("../deadline.zig").Deadline;
+const Timeout = @import("../deadline.zig").Timeout;
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -37,7 +37,7 @@ const first_window_ns: u64 = constants.rate_grace_ns + constants.rate_window_ns;
 /// `idle_ns`.
 fn connected(idle_ns: u64) !void {
     try support.start_with_pool(pool.storage());
-    support.config.deadlines.idle_ns = idle_ns;
+    support.config.timeouts.idle_ns = idle_ns;
     try support.connect();
 }
 
@@ -91,13 +91,13 @@ fn expect_idle_at(at_ns: u64) !void {
     server_at(at_ns - 1);
     try testing.expectEqual(null, connection.clock.timed_out);
     server_at(at_ns);
-    try testing.expectEqual(Deadline.idle, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.idle, connection.clock.timed_out.?);
 }
 
 test "decision 110 as amended: a head waits while the server holds credit, and its deadline moves by the time it was held" {
     try connected(constants.idle_timeout_ns);
     // No body deadline runs, so none comes before the head's.
-    try connection.set_deadlines(.{ .body_rate_min = null, .body_ns = null });
+    try connection.set_timeouts(.{ .body_rate_min = null, .body_ns = null });
     const open = try post_holding();
     const late = try support.request_short_of_head("GET", "/");
     try support.pump(rounds_few);
@@ -177,5 +177,5 @@ test "decision 110 as amended: a body's rate waits while the server holds credit
     try testing.expectEqual(null, support.nth(.cancelled, 0));
     try testing.expectEqual(null, connection.clock.timed_out);
     server_at(at_ns);
-    try testing.expectEqual(Deadline.body_rate, support.nth(.cancelled, 0).?.reason.?.deadline);
+    try testing.expectEqual(Timeout.body_rate, support.nth(.cancelled, 0).?.reason.?.timeout);
 }

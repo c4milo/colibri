@@ -7,7 +7,7 @@ const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const internal = @import("quic_connection_internal.zig");
-const Deadline = @import("../deadline.zig").Deadline;
+const Timeout = @import("../deadline.zig").Timeout;
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -56,9 +56,9 @@ fn server_at(now_ns: u64) void {
 }
 
 /// The deadline the `n`th `cancelled` event names, or null when there is no such event.
-fn cancelled_for(n: usize) ?Deadline {
+fn cancelled_for(n: usize) ?Timeout {
     const entry = support.nth(.cancelled, n) orelse return null;
-    return entry.reason.?.deadline;
+    return entry.reason.?.timeout;
 }
 
 fn closing_for_load() bool {
@@ -80,7 +80,7 @@ test "RFC 9114 §4.1.1: a response its stream's credit holds under the rate is r
     server_at(end_ns - 1);
     try testing.expectEqual(null, cancelled_for(0));
     server_at(end_ns);
-    try testing.expectEqual(Deadline.send_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.send_rate, cancelled_for(0).?);
     try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);
     support.client_reads = true;
@@ -108,7 +108,7 @@ test "decision 110: a stream whose credit grows by the quota each window is not 
     server_at(second_end_ns + constants.rate_window_ns - 1);
     try testing.expectEqual(null, cancelled_for(0));
     server_at(second_end_ns + constants.rate_window_ns);
-    try testing.expectEqual(Deadline.send_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.send_rate, cancelled_for(0).?);
 }
 
 test "decision 110: credit that grows under the rate does not start a stream's window again" {
@@ -124,7 +124,7 @@ test "decision 110: credit that grows under the rate does not start a stream's w
     try testing.expect(entry_of(fetch).acknowledged_len > window_small);
     try testing.expectEqual(end_ns, entry_of(fetch).meter.window_end_ns.?);
     server_at(end_ns);
-    try testing.expectEqual(Deadline.send_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.send_rate, cancelled_for(0).?);
 }
 
 test "RFC 9114 §10.5: a peer that acknowledges nothing of a response closes the connection with H3_EXCESSIVE_LOAD" {
@@ -138,7 +138,7 @@ test "RFC 9114 §10.5: a peer that acknowledges nothing of a response closes the
     server_at(end_ns - 1);
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);
     server_at(end_ns);
-    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
     try testing.expect(closing_for_load() and support.server_failed);
 }
 
@@ -159,7 +159,7 @@ test "decision 110: a peer that acknowledges the quota each window is not closed
     server_at(third_end_ns - 1);
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);
     server_at(third_end_ns);
-    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
 }
 
 test "decision 110: a response its connection's credit holds waits on its peer before its end is written" {
@@ -177,7 +177,7 @@ test "decision 110: a response its connection's credit holds waits on its peer b
     try testing.expect(outgoing.framed_end < content.len and !outgoing.finished);
     try testing.expect(entry_of(fetch).busy and !entry_of(fetch).bound);
     server_at(connection.sends.meter.window_end_ns.?);
-    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
     try testing.expect(closing_for_load());
 }
 
@@ -194,15 +194,15 @@ test "RFC 9000 §3.1: a response whose end alone is not acknowledged still waits
     try support.pump(rounds_few);
     try testing.expect(entry_of(fetch).busy);
     server_at(connection.sends.meter.window_end_ns.?);
-    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
 }
 
 test "decision 110: a stream a send deadline ends waits for its request's body no more" {
     support.client_stream_window = window_small;
     defer support.client_stream_window = support.window_default;
     try support.start();
-    support.config.deadlines.body_rate_min = null;
-    support.config.deadlines.body_ns = null;
+    support.config.timeouts.body_rate_min = null;
+    support.config.timeouts.body_ns = null;
     try support.connect();
     support.client_reads = false;
     const fetch = try support.request_open("POST", "/", "x");
@@ -212,7 +212,7 @@ test "decision 110: a stream a send deadline ends waits for its request's body n
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, connection.bodies.waiting);
     server_at(entry_of(fetch).meter.window_end_ns.?);
-    try testing.expectEqual(Deadline.send_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.send_rate, cancelled_for(0).?);
     try testing.expectEqual(0, connection.bodies.waiting);
     support.client_reads = true;
     try support.pump(support.rounds_default);
@@ -231,7 +231,7 @@ test "RFC 9114 §10.5: a connection whose own credit holds its responses closes 
     server_at(end_ns - 1);
     try testing.expect(connection.clock.timed_out == null);
     server_at(end_ns);
-    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
     try testing.expect(closing_for_load());
 }
 
@@ -266,7 +266,7 @@ test "decision 110: a stream's own meter waits while another response holds octe
     server_at(end_ns);
     try testing.expectEqual(null, cancelled_for(0));
     server_at(closes_ns);
-    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
 }
 
 test "decision 110: a response the caller cancels runs no send deadline, before its stream closes" {
@@ -298,5 +298,5 @@ test "decision 110: octets acknowledged after a window's end do not count in it"
     support.now_ns = end_ns;
     support.client_mute = false;
     try support.pump(1);
-    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
 }

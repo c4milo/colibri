@@ -32,7 +32,7 @@ const quic_body = @import("quic_body.zig");
 const quic_sends = @import("quic_sends.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
-const Deadline = deadline.Deadline;
+const Timeout = deadline.Timeout;
 
 /// Where a connection stands for its deadlines.
 pub const Clock = struct {
@@ -45,7 +45,7 @@ pub const Clock = struct {
     /// The instant the first call saw the connection shutting down, from which the drain runs.
     drain_since_ns: ?u64,
     /// The deadline that closed the connection, once one has.
-    timed_out: ?Deadline,
+    timed_out: ?Timeout,
     /// The instant colibri began to hold credit its client needs, or null while it holds none.
     credit_held_since_ns: ?u64,
 
@@ -116,7 +116,7 @@ fn moved(since_ns: u64, from_ns: u64, to_ns: u64) u64 {
 pub fn soonest(connection: *QuicConnection) ?u64 {
     if (!running(connection)) return null;
     const clock = &connection.clock;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     var at: ?u64 = null;
     if (clock.drain_since_ns) |since| at = earlier(at, since, limits.drain_ns);
     if (takes_requests(connection) and !clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
@@ -137,7 +137,7 @@ pub fn soonest(connection: *QuicConnection) ?u64 {
 pub fn fire(connection: *QuicConnection, now_ns: u64) void {
     if (!running(connection)) return;
     const clock = &connection.clock;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     if (clock.drain_since_ns) |since| {
         if (is_past(since, limits.drain_ns, now_ns)) return close(connection);
     }
@@ -159,7 +159,7 @@ fn fire_heads(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: each pass stops reading one stream, and h3 holds `request_streams_max` of them.
     for (0..h3.constants.request_streams_max) |_| {
         const wait = head_wait(connection) orelse return;
-        if (!is_past(wait.since_ns, connection.deadlines.head_ns, now_ns)) return;
+        if (!is_past(wait.since_ns, connection.timeouts.head_ns, now_ns)) return;
         refuse_head(connection, wait.stream_id);
         // A response that failed the connection stopped it.
         if (!running(connection)) return;
@@ -168,7 +168,7 @@ fn fire_heads(connection: *QuicConnection, now_ns: u64) void {
 
 /// Closes a connection whose peer `passed` judged across its streams. RFC 9114 §10.5: an endpoint
 /// "MAY treat activity that is suspicious as a connection error of type H3_EXCESSIVE_LOAD".
-fn overload(connection: *QuicConnection, passed: Deadline) void {
+fn overload(connection: *QuicConnection, passed: Timeout) void {
     assert(running(connection));
     connection.clock.timed_out = passed;
     const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
@@ -194,10 +194,10 @@ fn waits_to_close(connection: *const QuicConnection) bool {
 
 /// The first-request or idle deadline, when it has passed at `now_ns` on a connection that
 /// still takes requests, or null.
-fn late_for_requests(connection: *const QuicConnection, now_ns: u64) ?Deadline {
+fn late_for_requests(connection: *const QuicConnection, now_ns: u64) ?Timeout {
     if (!takes_requests(connection)) return null;
     const clock = &connection.clock;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     if (!clock.first_request_read and is_past(clock.opened_ns, limits.first_request_ns, now_ns)) return .first_request;
     // Decision 110 as amended: the idle deadline waits while colibri holds credit its client needs.
     if (clock.credit_held_since_ns != null) return null;
@@ -212,7 +212,7 @@ fn late_for_requests(connection: *const QuicConnection, now_ns: u64) ?Deadline {
 /// once the client acknowledged the GOAWAY, or at the drain deadline (decision 110 as amended).
 /// Before h3 runs there is no stream to send one on, and the connection closes at once (RFC 9000
 /// §10.2.3).
-fn shut_down(connection: *QuicConnection, passed: Deadline, now_ns: u64) void {
+fn shut_down(connection: *QuicConnection, passed: Timeout, now_ns: u64) void {
     assert(passed == .first_request or passed == .idle);
     connection.clock.timed_out = passed;
     connection.shutting_down = true;
@@ -227,7 +227,7 @@ fn head_wait(connection: *QuicConnection) ?h3.connection.HeadWait {
 
 fn earlier(current: ?u64, since: u64, limit: ?u64) ?u64 {
     const span = limit orelse return current;
-    // `Deadlines.validate` bounds every limit, and the caller's instants stay far below the end of
+    // `Timeouts.validate` bounds every limit, and the caller's instants stay far below the end of
     // a `u64` (design §4.2).
     assert(since <= std.math.maxInt(u64) - span);
     const at = since + span;

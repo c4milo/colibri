@@ -136,7 +136,7 @@ fn Tests(comptime Pool: type) type {
         /// A pool with no QUIC configured, whose TCP connection speaks h11 in cleartext, with
         /// one exchange written to the peer's buffer.
         fn start(exchange: *Exchange) !void {
-            config = .{ .authority = support.authority, .versions = pool_support.versions_for(&pool, support.only(.h11)) };
+            config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(.h11)) };
             try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, .{}, null);
             support.peer_h11.init(.server, .{});
             support.peer_requests = 0;

@@ -19,8 +19,8 @@ const connection_bodies = @import("connection_bodies.zig");
 const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
-const Deadline = deadline.Deadline;
-const Deadlines = deadline.Deadlines;
+const Timeout = deadline.Timeout;
+const Timeouts = deadline.Timeouts;
 
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
 const request_timeout: u16 = @intFromEnum(http.status.Code.request_timeout);
@@ -35,7 +35,7 @@ pub const Clock = struct {
     /// The instant the connection went idle after a response, or null while it is not idle.
     idle_since_ns: ?u64,
     /// The deadline that ended the connection, once one has.
-    timed_out: ?Deadline,
+    timed_out: ?Timeout,
     /// The instant the connection ended with octets still to send, and whether `linger_ns` has
     /// passed since, after which it closes with them unsent (decision 110).
     linger_since_ns: ?u64,
@@ -47,7 +47,7 @@ pub const Clock = struct {
     /// The instant the first call after `shutdown` saw it, from which the drain runs.
     drain_since_ns: ?u64,
     /// The instant `fire` last checked the deadlines at, or null before its first call and after
-    /// `set_deadlines`.
+    /// `set_timeouts`.
     checked_ns: ?u64,
 
     pub fn init(now_ns: u64) Clock {
@@ -179,7 +179,7 @@ fn running(connection: *const Connection) bool {
 
 fn earlier(current: ?u64, since: u64, limit: ?u64) ?u64 {
     const span = limit orelse return current;
-    // `Deadlines.validate` bounds every limit, and the caller's instants stay far below the end of
+    // `Timeouts.validate` bounds every limit, and the caller's instants stay far below the end of
     // a `u64` (design §4.2).
     assert(since <= std.math.maxInt(u64) - span);
     const at = since + span;
@@ -217,7 +217,7 @@ fn settings_deadline_ns(connection: *const Connection) ?u64 {
 }
 
 /// The deadline that has passed at `now_ns`, or null.
-fn due(connection: *const Connection, now_ns: u64) ?Deadline {
+fn due(connection: *const Connection, now_ns: u64) ?Timeout {
     if (!running(connection)) return null;
     const clock = &connection.clock;
     const limits = &connection.deadlines;
@@ -277,7 +277,7 @@ fn fire_at_new_instant(connection: *Connection, now_ns: u64) bool {
 /// what the connection sends ends h11 with nothing more and h2 with the same GOAWAY; with none of
 /// these, h11 closes without a response and h2 sends a GOAWAY with NO_ERROR first. Nothing more is
 /// read either way.
-fn end(connection: *Connection, passed: Deadline) void {
+fn end(connection: *Connection, passed: Timeout) void {
     const wait = wait_of(connection);
     const body = passed == .body_rate or passed == .body;
     const send = passed == .send_rate;

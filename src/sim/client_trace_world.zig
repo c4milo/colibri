@@ -133,7 +133,7 @@ pub const World = struct {
         world.pool_config = .{
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .cpu = identity.cpu },
             // TCP offers "h2" alone, and QUIC "h3".
-            .versions = .{ .h11 = false },
+            .protocols = .{ .h11 = false },
             .authority = identity.authority,
             .quic_first = world.plan.policy == .first,
             .fallback_delay_ns = limits.fallback_delay_ns,

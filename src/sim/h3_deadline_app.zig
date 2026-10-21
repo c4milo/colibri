@@ -30,7 +30,7 @@ pub const Answer = struct {
     answered_ms: ?u64 = null,
     finished_ms: ?u64 = null,
     done_ms: ?u64 = null,
-    cancelled: ?server.Deadline = null,
+    cancelled: ?server.Timeout = null,
     cancelled_ms: ?u64 = null,
 };
 
@@ -60,7 +60,7 @@ pub const Application = struct {
             .trailers => |trailers| app.note_content_end(trailers.id.number, now_ms),
             .cancelled => |cancelled| if (app.find(cancelled.id.number)) |pending| {
                 pending.cancelled_ms = now_ms;
-                if (cancelled.reason == .deadline) pending.cancelled = cancelled.reason.deadline;
+                if (cancelled.reason == .timeout) pending.cancelled = cancelled.reason.timeout;
             },
             .done => |done| if (app.find(done.id.number)) |pending| {
                 pending.done_ms = now_ms;

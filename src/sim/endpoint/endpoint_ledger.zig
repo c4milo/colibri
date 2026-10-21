@@ -338,7 +338,7 @@ pub const Ledger = struct {
     /// and the send rate of one that reads slowly (`Connection.reads_slowly`).
     fn honest_cancel(reason: server.CancelReason, reads_slowly: bool) bool {
         return switch (reason) {
-            .deadline => |passed| passed == .drain or (reads_slowly and passed == .send_rate),
+            .timeout => |passed| passed == .drain or (reads_slowly and passed == .send_rate),
             else => true,
         };
     }
@@ -348,7 +348,7 @@ pub const Ledger = struct {
     fn honest_end(reason: ?server.CloseReason, reads_slowly: bool) bool {
         const held = reason orelse return true;
         return switch (held) {
-            .deadline => |passed| passed == .idle or passed == .drain or (reads_slowly and passed == .send_rate),
+            .timeout => |passed| passed == .idle or passed == .drain or (reads_slowly and passed == .send_rate),
             .limit => false,
         };
     }

@@ -115,7 +115,7 @@ pub fn start(index: usize) server.StartError!void {
     worker.decoders.storage().reset(h11.coding.Features.detect());
     worker.config = .{
         .tls = server_mode.identity,
-        .versions = server_mode.versions,
+        .protocols = server_mode.versions,
         .decoders = worker.decoders.storage(),
         .decoded = &worker.decoded,
         .h3_alternative = server_mode.h3_alternative,

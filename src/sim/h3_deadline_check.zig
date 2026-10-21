@@ -142,7 +142,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         // `verify` refused a run the server held open, so each run has a reason.
         switch (result.record.close_reason.?) {
             .limit => census.peer_resets += 1,
-            .deadline => |passed| switch (passed) {
+            .timeout => |passed| switch (passed) {
                 .first_request => census.first_request += 1,
                 .idle => census.idle += 1,
                 .body_rate => census.body_rate += 1,
@@ -167,7 +167,7 @@ fn cut_a_request(seed: u64, record: *const Record) bool {
 /// How decision 110 says a connection ends.
 const End = union(enum) {
     /// A GOAWAY at `at_ms` for `deadline`, then a close with H3_NO_ERROR.
-    drained: struct { deadline: server.Deadline, at_ms: u64 },
+    drained: struct { deadline: server.Timeout, at_ms: u64 },
     /// A close with H3_EXCESSIVE_LOAD for `reason`, at `at_ms` when the plan fixes the instant.
     overloaded: struct { reason: server.CloseReason, at_ms: ?u64 },
 };
@@ -190,7 +190,7 @@ const Want = struct {
 const Expected = struct {
     end: End,
     seen: [h3_deadline_run.kept_fetches]Want = @splat(.{}),
-    cancelled: ?server.Deadline = null,
+    cancelled: ?server.Timeout = null,
     cancelled_ms: ?u64 = null,
 };
 
@@ -228,7 +228,7 @@ fn ended_as(record: *const Record, end: End, plan: *const Plan) bool {
     const reason = record.close_reason orelse return false;
     return switch (end) {
         .drained => |drained| drained_as(record, close, drained.at_ms, plan) and
-            std.meta.eql(reason, server.CloseReason{ .deadline = drained.deadline }),
+            std.meta.eql(reason, server.CloseReason{ .timeout = drained.deadline }),
         .overloaded => |overloaded| overloaded_as(close, overloaded.at_ms) and std.meta.eql(reason, overloaded.reason),
     };
 }
@@ -279,7 +279,7 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
     };
 }
 
-fn drains(passed: server.Deadline, at_ms: u64) Expected {
+fn drains(passed: server.Timeout, at_ms: u64) Expected {
     return .{ .end = .{ .drained = .{ .deadline = passed, .at_ms = at_ms } } };
 }
 
@@ -290,7 +290,7 @@ fn idle_after(since_ms: ?u64, idle_ms: u64) ?Expected {
 
 /// A first head that never ends: the first-request deadline ends the connection, and the head's
 /// own deadline its request, when that comes no later.
-fn late_first_head(deadlines: *const server.Deadlines) Expected {
+fn late_first_head(deadlines: *const server.Timeouts) Expected {
     const first_request_ms = ms_of(deadlines.first_request_ns.?);
     var expected = drains(.first_request, first_request_ms);
     expected.seen[0] = late_head(ms_of(deadlines.head_ns.?), first_request_ms);
@@ -310,7 +310,7 @@ fn late_second_head(plan: *const Plan, first: ?*const Answer, ended_ms: ?u64) ?E
 
 /// A body whose deadline `passed` `after_ms` after the application read its request: a 408 for
 /// the peer and `cancelled` for the application then, and the idle deadline from there.
-fn body_cut(first: ?*const Answer, after_ms: u64, passed: server.Deadline, idle_ms: u64) ?Expected {
+fn body_cut(first: ?*const Answer, after_ms: u64, passed: server.Timeout, idle_ms: u64) ?Expected {
     const cut_ms = (first orelse return null).read_ms + after_ms;
     var expected = drains(.idle, cut_ms + idle_ms);
     expected.seen[0] = .{ .status = timeout_status, .status_ms = cut_ms, .exact = true };
@@ -334,7 +334,7 @@ fn stream_cut(first: ?*const Answer, first_window_ms: u64, idle_ms: u64) ?Expect
 /// answered, or that held it with its connection's credit: the connection closes then.
 fn send_overload(first: ?*const Answer, first_window_ms: u64) ?Expected {
     const cut_ms = ((first orelse return null).answered_ms orelse return null) + first_window_ms;
-    return .{ .end = .{ .overloaded = .{ .reason = .{ .deadline = .send_rate }, .at_ms = cut_ms } } };
+    return .{ .end = .{ .overloaded = .{ .reason = .{ .timeout = .send_rate }, .at_ms = cut_ms } } };
 }
 
 /// Bodies that together brought too little in the first window after the application read the
@@ -343,7 +343,7 @@ fn send_overload(first: ?*const Answer, first_window_ms: u64) ?Expected {
 /// (INV-30).
 fn bodies_overload(first: ?*const Answer, first_window_ms: u64) ?Expected {
     const cut_ms = (first orelse return null).read_ms + first_window_ms;
-    var expected: Expected = .{ .end = .{ .overloaded = .{ .reason = .{ .deadline = .body_rate }, .at_ms = cut_ms } } };
+    var expected: Expected = .{ .end = .{ .overloaded = .{ .reason = .{ .timeout = .body_rate }, .at_ms = cut_ms } } };
     expected.cancelled = .body_rate;
     expected.cancelled_ms = cut_ms;
     return expected;
@@ -397,7 +397,7 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     });
     if (record.close) |close| try line(storage, " close=0x{x}@{d}", .{ close.error_code, close.at_ms });
     if (record.close_reason) |reason| switch (reason) {
-        .deadline => |passed| try line(storage, " deadline={t}", .{passed}),
+        .timeout => |passed| try line(storage, " deadline={t}", .{passed}),
         .limit => |passed| try line(storage, " limit={t}", .{passed}),
     };
     for (record.seen) |seen| {

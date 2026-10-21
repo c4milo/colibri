@@ -19,7 +19,7 @@ const Connection = ledger_module.Connection;
 /// The calls by an id, and the calls by a handle: two that any connection takes, and three more a
 /// TCP connection takes.
 const RequestCall = enum { set_user_data, respond, write_body, write_trailers, cancel };
-const HandleCall = enum { set_deadlines, server_name, send_stream, transport_closed, receive };
+const HandleCall = enum { set_timeouts, server_name, send_stream, transport_closed, receive };
 const calls_any_connection: u64 = 2;
 
 /// Makes one call by an id or a handle that names nothing any more, drawn from `random`, and
@@ -73,9 +73,9 @@ fn by_handle(program: *Program, connection: *const Connection, which: HandleCall
     const handle = connection.handle;
     var reported: ?server.Event = null;
     const refused = switch (which) {
-        .set_deadlines => refused: {
-            const set = program.endpoint.set_deadlines(handle, .{});
-            try program.check_deadline("set_deadlines");
+        .set_timeouts => refused: {
+            const set = program.endpoint.set_timeouts(handle, .{});
+            try program.check_deadline("set_timeouts");
             break :refused if (set) |_| false else |failure| failure == error.ConnectionUnknown;
         },
         .server_name => program.endpoint.server_name(handle) == null,

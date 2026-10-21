@@ -139,7 +139,7 @@ fn Tests(comptime Pool: type) type {
         }
 
         fn start_at(to: []const pool_module.Address) !void {
-            config = .{ .authority = support.authority, .versions = pool_support.versions_for(&pool, support.only(.h2)) };
+            config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(.h2)) };
             // Every octet 1, so each flag of a connection the pool never started reads as set,
             // and a read of one shows.
             @memset(std.mem.asBytes(&pool), unstarted_octet);

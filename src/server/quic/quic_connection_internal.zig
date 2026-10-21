@@ -43,13 +43,13 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     assert(receive_pool.capacity > 0 and how.original_destination.len > 0);
     assert((config.codings.len == 0) == (config.encoders == null));
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
-    try config.deadlines.validate();
+    try config.timeouts.validate();
     // Over QUIC a request's content arrives a packet at a time. The bound kept for a TLS record
-    // and an h2 DATA frame covers a packet of up to `body_unit_len` octets, and one `Deadlines`
+    // and an h2 DATA frame covers a packet of up to `body_unit_len` octets, and one `Timeouts`
     // then suits a server's TCP and QUIC connections (decision 110 as amended).
-    try config.deadlines.validate_units();
+    try config.timeouts.validate_units();
     connection.config = config;
-    connection.deadlines = config.deadlines;
+    connection.timeouts = config.timeouts;
     connection.clock = .init(now_ns);
     connection.bodies.init();
     connection.sends.init();

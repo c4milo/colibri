@@ -169,7 +169,7 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
 /// How decision 110 says a run ends: by which deadline, at which instant, whether a request head
 /// had begun, which decides the response, and where a slow body was cut.
 const Expected = struct {
-    deadline: server.Deadline,
+    deadline: server.Timeout,
     end_ms: u64,
     head: bool,
     cut: ?Cut = null,
@@ -178,7 +178,7 @@ const Expected = struct {
 /// The deadline that cut an h2 stream, or a slow h11 body, and its instant; in h2 the status of
 /// the stream's response and the code of its RST_STREAM.
 const Cut = struct {
-    deadline: server.Deadline,
+    deadline: server.Timeout,
     at_ms: u64,
     status: u16,
     reset_code: u32,
@@ -307,7 +307,7 @@ fn update_ms(plan: *const Plan, start_ms: u64, end_ms: u64) ?u64 {
 }
 
 /// A body cut at `at_ms`: a 408, then RST_STREAM with NO_ERROR in h2.
-fn body_cut_at(passed: server.Deadline, at_ms: u64) Cut {
+fn body_cut_at(passed: server.Timeout, at_ms: u64) Cut {
     return .{ .deadline = passed, .at_ms = at_ms, .status = timeout_status, .reset_code = h2.constants.error_no_error };
 }
 
@@ -419,7 +419,7 @@ test "decision 110 as amended: a slow h2 body's rate starts again at the WINDOW_
     // The rate starts again at 37,070 ms with its grace period, its second window ends at
     // 67,070 ms with one piece in it, and the stream is cut there.
     try std.testing.expectEqual(update_seed_reset_ms, result.record.reset_at_ms.?);
-    try std.testing.expectEqual(server.Deadline.body_rate, result.record.app.cancelled.?);
+    try std.testing.expectEqual(server.Timeout.body_rate, result.record.app.cancelled.?);
 }
 
 /// Runs a slow h2 body of `piece_len` octets every `gap_ms` under the limits of `update_seed`,
@@ -453,7 +453,7 @@ const h11_body_seed: u64 = 0x16ec;
 
 test "decision 110: an h11 body has no window to update, and its rate never starts again" {
     const result = try run_seed(&check_storage, h11_body_seed);
-    try std.testing.expectEqual(server.Deadline.body_rate, result.record.deadline_passed().?);
+    try std.testing.expectEqual(server.Timeout.body_rate, result.record.deadline_passed().?);
 }
 
 test "a peer that reads nothing has read nothing when the server closes" {
@@ -495,5 +495,5 @@ const unread_seed_requests: u8 = 3;
 test "decision 110: a slow reader reads what the socket holds after the idle deadline closes the connection" {
     const result = try run_seed(&check_storage, unread_seed);
     try std.testing.expectEqual(unread_seed_requests, result.record.requests_done);
-    try std.testing.expectEqual(server.Deadline.idle, result.record.deadline_passed().?);
+    try std.testing.expectEqual(server.Timeout.idle, result.record.deadline_passed().?);
 }

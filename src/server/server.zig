@@ -38,7 +38,7 @@ const files = struct {
     pub const coding_pool = @import("coding/coding_pool.zig");
     pub const deadline = @import("deadline.zig");
     pub const close_reason = @import("close_reason.zig");
-    pub const versions = @import("versions.zig");
+    pub const protocols = @import("protocols.zig");
     pub const limits = @import("limits.zig");
     pub const path_parameters = @import("path_parameters.zig");
     pub const router = @import("router/router.zig");
@@ -47,10 +47,10 @@ const files = struct {
 /// What a program configures a server with, once: the endpoint reads it while it runs (decision
 /// 119).
 pub const Config = files.endpoint.Config;
-pub const Versions = files.versions.Versions;
+pub const Protocols = files.protocols.Protocols;
 pub const Limits = files.limits.Limits;
-pub const Deadline = files.deadline.Deadline;
-pub const Deadlines = files.deadline.Deadlines;
+pub const Timeout = files.deadline.Timeout;
+pub const Timeouts = files.deadline.Timeouts;
 pub const CloseReason = files.close_reason.CloseReason;
 pub const Limit = files.close_reason.Limit;
 pub const Endpoint = files.endpoint.Endpoint;
@@ -114,7 +114,7 @@ pub const PathParameters = files.path_parameters.PathParameters;
 pub const router = files.router.router;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
-    // Design §8 step 21a adds `Versions` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
+    // Design §8 step 21a adds `Protocols` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
     // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram`. 21b.7 gives the name
     // `Config` to the type `EndpointConfig` named, which `QuicConfig` folded into in 21b.3, and
     // takes a TCP connection's own configuration out of the root (decision 119). 21d takes out
@@ -122,11 +122,12 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // which only their calls return (decision 121). 21e adds `PathParameters` and `router`
     // (decision 122). 23.2 renames `StreamOctets`, `Field`, `Id`, `Fields`, `Body`, `Content` and
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
-    // `ResponseBody` and `ReceiveResult` (decision 126).
+    // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
+    // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",   "Config",             "Versions",       "Limits",           "Deadline",
-        "Deadlines",   "CloseReason",        "Limit",          "Endpoint",         "EndpointOf",
+        "constants",   "Config",             "Protocols",      "Limits",           "Timeout",
+        "Timeouts",    "CloseReason",        "Limit",          "Endpoint",         "EndpointOf",
         "Capacity",    "Input",              "Datagram",       "Security",         "StreamBytes",
         "LogProvider", "Sent",               "Address",        "Ecn",              "StartError",
         "SendError",   "Header",             "RequestId",      "ConnectionHandle", "Version",
@@ -145,7 +146,7 @@ test "decision 121: StartError names what Endpoint.init returns, and no other er
     const names = struct {
         fn of(comptime Set: type, failure: Set) []const u8 {
             return switch (failure) {
-                error.DeadlineInvalid => "DeadlineInvalid",
+                error.TimeoutInvalid => "TimeoutInvalid",
                 error.NoVersion => "NoVersion",
                 error.IdentityRefused => "IdentityRefused",
                 error.TooManyCertificates => "TooManyCertificates",
@@ -170,7 +171,7 @@ test {
     // The TCP connection each slot of the endpoint holds. The root exports no name of it, and its
     // own test block runs its test files.
     _ = @import("connection/connection.zig");
-    _ = @import("versions.zig");
+    _ = @import("protocols.zig");
     _ = @import("reason.zig");
     _ = @import("expect.zig");
     _ = @import("done.zig");

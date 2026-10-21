@@ -31,7 +31,7 @@ const quic_request = @import("quic_request.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
-const Deadline = deadline.Deadline;
+const Timeout = deadline.Timeout;
 
 /// One response, as `look` last found it.
 const Sending = struct {
@@ -110,7 +110,7 @@ pub fn forget(connection: *QuicConnection, record: *const Request) void {
 /// Starts or stops each meter at `now_ns`, as `look` last found the responses.
 pub fn observe(connection: *QuicConnection, now_ns: u64) void {
     const sends = &connection.sends;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     const wanted = sends.busy > 0 or sends.bound > 0;
     // Nothing runs and nothing would: the common case, a connection whose peer keeps up.
     if (!wanted and !sends.metered) return;
@@ -128,8 +128,8 @@ pub fn observe(connection: *QuicConnection, now_ns: u64) void {
 pub fn soonest(connection: *const QuicConnection, current: ?u64) ?u64 {
     const sends = &connection.sends;
     if (!sends.metered) return current;
-    const quota = connection.deadlines.send_quota() orelse return current;
-    const window_ns = connection.deadlines.rate_window_ns;
+    const quota = connection.timeouts.send_quota() orelse return current;
+    const window_ns = connection.timeouts.rate_window_ns;
     var at = current;
     if (sends.meter.check_ns(quota, window_ns)) |check_ns| at = @min(at orelse check_ns, check_ns);
     for (&sends.entries) |*entry| {
@@ -141,11 +141,11 @@ pub fn soonest(connection: *const QuicConnection, current: ?u64) ?u64 {
 
 /// Resets each stream its credit held under the rate at `now_ns`, and returns `send_rate` when
 /// the connection ends for it: its peer acknowledged too little. Null when it goes on.
-pub fn fire(connection: *QuicConnection, now_ns: u64) ?Deadline {
+pub fn fire(connection: *QuicConnection, now_ns: u64) ?Timeout {
     const sends = &connection.sends;
     if (!sends.metered) return null;
-    const quota = connection.deadlines.send_quota() orelse return null;
-    const window_ns = connection.deadlines.rate_window_ns;
+    const quota = connection.timeouts.send_quota() orelse return null;
+    const window_ns = connection.timeouts.rate_window_ns;
     if (sends.meter.short(now_ns, quota, window_ns)) return .send_rate;
     for (&sends.entries, 0..) |*entry, index| {
         if (!entry.meter.short(now_ns, quota, window_ns)) continue;
@@ -163,5 +163,5 @@ fn cancel_stream(connection: *QuicConnection, index: usize) void {
     connection.h3.cancel(&connection.transport, record.stream_id, h3.constants.error_request_cancelled);
     quic_body.remove(connection, record);
     if (record.over) return;
-    quic_connection_h3.end(connection, record, .{ .cancelled = .{ .deadline = .send_rate } });
+    quic_connection_h3.end(connection, record, .{ .cancelled = .{ .timeout = .send_rate } });
 }

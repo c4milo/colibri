@@ -68,10 +68,10 @@ pub const Record = struct {
     close_reason: ?server.CloseReason,
 
     /// The deadline that closed the connection, or null when none did.
-    pub fn deadline_passed(record: *const Record) ?server.Deadline {
+    pub fn deadline_passed(record: *const Record) ?server.Timeout {
         const reason = record.close_reason orelse return null;
         return switch (reason) {
-            .deadline => |passed| passed,
+            .timeout => |passed| passed,
             // The check's peers pass no limit, so `verify` refuses a run a limit closed.
             .limit => null,
         };
@@ -172,11 +172,11 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
 /// test calls it, as `run` does.
 pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     // Decision 117: each side allows the plan's version alone, so each speaks it from the start.
-    const versions: server.Versions = switch (plan.protocol) {
+    const versions: server.Protocols = switch (plan.protocol) {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    storage.endpoint_config = .{ .versions = versions, .deadlines = plan.deadlines };
+    storage.endpoint_config = .{ .protocols = versions, .timeouts = plan.deadlines };
     storage.tls_random = Random.init(seed);
     const source = tls.Random.init(&storage.tls_random, fill);
     try storage.endpoint.init(&storage.endpoint_config, source, 0, ns_of(plan, 0));
@@ -208,11 +208,11 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     for (&storage.upload, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     if (!plan.honest()) return storage.hostile.start(plan);
-    const client_versions: client.Versions = switch (plan.protocol) {
+    const client_versions: client.Protocols = switch (plan.protocol) {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    storage.client_config = .{ .authority = "a.example", .versions = client_versions };
+    storage.client_config = .{ .authority = "a.example", .protocols = client_versions };
     const octets: [ipv4_len]u8 = @splat(address_octet);
     storage.addresses = .{client.Address.of(&octets, 0)};
     // No receive pool, so the pool offers TCP alone.
@@ -477,7 +477,7 @@ test "a run a limit closed names no deadline, so the check refuses it" {
     var record: Record = undefined;
     record.close_reason = .{ .limit = .peer_resets };
     try std.testing.expectEqual(null, record.deadline_passed());
-    record.close_reason = .{ .deadline = .idle };
+    record.close_reason = .{ .timeout = .idle };
     try std.testing.expectEqual(.idle, record.deadline_passed().?);
     record.close_reason = null;
     try std.testing.expectEqual(null, record.deadline_passed());

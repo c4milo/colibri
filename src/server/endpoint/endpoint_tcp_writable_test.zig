@@ -102,7 +102,7 @@ fn expect_cut_at_send_rate(writes_first: bool) !void {
         support.collect();
     }
     const cancelled = support.nth(.cancelled, 0).?;
-    try testing.expectEqual(event.CancelReason{ .deadline = .send_rate }, cancelled.reason.?);
+    try testing.expectEqual(event.CancelReason{ .timeout = .send_rate }, cancelled.reason.?);
     try testing.expect(taken > 0);
 }
 

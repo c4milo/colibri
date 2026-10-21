@@ -123,7 +123,7 @@ pub fn main() !void {
     // endpoint names no version, and the connection it accepts reads h2 from the client's
     // connection preface (decision 117).
     const endpoint_config: server_module.Config = .{};
-    const client_config: client_module.Config = .{ .versions = .{ .h11 = false, .h3 = false }, .authority = "example.test" };
+    const client_config: client_module.Config = .{ .protocols = .{ .h11 = false, .h3 = false }, .authority = "example.test" };
     try endpoint.init(&endpoint_config, entropy, 0, 0);
     // One call for the socket a program accepted, in cleartext here. The handle names the
     // connection from then on.

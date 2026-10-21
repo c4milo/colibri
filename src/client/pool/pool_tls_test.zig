@@ -10,7 +10,7 @@ const support = @import("../connection/connection_test_support.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
 const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
@@ -181,9 +181,9 @@ fn Tests(comptime Pool: type) type {
 
         /// As `start`, with a client that speaks `versions` and a server that selects from
         /// `server_protocols`.
-        fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !pool_module.RequestId {
+        fn start_with(versions: protocols_module.Protocols, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !pool_module.RequestId {
             try tls_support.prepare_server(server_protocols, false);
-            config = .{ .tls = tls_support.client_values(server_name), .versions = pool_support.versions_for(&pool, versions), .authority = support.authority };
+            config = .{ .tls = tls_support.client_values(server_name), .protocols = pool_support.versions_for(&pool, versions), .authority = support.authority };
             try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
             try tls_support.start_server();
             events_len = 0;
@@ -303,7 +303,7 @@ fn Tests(comptime Pool: type) type {
         }
 
         /// The ClientHello a pool that speaks `versions` writes first, which no key seals.
-        fn client_hello(versions: versions_module.Versions) ![]const u8 {
+        fn client_hello(versions: protocols_module.Protocols) ![]const u8 {
             var exchange = get(&bodies[0]);
             _ = try start_with(versions, &support.protocols_both, "localhost", &exchange);
             send();
@@ -410,7 +410,7 @@ fn Tests(comptime Pool: type) type {
         /// A pool whose TCP connection speaks `protocol` over TLS, its handshake complete and
         /// `exchange` written. An h2 server reads what follows.
         fn start_open(protocol: event.Protocol, exchange: *Exchange) !void {
-            const versions: versions_module.Versions = if (protocol == .h11) .{ .h2 = false } else .{};
+            const versions: protocols_module.Protocols = if (protocol == .h11) .{ .h2 = false } else .{};
             _ = try start_with(versions, &support.protocols_both, "localhost", exchange);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);

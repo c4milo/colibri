@@ -130,7 +130,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
             .cpu = identity.cpu,
         },
         .idle_timeout_ms = limits.quic_idle_timeout_ms,
-        .deadlines = plan.deadlines,
+        .timeouts = plan.deadlines,
     };
     storage.server_random = Random.init(seed);
     storage.peer_random = Random.init(~seed);

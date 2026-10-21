@@ -13,7 +13,7 @@ const server_constants = support.server_constants;
 const receive_at = deadline_support.receive_at;
 const send_at = deadline_support.send_at;
 const early_ns = deadline_support.early_ns;
-const Deadline = @import("../deadline.zig").Deadline;
+const Timeout = @import("../deadline.zig").Timeout;
 
 const grace_ns = server_constants.rate_grace_ns;
 const window_ns = server_constants.rate_window_ns;
@@ -61,7 +61,7 @@ test "decision 110: an h11 body under the minimum rate gets a 408 when its first
     connection.on_instant(first_end_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.timeout);
     try testing.expect(std.mem.startsWith(u8, send_at(first_end_ns), "HTTP/1.1 408 Request Timeout\r\n"));
     try testing.expect(connection.should_close());
 }
@@ -76,20 +76,20 @@ test "decision 110: each window owes the quota, and octets at a window's end cou
     connection.on_instant(first_end_ns + window_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(first_end_ns + window_ns);
-    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.timeout);
 }
 
 test "decision 110: a body that keeps the rate still ends at its cap" {
     try support.start_cleartext(.h11);
     const cap_ns = grace_ns + window_ns + window_ns / 2;
-    try connection.set_deadlines(.{ .body_ns = cap_ns });
+    try connection.set_timeouts(.{ .body_ns = cap_ns });
     _ = try receive_at(upload_head, early_ns);
     try feed(filler[0..quota], early_ns + 1);
     try testing.expectEqual(early_ns + cap_ns, connection.deadline_ns().?);
     connection.on_instant(early_ns + cap_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(early_ns + cap_ns);
-    try testing.expectEqual(.body, connection.close_reason().?.deadline);
+    try testing.expectEqual(.body, connection.close_reason().?.timeout);
     try testing.expect(std.mem.startsWith(u8, send_at(early_ns + cap_ns), "HTTP/1.1 408 "));
 }
 
@@ -101,7 +101,7 @@ test "decision 110: a body that ends, or has no limits, runs no deadline" {
     try testing.expect((try connection.receive(&.{}, early_ns + 1)).event.?.body.end);
     try testing.expectEqual(null, connection.deadline_ns());
     try support.start_cleartext(.h11);
-    try connection.set_deadlines(.{ .body_rate_min = null, .body_ns = null });
+    try connection.set_timeouts(.{ .body_rate_min = null, .body_ns = null });
     _ = try receive_at(upload_head, early_ns);
     try testing.expectEqual(null, connection.deadline_ns());
 }
@@ -112,7 +112,7 @@ test "decision 110: an h11 body that falls short after its response began closes
     try connection.respond(request.event.?.request.id.number, .{ .status = ok_status, .end = false });
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.timeout);
     try testing.expectEqual(0, send_at(first_end_ns).len);
     try testing.expect(connection.should_close());
 }
@@ -147,7 +147,7 @@ test "RFC 9113 §8.1: an h2 body under the rate gets a 408 and RST_STREAM with N
     try testing.expectEqual(h2.constants.error_no_error, try deadline_support.reset_code(sent, 1));
     const cancelled = (try connection.receive(&.{}, first_end_ns)).event.?.cancelled;
     try testing.expectEqual(1, cancelled.id.number);
-    try testing.expectEqual(Deadline.body_rate, cancelled.reason.deadline);
+    try testing.expectEqual(Timeout.body_rate, cancelled.reason.timeout);
     // With no stream open, the idle deadline runs.
     try testing.expectEqual(first_end_ns + idle_ns, connection.deadline_ns().?);
 }
@@ -161,17 +161,17 @@ test "RFC 9113 §6.4: an h2 body that falls short after its response began is re
     const sent = send_at(first_end_ns);
     try testing.expectEqual(null, deadline_support.find_frame(sent, h2.constants.frame_type_headers, 1));
     try testing.expectEqual(h2.constants.error_cancel, try deadline_support.reset_code(sent, 1));
-    try testing.expectEqual(Deadline.body_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.deadline);
+    try testing.expectEqual(Timeout.body_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.timeout);
 }
 
 test "decision 110: an h2 body past its cap is cancelled for the cap" {
     try h2_support.start();
     const cap_ns = grace_ns + window_ns / 2;
-    try connection.set_deadlines(.{ .body_ns = cap_ns });
+    try connection.set_timeouts(.{ .body_ns = cap_ns });
     try open_upload(1, early_ns);
     connection.on_instant(early_ns + cap_ns);
     try testing.expectEqual(timeout_status, try deadline_support.response_status(send_at(early_ns + cap_ns), 1));
-    try testing.expectEqual(Deadline.body, (try connection.receive(&.{}, early_ns + cap_ns)).event.?.cancelled.reason.deadline);
+    try testing.expectEqual(Timeout.body, (try connection.receive(&.{}, early_ns + cap_ns)).event.?.cancelled.reason.timeout);
 }
 
 test "decision 110: h2 bodies that together fall under the rate end the connection with ENHANCE_YOUR_CALM" {
@@ -185,7 +185,7 @@ test "decision 110: h2 bodies that together fall under the rate end the connecti
     const together_end_ns = first_end_ns + window_ns;
     try testing.expectEqual(together_end_ns, connection.deadline_ns().?);
     connection.on_instant(together_end_ns);
-    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.timeout);
     try testing.expectEqual(h2.constants.error_enhance_your_calm, try deadline_support.goaway_code(send_at(together_end_ns)));
 }
 
@@ -196,7 +196,7 @@ test "decision 110: only a body's own octets count, not an h2 DATA frame's paddi
     _ = try receive_at(try deadline_support.data_frame(1, filler[0 .. quota - 1], false, padding_len), early_ns + 1);
     _ = try receive_at(&(try deadline_support.ping_frame()), early_ns + 2);
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(Deadline.body_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.deadline);
+    try testing.expectEqual(Timeout.body_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.timeout);
 }
 
 test "RFC 9113 §8.2.1: a request colibri refuses as malformed is cancelled as refused" {
@@ -270,7 +270,7 @@ test "decision 110 as amended: while the output holds the WINDOW_UPDATE, the sen
     try testing.expectEqual(0, connection.send(&none, early_ns + 2));
     const end_ns = early_ns + 2 + grace_ns + window_ns;
     connection.on_instant(end_ns);
-    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.timeout);
     // The body's rate waited, so its stream was not cut first.
     try testing.expectEqual(null, (try connection.receive(&.{}, end_ns)).event);
 }

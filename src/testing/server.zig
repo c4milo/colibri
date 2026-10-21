@@ -93,7 +93,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 }
 
 /// The versions the server speaks: `alone` by itself, or h11 and h2 when it is null (decision 117).
-fn versions_of(alone: ?Protocol) server.Versions {
+fn versions_of(alone: ?Protocol) server.Protocols {
     const protocol = alone orelse return .{};
     return switch (protocol) {
         .h11 => .{ .h2 = false },

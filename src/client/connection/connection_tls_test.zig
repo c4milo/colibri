@@ -228,7 +228,7 @@ test "decision 88: a handshake that selected no protocol runs h11 while versions
 
 test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol ends the connection" {
     try tls_support.prepare_configs(&.{}, &support.protocols_h2, "localhost", false);
-    support.config = .{ .authority = support.authority, .tls = client_config, .versions = .{ .h11 = false } };
+    support.config = .{ .authority = support.authority, .tls = client_config, .protocols = .{ .h11 = false } };
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
     try tls_support.start_server();
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };

@@ -26,7 +26,7 @@ const ok: u16 = 200;
 /// configuration names a TLS configuration the connection never reads once its protocol is open.
 /// Test-only.
 fn attach_plain() !void {
-    support.config = .{ .versions = support.only(.h11) };
+    support.config = .{ .protocols = support.only(.h11) };
     try attach_plain_with(.{ .alpn = "http/1.1" });
 }
 
@@ -121,7 +121,7 @@ test "RFC 9846 §4.7.3: the connection reads a second KeyUpdate that asks while 
 
 test "a run of KeyUpdates past the provider's limit ends the connection, and the close reason names the limit" {
     for ([_][]const u8{ "http/1.1", "h2" }) |alpn| {
-        support.config = .{ .versions = support.only(.h11) };
+        support.config = .{ .protocols = support.only(.h11) };
         try attach_plain_with(.{ .alpn = alpn });
         const sealed = try key_updates_at(0, plain_support.key_update_run_max + 1);
         try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..sealed], support.now_ns));
@@ -160,7 +160,7 @@ test "RFC 9846 §6.1: a record after the peer's close_notify is not read" {
 
 test "decision 110: a run of records carrying no data ends the connection, and the limit is named" {
     for ([_][]const u8{ "http/1.1", "h2" }) |alpn| {
-        support.config = .{ .versions = support.only(.h11) };
+        support.config = .{ .protocols = support.only(.h11) };
         try attach_plain_with(.{ .alpn = alpn });
         // An empty record of application data carries no data, as a ticket does.
         var sealed: usize = 0;
@@ -185,7 +185,7 @@ test "RFC 9846 §6: a record the provider will not seal ends the connection, and
 }
 
 test "RFC 9113 §9.2: a handshake below TLS 1.3 serves no HTTP, and the connection closes" {
-    support.config = .{ .versions = support.only(.h11) };
+    support.config = .{ .protocols = support.only(.h11) };
     try testing.expectError(error.ConnectionFailed, attach_plain_with(.{ .alpn = "h2", .version = tls_provider.constants.version_tls_1_2 }));
     try testing.expect(connection.should_close());
     // Nothing is sealed after the connection closed.
@@ -250,7 +250,7 @@ const coded_request = "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip, ch
 
 test "RFC 9112 §7.2: content after a chunk that decodes to nothing is read in the same call" {
     decoders.storage().reset(h11.coding.Features.target());
-    support.config = .{ .versions = support.only(.h11), .decoders = decoders.storage(), .decoded = &decoded };
+    support.config = .{ .protocols = support.only(.h11), .decoders = decoders.storage(), .decoded = &decoded };
     try attach_plain_with(.{ .alpn = "http/1.1" });
     const record_len = try record_at(0, plain_support.content_application_data, coded_request);
     const head = try connection.receive(support.input[0..record_len], support.now_ns);
@@ -264,7 +264,7 @@ test "decision 91: a transport that closed gives back the decoder its coded body
     decoders.storage().reset(h11.coding.Features.target());
     // The pool holds one decoder, which the first connection's body takes.
     for (0..2) |_| {
-        support.config = .{ .versions = support.only(.h11), .decoders = decoders.storage(), .decoded = &decoded };
+        support.config = .{ .protocols = support.only(.h11), .decoders = decoders.storage(), .decoded = &decoded };
         try attach_plain_with(.{ .alpn = "http/1.1" });
         const head_len = coded_request.len - "0\r\n\r\n".len;
         const record_len = try record_at(0, plain_support.content_application_data, coded_request[0..head_len]);

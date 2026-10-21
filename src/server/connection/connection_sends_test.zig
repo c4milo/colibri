@@ -14,7 +14,7 @@ const server_constants = support.server_constants;
 const receive_at = deadline_support.receive_at;
 const send_at = deadline_support.send_at;
 const early_ns = deadline_support.early_ns;
-const Deadline = @import("../deadline.zig").Deadline;
+const Timeout = @import("../deadline.zig").Timeout;
 const ResponseBody = support.ResponseBody;
 
 const grace_ns = server_constants.rate_grace_ns;
@@ -58,7 +58,7 @@ test "decision 110: a peer that takes too little of what the connection holds is
     connection.on_instant(first_end_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.timeout);
     // RFC 9112 §9.6: nothing more goes out, and the connection closes when its linger passes.
     try testing.expect(!connection.should_close());
     try testing.expectEqual(first_end_ns + linger_ns, connection.deadline_ns().?);
@@ -117,7 +117,7 @@ const closing_request = "GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n"
 
 test "decision 110: with no send rate and no linger, a connection waits on its peer" {
     try support.start_cleartext(.h11);
-    try connection.set_deadlines(.{ .send_rate_min = null, .linger_ns = null });
+    try connection.set_timeouts(.{ .send_rate_min = null, .linger_ns = null });
     try answer_slowly();
     try testing.expectEqual(null, connection.deadline_ns());
     connection.on_instant(first_end_ns + window_ns);
@@ -162,7 +162,7 @@ test "RFC 9113 §10.5: a stream whose window stays under the floor is reset with
     try testing.expectEqual(h2.constants.error_cancel, try deadline_support.reset_code(send_at(first_end_ns), 1));
     const cancelled = (try connection.receive(&.{}, first_end_ns)).event.?.cancelled;
     try testing.expectEqual(1, cancelled.id.number);
-    try testing.expectEqual(Deadline.send_rate, cancelled.reason.deadline);
+    try testing.expectEqual(Timeout.send_rate, cancelled.reason.timeout);
 }
 
 test "decision 110: a stream's window meter waits while the connection holds other octets" {
@@ -171,7 +171,7 @@ test "decision 110: a stream's window meter waits while the connection holds oth
     try testing.expectEqual(0, take(0, early_ns));
     connection.on_instant(first_end_ns);
     // The connection's meter judges it, not the stream's.
-    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.timeout);
 }
 
 test "decision 110: a stream the connection's window holds ends the connection with ENHANCE_YOUR_CALM" {
@@ -184,7 +184,7 @@ test "decision 110: a stream the connection's window holds ends the connection w
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = &content, .end = true }));
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.timeout);
     try testing.expectEqual(h2.constants.error_enhance_your_calm, try deadline_support.goaway_code(send_at(first_end_ns)));
 }
 
@@ -235,7 +235,7 @@ fn upload_blocked() !void {
 test "decision 110: a stream a body deadline ends owes one cancelled, not a second for its send" {
     try upload_blocked();
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(Deadline.body_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.deadline);
+    try testing.expectEqual(Timeout.body_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.timeout);
     try testing.expect(try nothing_owed(first_end_ns));
 }
 
@@ -244,7 +244,7 @@ test "decision 110: a stream a send deadline ends owes one cancelled, not a seco
     // The body keeps its rate for a window, so the send deadline passes first.
     _ = try receive_at(try deadline_support.data_frame(1, content[0..quota], false, 0), early_ns + 1);
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(Deadline.send_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.deadline);
+    try testing.expectEqual(Timeout.send_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.timeout);
     connection.on_instant(first_end_ns + window_ns);
     try testing.expect(try nothing_owed(first_end_ns + window_ns));
 }

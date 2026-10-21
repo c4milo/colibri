@@ -191,7 +191,7 @@ fn Tests(comptime Pool: type) type {
         /// A pool with no QUIC, whose TCP connection speaks `protocol` in cleartext and holds
         /// `exchange`, which `send` has not written yet.
         fn start_cleartext(protocol: event.Protocol, exchange: *Exchange) !void {
-            config = .{ .authority = support.authority, .versions = pool_support.versions_for(&pool, support.only(protocol)) };
+            config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(protocol)) };
             try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, .{}, null);
             support.to_peer_len = 0;
             support.to_client_len = 0;
@@ -256,7 +256,7 @@ fn Tests(comptime Pool: type) type {
         /// peer has read the preface and the request.
         fn start_tls(exchange: *Exchange) !void {
             try tls_support.prepare_server(&support.protocols_h2, false);
-            config = .{ .tls = tls_support.client_values(support.authority), .versions = pool_support.versions_for(&pool, .{}), .authority = support.authority };
+            config = .{ .tls = tls_support.client_values(support.authority), .protocols = pool_support.versions_for(&pool, .{}), .authority = support.authority };
             try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
             try tls_support.start_server();
             _ = try pool.request(&exchange.request, &exchange.response);

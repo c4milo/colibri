@@ -10,7 +10,7 @@ const tcp_support = @import("../connection/connection_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const internal = @import("quic_connection_internal.zig");
-const Deadline = @import("../deadline.zig").Deadline;
+const Timeout = @import("../deadline.zig").Timeout;
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -67,9 +67,9 @@ fn server_at(now_ns: u64) void {
 }
 
 /// The deadline the `n`th `cancelled` event names, or null when there is no such event.
-fn cancelled_for(n: usize) ?Deadline {
+fn cancelled_for(n: usize) ?Timeout {
     const entry = support.nth(.cancelled, n) orelse return null;
-    return entry.reason.?.deadline;
+    return entry.reason.?.timeout;
 }
 
 fn is_no_error(code: u64) bool {
@@ -88,7 +88,7 @@ test "RFC 9110 §15.5.9: a body under the minimum rate gets a 408 when its first
     const stream = connection.transport.streams.lookup(.{ .value = slow.id }).live;
     try testing.expect(stream.stop_sending.owed and is_no_error(stream.stop_error_code));
     server_at(at_ns);
-    try testing.expectEqual(Deadline.body_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.body_rate, cancelled_for(0).?);
     try testing.expectEqual(0, connection.bodies.waiting);
     try support.pump(support.rounds_default);
     try testing.expectEqual(request_timeout, slow.status);
@@ -123,12 +123,12 @@ test "decision 110: a body that brings its quota each window is not cut, and one
     server_at(third_end_ns - 1);
     try testing.expectEqual(null, cancelled_for(0));
     server_at(third_end_ns);
-    try testing.expectEqual(Deadline.body_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.body_rate, cancelled_for(0).?);
 }
 
 test "decision 110: a body that keeps the rate still ends at its cap" {
     try support.start();
-    support.config.deadlines.body_ns = cap_ns;
+    support.config.timeouts.body_ns = cap_ns;
     try support.connect();
     const fetch = try post_holding();
     const since = since_ns(fetch);
@@ -139,7 +139,7 @@ test "decision 110: a body that keeps the rate still ends at its cap" {
     server_at(since + cap_ns - 1);
     try testing.expectEqual(null, cancelled_for(0));
     server_at(since + cap_ns);
-    try testing.expectEqual(Deadline.body, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.body, cancelled_for(0).?);
 }
 
 test "decision 110: a body that ended, and one with no limits, run no deadline" {
@@ -151,8 +151,8 @@ test "decision 110: a body that ended, and one with no limits, run no deadline" 
     try testing.expectEqual(null, quic_deadline.soonest(connection));
 
     try support.start();
-    support.config.deadlines.body_rate_min = null;
-    support.config.deadlines.body_ns = null;
+    support.config.timeouts.body_rate_min = null;
+    support.config.timeouts.body_ns = null;
     try support.connect();
     const fetch = try post_holding();
     try testing.expectEqual(null, quic_deadline.soonest(connection));
@@ -168,7 +168,7 @@ test "RFC 9114 §4.1.1: a body that falls short after its response began is rese
     try connection.respond(fetch.id, .{ .status = ok, .end = false });
     try support.pump(rounds_few);
     server_at(at_ns);
-    try testing.expectEqual(Deadline.body_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.body_rate, cancelled_for(0).?);
     try support.pump(support.rounds_default);
     try testing.expectEqual(h3.constants.error_request_cancelled, fetch.reset.?);
     try testing.expectEqual(ok, fetch.status);
@@ -231,7 +231,7 @@ test "RFC 9114 §10.5: bodies that together fall under the rate close the connec
     server_at(since + first_window_ns - 1);
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);
     server_at(since + first_window_ns);
-    try testing.expectEqual(Deadline.body_rate, connection.clock.timed_out.?);
+    try testing.expectEqual(Timeout.body_rate, connection.clock.timed_out.?);
     const close = connection.transport.pending_close.?;
     try testing.expect(close.layer == .application and close.error_code == h3.constants.error_excessive_load);
     try testing.expect(support.server_failed);
@@ -246,7 +246,7 @@ test "decision 110: bodies that together bring the quota keep the connection, an
     try send_content(fast, quota);
     try support.pump(rounds_few);
     server_at(since + first_window_ns);
-    try testing.expectEqual(Deadline.body_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.body_rate, cancelled_for(0).?);
     try testing.expectEqual(slow.id, support.nth(.cancelled, 0).?.id);
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);
     try testing.expectEqual(1, connection.bodies.waiting);
@@ -321,19 +321,19 @@ test "decision 101: a coded response whose request a body deadline ends gives it
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
     try testing.expectEqual(free - 1, tcp_support.pool.free_count());
     server_at(since_ns(fetch) + first_window_ns);
-    try testing.expectEqual(Deadline.body_rate, cancelled_for(0).?);
+    try testing.expectEqual(Timeout.body_rate, cancelled_for(0).?);
     try testing.expectEqual(free, tcp_support.pool.free_count());
 }
 
 test "decision 110 as amended: a body rate an honest peer can fall short of is refused at start" {
     try support.start();
     // Twice 819 octets a second over a window of 10 s is under a unit of 16,384 octets.
-    support.config.deadlines.body_rate_min = unit_bound_rate - 1;
-    try testing.expectError(error.DeadlineInvalid, support.connect());
+    support.config.timeouts.body_rate_min = unit_bound_rate - 1;
+    try testing.expectError(error.TimeoutInvalid, support.connect());
     try support.start();
-    support.config.deadlines.body_rate_min = unit_bound_rate;
+    support.config.timeouts.body_rate_min = unit_bound_rate;
     try support.connect();
 }
 
-/// The least rate `Deadlines.validate_units` takes at the default window.
+/// The least rate `Timeouts.validate_units` takes at the default window.
 const unit_bound_rate: u32 = 820;

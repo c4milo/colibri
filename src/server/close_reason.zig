@@ -7,7 +7,7 @@ const deadline = @import("deadline.zig");
 
 pub const CloseReason = union(enum) {
     /// The deadline that passed.
-    deadline: deadline.Deadline,
+    timeout: deadline.Timeout,
     /// The limit the peer passed.
     limit: Limit,
 };

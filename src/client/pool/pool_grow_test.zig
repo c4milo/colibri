@@ -6,7 +6,7 @@
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const pool_module = @import("pool.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 
 const testing = std.testing;
 const Exchange = support.Exchange;
@@ -55,8 +55,8 @@ const response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi";
 const closing_response = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nhi";
 
 /// A pool of `two_slots` in cleartext, which speaks the versions `versions` allows.
-fn start(versions: versions_module.Versions) !void {
-    config = .{ .authority = support.authority, .versions = versions };
+fn start(versions: protocols_module.Protocols) !void {
+    config = .{ .authority = support.authority, .protocols = versions };
     try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, two_slots, null);
     events_len = 0;
     starts = true;
@@ -306,7 +306,7 @@ const three_addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback
 var three_memory: [Pool.memory_bytes(three_slots)]u8 align(Pool.memory_alignment) = undefined;
 
 test "decision 125: two connections to one address that both fail skip no other address" {
-    config = .{ .authority = support.authority, .versions = .{ .h2 = false, .h3 = false } };
+    config = .{ .authority = support.authority, .protocols = .{ .h2 = false, .h3 = false } };
     try pool.init(&three_memory, &config, .{ .addresses = &three_addresses, .port = http_port }, three_slots, null);
     events_len = 0;
     var exchanges = [_]Exchange{ get(&bodies[0], "/a"), get(&bodies[1], "/b"), get(&bodies[2], "/c") };
@@ -331,7 +331,7 @@ test "decision 125: two connections to one address that both fail skip no other 
 }
 
 test "decision 125 ruling 8: set_values keeps the h3 alternative unless the values name one" {
-    config = .{ .authority = support.authority, .versions = .{ .h2 = false, .h3 = false } };
+    config = .{ .authority = support.authority, .protocols = .{ .h2 = false, .h3 = false } };
     try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port, .alternative = learned }, two_slots, null);
     pool.set_values(.{ .addresses = &new_addresses, .port = http_port });
     try testing.expectEqual(learned, pool.alternative().?);

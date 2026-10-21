@@ -39,7 +39,7 @@ pub const Application = struct {
     answers: [limits.requests_max]Answer,
     answers_len: u8,
     /// The deadline that ended a request, as the application read it in `cancelled`.
-    cancelled: ?server.Deadline,
+    cancelled: ?server.Timeout,
 
     pub fn init(app: *Application) void {
         app.answers_len = 0;
@@ -53,8 +53,8 @@ pub const Application = struct {
             .request => |request| app.note_request(request.id, now_ms, request.end),
             .body => |body| if (body.end) app.note_body_end(body.id, now_ms),
             .trailers => |trailers| app.note_body_end(trailers.id, now_ms),
-            .cancelled => |cancelled| if (cancelled.reason == .deadline) {
-                app.cancelled = cancelled.reason.deadline;
+            .cancelled => |cancelled| if (cancelled.reason == .timeout) {
+                app.cancelled = cancelled.reason.timeout;
             },
             .done => {},
             // The run keeps these: the application writes each answer again in every pass, and

@@ -172,7 +172,7 @@ pub const CancelReason = union(enum) {
     /// colibri refused the request, which the peer sent malformed.
     refused,
     /// The deadline passed, and colibri reset the stream (decision 110).
-    deadline: deadline.Deadline,
+    timeout: deadline.Timeout,
     /// The connection stopped before the response was whole (decision 119).
     closed,
     /// The program called `cancel` (decision 119).

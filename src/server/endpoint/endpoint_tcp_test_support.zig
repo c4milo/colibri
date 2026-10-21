@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 const tls = @import("tls");
 const event = @import("../event.zig");
 const endpoint_module = @import("endpoint.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 const support = @import("../connection/connection_test_support.zig");
 
 const Event = event.Event;
@@ -65,8 +65,8 @@ pub fn identity() tls.Server {
 }
 
 /// Starts the endpoint with `with` as its identity, or none, serving `versions`. Test-only.
-pub fn start(with: ?tls.Server, versions: versions_module.Versions) !void {
-    config = .{ .tls = with, .versions = versions };
+pub fn start(with: ?tls.Server, versions: protocols_module.Protocols) !void {
+    config = .{ .tls = with, .protocols = versions };
     seen_len = 0;
     sent_len = @splat(0);
     client_read = @splat(0);

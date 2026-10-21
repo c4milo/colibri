@@ -212,7 +212,7 @@ fn tcp_accept(storage: *Storage, plan: *const Plan, now_ns: u64, now_ms: u64) Er
         const connection = try storage.ledger.register(handle, .tcp, index, peer_plan.honest(), now_ms);
         connection.reads_slowly = peer_plan.behaviour.peer == .slow_reader;
         if (handle.generation > 1) storage.record.reused += 1;
-        try storage.program.set_deadlines(handle, peer_plan.behaviour.deadlines);
+        try storage.program.set_timeouts(handle, peer_plan.behaviour.deadlines);
         try storage.tcp.start(index, peer_plan, handle, now_ns, now_ms);
         moved = true;
     }
@@ -314,7 +314,7 @@ fn note_new_connection(storage: *Storage, index: usize, peer_plan: *const plan_m
         storage.quic.peers[index].handle = handle;
         _ = try storage.ledger.register(handle, .quic, @intCast(index), peer_plan.honest(), now_ms);
         if (handle.generation > 1) storage.record.reused += 1;
-        try storage.program.set_deadlines(handle, peer_plan.behaviour.deadlines);
+        try storage.program.set_timeouts(handle, peer_plan.behaviour.deadlines);
     }
 }
 

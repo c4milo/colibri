@@ -63,9 +63,9 @@ pub const Config = struct {
     /// decision 111), or null to keep every client in its original version.
     switch_to: ?quic.packet.header.Version = .v2,
     /// The limits each connection starts with (decision 110 as amended). Null turns a deadline
-    /// off. `Endpoint.init` refuses limits `Deadlines.validate` or `validate_units` refuses,
-    /// with `error.DeadlineInvalid`.
-    deadlines: deadline.Deadlines = .{},
+    /// off. `Endpoint.init` refuses limits `Timeouts.validate` or `validate_units` refuses,
+    /// with `error.TimeoutInvalid`.
+    timeouts: deadline.Timeouts = .{},
     /// The request streams the client may open at once (RFC 9000 §4.6), up to the records a
     /// connection holds: the endpoint's `limits.requests_max` (decision 119).
     requests_max: u32 = constants.quic_requests_max,
@@ -99,7 +99,7 @@ pub const StartError = error{
     /// chapulin would not take the transport parameters or the Initial keys.
     TlsRefused,
     /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
-    DeadlineInvalid,
+    TimeoutInvalid,
 };
 
 /// A datagram `send` wrote, the ECN codepoint for its IP header (decision 68), and the address it
@@ -151,7 +151,7 @@ pub const QuicConnection = struct {
     /// Whether h3 refused more than that limit, which closed the connection.
     resets_sent_passed: bool,
     /// This connection's limits and where its deadlines stand (decision 110 as amended).
-    deadlines: deadline.Deadlines,
+    timeouts: deadline.Timeouts,
     clock: quic_deadline.Clock,
     /// The request bodies the connection waits for, and the responses its peer has yet to take.
     bodies: quic_body.Bodies,
@@ -227,16 +227,16 @@ pub const QuicConnection = struct {
     /// Replaces this connection's limits (decision 110 as amended), for a program short of
     /// connections that shortens its deadlines. It refuses what a connection refuses at its
     /// start. A deadline that has started keeps its start.
-    pub fn set_deadlines(connection: *QuicConnection, deadlines: deadline.Deadlines) error{DeadlineInvalid}!void {
+    pub fn set_timeouts(connection: *QuicConnection, deadlines: deadline.Timeouts) error{TimeoutInvalid}!void {
         try deadlines.validate();
         try deadlines.validate_units();
-        connection.deadlines = deadlines;
+        connection.timeouts = deadlines;
     }
 
     /// Why colibri closed the connection on its own: the deadline that passed, or the limit the
     /// peer passed. Null while the connection runs, and after any other end.
     pub fn close_reason(connection: *const QuicConnection) ?close_reason_module.CloseReason {
-        if (connection.clock.timed_out) |passed| return .{ .deadline = passed };
+        if (connection.clock.timed_out) |passed| return .{ .timeout = passed };
         if (connection.peer_resets_passed) return .{ .limit = .peer_resets };
         if (connection.resets_sent_passed) return .{ .limit = .resets_sent };
         return null;
@@ -256,7 +256,7 @@ pub const QuicConnection = struct {
 test "design §8 step 17f: the QUIC connection's public functions are the calls the module's other files make" {
     const public_names = @import("core").public_names;
     try public_names.expect(QuicConnection, &.{
-        "receive",  "respond",       "write_body",   "write_trailers", "cancel",
-        "shutdown", "set_deadlines", "close_reason", "protocol",       "server_name",
+        "receive",  "respond",      "write_body",   "write_trailers", "cancel",
+        "shutdown", "set_timeouts", "close_reason", "protocol",       "server_name",
     });
 }

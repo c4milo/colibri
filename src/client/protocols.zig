@@ -1,6 +1,6 @@
 //! The versions a client speaks (decision 117), and the one a TCP connection in cleartext speaks.
 //! A pool builds its ALPN lists from it (decision 120), so `versions` is the one place a
-//! program names a version. `client.zig` exports `Versions` alone.
+//! program names a version. `client.zig` exports `Protocols` alone.
 const std = @import("std");
 const testing = std.testing;
 const event = @import("event.zig");
@@ -12,7 +12,7 @@ const Protocol = event.Protocol;
 /// only while `versions` allows h11 or h2, and QUIC only while it allows h3. Over TLS it offers
 /// the protocols `versions` allows in its ALPN list, h2 before h11 (decision 120), and in
 /// cleartext `cleartext` chooses.
-pub const Versions = struct {
+pub const Protocols = struct {
     h11: bool = true,
     h2: bool = true,
     h3: bool = true,
@@ -21,7 +21,7 @@ pub const Versions = struct {
 /// The version a TCP connection in cleartext speaks: h11 when `versions` allows it, and otherwise h2
 /// with prior knowledge (RFC 9113 §3.3). Null when it allows neither, which leaves a TCP connection
 /// no version to speak.
-pub fn cleartext(versions: Versions) ?Protocol {
+pub fn cleartext(versions: Protocols) ?Protocol {
     if (versions.h11) return .h11;
     if (versions.h2) return .h2;
     return null;

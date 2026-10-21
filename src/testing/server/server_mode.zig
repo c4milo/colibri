@@ -8,7 +8,7 @@ const server_options = @import("server_options.zig");
 
 /// The versions the server speaks: h11 and h2, which a connection in cleartext chooses between by
 /// its first octets, or one alone with `--h11` or `--h2` (decision 117).
-pub var versions: server.Versions align(@alignOf(server.Versions)) = .{};
+pub var versions: server.Protocols align(@alignOf(server.Protocols)) = .{};
 pub var listen_address: [server_options.ipv4_octets]u8 = server_options.loopback_octets;
 pub var echo_mode: bool = false;
 /// Whether responses are coded (`--coded`), in gzip or deflate, gzip first.

@@ -76,12 +76,12 @@ pub const input_len: usize = 65_536;
 /// A cleartext connection speaking `protocol`, with nothing read or written: its configuration
 /// allows that version alone, so the connection speaks it from the start (decision 117).
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
-    config = .{ .versions = only(protocol), .h3_alternative = alternative, .limits = limits };
+    config = .{ .protocols = only(protocol), .h3_alternative = alternative, .limits = limits };
     try connection.init(&config, stream.random(), 0, 0);
 }
 
 /// The versions that allow `protocol` alone among those a TCP connection speaks.
-pub fn only(protocol: connection_module.Protocol) Versions {
+pub fn only(protocol: connection_module.Protocol) Protocols {
     return switch (protocol) {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
@@ -90,7 +90,7 @@ pub fn only(protocol: connection_module.Protocol) Versions {
     };
 }
 
-pub const Versions = @import("../versions.zig").Versions;
+pub const Protocols = @import("../protocols.zig").Protocols;
 
 /// The encoder pool the coding tests give a connection, and the codings it applies, gzip first
 /// (decision 101).
@@ -103,7 +103,7 @@ const pool_level: u4 = 1;
 /// A cleartext connection speaking `protocol` that codes content with `pool`, every encoder free.
 pub fn start_coding(protocol: connection_module.Protocol) !void {
     pool.reset(.none());
-    config = .{ .versions = only(protocol), .codings = &codings, .encoders = pool.encoders() };
+    config = .{ .protocols = only(protocol), .codings = &codings, .encoders = pool.encoders() };
     try connection.init(&config, stream.random(), 0, 0);
 }
 

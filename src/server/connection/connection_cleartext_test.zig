@@ -57,19 +57,19 @@ test "RFC 9113 §3.3: a prefix of the preface chooses nothing and consumes nothi
 
 test "decision 117: a version `versions` turns off is never chosen" {
     // h11 alone: the preface is an h11 request line like any other, and h2 never runs.
-    support.config = .{ .versions = support.only(.h11) };
+    support.config = .{ .protocols = support.only(.h11) };
     try connection.init(&support.config, support.stream.random(), 0, 0);
     try testing.expectEqual(.h11, connection.protocol().?);
     _ = support.receive_copy(preface_and_settings) catch {};
     try testing.expectEqual(.h11, connection.protocol().?);
     // h2 alone: other first octets are an invalid preface, which fails the connection (RFC 9113
     // §3.4).
-    support.config = .{ .versions = support.only(.h2) };
+    support.config = .{ .protocols = support.only(.h2) };
     try connection.init(&support.config, support.stream.random(), 0, 0);
     try testing.expectEqual(.h2, connection.protocol().?);
     try testing.expectError(error.ConnectionFailed, support.receive_copy(h11_request));
     // h3 alone leaves a TCP connection nothing to speak (RFC 9114 §3.1).
-    support.config = .{ .versions = .{ .h11 = false, .h2 = false } };
+    support.config = .{ .protocols = .{ .h11 = false, .h2 = false } };
     try testing.expectError(error.NoVersion, connection.init(&support.config, support.stream.random(), 0, 0));
 }
 
@@ -79,7 +79,7 @@ test "decision 110: a connection whose first octets never came closes at its fir
     connection.on_instant(deadline_ns - 1);
     try testing.expect(!connection.should_close());
     connection.on_instant(deadline_ns);
-    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+    try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
     try testing.expect(connection.should_close());
     try testing.expectEqual(0, support.drain().len);
 }
@@ -99,13 +99,13 @@ test "decision 110 as amended: a body rate is judged by the version the first oc
     // While the first octets may still choose h2, whose body arrives a DATA frame at a time, a
     // rate an honest peer can fall short of is refused.
     try start_both();
-    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = 819 }));
+    try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = 819 }));
     // h11 in cleartext reads a body octet by octet, so once it is chosen any rate stands.
     _ = try support.receive_copy(h11_request);
     try testing.expectEqual(.h11, connection.protocol().?);
-    try connection.set_deadlines(.{ .body_rate_min = 819 });
+    try connection.set_timeouts(.{ .body_rate_min = 819 });
     // h2 keeps refusing it.
     try start_both();
     _ = try support.receive_copy(preface_and_settings);
-    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = 819 }));
+    try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = 819 }));
 }

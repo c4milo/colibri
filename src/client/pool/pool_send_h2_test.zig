@@ -78,7 +78,7 @@ fn spend_window(connection: ConnectionHandle) !void {
 /// A pool whose TCP connection speaks h2 in cleartext with prior knowledge, which uploads
 /// `upload` until the window is spent. Returns the connection's handle.
 fn start_blocked(post: *Exchange) !ConnectionHandle {
-    config = .{ .authority = support.authority, .versions = .{ .h11 = false, .h3 = false } };
+    config = .{ .authority = support.authority, .protocols = .{ .h11 = false, .h3 = false } };
     try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
     support.to_peer_len = 0;
     support.to_client_len = 0;
@@ -136,7 +136,7 @@ fn waiting() usize {
 }
 
 test "decision 125: exchanges past an h2 connection's slots wait for a slot, and no other connection opens" {
-    config = .{ .authority = support.authority, .versions = .{ .h11 = false, .h3 = false } };
+    config = .{ .authority = support.authority, .protocols = .{ .h11 = false, .h3 = false } };
     try pool.init(&many_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{ .requests = many_count }, null);
     support.to_peer_len = 0;
     events_len = 0;

@@ -13,7 +13,7 @@ const quic = @import("quic");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const deadline = @import("../deadline.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 const limits_module = @import("../limits.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const alt_svc = @import("../alt_svc.zig");
@@ -31,14 +31,14 @@ pub const Config = struct {
     /// §3.1).
     tls: ?tls.Server = null,
     /// The HTTP versions the endpoint serves (decision 117). A QUIC connection serves h3 alone.
-    versions: versions_module.Versions = .{},
+    protocols: protocols_module.Protocols = .{},
     /// Limits on what a peer may ask (decision 117). `requests_max` bounds an h3 connection's
     /// request streams too, up to `quic_requests_max`.
     limits: limits_module.Limits = .{},
     /// The limits each connection starts with (decision 110 as amended). Null turns a deadline
-    /// off. `init` refuses limits `Deadlines.validate` or `validate_units` refuses, with
-    /// `error.DeadlineInvalid`.
-    deadlines: deadline.Deadlines = .{},
+    /// off. `init` refuses limits `Timeouts.validate` or `validate_units` refuses, with
+    /// `error.TimeoutInvalid`.
+    timeouts: deadline.Timeouts = .{},
     /// The content codings the server applies to a response the caller marks `codable`, in its
     /// order of preference, and the pool their encoders come from (decision 101). Both or neither,
     /// and only `gzip` and `deflate`, which the server encodes.
@@ -104,11 +104,11 @@ pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Ra
     if (config.tls) |identity| assert(identity.alpn.len == 0);
     // RFC 9114 §3.1: a TCP connection speaks h11 or h2, and `versions` may turn both off (decision
     // 117).
-    const serves_tcp = counts.tcp > 0 and versions_module.tcp_choice(config.versions) != null;
+    const serves_tcp = counts.tcp > 0 and protocols_module.tcp_choice(config.protocols) != null;
     // RFC 9001 §3: QUIC's keys come from a TLS handshake, so an endpoint with no identity starts
     // no QUIC connection. RFC 9114 §3.1: its QUIC connections speak h3, under the token the
     // handshake names, and `versions` may turn h3 off (decision 117).
-    const serves_quic = counts.quic > 0 and config.tls != null and config.versions.h3;
+    const serves_quic = counts.quic > 0 and config.tls != null and config.protocols.h3;
     // RFC 9114 §3.1 and RFC 9113 §3: the slots it holds speak none of the versions `versions`
     // allows, so the endpoint would serve no client.
     if (!serves_tcp and !serves_quic) return error.NoVersion;
@@ -116,9 +116,9 @@ pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Ra
     // to start would answer no client and tell its program nothing, so the endpoint refuses them
     // here, once, where its program reads the error. Decision 110 as amended judges the body rate
     // in units only where a body may arrive in them.
-    try config.deadlines.validate();
-    const units = serves_quic or (serves_tcp and (config.tls != null or config.versions.h2));
-    if (units) try config.deadlines.validate_units();
+    try config.timeouts.validate();
+    const units = serves_quic or (serves_tcp and (config.tls != null or config.protocols.h2));
+    if (units) try config.timeouts.validate_units();
     if (serves_quic) try build_quic(config, built, random);
     if (serves_tcp) try build_tcp(config, built, random);
     return .{ .tcp = serves_tcp, .quic = serves_quic };
@@ -143,7 +143,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
         .codings = config.codings,
         .encoders = config.encoders,
         .switch_to = config.switch_to,
-        .deadlines = config.deadlines,
+        .timeouts = config.timeouts,
         .requests_max = @min(config.limits.requests_max, constants.quic_requests_max),
         .peer_resets_max = config.limits.peer_resets_max,
         .resets_sent_max = config.limits.resets_sent_max,
@@ -159,18 +159,18 @@ const alpn_h11 = [_][]const u8{tls_provider.constants.alpn_http_1_1};
 fn build_tcp(config: *const Config, built: Built, random: tls.Random) StartError!void {
     built.tcp.cleartext = .{
         .tls = null,
-        .versions = config.versions,
+        .protocols = config.protocols,
         .decoders = config.decoders,
         .decoded = config.decoded,
         .h3_alternative = config.h3_alternative,
         .codings = config.codings,
         .encoders = config.encoders,
-        .deadlines = config.deadlines,
+        .timeouts = config.timeouts,
         .limits = config.limits,
     };
     built.tcp.secure = built.tcp.cleartext;
     var values = config.tls orelse return;
-    const versions = config.versions;
+    const versions = config.protocols;
     values.alpn = if (versions.h11 and versions.h2) &alpn_both else if (versions.h2) &alpn_h2 else &alpn_h11;
     built.tcp_tls.init(values) catch |failure| switch (failure) {
         // The endpoint names two protocols at most, and a server's values name no anchor.
@@ -189,9 +189,9 @@ const tcp_support = @import("../connection/connection_test_support.zig");
 test "decision 119: an endpoint with no identity, or with h3 turned off, serves no version" {
     try support.start_endpoint(null);
     const config = &endpoint_support.endpoint_config;
-    config.versions.h3 = false;
+    config.protocols.h3 = false;
     try testing.expectError(error.NoVersion, endpoint_support.restart());
-    config.versions.h3 = true;
+    config.protocols.h3 = true;
     config.tls = null;
     try testing.expectError(error.NoVersion, endpoint_support.restart());
 }
@@ -248,17 +248,17 @@ const TcpOnly = @import("endpoint.zig").EndpointOf(.{ .tcp_connections = 1, .qui
 threadlocal var tcp_only: TcpOnly align(@alignOf(TcpOnly)) = undefined;
 threadlocal var tcp_only_config: Config align(@alignOf(Config)) = undefined;
 
-fn start_tcp_only(identity: ?tls.Server, deadlines: deadline.Deadlines) StartError!void {
-    tcp_only_config = .{ .tls = identity, .versions = .{ .h2 = false }, .deadlines = deadlines };
+fn start_tcp_only(identity: ?tls.Server, deadlines: deadline.Timeouts) StartError!void {
+    tcp_only_config = .{ .tls = identity, .protocols = .{ .h2 = false }, .timeouts = deadlines };
     return tcp_only.init(&tcp_only_config, tcp_support.stream.random(), 0, tcp_support.now_ns);
 }
 
 test "decision 110 as amended: units are judged only where a body may arrive in them" {
     // h11 in cleartext reads a body octet by octet, so a rate no unit could meet is taken there.
-    const slow: deadline.Deadlines = .{ .body_rate_min = 1 };
+    const slow: deadline.Timeouts = .{ .body_rate_min = 1 };
     try start_tcp_only(null, slow);
     // Over TLS a body arrives a record at a time, and the same rate is refused.
-    try testing.expectError(error.DeadlineInvalid, start_tcp_only(support.server_values(), slow));
+    try testing.expectError(error.TimeoutInvalid, start_tcp_only(support.server_values(), slow));
 }
 
 test "RFC 9846 §4.5.2: an endpoint of TCP slots alone refuses a key whose signature does not verify" {

@@ -50,7 +50,7 @@ test "decision 125: memory_bytes counts each TCP connection and each exchange, a
 }
 
 test "decision 125: init keeps the TCP connection and the exchanges in the caller's memory" {
-    config = .{ .authority = support.authority, .versions = .{ .h3 = false } };
+    config = .{ .authority = support.authority, .protocols = .{ .h3 = false } };
     try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, few, null);
     const first = @intFromPtr(&pool_memory);
     const end = first + pool_memory.len;

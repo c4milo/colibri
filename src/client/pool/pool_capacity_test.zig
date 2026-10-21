@@ -6,7 +6,7 @@ const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
 
@@ -45,23 +45,23 @@ test "decision 124: a pool with no QUIC holds no QUIC connection and no QUIC TLS
 }
 
 test "RFC 9114 §3.1: a pool with no QUIC refuses versions that allow h3, in cleartext and over TLS" {
-    const with_h3 = [_]versions_module.Versions{ .{}, .{ .h11 = false }, .{ .h2 = false }, .{ .h11 = false, .h2 = false } };
+    const with_h3 = [_]protocols_module.Protocols{ .{}, .{ .h11 = false }, .{ .h2 = false }, .{ .h11 = false, .h2 = false } };
     for (with_h3) |versions| {
-        config = .{ .authority = support.authority, .versions = versions };
+        config = .{ .authority = support.authority, .protocols = versions };
         try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, .{}, null));
         config.tls = tls_support.client_values(support.authority);
         try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, .{}, null));
     }
     // With h3 off it offers TCP, and with no version at all it offers nothing (decision 117).
-    config = .{ .authority = support.authority, .versions = .{ .h3 = false } };
+    config = .{ .authority = support.authority, .protocols = .{ .h3 = false } };
     try pool.init(&pool_memory, &config, values, .{}, null);
     try testing.expect(pool.offered.tcp and !pool.offered.quic);
-    config.versions = .{ .h11 = false, .h2 = false, .h3 = false };
+    config.protocols = .{ .h11 = false, .h2 = false, .h3 = false };
     try testing.expectError(error.NoVersion, pool.init(&pool_memory, &config, values, .{}, null));
 }
 
 test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, and has no QUIC connection" {
-    config = .{ .tls = tls_support.client_values(support.authority), .versions = .{ .h3 = false }, .authority = support.authority };
+    config = .{ .tls = tls_support.client_values(support.authority), .protocols = .{ .h3 = false }, .authority = support.authority };
     // RFC 9460 §7.1.2 and RFC 7838 §3: the record and Alt-Svc both name h3.
     var known = values;
     known.https = .{ .h3 = true };

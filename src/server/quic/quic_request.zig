@@ -165,11 +165,11 @@ test "decision 103: the endings owed come out in order, as the events the caller
     var owed: Owed = .{};
     try testing.expectEqual(null, owed.take());
     owed.push(.{ .kind = .done, .id = 8 });
-    owed.push(.{ .kind = .{ .cancelled = .{ .deadline = .body } }, .id = 4 });
+    owed.push(.{ .kind = .{ .cancelled = .{ .timeout = .body } }, .id = 4 });
     try testing.expectEqual(8, owed.take().?.done.id.number);
     const cancelled = owed.take().?.cancelled;
     try testing.expectEqual(4, cancelled.id.number);
-    try testing.expectEqual(deadline.Deadline.body, cancelled.reason.deadline);
+    try testing.expectEqual(deadline.Timeout.body, cancelled.reason.timeout);
     try testing.expectEqual(null, owed.take());
     // A ring that starts partway round wraps past its end.
     for (0..constants.quic_requests_max) |index| owed.push(.{ .kind = .done, .id = index });

@@ -7,7 +7,7 @@ const tls = @import("tls");
 const alt_svc = @import("../alt_svc.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const deadline = @import("../deadline.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 const limits_module = @import("../limits.zig");
 
 /// What every connection of a server borrows. The caller keeps it alive while any connection
@@ -19,7 +19,7 @@ pub const Config = struct {
     /// The versions the server speaks (decision 117). A connection in cleartext that may speak
     /// both h11 and h2 chooses by its first octets (RFC 9113 §3.3). Over TLS, ALPN chooses
     /// (decision 88).
-    versions: versions_module.Versions = .{},
+    protocols: protocols_module.Protocols = .{},
     /// h11's decoders of the `gzip` and `deflate` transfer codings, which connections may share
     /// (decision 91). With none, h11 answers a request carrying either coding 501.
     decoders: ?h11.coding.Storage = null,
@@ -35,8 +35,8 @@ pub const Config = struct {
     codings: []const http.content_coding.Coding = &.{},
     encoders: ?coding_pool.Encoders = null,
     /// The limits of decision 110's deadlines. A connection copies them when it starts, and
-    /// `Connection.set_deadlines` changes one connection's.
-    deadlines: deadline.Deadlines = .{},
+    /// `Connection.set_timeouts` changes one connection's.
+    timeouts: deadline.Timeouts = .{},
     /// The bounds of each connection (decision 117).
     limits: limits_module.Limits = .{},
 };
@@ -45,5 +45,5 @@ pub const Config = struct {
 /// by: over TLS a record at a time, and in h2 a DATA frame at a time, which a connection in
 /// cleartext speaks when `versions` allows h2. h11 in cleartext reads a body octet by octet.
 pub fn whole_units(config: *const Config) bool {
-    return config.tls != null or config.versions.h2;
+    return config.tls != null or config.protocols.h2;
 }

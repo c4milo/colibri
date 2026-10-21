@@ -132,8 +132,8 @@ connection, and a `server.ConnectionHandle` names one:
 - **QUIC connections.** They serve h3, all of them behind one UDP socket
   ([decision 103](decisions.md)), each in a slot of its own. A client's first datagram starts one.
 
-The configuration's `versions` turns any version off, in cleartext and over TLS: the endpoint
-builds its ALPN list from `versions`, so the TLS identity names no protocol. For its QUIC
+The configuration's `protocols` turns any protocol off, in cleartext and over TLS: the endpoint
+builds its ALPN list from `protocols`, so the TLS identity names no protocol. For its QUIC
 connections the endpoint names h3 itself (RFC 9114 §3.1).
 
 The code in this section is from
@@ -160,7 +160,7 @@ socket runs TLS:
 ```zig
 endpoint_config = .{
     // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
-    // as `versions` allows by default, and names h3 for its QUIC connections.
+    // as `protocols` allows by default, and names h3 for its QUIC connections.
     .tls = .{
         .ecdsa_p256 = .{
             .chain = &chain,
@@ -171,9 +171,9 @@ endpoint_config = .{
         .ticket_key = &ticket_key,
         .cpu = cpu,
     },
-    // Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit
-    // a server, and this one ends an idle connection sooner.
-    .deadlines = .{ .idle_ns = idle_ns },
+    // Decision 110: timeouts bound how long a peer may hold a connection. The defaults suit a
+    // server, and this one ends an idle connection sooner.
+    .timeouts = .{ .idle_ns = idle_ns },
     // Each TLS connection advertises h3 on the server's UDP port (RFC 7838).
     .h3_alternative = .{ .port = peers.server_port },
 };
@@ -191,7 +191,7 @@ accepted = endpoint.accept(.tls, now_ns) orelse return error.ExchangeWrong;
 endpoint issues each client a ticket, which a later connection of that client offers to resume
 the session. `now_ns` is the instant on
 the clock every later call passes, and a connection's deadlines count from the instant its
-`accept` is given. `accept` returns null when no slot is free, after `shutdown`, when `versions`
+`accept` is given. `accept` returns null when no slot is free, after `shutdown`, when `protocols`
 allows neither h11 nor h2, or when the TLS stack refuses to start a session. The program closes
 the socket then. A program passes `.tls` only when its configuration holds an identity. With h3
 turned off, or with no identity, an endpoint that serves no TCP version returns `error.NoVersion`
@@ -343,7 +343,7 @@ fn take_request(request: server.Request) !void {
         // The endpoint holds one QUIC connection at a time. A client can keep its connection
         // open after the response, so the server shortens its idle deadline, and the slot is
         // free sooner.
-        try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
+        try endpoint.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
     try route(request, state);
 }
@@ -412,7 +412,7 @@ open connection without waiting for a `send`, such as straight after it writes a
 QUIC the turn calls `send_datagram` until it returns null, and sends each datagram to the address
 it names.
 
-A peer may hold a connection only so long ([decision 110](decisions.md)). Deadlines bound the
+A peer may hold a connection only so long ([decision 110](decisions.md)). Timeouts bound the
 wait for a first request, the time between requests, a request's head and its content, and how
 slowly the peer may take the response. They bound an h3 connection as they bound a TCP one. The
 endpoint's `deadline_ns` names the soonest instant one passes, on any connection it holds. Over
@@ -435,10 +435,10 @@ fn sleep_ns() u64 {
 
 The program then calls `on_instant` with the instant it woke at, as the turn above does, and a
 connection whose peer is late ends. Over h2, a request whose content is late may end by itself,
-with a `cancelled` whose reason names the deadline. `receive` and `send_stream` fire a deadline
-that passed too, on the connection they read or write. The configuration's `deadlines` sets the
+with a `cancelled` whose reason names the timeout. `receive` and `send_stream` fire a deadline
+that passed too, on the connection they read or write. The configuration's `timeouts` sets the
 limits, and `Endpoint.init` refuses limits a connection would refuse, with
-`error.DeadlineInvalid`. `set_deadlines` changes one connection's limits, by its handle, as
+`error.TimeoutInvalid`. `set_timeouts` changes one connection's limits, by its handle, as
 `take_request` does above. A program that wakes only when octets arrive never ends a silent peer.
 
 A TCP connection's socket closes in one of two ways. The endpoint reports `close` once the
@@ -668,7 +668,7 @@ response, from the call of `request` to the request's one `finished` event. RFC 
 that carries its exchanges there ([decision 120](decisions.md)). The pool carries them over the QUIC
 and TCP connections it chooses between, and tells the program which transport to open ([decision
 105](decisions.md)). Over QUIC its connection speaks h3. Over TCP with TLS, ALPN picks h2 or h11. In
-cleartext its connection speaks h11, or h2 with prior knowledge when `versions` turns h11 off
+cleartext its connection speaks h11, or h2 with prior knowledge when `protocols` turns h11 off
 ([decision 117](decisions.md)).
 
 The code in this section is from [`examples/client_exchange.zig`](../examples/client_exchange.zig),
@@ -729,7 +729,7 @@ and its port, and an HTTPS record's `alpn` and `port` when it has one.
 
 ```zig
 // One configuration serves both transports. Its TLS value names no protocol: the pool
-// offers h3 over QUIC, and h2 then http/1.1 over TCP, as `versions` allows them.
+// offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them.
 client_config = .{
     .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
     .authority = origin,
@@ -751,10 +751,10 @@ The pool takes one `client.Config` ([decision 120](decisions.md)):
 
 - `tls` is one `tls.Client` value, which says how the client judges the server over TCP and over
   QUIC. Its `alpn` list stays empty. A pool with no `tls` runs in cleartext, over TCP alone.
-- `versions` names the HTTP versions the client speaks, each on by default. The pool offers
+- `protocols` names the protocols the client speaks, h11, h2 and h3, each on by default. The pool offers
   them through ALPN: `h2` and then `http/1.1` over TCP, and `h3` over QUIC. It opens TCP only
-  while `versions` allows h11 or h2, so a client that speaks h3 alone opens no TCP connection.
-  Over TLS, a TCP server that selects no protocol is spoken to in h11 while `versions` allows
+  while `protocols` allows h11 or h2, so a client that speaks h3 alone opens no TCP connection.
+  Over TLS, a TCP server that selects no protocol is spoken to in h11 while `protocols` allows
   h11. With h11 off, that connection closes, as one whose handshake failed does (RFC 9113 §3.3).
 - `authority`, the content codings and their decoder pools are given once, for both transports.
 - `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it. Its default

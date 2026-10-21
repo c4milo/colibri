@@ -77,7 +77,7 @@ pub fn close_reason(connection: *const Connection) ?CloseReason {
     // A deadline stops the connection, which then opens no record and reads no frame, and a limit
     // the peer passed stops the deadlines: the two never both end one connection.
     assert(passed_limit(connection) == null);
-    return .{ .deadline = passed };
+    return .{ .timeout = passed };
 }
 
 /// The limit the peer passed, which ended the connection, or null.

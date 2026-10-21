@@ -25,11 +25,11 @@ const files = struct {
     pub const coding_pool = @import("coding_pool.zig");
     pub const event = @import("event.zig");
     pub const pool = @import("pool/pool.zig");
-    pub const versions = @import("versions.zig");
+    pub const protocols = @import("protocols.zig");
 };
 
 pub const Config = files.pool.Config;
-pub const Versions = files.versions.Versions;
+pub const Protocols = files.protocols.Protocols;
 /// Why `Pool.init`, `Pool.start_tcp` or `Pool.start_quic` refused (decisions 120 and 123).
 pub const StartError = files.pool.StartError;
 pub const RequestError = files.pool.RequestError;
@@ -118,10 +118,11 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // Step 22.2 renames `Channel` to `Pool` and `ChannelOf` to `PoolOf`, step 22.3 adds
     // `Options`, and step 22.4 adds `StreamOctets`, `ConnectionHandle` and `Connected` (decision
     // 125). Step 23.2 renames `Field`, `Id`, `StreamOctets` and `Received` to `Header`,
-    // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126).
+    // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126). Step 23.3 renames `Versions`
+    // to `Protocols`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",       "Config",        "Versions",          "StartError",         "RequestError",
+        "constants",       "Config",        "Protocols",         "StartError",         "RequestError",
         "Header",          "RequestId",     "Protocol",          "Request",            "Response",
         "Wanted",          "Outcome",       "Finished",          "Sent",               "Address",
         "Ecn",             "Pool",          "PoolOf",            "Capacity",           "Options",
@@ -196,7 +197,7 @@ test {
     _ = @import("connection/connection.zig");
     _ = @import("quic/quic_connection.zig");
     _ = @import("alt_svc.zig");
-    _ = @import("versions.zig");
+    _ = @import("protocols.zig");
     _ = @import("slots.zig");
     _ = @import("response_write.zig");
     _ = @import("coding.zig");

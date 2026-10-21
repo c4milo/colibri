@@ -124,8 +124,8 @@ pub const World = struct {
         world.tls = over_tls;
         if (over_tls) world.configure_tls() else {
             // Decision 117: h2 alone, which each side speaks from the start.
-            world.endpoint_config = .{ .versions = .{ .h11 = false } };
-            world.client_config = .{ .authority = identity.authority, .versions = .{ .h11 = false } };
+            world.endpoint_config = .{ .protocols = .{ .h11 = false } };
+            world.client_config = .{ .authority = identity.authority, .protocols = .{ .h11 = false } };
         }
         world.tls_random = Random.init(seed);
         const source = tls.Random.init(&world.tls_random, fill);
@@ -169,11 +169,11 @@ pub const World = struct {
                 .cpu = identity.cpu,
             },
             // Decision 117: h2 alone, the one protocol the server's ALPN list then names.
-            .versions = .{ .h11 = false },
+            .protocols = .{ .h11 = false },
         };
         world.client_config = .{
             .authority = identity.authority,
-            .versions = .{ .h11 = false },
+            .protocols = .{ .h11 = false },
             .tls = .{
                 .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
                 .cpu = identity.cpu,

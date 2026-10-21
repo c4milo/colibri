@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 
 /// Which deadline ended a connection, or an h2 stream.
-pub const Deadline = enum {
+pub const Timeout = enum {
     /// No whole request head arrived in time after the connection opened, the TLS handshake
     /// included.
     first_request,
@@ -40,7 +40,7 @@ pub const Deadline = enum {
 /// server whose bodies arrive in units refuses a body rate under the bound (`validate_units`,
 /// decision 110 as amended), and an h11 connection in cleartext, which reads a body octet by
 /// octet, keeps any rate.
-pub const Deadlines = struct {
+pub const Timeouts = struct {
     first_request_ns: ?u64 = constants.first_request_timeout_ns,
     idle_ns: ?u64 = constants.idle_timeout_ns,
     head_ns: ?u64 = constants.head_timeout_ns,
@@ -63,7 +63,7 @@ pub const Deadlines = struct {
     drain_ns: ?u64 = constants.drain_timeout_ns,
 
     /// Refuses a limit of 0, which null says better, and a span past `timeout_ns_max`.
-    pub fn validate(deadlines: Deadlines) error{DeadlineInvalid}!void {
+    pub fn validate(deadlines: Timeouts) error{TimeoutInvalid}!void {
         const spans = [_]?u64{
             deadlines.first_request_ns, deadlines.idle_ns,        deadlines.head_ns,
             deadlines.rate_grace_ns,    deadlines.rate_window_ns, deadlines.body_ns,
@@ -73,30 +73,30 @@ pub const Deadlines = struct {
             const limit = span orelse continue;
             // RFC 9112 §9.5 leaves a server's timeout to the server, and decision 110 bounds it:
             // null turns a deadline off, and a limit stays within a day.
-            if (limit == 0 or limit > constants.timeout_ns_max) return error.DeadlineInvalid;
+            if (limit == 0 or limit > constants.timeout_ns_max) return error.TimeoutInvalid;
         }
         // RFC 9112 §9.5 leaves a server's timeouts to the server, and decision 110 bounds its rates
         // too: a rate of 0 would check nothing, which null says.
-        if (deadlines.body_rate_min == 0 or deadlines.send_rate_min == 0) return error.DeadlineInvalid;
+        if (deadlines.body_rate_min == 0 or deadlines.send_rate_min == 0) return error.TimeoutInvalid;
     }
 
     /// Refuses a `body_rate_min` under which a peer that sends whole units at twice the rate can
     /// fall short, for a connection whose bodies arrive in units (decision 110 as amended).
-    pub fn validate_units(deadlines: Deadlines) error{DeadlineInvalid}!void {
+    pub fn validate_units(deadlines: Timeouts) error{TimeoutInvalid}!void {
         const rate = deadlines.body_rate_min orelse return;
         // RFC 9846 §5.1 and RFC 9113 §4.2 bound a record and a DATA frame at `body_unit_len`, and
         // decision 110 as amended refuses a rate that cuts an honest peer sending them.
-        if (!fits_unit(rate, deadlines.rate_window_ns)) return error.DeadlineInvalid;
+        if (!fits_unit(rate, deadlines.rate_window_ns)) return error.TimeoutInvalid;
     }
 
     /// The octets a window must bring for the body rate, at least 1, or null with no rate.
-    pub fn body_quota(deadlines: *const Deadlines) ?u64 {
+    pub fn body_quota(deadlines: *const Timeouts) ?u64 {
         const rate = deadlines.body_rate_min orelse return null;
         return quota(rate, deadlines.rate_window_ns);
     }
 
     /// The octets the peer must take each window for the send rate, at least 1, or null.
-    pub fn send_quota(deadlines: *const Deadlines) ?u64 {
+    pub fn send_quota(deadlines: *const Timeouts) ?u64 {
         const rate = deadlines.send_rate_min orelse return null;
         return quota(rate, deadlines.rate_window_ns);
     }
@@ -124,25 +124,25 @@ pub fn fits_unit(rate: u32, window_ns: u64) bool {
 const testing = std.testing;
 
 test "decision 110: the defaults are valid, 0 and a limit past a day are refused, and null is off" {
-    try (Deadlines{}).validate();
-    try (Deadlines{ .first_request_ns = null, .idle_ns = null, .head_ns = null, .body_rate_min = null, .body_ns = null }).validate();
-    try (Deadlines{ .idle_ns = constants.timeout_ns_max }).validate();
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .head_ns = 0 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .first_request_ns = constants.timeout_ns_max + 1 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .body_rate_min = 0 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .rate_grace_ns = 0 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .rate_window_ns = constants.timeout_ns_max + 1 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .body_ns = 0 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .send_rate_min = 0 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .linger_ns = 0 }).validate());
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .drain_ns = 0 }).validate());
-    try (Deadlines{ .send_rate_min = null, .linger_ns = null }).validate();
+    try (Timeouts{}).validate();
+    try (Timeouts{ .first_request_ns = null, .idle_ns = null, .head_ns = null, .body_rate_min = null, .body_ns = null }).validate();
+    try (Timeouts{ .idle_ns = constants.timeout_ns_max }).validate();
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .head_ns = 0 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .first_request_ns = constants.timeout_ns_max + 1 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .body_rate_min = 0 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .rate_grace_ns = 0 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .rate_window_ns = constants.timeout_ns_max + 1 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .body_ns = 0 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .send_rate_min = 0 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .linger_ns = 0 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .drain_ns = 0 }).validate());
+    try (Timeouts{ .send_rate_min = null, .linger_ns = null }).validate();
 }
 
 test "decision 110: a window owes the rate times its length, rounded up" {
-    try testing.expectEqual(10_240, (Deadlines{}).body_quota().?);
-    try testing.expectEqual(10_240, (Deadlines{}).send_quota().?);
-    try testing.expectEqual(null, (Deadlines{ .body_rate_min = null }).body_quota());
+    try testing.expectEqual(10_240, (Timeouts{}).body_quota().?);
+    try testing.expectEqual(10_240, (Timeouts{}).send_quota().?);
+    try testing.expectEqual(null, (Timeouts{ .body_rate_min = null }).body_quota());
     // Half an octet rounds up to one.
     try testing.expectEqual(1, quota(1, constants.nanoseconds_per_second / 2));
     try testing.expectEqual(3, quota(2, constants.nanoseconds_per_second + 1));
@@ -156,9 +156,9 @@ test "decision 110 as amended: where bodies arrive in units, a rate an honest pe
     // A quota rounded up to half a unit falls short, and the bound itself does not.
     try testing.expect(!fits_unit(8_192, constants.nanoseconds_per_second - 1));
     try testing.expect(fits_unit(8_192, constants.nanoseconds_per_second));
-    try (Deadlines{}).validate_units();
-    try (Deadlines{ .body_rate_min = null, .rate_window_ns = 1 }).validate_units();
-    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .body_rate_min = 819 }).validate_units());
+    try (Timeouts{}).validate_units();
+    try (Timeouts{ .body_rate_min = null, .rate_window_ns = 1 }).validate_units();
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .body_rate_min = 819 }).validate_units());
 }
 
 test "decision 77: every quota vector of spec/lean is this quota" {

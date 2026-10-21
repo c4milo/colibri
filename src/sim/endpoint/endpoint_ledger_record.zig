@@ -62,7 +62,7 @@ fn fields_of(reported: server.Event) Fields {
 /// The deadline that cancelled a request, plus one, or 0.
 fn reason_detail(reason: server.CancelReason) u64 {
     return switch (reason) {
-        .deadline => |passed| @as(u64, @intFromEnum(passed)) + 1,
+        .timeout => |passed| @as(u64, @intFromEnum(passed)) + 1,
         else => 0,
     };
 }
@@ -71,9 +71,9 @@ fn reason_detail(reason: server.CancelReason) u64 {
 /// limit.
 fn close_detail(reason: ?server.CloseReason) u64 {
     const held = reason orelse return 0;
-    const deadlines: u64 = std.meta.fields(server.Deadline).len;
+    const deadlines: u64 = std.meta.fields(server.Timeout).len;
     return switch (held) {
-        .deadline => |passed| @as(u64, @intFromEnum(passed)) + 1,
+        .timeout => |passed| @as(u64, @intFromEnum(passed)) + 1,
         .limit => |passed| deadlines + @intFromEnum(passed) + 1,
     };
 }

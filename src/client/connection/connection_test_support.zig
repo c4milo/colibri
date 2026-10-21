@@ -84,11 +84,11 @@ pub var peer_h11: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 /// A cleartext connection speaking `protocol`, and a peer of the same protocol, with nothing read
 /// or written.
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
-    try start_configured(.{ .authority = authority, .versions = only(protocol) });
+    try start_configured(.{ .authority = authority, .protocols = only(protocol) });
 }
 
 /// The versions that allow `protocol` alone among those a TCP connection speaks.
-pub fn only(protocol: connection_module.Protocol) Versions {
+pub fn only(protocol: connection_module.Protocol) Protocols {
     return switch (protocol) {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
@@ -97,8 +97,8 @@ pub fn only(protocol: connection_module.Protocol) Versions {
     };
 }
 
-const versions_module = @import("../versions.zig");
-pub const Versions = versions_module.Versions;
+const protocols_module = @import("../protocols.zig");
+pub const Protocols = protocols_module.Protocols;
 
 /// The decoder pool the coding tests give a connection, and the codings it offers, gzip first
 /// (decision 101).
@@ -117,7 +117,7 @@ pub fn start_coding(protocol: connection_module.Protocol) !void {
 pub fn start_offering(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
     const storage = pool.storage();
     storage.reset(.none());
-    try start_configured(.{ .authority = authority, .versions = only(protocol), .codings = offered, .decoders = storage });
+    try start_configured(.{ .authority = authority, .protocols = only(protocol), .codings = offered, .decoders = storage });
 }
 
 /// As `start_offering`, with the `zstd` and `br` pools of `coding_test_support.zig` beside the
@@ -128,7 +128,7 @@ pub fn start_offering_all(protocol: connection_module.Protocol, offered: []const
     coding_support.reset_pools();
     try start_configured(.{
         .authority = authority,
-        .versions = only(protocol),
+        .protocols = only(protocol),
         .codings = offered,
         .decoders = if (names(offered, .gzip) or names(offered, .deflate)) storage else null,
         .zstd_decoders = if (names(offered, .zstd)) coding_support.zstd_pool.storage() else null,
@@ -142,7 +142,7 @@ fn names(offered: []const http.content_coding.Coding, coding: http.content_codin
 
 fn start_configured(value: Config) !void {
     config = value;
-    const protocol = versions_module.cleartext(value.versions).?;
+    const protocol = protocols_module.cleartext(value.protocols).?;
     try connection.init(&config, stream.random(), 0, null, .{});
     to_peer_len = 0;
     to_client_len = 0;

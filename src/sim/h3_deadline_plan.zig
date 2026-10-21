@@ -66,7 +66,7 @@ pub const Plan = struct {
     /// The instant the run starts at, in milliseconds.
     base_ms: u64,
     /// The server's limits: decision 110's defaults, or shorter ones.
-    deadlines: server.Deadlines,
+    deadlines: server.Timeouts,
     /// The requests the peer makes whole: every one of an honest peer's, and the first one of a
     /// peer that ends slow.
     requests_count: u8,
@@ -189,7 +189,7 @@ fn requests_of(peer: Peer, random: *Random) u8 {
 
 /// Decision 110's defaults, or in one plan of `short_limits_one_in` stricter ones, as a server
 /// short of connections sets.
-fn draw_deadlines(random: *Random) server.Deadlines {
+fn draw_deadlines(random: *Random) server.Timeouts {
     if (random.below(short_limits_one_in) != 0) return .{};
     const defaults = server.constants;
     const body_rate: u32 = @intCast(random.between(defaults.body_rate_min, limits.short_rate_max));
@@ -206,7 +206,7 @@ fn draw_deadlines(random: *Random) server.Deadlines {
 }
 
 /// Decision 110's defaults, with a cap on a body that a long body outlasts.
-fn long_body_deadlines(random: *Random) server.Deadlines {
+fn long_body_deadlines(random: *Random) server.Timeouts {
     const cap_ms = random.between(limits.long_body_cap_ms_min, limits.long_body_cap_ms_max);
     return .{ .body_ns = cap_ms * limits.ns_per_ms };
 }

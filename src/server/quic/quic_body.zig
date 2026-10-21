@@ -30,7 +30,7 @@ const quic_request = @import("quic_request.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
-const Deadline = deadline.Deadline;
+const Timeout = deadline.Timeout;
 
 /// One body the connection waits for.
 const Body = struct {
@@ -57,7 +57,7 @@ pub const Bodies = struct {
 /// The head of `record`'s request arrived at `now_ns`, so the wait for its content starts.
 pub fn add(connection: *QuicConnection, record: *const Request, now_ns: u64) void {
     const bodies = &connection.bodies;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     const body = &bodies.entries[connection.requests.index_of(record)];
     assert(!body.waiting);
     body.* = .{ .waiting = true, .since_ns = now_ns };
@@ -98,7 +98,7 @@ pub fn count(connection: *QuicConnection, record: *const Request, octets: usize)
 pub fn observe(connection: *QuicConnection, credit_held: bool, now_ns: u64) void {
     const bodies = &connection.bodies;
     if (bodies.waiting == 0) return;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     for (&bodies.entries) |*body| {
         if (body.waiting) connection_sends.start_or_stop(&body.meter, !credit_held, now_ns, limits);
     }
@@ -109,7 +109,7 @@ pub fn observe(connection: *QuicConnection, credit_held: bool, now_ns: u64) void
 pub fn soonest(connection: *const QuicConnection, current: ?u64) ?u64 {
     const bodies = &connection.bodies;
     if (bodies.waiting == 0) return current;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     const quota = limits.body_quota();
     var at = current;
     for (&bodies.entries) |*body| {
@@ -132,10 +132,10 @@ fn earlier_check(current: ?u64, meter: *const rate.Meter, quota: ?u64, window_ns
 
 /// Ends each request whose body deadline passed at `now_ns`, and returns `body_rate` when the
 /// bodies together fell short, which ends the connection. Null when it goes on.
-pub fn fire(connection: *QuicConnection, now_ns: u64) ?Deadline {
+pub fn fire(connection: *QuicConnection, now_ns: u64) ?Timeout {
     const bodies = &connection.bodies;
     if (bodies.waiting == 0) return null;
-    const limits = &connection.deadlines;
+    const limits = &connection.timeouts;
     for (&bodies.entries, 0..) |*body, index| {
         if (!body.waiting) continue;
         const passed = passed_of(limits, body, now_ns) orelse continue;
@@ -152,7 +152,7 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) ?Deadline {
 
 /// The deadline of `body` that passed at `now_ns`, the cap first, or null. It moves the meter to
 /// `now_ns`.
-fn passed_of(limits: *const deadline.Deadlines, body: *Body, now_ns: u64) ?Deadline {
+fn passed_of(limits: *const deadline.Timeouts, body: *Body, now_ns: u64) ?Timeout {
     if (limits.body_ns) |cap_ns| {
         // Decision 110: a deadline passes at its instant, not a nanosecond later.
         if (now_ns >= body.since_ns + cap_ns) return .body;
@@ -163,7 +163,7 @@ fn passed_of(limits: *const deadline.Deadlines, body: *Body, now_ns: u64) ?Deadl
 
 /// Ends the wait for the body of the request at `index`, whose deadline `passed`, and reads no
 /// more of the request.
-fn end_request(connection: *QuicConnection, index: usize, passed: Deadline) void {
+fn end_request(connection: *QuicConnection, index: usize, passed: Timeout) void {
     const record = &connection.requests.records[index];
     assert(record.in_use and !record.ended);
     remove(connection, record);
@@ -183,5 +183,5 @@ fn end_request(connection: *QuicConnection, index: usize, passed: Deadline) void
     }
     record.over = true;
     quic_coding.give_back(connection, record);
-    connection.owed.push(.{ .kind = .{ .cancelled = .{ .deadline = passed } }, .id = stream_id });
+    connection.owed.push(.{ .kind = .{ .cancelled = .{ .timeout = passed } }, .id = stream_id });
 }

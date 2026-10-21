@@ -43,7 +43,7 @@ const response = "HTTP/1.1 200 OK\r\ncontent-type: " ++ constants.response_conte
 /// A session speaking `protocol` in cleartext, whose entry 0 holds a connection with nothing read
 /// or written: its configuration allows that version alone (decision 117). Test-only.
 fn fresh_session(protocol: Protocol, echo: ?*h11_echo.Echo) !*Session {
-    test_config = .{ .versions = if (protocol == .h2) .{ .h11 = false } else .{ .h2 = false } };
+    test_config = .{ .protocols = if (protocol == .h2) .{ .h11 = false } else .{ .h2 = false } };
     // Cleartext draws nothing from the source.
     test_now_ns = 0;
     try test_session.init(&test_config, entropy.random(), test_now_ns);

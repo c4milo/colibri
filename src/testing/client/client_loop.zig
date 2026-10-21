@@ -295,7 +295,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     };
     client_exchange.fill_content();
-    pool_config = .{ .authority = run.authority, .versions = versions_of(&run) };
+    pool_config = .{ .authority = run.authority, .protocols = versions_of(&run) };
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
         const features = h11.coding.Features.detect();
@@ -331,7 +331,7 @@ fn protocol_name(protocol: ?client.Protocol) []const u8 {
 /// version: the client offers `h2` and then `http/1.1`, ALPN chooses, and a server that selects no
 /// protocol is spoken to in h11 (decision 88), which a connection does only while its versions
 /// allow h11.
-fn versions_of(run: *const Run) client.Versions {
+fn versions_of(run: *const Run) client.Protocols {
     const over_tls = run.anchor_prefix != null;
     return switch (run.protocol) {
         .h2 => if (over_tls) .{} else .{ .h11 = false },
@@ -343,7 +343,7 @@ const testing = std.testing;
 
 /// The versions of a run that speaks `protocol`, over TLS when `anchor_prefix` names the root's
 /// files. Test-only.
-fn versions_for(protocol: alpn.Protocol, anchor_prefix: ?[]const u8) client.Versions {
+fn versions_for(protocol: alpn.Protocol, anchor_prefix: ?[]const u8) client.Protocols {
     var run: Run = undefined;
     run.protocol = protocol;
     run.anchor_prefix = anchor_prefix;
@@ -351,13 +351,13 @@ fn versions_for(protocol: alpn.Protocol, anchor_prefix: ?[]const u8) client.Vers
 }
 
 test "the command line's protocol is the one version a connection allows in cleartext" {
-    try testing.expectEqual(client.Versions{ .h11 = false }, versions_for(.h2, null));
-    try testing.expectEqual(client.Versions{ .h2 = false }, versions_for(.h11, null));
+    try testing.expectEqual(client.Protocols{ .h11 = false }, versions_for(.h2, null));
+    try testing.expectEqual(client.Protocols{ .h2 = false }, versions_for(.h11, null));
 }
 
 test "decision 88: over TLS with no --h11, a connection allows h11 for a server that selects nothing" {
-    try testing.expectEqual(client.Versions{}, versions_for(.h2, "root"));
-    try testing.expectEqual(client.Versions{ .h2 = false }, versions_for(.h11, "root"));
+    try testing.expectEqual(client.Protocols{}, versions_for(.h2, "root"));
+    try testing.expectEqual(client.Protocols{ .h2 = false }, versions_for(.h11, "root"));
 }
 
 /// A request with no content, which the loop's tests make. Test-only.
@@ -368,7 +368,7 @@ const test_octets: [client_options.ipv4_octets]u8 = @splat(0);
 /// requested, and the `open` its first step reports. Test-only.
 fn test_connection() !*Connection {
     client_exchange.fill_content();
-    pool_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
+    pool_config = .{ .authority = "localhost", .protocols = .{ .h2 = false } };
     const connection = &connections[0];
     connection.failure = .none;
     slots_per_pool = 1;

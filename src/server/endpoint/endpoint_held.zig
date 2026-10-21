@@ -292,13 +292,13 @@ pub const Held = struct {
     }
 
     /// Replaces one connection's limits (decision 110).
-    pub fn set_deadlines(held: *Held, connection: ConnectionHandle, deadlines: deadline.Deadlines) error{ DeadlineInvalid, ConnectionUnknown }!void {
+    pub fn set_timeouts(held: *Held, connection: ConnectionHandle, deadlines: deadline.Timeouts) error{ TimeoutInvalid, ConnectionUnknown }!void {
         // RFC 9000 §10.2: "Once its closing or draining state ends, an endpoint SHOULD discard all
         // connection state", so the handle of a connection that ended names none.
         const slot = held.slots.resolve(connection) orelse return error.ConnectionUnknown;
         defer touch(held, slot);
-        if (held.is_tcp(slot)) return held.tcp[slot].set_deadlines(deadlines);
-        return held.connections.at(slot).set_deadlines(deadlines);
+        if (held.is_tcp(slot)) return held.tcp[slot].set_timeouts(deadlines);
+        return held.connections.at(slot).set_timeouts(deadlines);
     }
 
     /// The server_name the connection's client sent (RFC 9846 §9.2), or null.

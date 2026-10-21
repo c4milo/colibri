@@ -312,7 +312,7 @@ test "h2: every exchange of the plan shares the connection, and content past the
     client_exchange.fill_content();
     // Decision 117: the server names no version and reads h2 from the client's preface.
     try test_start_server();
-    test_config = .{ .authority = "localhost", .versions = .{ .h11 = false } };
+    test_config = .{ .authority = "localhost", .protocols = .{ .h11 = false } };
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
     const content_len = 3 * 65_535;
     try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
@@ -336,7 +336,7 @@ test "h11: the exchanges go out in order, and the connection ends after the last
     client_exchange.fill_content();
     // Decision 117: the server names no version and reads h11 from the client's first octets.
     try test_start_server();
-    test_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
+    test_config = .{ .authority = "localhost", .protocols = .{ .h2 = false } };
     try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "GET", .path = "/index.html", .content_len = 0 },
@@ -357,7 +357,7 @@ const test_short_response = "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx";
 
 test "decision 119: one step reads every pipelined h11 response the socket holds" {
     client_exchange.fill_content();
-    test_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
+    test_config = .{ .authority = "localhost", .protocols = .{ .h2 = false } };
     try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &(.{test_get} ** test_pipelined), &test_bodies);
     // The pool asks for its socket, which connects at once, and its connection writes the
     // requests.

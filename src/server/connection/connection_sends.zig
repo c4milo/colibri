@@ -23,7 +23,7 @@ const connection_coding = @import("connection_coding.zig");
 
 const Connection = connection_module.Connection;
 const Number = event.Number;
-const Deadline = deadline.Deadline;
+const Timeout = deadline.Timeout;
 
 /// One h2 stream whose response waits on a window.
 const Blocked = struct {
@@ -135,7 +135,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
 
 /// Starts `meter` at `now_ns` when it `runs` and is stopped, and stops it when it does not: a
 /// pause, after which it starts again with a grace period.
-pub fn start_or_stop(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const deadline.Deadlines) void {
+pub fn start_or_stop(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const deadline.Timeouts) void {
     if (!runs) return meter.stop();
     if (!meter.running()) meter.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
 }
@@ -163,7 +163,7 @@ pub fn soonest(connection: *const Connection, current: ?u64) ?u64 {
 /// Resets each h2 stream whose window held it under the rate at `now_ns`, and returns
 /// `send_rate` when the connection ends for it: its peer took too little, or the connection's
 /// own window held a stream.
-pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
+pub fn fire(connection: *Connection, now_ns: u64) ?Timeout {
     const sends = &connection.sends;
     const quota = connection.deadlines.send_quota() orelse return null;
     const window_ns = connection.deadlines.rate_window_ns;
@@ -185,7 +185,7 @@ fn cancel_stream(connection: *Connection, id: Number) void {
     connection_coding.forget(connection, id);
     connection_bodies.remove(connection, id);
     remove(connection, id);
-    connection_bodies.owe_cancelled(connection, .{ .id = id, .reason = .{ .deadline = .send_rate } });
+    connection_bodies.owe_cancelled(connection, .{ .id = id, .reason = .{ .timeout = .send_rate } });
 }
 
 /// Starts the linger of a connection that has ended with octets still to send, at `now_ns`, and

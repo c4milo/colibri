@@ -68,7 +68,7 @@ pub const Plan = struct {
     /// The instant the run starts at, in milliseconds.
     base_ms: u64,
     /// The server's limits: decision 110's defaults, or shorter ones.
-    deadlines: server.Deadlines,
+    deadlines: server.Timeouts,
     /// The requests the peer makes whole: every one of an honest peer's, and the first one of a
     /// peer that ends slow.
     requests_count: u8,
@@ -156,12 +156,12 @@ pub fn draw(random: *Random) Plan {
 
 /// Decision 110's defaults, or in one plan of `short_limits_one_in` stricter ones, as a server
 /// short of connections sets.
-fn draw_deadlines(random: *Random) server.Deadlines {
+fn draw_deadlines(random: *Random) server.Timeouts {
     if (random.below(short_limits_one_in) != 0) return .{};
     return draw_short_deadlines(random);
 }
 
-fn draw_short_deadlines(random: *Random) server.Deadlines {
+fn draw_short_deadlines(random: *Random) server.Timeouts {
     const defaults = server.constants;
     const body_rate: u32 = @intCast(random.between(defaults.body_rate_min, limits.short_rate_max));
     return .{
@@ -180,7 +180,7 @@ fn draw_short_deadlines(random: *Random) server.Deadlines {
 /// The limits a long body runs under: a server that allows slow bodies and caps them, with a cap
 /// its body outlasts. In h2 a body arrives a DATA frame at a time, so the window is long enough
 /// that twice the slow rate brings a whole frame, as decision 110 as amended requires.
-fn long_body_deadlines(random: *Random, protocol: Protocol) server.Deadlines {
+fn long_body_deadlines(random: *Random, protocol: Protocol) server.Timeouts {
     var deadlines = draw_short_deadlines(random);
     deadlines.body_rate_min = limits.long_body_rate_min;
     deadlines.body_ns = random.between(limits.long_body_cap_ms_min, limits.long_body_cap_ms_max) * limits.ns_per_ms;

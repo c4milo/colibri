@@ -29,7 +29,7 @@ const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
 const Number = event.Number;
-const Deadline = deadline.Deadline;
+const Timeout = deadline.Timeout;
 
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
 const request_timeout: u16 = @intFromEnum(http.status.Code.request_timeout);
@@ -202,7 +202,7 @@ fn earlier(current: ?u64, candidate: u64) u64 {
 
 /// Ends each h2 stream whose body deadline passed at `now_ns`, and returns the deadline that ends
 /// the connection: an h11 body's, or in h2 the bodies' together. Null when none does.
-pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
+pub fn fire(connection: *Connection, now_ns: u64) ?Timeout {
     const bodies = &connection.bodies;
     // The bodies' meter runs only while a body waits, so with none waiting no deadline passes.
     assert(bodies.waiting > 0 or !bodies.together.running());
@@ -222,7 +222,7 @@ pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
 
 /// The deadline of `body` that passed at `now_ns`, the cap first, or null. It moves the meter to
 /// `now_ns`.
-fn passed_of(connection: *const Connection, body: *Body, now_ns: u64) ?Deadline {
+fn passed_of(connection: *const Connection, body: *Body, now_ns: u64) ?Timeout {
     const limits = &connection.deadlines;
     if (limits.body_ns) |cap_ns| {
         // Decision 110: a deadline passes at its instant, not a nanosecond later.
@@ -233,7 +233,7 @@ fn passed_of(connection: *const Connection, body: *Body, now_ns: u64) ?Deadline 
 }
 
 /// Ends request `id`'s h2 stream for `passed`, and owes the caller its `cancelled` event.
-fn cancel_stream(connection: *Connection, id: Number, passed: Deadline) void {
+fn cancel_stream(connection: *Connection, id: Number, passed: Timeout) void {
     const session = &connection.session.h2;
     const stream_id: u32 = @intCast(id);
     // RFC 9110 §15.5.9: a server that did not receive a complete request in the time it was
@@ -247,7 +247,7 @@ fn cancel_stream(connection: *Connection, id: Number, passed: Deadline) void {
     connection_coding.forget(connection, id);
     connection_sends.remove(connection, id);
     remove(connection, id);
-    owe_cancelled(connection, .{ .id = id, .reason = .{ .deadline = passed } });
+    owe_cancelled(connection, .{ .id = id, .reason = .{ .timeout = passed } });
 }
 
 /// Writes a 408 that ends the stream, and returns whether it went into the output. h2 refuses one

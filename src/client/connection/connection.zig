@@ -38,7 +38,7 @@ const connection_tls = @import("connection_tls.zig");
 const connection_request = @import("connection_request.zig");
 const internal = @import("connection_internal.zig");
 const alt_svc = @import("../alt_svc.zig");
-const versions_module = @import("../versions.zig");
+const protocols_module = @import("../protocols.zig");
 
 pub const RequestId = event.RequestId;
 pub const Protocol = event.Protocol;
@@ -60,7 +60,7 @@ pub const Config = struct {
     /// allows h11, and h2 with prior knowledge when it does not (RFC 9113 §3.3). Over TLS, ALPN
     /// chooses, and a handshake that selected no protocol runs h11 only while `versions` allows h11
     /// (decision 88).
-    versions: versions_module.Versions = .{},
+    protocols: protocols_module.Protocols = .{},
     /// The authority every request names: `:authority` in h2 (RFC 9113 §8.3.1) and Host in h11
     /// (RFC 9112 §3.2).
     authority: []const u8,
@@ -161,7 +161,7 @@ pub const Connection = struct {
         assert(coding.codings_valid(config.codings, .of(config)));
         assert(config.authority.len > 0);
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
-        const cleartext = versions_module.cleartext(config.versions) orelse return error.NoVersion;
+        const cleartext = protocols_module.cleartext(config.protocols) orelse return error.NoVersion;
         connection.config = config;
         connection.session = .none;
         connection.plain_in_len = 0;

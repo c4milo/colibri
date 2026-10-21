@@ -132,7 +132,7 @@ test "decision 119: the handle of a connection that ended names nothing once its
     var output: [16]u8 = undefined;
     try testing.expectEqual(0, endpoint.send_stream(first, &output, support.now_ns));
     try testing.expectError(error.RequestUnknown, endpoint.respond(id, .{ .status = ok, .end = true }));
-    try testing.expectError(error.ConnectionUnknown, endpoint.set_deadlines(first, .{}));
+    try testing.expectError(error.ConnectionUnknown, endpoint.set_timeouts(first, .{}));
     try testing.expectEqual(null, endpoint.server_name(first));
     endpoint.transport_closed(first);
 }
@@ -172,7 +172,7 @@ test "decision 119: a TCP connection borrows the endpoint's h11 decoders, its Al
     for ([_]*const @TypeOf(endpoint.tcp_configs.cleartext){ &endpoint.tcp_configs.cleartext, &endpoint.tcp_configs.secure }) |borrowed| {
         try testing.expectEqual(decoded_storage.len, borrowed.decoded.len);
         try testing.expectEqual(443, borrowed.h3_alternative.?.port);
-        try testing.expectEqual(support.config.versions, borrowed.versions);
+        try testing.expectEqual(support.config.protocols, borrowed.protocols);
     }
     try testing.expect(endpoint.tcp_configs.secure.tls != null and endpoint.tcp_configs.cleartext.tls == null);
 }
