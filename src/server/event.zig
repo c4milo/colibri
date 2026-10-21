@@ -10,6 +10,9 @@ const http = @import("http");
 const deadline = @import("deadline.zig");
 const close_reason = @import("close_reason.zig");
 
+/// One header: a field line's name and value (RFC 9110 §5.2).
+pub const Header = http.Field;
+
 /// A connection an endpoint holds: its slot, and the slot's generation, which advances each time
 /// the endpoint reports that a connection there ended (decision 119). So a handle of an ended
 /// connection names nothing. Generation 0 names no connection.
@@ -28,14 +31,14 @@ pub const Number = u64;
 
 /// A request's id: the connection that carries it and its number there (decision 119). A response
 /// names the request it answers by it.
-pub const Id = packed struct(u128) {
+pub const RequestId = packed struct(u128) {
     connection: ConnectionHandle,
     number: Number,
 };
 
 /// The id a connection reports for its request `number`, with no connection named: the endpoint
 /// that holds the connection names it.
-pub fn id_of(number: Number) Id {
+pub fn id_of(number: Number) RequestId {
     return .{ .connection = .{ .slot = 0, .generation = 0 }, .number = number };
 }
 
@@ -54,7 +57,7 @@ pub const Version = struct {
 /// still follows it (RFC 9110 §15.2).
 pub const Response = struct {
     status: u16,
-    fields: []const http.Field = &.{},
+    headers: []const Header = &.{},
     end: bool,
     /// Whether the server may code the content in a coding the request accepts (decision 101),
     /// when its configuration names codings. Only the caller knows whether the content mixes a
@@ -66,19 +69,20 @@ pub const Response = struct {
 
 /// Octets of a response's content, which `write_body` writes, and whether the content ends with
 /// them.
-pub const Content = struct {
-    octets: []const u8,
+pub const ResponseBody = struct {
+    bytes: []const u8,
     end: bool,
 };
 
-/// A field section, less the pseudo-header fields h2 places first (RFC 9113 §8.3).
-pub const Fields = struct {
+/// A request's headers or trailers: its field section, less the pseudo-header fields h2 places
+/// first (RFC 9113 §8.3).
+pub const Headers = struct {
     section: *const http.FieldSection,
     /// The index of the first regular field line.
     first: u32,
 
     /// The section's regular field lines, skipping the pseudo-header fields at its front.
-    pub fn of(section: *const http.FieldSection) Fields {
+    pub fn of(section: *const http.FieldSection) Headers {
         var first: u32 = 0;
         // RFC 9113 §8.3: every pseudo-header field comes before the regular field lines.
         while (first < section.len() and is_pseudo(section.get(first).name)) first += 1;
@@ -87,20 +91,20 @@ pub const Fields = struct {
     }
 
     /// The first regular field line named `name`, compared case-insensitively (RFC 9110 §5.1).
-    pub fn find(fields: Fields, name: []const u8) ?http.Field {
+    pub fn find(headers: Headers, name: []const u8) ?Header {
         assert(!is_pseudo(name));
-        return fields.section.find(name);
+        return headers.section.find(name);
     }
 
     /// The regular field lines in arrival order.
-    pub fn iterator(fields: Fields) http.field_section.Iterator {
-        return .{ .section = fields.section, .index = fields.first };
+    pub fn iterator(headers: Headers) http.field_section.Iterator {
+        return .{ .section = headers.section, .index = headers.first };
     }
 
     /// How many regular field lines the section holds.
-    pub fn len(fields: Fields) u32 {
-        assert(fields.first <= fields.section.len());
-        return fields.section.len() - fields.first;
+    pub fn len(headers: Headers) u32 {
+        assert(headers.first <= headers.section.len());
+        return headers.section.len() - headers.first;
     }
 };
 
@@ -111,7 +115,7 @@ fn is_pseudo(name: []const u8) bool {
 
 /// A request's head.
 pub const Request = struct {
-    id: Id,
+    id: RequestId,
     method: []const u8,
     version: Version,
     /// The request-target as it arrived for h11 (RFC 9112 §3.2). For h2 and h3 it is the
@@ -131,25 +135,25 @@ pub const Request = struct {
     /// Null for CONNECT (RFC 9113 §8.5, RFC 9114 §4.4, RFC 9112 §3.2.3). `server.router` matches
     /// this value.
     path: ?[]const u8,
-    fields: Fields,
+    headers: Headers,
     /// Whether the head ended the request, so no content follows.
     end: bool,
 };
 
 /// Octets of a request's content, and whether they end it. The last `body` of a request may carry
 /// none. `user_data` is the word the program set at the request's head (decision 119).
-pub const Body = struct {
-    id: Id,
+pub const RequestBody = struct {
+    id: RequestId,
     user_data: usize = 0,
-    octets: []const u8,
+    bytes: []const u8,
     end: bool,
 };
 
 /// A request's trailer section, which ends it (RFC 9110 §6.5).
 pub const Trailers = struct {
-    id: Id,
+    id: RequestId,
     user_data: usize = 0,
-    fields: Fields,
+    headers: Headers,
 };
 
 /// A request ended before its response did: the peer reset its stream, colibri refused it (RFC
@@ -157,7 +161,7 @@ pub const Trailers = struct {
 /// stream, its connection stopped first, or the program cancelled it. Through a connection, the
 /// id may be one no `request` event named, when the refusal came before the head was read whole.
 pub const Cancelled = struct {
-    id: Id,
+    id: RequestId,
     user_data: usize = 0,
     reason: CancelReason,
 };
@@ -180,14 +184,14 @@ pub const CancelReason = union(enum) {
 /// it after the call that wrote the response's last octet, and h3 once the peer acknowledged
 /// every octet of it. A request cancelled first gets none.
 pub const Done = struct {
-    id: Id,
+    id: RequestId,
     user_data: usize = 0,
 };
 
 /// A response whose last write took fewer octets than it was given, or found no room, can take
 /// more (decision 119).
 pub const Writable = struct {
-    id: Id,
+    id: RequestId,
     user_data: usize,
 };
 
@@ -205,7 +209,7 @@ pub const Ended = struct {
 
 pub const Event = union(enum) {
     request: Request,
-    body: Body,
+    body: RequestBody,
     trailers: Trailers,
     cancelled: Cancelled,
     done: Done,
@@ -222,8 +226,8 @@ pub const Event = union(enum) {
 };
 
 /// What one `receive` call took and reported.
-pub const Received = struct {
-    /// Octets of the caller's input taken.
+pub const ReceiveResult = struct {
+    /// Bytes of the caller's input taken.
     consumed: usize,
     event: ?Event,
 };
@@ -234,6 +238,6 @@ test "decision 119: a connection's ids name no connection, which the endpoint th
     try std.testing.expectEqual(0, id.connection.generation);
     try std.testing.expectEqual(0, id.connection.slot);
     // Ids compare whole: the same number on another connection is another request.
-    const other: Id = .{ .connection = .{ .slot = 0, .generation = 1 }, .number = 7 };
+    const other: RequestId = .{ .connection = .{ .slot = 0, .generation = 1 }, .number = 7 };
     try std.testing.expect(id != other);
 }

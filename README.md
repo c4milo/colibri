@@ -140,12 +140,12 @@ time, with `server.router`. These lines are from
 [`examples/server_exchange.zig`](examples/server_exchange.zig):
 
 ```zig
-fn answer(id: server.Id, content: []const u8) !void {
+fn answer(id: server.RequestId, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
     try endpoint.respond(id, .{
         .status = 200,
-        .fields = &.{
+        .headers = &.{
             .{ .name = "content-type", .value = content_type },
             .{ .name = "content-length", .value = length },
         },
@@ -154,7 +154,7 @@ fn answer(id: server.Id, content: []const u8) !void {
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
     // the peer's window runs out, and the request's `writable` event then says when to write the
     // rest.
-    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
+    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
     assert(taken == content.len);
 }
 ```

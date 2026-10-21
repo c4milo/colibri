@@ -22,9 +22,9 @@ pub fn expects_continue(request: event.Request) bool {
     const version = request.version;
     // RFC 9110 §10.1.1: a server MUST ignore the expectation in an HTTP/1.0 request.
     if (version.major < version_min.major or (version.major == version_min.major and version.minor < version_min.minor)) return false;
-    var lines = request.fields.iterator();
+    var lines = request.headers.iterator();
     // Bounded: a section holds `field_count_max` lines at most.
-    for (0..request.fields.len()) |_| {
+    for (0..request.headers.len()) |_| {
         const line = lines.next() orelse return false;
         if (!http.field.names_equal(line.name, "expect")) continue;
         if (names_hundred_continue(line.value)) return true;

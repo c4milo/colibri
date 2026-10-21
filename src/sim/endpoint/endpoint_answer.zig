@@ -22,7 +22,7 @@ const Violation = program_module.Violation;
 pub const status: u16 = 200;
 
 /// The trailer section an answer that has one ends with (RFC 9110 §6.5).
-const trailer_fields = [_]server.Field{.{ .name = "grpc-status", .value = "0" }};
+const trailer_fields = [_]server.Header{.{ .name = "grpc-status", .value = "0" }};
 
 /// The octets of every answer's content: letters alone.
 pub const content_letters = "abcdefghijklmnopqrstuvwxyz";
@@ -160,7 +160,7 @@ fn write_content(program: *Program, request: *Request, random: *Random) Violatio
     }
     const octets = piece_of(program, answer);
     const end = answer.written + octets.len == answer.content_len and !answer.trailers;
-    const written = try program.write_body(request.id, .{ .octets = octets, .end = end });
+    const written = try program.write_body(request.id, .{ .bytes = octets, .end = end });
     if (written.failure) |failure| return refused(program, request, failure);
     answer.written += @intCast(written.taken);
     answer.piece_taken += @intCast(written.taken);
@@ -223,7 +223,7 @@ pub fn probe(program: *Program, request: *Request) Violation!bool {
         .content => {
             const octets = piece_of(program, answer);
             const end = answer.written + octets.len == answer.content_len and !answer.trailers;
-            const written = try program.write_body(request.id, .{ .octets = octets, .end = end });
+            const written = try program.write_body(request.id, .{ .bytes = octets, .end = end });
             // A take of nothing is the endpoint's refusal too.
             const failure = written.failure orelse return written.taken > 0;
             return probe_taken(program, request, failure);

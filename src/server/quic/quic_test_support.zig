@@ -364,7 +364,7 @@ fn to_endpoint(octets: []u8) void {
         endpoint.held.heap.mark_stale(slot);
         return;
     }
-    const taken = endpoint.receive(.{ .datagram = .{ .octets = octets, .from = client_address() } }, now_ns);
+    const taken = endpoint.receive(.{ .datagram = .{ .bytes = octets, .from = client_address() } }, now_ns);
     endpoint_support.check_deadline();
     if (endpoint_support.live_connection()) |live| {
         served = live;
@@ -401,8 +401,8 @@ pub fn server_to_client() !void {
             server_drop -= 1;
             continue;
         }
-        @memcpy(crossing[0..sent.octets.len], sent.octets);
-        _ = quic.connection_datagram.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.octets.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
+        @memcpy(crossing[0..sent.bytes.len], sent.bytes);
+        _ = quic.connection_datagram.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.bytes.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
         if (client_reads) try client_read();
     }
 }

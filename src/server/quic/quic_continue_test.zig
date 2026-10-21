@@ -161,7 +161,7 @@ test "decision 116: an h3 request whose stream ended with its head gets no 100" 
     // RFC 9114 §4.1: the head does not say that the request ended, so it owes the 100.
     try testing.expect(record.continue_owed);
     const end = (try connection.receive(support.now_ns)).event.?.body;
-    try testing.expect(end.end and end.octets.len == 0);
+    try testing.expect(end.end and end.bytes.len == 0);
     // RFC 9000 §4.5: h3 had taken every octet below the stream's final size, so no content
     // follows.
     try testing.expect(!record.continue_owed and !connection.continue_owed);
@@ -176,7 +176,7 @@ test "decision 116: an h3 request that ends with no content before its 100 is wr
     try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, true);
     try deliver();
     const end = (try connection.receive(support.now_ns)).event.?.body;
-    try testing.expect(end.end and end.octets.len == 0);
+    try testing.expect(end.end and end.bytes.len == 0);
     try testing.expect(!connection.requests.of(fetch.id).?.continue_owed);
     try support.pump(support.rounds_default);
     try testing.expectEqual(0, fetch.interims);
@@ -191,7 +191,7 @@ test "decision 116: content that arrived whole with the head leaves the 100 owed
     try testing.expectEqual(fetch.id, (try connection.receive(support.now_ns)).event.?.request.id.number);
     // RFC 9000 §4.5: the stream's final size is known, and its content is still to read.
     const content = (try connection.receive(support.now_ns)).event.?.body;
-    try testing.expectEqual(5, content.octets.len);
+    try testing.expectEqual(5, content.bytes.len);
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, fetch.interims);
     try testing.expectEqualStrings("100", last_status());

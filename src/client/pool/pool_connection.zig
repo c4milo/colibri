@@ -6,7 +6,7 @@ const tls = @import("tls");
 const event = @import("../event.zig");
 const pool_handle = @import("pool_handle.zig");
 
-const Id = event.Id;
+const RequestId = event.RequestId;
 const Request = event.Request;
 const Response = event.Response;
 const Protocol = event.Protocol;
@@ -17,18 +17,18 @@ inline fn is_quic(pool: anytype, slot: u32) bool {
 }
 
 /// The connection of `slot` takes `message` and `response`, and returns its own id for them.
-pub fn request(pool: anytype, slot: u32, message: *const Request, response: *Response) !Id {
+pub fn request(pool: anytype, slot: u32, message: *const Request, response: *Response) !RequestId {
     if (is_quic(pool, slot)) return pool.quic.request(message, response);
     return pool.tcp[slot].request(message, response);
 }
 
-pub fn cancel(pool: anytype, slot: u32, carried_id: Id) void {
+pub fn cancel(pool: anytype, slot: u32, carried_id: RequestId) void {
     if (is_quic(pool, slot)) return pool.quic.cancel(carried_id);
     pool.tcp[slot].cancel(carried_id);
 }
 
 /// The next event the connection of `slot` owes, read with no octets.
-pub fn poll(pool: anytype, slot: u32, now_ns: u64) event.Received {
+pub fn poll(pool: anytype, slot: u32, now_ns: u64) event.ReceiveResult {
     var none: [0]u8 = .{};
     if (is_quic(pool, slot)) return pool.quic.receive(&none, .not_ect, .{}, now_ns);
     return pool.tcp[slot].receive(&none, now_ns);

@@ -74,7 +74,7 @@ fn names(codings: []const Coding, coding: Coding) bool {
 pub fn offer(codings: []const Coding, pools: Pools, slot: *Slot, into: *[offer_len_max]u8) ?[]const u8 {
     if (codings.len == 0) return null;
     // Decision 101: a request that names Accept-Encoding goes out as its caller wrote it.
-    for (slot.request.fields) |field| {
+    for (slot.request.headers) |field| {
         if (http.field.names_equal(field.name, accept_encoding)) return null;
     }
     assert(codings.len <= codings_max);

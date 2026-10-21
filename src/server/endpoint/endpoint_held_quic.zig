@@ -29,7 +29,7 @@ pub const QuicTable = endpoint_requests.Table(constants.quic_requests_max, const
 /// A datagram the UDP socket read, which the suite opens in place, with its ECN codepoint and the
 /// address it came from (decision 72).
 pub const Datagram = struct {
-    octets: []u8,
+    bytes: []u8,
     ecn: Ecn = .not_ect,
     from: PeerAddress,
 };
@@ -39,12 +39,12 @@ pub const Datagram = struct {
 pub fn take_datagram(held: *Held, datagram: Datagram, now_ns: u64) usize {
     assert(held.quic_tables.len > 0);
     // An endpoint with no identity, or with h3 turned off, serves no QUIC connection.
-    if (!held.served.quic) return datagram.octets.len;
+    if (!held.served.quic) return datagram.bytes.len;
     const accepting = !held.shutting_down;
-    const slot = held.connections.receive(datagram.octets, datagram.ecn, datagram.from, now_ns, accepting) orelse return datagram.octets.len;
+    const slot = held.connections.receive(datagram.bytes, datagram.ecn, datagram.from, now_ns, accepting) orelse return datagram.bytes.len;
     held.room[slot] +%= 1;
     endpoint_held.touch(held, slot);
-    return datagram.octets.len;
+    return datagram.bytes.len;
 }
 
 /// The next event QUIC slot `slot` owes the program: the program's own cancels first, then what

@@ -125,7 +125,7 @@ test "INV-31: a deadline the next event starts is the endpoint's, after a read o
     try support.pump(support.rounds_default);
     const id = endpoint_support.id_of(fetch.id);
     try endpoint.respond(id, .{ .status = ok, .end = false });
-    _ = try endpoint.write_body(id, .{ .octets = &content, .end = true });
+    _ = try endpoint.write_body(id, .{ .bytes = &content, .end = true });
     // The program reads the deadline after it answers. The next `receive` observes the answer's
     // send deadline (decision 110), and `collect` compares the endpoint's deadline with a scan.
     _ = endpoint.deadline_ns();

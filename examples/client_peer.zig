@@ -110,7 +110,7 @@ pub fn turn() !void {
     const connection = accepted orelse return;
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
-        const read: server.StreamOctets = .{ .connection = connection, .octets = input[consumed..] };
+        const read: server.StreamBytes = .{ .connection = connection, .bytes = input[consumed..] };
         const received = endpoint.receive(.{ .stream = read }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -126,9 +126,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
         .request => |request| try take_request(request),
         .body => |body| {
-            if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
-            @memcpy(posted[posted_len..][0..body.octets.len], body.octets);
-            posted_len += body.octets.len;
+            if (posted_len + body.bytes.len > posted.len) return error.ExchangeWrong;
+            @memcpy(posted[posted_len..][0..body.bytes.len], body.bytes);
+            posted_len += body.bytes.len;
             if (body.end) try answer(body.id, posted[0..posted_len]);
         },
         .done => answered += 1,
@@ -153,7 +153,7 @@ fn take_request(request: server.Request) !void {
         // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
         .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
             .status = 405,
-            .fields = &.{.{ .name = "allow", .value = allowed }},
+            .headers = &.{.{ .name = "allow", .value = allowed }},
             .end = true,
         }),
         .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
@@ -169,18 +169,18 @@ fn greet(request: server.Request, _: *const server.PathParameters) anyerror!void
 /// The content follows in `body` events, and the server answers at its end.
 fn echo(_: server.Request, _: *const server.PathParameters) anyerror!void {}
 
-fn answer(id: server.Id, content: []const u8) !void {
+fn answer(id: server.RequestId, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
     try endpoint.respond(id, .{
         .status = 200,
-        .fields = &.{
+        .headers = &.{
             .{ .name = "content-type", .value = content_type },
             .{ .name = "content-length", .value = length },
         },
         .end = false,
     });
-    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
+    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
     assert(taken == content.len);
 }
 

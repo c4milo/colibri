@@ -48,7 +48,7 @@ const assert = std.debug.assert;
 
 pub const Transport = choice.Transport;
 pub const Phase = choice.Phase;
-pub const Id = event.Id;
+pub const RequestId = event.RequestId;
 pub const Request = event.Request;
 pub const Response = event.Response;
 pub const Protocol = event.Protocol;
@@ -144,26 +144,26 @@ pub const Event = union(enum) {
 
 /// A datagram the UDP flow read, with its ECN codepoint and the address it came from.
 pub const Datagram = struct {
-    octets: []u8,
+    bytes: []u8,
     ecn: quic.connection_receive.Datagram.Ecn = .not_ect,
     from: Address = .{},
 };
 
-/// Octets the TCP socket of a connection read.
-pub const StreamOctets = struct {
+/// Bytes the TCP socket of a connection read.
+pub const StreamBytes = struct {
     connection: ConnectionHandle,
-    octets: []u8,
+    bytes: []u8,
 };
 
 /// What the caller read, from the transport that read it.
 pub const Input = union(enum) {
     none,
     datagram: Datagram,
-    stream: StreamOctets,
+    stream: StreamBytes,
 };
 
 /// What one `receive` call took and reported.
-pub const Received = struct {
+pub const ReceiveResult = struct {
     consumed: usize,
     event: ?Event,
 };
@@ -223,7 +223,7 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         quic_address_index: usize,
         tcp_address_index: usize,
         /// The id the next exchange gets.
-        next_id: Id,
+        next_id: RequestId,
         /// Whether the fallback delay passed during QUIC's handshake, as
         /// spec/tla/client_exchanges names it. Each link says whether this attempt opened it.
         fallback: bool,
@@ -288,13 +288,13 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         /// and the `response` it gets, and returns the exchange's id. The caller keeps both in
         /// place, and each slice they name, until the exchange's `finished` event or until
         /// `cancel` returns (decision 124). The caller makes no request after `shutdown`.
-        pub fn request(pool: *Self, message: *const Request, response: *Response) RequestError!Id {
+        pub fn request(pool: *Self, message: *const Request, response: *Response) RequestError!RequestId {
             return pool_calls.request(pool, message, response);
         }
 
         /// Ends exchange `id`, and reports nothing for it. The memory of its request and its
         /// response is the caller's again.
-        pub fn cancel(pool: *Self, id: Id) void {
+        pub fn cancel(pool: *Self, id: RequestId) void {
             pool_calls.cancel(pool, id);
         }
 
@@ -306,7 +306,7 @@ pub fn PoolOf(comptime capacity: Capacity) type {
 
         /// Reports what the pool owes, then passes `input` to the connection of the transport
         /// that read it, and reports what that changed.
-        pub fn receive(pool: *Self, input: Input, now_ns: u64) Received {
+        pub fn receive(pool: *Self, input: Input, now_ns: u64) ReceiveResult {
             return pool_calls.receive(pool, input, now_ns);
         }
 

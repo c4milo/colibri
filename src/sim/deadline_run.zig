@@ -222,7 +222,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         response.* = .{ .body = &storage.bodies[index] };
         if (plan.peer == .upload) {
             message.method = "POST";
-            message.content = storage.upload[0..plan.upload_len[index]];
+            message.body = storage.upload[0..plan.upload_len[index]];
         }
     }
     // An upload's exchanges go one at a time, so each request's body has the whole link.
@@ -317,7 +317,7 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     var moved = false;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .octets = stream.held() } }, ns_of(plan, now_ms));
+        const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .bytes = stream.held() } }, ns_of(plan, now_ms));
         // A hostile peer's octets may fail the connection; an honest peer's may not.
         if (plan.honest() and storage.endpoint.failed[storage.accepted.slot]) return error.ExchangeRefused;
         stream.consumed += received.consumed;
@@ -398,7 +398,7 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     }
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .octets = stream.held() } }, ns_of(plan, now_ms));
+        const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .bytes = stream.held() } }, ns_of(plan, now_ms));
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;

@@ -28,7 +28,7 @@ const body_len: usize = 64;
 var upload: [upload_len]u8 = undefined;
 const upload_len: usize = 70_000;
 /// The upload's exchange id. Test-only.
-var post_id: pool_module.Id align(@alignOf(pool_module.Id)) = 0;
+var post_id: pool_module.RequestId align(@alignOf(pool_module.RequestId)) = 0;
 /// Calls of `send_stream` that an upload takes at most until the window is spent.
 const sends_max: usize = 16;
 
@@ -84,12 +84,12 @@ fn start_blocked(post: *Exchange) !ConnectionHandle {
     support.to_client_len = 0;
     events_len = 0;
     @memset(&upload, 'x');
-    post.* = .{ .request = .{ .method = "POST", .path = "/", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    post.* = .{ .request = .{ .method = "POST", .path = "/", .body = &upload }, .response = .{ .body = &bodies[0] } };
     post_id = try pool.request(&post.request, &post.response);
     try collect();
     const connection = pool_support.connection_of(&pool, .tcp);
     try spend_window(connection);
-    try testing.expect(post.response.content_sent < upload.len);
+    try testing.expect(post.response.body_sent < upload.len);
     // The connection is blocked: a call with no octets reports no `send`.
     const sends = count(.send);
     try collect();
@@ -140,7 +140,7 @@ test "decision 125: exchanges past an h2 connection's slots wait for a slot, and
     try pool.init(&many_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{ .requests = many_count }, null);
     support.to_peer_len = 0;
     events_len = 0;
-    var first: pool_module.Id = 0;
+    var first: pool_module.RequestId = 0;
     for (&many, &many_bodies, 0..) |*exchange, *body, index| {
         exchange.* = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
         const id = try pool.request(&exchange.request, &exchange.response);

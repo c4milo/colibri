@@ -54,7 +54,7 @@ fn by_id(program: *Program, request: *const Request, which: RequestCall) Violati
             break :refused if (set) |_| false else |failure| failure == error.RequestUnknown;
         },
         .respond => program_module.unknown(try program.respond(id, .{ .status = answer_module.status, .end = true })),
-        .write_body => program_module.unknown((try program.write_body(id, .{ .octets = program.content[0..1], .end = true })).failure),
+        .write_body => program_module.unknown((try program.write_body(id, .{ .bytes = program.content[0..1], .end = true })).failure),
         .write_trailers => program_module.unknown(try program.write_trailers(id, &.{})),
         // Nothing follows: an event of the request after it is `EventAfterEnding`.
         .cancel => cancelled: {
@@ -86,7 +86,7 @@ fn by_handle(program: *Program, connection: *const Connection, which: HandleCall
             // connection that failed on them would also consume them whole.
             const before = Holder.of(program, handle.slot);
             const octets = program.probe[0..limits.stale_octets_len];
-            const received = try program.receive(.{ .stream = .{ .connection = handle, .octets = octets } }, now_ns);
+            const received = try program.receive(.{ .stream = .{ .connection = handle, .bytes = octets } }, now_ns);
             reported = received.event;
             break :dropped received.consumed == octets.len and std.meta.eql(before, Holder.of(program, handle.slot));
         },

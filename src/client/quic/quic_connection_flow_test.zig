@@ -63,7 +63,7 @@ test "RFC 9114 §4.1.1: a cancel after the response resets the stream still send
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_early = true;
     @memset(&upload, 'z');
-    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .body = &upload }, .response = .{ .body = &bodies[0] } };
     const id = try connection.request(&post.request, &post.response);
     // Bounded: the server answers once the request's head arrives.
     for (0..support.rounds_default) |_| {
@@ -147,13 +147,13 @@ test "RFC 9204 §4.5.4: a marked path and field line go out as literals with the
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
     const path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE";
-    const fields = [_]event.Field{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
+    const fields = [_]event.Header{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
     const marks = [_]bool{ true, false };
     var marked: Exchange = .{
-        .request = .{ .method = "GET", .path = path, .fields = &fields, .never_indexed = .{ .path = true, .fields = &marks } },
+        .request = .{ .method = "GET", .path = path, .headers = &fields, .never_indexed = .{ .path = true, .headers = &marks } },
         .response = .{ .body = &bodies[0] },
     };
-    var plain: Exchange = .{ .request = .{ .method = "GET", .path = path, .fields = &fields }, .response = .{ .body = &bodies[1] } };
+    var plain: Exchange = .{ .request = .{ .method = "GET", .path = path, .headers = &fields }, .response = .{ .body = &bodies[1] } };
     _ = try connection.request(&marked.request, &marked.response);
     _ = try connection.request(&plain.request, &plain.response);
     try support.pump(support.rounds_default);

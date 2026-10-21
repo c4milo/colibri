@@ -9,7 +9,7 @@ const endpoint_held = @import("endpoint_held.zig");
 
 const Held = endpoint_held.Held;
 const Event = event.Event;
-const Id = event.Id;
+const RequestId = event.RequestId;
 const ConnectionHandle = event.ConnectionHandle;
 
 /// `reported`, as the program reads it, or null for an event of no request `table` holds.
@@ -30,11 +30,11 @@ pub fn pass(held: *Held, slot: u32, table: anytype, reported: Event, comptime Si
         },
         .body => |body| {
             const entry = table.find(body.id.number) orelse return null;
-            return .{ .body = .{ .id = id_on(handle, body.id), .user_data = entry.user_data, .octets = body.octets, .end = body.end } };
+            return .{ .body = .{ .id = id_on(handle, body.id), .user_data = entry.user_data, .bytes = body.bytes, .end = body.end } };
         },
         .trailers => |trailers| {
             const entry = table.find(trailers.id.number) orelse return null;
-            return .{ .trailers = .{ .id = id_on(handle, trailers.id), .user_data = entry.user_data, .fields = trailers.fields } };
+            return .{ .trailers = .{ .id = id_on(handle, trailers.id), .user_data = entry.user_data, .headers = trailers.headers } };
         },
         .done => |done| {
             const entry = table.find(done.id.number) orelse return null;
@@ -68,7 +68,7 @@ pub fn writable_of(held: *Held, slot: u32, table: anytype, comptime Side: type) 
             continue;
         }
         table.stop_waiting(entry);
-        const id: Id = .{ .connection = held.slots.handle_of(slot), .number = entry.number };
+        const id: RequestId = .{ .connection = held.slots.handle_of(slot), .number = entry.number };
         return .{ .writable = .{ .id = id, .user_data = entry.user_data } };
     }
     return null;
@@ -93,6 +93,6 @@ pub fn ending(handle: ConnectionHandle, table: anytype, number: event.Number, re
 }
 
 /// `id`, naming the connection `handle` holds.
-fn id_on(handle: ConnectionHandle, id: Id) Id {
+fn id_on(handle: ConnectionHandle, id: RequestId) RequestId {
     return .{ .connection = handle, .number = id.number };
 }

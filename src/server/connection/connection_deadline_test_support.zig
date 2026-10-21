@@ -17,7 +17,7 @@ pub const early_ns: u64 = 1_000_000;
 pub const no_content: u16 = 204;
 
 /// Reads `octets` at `now_ns`.
-pub fn receive_at(octets: []const u8, now_ns: u64) !support.Received {
+pub fn receive_at(octets: []const u8, now_ns: u64) !support.ReceiveResult {
     @memcpy(support.input[0..octets.len], octets);
     const received = connection.receive(support.input[0..octets.len], now_ns);
     try expect_counts();
@@ -50,7 +50,7 @@ pub fn expect_counts() !void {
 
 /// Answers the request `receive_at` read with a 204, sends the answer at `now_ns`, and reads the
 /// request's `done` event (decision 103).
-pub fn answer_at(received: support.Received, now_ns: u64) !void {
+pub fn answer_at(received: support.ReceiveResult, now_ns: u64) !void {
     const id = received.event.?.request.id.number;
     try connection.respond(id, .{ .status = no_content, .end = true });
     _ = send_at(now_ns);

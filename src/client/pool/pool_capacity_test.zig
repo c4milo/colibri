@@ -73,7 +73,7 @@ test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, a
     try testing.expectEqual(pool_module.Transport.tcp, opened.transport);
     // A datagram is dropped, no datagram is owed, and nothing names a QUIC connection.
     var octets: [ipv4_len]u8 = @splat(host_octet);
-    const dropped = pool.receive(.{ .datagram = .{ .octets = &octets } }, support.now_ns);
+    const dropped = pool.receive(.{ .datagram = .{ .bytes = &octets } }, support.now_ns);
     try testing.expectEqual(octets.len, dropped.consumed);
     try testing.expectEqual(null, dropped.event);
     try testing.expectEqual(null, pool.send_datagram(&body, support.now_ns));

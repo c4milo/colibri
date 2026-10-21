@@ -84,7 +84,7 @@ pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
     var rest = input[0..octets.len];
     // Bounded: each pass consumes octets or reports an event, or ends the loop.
     for (0..rounds_max) |_| {
-        const received = endpoint.receive(.{ .stream = .{ .connection = handle, .octets = rest } }, instant_ns);
+        const received = endpoint.receive(.{ .stream = .{ .connection = handle, .bytes = rest } }, instant_ns);
         check_deadline();
         rest = rest[received.consumed..];
         if (received.event) |reported| note(reported);
@@ -184,7 +184,7 @@ pub fn sent_of(slot: u32) []const u8 {
 }
 
 /// The id of request `number` on the connection `handle` names.
-pub fn id_of(handle: ConnectionHandle, number: u64) event.Id {
+pub fn id_of(handle: ConnectionHandle, number: u64) event.RequestId {
     return .{ .connection = handle, .number = number };
 }
 

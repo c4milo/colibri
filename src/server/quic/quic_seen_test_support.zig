@@ -49,7 +49,7 @@ pub fn keep(reported: Event) void {
         .body => |body| {
             entry.id = body.id.number;
             entry.user_data = body.user_data;
-            entry.len = body.octets.len;
+            entry.len = body.bytes.len;
             entry.end = body.end;
         },
         .trailers => |trailers| {

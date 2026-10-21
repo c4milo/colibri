@@ -124,13 +124,13 @@ pub fn feed(pool: anytype, input: pool_module.Input, now_ns: u64) Fed {
     switch (input) {
         .none => return .{ .len = 0, .event = null },
         .datagram => |datagram| {
-            if (!pool.capacity.quic or pool.quic_link.state != .running) return .{ .len = datagram.octets.len, .event = null };
-            const received = pool.quic.receive(datagram.octets, datagram.ecn, datagram.from, now_ns);
+            if (!pool.capacity.quic or pool.quic_link.state != .running) return .{ .len = datagram.bytes.len, .event = null };
+            const received = pool.quic.receive(datagram.bytes, datagram.ecn, datagram.from, now_ns);
             const reported = received.event orelse return .{ .len = received.consumed, .event = null };
             return .{ .len = received.consumed, .event = handle(pool, pool_handle.quic_slot(pool), reported) };
         },
         .stream => |stream| {
-            const octets = stream.octets;
+            const octets = stream.bytes;
             // Octets for a handle that names no running TCP connection are an earlier connection's.
             const slot = pool_handle.resolve(pool, stream.connection) orelse return .{ .len = octets.len, .event = null };
             // The program reads datagrams for the QUIC connection, so its handle names no stream.
@@ -388,7 +388,7 @@ fn oldest(pool: anytype, stage: Stage) ?*Entry {
     return found;
 }
 
-fn carried(pool: anytype, slot: u32, carried_id: event.Id) ?*Entry {
+fn carried(pool: anytype, slot: u32, carried_id: event.RequestId) ?*Entry {
     for (pool.entries) |*entry| {
         if (entry.stage == .carried and entry.carrier == slot and entry.carried_id == carried_id) return entry;
     }

@@ -40,13 +40,13 @@ const internal = @import("connection_internal.zig");
 const alt_svc = @import("../alt_svc.zig");
 const versions_module = @import("../versions.zig");
 
-pub const Id = event.Id;
+pub const RequestId = event.RequestId;
 pub const Protocol = event.Protocol;
 pub const Event = event.Event;
-pub const Received = event.Received;
+pub const ReceiveResult = event.ReceiveResult;
 pub const Request = event.Request;
 pub const Response = event.Response;
-pub const Field = event.Field;
+pub const Header = event.Header;
 const Slot = slots_module.Slot;
 
 /// What every connection to one origin borrows. The caller keeps it alive while any connection
@@ -191,7 +191,7 @@ pub const Connection = struct {
     /// Takes the request `message`, which `send` writes when the protocol, the room and the peer
     /// allow, and the `response` it gets, and returns the exchange's id. The caller keeps both in
     /// place until the exchange's `finished` event.
-    pub fn request(connection: *Connection, message: *const Request, response: *Response) RequestError!Id {
+    pub fn request(connection: *Connection, message: *const Request, response: *Response) RequestError!RequestId {
         // RFC 9113 §5.4.1 and RFC 9112 §9.6: a connection that failed or closed carries no request.
         if (connection.phase == .closed or connection.stopped) return error.ConnectionClosed;
         // RFC 9113 §6.8 and §5.1.1, RFC 9112 §9.6: a connection that heard GOAWAY, spent its
@@ -209,7 +209,7 @@ pub const Connection = struct {
     /// the caller's again. One not yet written is dropped. A written one: h2 resets its stream
     /// with CANCEL (RFC 9113 §6.4), and h11 reads its response and drops it, or, while its content
     /// is going out, ends the connection.
-    pub fn cancel(connection: *Connection, id: Id) void {
+    pub fn cancel(connection: *Connection, id: RequestId) void {
         const slot = connection.slots.of_id(id) orelse return;
         switch (slot.stage) {
             .queued, .ended => slots_module.release(slot),
@@ -227,7 +227,7 @@ pub const Connection = struct {
     /// Reports what the connection owes the caller, then reads at most one event from `input`,
     /// the octets the transport read. Over TLS it runs the handshake first, and `input` is records,
     /// which chapulin may open in place.
-    pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Received {
+    pub fn receive(connection: *Connection, input: []u8, now_ns: u64) ReceiveResult {
         if (connection.owed_event()) |owed| return .{ .consumed = 0, .event = owed };
         const consumed = switch (connection.phase) {
             .closed => 0,

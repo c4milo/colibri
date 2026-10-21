@@ -29,7 +29,7 @@ pub fn plan_head(encoders: Encoders, asked: coding_rules.Asked, response: event.
     const slot = if (plan.encodes) encoders.take(plan.coding.?) else null;
     if (plan.encodes and slot == null) plan = .{ .vary = plan.vary };
     errdefer if (slot) |index| encoders.give_back(index);
-    const fields = try coding_fields.rewrite(response.fields, plan, into);
+    const fields = try coding_fields.rewrite(response.headers, plan, into);
     return .{ .fields = fields, .slot = slot };
 }
 

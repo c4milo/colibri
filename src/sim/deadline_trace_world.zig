@@ -170,7 +170,7 @@ pub const World = struct {
     }
 
     /// The id the endpoint gives the request on stream `index`.
-    fn request_id(world: *const World, index: u32) server.Id {
+    fn request_id(world: *const World, index: u32) server.RequestId {
         return .{ .connection = world.accepted, .number = id_of(index) };
     }
 
@@ -298,7 +298,7 @@ pub const World = struct {
         var taken: usize = 0;
         for (0..limits.receives_per_frame_max) |_| {
             if (taken == len) break;
-            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .octets = world.to_server.octets[taken..len] } }, world.now_ns);
+            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .bytes = world.to_server.octets[taken..len] } }, world.now_ns);
             if (world.endpoint.failed[world.accepted.slot]) {
                 world.broken = true;
                 return;
@@ -375,7 +375,7 @@ pub const World = struct {
         if (world.resp[index] != .head or world.resp_written[index] == world.produced[index]) return false;
         const offered = content[world.resp_written[index]..world.produced[index]];
         const end = world.produced[index] == plan.response_body;
-        const taken = world.endpoint.write_body(world.request_id(index), .{ .octets = offered, .end = end }) catch 0;
+        const taken = world.endpoint.write_body(world.request_id(index), .{ .bytes = offered, .end = end }) catch 0;
         world.resp_written[index] += @intCast(taken);
         if (end and taken == offered.len) world.resp[index] = .ended;
         return taken > 0;

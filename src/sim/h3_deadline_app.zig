@@ -24,7 +24,7 @@ pub const Error = error{
 /// A request the application read: when its content ended, when the application began its answer
 /// and when it ended it, when the server reported it done, and the deadline that cancelled it.
 pub const Answer = struct {
-    id: server.Id,
+    id: server.RequestId,
     read_ms: u64,
     content_end_ms: ?u64 = null,
     answered_ms: ?u64 = null,
@@ -72,7 +72,7 @@ pub const Application = struct {
         }
     }
 
-    fn note_request(app: *Application, id: server.Id, now_ms: u64) void {
+    fn note_request(app: *Application, id: server.RequestId, now_ms: u64) void {
         app.requests_read += 1;
         // The application answers as many requests as a peer makes whole.
         if (app.answers_len == limits.honest_requests_max) return;
@@ -166,7 +166,7 @@ fn write(endpoint: *Endpoint, pending: *Answer, plan: *const Plan, content: []co
     if (first_len > 0) try write_content(endpoint, pending.id, content[0..first_len], ends);
 }
 
-fn write_content(endpoint: *Endpoint, id: server.Id, content: []const u8, end: bool) server.SendError!void {
-    const taken = try endpoint.write_body(id, .{ .octets = content, .end = end });
+fn write_content(endpoint: *Endpoint, id: server.RequestId, content: []const u8, end: bool) server.SendError!void {
+    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = end });
     assert(taken == content.len);
 }

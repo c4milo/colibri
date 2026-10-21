@@ -110,7 +110,7 @@ pub const Program = struct {
         try program.check_deadline(call);
     }
 
-    pub fn receive(program: *Program, input: server.Input, now_ns: u64) Violation!server.Received {
+    pub fn receive(program: *Program, input: server.Input, now_ns: u64) Violation!server.ReceiveResult {
         const received = program.endpoint.receive(input, now_ns);
         try program.called("receive");
         return received;
@@ -140,20 +140,20 @@ pub const Program = struct {
         request.word = word;
     }
 
-    pub fn respond(program: *Program, id: server.Id, response: server.Response) Violation!?server.SendError {
+    pub fn respond(program: *Program, id: server.RequestId, response: server.Response) Violation!?server.SendError {
         const responded = program.endpoint.respond(id, response);
         try program.called("respond");
         if (responded) |_| return null else |failure| return @as(?server.SendError, failure);
     }
 
-    pub fn write_body(program: *Program, id: server.Id, content: server.Content) Violation!Written {
+    pub fn write_body(program: *Program, id: server.RequestId, content: server.ResponseBody) Violation!Written {
         const written = program.endpoint.write_body(id, content);
         try program.called("write_body");
         const taken = written catch |failure| return .{ .taken = 0, .failure = failure };
         return .{ .taken = taken, .failure = null };
     }
 
-    pub fn write_trailers(program: *Program, id: server.Id, fields: []const server.Field) Violation!?server.SendError {
+    pub fn write_trailers(program: *Program, id: server.RequestId, fields: []const server.Header) Violation!?server.SendError {
         const written = program.endpoint.write_trailers(id, fields);
         try program.called("write_trailers");
         if (written) |_| return null else |failure| return @as(?server.SendError, failure);
@@ -168,7 +168,7 @@ pub const Program = struct {
         request.cancel_called = true;
         const id = request.id;
         const head = try program.respond(id, .{ .status = answer_module.status, .end = true });
-        const body = try program.write_body(id, .{ .octets = "", .end = true });
+        const body = try program.write_body(id, .{ .bytes = "", .end = true });
         const word = program.endpoint.set_user_data(id, request.word);
         try program.called("set_user_data");
         const word_refused = if (word) |_| false else |failure| failure == error.RequestUnknown;

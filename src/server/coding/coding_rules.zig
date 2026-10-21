@@ -38,9 +38,9 @@ fn accepted(codings: []const Coding, request: event.Request) ?Coding {
     // Decision 101: a request with no Accept-Encoding gets no coding, though RFC 9110 §12.5.3
     // permits one. With no line read, no coding has a weight, and `choose` finds none.
     var acceptance: http.content_coding.Acceptance = .{};
-    var lines = request.fields.iterator();
+    var lines = request.headers.iterator();
     // Bounded by the section's lines.
-    for (0..request.fields.len()) |_| {
+    for (0..request.headers.len()) |_| {
         const line = lines.next() orelse break;
         if (!http.field.names_equal(line.name, accept_encoding)) continue;
         // RFC 9110 §12.5.3: a value its grammar refuses names no coding as acceptable, and the
@@ -128,7 +128,7 @@ fn test_asked(method: []const u8, version: event.Version, lines: []const http.Fi
         .scheme = "https",
         .authority = "example.test",
         .path = "/",
-        .fields = event.Fields.of(&test_section),
+        .headers = event.Headers.of(&test_section),
         .end = true,
     });
 }

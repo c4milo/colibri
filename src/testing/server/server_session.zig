@@ -227,7 +227,7 @@ fn read(session: anytype, entry: *Entry, input: []u8) Read {
     var taken: Read = .{ .consumed = 0, .moved = false };
     for (0..session.events_max) |_| {
         if (entry.closing or !entry.attached) break;
-        const octets: server.StreamOctets = .{ .connection = entry.handle, .octets = input[taken.consumed..] };
+        const octets: server.StreamBytes = .{ .connection = entry.handle, .bytes = input[taken.consumed..] };
         const received = session.endpoint.receive(.{ .stream = octets }, session.now_ns);
         taken.consumed += received.consumed;
         if (received.event) |reported| on_event(session, reported);

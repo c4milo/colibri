@@ -31,7 +31,7 @@ const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
-const content_length_5: []const support.Field = &.{.{ .name = "Content-Length", .value = "5" }};
+const content_length_5: []const support.Header = &.{.{ .name = "Content-Length", .value = "5" }};
 
 /// A pool whose TCP connection speaks h11 in cleartext, with `exchange` taken and its connection
 /// started. Returns the handle the `open` named.
@@ -55,7 +55,7 @@ fn collect() !void {
     for (0..support.buffer_len + support.events_max) |_| {
         const connection = pool_support.connection_of(&pool, .tcp);
         const octets = support.to_client[0..support.to_client_len];
-        const input: pool_module.Input = if (octets.len > 0) .{ .stream = .{ .connection = connection, .octets = octets } } else .none;
+        const input: pool_module.Input = if (octets.len > 0) .{ .stream = .{ .connection = connection, .bytes = octets } } else .none;
         const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
@@ -147,7 +147,7 @@ test "decision 125: a handle names nothing once its connection's close went out"
     // Each call with the old handle changes nothing, and its octets are dropped.
     try testing.expectEqual(0, pool.send_stream(old, &support.to_peer, support.now_ns));
     var stale = "HTTP/1.1 200 OK\r\n".*;
-    const dropped = pool.receive(.{ .stream = .{ .connection = old, .octets = &stale } }, support.now_ns);
+    const dropped = pool.receive(.{ .stream = .{ .connection = old, .bytes = &stale } }, support.now_ns);
     try testing.expectEqual(stale.len, dropped.consumed);
     try testing.expectEqual(null, pool.take_ticket(old));
     pool.transport_closed(old);

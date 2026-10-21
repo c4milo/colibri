@@ -24,8 +24,8 @@ const Entry = endpoint_requests.Entry;
 /// Whether a TCP connection the program accepted runs TLS.
 pub const Security = enum { cleartext, tls };
 
-/// Octets a TCP connection's socket read, which chapulin may open in place.
-pub const StreamOctets = struct { connection: ConnectionHandle, octets: []u8 };
+/// Bytes a TCP connection's socket read, which chapulin may open in place.
+pub const StreamBytes = struct { connection: ConnectionHandle, bytes: []u8 };
 
 /// A TCP slot's open requests: as many as an h2 connection holds at once.
 pub const TcpTable = endpoint_requests.Table(constants.tcp_requests_max, constants.tcp_request_number_step);
@@ -70,9 +70,9 @@ pub fn accept(held: *Held, security: Security, now_ns: u64) ?ConnectionHandle {
 /// holds, come first, with nothing consumed. Octets of a handle that names no connection, or of a
 /// connection that reads no more, are consumed and dropped, as a read that finished after `close`
 /// is.
-pub fn take_stream(held: *Held, input: StreamOctets, now_ns: u64) event.Received {
+pub fn take_stream(held: *Held, input: StreamBytes, now_ns: u64) event.ReceiveResult {
     assert(input.connection.slot < held.slots.tcp_count);
-    const dropped: event.Received = .{ .consumed = input.octets.len, .event = null };
+    const dropped: event.ReceiveResult = .{ .consumed = input.bytes.len, .event = null };
     const slot = held.slots.resolve(input.connection) orelse return dropped;
     if (held.transports[slot] != .open) return dropped;
     const table = table_of(held, slot);
@@ -85,10 +85,10 @@ pub fn take_stream(held: *Held, input: StreamOctets, now_ns: u64) event.Received
     if (send_first(held, slot)) |reported| return .{ .consumed = 0, .event = reported };
     // No octets, and nothing changed the connection since it read nothing at this instant: the
     // call would read nothing again, and the slot's last poll asked it everything else.
-    if (input.octets.len == 0 and reads_nothing(held, slot, now_ns)) return .{ .consumed = 0, .event = null };
+    if (input.bytes.len == 0 and reads_nothing(held, slot, now_ns)) return .{ .consumed = 0, .event = null };
     const connection = &held.tcp[slot];
     endpoint_held.touch(held, slot);
-    const received = connection.receive(input.octets, now_ns) catch {
+    const received = connection.receive(input.bytes, now_ns) catch {
         // The connection reads nothing more, and `ended` says it failed.
         held.failed[slot] = true;
         return dropped;
@@ -96,7 +96,7 @@ pub fn take_stream(held: *Held, input: StreamOctets, now_ns: u64) event.Received
     note_read(held, slot, received, now_ns);
     // A read may carry the peer's WINDOW_UPDATE, which gives a waiting response room.
     if (received.consumed > 0 or connection.plain_in_read > 0) held.room[slot] +%= 1;
-    const consumed = if (connection_owed.reads_no_input(connection)) input.octets.len else received.consumed;
+    const consumed = if (connection_owed.reads_no_input(connection)) input.bytes.len else received.consumed;
     const reported = received.event orelse return .{ .consumed = consumed, .event = null };
     return .{ .consumed = consumed, .event = endpoint_held_events.pass(held, slot, table, reported, @This()) };
 }
@@ -246,7 +246,7 @@ fn reads_nothing(held: *const Held, slot: u32, now_ns: u64) bool {
 /// Notes whether the `receive` the connection in `slot` just made read nothing: it took no octet,
 /// reported no event, and its protocol read none of the plaintext the connection holds. A call
 /// that read something may leave more to read, such as h2 frames past `frames_per_receive_max`.
-fn note_read(held: *Held, slot: u32, received: event.Received, now_ns: u64) void {
+fn note_read(held: *Held, slot: u32, received: event.ReceiveResult, now_ns: u64) void {
     const read_nothing = received.consumed == 0 and received.event == null and held.tcp[slot].plain_in_read == 0;
     held.empty_read_ns[slot] = if (read_nothing) now_ns else null;
 }

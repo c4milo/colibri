@@ -257,7 +257,7 @@ fn give(storage: *Storage, peer: *Peer, now_ns: u64, now_ms: u64) Error!bool {
     // Bounded: each call consumes an octet or reports an event, or ends the loop.
     for (0..limits.receives_per_stream_max) |_| {
         if (connection.socket != .open or stream.held().len == 0) return moved;
-        const input: server.Input = .{ .stream = .{ .connection = peer.handle, .octets = stream.held() } };
+        const input: server.Input = .{ .stream = .{ .connection = peer.handle, .bytes = stream.held() } };
         const received = try storage.program.receive(input, now_ns);
         stream.consumed += received.consumed;
         if (received.event) |reported| try route_module.route(storage, reported, now_ns, now_ms);
@@ -295,7 +295,7 @@ fn send_datagrams(storage: *Storage, index: usize, peer_plan: *const plan_module
         if (peer.peer.muted) continue;
         const octets = storage.datagram[0..len];
         storage.record.wire.update(octets);
-        const received = try storage.program.receive(.{ .datagram = .{ .octets = octets, .from = peer.address } }, now_ns);
+        const received = try storage.program.receive(.{ .datagram = .{ .bytes = octets, .from = peer.address } }, now_ns);
         try note_new_connection(storage, index, peer_plan, now_ms);
         if (received.event) |reported| try route_module.route(storage, reported, now_ns, now_ms);
     }
@@ -335,14 +335,14 @@ fn datagrams_out(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     for (0..limits.datagrams_per_pass_max) |_| {
         const sent = try storage.program.send_datagram(&storage.datagram, now_ns) orelse break;
         moved = true;
-        storage.record.wire.update(sent.octets);
+        storage.record.wire.update(sent.bytes);
         const index = storage.quic.index_of(&sent.to) orelse return error.DatagramUnaddressed;
         const peer = &storage.quic.peers[index];
         if (peer.state != .running) {
             storage.record.dropped += 1;
             continue;
         }
-        peer.link.take(sent.octets, now_ms);
+        peer.link.take(sent.bytes, now_ms);
         _ = try quic_module.deliver(peer, now_ns, now_ms);
     }
     return moved;

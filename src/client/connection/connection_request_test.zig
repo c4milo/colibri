@@ -9,10 +9,10 @@ const event = @import("../event.zig");
 const testing = std.testing;
 const connection = &support.connection;
 const Exchange = support.Exchange;
-const Field = support.Field;
+const Header = support.Header;
 
 const ok: u16 = 200;
-const empty_fields = [_]Field{.{ .name = "Content-Length", .value = "0" }};
+const empty_fields = [_]Header{.{ .name = "Content-Length", .value = "0" }};
 
 /// Where the tests' exchanges put their responses, outside any stack frame. Test-only.
 var bodies: [bodies_count][body_len]u8 = undefined;
@@ -23,13 +23,13 @@ test "RFC 9113 §8.2.2: a request naming a field the client writes, or a connect
     try support.start_cleartext(.h2);
     const names = [_][]const u8{ "Host", "content-length", "Connection", "Keep-Alive", "Proxy-Connection", "Transfer-Encoding", "Upgrade" };
     for (names) |name| {
-        const fields = [_]Field{.{ .name = name, .value = "x" }};
-        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .fields = &fields } };
+        const fields = [_]Header{.{ .name = name, .value = "x" }};
+        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .headers = &fields } };
         try testing.expectError(error.FieldReserved, connection.request(&exchange.request, &exchange.response));
     }
     // A field the client does not write goes out as the caller named it.
-    const accept = [_]Field{.{ .name = "accept", .value = "application/dns-message" }};
-    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .fields = &accept } };
+    const accept = [_]Header{.{ .name = "accept", .value = "application/dns-message" }};
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .headers = &accept } };
     _ = try connection.request(&exchange.request, &exchange.response);
 }
 
@@ -96,7 +96,7 @@ test "a cancel before the exchange is written drops it, and reports nothing" {
 
 test "RFC 9112 §9.3.1: the transport's close ends a written exchange closed and a waiting one refused" {
     try support.start_cleartext(.h11);
-    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "query" }, .response = .{ .body = &bodies[0] } };
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = "query" }, .response = .{ .body = &bodies[0] } };
     var waiting: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[1] } };
     _ = try connection.request(&post.request, &post.response);
     _ = try connection.request(&waiting.request, &waiting.response);
@@ -116,7 +116,7 @@ test "RFC 9112 §9.3.1: the transport's close ends a written exchange closed and
 test "RFC 9110 §8.6: h2 names the content's length, and a GET's none" {
     try support.start_cleartext(.h2);
     support.peer_events_len = 0;
-    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "query" }, .response = .{ .body = &bodies[0] } };
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = "query" }, .response = .{ .body = &bodies[0] } };
     var get: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[1] } };
     _ = try connection.request(&post.request, &post.response);
     _ = try connection.request(&get.request, &get.response);

@@ -15,7 +15,7 @@ const receive_at = deadline_support.receive_at;
 const send_at = deadline_support.send_at;
 const early_ns = deadline_support.early_ns;
 const Deadline = @import("../deadline.zig").Deadline;
-const Content = support.Content;
+const ResponseBody = support.ResponseBody;
 
 const grace_ns = server_constants.rate_grace_ns;
 const window_ns = server_constants.rate_window_ns;
@@ -41,7 +41,7 @@ const taken_len: usize = 64;
 fn answer_slowly() !void {
     const id = (try receive_at(whole_request, early_ns)).event.?.request.id.number;
     try connection.respond(id, .{ .status = ok_status, .end = false });
-    _ = try connection.write_body(id, .{ .octets = &content, .end = true });
+    _ = try connection.write_body(id, .{ .bytes = &content, .end = true });
     try testing.expectEqual(taken_len, connection.send(support.output[0..taken_len], early_ns));
 }
 
@@ -141,8 +141,8 @@ fn block_first(stream_window: u32, now_ns: u64) !void {
     _ = try receive_at(writer.written(), now_ns);
     _ = try receive_at(try h2_support.request_frame(1, "/", true), now_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
-    const written = connection.write_body(1, .{ .octets = &content, .end = true }) catch 0;
-    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = content[written..], .end = true }));
+    const written = connection.write_body(1, .{ .bytes = &content, .end = true }) catch 0;
+    try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = content[written..], .end = true }));
 }
 
 test "RFC 9113 §10.5: a stream whose window stays under the floor is reset with CANCEL when its window ends" {
@@ -155,7 +155,7 @@ test "RFC 9113 §10.5: a stream whose window stays under the floor is reset with
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_window_update(&writer, 1, server_constants.data_frame_len_min - 1);
     _ = try receive_at(writer.written(), early_ns + 1);
-    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = &content, .end = true }));
+    try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = &content, .end = true }));
     connection.on_instant(first_end_ns);
     // The stream ends, and the connection goes on.
     try testing.expectEqual(null, connection.close_reason());
@@ -181,7 +181,7 @@ test "decision 110: a stream the connection's window holds ends the connection w
     connection.session.h2.send_window = h2.Window.init(server_constants.data_frame_len_min - 1);
     // As after an increment below the floor, which makes the floor apply.
     connection.session.h2.tiny_update_read = true;
-    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = &content, .end = true }));
+    try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = &content, .end = true }));
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
     try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
@@ -228,7 +228,7 @@ fn upload_blocked() !void {
     _ = try receive_at(writer.written(), early_ns);
     _ = try receive_at(try h2_support.request_frame_with(1, "POST", "/u", &.{}, false), early_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
-    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = &content, .end = true }));
+    try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = &content, .end = true }));
     _ = send_at(early_ns);
 }
 
@@ -270,7 +270,7 @@ test "decision 110: a stream whose window opens a floor at a time, at the rate, 
     for (1..windows_len) |k| {
         const now_ns = early_ns + k * second_ns;
         _ = try receive_at(&(try window_update(1, floor_len)), now_ns);
-        written += try connection.write_body(1, .{ .octets = content[written..], .end = true });
+        written += try connection.write_body(1, .{ .bytes = content[written..], .end = true });
         _ = send_at(now_ns);
     }
     connection.on_instant(first_end_ns + window_ns);
@@ -284,7 +284,7 @@ test "decision 110: a stream whose window lets a write through is held no more" 
     _ = try receive_at(&(try window_update(1, answer_len)), early_ns + 1);
     // One frame's octets go out, and the caller writes no more for a while.
     const frame_octets = content[0..h2.constants.max_frame_size_initial];
-    try testing.expectEqual(frame_octets.len, try connection.write_body(1, .{ .octets = frame_octets, .end = false }));
+    try testing.expectEqual(frame_octets.len, try connection.write_body(1, .{ .bytes = frame_octets, .end = false }));
     _ = send_at(early_ns + 1);
     connection.on_instant(first_end_ns + window_ns);
     try testing.expect(try nothing_owed(first_end_ns + window_ns));
@@ -298,7 +298,7 @@ test "decision 110: a stream's window meter does not run while another stream's 
     try connection.respond(3, .{ .status = ok_status, .end = false });
     var written: usize = 0;
     for (0..answer_windows + 1) |_| {
-        written += connection.write_body(3, .{ .octets = content[written..], .end = true }) catch break;
+        written += connection.write_body(3, .{ .bytes = content[written..], .end = true }) catch break;
     }
     // The peer takes a quota each window, so the connection's meter holds.
     try testing.expectEqual(quota, take(quota, early_ns + 1));
@@ -318,7 +318,7 @@ test "decision 110: a held stream takes a freed entry before it writes a new one
     for (0..server_constants.bodies_max + 4) |_| {
         _ = try receive_at(try h2_support.request_frame(stream_id, "/", true), early_ns);
         try connection.respond(stream_id, .{ .status = ok_status, .end = false });
-        const last: Content = .{ .octets = content[0..1], .end = true };
+        const last: ResponseBody = .{ .bytes = content[0..1], .end = true };
         try testing.expectError(error.Blocked, connection.write_body(stream_id, last));
         _ = try receive_at(&(try window_update(stream_id, 1)), early_ns);
         try testing.expectEqual(1, try connection.write_body(stream_id, last));
@@ -334,7 +334,7 @@ test "decision 110: init forgets the entries the slot's last connection wrote" {
     try answer_blocked(0);
     _ = try receive_at(try h2_support.request_frame(3, "/", true), early_ns);
     try connection.respond(3, .{ .status = ok_status, .end = false });
-    try testing.expectError(error.Blocked, connection.write_body(3, .{ .octets = &content, .end = true }));
+    try testing.expectError(error.Blocked, connection.write_body(3, .{ .bytes = &content, .end = true }));
     _ = send_at(early_ns);
     try testing.expectEqual(2, connection.sends.written);
     // The next connection in the slot starts from no entry written, and its stream's meter runs

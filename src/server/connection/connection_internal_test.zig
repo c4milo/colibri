@@ -73,7 +73,7 @@ fn run_exchange(record: *Record) !void {
     try h2_support.start();
     try feed(record, try h2_support.request_frame(stream_body, "/one", true));
     try connection.respond(stream_body, .{ .status = ok, .end = false });
-    _ = try connection.write_body(stream_body, .{ .octets = "hello", .end = true });
+    _ = try connection.write_body(stream_body, .{ .bytes = "hello", .end = true });
     try record.add(support.drain());
     try feed(record, try frame_of(ping));
     try feed(record, try h2_support.request_frame(stream_trailers, "/three", true));
@@ -152,11 +152,11 @@ fn run_h11_exchange(record: *Record) !void {
     try support.start_cleartext(.h11);
     try feed_h11(record, h11_get);
     try connection.respond(connection.current_id, .{ .status = ok, .end = false });
-    _ = try connection.write_body(connection.current_id, .{ .octets = "hello", .end = true });
+    _ = try connection.write_body(connection.current_id, .{ .bytes = "hello", .end = true });
     try record.add(support.drain());
     try feed_h11(record, h11_post);
     try connection.respond(connection.current_id, .{ .status = ok, .end = false });
-    _ = try connection.write_body(connection.current_id, .{ .octets = "chunked", .end = false });
+    _ = try connection.write_body(connection.current_id, .{ .bytes = "chunked", .end = false });
     try connection.write_trailers(connection.current_id, &.{.{ .name = "x-done", .value = "1" }});
     try record.add(support.drain());
     // The second request waits unread until the first is answered, and then the program passes

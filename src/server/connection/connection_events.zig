@@ -21,7 +21,7 @@ pub fn note(connection: *Connection, reported: event.Event) void {
         },
         .body => |body| {
             // h11 counts its body's octets as it reads them, in `read_protocol`.
-            if (connection.session == .h2) connection_bodies.count(connection, body.id.number, body.octets.len);
+            if (connection.session == .h2) connection_bodies.count(connection, body.id.number, body.bytes.len);
             if (body.end) connection_bodies.remove(connection, body.id.number);
         },
         .trailers => |trailers| connection_bodies.remove(connection, trailers.id.number),

@@ -216,8 +216,8 @@ pub fn find(tag: std.meta.Tag(Event)) ?Event {
 fn client_to_server() !void {
     for (0..datagrams_per_round_max) |_| {
         const sent = connection.send(&datagram, now_ns) orelse return;
-        @memcpy(crossing[0..sent.octets.len], sent.octets);
-        try server_receive(crossing[0..sent.octets.len]);
+        @memcpy(crossing[0..sent.bytes.len], sent.bytes);
+        try server_receive(crossing[0..sent.bytes.len]);
     }
 }
 

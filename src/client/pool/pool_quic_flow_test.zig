@@ -198,8 +198,8 @@ test "RFC 9000 §10.2: a handshake the pool abandoned carries nothing, though da
     // The client's Initial reaches the server, and the server's flight is held back.
     for (0..datagrams_per_round_max) |_| {
         const sent = pool.send_datagram(&fixture.datagram, quic_support.now_ns) orelse break;
-        @memcpy(fixture.crossing[0..sent.octets.len], sent.octets);
-        try quic_support.server_receive(fixture.crossing[0..sent.octets.len]);
+        @memcpy(fixture.crossing[0..sent.bytes.len], sent.bytes);
+        try quic_support.server_receive(fixture.crossing[0..sent.bytes.len]);
     }
     var withheld_count: usize = 0;
     for (0..withheld_max) |_| {
@@ -266,8 +266,8 @@ test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the ne
 fn to_server() !void {
     for (0..datagrams_per_round_max) |_| {
         const sent = pool.send_datagram(&fixture.datagram, quic_support.now_ns) orelse return;
-        @memcpy(fixture.crossing[0..sent.octets.len], sent.octets);
-        try quic_support.server_receive(fixture.crossing[0..sent.octets.len]);
+        @memcpy(fixture.crossing[0..sent.bytes.len], sent.bytes);
+        try quic_support.server_receive(fixture.crossing[0..sent.bytes.len]);
     }
 }
 
@@ -343,7 +343,7 @@ test "RFC 9110 §9.2.2: a GET whose QUIC transport closed before any of its resp
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
     try testing.expectEqual(null, nth(.finished, 1));
     try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqual(null, opened(2));
 }
 
@@ -355,7 +355,7 @@ test "RFC 9110 §9.2.2: a PUT sent again over QUIC sends its whole content again
     try start_h3_alone();
     quic_support.server_answers = false;
     @memset(&upload, 'u');
-    var put: connection_support.Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    var put: connection_support.Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .body = &upload }, .response = .{ .body = &bodies[0] } };
     _ = try pool.request(&put.request, &put.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(upload_len, quic_support.answers[0].received);
@@ -368,7 +368,7 @@ test "RFC 9110 §9.2.2: a PUT sent again over QUIC sends its whole content again
     try testing.expectEqual(upload_len, quic_support.answers[0].received);
     try testing.expect(quic_support.answers[0].ended);
     try testing.expectEqual(.response, put.response.outcome);
-    try testing.expectEqual(upload_len, put.response.content_sent);
+    try testing.expectEqual(upload_len, put.response.body_sent);
 }
 
 test "RFC 9110 §9.2.2: a GET whose second QUIC transport also closed before any of its response ends closed" {

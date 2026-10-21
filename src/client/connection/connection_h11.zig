@@ -22,7 +22,7 @@ const event = @import("../event.zig");
 const event_internal = @import("../event_internal.zig");
 
 const Connection = connection_module.Connection;
-const Field = event.Field;
+const Header = event.Header;
 const Slot = slots_module.Slot;
 
 /// Passes of the reading per octet of input: one that consumes it, and one that ends a response.
@@ -222,7 +222,7 @@ fn write_request(connection: *Connection, slot: *Slot) bool {
 /// Writes the head of `slot`'s request. Returns false when it must wait: for room, or for
 /// decision 88 to let it follow the requests outstanding.
 fn write_head(connection: *Connection, slot: *Slot) bool {
-    var lines: [constants.request_fields_max]Field = undefined;
+    var lines: [constants.request_fields_max]Header = undefined;
     var digits: [constants.content_length_digits_max]u8 = undefined;
     var offer: [coding.offer_len_max]u8 = undefined;
     const fields = request_fields(connection, slot, &lines, &digits, &offer) orelse {
@@ -259,16 +259,16 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
 fn request_fields(
     connection: *const Connection,
     slot: *Slot,
-    lines: *[constants.request_fields_max]Field,
+    lines: *[constants.request_fields_max]Header,
     digits: *[constants.content_length_digits_max]u8,
     offer: *[coding.offer_len_max]u8,
-) ?[]const Field {
+) ?[]const Header {
     const request = slot.request;
-    if (request.fields.len + constants.added_fields_max > lines.len) return null;
+    if (request.headers.len + constants.added_fields_max > lines.len) return null;
     // RFC 9112 §3.2: "A client MUST send a Host header field in all HTTP/1.1 request messages."
     lines[0] = .{ .name = "Host", .value = connection.config.authority };
-    @memcpy(lines[1..][0..request.fields.len], request.fields);
-    var count = 1 + request.fields.len;
+    @memcpy(lines[1..][0..request.headers.len], request.headers);
+    var count = 1 + request.headers.len;
     if (event_internal.content_length(request, digits)) |length| {
         lines[count] = .{ .name = "Content-Length", .value = length };
         count += 1;
@@ -282,17 +282,17 @@ fn request_fields(
 
 /// Writes as much of `slot`'s content as the room holds, which h11 takes whole (RFC 9112 §2.1).
 fn write_content(connection: *Connection, slot: *Slot) void {
-    const content = slot.request.content;
+    const content = slot.request.body;
     const response = slot.response;
-    const left = content.len - response.content_sent;
+    const left = content.len - response.body_sent;
     const take = @min(left, internal.room(connection).len);
     if (take == 0) return;
-    const written = connection.session.h11.write_body(internal.room(connection), content[response.content_sent..][0..take]) catch {
+    const written = connection.session.h11.write_body(internal.room(connection), content[response.body_sent..][0..take]) catch {
         // RFC 9112 §9.6: the connection closed, and no more of the body goes out.
         slot.content_stopped = true;
         return;
     };
     connection.output_len += written;
-    response.content_sent += take;
-    assert(response.content_sent <= content.len);
+    response.body_sent += take;
+    assert(response.body_sent <= content.len);
 }

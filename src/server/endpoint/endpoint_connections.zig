@@ -257,6 +257,6 @@ pub const Replies = struct {
         @memcpy(output[0..len], replies.packets[index][0..len]);
         replies.first = (replies.first + 1) % replies.packets.len;
         replies.len -= 1;
-        return .{ .octets = output[0..len], .ecn = .not_ect, .to = replies.to[index] };
+        return .{ .bytes = output[0..len], .ecn = .not_ect, .to = replies.to[index] };
     }
 };

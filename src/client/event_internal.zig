@@ -16,8 +16,8 @@ const Response = event.Response;
 pub fn content_length(request: *const Request, digits: []u8) ?[]const u8 {
     const method = http.method.standard(request.method);
     const defines_content = method == .post or method == .put;
-    if (request.content.len == 0 and !defines_content) return null;
-    return std.fmt.bufPrint(digits, "{d}", .{request.content.len}) catch unreachable;
+    if (request.body.len == 0 and !defines_content) return null;
+    return std.fmt.bufPrint(digits, "{d}", .{request.body.len}) catch unreachable;
 }
 
 /// Clears what the client writes into `response`, so an exchange writes it anew, and keeps where
@@ -28,7 +28,7 @@ pub fn clear(response: *Response) void {
     response.interims = 0;
     response.body_len = 0;
     response.values_len = 0;
-    response.content_sent = 0;
+    response.body_sent = 0;
     response.error_code = 0;
     response.coding = null;
     for (response.wanted) |*wanted| wanted.value = null;
@@ -58,6 +58,6 @@ test "RFC 9110 §8.6: a request names its content's length, and a POST or PUT na
     try testing.expectEqual(null, content_length(&get, &digits));
     const empty_post: Request = .{ .method = "POST", .path = "/" };
     try testing.expectEqualStrings("0", content_length(&empty_post, &digits).?);
-    const put: Request = .{ .method = "PUT", .path = "/", .content = "abc" };
+    const put: Request = .{ .method = "PUT", .path = "/", .body = "abc" };
     try testing.expectEqualStrings("3", content_length(&put, &digits).?);
 }

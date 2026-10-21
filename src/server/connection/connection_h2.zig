@@ -17,7 +17,7 @@ const SendError = connection_module.SendError;
 const Error = connection_module.Error;
 const Field = http.Field;
 const Event = event.Event;
-const Received = event.Received;
+const ReceiveResult = event.ReceiveResult;
 const Number = event.Number;
 
 /// RFC 9113 is HTTP/2, which RFC 9110 §2.5 numbers 2.0.
@@ -26,7 +26,7 @@ const version_major: u8 = 2;
 
 /// Reads frames from `plaintext` until one means something to the caller, h2 needs more octets,
 /// or the replies h2 owes must be written first and `output` has no room for them.
-pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!Received {
+pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!ReceiveResult {
     const session = &connection.session.h2;
     // RFC 9113 §3.4: the server's SETTINGS "MUST be the first frame the server sends", so it goes
     // into the output before any frame is read that could bring a request the caller answers.
@@ -61,12 +61,12 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
                 .scheme = arrived.request.scheme,
                 .authority = arrived.request.authority,
                 .path = arrived.request.path,
-                .fields = request_fields(session.field_section(), arrived),
+                .headers = request_fields(session.field_section(), arrived),
                 .end = arrived.end_stream,
             },
         },
-        .data => |data| .{ .body = .{ .id = event.id_of(data.stream_id), .octets = data.payload, .end = data.end_stream } },
-        .trailers => |trailers| .{ .trailers = .{ .id = event.id_of(trailers.stream_id), .fields = trailer_fields(session.field_section()) } },
+        .data => |data| .{ .body = .{ .id = event.id_of(data.stream_id), .bytes = data.payload, .end = data.end_stream } },
+        .trailers => |trailers| .{ .trailers = .{ .id = event.id_of(trailers.stream_id), .headers = trailer_fields(session.field_section()) } },
         // RFC 9113 §6.4: the peer ended the stream; §5.4.2: colibri did, on a stream error.
         .stream_reset => |reset| .{ .cancelled = .{ .id = event.id_of(reset.stream_id), .reason = .peer_reset } },
         .stream_refused => |refused| .{ .cancelled = .{ .id = event.id_of(refused.stream_id), .reason = .refused } },
@@ -81,7 +81,7 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
 /// §8.3; decision 19 refuses `:protocol`), and with `:method` always (§8.3.1). So the count of
 /// pseudo-header fields the request carries is the index of its first regular line. The code
 /// finds that index without reading a line, and the assertion reads that one line to check it.
-fn request_fields(section: *const http.FieldSection, arrived: h2.connection.Request) event.Fields {
+fn request_fields(section: *const http.FieldSection, arrived: h2.connection.Request) event.Headers {
     const optional = [_]?[]const u8{ arrived.request.scheme, arrived.request.authority, arrived.request.path };
     var first: u32 = 1;
     for (optional) |value| first += @intFromBool(value != null);
@@ -92,7 +92,7 @@ fn request_fields(section: *const http.FieldSection, arrived: h2.connection.Requ
 
 /// The field lines of a trailer section h2 read, which holds no pseudo-header field
 /// (RFC 9113 §8.1).
-fn trailer_fields(section: *const http.FieldSection) event.Fields {
+fn trailer_fields(section: *const http.FieldSection) event.Headers {
     assert(section.len() == 0 or !http.message_lines.is_pseudo_header(section.get(0).name));
     return .{ .section = section, .first = 0 };
 }

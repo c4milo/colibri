@@ -47,8 +47,8 @@ const Fields = struct {
 fn fields_of(reported: server.Event) Fields {
     return switch (reported) {
         .request => |request| .{ .handle = request.id.connection, .number = request.id.number, .detail = @intFromBool(request.end), .length = request.version.major },
-        .body => |body| .{ .handle = body.id.connection, .number = body.id.number, .word = body.user_data, .detail = @intFromBool(body.end), .length = body.octets.len },
-        .trailers => |trailers| .{ .handle = trailers.id.connection, .number = trailers.id.number, .word = trailers.user_data, .length = trailers.fields.len() },
+        .body => |body| .{ .handle = body.id.connection, .number = body.id.number, .word = body.user_data, .detail = @intFromBool(body.end), .length = body.bytes.len },
+        .trailers => |trailers| .{ .handle = trailers.id.connection, .number = trailers.id.number, .word = trailers.user_data, .length = trailers.headers.len() },
         .cancelled => |cancelled| .{ .handle = cancelled.id.connection, .number = cancelled.id.number, .word = cancelled.user_data, .detail = @intFromEnum(cancelled.reason), .length = reason_detail(cancelled.reason) },
         .done => |done| .{ .handle = done.id.connection, .number = done.id.number, .word = done.user_data },
         .writable => |writable| .{ .handle = writable.id.connection, .number = writable.id.number, .word = writable.user_data },

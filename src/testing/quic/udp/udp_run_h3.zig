@@ -95,7 +95,7 @@ fn on_event(asked: udp_arguments.Server, socket: *udp.Endpoint, event: udp.Event
     if (event.flags.buffer) {
         const delivery = socket.delivery(event);
         const ecn = udp_peer.received_ecn(&delivery.from);
-        take(asked, .{ .datagram = .{ .octets = delivery.bytes, .ecn = ecn, .from = udp_peer.peer_address(delivery.from.peer) } }, now_ns);
+        take(asked, .{ .datagram = .{ .bytes = delivery.bytes, .ecn = ecn, .from = udp_peer.peer_address(delivery.from.peer) } }, now_ns);
     }
     socket.finish_receive(event);
 }
@@ -135,7 +135,7 @@ fn flush(socket: *udp.Endpoint, now_ns: u64) void {
         if (slot_busy[index]) continue;
         const sent = endpoint.send_datagram(slot, now_ns) orelse return;
         slot_outbound[index] = outbound(sent);
-        if (socket.send(index, sent.octets, &slot_outbound[index])) slot_busy[index] = true;
+        if (socket.send(index, sent.bytes, &slot_outbound[index])) slot_busy[index] = true;
     }
 }
 

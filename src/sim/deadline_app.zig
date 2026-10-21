@@ -21,7 +21,7 @@ pub const Error = error{
 /// A request the application read: when its body ended, when the application answered it, the
 /// octets of its content the server took, and when the last of them left the server's output.
 pub const Answer = struct {
-    id: server.Id,
+    id: server.RequestId,
     read_ms: u64,
     body_end_ms: ?u64,
     answered_ms: ?u64,
@@ -63,7 +63,7 @@ pub const Application = struct {
         }
     }
 
-    fn note_request(app: *Application, id: server.Id, now_ms: u64, ended: bool) void {
+    fn note_request(app: *Application, id: server.RequestId, now_ms: u64, ended: bool) void {
         // The application answers as many requests as a peer makes whole.
         if (app.answers_len == limits.requests_max) return;
         app.answers[app.answers_len] = .{
@@ -78,7 +78,7 @@ pub const Application = struct {
         app.answers_len += 1;
     }
 
-    fn note_body_end(app: *Application, id: server.Id, now_ms: u64) void {
+    fn note_body_end(app: *Application, id: server.RequestId, now_ms: u64) void {
         for (app.answers[0..app.answers_len]) |*pending| {
             if (pending.id == id) pending.body_end_ms = now_ms;
         }
@@ -143,7 +143,7 @@ fn write_answer(endpoint: *Endpoint, plan: *const Plan, pending: *Answer, conten
     }
     if (pending.content_sent == content.len) return false;
     const rest = content[pending.content_sent..];
-    const taken = endpoint.write_body(pending.id, .{ .octets = rest, .end = true }) catch |failure| {
+    const taken = endpoint.write_body(pending.id, .{ .bytes = rest, .end = true }) catch |failure| {
         // The output or the peer's window has no room, and the application writes again later.
         if (failure == error.Blocked) return false;
         return give_up(plan, pending, content, now_ms);

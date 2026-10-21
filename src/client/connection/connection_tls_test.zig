@@ -87,7 +87,7 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and an exchange goes out 
     try testing.expectEqualStrings("https", request.request.scheme.?);
     try support.client_receive();
     try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
 }
 
 test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify follows the close" {
@@ -101,13 +101,13 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     try server_open();
     const received = try support.peer_h11.receive(peer_plain[0..tls_support.peer_plain_len], &.{});
     try testing.expect(received.event.? == .request);
-    const fields = [_]support.Field{ .{ .name = "Content-Length", .value = "2" }, .{ .name = "Connection", .value = "close" } };
+    const fields = [_]support.Header{ .{ .name = "Content-Length", .value = "2" }, .{ .name = "Connection", .value = "close" } };
     var written = try support.peer_h11.write_response(peer_out, ok, "", &fields);
     written += try support.peer_h11.write_body(peer_out[written..], "hi");
     written += try support.peer_h11.write_end(peer_out[written..], &.{});
     try server_seal(peer_out[0..written]);
     try support.client_receive();
-    try testing.expectEqualStrings("hi", exchange.response.content_received());
+    try testing.expectEqualStrings("hi", exchange.response.body_received());
     try testing.expect(support.find(.closed) != null);
     support.to_peer_len = 0;
     support.client_send();
@@ -128,7 +128,7 @@ test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_
     support.client_send();
     try server_open();
     _ = try support.peer_h11.receive(peer_plain[0..tls_support.peer_plain_len], &.{});
-    const fields = [_]support.Field{ .{ .name = "Content-Length", .value = "0" }, .{ .name = "Alt-Svc", .value = "h3=\":8443\"; ma=60" } };
+    const fields = [_]support.Header{ .{ .name = "Content-Length", .value = "0" }, .{ .name = "Alt-Svc", .value = "h3=\":8443\"; ma=60" } };
     // A Content-Length of 0 ends the response with its head (RFC 9112 §6.3).
     const written = try support.peer_h11.write_response(peer_out, ok, "", &fields);
     try server_seal(peer_out[0..written]);

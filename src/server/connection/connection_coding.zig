@@ -111,11 +111,11 @@ fn release(connection: *Connection, entry: *Entry) void {
 /// Writes the head of the response to request `id`, rewritten as its plan says when it is the
 /// final one, and takes an encoder when its content is to be coded.
 pub fn respond(connection: *Connection, id: Number, response: event.Response) SendError!void {
-    const entry = connection.coding.find(id) orelse return write_head(connection, id, response.status, response.fields, response.end);
+    const entry = connection.coding.find(id) orelse return write_head(connection, id, response.status, response.headers, response.end);
     // RFC 9110 §15.2: an interim response leaves the coding to the final one.
-    if (is_interim(response.status)) return write_head(connection, id, response.status, response.fields, response.end);
+    if (is_interim(response.status)) return write_head(connection, id, response.status, response.headers, response.end);
     const encoders = connection.config.encoders orelse {
-        try write_head(connection, id, response.status, response.fields, response.end);
+        try write_head(connection, id, response.status, response.headers, response.end);
         return keep_or_release(connection, entry, response.end);
     };
     var rewritten: coding_fields.Rewritten = undefined;
@@ -143,34 +143,34 @@ fn keep_or_release(connection: *Connection, entry: *Entry, end: bool) void {
 
 /// Writes content of the response to request `id`: the caller's octets, or for a coded response
 /// as many as the encoder's ring takes, coded. Returns the octets taken.
-pub fn write_body(connection: *Connection, id: Number, content: event.Content) SendError!usize {
-    const entry = connection.coding.find(id) orelse return write_content(connection, id, content.octets, content.end);
+pub fn write_body(connection: *Connection, id: Number, content: event.ResponseBody) SendError!usize {
+    const entry = connection.coding.find(id) orelse return write_content(connection, id, content.bytes, content.end);
     if (entry.dropping) return drop_content(connection, entry, content);
-    const coded = if (entry.coded) |*coded| coded else return write_content(connection, id, content.octets, content.end);
+    const coded = if (entry.coded) |*coded| coded else return write_content(connection, id, content.bytes, content.end);
     // RFC 9110 §6.4.1: the content ended, and nothing follows it.
     if (coded.finishing) return error.SectionOutOfOrder;
     const encoders = connection.config.encoders.?;
     // What the ring holds goes out first, which leaves the encoder room.
     _ = try copy_out(connection, entry);
-    const consumed = coded.code(encoders, content.octets);
-    if (content.end and consumed == content.octets.len) coded.finishing = true;
+    const consumed = coded.code(encoders, content.bytes);
+    if (content.end and consumed == content.bytes.len) coded.finishing = true;
     try advance(connection, entry);
     // RFC 9113 §6.9, RFC 9112 §7.1: the ring is full, and neither h2's window nor the room for
     // a chunk takes what it holds.
-    if (consumed == 0 and content.octets.len > 0) return error.Blocked;
+    if (consumed == 0 and content.bytes.len > 0) return error.Blocked;
     return consumed;
 }
 
 /// Takes the content of an h2 response to HEAD and writes none of it. The end goes out as a DATA
 /// frame with no octet and END_STREAM, and the entry goes with it.
-fn drop_content(connection: *Connection, entry: *Entry, content: event.Content) SendError!usize {
+fn drop_content(connection: *Connection, entry: *Entry, content: event.ResponseBody) SendError!usize {
     assert(entry.dropping and entry.coded == null);
     // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD. RFC 9113 §8.1.1:
     // its DATA frames hold no content, whatever content-length it names.
-    if (!content.end) return content.octets.len;
+    if (!content.end) return content.bytes.len;
     _ = try write_content(connection, entry.id, &.{}, true);
     release(connection, entry);
-    return content.octets.len;
+    return content.bytes.len;
 }
 
 /// Ends the response to request `id` with a trailer section, after every coded octet.

@@ -84,7 +84,7 @@ fn read(stream: usize, now_ns: u64) !void {
     const input = link.queue(stream, .server);
     var consumed: usize = 0;
     for (0..events_per_stream_max) |_| {
-        const octets: server.StreamOctets = .{ .connection = connection, .octets = input[consumed..] };
+        const octets: server.StreamBytes = .{ .connection = connection, .bytes = input[consumed..] };
         const received = endpoint.receive(.{ .stream = octets }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -123,10 +123,10 @@ fn answer(request: server.Request) !void {
     const length = std.fmt.bufPrint(&digits, "{d}", .{greeting.len}) catch unreachable;
     try endpoint.respond(request.id, .{
         .status = 200,
-        .fields = &.{.{ .name = "content-length", .value = length }},
+        .headers = &.{.{ .name = "content-length", .value = length }},
         .end = false,
     });
-    const taken = try endpoint.write_body(request.id, .{ .octets = greeting, .end = true });
+    const taken = try endpoint.write_body(request.id, .{ .bytes = greeting, .end = true });
     assert(taken == greeting.len);
 }
 

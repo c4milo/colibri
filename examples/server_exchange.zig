@@ -236,7 +236,7 @@ fn server_turn() !void {
     try serve_all(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
         const sent = endpoint.send_datagram(&datagram_output, now_ns) orelse break;
-        try datagram_link.send(.server, sent.octets);
+        try datagram_link.send(.server, sent.bytes);
     }
 }
 
@@ -246,7 +246,7 @@ fn read_stream(input: []u8, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_input_max) |_| {
         // The handle says which connection's socket read the octets.
-        const read: server.StreamOctets = .{ .connection = accepted, .octets = input[consumed..] };
+        const read: server.StreamBytes = .{ .connection = accepted, .bytes = input[consumed..] };
         const received = endpoint.receive(.{ .stream = read }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -266,7 +266,7 @@ fn read_datagrams(now_ns: u64) !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try datagram_link.receive(.server) orelse break;
         // The endpoint finds the connection the datagram's connection ID names, or starts one.
-        try serve_all(.{ .datagram = .{ .octets = datagram, .from = client_address } }, now_ns);
+        try serve_all(.{ .datagram = .{ .bytes = datagram, .from = client_address } }, now_ns);
         datagram_link.consume(.server);
     }
 }
@@ -335,7 +335,7 @@ fn route(request: server.Request, state: *Served) !void {
         // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
         .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
             .status = 405,
-            .fields = &.{.{ .name = "allow", .value = allowed }},
+            .headers = &.{.{ .name = "allow", .value = allowed }},
             .end = true,
         }),
         .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
@@ -347,7 +347,7 @@ fn route(request: server.Request, state: *Served) !void {
 /// Answers a GET of `/greetings/:name` with a greeting to the name. The slice `name` stays valid
 /// until the next endpoint call, and QUIC reads the content again until `done`. So the server
 /// writes the content into the request's state first.
-fn answer_named(id: server.Id, state: *Served, name: []const u8) !void {
+fn answer_named(id: server.RequestId, state: *Served, name: []const u8) !void {
     const content = std.fmt.bufPrint(&state.content, "hello, {s}\n", .{name}) catch {
         // RFC 9110 §15.5.15: the target is longer than this server takes.
         return endpoint.respond(id, .{ .status = 414, .end = true });
@@ -357,12 +357,12 @@ fn answer_named(id: server.Id, state: *Served, name: []const u8) !void {
 
 /// Keeps the POST's content, and sends it back once it ends. Over h3 a GET's end can come in a
 /// `body` event with no octets, which needs no answer.
-fn take_body(body: server.Body) !void {
+fn take_body(body: server.RequestBody) !void {
     const state = try served_of(body.user_data);
     if (!state.echo) return;
-    if (state.content_len + body.octets.len > state.content.len) return error.ExchangeWrong;
-    @memcpy(state.content[state.content_len..][0..body.octets.len], body.octets);
-    state.content_len += body.octets.len;
+    if (state.content_len + body.bytes.len > state.content.len) return error.ExchangeWrong;
+    @memcpy(state.content[state.content_len..][0..body.bytes.len], body.bytes);
+    state.content_len += body.bytes.len;
     if (body.end) try answer(body.id, state.content[0..state.content_len]);
 }
 
@@ -374,12 +374,12 @@ fn served_of(user_data: usize) !*Served {
 
 /// Answers request `id` with 200 and `content`: the head, then the content, which ends the
 /// response.
-fn answer(id: server.Id, content: []const u8) !void {
+fn answer(id: server.RequestId, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
     try endpoint.respond(id, .{
         .status = 200,
-        .fields = &.{
+        .headers = &.{
             .{ .name = "content-type", .value = content_type },
             .{ .name = "content-length", .value = length },
         },
@@ -388,7 +388,7 @@ fn answer(id: server.Id, content: []const u8) !void {
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
     // the peer's window runs out, and the request's `writable` event then says when to write the
     // rest.
-    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
+    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
     assert(taken == content.len);
 }
 

@@ -19,7 +19,7 @@ const internal = @import("connection_internal.zig");
 
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
-const Received = event.Received;
+const ReceiveResult = event.ReceiveResult;
 const Protocol = event.Protocol;
 const Versions = @import("../versions.zig").Versions;
 
@@ -28,7 +28,7 @@ const RecordError = h2.connection_tls.RecordError || h11.connection_tls.RecordEr
 
 /// Runs the handshake over what the transport read. Once it completes, the protocol ALPN selected
 /// takes the session, and the rest of `input` is read as its records.
-pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Received {
+pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!ReceiveResult {
     assert(connection.phase == .handshake);
     // chapulin writes a flight whole or fails the handshake, so it runs only with room for one.
     if (internal.room(connection).len < constants.flight_len_max) return .{ .consumed = 0, .event = null };
@@ -75,7 +75,7 @@ pub fn protocol_of(selected: ?[]const u8, versions: Versions) Protocol {
 }
 
 /// Opens the records of `input` that fit, then reads at most one event from what they held.
-pub fn read(connection: *Connection, input: []const u8, now_ns: u64) Error!Received {
+pub fn read(connection: *Connection, input: []const u8, now_ns: u64) Error!ReceiveResult {
     internal.drop_read_plaintext(connection);
     const consumed = try open_records(connection, input, now_ns);
     const read_event = try internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);

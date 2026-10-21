@@ -58,13 +58,13 @@ const close_reason_module = @import("../close_reason.zig");
 const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
 
-pub const Id = event.Id;
+pub const RequestId = event.RequestId;
 /// The number of a request on this connection, which its calls take (decision 119): an event's
 /// `id.number`.
 pub const Number = event.Number;
 pub const Protocol = event.Protocol;
 pub const Event = event.Event;
-pub const Received = event.Received;
+pub const ReceiveResult = event.ReceiveResult;
 pub const Field = http.Field;
 pub const Deadline = deadline.Deadline;
 pub const Deadlines = deadline.Deadlines;
@@ -213,14 +213,14 @@ pub const Connection = struct {
     /// Reads at most one event from `input`, the octets the transport read. Over TLS it runs the
     /// handshake first, and `input` is records, which chapulin may open in place. A deadline that
     /// has passed at `now_ns` ends the connection first (decision 110).
-    pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Error!Received {
+    pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Error!ReceiveResult {
         _ = connection_deadline.fire(connection, now_ns);
         const received = try connection.receive_event(input, now_ns);
         connection_deadline.observe(connection, now_ns);
         return received;
     }
 
-    fn receive_event(connection: *Connection, input: []u8, now_ns: u64) Error!Received {
+    fn receive_event(connection: *Connection, input: []u8, now_ns: u64) Error!ReceiveResult {
         // RFC 9110 §10.1.1: the 100 goes out before the server waits for the content.
         if (!connection_continue.write(connection)) return .{ .consumed = 0, .event = null };
         // Decision 103: a response made whole since the last call is reported before anything
@@ -229,7 +229,7 @@ pub const Connection = struct {
         // Decision 110: a request an h2 body deadline ended is reported the same way.
         if (connection_bodies.take_cancelled(connection)) |cancelled| return .{ .consumed = 0, .event = .{ .cancelled = cancelled } };
         const received = try switch (connection.phase) {
-            .closed => Received{ .consumed = 0, .event = null },
+            .closed => ReceiveResult{ .consumed = 0, .event = null },
             .handshake => connection_tls.handshake(connection, input, now_ns),
             .choosing => connection_cleartext.choose(connection, input, now_ns),
             .open => if (connection.config.tls == null)
@@ -257,9 +257,9 @@ pub const Connection = struct {
     /// returns the octets taken. With `end`, the content ends once every octet is taken; a call
     /// that takes fewer leaves the rest, and the end, to the next call. A coded response's last
     /// octets go out in `send`.
-    pub fn write_body(connection: *Connection, id: Number, content: event.Content) SendError!usize {
+    pub fn write_body(connection: *Connection, id: Number, content: event.ResponseBody) SendError!usize {
         try connection.check_writable();
-        if (content.octets.len == 0 and !content.end) return 0;
+        if (content.bytes.len == 0 and !content.end) return 0;
         return connection_coding.write_body(connection, id, content);
     }
 

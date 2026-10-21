@@ -40,7 +40,7 @@ pub const State = struct {
 /// or cancelled: the connection that carried it last, its id there, and the times it moved.
 pub const Tracker = struct {
     carrier: [requests_max]?client.ConnectionHandle,
-    carried_id: [requests_max]client.Id,
+    carried_id: [requests_max]client.RequestId,
     moved: [requests_max]u8,
 
     pub fn init(tracker: *Tracker) void {

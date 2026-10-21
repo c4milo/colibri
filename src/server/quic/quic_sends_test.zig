@@ -39,7 +39,7 @@ fn answered_get() !*support.Fetch {
     const fetch = try support.request("GET", "/", "");
     try support.pump(rounds_few);
     try connection.respond(fetch.id, .{ .status = ok, .end = false });
-    try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .octets = &content, .end = true }));
+    try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .bytes = &content, .end = true }));
     return fetch;
 }
 
@@ -168,7 +168,7 @@ test "decision 110: a response its connection's credit holds waits on its peer b
     const fetch = try support.request("GET", "/", "");
     try support.pump(rounds_few);
     try connection.respond(fetch.id, .{ .status = ok, .end = false });
-    try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .octets = &content, .end = false }));
+    try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .bytes = &content, .end = false }));
     try support.pump(support.rounds_default);
     // The client acknowledged every octet its connection's credit let through. The rest is
     // within the stream's credit and waits on the connection's, which is the peer's to give.
@@ -186,11 +186,11 @@ test "RFC 9000 §3.1: a response whose end alone is not acknowledged still waits
     const fetch = try support.request("GET", "/", "");
     try support.pump(rounds_few);
     try connection.respond(fetch.id, .{ .status = ok, .end = false });
-    _ = try connection.write_body(fetch.id, .{ .octets = content[0..quota], .end = false });
+    _ = try connection.write_body(fetch.id, .{ .bytes = content[0..quota], .end = false });
     try support.pump(support.rounds_default);
     try testing.expectEqual(0, connection.sends.busy);
     support.client_mute = true;
-    try testing.expectEqual(0, try connection.write_body(fetch.id, .{ .octets = "", .end = true }));
+    try testing.expectEqual(0, try connection.write_body(fetch.id, .{ .bytes = "", .end = true }));
     try support.pump(rounds_few);
     try testing.expect(entry_of(fetch).busy);
     server_at(connection.sends.meter.window_end_ns.?);
@@ -208,7 +208,7 @@ test "decision 110: a stream a send deadline ends waits for its request's body n
     const fetch = try support.request_open("POST", "/", "x");
     try support.pump(rounds_few);
     try connection.respond(fetch.id, .{ .status = ok, .end = false });
-    _ = try connection.write_body(fetch.id, .{ .octets = &content, .end = true });
+    _ = try connection.write_body(fetch.id, .{ .bytes = &content, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, connection.bodies.waiting);
     server_at(entry_of(fetch).meter.window_end_ns.?);
@@ -289,7 +289,7 @@ test "decision 110: octets acknowledged after a window's end do not count in it"
     const fetch = try support.request("GET", "/", "");
     try support.pump(rounds_few);
     try connection.respond(fetch.id, .{ .status = ok, .end = false });
-    _ = try connection.write_body(fetch.id, .{ .octets = content[0..quota], .end = true });
+    _ = try connection.write_body(fetch.id, .{ .bytes = content[0..quota], .end = true });
     support.client_mute = true;
     try support.pump(rounds_few);
     const end_ns = connection.sends.meter.window_end_ns.?;

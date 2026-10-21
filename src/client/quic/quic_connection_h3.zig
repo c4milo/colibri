@@ -46,7 +46,7 @@ pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
 /// QUIC. Returns whether the next exchange may be written: false when this one waits for the
 /// server's stream limit (RFC 9000 §4.6).
 fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
-    const content = slot.request.content;
+    const content = slot.request.body;
     var indexing: [constants.request_fields_max + pseudo_fields]Indexing = undefined;
     const lines = build_section(connection, slot, &indexing) orelse {
         slots_module.end(slot, .invalid);
@@ -66,7 +66,7 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     // RFC 9000 §2.2: the stream ends with the last octet of the content, which carries FIN.
     const stream_len = stream.prefix_len + content.len;
     quic.connection_stream_send.supply(&connection.transport, .{ .value = id }, stream_len, true) catch unreachable;
-    slot.response.content_sent = content.len;
+    slot.response.body_sent = content.len;
     return true;
 }
 
@@ -102,7 +102,7 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
     section.init();
     append_pseudo(connection, request, indexing) orelse return null;
     append_fields(section, request, indexing) orelse return null;
-    var count = pseudo_fields + request.fields.len;
+    var count = pseudo_fields + request.headers.len;
     var digits: [constants.content_length_digits_max]u8 = undefined;
     if (event_internal.content_length(request, &digits)) |value| {
         section.append("content-length", value) catch return null;
@@ -124,7 +124,7 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
 fn append_pseudo(connection: *QuicConnection, request: *const Request, indexing: []Indexing) ?void {
     const section = &connection.section;
     // RFC 9114 §4.3.1: `https` is the scheme of every request an h3 connection carries.
-    const lines = [pseudo_fields]event.Field{
+    const lines = [pseudo_fields]event.Header{
         .{ .name = ":method", .value = request.method },
         .{ .name = ":scheme", .value = "https" },
         .{ .name = ":authority", .value = connection.config.authority },
@@ -140,8 +140,8 @@ fn append_pseudo(connection: *QuicConnection, request: *const Request, indexing:
 /// Appends the caller's field lines after the pseudo-header fields, each marked one written
 /// never-indexed (RFC 9204 §4.5.4, §7.1.3).
 fn append_fields(section: *h3.http.FieldSection, request: *const Request, indexing: []Indexing) ?void {
-    const marked = request.never_indexed.fields;
-    for (request.fields, 0..) |field, index| {
+    const marked = request.never_indexed.headers;
+    for (request.headers, 0..) |field, index| {
         section.append(field.name, field.value) catch return null;
         const never = marked.len > 0 and marked[index];
         indexing[pseudo_fields + index] = if (never) .never_indexed else .no_insert;
@@ -162,7 +162,7 @@ fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) 
     const connection: *QuicConnection = @ptrCast(@alignCast(context));
     const slot = holding(connection, stream_id) orelse return 0;
     const stream = &connection.streams[connection.slots.index_of(slot)];
-    const content = slot.request.content;
+    const content = slot.request.body;
     const from: usize = @intCast(offset);
     if (from >= stream.prefix_len + content.len) return 0;
     var written: usize = 0;

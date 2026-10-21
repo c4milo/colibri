@@ -67,7 +67,7 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     try testing.expectEqual(&exchange.request, finished.request);
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(ok, exchange.response.status);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("application/dns-message", wanted[0].value.?);
     try testing.expectEqual(null, wanted[1].value);
     try testing.expectEqual(null, wanted[2].value);
@@ -80,7 +80,7 @@ test "RFC 9113 §6.9: content past the stream's window goes out as the peer gran
     const content_len = 3 * h2.constants.initial_window_size_initial;
     const content = bodies[1][0..content_len];
     @memset(content, 'x');
-    var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .content = content }, .response = .{ .body = &bodies[0] } };
+    var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .body = content }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
     var received: usize = 0;
     for (0..support.events_max) |_| {
@@ -110,7 +110,7 @@ test "RFC 9110 §15.2: interim responses are counted, and the final one gives th
     try support.peer_h2_answer(1, ok, &.{}, "done");
     try support.client_receive();
     try testing.expectEqual(ok, exchange.response.status);
-    try testing.expectEqualStrings("done", exchange.response.content_received());
+    try testing.expectEqualStrings("done", exchange.response.body_received());
 }
 
 test "RFC 9113 §6.4: content past the caller's memory ends the exchange, and CANCEL stops the rest" {

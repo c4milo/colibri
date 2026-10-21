@@ -56,13 +56,13 @@ pub const Limit = files.close_reason.Limit;
 pub const Endpoint = files.endpoint.Endpoint;
 pub const EndpointOf = files.endpoint.EndpointOf;
 pub const Capacity = files.endpoint.Capacity;
-/// What `Endpoint.receive` takes: `.none`, the `StreamOctets` a program's TCP socket read, or a
+/// What `Endpoint.receive` takes: `.none`, the `StreamBytes` a program's TCP socket read, or a
 /// `Datagram` its UDP socket read.
 pub const Input = files.endpoint.Input;
 pub const Datagram = files.endpoint.Datagram;
 /// Whether a TCP connection `Endpoint.accept` takes runs TLS.
 pub const Security = files.endpoint.Security;
-pub const StreamOctets = files.endpoint.StreamOctets;
+pub const StreamBytes = files.endpoint.StreamBytes;
 pub const LogProvider = files.endpoint.LogProvider;
 /// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = files.quic_connection.Sent;
@@ -73,14 +73,14 @@ pub const Address = quic.PeerAddress;
 pub const Ecn = quic.connection_send.Ecn;
 pub const StartError = files.connection_errors.StartError;
 pub const SendError = files.connection_errors.SendError;
-pub const Field = http.Field;
-pub const Id = files.event.Id;
+pub const Header = files.event.Header;
+pub const RequestId = files.event.RequestId;
 pub const ConnectionHandle = files.event.ConnectionHandle;
 pub const Version = files.event.Version;
-pub const Fields = files.event.Fields;
+pub const Headers = files.event.Headers;
 pub const Event = files.event.Event;
 pub const Request = files.event.Request;
-pub const Body = files.event.Body;
+pub const RequestBody = files.event.RequestBody;
 pub const Trailers = files.event.Trailers;
 pub const Cancelled = files.event.Cancelled;
 pub const CancelReason = files.event.CancelReason;
@@ -88,8 +88,8 @@ pub const Done = files.event.Done;
 pub const Writable = files.event.Writable;
 pub const Ended = files.event.Ended;
 pub const Response = files.event.Response;
-pub const Content = files.event.Content;
-pub const Received = files.event.Received;
+pub const ResponseBody = files.event.ResponseBody;
+pub const ReceiveResult = files.event.ReceiveResult;
 pub const Alternative = files.alt_svc.Alternative;
 /// The content codings a server applies (decision 101).
 pub const Coding = http.content_coding.Coding;
@@ -120,17 +120,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // takes a TCP connection's own configuration out of the root (decision 119). 21d takes out
     // `Connection` and `QuicConnection`, which the endpoint holds, and `Error` and `Protocol`,
     // which only their calls return (decision 121). 21e adds `PathParameters` and `router`
-    // (decision 122).
+    // (decision 122). 23.2 renames `StreamOctets`, `Field`, `Id`, `Fields`, `Body`, `Content` and
+    // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
+    // `ResponseBody` and `ReceiveResult` (decision 126).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",   "Config",             "Versions",       "Limits",           "Deadline",
         "Deadlines",   "CloseReason",        "Limit",          "Endpoint",         "EndpointOf",
-        "Capacity",    "Input",              "Datagram",       "Security",         "StreamOctets",
+        "Capacity",    "Input",              "Datagram",       "Security",         "StreamBytes",
         "LogProvider", "Sent",               "Address",        "Ecn",              "StartError",
-        "SendError",   "Field",              "Id",             "ConnectionHandle", "Version",
-        "Fields",      "Event",              "Request",        "Body",             "Trailers",
+        "SendError",   "Header",             "RequestId",      "ConnectionHandle", "Version",
+        "Headers",     "Event",              "Request",        "RequestBody",      "Trailers",
         "Cancelled",   "CancelReason",       "Done",           "Writable",         "Ended",
-        "Response",    "Content",            "Received",       "Alternative",      "Coding",
+        "Response",    "ResponseBody",       "ReceiveResult",  "Alternative",      "Coding",
         "EncoderPool", "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool",
         "Decoders",    "Features",           "PathParameters", "router",
     });

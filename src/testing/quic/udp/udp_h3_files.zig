@@ -24,7 +24,7 @@ pub const Endpoint = server.EndpointOf(.{
 /// One request, from its head until it is done or cancelled.
 const Answer = struct {
     in_use: bool = false,
-    id: server.Id = .{ .connection = .{ .slot = 0, .generation = 0 }, .number = 0 },
+    id: server.RequestId = .{ .connection = .{ .slot = 0, .generation = 0 }, .number = 0 },
     /// Whether the request was HEAD, whose response carries no content (RFC 9110 §9.3.2).
     head: bool = false,
     /// The request's path, copied: its field section is gone by the time the request ends.
@@ -86,7 +86,7 @@ pub const Files = struct {
     }
 
     /// Answers a request whose content ended: the root body, a file, or 404.
-    fn answer(files: *Files, endpoint: *Endpoint, id: server.Id) void {
+    fn answer(files: *Files, endpoint: *Endpoint, id: server.RequestId) void {
         const entry = files.entry_of(id) orelse return;
         if (entry.answered) return;
         entry.answered = true;
@@ -111,16 +111,16 @@ pub const Files = struct {
         assert(entry.in_use and entry.answered);
         var digits: [content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-        const fields = [_]server.Field{.{ .name = "content-length", .value = length }};
+        const fields = [_]server.Header{.{ .name = "content-length", .value = length }};
         // RFC 9110 §9.3.2: a response to HEAD carries no content.
         const carries = !entry.head and content.len > 0;
-        endpoint.respond(entry.id, .{ .status = ok, .fields = &fields, .end = !carries }) catch return endpoint.cancel(entry.id);
-        if (carries) _ = endpoint.write_body(entry.id, .{ .octets = content, .end = true }) catch return endpoint.cancel(entry.id);
+        endpoint.respond(entry.id, .{ .status = ok, .headers = &fields, .end = !carries }) catch return endpoint.cancel(entry.id);
+        if (carries) _ = endpoint.write_body(entry.id, .{ .bytes = content, .end = true }) catch return endpoint.cancel(entry.id);
         files.served += 1;
     }
 
     /// Releases the entry of a request that ended, and unmaps its file.
-    fn release(files: *Files, id: server.Id) void {
+    fn release(files: *Files, id: server.RequestId) void {
         const entry = files.entry_of(id) orelse return;
         if (entry.mapping) |mapping| hq_file.unmap(mapping);
         entry.* = .{};
@@ -133,7 +133,7 @@ pub const Files = struct {
         return null;
     }
 
-    fn entry_of(files: *Files, id: server.Id) ?*Answer {
+    fn entry_of(files: *Files, id: server.RequestId) ?*Answer {
         for (&files.answers) |*entry| {
             if (entry.in_use and entry.id.number == id.number) return entry;
         }
@@ -145,8 +145,8 @@ pub const Files = struct {
 /// cancelled, and its `cancelled` releases the entry.
 fn respond_missing(endpoint: *Endpoint, entry: *Answer) void {
     assert(entry.in_use and entry.answered);
-    const fields = [_]server.Field{.{ .name = "content-length", .value = "0" }};
-    endpoint.respond(entry.id, .{ .status = not_found, .fields = &fields, .end = true }) catch endpoint.cancel(entry.id);
+    const fields = [_]server.Header{.{ .name = "content-length", .value = "0" }};
+    endpoint.respond(entry.id, .{ .status = not_found, .headers = &fields, .end = true }) catch endpoint.cancel(entry.id);
 }
 
 const ok: u16 = 200;

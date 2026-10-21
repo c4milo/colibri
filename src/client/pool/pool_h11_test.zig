@@ -46,7 +46,7 @@ const half_size_line = chunked_body[0..1];
 fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
@@ -119,7 +119,7 @@ fn peer_read() !PeerRead {
     return read;
 }
 
-const content_length_5: []const support.Field = &.{.{ .name = "Content-Length", .value = "5" }};
+const content_length_5: []const support.Header = &.{.{ .name = "Content-Length", .value = "5" }};
 
 test {
     // Decision 124: each test below runs on the default pool and on one with no QUIC.
@@ -177,7 +177,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
             try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            try testing.expectEqualStrings("hello", exchange.response.body_received());
         }
 
         test "design §8 step 21c.3: a pool reads half a chunk-size line again with the rest of it" {
@@ -192,7 +192,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(.pending, exchange.response.outcome);
             try testing.expectEqual(chunked_body.len, try give(chunked_body));
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            try testing.expectEqualStrings("hello", exchange.response.body_received());
         }
 
         test "design §8 step 21c.3: a pool carries two h11 requests, the last answered with no content" {
@@ -212,10 +212,10 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(2, count(.finished));
             try testing.expectEqual(.response, first.response.outcome);
             try testing.expectEqual(ok, first.response.status);
-            try testing.expectEqualStrings("hello", first.response.content_received());
+            try testing.expectEqualStrings("hello", first.response.body_received());
             try testing.expectEqual(.response, last.response.outcome);
             try testing.expectEqual(no_content, last.response.status);
-            try testing.expectEqual(0, last.response.content_received().len);
+            try testing.expectEqual(0, last.response.body_received().len);
             try testing.expectEqual(last_id, events[events_len - 1].finished.id);
         }
 
@@ -239,9 +239,9 @@ fn Tests(comptime Pool: type) type {
 
         test "decision 124: an early h11 response ends its connection, and the next exchange opens another" {
             @memset(&upload, 'x');
-            var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = &bodies[0] } };
+            var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .body = &upload }, .response = .{ .body = &bodies[0] } };
             try start(&put);
-            try testing.expect(put.response.content_sent < upload.len);
+            try testing.expect(put.response.body_sent < upload.len);
             // RFC 9110 §15.5.13: the server refuses the precondition before it reads the content,
             // and names no close option (RFC 9112 §9.6). RFC 9112 §9.5: the client ends the
             // connection.
@@ -264,7 +264,7 @@ fn Tests(comptime Pool: type) type {
             try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "5" }}, "hello");
             try collect(&pool);
             try testing.expectEqual(.response, next.response.outcome);
-            try testing.expectEqualStrings("hello", next.response.content_received());
+            try testing.expectEqualStrings("hello", next.response.body_received());
         }
 
         test "decision 120: a shut-down pool drops the open of a connection no caller heard of" {
@@ -279,7 +279,7 @@ fn Tests(comptime Pool: type) type {
             support.to_client_len = response.len;
             // The program reads until the pool says to close the socket, and no further.
             for (0..support.buffer_len + support.events_max) |_| {
-                const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
+                const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
                 const received = pool.receive(input, support.now_ns);
                 std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
                 support.to_client_len -= received.consumed;
@@ -322,11 +322,11 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             try testing.expectEqual(1, count(.finished));
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            try testing.expectEqualStrings("hello", exchange.response.body_received());
         }
 
         test "RFC 9110 §9.2.2: an h11 POST whose connection closed before any of its response ends closed" {
-            var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/form", .content = "a=1" }, .response = .{ .body = &bodies[0] } };
+            var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/form", .body = "a=1" }, .response = .{ .body = &bodies[0] } };
             try start(&exchange);
             try close_transport();
             try testing.expectEqual(.closed, exchange.response.outcome);
@@ -336,7 +336,7 @@ fn Tests(comptime Pool: type) type {
         test "RFC 9110 §9.2.2: an h11 PUT sent again sends its whole content again" {
             const put_len: usize = 64;
             @memset(upload[0..put_len], 'u');
-            var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = upload[0..put_len] }, .response = .{ .body = &bodies[0] } };
+            var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .body = upload[0..put_len] }, .response = .{ .body = &bodies[0] } };
             try start(&put);
             try testing.expectEqual(PeerRead{ .requests = 1, .content_len = put_len, .ends = 1 }, try peer_read());
             try close_transport();
@@ -345,7 +345,7 @@ fn Tests(comptime Pool: type) type {
             try support.peer_h11_answer(no_content, &.{}, "");
             try collect(&pool);
             try testing.expectEqual(.response, put.response.outcome);
-            try testing.expectEqual(put_len, put.response.content_sent);
+            try testing.expectEqual(put_len, put.response.body_sent);
         }
 
         test "RFC 9110 §9.2.2: an h11 GET whose second connection also closed before any of its response ends closed" {
@@ -394,7 +394,7 @@ fn Tests(comptime Pool: type) type {
             // the transport closes before the program passes that octet again.
             const octets = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloH";
             @memcpy(support.to_client[0..octets.len], octets);
-            const received = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..octets.len] } }, support.now_ns);
+            const received = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..octets.len] } }, support.now_ns);
             try testing.expectEqual(octets.len - 1, received.consumed);
             try testing.expectEqual(&first.response, received.event.?.finished.response);
             try close_transport();

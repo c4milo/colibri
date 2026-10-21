@@ -31,11 +31,11 @@ const close_reason_module = @import("../close_reason.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const http = @import("http");
 
-pub const Id = event.Id;
+pub const RequestId = event.RequestId;
 /// The number of a request on this connection, which its calls take (decision 119): an event's
 /// `id.number`.
 pub const Number = event.Number;
-pub const Received = event.Received;
+pub const ReceiveResult = event.ReceiveResult;
 pub const Field = connection_module.Field;
 pub const Error = connection_module.Error;
 pub const SendError = connection_module.SendError;
@@ -105,7 +105,7 @@ pub const StartError = error{
 /// A datagram `send` wrote, the ECN codepoint for its IP header (decision 68), and the address it
 /// goes to (decision 72).
 pub const Sent = struct {
-    octets: []const u8,
+    bytes: []const u8,
     ecn: quic.connection_send.Ecn,
     to: PeerAddress,
 };
@@ -168,7 +168,7 @@ pub const QuicConnection = struct {
     /// A request that expects a 100 (Continue) gets one at the next `receive`, or before the next
     /// datagram the endpoint sends for the connection, unless the caller answers it first: with a
     /// final response, with its own 100, or with `cancel` (RFC 9110 §10.1.1).
-    pub fn receive(connection: *QuicConnection, now_ns: u64) Error!Received {
+    pub fn receive(connection: *QuicConnection, now_ns: u64) Error!ReceiveResult {
         connection.last_ns = now_ns;
         quic_deadline.fire(connection, now_ns);
         const received = try connection.receive_event(now_ns);
@@ -176,7 +176,7 @@ pub const QuicConnection = struct {
         return received;
     }
 
-    fn receive_event(connection: *QuicConnection, now_ns: u64) Error!Received {
+    fn receive_event(connection: *QuicConnection, now_ns: u64) Error!ReceiveResult {
         if (connection.failure_owed) {
             connection.failure_owed = false;
             // RFC 9000 §10.2: a connection that failed reads nothing more from its peer.
@@ -200,7 +200,7 @@ pub const QuicConnection = struct {
     /// ring has room for, and returns them, coded, to the caller at once (decision 101).
     /// `error.Blocked` says the response holds as many runs, or its ring as many octets, as it can
     /// until the peer acknowledges some: `receive`, then call again.
-    pub fn write_body(connection: *QuicConnection, id: Number, content: event.Content) SendError!usize {
+    pub fn write_body(connection: *QuicConnection, id: Number, content: event.ResponseBody) SendError!usize {
         return quic_connection_h3.write_body(connection, id, content);
     }
 

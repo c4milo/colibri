@@ -151,7 +151,7 @@ pub fn main() !void {
 fn serve(accepted: server_module.ConnectionHandle, len: usize) !void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
-        const read: server_module.StreamOctets = .{ .connection = accepted, .octets = wire[consumed..len] };
+        const read: server_module.StreamBytes = .{ .connection = accepted, .bytes = wire[consumed..len] };
         const received = endpoint.receive(.{ .stream = read }, 0);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -181,7 +181,7 @@ fn hear(octets: []u8) void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
         const held = octets[consumed..];
-        const read: client_module.Input = if (held.len > 0) .{ .stream = .{ .connection = asked_connection, .octets = held } } else .none;
+        const read: client_module.Input = if (held.len > 0) .{ .stream = .{ .connection = asked_connection, .bytes = held } } else .none;
         const received = asked.receive(read, 0);
         consumed += received.consumed;
         if (received.event == null and received.consumed == 0) return;

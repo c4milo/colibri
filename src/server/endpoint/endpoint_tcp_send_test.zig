@@ -44,7 +44,7 @@ test "decision 119: a send comes once for each debt, and again only after a send
     support.collect();
     try testing.expectEqual(before + 1, sends());
     // More is owed while the send waits: no second one.
-    _ = try endpoint.write_body(id, .{ .octets = "first", .end = false });
+    _ = try endpoint.write_body(id, .{ .bytes = "first", .end = false });
     support.collect();
     try testing.expectEqual(before + 1, sends());
     // A send_stream that fills its buffer leaves more owed, and the send still waits.
@@ -56,7 +56,7 @@ test "decision 119: a send comes once for each debt, and again only after a send
     support.flush(handle);
     support.collect();
     try testing.expectEqual(before + 1, sends());
-    _ = try endpoint.write_body(id, .{ .octets = "second", .end = true });
+    _ = try endpoint.write_body(id, .{ .bytes = "second", .end = true });
     support.collect();
     try testing.expectEqual(before + 2, sends());
 }
@@ -96,7 +96,7 @@ test "decision 119: the program's cancel is reported before the input that names
     var frame: [h2.constants.frame_header_len + 1]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_data(&writer, 1, "x", true, 0);
-    const received = endpoint.receive(.{ .stream = .{ .connection = handle, .octets = &frame } }, support.now_ns);
+    const received = endpoint.receive(.{ .stream = .{ .connection = handle, .bytes = &frame } }, support.now_ns);
     try testing.expectEqual(0, received.consumed);
     try testing.expectEqual(event.CancelReason.program, received.event.?.cancelled.reason);
 }
@@ -136,7 +136,7 @@ test "decision 101: a coded response's ring owes octets, which a send writes out
     _ = support.give(handle, "GET / HTTP/1.1\r\nHost: example.com\r\nAccept-Encoding: gzip\r\n\r\n");
     const id = support.id_of(handle, support.nth(.request, 0).?.number);
     try endpoint.respond(id, .{ .status = ok, .end = false, .codable = true });
-    _ = try endpoint.write_body(id, .{ .octets = "coded through the ring", .end = true });
+    _ = try endpoint.write_body(id, .{ .bytes = "coded through the ring", .end = true });
     support.collect();
     // The ring's octets went out, so the response is whole and done.
     try testing.expect(support.nth(.done, 0) != null);
@@ -170,7 +170,7 @@ test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UP
     _ = support.give(handle, try h2_support.request_frame_with(1, "GET", "/", &accepts_gzip, true));
     const id = support.id_of(handle, 1);
     try endpoint.respond(id, .{ .status = ok, .end = false, .codable = true });
-    _ = try endpoint.write_body(id, .{ .octets = tcp_support.incompressible[0..coded_len], .end = true });
+    _ = try endpoint.write_body(id, .{ .bytes = tcp_support.incompressible[0..coded_len], .end = true });
     support.collect();
     // The window took 100 octets of the ring, and the rest waits.
     try testing.expectEqual(null, support.nth(.done, 0));
@@ -194,11 +194,11 @@ test "decision 119: a pipelined h11 request held by the program is read once it 
     try testing.expect(held > 0);
     const id = support.id_of(handle, support.nth(.request, 0).?.number);
     const length = [_]tcp_support.Field{.{ .name = "content-length", .value = "5" }};
-    try endpoint.respond(id, .{ .status = ok, .fields = &length, .end = false });
-    _ = try endpoint.write_body(id, .{ .octets = "hello", .end = false });
+    try endpoint.respond(id, .{ .status = ok, .headers = &length, .end = false });
+    _ = try endpoint.write_body(id, .{ .bytes = "hello", .end = false });
     support.collect();
     // The end writes no octet, so no `send` follows it: the `done` is the event to pass again on.
-    _ = try endpoint.write_body(id, .{ .octets = "", .end = true });
+    _ = try endpoint.write_body(id, .{ .bytes = "", .end = true });
     support.collect();
     try testing.expect(support.nth(.done, 0) != null);
     try testing.expectEqual(0, support.give(handle, two[two.len - held ..]));

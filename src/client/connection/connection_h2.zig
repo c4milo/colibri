@@ -236,7 +236,7 @@ fn open(connection: *Connection, slot: *Slot) bool {
         // RFC 7541 §7.1.3: a value an intermediary must not index goes out never-indexed.
         .indexing = .{ .path = if (request.never_indexed.path) .never_indexed else .without_indexing },
     };
-    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], request.content.len == 0) catch |failure| {
+    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], request.body.len == 0) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += sent.written;
@@ -284,15 +284,15 @@ fn request_fields(
     offer: *[coding.offer_len_max]u8,
 ) ?[]const h2.hpack.Field {
     const request = slot.request;
-    if (request.fields.len + constants.added_fields_max > lines.len) return null;
-    const marked = request.never_indexed.fields;
-    for (request.fields, lines[0..request.fields.len], indexing[0..request.fields.len], 0..) |field, *line, *how, index| {
+    if (request.headers.len + constants.added_fields_max > lines.len) return null;
+    const marked = request.never_indexed.headers;
+    for (request.headers, lines[0..request.headers.len], indexing[0..request.headers.len], 0..) |field, *line, *how, index| {
         line.* = .{ .name = field.name, .value = field.value };
         // RFC 7541 §7.1.3: a line the caller marked goes out never-indexed.
         const never = marked.len > 0 and marked[index];
         how.* = if (never) .never_indexed else .without_indexing;
     }
-    var count = request.fields.len;
+    var count = request.headers.len;
     if (event_internal.content_length(request, digits)) |length| {
         lines[count] = .{ .name = "content-length", .value = length };
         indexing[count] = .without_indexing;
@@ -308,18 +308,18 @@ fn request_fields(
 
 /// Writes as much of `slot`'s content as the windows and the room allow (RFC 9113 §6.9.1).
 fn write_content(connection: *Connection, slot: *Slot) void {
-    const content = slot.request.content;
+    const content = slot.request.body;
     const response = slot.response;
     // Bounded: each pass writes a frame, or stops.
     for (0..content.len + 1) |_| {
         if (slot.content_done()) return;
-        const sent = connection.session.h2.write_data(internal.room(connection), @intCast(slot.stream_id), content[response.content_sent..], true) catch {
+        const sent = connection.session.h2.write_data(internal.room(connection), @intCast(slot.stream_id), content[response.body_sent..], true) catch {
             // RFC 9113 §5.1: the stream is no longer one the client may send on.
             slot.content_stopped = true;
             return;
         };
         connection.output_len += sent.written;
-        response.content_sent += sent.consumed;
+        response.body_sent += sent.consumed;
         // RFC 9113 §6.9: no window, or no room for a frame.
         if (sent.written == 0) return;
     }

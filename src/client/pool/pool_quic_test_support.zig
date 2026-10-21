@@ -97,7 +97,7 @@ pub fn get(body: []u8) Exchange {
 
 /// A POST, which RFC 9110 §9.2.2 does not make idempotent, so the pool never sends it again.
 pub fn post(body: []u8) Exchange {
-    return .{ .request = .{ .method = "POST", .path = "/dns-query", .content = "query" }, .response = .{ .body = body } };
+    return .{ .request = .{ .method = "POST", .path = "/dns-query", .body = "query" }, .response = .{ .body = body } };
 }
 
 /// Reports every event the pool owes, with no datagram, and keeps them.
@@ -128,8 +128,8 @@ pub fn pump(rounds: usize) !void {
         for (0..datagrams_per_round_max) |_| {
             const sent = pool.send_datagram(&datagram, quic_support.now_ns) orelse break;
             if (blocked) continue;
-            @memcpy(crossing[0..sent.octets.len], sent.octets);
-            try quic_support.server_receive(crossing[0..sent.octets.len]);
+            @memcpy(crossing[0..sent.bytes.len], sent.bytes);
+            try quic_support.server_receive(crossing[0..sent.bytes.len]);
         }
         try quic_support.answer_due();
         for (0..datagrams_per_round_max) |_| {
@@ -149,7 +149,7 @@ pub fn deliver(octets: []u8) !void {
     const from = pool.quic_link.to;
     // Bounded: each pass consumes the datagram or reports one of the pool's events.
     for (0..support.events_max) |_| {
-        const received = pool.receive(.{ .datagram = .{ .octets = octets, .from = from } }, quic_support.now_ns);
+        const received = pool.receive(.{ .datagram = .{ .bytes = octets, .from = from } }, quic_support.now_ns);
         if (received.event) |reported| try keep(reported);
         if (received.consumed > 0) return;
     }

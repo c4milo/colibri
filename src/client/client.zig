@@ -33,8 +33,8 @@ pub const Versions = files.versions.Versions;
 /// Why `Pool.init`, `Pool.start_tcp` or `Pool.start_quic` refused (decisions 120 and 123).
 pub const StartError = files.pool.StartError;
 pub const RequestError = files.pool.RequestError;
-pub const Field = files.event.Field;
-pub const Id = files.event.Id;
+pub const Header = files.event.Header;
+pub const RequestId = files.event.RequestId;
 pub const Protocol = files.event.Protocol;
 /// What a program sends, and where the response goes and what arrived (decision 124).
 pub const Request = files.event.Request;
@@ -65,9 +65,9 @@ pub const Alternative = files.pool.Alternative;
 /// What a program passes `Pool.receive`, and what it returns.
 pub const Input = files.pool.Input;
 /// The octets a TCP socket read, with the connection whose socket read them (decision 125).
-pub const StreamOctets = files.pool.StreamOctets;
+pub const StreamBytes = files.pool.StreamBytes;
 pub const Datagram = files.pool.Datagram;
-pub const Received = files.pool.Received;
+pub const ReceiveResult = files.pool.ReceiveResult;
 pub const Event = files.pool.Event;
 /// The transport an `open` event asks for and where it goes, and which of the two transports a
 /// pool's calls name.
@@ -117,18 +117,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `HttpExchange` (decision 124). Step 21f.6 adds `ChannelOf` and `Capacity` (decision 124).
     // Step 22.2 renames `Channel` to `Pool` and `ChannelOf` to `PoolOf`, step 22.3 adds
     // `Options`, and step 22.4 adds `StreamOctets`, `ConnectionHandle` and `Connected` (decision
-    // 125).
+    // 125). Step 23.2 renames `Field`, `Id`, `StreamOctets` and `Received` to `Header`,
+    // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",       "Config",       "Versions",          "StartError",         "RequestError",
-        "Field",           "Id",           "Protocol",          "Request",            "Response",
-        "Wanted",          "Outcome",      "Finished",          "Sent",               "Address",
-        "Ecn",             "Pool",         "PoolOf",            "Capacity",           "Options",
-        "Values",          "Https",        "Alternative",       "Input",              "StreamOctets",
-        "Datagram",        "Received",     "Event",             "Open",               "ConnectionHandle",
-        "Connected",       "Transport",    "Phase",             "ReceivePool",        "DefaultReceivePool",
-        "ReceiveStorage",  "Coding",       "DecoderPool",       "DefaultDecoderPool", "Decoders",
-        "ZstdDecoderPool", "ZstdDecoders", "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",       "Config",        "Versions",          "StartError",         "RequestError",
+        "Header",          "RequestId",     "Protocol",          "Request",            "Response",
+        "Wanted",          "Outcome",       "Finished",          "Sent",               "Address",
+        "Ecn",             "Pool",          "PoolOf",            "Capacity",           "Options",
+        "Values",          "Https",         "Alternative",       "Input",              "StreamBytes",
+        "Datagram",        "ReceiveResult", "Event",             "Open",               "ConnectionHandle",
+        "Connected",       "Transport",     "Phase",             "ReceivePool",        "DefaultReceivePool",
+        "ReceiveStorage",  "Coding",        "DecoderPool",       "DefaultDecoderPool", "Decoders",
+        "ZstdDecoderPool", "ZstdDecoders",  "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 

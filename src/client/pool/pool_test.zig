@@ -43,7 +43,7 @@ const rounds: usize = 8;
 fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
@@ -168,7 +168,7 @@ fn Tests(comptime Pool: type) type {
             const finished = find(.finished).?.finished;
             try testing.expectEqual(id, finished.id);
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            try testing.expectEqualStrings("hello", exchange.response.body_received());
             // The pool is not closed until its caller shuts it down.
             try testing.expectEqual(null, find(.closed));
         }
@@ -235,7 +235,7 @@ fn Tests(comptime Pool: type) type {
 
         test "RFC 9110 §9.2.2: a transport the caller closed ends its written POST closed, and asks for no close" {
             try start_tcp_only();
-            var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = "form" }, .response = .{ .body = &bodies[0] } };
+            var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = "form" }, .response = .{ .body = &bodies[0] } };
             _ = try pool.request(&exchange.request, &exchange.response);
             try pump(&pool);
             pool.transport_closed(pool_support.connection_of(pool, .tcp));
@@ -259,10 +259,10 @@ fn Tests(comptime Pool: type) type {
         test "what a transport with no running connection read is dropped" {
             try start_tcp_only();
             var octets: [ipv4_len]u8 = @splat(host_octet);
-            const datagram = pool.receive(.{ .datagram = .{ .octets = &octets } }, support.now_ns);
+            const datagram = pool.receive(.{ .datagram = .{ .bytes = &octets } }, support.now_ns);
             try testing.expectEqual(octets.len, datagram.consumed);
             try testing.expectEqual(null, datagram.event);
-            const stream = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = &octets } }, support.now_ns);
+            const stream = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = &octets } }, support.now_ns);
             try testing.expectEqual(octets.len, stream.consumed);
             try testing.expectEqual(null, stream.event);
         }
@@ -310,13 +310,13 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(id, find(.finished).?.finished.id);
             try testing.expectEqual(1, count(.finished));
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            try testing.expectEqualStrings("hello", exchange.response.body_received());
         }
 
         test "RFC 9110 §9.2.2: a PUT sent again sends its whole content again" {
             try start_tcp_only();
             @memset(&upload, 'u');
-            var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .content = &upload }, .response = .{ .body = &bodies[0] } };
+            var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .body = &upload }, .response = .{ .body = &bodies[0] } };
             _ = try pool.request(&put.request, &put.response);
             try pump(&pool);
             try testing.expectEqual(upload_len, peer_read().content_len);
@@ -326,7 +326,7 @@ fn Tests(comptime Pool: type) type {
             try support.peer_h2_answer(1, ok, &.{}, "");
             try collect(&pool);
             try testing.expectEqual(.response, put.response.outcome);
-            try testing.expectEqual(upload_len, put.response.content_sent);
+            try testing.expectEqual(upload_len, put.response.body_sent);
         }
 
         test "RFC 9110 §9.2.2: a GET whose second connection also closed before any of its response ends closed" {
@@ -397,7 +397,7 @@ fn Tests(comptime Pool: type) type {
 
         test "RFC 9110 §9.2.2: a request whose method RFC 9110 does not define is not sent again" {
             try start_tcp_only();
-            var exchange: Exchange = .{ .request = .{ .method = "PATCH", .path = "/object", .content = "diff" }, .response = .{ .body = &bodies[0] } };
+            var exchange: Exchange = .{ .request = .{ .method = "PATCH", .path = "/object", .body = "diff" }, .response = .{ .body = &bodies[0] } };
             _ = try pool.request(&exchange.request, &exchange.response);
             try pump(&pool);
             try close_transport();

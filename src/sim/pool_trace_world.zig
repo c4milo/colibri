@@ -32,7 +32,7 @@ const http_port: u16 = 80;
 const address_octet: u8 = 0x0a;
 const ipv4_len: usize = 4;
 /// The field that ends a connection after its response (RFC 9112 §9.6).
-const close_fields = [_]server.Field{.{ .name = "connection", .value = "close" }};
+const close_fields = [_]server.Header{.{ .name = "connection", .value = "close" }};
 
 pub const Error = error{
     /// A pipe, a table or an endpoint's slot had no room, which a plan within its limits never
@@ -94,7 +94,7 @@ pub const World = struct {
     requests: [limits.requests_max]client.Request,
     responses: [limits.requests_max]client.Response,
     bodies: [limits.requests_max][limits.body_len]u8,
-    ids: [limits.requests_max]?client.Id,
+    ids: [limits.requests_max]?client.RequestId,
     cancelled: [limits.requests_max]bool,
     reported: [limits.requests_max]bool,
     /// Times a server passed each request to its application, and the slot and the pool's
@@ -189,7 +189,7 @@ pub const World = struct {
     }
 
     fn client_read(world: *World, socket: *Socket) Error!void {
-        const input: client.Input = .{ .stream = .{ .connection = socket.client, .octets = socket.to_client.octets[0..socket.to_client.len] } };
+        const input: client.Input = .{ .stream = .{ .connection = socket.client, .bytes = socket.to_client.octets[0..socket.to_client.len] } };
         const received = world.pool.receive(input, now_ns);
         socket.to_client.take(received.consumed);
         if (received.event) |event| try world.on_client_event(event);
@@ -246,7 +246,7 @@ pub const World = struct {
     fn server_turn(world: *World, observer: anytype) !void {
         for (world.sockets[0..world.plan.slots]) |*socket| {
             if (!socket.connected or socket.server_closed or socket.to_server.len == 0) continue;
-            const input: server.Input = .{ .stream = .{ .connection = socket.server, .octets = socket.to_server.octets[0..socket.to_server.len] } };
+            const input: server.Input = .{ .stream = .{ .connection = socket.server, .bytes = socket.to_server.octets[0..socket.to_server.len] } };
             const received = world.endpoint.receive(input, now_ns);
             socket.to_server.take(received.consumed);
             if (received.event) |event| try world.on_server_event(event);
@@ -280,7 +280,7 @@ pub const World = struct {
         world.processed_on[index] = socket.client;
         switch (world.plan.answers[index]) {
             .respond => world.endpoint.respond(request.id, .{ .status = ok, .end = true }) catch return error.Refused,
-            .close => world.endpoint.respond(request.id, .{ .status = ok, .fields = &close_fields, .end = true }) catch return error.Refused,
+            .close => world.endpoint.respond(request.id, .{ .status = ok, .headers = &close_fields, .end = true }) catch return error.Refused,
             .@"break" => {
                 // The server closes before any of the response: the pool hears the close once it
                 // read what is in flight.

@@ -85,7 +85,7 @@ test "decision 101: an h2 response is coded into DATA frames, and the last one e
     try h2_support.start_preface();
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "GET", "/", &accepts_deflate, true));
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
-    try testing.expectEqual(11, try connection.write_body(1, .{ .octets = "hello world", .end = true }));
+    try testing.expectEqual(11, try connection.write_body(1, .{ .bytes = "hello world", .end = true }));
     var sent_len: usize = 0;
     send_more(&sent_len);
     const gathered = try gather(test_sent[0..sent_len], 1);
@@ -107,7 +107,7 @@ test "decision 101: two coded streams go past the connection's window, and on as
     for ([_]u32{ 1, 3 }) |stream_id| {
         _ = try support.receive_copy(try h2_support.request_frame_with(stream_id, "GET", "/", &accepts_gzip, true));
         try connection.respond(stream_id, .{ .status = ok, .end = false, .codable = true });
-        try testing.expectEqual(content.len, try connection.write_body(stream_id, .{ .octets = content, .end = true }));
+        try testing.expectEqual(content.len, try connection.write_body(stream_id, .{ .bytes = content, .end = true }));
         // One call writes every frame the room takes, so the next head waits for a send.
         send_more(&sent_len);
     }
@@ -147,20 +147,20 @@ test "decision 101: a stream the peer resets gives its encoder back, and its oct
     try h2_support.start_preface();
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "GET", "/", &accepts_gzip, true));
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
-    _ = try connection.write_body(1, .{ .octets = support.incompressible[0..], .end = false });
+    _ = try connection.write_body(1, .{ .bytes = support.incompressible[0..], .end = false });
     try testing.expectEqual(encoders_all - 1, support.pool.free_count());
     var writer = h2.core.Writer.init(&h2_support.frames);
     try h2.frame.write_rst_stream(&writer, 1, constants.error_cancel);
     const received = try support.receive_copy(writer.written());
     try testing.expectEqual(1, received.event.?.cancelled.id.number);
     try testing.expectEqual(encoders_all, support.pool.free_count());
-    try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .octets = "x", .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .bytes = "x", .end = true }));
     // The frames stream 1 wrote fill the output, so the next head waits for a send.
     _ = support.drain();
     // A stream the caller cancels gives its encoder back too (RFC 9113 §6.4).
     _ = try support.receive_copy(try h2_support.request_frame_with(3, "GET", "/", &accepts_gzip, true));
     try connection.respond(3, .{ .status = ok, .end = false, .codable = true });
-    _ = try connection.write_body(3, .{ .octets = support.incompressible[0..], .end = false });
+    _ = try connection.write_body(3, .{ .bytes = support.incompressible[0..], .end = false });
     connection.cancel(3);
     try testing.expectEqual(encoders_all, support.pool.free_count());
 }
@@ -172,7 +172,7 @@ test "RFC 9113 §5.4.1: a connection that failed writes no coded octets after it
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "GET", "/", &accepts_gzip, true));
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
     // The window takes the coded content, and the output holds less, so the ring keeps the rest.
-    _ = try connection.write_body(1, .{ .octets = support.incompressible[0..stream_content_len], .end = true });
+    _ = try connection.write_body(1, .{ .bytes = support.incompressible[0..stream_content_len], .end = true });
     var writer = h2.core.Writer.init(&h2_support.frames);
     // RFC 9113 §6.1: a DATA frame on stream 0 is a connection error. h2's writer sends none, so
     // the test writes its header itself.

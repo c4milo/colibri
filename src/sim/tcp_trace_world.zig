@@ -50,7 +50,7 @@ pub const HeadKind = h2_trace_state.HeadKind;
 /// What the server's caller holds of the exchange on one stream.
 pub const Answer = struct {
     /// The request's identifier, once the server reported its head.
-    id: ?server.Id = null,
+    id: ?server.RequestId = null,
     interims: u32 = 0,
     final_sent: bool = false,
     data: u32 = 0,
@@ -60,7 +60,7 @@ pub const Answer = struct {
 
 /// The trailer section each response that has one ends with, and the interim and final statuses
 /// (RFC 9110 §15.2.4, §15.3.1).
-const trailers = [_]server.Field{.{ .name = "grpc-status", .value = "0" }};
+const trailers = [_]server.Header{.{ .name = "grpc-status", .value = "0" }};
 const interim_status: u16 = 103;
 const final_status: u16 = 200;
 /// The octets of every request's content and of every piece of a response's.
@@ -96,7 +96,7 @@ pub const World = struct {
     responses: [limits.streams_max]client.Response,
     bodies: [limits.streams_max][body_len_max]u8,
     /// The client's identifier of each request it made: stream index i is its i-th request.
-    client_ids: [limits.streams_max]?client.Id,
+    client_ids: [limits.streams_max]?client.RequestId,
     answers: [limits.streams_max]Answer,
     /// What the server read of each request, from the events it reported (RFC 9113 §8.1).
     request_read: [limits.streams_max]RequestPhase,
@@ -254,7 +254,7 @@ pub const World = struct {
         world.requests[index] = .{
             .method = if (carries) "POST" else "GET",
             .path = "/",
-            .content = if (carries) &content else "",
+            .body = if (carries) &content else "",
         };
         world.responses[index] = .{ .body = &world.bodies[index] };
         world.client_ids[index] = world.pool.request(&world.requests[index], &world.responses[index]) catch {
@@ -304,7 +304,7 @@ pub const World = struct {
 
     /// Whether exchange `id` moved off the connection: a GOAWAY refused it unprocessed, and it
     /// waits at the pool for another connection, which the run never opens (RFC 9113 §8.7).
-    fn moved(world: *const World, id: client.Id) bool {
+    fn moved(world: *const World, id: client.RequestId) bool {
         for (world.pool.entries) |entry| {
             if (entry.stage != .free and entry.id == id) return entry.moves > 0;
         }
@@ -345,7 +345,7 @@ pub const World = struct {
         const answer = world.answer_of(target.stream) orelse return;
         if (!answer.final_sent or answer.data == plan.content) return;
         const piece = content[0..limits.piece_len];
-        const taken = world.endpoint.write_body(answer.id.?, .{ .octets = piece, .end = target.end }) catch {
+        const taken = world.endpoint.write_body(answer.id.?, .{ .bytes = piece, .end = target.end }) catch {
             world.refused += 1;
             return;
         };
@@ -386,7 +386,7 @@ pub const World = struct {
     /// The server reads every octet the client handed out, and its caller notes each request.
     fn deliver_to_server(world: *World, plan: *const Plan) void {
         for (0..limits.receives_per_delivery_max) |_| {
-            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .octets = world.to_server.unread() } }, world.now_ns);
+            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .bytes = world.to_server.unread() } }, world.now_ns);
             if (world.endpoint.failed[world.accepted.slot]) {
                 world.broken = true;
                 return;
@@ -450,7 +450,7 @@ pub const World = struct {
         var quiet: u32 = 0;
         for (0..limits.receives_per_delivery_max) |_| {
             // A closed socket reads nothing more, and the octets in flight stay there.
-            const input: client.Input = if (world.socket_closed) .none else .{ .stream = .{ .connection = world.connection, .octets = world.to_client.unread() } };
+            const input: client.Input = if (world.socket_closed) .none else .{ .stream = .{ .connection = world.connection, .bytes = world.to_client.unread() } };
             const received = world.pool.receive(input, world.now_ns);
             world.to_client.consumed += received.consumed;
             if (received.event) |reported| world.on_client_event(reported);

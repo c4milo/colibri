@@ -31,7 +31,7 @@ const Connection = connection_module.Connection;
 const ReceiveStorage = quic_connection.ReceiveStorage;
 const Sent = quic_connection.Sent;
 const Event = event.Event;
-const Id = event.Id;
+const RequestId = event.RequestId;
 const ConnectionHandle = event.ConnectionHandle;
 const SendError = connection_errors.SendError;
 const Entry = endpoint_requests.Entry;
@@ -42,13 +42,13 @@ pub const Datagram = endpoint_held_quic.Datagram;
 pub const TcpTable = endpoint_held_tcp.TcpTable;
 pub const Transport = endpoint_held_tcp.Transport;
 pub const Security = endpoint_held_tcp.Security;
-pub const StreamOctets = endpoint_held_tcp.StreamOctets;
+pub const StreamBytes = endpoint_held_tcp.StreamBytes;
 
 /// What `receive` takes: nothing new, to read what the endpoint owes, octets a TCP connection's
 /// socket read, or a datagram.
 pub const Input = union(enum) {
     none,
-    stream: StreamOctets,
+    stream: StreamBytes,
     datagram: Datagram,
 };
 
@@ -146,7 +146,7 @@ pub const Held = struct {
     }
 
     /// Takes what `input` brings, then reports the next event any connection owes, if one does.
-    pub fn receive(held: *Held, input: Input, now_ns: u64) event.Received {
+    pub fn receive(held: *Held, input: Input, now_ns: u64) event.ReceiveResult {
         const consumed: usize = switch (input) {
             .none => 0,
             // The event `take_stream` reports comes first: the slot's own, or one its octets bring.
@@ -205,7 +205,7 @@ pub const Held = struct {
     }
 
     /// Writes the head of the response to request `id`. One with no room waits for `writable`.
-    pub fn respond(held: *Held, id: Id, response: event.Response) SendError!void {
+    pub fn respond(held: *Held, id: RequestId, response: event.Response) SendError!void {
         const slot = try held.request_slot(id);
         defer touch(held, slot);
         const answered = if (held.is_tcp(slot)) held.tcp[slot].respond(id.number, response) else held.connections.at(slot).respond(id.number, response);
@@ -218,23 +218,23 @@ pub const Held = struct {
 
     /// Takes content of the response to request `id`. A take of less than the whole waits for
     /// `writable`.
-    pub fn write_body(held: *Held, id: Id, content: event.Content) SendError!usize {
+    pub fn write_body(held: *Held, id: RequestId, content: event.ResponseBody) SendError!usize {
         const slot = try held.request_slot(id);
         defer touch(held, slot);
         const written = if (held.is_tcp(slot)) held.tcp[slot].write_body(id.number, content) else held.connections.at(slot).write_body(id.number, content);
         const taken = written catch |failure| {
-            if (failure == error.Blocked) held.arm(slot, id.number, .content, content.octets.len);
+            if (failure == error.Blocked) held.arm(slot, id.number, .content, content.bytes.len);
             // h2's end of content alone, with no room for its frame.
             if (failure == error.NoSpaceLeft) held.arm(slot, id.number, held.wait_for_head(slot, id.number, .content), 0);
             return failure;
         };
-        if (taken < content.octets.len) held.arm(slot, id.number, .content, content.octets.len - taken) else held.unarm(slot, id.number);
+        if (taken < content.bytes.len) held.arm(slot, id.number, .content, content.bytes.len - taken) else held.unarm(slot, id.number);
         return taken;
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5). One with no room
     /// for its frame, or that waits for a coded response's last octets, waits for `writable`.
-    pub fn write_trailers(held: *Held, id: Id, fields: []const http.Field) SendError!void {
+    pub fn write_trailers(held: *Held, id: RequestId, fields: []const http.Field) SendError!void {
         const slot = try held.request_slot(id);
         defer touch(held, slot);
         const ended = if (held.is_tcp(slot)) held.tcp[slot].write_trailers(id.number, fields) else held.connections.at(slot).write_trailers(id.number, fields);
@@ -278,7 +278,7 @@ pub const Held = struct {
 
     /// Ends request `id` before its response is whole. Its `cancelled` follows, and nothing more of
     /// it. An id that names no open request is ignored.
-    pub fn cancel(held: *Held, id: Id) void {
+    pub fn cancel(held: *Held, id: RequestId) void {
         const slot = held.request_slot(id) catch return;
         if (held.is_tcp(slot)) held.tcp[slot].cancel(id.number) else held.connections.at(slot).cancel(id.number);
         if (held.is_tcp(slot)) endpoint_held_tcp.table_of(held, slot).owe_cancel(id.number) else endpoint_held_quic.table_of(held, slot).owe_cancel(id.number);
@@ -286,7 +286,7 @@ pub const Held = struct {
     }
 
     /// Sets the word each later event of request `id` carries.
-    pub fn set_user_data(held: *Held, id: Id, user_data: usize) error{RequestUnknown}!void {
+    pub fn set_user_data(held: *Held, id: RequestId, user_data: usize) error{RequestUnknown}!void {
         const slot = try held.request_slot(id);
         held.entry_of(slot, id.number).?.user_data = user_data;
     }
@@ -363,12 +363,12 @@ pub const Held = struct {
 
     /// The slot of the connection that holds request `id`, when the request is open and not
     /// cancelled by the program.
-    fn request_slot(held: *Held, id: Id) error{RequestUnknown}!u32 {
+    fn request_slot(held: *Held, id: RequestId) error{RequestUnknown}!u32 {
         // RFC 9110 §3.4: a response answers a request, so `id` names one still open.
         return held.open_slot(id) orelse error.RequestUnknown;
     }
 
-    fn open_slot(held: *Held, id: Id) ?u32 {
+    fn open_slot(held: *Held, id: RequestId) ?u32 {
         const slot = held.slots.resolve(id.connection) orelse return null;
         const entry = held.entry_of(slot, id.number) orelse return null;
         if (entry.cancel_owed) return null;

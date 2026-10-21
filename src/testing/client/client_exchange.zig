@@ -25,14 +25,14 @@ pub const Plan = struct {
 };
 
 /// The field lines every request carries beside the ones `client` adds (RFC 9110 §10.1.5).
-const request_fields = [_]client.Field{.{ .name = "user-agent", .value = constants.user_agent }};
+const request_fields = [_]client.Header{.{ .name = "user-agent", .value = constants.user_agent }};
 
 /// One exchange: its plan, the module's request and response, and its id on the connection.
 pub const Exchange = struct {
     plan: Plan,
     request: client.Request,
     response: client.Response,
-    id: client.Id,
+    id: client.RequestId,
     /// Whether the exchange's `finished` event arrived.
     finished: bool,
 
@@ -45,8 +45,8 @@ pub const Exchange = struct {
             .request = .{
                 .method = plan.method,
                 .path = plan.path,
-                .fields = &request_fields,
-                .content = content[0..plan.content_len],
+                .headers = &request_fields,
+                .body = content[0..plan.content_len],
             },
             .response = .{ .body = body },
             .id = 0,
@@ -58,12 +58,12 @@ pub const Exchange = struct {
     /// with the request content sent whole.
     pub fn succeeded(exchange: *const Exchange) bool {
         if (!exchange.finished or exchange.response.outcome != .response) return false;
-        return exchange.response.content_sent == exchange.plan.content_len;
+        return exchange.response.body_sent == exchange.plan.content_len;
     }
 
     /// The checksum of the content sent, which a peer that echoes it returns.
     pub fn sent_crc32(exchange: *const Exchange) u32 {
-        return Crc32.hash(content[0..exchange.response.content_sent]);
+        return Crc32.hash(content[0..exchange.response.body_sent]);
     }
 
     /// The checksum of the response's content.
@@ -78,7 +78,7 @@ pub const Exchange = struct {
             protocol,                                             exchange.id,
             exchange.plan.method,                                 exchange.plan.path,
             response.status,                                      response.interims,
-            response.content_sent,                                exchange.sent_crc32(),
+            response.body_sent,                                   exchange.sent_crc32(),
             response.body_len,                                    exchange.received_crc32(),
             response.outcome,                                     response.error_code,
             if (response.coding) |coding| coding.name() else "-",

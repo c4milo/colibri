@@ -79,8 +79,8 @@ const Asked = struct {
         asked.request = .{ .method = method, .path = path };
         asked.response = .{ .wanted = &asked.wanted, .values = &asked.values, .body = &asked.body };
         if (content.len == 0) return;
-        asked.request.fields = &.{.{ .name = "content-type", .value = content_type }};
-        asked.request.content = content;
+        asked.request.headers = &.{.{ .name = "content-type", .value = content_type }};
+        asked.request.body = content;
     }
 
     /// Whether the exchange ended in a 200 response with `content` and the content type.
@@ -88,7 +88,7 @@ const Asked = struct {
         const response = &asked.response;
         if (response.outcome != .response or response.status != 200) return false;
         if (!std.mem.eql(u8, asked.wanted[0].value orelse "", content_type)) return false;
-        return std.mem.eql(u8, response.content_received(), content);
+        return std.mem.eql(u8, response.body_received(), content);
     }
 
     /// Whether the exchange ended in a response with `status` and no content, whose Allow value
@@ -96,7 +96,7 @@ const Asked = struct {
     fn refused(asked: *const Asked, status: u16, allow: ?[]const u8) bool {
         const response = &asked.response;
         if (response.outcome != .response or response.status != status) return false;
-        if (response.content_received().len != 0) return false;
+        if (response.body_received().len != 0) return false;
         const held = asked.wanted[1].value orelse return allow == null;
         return std.mem.eql(u8, held, allow orelse return false);
     }
@@ -201,7 +201,7 @@ fn drain_stream(now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_input_max) |_| {
         const held = input[consumed..];
-        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp_peer.connection, .octets = held } } else .none;
+        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp_peer.connection, .bytes = held } } else .none;
         const received = tcp_peer.pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -217,7 +217,7 @@ fn drain_stream(now_ns: u64) !void {
 fn quic_turn() !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try datagram_link.receive(.client) orelse break;
-        drain_datagram(.{ .datagram = .{ .octets = datagram, .from = server_address } }, datagram_link.now_ns(.client));
+        drain_datagram(.{ .datagram = .{ .bytes = datagram, .from = server_address } }, datagram_link.now_ns(.client));
         datagram_link.consume(.client);
     }
     const now_ns = datagram_link.now_ns(.client);
@@ -225,7 +225,7 @@ fn quic_turn() !void {
     drain_datagram(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
         const sent = quic_peer.pool.send_datagram(&datagram_output, now_ns) orelse break;
-        try datagram_link.send(.client, sent.octets);
+        try datagram_link.send(.client, sent.bytes);
         drain_datagram(.none, now_ns);
     }
 }

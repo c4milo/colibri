@@ -158,7 +158,7 @@ test "decision 119: TCP slots owe no datagram, and an endpoint that serves no QU
     // With no identity the QUIC slot serves nothing: a datagram is consumed, and starts nothing.
     var datagram: [@import("quic").constants.datagram_len_min]u8 = @splat(0xc0);
     const from = @import("quic").PeerAddress.of(&.{ 127, 0, 0, 1 }, 50_000);
-    const received = endpoint.receive(.{ .datagram = .{ .octets = &datagram, .from = from } }, support.now_ns);
+    const received = endpoint.receive(.{ .datagram = .{ .bytes = &datagram, .from = from } }, support.now_ns);
     try testing.expectEqual(datagram.len, received.consumed);
     try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
     try testing.expect(!endpoint.live[support.tcp_slots]);
@@ -233,7 +233,7 @@ const forged_len: u8 = 32;
 /// answering each `send` as a program does, until it reports a `close`. Returns whether it did,
 /// with no call made after the `close`. Test-only.
 fn close_follows(handle: @import("../event.zig").ConnectionHandle, octets: []u8) bool {
-    var input: @import("endpoint.zig").Input = .{ .stream = .{ .connection = handle, .octets = octets } };
+    var input: @import("endpoint.zig").Input = .{ .stream = .{ .connection = handle, .bytes = octets } };
     // Bounded: the fixture's log holds as many events.
     for (0..support.seen_max) |_| {
         const reported = endpoint.receive(input, support.now_ns).event;
@@ -303,10 +303,10 @@ fn answers_with_retry(id: *const [server_constants.quic_id_len]u8) !bool {
     const len = writer.written().len + quic.constants.datagram_len_min;
     @memset(initial[writer.written().len..len], 0);
     const from = quic.PeerAddress.of(&loopback, client_port);
-    _ = endpoint.receive(.{ .datagram = .{ .octets = initial[0..len], .from = from } }, support.now_ns);
+    _ = endpoint.receive(.{ .datagram = .{ .bytes = initial[0..len], .from = from } }, support.now_ns);
     var output: [quic.constants.datagram_len_max]u8 = undefined;
     const sent = endpoint.held.connections.replies.take(&output) orelse return false;
-    return (try quic.packet.header.read(sent.octets, server_constants.quic_id_len)) == .retry;
+    return (try quic.packet.header.read(sent.bytes, server_constants.quic_id_len)) == .retry;
 }
 
 test "decision 110 as amended: retry_from_percent is a share of the QUIC slots alone, not of the TCP ones" {

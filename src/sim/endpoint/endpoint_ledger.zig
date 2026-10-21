@@ -99,7 +99,7 @@ pub const Connection = struct {
 
 /// A request the program read, its word, and the answer it writes.
 pub const Request = struct {
-    id: server.Id,
+    id: server.RequestId,
     connection: u8,
     word: usize = 0,
     open: bool = true,
@@ -181,7 +181,7 @@ pub const Ledger = struct {
     }
 
     /// The request `id` names, ended or not, or null for one the endpoint never reported.
-    pub fn request_of(ledger: *Ledger, id: server.Id) ?*Request {
+    pub fn request_of(ledger: *Ledger, id: server.RequestId) ?*Request {
         var index = ledger.requests_len;
         // Bounded by the requests held; the newest are asked first, as most events name them.
         for (0..ledger.requests_len) |_| {
@@ -266,7 +266,7 @@ pub const Ledger = struct {
 
     /// The open request `id` names. P3: nothing of a request comes after its ending, and P2: an
     /// event carries the word the program set last.
-    fn open_request(ledger: *Ledger, id: server.Id, word: usize, call: []const u8, now_ms: u64) Violation!*Request {
+    fn open_request(ledger: *Ledger, id: server.RequestId, word: usize, call: []const u8, now_ms: u64) Violation!*Request {
         _ = try ledger.live_connection(id.connection, call, now_ms);
         const request = ledger.request_of(id) orelse return ledger.fail(error.EventAfterEnding, call, id.connection, id.number, now_ms);
         if (!request.open) return ledger.fail(error.EventAfterEnding, call, id.connection, id.number, now_ms);
@@ -415,7 +415,7 @@ fn test_request(number: u64) server.Event {
         .scheme = "https",
         .authority = null,
         .path = "/",
-        .fields = undefined,
+        .headers = undefined,
         .end = true,
     } };
 }
@@ -425,10 +425,10 @@ test "P2: a body carrying another word than the one set last is refused" {
     ledger.init();
     _ = try ledger.register(test_handle, .quic, 0, true, 0);
     try ledger.note(test_request(0), 0);
-    const id: server.Id = .{ .connection = test_handle, .number = 0 };
+    const id: server.RequestId = .{ .connection = test_handle, .number = 0 };
     ledger.request_of(id).?.word = 0xa1;
-    try ledger.note(.{ .body = .{ .id = id, .user_data = 0xa1, .octets = "", .end = false } }, 1);
-    try testing.expectError(error.WordWrong, ledger.note(.{ .body = .{ .id = id, .user_data = 0xa2, .octets = "", .end = true } }, 2));
+    try ledger.note(.{ .body = .{ .id = id, .user_data = 0xa1, .bytes = "", .end = false } }, 1);
+    try testing.expectError(error.WordWrong, ledger.note(.{ .body = .{ .id = id, .user_data = 0xa2, .bytes = "", .end = true } }, 2));
     try testing.expectEqualStrings("body", ledger.fault.call);
 }
 
@@ -438,7 +438,7 @@ test "P1 and P3: an id seen before is refused, and nothing of a request comes af
     _ = try ledger.register(test_handle, .quic, 0, true, 0);
     try ledger.note(test_request(4), 0);
     try testing.expectError(error.IdReused, ledger.note(test_request(4), 1));
-    const id: server.Id = .{ .connection = test_handle, .number = 4 };
+    const id: server.RequestId = .{ .connection = test_handle, .number = 4 };
     // `done` before the program's ending write returned.
     try testing.expectError(error.DoneEarly, ledger.note(.{ .done = .{ .id = id } }, 2));
     ledger.request_of(id).?.answer.phase = .ended;
@@ -446,7 +446,7 @@ test "P1 and P3: an id seen before is refused, and nothing of a request comes af
     try testing.expectError(error.EventAfterEnding, ledger.note(.{ .cancelled = .{ .id = id, .reason = .closed } }, 4));
     // A `writable` nobody asked for, and a `cancelled` for the program's reason with no cancel.
     try ledger.note(test_request(8), 5);
-    const next: server.Id = .{ .connection = test_handle, .number = 8 };
+    const next: server.RequestId = .{ .connection = test_handle, .number = 8 };
     try testing.expectError(error.WritableUnasked, ledger.note(.{ .writable = .{ .id = next, .user_data = 0 } }, 6));
     try testing.expectError(error.CancelWrong, ledger.note(.{ .cancelled = .{ .id = next, .reason = .program } }, 7));
 }

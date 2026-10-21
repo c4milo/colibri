@@ -23,7 +23,7 @@ const SendError = connection_module.SendError;
 const Error = connection_module.Error;
 const Field = http.Field;
 const Event = event.Event;
-const Received = event.Received;
+const ReceiveResult = event.ReceiveResult;
 const Number = event.Number;
 const Code = http.status.Code;
 
@@ -43,7 +43,7 @@ const path_empty = "/";
 
 /// Reads at most one event from `plaintext`. h11 reports one event a call at most, and takes the
 /// octets of none at times, such as an empty line before a request (RFC 9112 §2.2).
-pub fn receive(connection: *Connection, plaintext: []const u8) Error!Received {
+pub fn receive(connection: *Connection, plaintext: []const u8) Error!ReceiveResult {
     const session = &connection.session.h11;
     // h11 requires each call's octets to start with every octet it left unconsumed. The caller
     // passes them again (decision 119 as amended), so a call with none waits for that one.
@@ -65,12 +65,12 @@ fn report(connection: *Connection, h11_event: h11.connection.Event) Event {
     const id = event.id_of(connection.current_id);
     return switch (h11_event) {
         .request => |request| start_request(connection, request),
-        .data, .tunnel => |octets| .{ .body = .{ .id = id, .octets = octets, .end = false } },
+        .data, .tunnel => |octets| .{ .body = .{ .id = id, .bytes = octets, .end = false } },
         // RFC 9112 §7.1.2: a chunked body's trailer section ends it.
         .end => if (session.trailers.len() > 0)
-            .{ .trailers = .{ .id = id, .fields = .{ .section = &session.trailers, .first = 0 } } }
+            .{ .trailers = .{ .id = id, .headers = .{ .section = &session.trailers, .first = 0 } } }
         else
-            .{ .body = .{ .id = id, .octets = &.{}, .end = true } },
+            .{ .body = .{ .id = id, .bytes = &.{}, .end = true } },
         // A server's h11 connection reads requests alone.
         .interim, .response => unreachable,
     };
@@ -93,7 +93,7 @@ fn start_request(connection: *Connection, request: h11.connection.Request) Event
             .scheme = target.scheme,
             .authority = target.authority,
             .path = target.path,
-            .fields = .{ .section = &session.section, .first = 0 },
+            .headers = .{ .section = &session.section, .first = 0 },
             // h11 reads no body for a request that declared none.
             .end = session.phase == .waiting,
         },

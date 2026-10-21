@@ -299,7 +299,7 @@ pub const World = struct {
     }
 
     fn write(world: *World, plan: *const Plan, index: usize) Error!void {
-        const id: server.Id = .{ .connection = world.handle.?, .number = stream_of(index) };
+        const id: server.RequestId = .{ .connection = world.handle.?, .number = stream_of(index) };
         const unit = world.written[index] + 1;
         const last = unit == plan.response_units;
         if (unit == 1) {
@@ -308,7 +308,7 @@ pub const World = struct {
                 return;
             };
         } else {
-            const taken = world.endpoint.write_body(id, .{ .octets = &world.response_content, .end = last }) catch 0;
+            const taken = world.endpoint.write_body(id, .{ .bytes = &world.response_content, .end = last }) catch 0;
             if (taken != world.response_content.len) {
                 world.broken = true;
                 return;
@@ -330,7 +330,7 @@ pub const World = struct {
 
     fn deliver_to_server(world: *World) Error!void {
         const octets = world.to_server.pop(&world.datagram);
-        try world.server_step(.{ .datagram = .{ .octets = octets, .from = .of(&client_octets, client_port) } });
+        try world.server_step(.{ .datagram = .{ .bytes = octets, .from = .of(&client_octets, client_port) } });
         if (world.served == null and world.endpoint.live[0]) world.served = &world.endpoint.quic[0];
     }
 
@@ -353,7 +353,7 @@ pub const World = struct {
         if (world.endpoint.failed[0]) world.broken = true; // colibri failed it; `ended` comes later
         for (0..limits.sends_per_call_max) |_| {
             const sent = world.endpoint.send_datagram(&world.datagram, world.now_ns) orelse return;
-            try world.to_client.push(sent.octets);
+            try world.to_client.push(sent.bytes);
         }
         return error.Stalled;
     }

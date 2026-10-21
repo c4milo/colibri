@@ -257,7 +257,7 @@ test "RFC 9112 §7.2: content after a chunk that decodes to nothing is read in t
     try testing.expectEqual(1, head.event.?.request.id.number);
     // Every record is open, so the rest arrives with nothing more consumed.
     const body = try connection.receive(&.{}, support.now_ns);
-    try testing.expectEqualStrings("hello", body.event.?.body.octets);
+    try testing.expectEqualStrings("hello", body.event.?.body.bytes);
 }
 
 test "decision 91: a transport that closed gives back the decoder its coded body held" {

@@ -24,9 +24,9 @@ const StartError = pool_module.StartError;
 const Request = pool_module.Request;
 const Response = pool_module.Response;
 const RequestError = pool_module.RequestError;
-const Id = pool_module.Id;
+const RequestId = pool_module.RequestId;
 const Input = pool_module.Input;
-const Received = pool_module.Received;
+const ReceiveResult = pool_module.ReceiveResult;
 const Sent = pool_module.Sent;
 const Event = pool_module.Event;
 const Entry = pool_module.Entry;
@@ -82,7 +82,7 @@ pub fn set_values(pool: anytype, values: Values) void {
     pool_links.retarget_owed(pool);
 }
 
-pub fn request(pool: anytype, message: *const Request, response: *Response) RequestError!Id {
+pub fn request(pool: anytype, message: *const Request, response: *Response) RequestError!RequestId {
     assert(!pool.shut);
     try connection_module.check_request(message);
     const entry = free_entry(pool) orelse return error.Full;
@@ -94,17 +94,17 @@ pub fn request(pool: anytype, message: *const Request, response: *Response) Requ
     return entry.id;
 }
 
-pub fn cancel(pool: anytype, id: Id) void {
+pub fn cancel(pool: anytype, id: RequestId) void {
     const entry = entry_of(pool, id) orelse return;
     if (entry.stage == .carried) pool_connection.cancel(pool, entry.carrier, entry.carried_id);
     entry.* = .{};
     pool_events.unblock_sends(pool);
 }
 
-pub fn receive(pool: anytype, input: Input, now_ns: u64) Received {
+pub fn receive(pool: anytype, input: Input, now_ns: u64) ReceiveResult {
     // Decision 125: a TCP connection's `send` comes in a call that hands it no octets, once it read
     // what the program held for it, as a program sends once it drained `receive`.
-    const sends = input != .stream or input.stream.octets.len == 0;
+    const sends = input != .stream or input.stream.bytes.len == 0;
     if (report(pool, now_ns, sends)) |owed| return .{ .consumed = 0, .event = owed };
     const fed = pool_events.feed(pool, input, now_ns);
     return .{ .consumed = fed.len, .event = fed.event };
@@ -266,7 +266,7 @@ fn free_entry(pool: anytype) ?*Entry {
     return null;
 }
 
-fn entry_of(pool: anytype, id: Id) ?*Entry {
+fn entry_of(pool: anytype, id: RequestId) ?*Entry {
     for (pool.entries) |*entry| {
         if (entry.stage != .free and entry.id == id) return entry;
     }

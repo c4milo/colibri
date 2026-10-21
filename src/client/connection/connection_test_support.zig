@@ -18,7 +18,7 @@ pub const Config = connection_module.Config;
 pub const Request = event.Request;
 pub const Response = event.Response;
 pub const Event = event.Event;
-pub const Field = event.Field;
+pub const Header = event.Header;
 
 pub const leaf = testdata.leaf;
 pub const root = testdata.root;
@@ -276,7 +276,7 @@ pub fn peer_h11_read() !void {
 }
 
 /// The h11 peer answers the request it read with `status`, `fields` and `content`.
-pub fn peer_h11_answer(status: u16, fields: []const Field, content: []const u8) !void {
+pub fn peer_h11_answer(status: u16, fields: []const Header, content: []const u8) !void {
     to_client_len += try peer_h11.write_response(to_client[to_client_len..], status, "", fields);
     if (peer_h11.writer.open()) {
         if (content.len > 0) to_client_len += try peer_h11.write_body(to_client[to_client_len..], content);

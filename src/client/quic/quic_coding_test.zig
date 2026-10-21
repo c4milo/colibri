@@ -59,7 +59,7 @@ test "decision 101 as amended: an h3 response in zstd, and one in br, decode int
         try support.pump(support.rounds_default);
         try testing.expectEqual(.response, exchange.response.outcome);
         try testing.expectEqualStrings(name, exchange.response.coding.?.name());
-        try testing.expectEqualStrings(coding_support.plain, exchange.response.content_received());
+        try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
         try testing.expectEqual(1, coding_support.zstd_pool.storage().free_count());
         try testing.expectEqual(1, coding_support.br_pool.storage().free_count());
     }
@@ -77,7 +77,7 @@ test "decision 101: an h3 request offers gzip first, and the coded response deco
     try testing.expect(support.answers[0].offers_gzip);
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(.gzip, exchange.response.coding.?);
-    try testing.expectEqualStrings(text, exchange.response.content_received());
+    try testing.expectEqualStrings(text, exchange.response.body_received());
     try testing.expectEqual(decoders_all, tcp_support.pool.storage().free_count());
 }
 

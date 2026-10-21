@@ -9,10 +9,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
 
-pub const Field = http.Field;
+/// One header: a field line's name and value (RFC 9110 §5.2).
+pub const Header = http.Field;
 
-/// An exchange's id on its connection, counting from 1 in the order `request` took them.
-pub const Id = u64;
+/// A request's id. A pool numbers its requests from 1, in the order `request` took them.
+pub const RequestId = u64;
 
 /// The protocol serving a connection: h11 or h2 over TCP, or h3 over QUIC.
 pub const Protocol = enum { h11, h2, h3 };
@@ -51,7 +52,7 @@ pub const Outcome = enum {
     /// The request is one the protocol refuses to send, such as a method that is not a token or
     /// a field line RFC 9110 §5.5 forbids.
     invalid,
-    /// The response's content did not fit `body`, or a wanted value did not fit `values`.
+    /// The response's body did not fit `body`, or a wanted value did not fit `values`.
     too_large,
 };
 
@@ -62,24 +63,24 @@ pub const Request = struct {
     /// The target's path and query in origin form (RFC 9112 §3.2.1), which h2 sends as `:path`
     /// (RFC 9113 §8.3.1).
     path: []const u8,
-    /// The request's own field lines. The client adds Host in h11 and Content-Length, so these
-    /// name neither, nor anything that frames the message (RFC 9110 §6.1).
-    fields: []const Field = &.{},
-    /// The path and the field lines no intermediary may add to a compression table, such as a
+    /// The request's own headers. The client adds Host in h11 and Content-Length, so these name
+    /// neither, nor anything that frames the message (RFC 9110 §6.1).
+    headers: []const Header = &.{},
+    /// The path and the headers no intermediary may add to a compression table, such as a
     /// credential: never-indexed literals in h2 (RFC 7541 §6.2.3, §7.1.3). h11 compresses nothing,
     /// and writes them as it writes any other.
     never_indexed: NeverIndexed = .{},
-    /// The request's content, sent whole. Empty for none.
-    content: []const u8 = "",
+    /// The request's body, sent whole. Empty for none.
+    body: []const u8 = "",
 };
 
 /// Where the response to a request goes, and what arrived, in the program's memory (decision
 /// 123). The client writes it from `request` until the exchange's `finished` event.
 pub const Response = struct {
-    /// The response fields the caller reads, and the octets their values are copied into.
+    /// The response headers the caller reads, and the bytes their values are copied into.
     wanted: []Wanted = &.{},
     values: []u8 = &.{},
-    /// Where the response's content is copied.
+    /// Where the response's body is copied.
     body: []u8 = &.{},
 
     /// How the exchange ended, set once it has.
@@ -89,21 +90,21 @@ pub const Response = struct {
     status: u16 = 0,
     /// Interim responses read before the final one (RFC 9110 §15.2).
     interims: u32 = 0,
-    /// Octets of `body` the content filled.
+    /// Bytes of `body` the response body filled.
     body_len: usize = 0,
-    /// Octets of `values` the wanted values filled.
+    /// Bytes of `values` the wanted values filled.
     values_len: usize = 0,
-    /// Octets of the request's `content` written. Fewer than all when the response ended first
-    /// (RFC 9113 §8.1, RFC 9112 §9.5) or the exchange ended another way.
-    content_sent: usize = 0,
+    /// Bytes of the request's `body` written. Fewer than all when the response ended first (RFC
+    /// 9113 §8.1, RFC 9112 §9.5) or the exchange ended another way.
+    body_sent: usize = 0,
     /// The code of the RST_STREAM that reset the stream (RFC 9113 §7), for `reset`.
     error_code: u32 = 0,
     /// The content coding the client removed from the response's content (decision 101), or null
     /// when the content arrived uncoded or in a coding the client passes on as it came.
     coding: ?http.content_coding.Coding = null,
 
-    /// The response's content, once the outcome is `response`.
-    pub fn content_received(response: *const Response) []const u8 {
+    /// The response's body, once the outcome is `response`.
+    pub fn body_received(response: *const Response) []const u8 {
         assert(response.outcome == .response);
         return response.body[0..response.body_len];
     }
@@ -113,14 +114,14 @@ pub const Response = struct {
 pub const NeverIndexed = struct {
     /// The path, which carries the query, as a DoH GET's does (RFC 8484 §4.1).
     path: bool = false,
-    /// One flag for each of the request's field lines, in order, or empty for none.
-    fields: []const bool = &.{},
+    /// One flag for each of the request's headers, in order, or empty for none.
+    headers: []const bool = &.{},
 };
 
 /// An exchange that ended: its id, the request, and the response, whose outcome says how. The
 /// program may reuse the memory of both.
 pub const Finished = struct {
-    id: Id,
+    id: RequestId,
     request: *const Request,
     response: *Response,
 };
@@ -129,7 +130,7 @@ pub const Finished = struct {
 /// whether any of the response arrived before the end. The pool reads `response_began` to decide
 /// whether it sends the request again (decision 124), and a program never sees it.
 pub const Ended = struct {
-    id: Id,
+    id: RequestId,
     request: *const Request,
     response: *Response,
     /// Some of the response arrived: an octet of it over h11, or the header of a HEADERS frame on
@@ -155,16 +156,16 @@ pub const Event = union(enum) {
 };
 
 /// What one `receive` call took and reported.
-pub const Received = struct {
+pub const ReceiveResult = struct {
     /// Octets of the caller's input taken.
     consumed: usize,
     event: ?Event,
 };
 
-test "decision 115: a Request has no call, and a Response has one, content_received" {
+test "decision 115: a Request has no call, and a Response has one, body_received" {
     // CLAUDE.md: a struct's `pub fn`s are a program's calls. What the client's own files call on
     // the two lives in `event_internal.zig`, which the root does not export.
     const public_names = @import("core").public_names;
     try public_names.expect(Request, &.{});
-    try public_names.expect(Response, &.{"content_received"});
+    try public_names.expect(Response, &.{"body_received"});
 }

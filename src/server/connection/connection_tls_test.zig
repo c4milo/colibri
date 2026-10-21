@@ -49,7 +49,7 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and a response comes back
     try testing.expectEqual(1, head.id.number);
     try testing.expectEqualStrings("https", head.scheme.?);
     try connection.respond(1, .{ .status = ok, .end = false });
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     const data = data_frame(try support.open_sent()).?;
     // The connection goes on, so no close_notify follows the response.
     try testing.expect(!support.client_saw_alert);
@@ -208,7 +208,7 @@ test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answe
     try connection.init(&support.config, support.stream.random(), support.now_seconds, 0);
     // RFC 9110 §3.4: no request has arrived, so there is none to answer.
     try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = ok, .end = true }));
-    try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .octets = "x", .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .bytes = "x", .end = true }));
     try testing.expectError(error.RequestUnknown, connection.write_trailers(1, &.{}));
     try support.client.start(&support.client_config, support.stream.random(), support.now_seconds, null);
     const hello = try support.client.handshake(&.{}, &support.input);
@@ -267,7 +267,7 @@ test "RFC 9846 §5.2: records open while a frame waits for its last octets, so c
             continue;
         };
         if (event == .body) {
-            received_len += event.body.octets.len;
+            received_len += event.body.bytes.len;
             ended = event.body.end;
         }
     }
@@ -345,7 +345,7 @@ test "RFC 9112 §2.1: a head near h11's limit in records of an odd size ends, an
         switch (reported) {
             .request => heads += 1,
             .body => |body| {
-                content_len += body.octets.len;
+                content_len += body.bytes.len;
                 ended = body.end;
             },
             else => {},

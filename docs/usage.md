@@ -101,6 +101,21 @@ from `receive` or `send` leaves the CONNECTION_CLOSE owed, and the next `send` w
 §10.2). Over TLS, a record that does not open ends the connection, and `encrypt` called with no
 plaintext writes the alert the provider owes (RFC 9846 §5.2).
 
+## The words of the API
+
+The `server` and `client` modules name each concept once, the same for h11, h2 and h3
+([decision 126](decisions.md)). The RFCs name some of them differently for each version, and the
+protocol modules keep the RFCs' words. This table says which word means what:
+
+| The API says | RFC 9110 | h11 (RFC 9112) | h2 (RFC 9113) | h3 (RFC 9114) |
+| --- | --- | --- | --- | --- |
+| a header | a field line | a field line | a field | a field line |
+| headers | the header section | "the headers" or the header section | a field block | a HEADERS frame's field section |
+| trailers | the trailer section | the trailer section of `chunked` | a field block that ends the stream | the trailing HEADERS frame |
+| a body | content | the message body | DATA frames | DATA frames |
+| bytes | octets | octets | octets | octets |
+| an exchange | a request/response exchange | | | |
+
 ## The server
 
 The `server` module answers requests behind one set of calls, whichever version the connection
@@ -205,7 +220,7 @@ fn server_turn() !void {
     try serve_all(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
         const sent = endpoint.send_datagram(&datagram_output, now_ns) orelse break;
-        try datagram_link.send(.server, sent.octets);
+        try datagram_link.send(.server, sent.bytes);
     }
 }
 ```
@@ -218,7 +233,7 @@ fn read_stream(input: []u8, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_input_max) |_| {
         // The handle says which connection's socket read the octets.
-        const read: server.StreamOctets = .{ .connection = accepted, .octets = input[consumed..] };
+        const read: server.StreamBytes = .{ .connection = accepted, .bytes = input[consumed..] };
         const received = endpoint.receive(.{ .stream = read }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -254,7 +269,7 @@ fn read_datagrams(now_ns: u64) !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try datagram_link.receive(.server) orelse break;
         // The endpoint finds the connection the datagram's connection ID names, or starts one.
-        try serve_all(.{ .datagram = .{ .octets = datagram, .from = client_address } }, now_ns);
+        try serve_all(.{ .datagram = .{ .bytes = datagram, .from = client_address } }, now_ns);
         datagram_link.consume(.server);
     }
 }
@@ -296,12 +311,12 @@ fn serve(event: server.Event, now_ns: u64) !void {
 }
 ```
 
-- `request` carries the method, the target and the field lines, which `fields.find` and
-  `fields.iterator` read. Its `end` says the head ended the request, so no content follows.
-- `body` carries octets of the request's content, and its `end` marks the last of them. A request
-  with no content may end this way too, in a `body` event with no octets, as a GET over h3 often
-  does. A program that waits for a request's end reads `end` in both events.
-- `trailers` carries the request's trailer section.
+- `request` carries the method, the target and the headers, which `headers.find` and
+  `headers.iterator` read. Its `end` says the head ended the request, so no body follows.
+- `body` carries bytes of the request's body, and its `end` marks the last of them. A request with
+  no body may end this way too, in a `body` event with no bytes, as a GET over h3 often does. A
+  program that waits for a request's end reads `end` in both events.
+- `trailers` carries the request's trailers, in `headers`.
 - `done` says the response is whole, and colibri reads none of the program's octets for it again.
   `cancelled` says the request ended before its response did, and its `reason` says why. Every
   request ends with one of the two, and a connection's `ended` comes after its requests' endings.
@@ -344,12 +359,12 @@ request therefore answers it before its next call: a final response, the program
 The program answers with a head, then content:
 
 ```zig
-fn answer(id: server.Id, content: []const u8) !void {
+fn answer(id: server.RequestId, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
     try endpoint.respond(id, .{
         .status = 200,
-        .fields = &.{
+        .headers = &.{
             .{ .name = "content-type", .value = content_type },
             .{ .name = "content-length", .value = length },
         },
@@ -358,7 +373,7 @@ fn answer(id: server.Id, content: []const u8) !void {
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
     // the peer's window runs out, and the request's `writable` event then says when to write the
     // rest.
-    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
+    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
     assert(taken == content.len);
 }
 ```
@@ -524,7 +539,7 @@ fn route(request: server.Request, state: *Served) !void {
         // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
         .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
             .status = 405,
-            .fields = &.{.{ .name = "allow", .value = allowed }},
+            .headers = &.{.{ .name = "allow", .value = allowed }},
             .end = true,
         }),
         .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
@@ -574,7 +589,7 @@ fn route(request: server.Request, state: *Served) !void {
 The server example answers a parameter route like this:
 
 ```zig
-fn answer_named(id: server.Id, state: *Served, name: []const u8) !void {
+fn answer_named(id: server.RequestId, state: *Served, name: []const u8) !void {
     const content = std.fmt.bufPrint(&state.content, "hello, {s}\n", .{name}) catch {
         // RFC 9110 §15.5.15: the target is longer than this server takes.
         return endpoint.respond(id, .{ .status = 414, .end = true });
@@ -624,7 +639,7 @@ of four segments and 64 octets.
 The same events and the same calls serve h3. A program moves datagrams with addresses in place of
 a stream of octets, and it keeps time for each connection. Two things differ from TCP:
 
-- **Content is not copied.** QUIC reads the program's octets again whenever it sends them again.
+- **The body is not copied.** QUIC reads the program's bytes again whenever it sends them again.
   They stay the program's until the request is `done` or `cancelled`. `done` comes once the peer
   has acknowledged every octet of the response.
 - **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`, for loss
@@ -684,14 +699,14 @@ var get_response: client.Response align(@alignOf(client.Response)) = .{
 const post: client.Request = .{
     .method = "POST",
     .path = "/echo",
-    .fields = &.{.{ .name = "content-type", .value = content_type }},
-    .content = note,
+    .headers = &.{.{ .name = "content-type", .value = content_type }},
+    .body = note,
 };
 var post_response: client.Response align(@alignOf(client.Response)) = .{ .body = &post_body };
 ```
 
-`wanted` names the fields of the response the program reads. Their values go into `values` and
-the content into `body`; colibri keeps no other field. `content` is the request's own content.
+`wanted` names the headers of the response the program reads. Their values go into `values` and
+the body into `body`; colibri keeps no other header. The request's `body` is its own body.
 The program keeps the request and the response in place, with each slice they name, until the
 exchange's `finished` event or until `cancel` returns.
 
@@ -789,7 +804,7 @@ fn client_turn() !void {
     try drain(now_ns);
     for (0..datagrams_per_turn_max) |_| {
         const sent = pool.send_datagram(&datagram_output, now_ns) orelse break;
-        try datagram_link.send(.client, sent.octets);
+        try datagram_link.send(.client, sent.bytes);
     }
     try drain(now_ns);
 }
@@ -802,7 +817,7 @@ fn read_datagrams(now_ns: u64) !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try datagram_link.receive(.client) orelse break;
         // A connection takes a datagram only from the address its server answers from.
-        var rest: client.Input = .{ .datagram = .{ .octets = datagram, .from = server_address } };
+        var rest: client.Input = .{ .datagram = .{ .bytes = datagram, .from = server_address } };
         for (0..receive_calls_max) |_| {
             const received = pool.receive(rest, now_ns);
             if (received.consumed > 0) rest = .none;
@@ -830,7 +845,7 @@ fn drain(now_ns: u64) !void {
     for (0..receive_calls_max) |_| {
         const held = input[consumed..];
         const tcp = connections.get(.tcp);
-        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp, .octets = held } } else .none;
+        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp, .bytes = held } } else .none;
         const received = pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -882,7 +897,7 @@ fn drain(slot: u32, now_ns: u64) !void {
         // An event may close this socket, or open another in its slot: its octets then go to no
         // connection.
         const current = socket != null and std.meta.eql(sockets[slot], socket);
-        const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .octets = held } } else .none;
+        const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .bytes = held } } else .none;
         const received = pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -980,7 +995,7 @@ The response's `outcome` says what happened to the exchange:
 
 | Outcome | What it means |
 | --- | --- |
-| `response` | The final response arrived whole: `status`, `content_received()`, and each wanted value. |
+| `response` | The final response arrived whole: `status`, `body_received()`, and each wanted value. |
 | `refused` | The server processed none of the request, so the program may send it on another connection. |
 | `reset` | The server reset the stream, and `error_code` names why. |
 | `closed` | The connection ended before the response was whole. The server may have processed the request. When no part of the response arrived, the pool first sent an idempotent request again, once ([decision 124](decisions.md)). |

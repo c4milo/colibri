@@ -33,10 +33,10 @@ fn head(fields: []const Field) !*support.Fetch {
 /// content and the stream's end, and the server to report the request done.
 fn answer(fetch: *const support.Fetch, codable: bool) !void {
     // RFC 9114 §4.1: DATA frames follow the final response's HEADERS frame.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, .{ .octets = content, .end = true }));
-    try connection.respond(fetch.id, .{ .status = ok, .fields = &head_fields, .end = false, .codable = codable });
-    try testing.expectEqual(cut, try connection.write_body(fetch.id, .{ .octets = content[0..cut], .end = false }));
-    try testing.expectEqual(content.len - cut, try connection.write_body(fetch.id, .{ .octets = content[cut..], .end = true }));
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, .{ .bytes = content, .end = true }));
+    try connection.respond(fetch.id, .{ .status = ok, .headers = &head_fields, .end = false, .codable = codable });
+    try testing.expectEqual(cut, try connection.write_body(fetch.id, .{ .bytes = content[0..cut], .end = false }));
+    try testing.expectEqual(content.len - cut, try connection.write_body(fetch.id, .{ .bytes = content[cut..], .end = true }));
     try support.pump(support.rounds_default);
     try testing.expectEqual(ok, fetch.status);
     try testing.expectEqual(0, fetch.received_len);

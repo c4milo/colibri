@@ -130,7 +130,7 @@ fn on_event(event: udp.Event, now_ns: u64) void {
 
 /// Passes a datagram to the pool, in Rotor's own buffer, which the connection opens in place.
 fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
-    _ = drain(.{ .datagram = .{ .octets = delivery.bytes, .from = peer_address(delivery.from.peer) } }, now_ns);
+    _ = drain(.{ .datagram = .{ .bytes = delivery.bytes, .from = peer_address(delivery.from.peer) } }, now_ns);
 }
 
 fn on_tcp_event(event: udp.Event) void {
@@ -147,7 +147,7 @@ fn on_tcp_event(event: udp.Event) void {
 fn pump(now_ns: u64) void {
     pool.on_instant(now_ns);
     _ = drain(.none, now_ns);
-    if (tcp.carrying() and tcp.input_len > 0) tcp.consume(drain(.{ .stream = .{ .connection = tcp_connection, .octets = tcp.unread() } }, now_ns));
+    if (tcp.carrying() and tcp.input_len > 0) tcp.consume(drain(.{ .stream = .{ .connection = tcp_connection, .bytes = tcp.unread() } }, now_ns));
     send_datagrams(now_ns);
     send_stream(now_ns);
     tcp.arm(&socket.loop);
@@ -177,7 +177,7 @@ fn rest_of(input: Input, consumed: usize) Input {
     return switch (input) {
         .none => .none,
         .datagram => if (consumed > 0) .none else input,
-        .stream => |stream| if (consumed == stream.octets.len) .none else .{ .stream = .{ .connection = stream.connection, .octets = stream.octets[consumed..] } },
+        .stream => |stream| if (consumed == stream.bytes.len) .none else .{ .stream = .{ .connection = stream.connection, .bytes = stream.bytes[consumed..] } },
     };
 }
 
@@ -213,7 +213,7 @@ fn start_quic(now_ns: u64) void {
 }
 
 /// Marks exchange `id` finished, over the protocol of the connection that last connected.
-fn on_finished(id: client.Id) void {
+fn on_finished(id: client.RequestId) void {
     for (exchanges[0..requests_count], 0..) |*exchange, index| {
         if (exchange.id != id) continue;
         exchange.finished = true;
@@ -229,7 +229,7 @@ fn send_datagrams(now_ns: u64) void {
         if (slot_busy[index]) continue;
         const sent = pool.send_datagram(slot, now_ns) orelse return;
         slot_outbound[index] = .{ .peer = udp_address(sent.to), .local = undefined, .segment_bytes = 0, .ecn = .not_ect, .flags = .{ .peer = true } };
-        if (socket.send(index, sent.octets, &slot_outbound[index])) slot_busy[index] = true;
+        if (socket.send(index, sent.bytes, &slot_outbound[index])) slot_busy[index] = true;
         _ = drain(.none, now_ns);
     }
 }

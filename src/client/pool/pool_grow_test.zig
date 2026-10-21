@@ -84,7 +84,7 @@ fn give(connection: ConnectionHandle, octets: []const u8) !void {
     // Bounded: each pass consumes an octet or reports an event.
     for (0..octets.len + support.events_max) |_| {
         const rest = held[consumed..octets.len];
-        const input: pool_module.Input = if (rest.len > 0) .{ .stream = .{ .connection = connection, .octets = rest } } else .none;
+        const input: pool_module.Input = if (rest.len > 0) .{ .stream = .{ .connection = connection, .bytes = rest } } else .none;
         const received = pool.receive(input, support.now_ns);
         consumed += received.consumed;
         const reported = received.event orelse {
@@ -289,7 +289,7 @@ test "decision 125 ruling 8: an open still owed when set_values comes goes to a 
     var consumed: usize = 0;
     for (0..closing_response.len + support.events_max) |_| {
         const rest = held[consumed..closing_response.len];
-        const input: pool_module.Input = if (rest.len > 0) .{ .stream = .{ .connection = one, .octets = rest } } else .none;
+        const input: pool_module.Input = if (rest.len > 0) .{ .stream = .{ .connection = one, .bytes = rest } } else .none;
         const received = pool.receive(input, support.now_ns);
         consumed += received.consumed;
         const reported = received.event orelse continue;

@@ -7,7 +7,7 @@
 //!   call must return what the copy returns and send the same octets, at every count of lines up
 //!   to `field_count_max` and one past it.
 //! - A request's regular field lines were found by reading lines until one did not start with a
-//!   colon (`event.Fields.of`). They are counted from the request's pseudo-header fields now, and
+//!   colon (`event.Headers.of`). They are counted from the request's pseudo-header fields now, and
 //!   the count must be where `Fields.of` finds the first regular line, for every set of them.
 const std = @import("std");
 const h2 = @import("h2");
@@ -100,7 +100,7 @@ fn drain_into(octets: *[support.output_len]u8) usize {
 fn expect_same(call: Call, fields: []const support.Field) !void {
     try start(call);
     const changed = failure_of(switch (call) {
-        .respond => connection.respond(1, .{ .status = ok, .fields = fields, .end = true }),
+        .respond => connection.respond(1, .{ .status = ok, .headers = fields, .end = true }),
         .write_trailers => connection.write_trailers(1, fields),
     });
     const changed_sent = changed_octets[0..drain_into(&changed_octets)];
@@ -124,7 +124,7 @@ test "write_trailers sends what the copying reference sends, at every count of l
 
 test "RFC 9110 §5.4: a section of field_count_max lines is sent whole, and one line more is refused" {
     try start(.respond);
-    try connection.respond(1, .{ .status = ok, .fields = lines[0..field_count_max], .end = false });
+    try connection.respond(1, .{ .status = ok, .headers = lines[0..field_count_max], .end = false });
     // The head went out whole: one HEADERS frame that ends its field block (RFC 9113 §6.2).
     const head = support.drain();
     try testing.expectEqual(h2.constants.frame_type_headers, head[h2_support.type_index]);
@@ -137,7 +137,7 @@ test "RFC 9110 §5.4: a section of field_count_max lines is sent whole, and one 
 
 test "RFC 9113 §5.1.1: an id that names no stream is refused before its lines are counted" {
     try start(.respond);
-    try testing.expectError(error.RequestUnknown, connection.respond(0, .{ .status = ok, .fields = &lines, .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.respond(0, .{ .status = ok, .headers = &lines, .end = true }));
     try testing.expectError(error.RequestUnknown, connection.write_trailers(0, &lines));
 }
 
@@ -153,7 +153,7 @@ test "a section refused for its count leaves the reply h2 owes unwritten, and th
     const received = try connection.receive(support.input[0 .. ping_len + request.len], support.now_ns);
     try testing.expectEqual(1, received.event.?.request.id.number);
     const held_len = connection.output_len;
-    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .fields = &lines, .end = true }));
+    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .headers = &lines, .end = true }));
     try testing.expectEqual(held_len, connection.output_len);
     try connection.respond(1, .{ .status = ok, .end = true });
     const sent = support.drain();
@@ -195,8 +195,8 @@ fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool)
 }
 
 /// Fails, printing both, when the event's first regular line is not where `Fields.of` finds it.
-fn expect_first_as_scanned(fields: event.Fields) !void {
-    const scanned = event.Fields.of(fields.section).first;
+fn expect_first_as_scanned(fields: event.Headers) !void {
+    const scanned = event.Headers.of(fields.section).first;
     if (fields.first == scanned) return;
     std.debug.print("first difference: the count gives {d}, the scan {d}\n", .{ fields.first, scanned });
     return error.TestUnexpectedResult;
@@ -208,8 +208,8 @@ test "RFC 9113 §8.3: a request's count of pseudo-header lines is where the scan
         for (0..regular.len + 1) |count| {
             try h2_support.start();
             const arrived = try receive_request(pseudo, regular[0..count], true);
-            try expect_first_as_scanned(arrived.request.fields);
-            try testing.expectEqual(count, arrived.request.fields.len());
+            try expect_first_as_scanned(arrived.request.headers);
+            try testing.expectEqual(count, arrived.request.headers.len());
         }
     }
 }
@@ -219,14 +219,14 @@ test "RFC 9113 §8.1: a trailer section's lines are all regular, as the scan fin
     try h2_support.start();
     _ = try receive_request(pseudo_sets[0], &.{}, false);
     const arrived = try receive_request(&.{}, &trailer_lines, true);
-    try expect_first_as_scanned(arrived.trailers.fields);
-    try testing.expectEqual(trailer_lines.len, arrived.trailers.fields.len());
+    try expect_first_as_scanned(arrived.trailers.headers);
+    try testing.expectEqual(trailer_lines.len, arrived.trailers.headers.len());
 }
 
 test "RFC 9113 §8.1: an empty trailer section has no line, as the scan finds" {
     try h2_support.start();
     _ = try receive_request(pseudo_sets[0], &.{}, false);
     const arrived = try receive_request(&.{}, &.{}, true);
-    try expect_first_as_scanned(arrived.trailers.fields);
-    try testing.expectEqual(0, arrived.trailers.fields.len());
+    try expect_first_as_scanned(arrived.trailers.headers);
+    try testing.expectEqual(0, arrived.trailers.headers.len());
 }

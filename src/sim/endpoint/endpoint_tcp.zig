@@ -96,7 +96,7 @@ pub const Peer = struct {
     /// Each exchange's request and response, by index (decision 124).
     requests: [requests_max]client.Request,
     responses: [requests_max]client.Response,
-    ids: [requests_max]?client.Id,
+    ids: [requests_max]?client.RequestId,
     /// When the endpoint read each of the peer's first requests, and how many it read.
     read_ms: [requests_max]u64,
     reads: u8,
@@ -185,7 +185,7 @@ pub const Peers = struct {
             response.* = .{ .body = &peer.bodies[exchange_index] };
             if (behaviour.peer != .upload) continue;
             message.method = "POST";
-            message.content = peers.upload[0..behaviour.upload_len[exchange_index]];
+            message.body = peers.upload[0..behaviour.upload_len[exchange_index]];
         }
         const at_once = if (one_at_a_time(plan)) 1 else behaviour.requests_count;
         for (0..at_once) |_| try request_next(peer);
@@ -308,7 +308,7 @@ pub fn read(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64) Error!b
     }
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.to_client_len + limits.events_per_pass_max) |_| {
-        const received = peer.client.receive(.{ .stream = .{ .connection = peer.connection, .octets = stream.held() } }, now_ns);
+        const received = peer.client.receive(.{ .stream = .{ .connection = peer.connection, .bytes = stream.held() } }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         if (try on_event(peer, plan, reported)) moved = true;

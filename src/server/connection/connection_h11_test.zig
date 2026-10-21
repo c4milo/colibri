@@ -38,7 +38,7 @@ test "RFC 9112 §3.3: a request's head arrives with its target URI's parts and i
     try testing.expectEqualStrings("http", head.scheme.?);
     try testing.expectEqualStrings("example.test", head.authority.?);
     try testing.expectEqualStrings("/index.html", head.path.?);
-    try testing.expectEqualStrings("example.test", head.fields.find("host").?.value);
+    try testing.expectEqualStrings("example.test", head.headers.find("host").?.value);
     try testing.expect(head.end);
 }
 
@@ -56,14 +56,14 @@ test "decision 119 as amended: a call with no octets waits for half a head or ch
     try testing.expectEqual(0, size_line.consumed);
     try expect_nothing();
     const body = try support.receive_copy("5\r\nhello\r\n");
-    try testing.expectEqualStrings("hello", body.event.?.body.octets);
+    try testing.expectEqualStrings("hello", body.event.?.body.bytes);
 }
 
 test "RFC 9112 §7.1: content of unknown length goes out chunked to an HTTP/1.1 request" {
     try support.start_cleartext(.h11);
     _ = try expect_request(get_request, 1);
-    try connection.respond(1, .{ .status = ok, .fields = &content_type, .end = false });
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try connection.respond(1, .{ .status = ok, .headers = &content_type, .end = false });
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n" ++
         "transfer-encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n", support.drain());
     // The response is whole, so its `done` event comes, and the next request is read.
@@ -82,9 +82,9 @@ test "RFC 9112 §6.3: a caller's own Content-Length frames the content, and more
     try support.start_cleartext(.h11);
     _ = try expect_request(get_request, 1);
     const length = [_]support.Field{.{ .name = "content-length", .value = "5" }};
-    try connection.respond(1, .{ .status = ok, .fields = &length, .end = false });
-    try testing.expectError(error.ContentLengthMismatch, connection.write_body(1, .{ .octets = "hello!", .end = true }));
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try connection.respond(1, .{ .status = ok, .headers = &length, .end = false });
+    try testing.expectError(error.ContentLengthMismatch, connection.write_body(1, .{ .bytes = "hello!", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello", support.drain());
 }
 
@@ -99,11 +99,11 @@ test "RFC 9112 §6.3 rule 1: a 204, a 304 and a response to HEAD carry no framin
     try testing.expectEqualStrings("HTTP/1.1 304 Not Modified\r\n\r\n", support.drain());
     try support.expect_done(2);
     _ = try expect_request("HEAD / HTTP/1.1\r\nHost: a\r\n\r\n", 3);
-    try connection.respond(3, .{ .status = ok, .fields = &content_type, .end = false });
+    try connection.respond(3, .{ .status = ok, .headers = &content_type, .end = false });
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\n", support.drain());
     // RFC 9110 §9.3.2: a response to HEAD has no content, so its head made it whole, and the
     // content the program writes goes nowhere.
-    try testing.expectEqual(1, try connection.write_body(3, .{ .octets = "x", .end = true }));
+    try testing.expectEqual(1, try connection.write_body(3, .{ .bytes = "x", .end = true }));
     try testing.expectEqual(0, support.drain().len);
     try support.expect_done(3);
 }
@@ -112,7 +112,7 @@ test "RFC 9112 §6.3 rule 8: an HTTP/1.0 request's response runs until the close
     try support.start_cleartext(.h11);
     _ = try expect_request("GET / HTTP/1.0\r\n\r\n", 1);
     try connection.respond(1, .{ .status = ok, .end = false });
-    _ = try connection.write_body(1, .{ .octets = "hello", .end = true });
+    _ = try connection.write_body(1, .{ .bytes = "hello", .end = true });
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nhello", support.drain());
     try testing.expect(connection.should_close());
 }
@@ -135,7 +135,7 @@ test "RFC 9112 §6.1: a request's content arrives as body events, then its end" 
     var consumed = received.consumed;
     received = try connection.receive(support.input[consumed..request.len], support.now_ns);
     consumed += received.consumed;
-    try testing.expectEqualStrings("hello", received.event.?.body.octets);
+    try testing.expectEqualStrings("hello", received.event.?.body.bytes);
     try testing.expect(!received.event.?.body.end);
     received = try connection.receive(support.input[consumed..request.len], support.now_ns);
     try testing.expect(received.event.?.body.end);
@@ -156,7 +156,7 @@ test "RFC 9112 §7.1.2: a chunked request's trailer section ends it" {
         const reported = received.event orelse break;
         if (reported == .trailers) trailers = reported.trailers;
     }
-    try testing.expectEqualStrings("0", trailers.?.fields.find("grpc-status").?.value);
+    try testing.expectEqualStrings("0", trailers.?.headers.find("grpc-status").?.value);
     try testing.expectEqual(1, trailers.?.id.number);
 }
 
@@ -247,8 +247,8 @@ test "RFC 9112 §7.1.2: a chunked response's trailer section ends it" {
     // RFC 9110 §6.5: trailers follow a final response.
     try testing.expectError(error.SectionOutOfOrder, connection.write_trailers(1, &trailers));
     try connection.respond(1, .{ .status = ok, .end = false });
-    try testing.expectEqual(0, try connection.write_body(1, .{ .octets = "", .end = false }));
-    _ = try connection.write_body(1, .{ .octets = "hi", .end = false });
+    try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = false }));
+    _ = try connection.write_body(1, .{ .bytes = "hi", .end = false });
     try connection.write_trailers(1, &trailers);
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n" ++
         "2\r\nhi\r\n0\r\ngrpc-status: 0\r\n\r\n", support.drain());
@@ -258,8 +258,8 @@ test "RFC 9112 §7.1.2: a response framed by Content-Length carries no trailer s
     try support.start_cleartext(.h11);
     _ = try expect_request(get_request, 1);
     const length = [_]support.Field{.{ .name = "content-length", .value = "2" }};
-    try connection.respond(1, .{ .status = ok, .fields = &length, .end = false });
-    _ = try connection.write_body(1, .{ .octets = "hi", .end = false });
+    try connection.respond(1, .{ .status = ok, .headers = &length, .end = false });
+    _ = try connection.write_body(1, .{ .bytes = "hi", .end = false });
     const trailers = [_]support.Field{.{ .name = "grpc-status", .value = "0" }};
     try testing.expectError(error.TrailersRefused, connection.write_trailers(1, &trailers));
 }
@@ -279,7 +279,7 @@ const core_field_count_max = @import("core").constants.field_count_max;
 test "RFC 9110 §5.4: a response whose framing field makes one line too many is refused" {
     try support.start_cleartext(.h11);
     _ = try expect_request(get_request, 1);
-    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .fields = &many_fields, .end = true }));
+    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .headers = &many_fields, .end = true }));
     try testing.expectEqual(0, connection.output_len);
 }
 
@@ -291,11 +291,11 @@ test "RFC 9112 §7.1: content waits once the output holds no whole chunk, and en
     _ = try expect_request(get_request, 1);
     try connection.respond(1, .{ .status = ok, .end = false });
     // Not every octet fits, so the body does not end on this call.
-    const taken = try connection.write_body(1, .{ .octets = &filling, .end = true });
+    const taken = try connection.write_body(1, .{ .bytes = &filling, .end = true });
     try testing.expect(taken > 0 and taken < filling.len);
-    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = filling[taken..], .end = true }));
+    try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = filling[taken..], .end = true }));
     _ = support.drain();
-    try testing.expectEqual(filling.len - taken, try connection.write_body(1, .{ .octets = filling[taken..], .end = true }));
+    try testing.expectEqual(filling.len - taken, try connection.write_body(1, .{ .bytes = filling[taken..], .end = true }));
     try testing.expect(std.mem.endsWith(u8, support.drain(), "\r\n0\r\n\r\n"));
 }
 
@@ -308,13 +308,13 @@ test "RFC 9112 §7.1: a response that ends with its head keeps room for its last
     const short_room = head.len + 1;
     connection.output_len = support.server_constants.output_len - short_room;
     const before = connection.output_len;
-    try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .fields = &chunked, .end = true }));
+    try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .headers = &chunked, .end = true }));
     try testing.expectEqual(before, connection.output_len);
     // Room for less than the last chunk holds no response at all.
     connection.output_len = support.server_constants.output_len - 1;
-    try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .fields = &chunked, .end = true }));
+    try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .headers = &chunked, .end = true }));
     connection.output_len = 0;
-    try connection.respond(1, .{ .status = ok, .fields = &chunked, .end = true });
+    try connection.respond(1, .{ .status = ok, .headers = &chunked, .end = true });
     try testing.expectEqualStrings(head ++ "0\r\n\r\n", support.drain());
 }
 

@@ -36,23 +36,23 @@ fn expect_request(request: []const u8, id: u64) !void {
 
 /// Writes `content` as the program writes it for GET: in two calls, the second with the end.
 fn write_content(id: u64) !void {
-    try testing.expectEqual(cut, try connection.write_body(id, .{ .octets = content[0..cut], .end = false }));
-    try testing.expectEqual(content.len - cut, try connection.write_body(id, .{ .octets = content[cut..], .end = true }));
+    try testing.expectEqual(cut, try connection.write_body(id, .{ .bytes = content[0..cut], .end = false }));
+    try testing.expectEqual(content.len - cut, try connection.write_body(id, .{ .bytes = content[cut..], .end = true }));
 }
 
 test "RFC 9110 §9.3.2: h11 takes the content of a response to HEAD and writes none" {
     try support.start_cleartext(.h11);
     try expect_request(head_request, 1);
     // RFC 9110 §6.4.1: content follows the final response, so none is taken before it.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .octets = content, .end = true }));
-    try connection.respond(1, .{ .status = ok, .fields = &head_fields, .end = false });
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .bytes = content, .end = true }));
+    try connection.respond(1, .{ .status = ok, .headers = &head_fields, .end = false });
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 5\r\n\r\n", support.drain());
     try write_content(1);
     try testing.expectEqual(0, support.drain().len);
     try support.expect_done(1);
     // A GET on the same connection gets its content.
     try expect_request(get_request, 2);
-    try connection.respond(2, .{ .status = ok, .fields = &head_fields, .end = false });
+    try connection.respond(2, .{ .status = ok, .headers = &head_fields, .end = false });
     try write_content(2);
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 5\r\n\r\nhello", support.drain());
 }
@@ -91,18 +91,18 @@ test "RFC 9113 §8.1.1: h2 takes the content of a response to HEAD and writes no
     test_decoder.init(constants.header_table_size_initial);
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "HEAD", "/", &.{}, true));
     // RFC 9113 §8.1: DATA follows the final response's HEADERS frame.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .octets = content, .end = true }));
-    try connection.respond(1, .{ .status = ok, .fields = &head_fields, .end = false });
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .bytes = content, .end = true }));
+    try connection.respond(1, .{ .status = ok, .headers = &head_fields, .end = false });
     try testing.expectEqual(0, (try expect_head(support.drain(), 1)).len);
-    try testing.expectEqual(cut, try connection.write_body(1, .{ .octets = content[0..cut], .end = false }));
+    try testing.expectEqual(cut, try connection.write_body(1, .{ .bytes = content[0..cut], .end = false }));
     try testing.expectEqual(0, support.drain().len);
-    try testing.expectEqual(content.len - cut, try connection.write_body(1, .{ .octets = content[cut..], .end = true }));
+    try testing.expectEqual(content.len - cut, try connection.write_body(1, .{ .bytes = content[cut..], .end = true }));
     try expect_empty_end(support.drain(), 1);
     try support.expect_done(1);
     // A GET on the same connection gets its content.
     _ = try support.receive_copy(try h2_support.request_frame(3, "/", true));
-    try connection.respond(3, .{ .status = ok, .fields = &head_fields, .end = false });
-    try testing.expectEqual(content.len, try connection.write_body(3, .{ .octets = content, .end = true }));
+    try connection.respond(3, .{ .status = ok, .headers = &head_fields, .end = false });
+    try testing.expectEqual(content.len, try connection.write_body(3, .{ .bytes = content, .end = true }));
     const data = try expect_head(support.drain(), 3);
     try testing.expectEqualStrings(content, data[constants.frame_header_len..]);
     try testing.expectEqual(0, connection.coding.used);
@@ -111,12 +111,12 @@ test "RFC 9113 §8.1.1: h2 takes the content of a response to HEAD and writes no
 test "RFC 9110 §9.3.2: an h2 response to HEAD that ends with its head, or that the program cancels, holds no entry" {
     try h2_support.start();
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "HEAD", "/", &.{}, true));
-    try connection.respond(1, .{ .status = ok, .fields = &head_fields, .end = true });
+    try connection.respond(1, .{ .status = ok, .headers = &head_fields, .end = true });
     try testing.expectEqual(0, connection.coding.used);
     _ = support.drain();
     try support.expect_done(1);
     _ = try support.receive_copy(try h2_support.request_frame_with(3, "HEAD", "/", &.{}, true));
-    try connection.respond(3, .{ .status = ok, .fields = &head_fields, .end = false });
+    try connection.respond(3, .{ .status = ok, .headers = &head_fields, .end = false });
     try testing.expectEqual(1, connection.coding.used);
     connection.cancel(3);
     try testing.expectEqual(0, connection.coding.used);
@@ -127,7 +127,7 @@ test "RFC 9110 §9.3.2: an h2 connection that codes content takes the content of
     try h2_support.start_preface();
     test_decoder.init(constants.header_table_size_initial);
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "HEAD", "/", &accepts_gzip, true));
-    try connection.respond(1, .{ .status = ok, .fields = &head_fields, .end = false, .codable = true });
+    try connection.respond(1, .{ .status = ok, .headers = &head_fields, .end = false, .codable = true });
     try write_content(1);
     const sent = support.drain();
     // Decision 101: a coded representation loses Content-Length, so the head names none here.

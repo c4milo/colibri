@@ -157,7 +157,7 @@ fn drain(slot: u32, now_ns: u64) !void {
         // An event may close this socket, or open another in its slot: its octets then go to no
         // connection.
         const current = socket != null and std.meta.eql(sockets[slot], socket);
-        const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .octets = held } } else .none;
+        const read: client.Input = if (current and held.len > 0) .{ .stream = .{ .connection = socket.?, .bytes = held } } else .none;
         const received = pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -230,7 +230,7 @@ fn close_socket(connection: client.ConnectionHandle) void {
 /// round, and the second round's end the shutdown.
 fn on_finished(ended: client.Finished) !void {
     if (ended.response.outcome != .response or ended.response.status != 200) return error.ExchangeWrong;
-    if (!std.mem.eql(u8, ended.response.content_received(), greeting)) return error.ExchangeWrong;
+    if (!std.mem.eql(u8, ended.response.body_received(), greeting)) return error.ExchangeWrong;
     finished += 1;
     if (finished == first_round) {
         // A later DNS answer names another address. Each connection that opens from now on goes

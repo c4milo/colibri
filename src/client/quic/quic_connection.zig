@@ -40,9 +40,9 @@ const connection_module = @import("../connection/connection.zig");
 const quic_h3 = @import("quic_connection_h3.zig");
 const internal = @import("quic_connection_internal.zig");
 
-pub const Id = event.Id;
+pub const RequestId = event.RequestId;
 pub const Event = event.Event;
-pub const Received = event.Received;
+pub const ReceiveResult = event.ReceiveResult;
 pub const Request = event.Request;
 pub const Response = event.Response;
 pub const RequestError = connection_module.RequestError;
@@ -98,7 +98,7 @@ pub const StartError = error{
 /// A datagram `send` wrote, the ECN codepoint for its IP header (decision 68), and the address it
 /// goes to (decision 72).
 pub const Sent = struct {
-    octets: []const u8,
+    bytes: []const u8,
     ecn: quic.connection_send.Ecn,
     to: PeerAddress,
 };
@@ -200,7 +200,7 @@ pub const QuicConnection = struct {
     /// Takes the request `message`, which goes out on a stream of its own once h3 runs and the
     /// server's stream limit allows (RFC 9000 §4.6), and the `response` it gets, and returns the
     /// exchange's id.
-    pub fn request(connection: *QuicConnection, message: *const Request, response: *Response) RequestError!Id {
+    pub fn request(connection: *QuicConnection, message: *const Request, response: *Response) RequestError!RequestId {
         // RFC 9000 §10 and RFC 9114 §8: a connection that closed or failed carries no request.
         if (connection.closed or connection.stopped) return error.ConnectionClosed;
         // RFC 9114 §5.2: a connection that heard GOAWAY, or is shutting down, opens no request.
@@ -213,7 +213,7 @@ pub const QuicConnection = struct {
     /// Ends exchange `id` and reports nothing for it. Its stream is reset with
     /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the request or writes the
     /// response, so their memory is the caller's again.
-    pub fn cancel(connection: *QuicConnection, id: Id) void {
+    pub fn cancel(connection: *QuicConnection, id: RequestId) void {
         const slot = connection.slots.of_id(id) orelse return;
         // RFC 9114 §4.1.1: every direction still open is reset. The stream is live while it holds
         // the request's octets, which QUIC reads until they are acknowledged (RFC 9000 §3.1),
@@ -224,7 +224,7 @@ pub const QuicConnection = struct {
 
     /// Reports what the connection owes the caller, then takes `datagram`, which the server sent
     /// and which the suite opens in place, and reads every event h3 has for the exchanges.
-    pub fn receive(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_receive.Datagram.Ecn, from: PeerAddress, now_ns: u64) Received {
+    pub fn receive(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_receive.Datagram.Ecn, from: PeerAddress, now_ns: u64) ReceiveResult {
         if (connection.owed_event()) |owed| return .{ .consumed = 0, .event = owed };
         if (datagram.len == 0 or connection.closed) return .{ .consumed = 0, .event = connection.owed_event() };
         const received = quic.connection_datagram.receive(
@@ -261,7 +261,7 @@ pub const QuicConnection = struct {
             return null;
         } orelse return null;
         assert(sent.len <= output.len);
-        return .{ .octets = output[0..sent.len], .ecn = sent.ecn, .to = sent.to };
+        return .{ .bytes = output[0..sent.len], .ecn = sent.ecn, .to = sent.to };
     }
 
     /// The instant the connection next wants `on_instant` at (design §4.2), or null for none:

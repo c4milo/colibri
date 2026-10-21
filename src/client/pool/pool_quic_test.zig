@@ -48,11 +48,11 @@ test "RFC 9114 §3.1: with h3 offered, QUIC opens first and carries the exchange
     // RFC 9000 §9: the connection's datagrams go to the address and port the pool opened.
     const first = pool.send_datagram(&fixture.datagram, quic_support.now_ns).?;
     try testing.expect(first.to.eql(&opened(0).?.to));
-    try quic_support.server_receive(@constCast(first.octets));
+    try quic_support.server_receive(@constCast(first.bytes));
     try pump(quic_support.rounds_default);
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqual(null, opened(1));
 }
 

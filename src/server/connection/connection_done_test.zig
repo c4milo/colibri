@@ -24,7 +24,7 @@ test "decision 103: an h2 response is done after the call that ends it, before t
     _ = try support.receive_copy(try h2_support.request_frame(1, "/", true));
     try connection.respond(1, .{ .status = ok, .end = false });
     try expect_nothing();
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     // A request that arrives next waits behind the `done` event.
     const next = try h2_support.request_frame(3, "/next", true);
     const first = try support.receive_copy(next);
@@ -53,10 +53,10 @@ test "decision 103: content the output took in part owes no done until its last 
     // Room for a DATA frame's header and three octets of its payload.
     const room: usize = h2.constants.frame_header_len + 3;
     connection.output_len = support.server_constants.output_len - room;
-    try testing.expectEqual(3, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(3, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     try expect_nothing();
     connection.output_len = 0;
-    try testing.expectEqual(2, try connection.write_body(1, .{ .octets = "lo", .end = true }));
+    try testing.expectEqual(2, try connection.write_body(1, .{ .bytes = "lo", .end = true }));
     try support.expect_done(1);
 }
 
@@ -64,7 +64,7 @@ test "decision 103: an h2 trailer section ends the response, and makes the reque
     try h2_support.start();
     _ = try support.receive_copy(try h2_support.request_frame(1, "/", true));
     try connection.respond(1, .{ .status = ok, .end = false });
-    try testing.expectEqual(1, try connection.write_body(1, .{ .octets = "x", .end = false }));
+    try testing.expectEqual(1, try connection.write_body(1, .{ .bytes = "x", .end = false }));
     try expect_nothing();
     try connection.write_trailers(1, &trailer_fields);
     try support.expect_done(1);
@@ -99,9 +99,9 @@ test "decision 103: an h11 response is done once, whatever the calls after it" {
     try testing.expectEqual(1, (try support.receive_copy(request)).event.?.request.id.number);
     try connection.respond(1, .{ .status = ok, .end = false });
     try expect_nothing();
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     // The response is whole, so more content is out of order, and owes no second `done`.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .octets = "x", .end = true }));
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .bytes = "x", .end = true }));
     try support.expect_done(1);
     try expect_nothing();
 }
@@ -112,7 +112,7 @@ test "decision 103: an h11 trailer section ends the chunked response, and makes 
     try testing.expectEqual(1, (try support.receive_copy(request)).event.?.request.id.number);
     // RFC 9112 §7.1: content of unknown length to an HTTP/1.1 request goes out chunked.
     try connection.respond(1, .{ .status = ok, .end = false });
-    try testing.expectEqual(1, try connection.write_body(1, .{ .octets = "x", .end = false }));
+    try testing.expectEqual(1, try connection.write_body(1, .{ .bytes = "x", .end = false }));
     try expect_nothing();
     try connection.write_trailers(1, &trailer_fields);
     try support.expect_done(1);

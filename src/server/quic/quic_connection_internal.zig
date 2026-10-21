@@ -154,7 +154,7 @@ pub fn send(connection: *QuicConnection, output: []u8, now_ns: u64) ?Sent {
     } orelse return null;
     assert(sent.len <= output.len);
     quic_deadline.observe_sent(connection, now_ns);
-    return .{ .octets = output[0..sent.len], .ecn = sent.ecn, .to = sent.to };
+    return .{ .bytes = output[0..sent.len], .ecn = sent.ecn, .to = sent.to };
 }
 
 /// The instant the connection next wants `on_instant` at (design §4.2), or null for none: the

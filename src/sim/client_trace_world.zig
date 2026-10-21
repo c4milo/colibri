@@ -77,7 +77,7 @@ pub const World = struct {
     responses: [limits.requests_max]client.Response,
     bodies: [limits.requests_max][body_len]u8,
     paths: [limits.requests_max][body_len]u8,
-    ids: [limits.requests_max]?client.Id,
+    ids: [limits.requests_max]?client.RequestId,
     /// What the caller did with each exchange and heard of it.
     cancelled: [limits.requests_max]bool,
     reported: [limits.requests_max]bool,
@@ -299,7 +299,7 @@ pub const World = struct {
         world.requests[index] = .{
             .method = if (world.plan.idempotent(index)) "GET" else "POST",
             .path = path,
-            .content = content_source[0..content_len],
+            .body = content_source[0..content_len],
         };
         world.responses[index] = .{ .body = &world.bodies[index] };
         world.ids[index] = try world.pool.request(&world.requests[index], &world.responses[index]);
@@ -318,7 +318,7 @@ pub const World = struct {
         for (0..sim.constants.network_in_flight_max) |_| {
             const delivery = world.network.receive(world.now_ns, .client) orelse break;
             @memcpy(world.crossing[0..delivery.octets.len], delivery.octets);
-            try world.to_pool(.{ .datagram = .{ .octets = world.crossing[0..delivery.octets.len], .from = world.pool.quic_link.to } });
+            try world.to_pool(.{ .datagram = .{ .bytes = world.crossing[0..delivery.octets.len], .from = world.pool.quic_link.to } });
         }
         const arrived = world.to_server.arrived(world.now_ns);
         world.tcp_server.take(arrived) catch {};
@@ -346,7 +346,7 @@ pub const World = struct {
         // Bounded: each pass consumes octets or reports an event.
         for (0..limits.tcp_chunks_max) |_| {
             const arrived = world.to_client.arrived(world.now_ns);
-            const received = world.pool.receive(.{ .stream = .{ .connection = world.tcp_connection, .octets = arrived } }, world.now_ns);
+            const received = world.pool.receive(.{ .stream = .{ .connection = world.tcp_connection, .bytes = arrived } }, world.now_ns);
             world.to_client.consume(received.consumed);
             if (received.event) |reported| try world.handle(reported);
             if (received.consumed == 0 and received.event == null) return;
@@ -382,7 +382,7 @@ pub const World = struct {
         var moved = false;
         for (0..limits.datagrams_per_round_max) |_| {
             const sent = world.pool.send_datagram(&world.datagram, world.now_ns) orelse break;
-            _ = world.network.send(world.now_ns, .client, sent.octets, .not_ect);
+            _ = world.network.send(world.now_ns, .client, sent.bytes, .not_ect);
             moved = true;
         }
         const written = world.pool.send_stream(world.tcp_connection, &world.segment, world.now_ns);

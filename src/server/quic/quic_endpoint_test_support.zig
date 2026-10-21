@@ -77,7 +77,7 @@ pub fn check_deadline() void {
 
 /// The id of the request the client sent as `number`, naming the connection the endpoint reported
 /// it on.
-pub fn id_of(number: u64) event.Id {
+pub fn id_of(number: u64) event.RequestId {
     for (support.seen_support.seen[0..support.seen_support.seen_len]) |*entry| {
         if (entry.kind == .request and entry.id == number) return .{ .connection = entry.connection, .number = number };
     }

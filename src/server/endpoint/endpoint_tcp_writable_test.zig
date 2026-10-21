@@ -25,7 +25,7 @@ test "decision 119: h11 content past the output is writable once send_stream emp
     const id = support.id_of(handle, support.nth(.request, 0).?.number);
     try endpoint.set_user_data(id, word);
     try endpoint.respond(id, .{ .status = ok, .end = false });
-    const taken = try endpoint.write_body(id, .{ .octets = &long_content, .end = true });
+    const taken = try endpoint.write_body(id, .{ .bytes = &long_content, .end = true });
     try testing.expect(taken < long_content.len);
     support.collect();
     try testing.expectEqual(null, support.nth(.writable, 0));
@@ -33,7 +33,7 @@ test "decision 119: h11 content past the output is writable once send_stream emp
     support.collect();
     const writable = support.nth(.writable, 0).?;
     try testing.expectEqual(word, writable.user_data);
-    try testing.expect(try endpoint.write_body(id, .{ .octets = long_content[taken..], .end = true }) > 0);
+    try testing.expect(try endpoint.write_body(id, .{ .bytes = long_content[taken..], .end = true }) > 0);
 }
 
 /// The client preface with a SETTINGS frame whose SETTINGS_INITIAL_WINDOW_SIZE (0x4) is
@@ -51,7 +51,7 @@ test "RFC 9113 §6.9.1: h2 content a stream's window holds is writable once a WI
     try endpoint.set_user_data(id, word);
     try endpoint.respond(id, .{ .status = ok, .end = false });
     const content = long_content[0 .. small_window * 4];
-    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
+    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
     try testing.expectEqual(small_window, taken);
     support.collect();
     try testing.expectEqual(null, support.nth(.writable, 0));
@@ -64,7 +64,7 @@ test "RFC 9113 §6.9.1: h2 content a stream's window holds is writable once a WI
     _ = support.give(handle, &update);
     support.collect();
     try testing.expectEqual(word, support.nth(.writable, 0).?.user_data);
-    try testing.expectEqual(content.len - taken, try endpoint.write_body(id, .{ .octets = content[taken..], .end = true }));
+    try testing.expectEqual(content.len - taken, try endpoint.write_body(id, .{ .bytes = content[taken..], .end = true }));
 }
 
 /// The client preface with a SETTINGS_INITIAL_WINDOW_SIZE of 0, so a stream's window opens only by
@@ -96,9 +96,9 @@ fn expect_cut_at_send_rate(writes_first: bool) !void {
         endpoint.on_instant(support.instant_ns);
         support.collect();
         if (support.nth(.cancelled, 0) != null) break;
-        if (writes_first) taken += endpoint.write_body(id, .{ .octets = long_content[taken..], .end = true }) catch 0;
+        if (writes_first) taken += endpoint.write_body(id, .{ .bytes = long_content[taken..], .end = true }) catch 0;
         _ = support.give(handle, &update);
-        if (!writes_first) taken += endpoint.write_body(id, .{ .octets = long_content[taken..], .end = true }) catch 0;
+        if (!writes_first) taken += endpoint.write_body(id, .{ .bytes = long_content[taken..], .end = true }) catch 0;
         support.collect();
     }
     const cancelled = support.nth(.cancelled, 0).?;

@@ -22,8 +22,8 @@ const SendError = quic_connection.SendError;
 /// The head `response` goes out with: the caller's for an interim response or when the connection
 /// codes nothing, and as decision 101 plans it for a final one.
 pub fn plan_head(connection: *QuicConnection, record: *const Request, response: event.Response, into: *coding_fields.Rewritten) coding_fields.Error!coding_response.Head {
-    const encoders = connection.config.encoders orelse return .{ .fields = response.fields, .slot = null };
-    if (response.status < final_min) return .{ .fields = response.fields, .slot = null };
+    const encoders = connection.config.encoders orelse return .{ .fields = response.headers, .slot = null };
+    if (response.status < final_min) return .{ .fields = response.headers, .slot = null };
     return coding_response.plan_head(encoders, record.asked, response, into);
 }
 
@@ -31,24 +31,24 @@ const final_min: u16 = 200;
 
 /// Codes `content` into the ring and frames each run the encoder writes as DATA. Returns the
 /// octets taken.
-pub fn write_body(connection: *QuicConnection, record: *Request, content: event.Content) SendError!usize {
+pub fn write_body(connection: *QuicConnection, record: *Request, content: event.ResponseBody) SendError!usize {
     const coded = &record.coded.?;
     // RFC 9110 §6.4.1: the content ended, and nothing follows it.
     if (coded.finishing) return error.SectionOutOfOrder;
     var consumed: usize = 0;
     // The room ends at the ring's end or at its oldest octet held, so two steps fill it.
     for (0..coding_response.steps_max) |_| {
-        if (consumed == content.octets.len) break;
-        consumed += step(connection, record, content.octets[consumed..]) orelse break;
+        if (consumed == content.bytes.len) break;
+        consumed += step(connection, record, content.bytes[consumed..]) orelse break;
     }
-    if (content.end and consumed == content.octets.len) {
+    if (content.end and consumed == content.bytes.len) {
         coded.finishing = true;
         finish(connection, record);
     }
     try quic_connection_h3.supply(connection, record, ends(record));
     // RFC 9000 §3.1: the ring's octets stay until the peer acknowledges them, so a full ring, or a
     // response holding its most runs, takes nothing more until then.
-    if (consumed == 0 and content.octets.len > 0) return error.Blocked;
+    if (consumed == 0 and content.bytes.len > 0) return error.Blocked;
     return consumed;
 }
 

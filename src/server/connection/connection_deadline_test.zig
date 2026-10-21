@@ -124,7 +124,7 @@ test "decision 110: the idle deadline starts once the last response's octets are
     try support.start_cleartext(.h11);
     const id = (try receive_at(whole_request, early_ns)).event.?.request.id.number;
     try connection.respond(id, .{ .status = ok_status, .end = false });
-    _ = try connection.write_body(id, .{ .octets = "a response the peer reads slowly", .end = true });
+    _ = try connection.write_body(id, .{ .bytes = "a response the peer reads slowly", .end = true });
     // The peer's socket takes a few octets, and the rest wait in the output: only the send
     // deadline runs.
     try testing.expect(connection.send(support.output[0..partial_len], early_ns) == partial_len);

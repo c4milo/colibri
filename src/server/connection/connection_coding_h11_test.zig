@@ -60,9 +60,9 @@ test "decision 101: a marked response to a request that accepts gzip goes out co
     try support.start_coding(.h11);
     try expect_request(gzip_request, 1);
     const fields = [_]Field{ .{ .name = "content-length", .value = "11" }, .{ .name = "etag", .value = "\"v1\"" } };
-    try connection.respond(1, .{ .status = ok, .fields = &fields, .end = false, .codable = true });
+    try connection.respond(1, .{ .status = ok, .headers = &fields, .end = false, .codable = true });
     try testing.expectEqual(encoders_all - 1, support.pool.free_count());
-    try testing.expectEqual(11, try connection.write_body(1, .{ .octets = "hello world", .end = true }));
+    try testing.expectEqual(11, try connection.write_body(1, .{ .bytes = "hello world", .end = true }));
     const parsed = try parse_chunked(support.drain());
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\netag: W/\"v1\"\r\ncontent-encoding: gzip\r\n" ++
         "vary: accept-encoding\r\ntransfer-encoding: chunked\r\n\r\n", parsed.head);
@@ -70,7 +70,7 @@ test "decision 101: a marked response to a request that accepts gzip goes out co
     try support.expect_done(1);
     try testing.expectEqual(encoders_all, support.pool.free_count());
     // RFC 9110 §6.4.1: the content ended, and nothing follows it.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .octets = "x", .end = true }));
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .bytes = "x", .end = true }));
 }
 
 test "decision 101: an unmarked response goes uncoded, and a marked one Accept-Encoding chose varies" {
@@ -79,13 +79,13 @@ test "decision 101: an unmarked response goes uncoded, and a marked one Accept-E
     try connection.respond(1, .{ .status = ok, .end = false });
     // An uncoded response keeps nothing of its request.
     try testing.expectEqual(0, connection.coding.used);
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n", support.drain());
     try support.expect_done(1);
     // Decision 101: a request with no Accept-Encoding gets no coding.
     try expect_request(plain_request, 2);
     try connection.respond(2, .{ .status = ok, .end = false, .codable = true });
-    try testing.expectEqual(5, try connection.write_body(2, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(2, .{ .bytes = "hello", .end = true }));
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nvary: accept-encoding\r\ntransfer-encoding: chunked\r\n\r\n" ++
         "5\r\nhello\r\n0\r\n\r\n", support.drain());
     try support.expect_done(2);
@@ -96,14 +96,14 @@ test "decision 101: an HTTP/1.0 request and a 206 get no coding" {
     try support.start_coding(.h11);
     try expect_request("GET / HTTP/1.1\r\nHost: a\r\nAccept-Encoding: gzip\r\nRange: bytes=0-4\r\n\r\n", 1);
     try connection.respond(1, .{ .status = partial_content, .end = false, .codable = true });
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     try testing.expectEqualStrings("HTTP/1.1 206 Partial Content\r\ntransfer-encoding: chunked\r\n\r\n" ++
         "5\r\nhello\r\n0\r\n\r\n", support.drain());
     try support.expect_done(1);
     try support.start_coding(.h11);
     try expect_request("GET / HTTP/1.0\r\nAccept-Encoding: gzip\r\n\r\n", 1);
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     // RFC 9112 §6.3 rule 8: an HTTP/1.0 response of unknown length runs until the close.
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nvary: accept-encoding\r\nConnection: close\r\n\r\nhello", support.drain());
     try testing.expectEqual(encoders_all, support.pool.free_count());
@@ -113,13 +113,13 @@ test "RFC 9110 §9.3.2, §15.4.5: HEAD names the coding and a 304 keeps a weak E
     try support.start_coding(.h11);
     try expect_request("HEAD / HTTP/1.1\r\nHost: a\r\nAccept-Encoding: gzip\r\n\r\n", 1);
     const length = [_]Field{.{ .name = "content-length", .value = "11" }};
-    try connection.respond(1, .{ .status = ok, .fields = &length, .end = false, .codable = true });
+    try connection.respond(1, .{ .status = ok, .headers = &length, .end = false, .codable = true });
     try testing.expectEqual(encoders_all, support.pool.free_count());
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-encoding: gzip\r\nvary: accept-encoding\r\n\r\n", support.drain());
     try support.expect_done(1);
     try expect_request(gzip_request, 2);
     const tag = [_]Field{.{ .name = "etag", .value = "\"v1\"" }};
-    try connection.respond(2, .{ .status = not_modified, .fields = &tag, .end = true, .codable = true });
+    try connection.respond(2, .{ .status = not_modified, .headers = &tag, .end = true, .codable = true });
     try testing.expectEqualStrings("HTTP/1.1 304 Not Modified\r\netag: W/\"v1\"\r\nvary: accept-encoding\r\n\r\n", support.drain());
     try testing.expectEqual(encoders_all, support.pool.free_count());
 }
@@ -131,7 +131,7 @@ test "decision 101: with every encoder taken, a marked response goes uncoded" {
     const second = encoders.take(.gzip).?;
     try expect_request(gzip_request, 1);
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nvary: accept-encoding\r\ntransfer-encoding: chunked\r\n\r\n" ++
         "5\r\nhello\r\n0\r\n\r\n", support.drain());
     encoders.give_back(first);
@@ -145,11 +145,11 @@ test "decision 101: content past the ring waits, `send` moves the coded octets o
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
     const content = support.incompressible[0..];
     // The ring holds less than the content coded, so the first call takes part of it.
-    var taken = try connection.write_body(1, .{ .octets = content, .end = true });
+    var taken = try connection.write_body(1, .{ .bytes = content, .end = true });
     try testing.expect(taken > 0 and taken < content.len);
     // With the output and the ring full, a call takes nothing until `send` moves octets out.
     const blocked = for (0..writes_until_full_max) |_| {
-        taken += connection.write_body(1, .{ .octets = content[taken..], .end = true }) catch |failure| {
+        taken += connection.write_body(1, .{ .bytes = content[taken..], .end = true }) catch |failure| {
             try testing.expectEqual(error.Blocked, failure);
             break true;
         };
@@ -161,7 +161,7 @@ test "decision 101: content past the ring waits, `send` moves the coded octets o
         sent_len += connection.send(test_sent[sent_len..], support.now_ns);
         if (taken == content.len and support.pool.free_count() == encoders_all) break;
         if (taken == content.len) continue;
-        taken += connection.write_body(1, .{ .octets = content[taken..], .end = true }) catch 0;
+        taken += connection.write_body(1, .{ .bytes = content[taken..], .end = true }) catch 0;
         if (taken == content.len) try expect_ended(1);
     }
     try testing.expectEqual(encoders_all, support.pool.free_count());
@@ -178,7 +178,7 @@ const writes_until_full_max: usize = 4;
 /// the ring, neither content nor a trailer section follows (RFC 9110 §6.4.1, §6.5).
 fn expect_ended(id: u64) !void {
     try testing.expect(support.pool.free_count() < encoders_all);
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(id, .{ .octets = "x", .end = true }));
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(id, .{ .bytes = "x", .end = true }));
     try testing.expectError(error.SectionOutOfOrder, connection.write_trailers(id, &.{}));
 }
 
@@ -186,7 +186,7 @@ test "decision 101: trailers follow the coded content, and the end of the connec
     try support.start_coding(.h11);
     try expect_request(gzip_request, 1);
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = false }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = false }));
     const trailer = [_]Field{.{ .name = "checksum", .value = "1" }};
     try connection.write_trailers(1, &trailer);
     const sent = support.drain();
@@ -217,7 +217,7 @@ test "RFC 9110 §6.5: a trailer section waits for the coded octets the ring hold
     try support.start_coding(.h11);
     try expect_request(gzip_request, 1);
     try connection.respond(1, .{ .status = ok, .end = false, .codable = true });
-    const taken = try connection.write_body(1, .{ .octets = support.incompressible[0..], .end = false });
+    const taken = try connection.write_body(1, .{ .bytes = support.incompressible[0..], .end = false });
     const trailer = [_]Field{.{ .name = "checksum", .value = "1" }};
     try testing.expectError(error.Blocked, connection.write_trailers(1, &trailer));
     var sent_len: usize = 0;

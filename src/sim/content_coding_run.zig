@@ -70,7 +70,7 @@ const Stream = struct {
 /// What the server's caller holds of one request: the exchange of the plan it answers, and how
 /// far its answer has gone.
 const Answer = struct {
-    id: server.Id,
+    id: server.RequestId,
     index: u8,
     responded: bool,
     written: u32,
@@ -94,7 +94,7 @@ pub const Storage = struct {
     /// Each exchange's request and response, by index (decision 124).
     requests: [limits.requests_max]client.Request,
     responses: [limits.requests_max]client.Response,
-    own_offers: [limits.requests_max][1]client.Field,
+    own_offers: [limits.requests_max][1]client.Header,
     bodies: [limits.requests_max][limits.coded_len_max]u8,
     contents: [limits.requests_max][limits.content_len_max]u8,
     answers: [limits.requests_max]Answer,
@@ -194,7 +194,7 @@ fn request(storage: *Storage, planned: *const plan_module.Exchange, index: usize
     if (expected) response.body = storage.bodies[index][0 .. planned.content_len - 1];
     if (planned.own_offer.value()) |value| {
         storage.own_offers[index] = .{.{ .name = "accept-encoding", .value = value }};
-        message.fields = &storage.own_offers[index];
+        message.headers = &storage.own_offers[index];
     }
     _ = try storage.pool.request(message, response);
 }
@@ -219,7 +219,7 @@ fn server_read(storage: *Storage) Error!void {
     const stream = &storage.to_server;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + limits.requests_max * events_per_exchange) |_| {
-        const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .octets = stream.held() } }, now_ns);
+        const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .bytes = stream.held() } }, now_ns);
         // The endpoint keeps a failed read to itself until the connection ends: the run reads it.
         if (storage.endpoint.failed[storage.accepted.slot]) return error.ExchangeRefused;
         stream.consumed += received.consumed;
@@ -278,7 +278,7 @@ fn write_content(storage: *Storage, answer: *Answer, planned: *const plan_module
         if (answer.written == content.len) return true;
         const left = content[answer.written..];
         const octets = left[0..@min(left.len, limits.write_len_max)];
-        const taken = storage.endpoint.write_body(answer.id, .{ .octets = octets, .end = octets.len == left.len }) catch |failure| {
+        const taken = storage.endpoint.write_body(answer.id, .{ .bytes = octets, .end = octets.len == left.len }) catch |failure| {
             // No room, or the ring or h2's window is full: `send`, `receive`, then write again.
             if (failure == error.Blocked) return false;
             return error.ExchangeRefused;
@@ -294,7 +294,7 @@ fn client_read(storage: *Storage) void {
     const stream = &storage.to_client;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + limits.requests_max * events_per_exchange) |_| {
-        const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .octets = stream.held() } }, now_ns);
+        const received = storage.pool.receive(.{ .stream = .{ .connection = storage.connection, .bytes = stream.held() } }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;

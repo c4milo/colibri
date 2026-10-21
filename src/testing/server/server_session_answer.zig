@@ -31,7 +31,7 @@ const Request = struct {
 };
 
 /// The fields every response carries (RFC 9110 §8.3, §8.6).
-const response_fields = [_]server.Field{
+const response_fields = [_]server.Header{
     .{ .name = "content-type", .value = constants.response_content_type },
     .{ .name = "content-length", .value = constants.response_content_length },
 };
@@ -83,15 +83,15 @@ pub const Answers = struct {
             .method = request.method,
             .target = request.target,
             .version = .{ .major = request.version.major, .minor = request.version.minor },
-        }, request.fields.section);
+        }, request.headers.section);
         const method = http.method.standard(request.method);
         const read: Request = .{ .number = request.id.number, .head = method == .head, .connect = method == .connect };
         if (request.end) answers.owe(read) else answers.start_reading(read);
     }
 
     /// Octets of a request's content arrived, which the echo keeps.
-    pub fn on_body(answers: *Answers, body: server.Body) void {
-        if (answers.echo) |echo| echo.add(body.octets);
+    pub fn on_body(answers: *Answers, body: server.RequestBody) void {
+        if (answers.echo) |echo| echo.add(body.bytes);
         if (body.end) answers.finish_reading(body.id.number);
     }
 
@@ -143,7 +143,7 @@ pub const Answers = struct {
     /// Writes what is left of the oldest owed response, and returns whether it is written whole.
     fn write_oldest(answers: *Answers, endpoint: anytype, connection: server.ConnectionHandle) bool {
         const oldest = answers.owed[0];
-        const id: server.Id = .{ .connection = connection, .number = oldest.number };
+        const id: server.RequestId = .{ .connection = connection, .number = oldest.number };
         if (!answers.head_written) {
             answers.write_head(endpoint, id, oldest) catch |failure| return answers.write_failed(failure);
             answers.head_written = true;
@@ -154,7 +154,7 @@ pub const Answers = struct {
             }
         }
         const octets = answers.content();
-        const taken = endpoint.write_body(id, .{ .octets = octets[answers.content_sent..], .end = true }) catch |failure| {
+        const taken = endpoint.write_body(id, .{ .bytes = octets[answers.content_sent..], .end = true }) catch |failure| {
             return answers.write_failed(failure);
         };
         answers.content_sent += taken;
@@ -167,18 +167,18 @@ pub const Answers = struct {
     /// Writes the head of the response owed: 200 with its content's fields, or, when the echo could
     /// not keep the request's content, 413 with none (RFC 9110 §15.5.14), or 501 with none to a
     /// CONNECT.
-    fn write_head(answers: *Answers, endpoint: anytype, id: server.Id, request: Request) server.SendError!void {
+    fn write_head(answers: *Answers, endpoint: anytype, id: server.RequestId, request: Request) server.SendError!void {
         if (request.connect) return endpoint.respond(id, .{ .status = not_implemented_status, .end = true });
         // Decision 101: the fixed answer may be coded, and an echo goes out as it arrived.
-        const echo = answers.echo orelse return endpoint.respond(id, .{ .status = constants.response_status, .fields = &response_fields, .end = request.head, .codable = true });
+        const echo = answers.echo orelse return endpoint.respond(id, .{ .status = constants.response_status, .headers = &response_fields, .end = request.head, .codable = true });
         if (echo.body_too_long) return endpoint.respond(id, .{ .status = too_large_status, .end = true });
         var digits: [constants.content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{echo.written().len}) catch unreachable;
-        const fields = [_]server.Field{
+        const fields = [_]server.Header{
             .{ .name = "content-type", .value = echo_content_type },
             .{ .name = "content-length", .value = length },
         };
-        return endpoint.respond(id, .{ .status = constants.response_status, .fields = &fields, .end = request.head });
+        return endpoint.respond(id, .{ .status = constants.response_status, .headers = &fields, .end = request.head });
     }
 
     fn echo_refused(answers: *const Answers) bool {

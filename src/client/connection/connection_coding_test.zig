@@ -11,7 +11,7 @@ const support = @import("connection_test_support.zig");
 const testing = std.testing;
 const connection = &support.connection;
 const Exchange = support.Exchange;
-const Field = support.Field;
+const Header = support.Header;
 
 const ok: u16 = 200;
 const partial_content: u16 = 206;
@@ -45,7 +45,7 @@ fn sent(wanted: []const u8) bool {
 }
 
 /// Sends `exchange` over h11 and answers it with `status`, `fields` and `content`.
-fn h11_exchange(exchange: *Exchange, status: u16, fields: []const Field, content: []const u8) !void {
+fn h11_exchange(exchange: *Exchange, status: u16, fields: []const Header, content: []const u8) !void {
     _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try support.peer_h11_read();
@@ -68,27 +68,27 @@ test "decision 101: the client offers its codings with weights, and decodes gzip
     try support.peer_h11_read();
     const coded = try gzip_of(text);
     var digits: [8]u8 = undefined;
-    const fields = [_]Field{ .{ .name = "Content-Encoding", .value = "x-gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
+    const fields = [_]Header{ .{ .name = "Content-Encoding", .value = "x-gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
     try support.peer_h11_answer(ok, &fields, coded);
     try support.client_receive();
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(.gzip, exchange.response.coding.?);
-    try testing.expectEqualStrings(text, exchange.response.content_received());
+    try testing.expectEqualStrings(text, exchange.response.body_received());
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
 }
 
 test "decision 101: a request naming Accept-Encoding goes as written, and its coded response as it came" {
     try support.start_coding(.h11);
-    const fields = [_]Field{.{ .name = "accept-encoding", .value = "gzip" }};
-    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .fields = &fields }, .response = .{ .body = &body } };
+    const fields = [_]Header{.{ .name = "accept-encoding", .value = "gzip" }};
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .headers = &fields }, .response = .{ .body = &body } };
     const coded = try gzip_of(text);
     var digits: [8]u8 = undefined;
-    const answer = [_]Field{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
+    const answer = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
     try h11_exchange(&exchange, ok, &answer, coded);
     try testing.expect(!sent("deflate"));
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(null, exchange.response.coding);
-    try testing.expectEqualSlices(u8, coded, exchange.response.content_received());
+    try testing.expectEqualSlices(u8, coded, exchange.response.body_received());
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
 }
 
@@ -101,11 +101,11 @@ test "decision 101: a coding not offered, content coded twice and a 206 go on as
     for (cases) |case| {
         try support.start_coding(.h11);
         var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
-        const answer = [_]Field{ .{ .name = "Content-Encoding", .value = case.coding }, .{ .name = "Content-Length", .value = "5" } };
+        const answer = [_]Header{ .{ .name = "Content-Encoding", .value = case.coding }, .{ .name = "Content-Length", .value = "5" } };
         try h11_exchange(&exchange, case.status, &answer, "hello");
         try testing.expectEqual(.response, exchange.response.outcome);
         try testing.expectEqual(null, exchange.response.coding);
-        try testing.expectEqualStrings("hello", exchange.response.content_received());
+        try testing.expectEqualStrings("hello", exchange.response.body_received());
         try testing.expectEqual(decoders_all, support.pool.storage().free_count());
     }
 }
@@ -117,7 +117,7 @@ test "decision 101: corrupt coded content ends malformed, and decoded content pa
     // RFC 1952 §2.3.1: a wrong CRC32 in the trailer.
     coded[coded.len - gzip_trailer_len] +%= 1;
     var digits: [8]u8 = undefined;
-    const answer = [_]Field{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
+    const answer = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
     try h11_exchange(&exchange, ok, &answer, coded);
     try testing.expectEqual(.malformed, exchange.response.outcome);
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
@@ -125,7 +125,7 @@ test "decision 101: corrupt coded content ends malformed, and decoded content pa
     var small: [text.len - 1]u8 = undefined;
     var tight: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &small } };
     const deflated = try zlib_of(text);
-    const deflate_answer = [_]Field{ .{ .name = "Content-Encoding", .value = "deflate" }, .{ .name = "Content-Length", .value = length_of(deflated, &digits) } };
+    const deflate_answer = [_]Header{ .{ .name = "Content-Encoding", .value = "deflate" }, .{ .name = "Content-Length", .value = length_of(deflated, &digits) } };
     try h11_exchange(&tight, ok, &deflate_answer, deflated);
     try testing.expectEqual(.too_large, tight.response.outcome);
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
@@ -153,7 +153,7 @@ test "RFC 9110 §9.3.2: a response to HEAD names a coding it carries no content 
     support.client_send();
     try testing.expect(sent("Accept-Encoding"));
     try support.peer_h11_read();
-    const answer = [_]Field{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = "30" } };
+    const answer = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = "30" } };
     try support.peer_h11_answer(ok, &answer, "");
     try support.client_receive();
     try testing.expectEqual(.response, head.response.outcome);
@@ -176,29 +176,29 @@ test "decision 101: over h2 the offer is an accept-encoding line, and a coded re
     try support.client_receive();
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(.deflate, exchange.response.coding.?);
-    try testing.expectEqualStrings(text, exchange.response.content_received());
+    try testing.expectEqualStrings(text, exchange.response.body_received());
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
 }
 
 test "decision 101: content coded twice in two lines, or in a coding not offered, goes on as it came" {
     try support.start_coding(.h11);
     var twice: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
-    const lines = [_]Field{
+    const lines = [_]Header{
         .{ .name = "Content-Encoding", .value = "gzip" },
         .{ .name = "Content-Encoding", .value = "gzip" },
         .{ .name = "Content-Length", .value = "5" },
     };
     try h11_exchange(&twice, ok, &lines, "hello");
     try testing.expectEqual(.response, twice.response.outcome);
-    try testing.expectEqualStrings("hello", twice.response.content_received());
+    try testing.expectEqualStrings("hello", twice.response.body_received());
     // A client that offers gzip alone passes deflate on.
     try support.start_offering(.h11, &.{.gzip});
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
-    const deflate = [_]Field{ .{ .name = "Content-Encoding", .value = "deflate" }, .{ .name = "Content-Length", .value = "5" } };
+    const deflate = [_]Header{ .{ .name = "Content-Encoding", .value = "deflate" }, .{ .name = "Content-Length", .value = "5" } };
     try h11_exchange(&exchange, ok, &deflate, "hello");
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(null, exchange.response.coding);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
 }
 
 test "decision 101: decoded content that fills the body exactly fits, and a stream cut short is malformed" {
@@ -207,15 +207,15 @@ test "decision 101: decoded content that fills the body exactly fits, and a stre
     var fitting: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &exact } };
     const coded = try gzip_of(text);
     var digits: [8]u8 = undefined;
-    const answer = [_]Field{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
+    const answer = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
     try h11_exchange(&fitting, ok, &answer, coded);
     try testing.expectEqual(.response, fitting.response.outcome);
-    try testing.expectEqualStrings(text, fitting.response.content_received());
+    try testing.expectEqualStrings(text, fitting.response.body_received());
     // RFC 1952 §2.3: the member's last octets, its trailer, never arrive.
     try support.start_coding(.h11);
     var cut: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     const short = coded[0 .. coded.len - 1];
-    const short_answer = [_]Field{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(short, &digits) } };
+    const short_answer = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(short, &digits) } };
     try h11_exchange(&cut, ok, &short_answer, short);
     try testing.expectEqual(.malformed, cut.response.outcome);
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
@@ -236,7 +236,7 @@ test "decision 101: over h2, an uncoded response gives its decoder back with its
     support.to_client_len += sent_data.written;
     try support.client_receive();
     try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
     var cut: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     _ = try connection.request(&cut.request, &cut.response);
     try support.pump_h2();
@@ -301,5 +301,5 @@ test "decision 101: a gzip trailer that arrives once the body is full decodes to
     support.to_client_len += trailer.written;
     try support.client_receive();
     try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualStrings(text, exchange.response.content_received());
+    try testing.expectEqualStrings(text, exchange.response.body_received());
 }

@@ -8,7 +8,7 @@ const support = @import("connection_test_support.zig");
 const testing = std.testing;
 const connection = &support.connection;
 const Exchange = support.Exchange;
-const Field = support.Field;
+const Header = support.Header;
 
 const ok: u16 = 200;
 
@@ -41,7 +41,7 @@ fn peer_reset() ?h2.connection.StreamReset {
 test "RFC 9113 §8.1: a response that ends before the upload does closes the stream with CANCEL" {
     try start();
     @memset(&upload, 'x');
-    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = &upload }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&post.request, &post.response);
     support.client_send();
     try support.peer_h2_read();
@@ -49,7 +49,7 @@ test "RFC 9113 §8.1: a response that ends before the upload does closes the str
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.client_receive();
     try testing.expectEqual(.response, post.response.outcome);
-    try testing.expect(post.response.content_sent < upload.len);
+    try testing.expect(post.response.body_sent < upload.len);
     support.peer_events_len = 0;
     try support.pump_h2();
     try testing.expectEqual(h2.constants.error_cancel, peer_reset().?.error_code);
@@ -107,11 +107,11 @@ test "RFC 9113 §4.3: a field section past what h2 sends in one block ends its e
     var value: [8000]u8 = undefined;
     // RFC 7541 Appendix B: '~' takes 13 bits in the Huffman code, so the literal goes out raw.
     @memset(&value, '~');
-    const fields = [_]Field{
+    const fields = [_]Header{
         .{ .name = "x-a", .value = &value }, .{ .name = "x-b", .value = &value }, .{ .name = "x-c", .value = &value },
         .{ .name = "x-d", .value = &value }, .{ .name = "x-e", .value = &value },
     };
-    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .fields = &fields }, .response = .{ .body = &bodies[0] } };
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .headers = &fields }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
     try testing.expectEqual(.invalid, exchange.response.outcome);
@@ -153,14 +153,14 @@ fn sent_holds(octets: []const u8) bool {
 
 test "RFC 7541 §7.1.3: the path and a marked field line go out never-indexed, and the rest without indexing" {
     try start();
-    const fields = [_]Field{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
+    const fields = [_]Header{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
     const marks = [_]bool{ true, false };
     var exchange: Exchange = .{
         .request = .{
             .method = "GET",
             .path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE",
-            .fields = &fields,
-            .never_indexed = .{ .path = true, .fields = &marks },
+            .headers = &fields,
+            .never_indexed = .{ .path = true, .headers = &marks },
         },
         .response = .{ .body = &bodies[0] },
     };

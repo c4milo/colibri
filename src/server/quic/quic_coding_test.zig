@@ -35,7 +35,7 @@ test "decision 101: an h3 response is coded into DATA frames, and its encoder go
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
     try testing.expectEqual(encoders_all - 1, tcp_support.pool.free_count());
-    try testing.expectEqual(11, try connection.write_body(fetch.id, .{ .octets = "hello world", .end = true }));
+    try testing.expectEqual(11, try connection.write_body(fetch.id, .{ .bytes = "hello world", .end = true }));
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, fetch.interims);
     try testing.expect(fetch.ended and fetch.gzip and fetch.varies);
@@ -49,10 +49,10 @@ test "decision 101: coded content past the ring waits for acknowledgments, and t
     const fetch = try coded_get();
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
     const content = tcp_support.incompressible[0..];
-    var taken = try connection.write_body(fetch.id, .{ .octets = content, .end = true });
+    var taken = try connection.write_body(fetch.id, .{ .bytes = content, .end = true });
     // The ring holds less than the content coded, and QUIC frees none of it before acknowledgments.
     try testing.expect(taken > 0 and taken < content.len);
-    try testing.expectError(error.Blocked, connection.write_body(fetch.id, .{ .octets = content[taken..], .end = true }));
+    try testing.expectError(error.Blocked, connection.write_body(fetch.id, .{ .bytes = content[taken..], .end = true }));
     // Bounded: each round's acknowledgments free the ring for more.
     for (0..rounds_max) |_| {
         try support.pump(1);
@@ -60,10 +60,10 @@ test "decision 101: coded content past the ring waits for acknowledgments, and t
             if (support.nth(.done, 0) != null) break;
             continue;
         }
-        taken += connection.write_body(fetch.id, .{ .octets = content[taken..], .end = true }) catch 0;
+        taken += connection.write_body(fetch.id, .{ .bytes = content[taken..], .end = true }) catch 0;
         if (taken < content.len) continue;
         // RFC 9110 §6.4.1, §6.5: the content ended, so neither content nor trailers follow.
-        try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, .{ .octets = "x", .end = true }));
+        try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, .{ .bytes = "x", .end = true }));
         try testing.expectError(error.SectionOutOfOrder, connection.write_trailers(fetch.id, &.{}));
     }
     try testing.expect(fetch.ended and fetch.gzip);
@@ -76,7 +76,7 @@ const rounds_max: usize = 256;
 test "decision 101: a coded h3 response's trailer section follows its last coded octet" {
     const fetch = try coded_get();
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
-    try testing.expectEqual(5, try connection.write_body(fetch.id, .{ .octets = "hello", .end = false }));
+    try testing.expectEqual(5, try connection.write_body(fetch.id, .{ .bytes = "hello", .end = false }));
     const trailer = [_]Field{.{ .name = "checksum", .value = "1" }};
     try connection.write_trailers(fetch.id, &trailer);
     try support.pump(support.rounds_default);
@@ -89,13 +89,13 @@ test "decision 101: a coded h3 response the caller cancels, or the client stops,
     tcp_support.fill_incompressible();
     const fetch = try coded_get();
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
-    _ = try connection.write_body(fetch.id, .{ .octets = tcp_support.incompressible[0..], .end = false });
+    _ = try connection.write_body(fetch.id, .{ .bytes = tcp_support.incompressible[0..], .end = false });
     connection.cancel(fetch.id);
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());
     const second = try support.request_with_fields("GET", "/second", &accepts_gzip);
     try support.pump(support.rounds_default);
     try connection.respond(second.id, .{ .status = ok, .end = false, .codable = true });
-    _ = try connection.write_body(second.id, .{ .octets = tcp_support.incompressible[0..], .end = false });
+    _ = try connection.write_body(second.id, .{ .bytes = tcp_support.incompressible[0..], .end = false });
     try testing.expectEqual(encoders_all - 1, tcp_support.pool.free_count());
     // RFC 9000 §3.5: the client's STOP_SENDING resets the response, and QUIC reads its ring no more.
     try support.stop_fetch(second);
@@ -109,7 +109,7 @@ test "RFC 9110 §6.5: an h3 trailer section waits for the encoder's last octets,
     tcp_support.fill_incompressible();
     const fetch = try coded_get();
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
-    const taken = try connection.write_body(fetch.id, .{ .octets = tcp_support.incompressible[0..], .end = false });
+    const taken = try connection.write_body(fetch.id, .{ .bytes = tcp_support.incompressible[0..], .end = false });
     const trailer = [_]Field{.{ .name = "checksum", .value = "1" }};
     try testing.expectError(error.Blocked, connection.write_trailers(fetch.id, &trailer));
     // Bounded: each round's acknowledgments free the ring for the encoder's last octets.
@@ -131,7 +131,7 @@ test "RFC 9110 §6.5: an h3 trailer section waits for the encoder's last octets,
 test "decision 101: a closed transport gives back the encoders of the coded responses it held" {
     const fetch = try coded_get();
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
-    _ = try connection.write_body(fetch.id, .{ .octets = "hello", .end = false });
+    _ = try connection.write_body(fetch.id, .{ .bytes = "hello", .end = false });
     try testing.expectEqual(encoders_all - 1, tcp_support.pool.free_count());
     internal.transport_closed(connection);
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());
@@ -140,7 +140,7 @@ test "decision 101: a closed transport gives back the encoders of the coded resp
 test "RFC 9000 §10.2: a connection the peer closes gives back the encoders of its coded responses" {
     const fetch = try coded_get();
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
-    _ = try connection.write_body(fetch.id, .{ .octets = "hello", .end = false });
+    _ = try connection.write_body(fetch.id, .{ .bytes = "hello", .end = false });
     try testing.expectEqual(encoders_all - 1, tcp_support.pool.free_count());
     quic.connection_close.owe(&support.client, quic.connection_close.transport(quic.error_code.no_error, null));
     try support.pump(support.rounds_default);
@@ -154,7 +154,7 @@ test "RFC 9000 §3.1: a coded response the peer acknowledged is done, and gives 
     const fetch = try support.request_open_with_fields("GET", "/", &accepts_gzip);
     try support.pump(support.rounds_default);
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
-    try testing.expectEqual(5, try connection.write_body(fetch.id, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(5, try connection.write_body(fetch.id, .{ .bytes = "hello", .end = true }));
     try support.pump(support.rounds_default);
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
     try testing.expect(connection.requests.of(fetch.id) != null);
@@ -172,8 +172,8 @@ test "RFC 9000 §3.1: a coded response whose runs wait for acknowledgments takes
     }
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
     const content = tcp_support.incompressible[0..];
-    try testing.expectEqual(small_write_len, try connection.write_body(fetch.id, .{ .octets = content[0..small_write_len], .end = false }));
-    try testing.expectError(error.Blocked, connection.write_body(fetch.id, .{ .octets = content[small_write_len..], .end = true }));
+    try testing.expectEqual(small_write_len, try connection.write_body(fetch.id, .{ .bytes = content[0..small_write_len], .end = false }));
+    try testing.expectError(error.Blocked, connection.write_body(fetch.id, .{ .bytes = content[small_write_len..], .end = true }));
     var taken: usize = small_write_len;
     // Bounded: each round's acknowledgments free runs and the ring.
     for (0..rounds_max) |_| {
@@ -182,7 +182,7 @@ test "RFC 9000 §3.1: a coded response whose runs wait for acknowledgments takes
             if (support.nth(.done, 0) != null) break;
             continue;
         }
-        taken += connection.write_body(fetch.id, .{ .octets = content[taken..], .end = true }) catch 0;
+        taken += connection.write_body(fetch.id, .{ .bytes = content[taken..], .end = true }) catch 0;
     }
     try testing.expectEqualSlices(u8, content, try tcp_support.decode(.gzip, support.content_of(fetch)));
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());

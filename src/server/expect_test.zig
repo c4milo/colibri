@@ -26,7 +26,7 @@ fn request_with(expect: []const u8, version: event.Version, end: bool) !event.Re
         .scheme = "http",
         .authority = "a",
         .path = "/",
-        .fields = .{ .section = &test_section, .first = 0 },
+        .headers = .{ .section = &test_section, .first = 0 },
         .end = end,
     };
 }

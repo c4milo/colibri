@@ -42,7 +42,7 @@ const addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), 
 fn collect(pool: anytype) !void {
     // Bounded: each pass consumes an octet or reports an event, and both are finite.
     for (0..support.buffer_len + support.events_max) |_| {
-        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .octets = support.to_client[0..support.to_client_len] } } else .none;
+        const input: pool_module.Input = if (support.to_client_len > 0) .{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } } else .none;
         const received = pool.receive(input, support.now_ns);
         std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
         support.to_client_len -= received.consumed;
@@ -175,13 +175,13 @@ fn Tests(comptime Pool: type) type {
         /// server's certificate names localhost. `exchange` waits, and the connection the pool
         /// asked for is started, to the first address, with nothing sent. Returns the exchange's
         /// id.
-        fn start(server_name: []const u8, exchange: *Exchange) !pool_module.Id {
+        fn start(server_name: []const u8, exchange: *Exchange) !pool_module.RequestId {
             return start_with(.{}, &support.protocols_h2, server_name, exchange);
         }
 
         /// As `start`, with a client that speaks `versions` and a server that selects from
         /// `server_protocols`.
-        fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !pool_module.Id {
+        fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !pool_module.RequestId {
             try tls_support.prepare_server(server_protocols, false);
             config = .{ .tls = tls_support.client_values(server_name), .versions = pool_support.versions_for(&pool, versions), .authority = support.authority };
             try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
@@ -298,7 +298,7 @@ fn Tests(comptime Pool: type) type {
             try answer("hello");
             try collect(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            try testing.expectEqualStrings("hello", exchange.response.body_received());
             try testing.expectEqual(1, count(.open));
         }
 
@@ -343,7 +343,7 @@ fn Tests(comptime Pool: type) type {
             try tls_support.server_seal(h11_response);
             try collect(&pool);
             try testing.expectEqual(.response, exchange.response.outcome);
-            try testing.expectEqualStrings("hello", exchange.response.content_received());
+            try testing.expectEqualStrings("hello", exchange.response.body_received());
             try testing.expectEqual(1, count(.open));
         }
 

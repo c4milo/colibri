@@ -27,7 +27,7 @@ test "RFC 9000 §7.2, §5.2: a client's first Initial starts a connection, which
     const id = endpoint_support.id_of(fetch.id);
     try testing.expectEqual(1, id.connection.generation);
     try endpoint.respond(id, .{ .status = ok, .end = false });
-    _ = try endpoint.write_body(id, .{ .octets = "through the endpoint", .end = true });
+    _ = try endpoint.write_body(id, .{ .bytes = "through the endpoint", .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqualStrings("through the endpoint", support.content_of(fetch));
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
@@ -38,7 +38,7 @@ test "RFC 9000 §7.2, §5.2: a client's first Initial starts a connection, which
 
 /// What the endpoint reports of `octets`, a datagram from `from`.
 fn give(octets: []u8, from: quic.PeerAddress) ?server_event.Event {
-    return endpoint.receive(.{ .datagram = .{ .octets = octets, .from = from } }, support.now_ns).event;
+    return endpoint.receive(.{ .datagram = .{ .bytes = octets, .from = from } }, support.now_ns).event;
 }
 
 const server_event = @import("../event.zig");
@@ -89,7 +89,7 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     try testing.expectEqual(null, endpoint_support.live_connection());
     var output: [quic.constants.datagram_len_max]u8 = undefined;
     const reply = endpoint.send_datagram(&output, support.now_ns).?;
-    try testing.expect((try quic.packet.invariant.read_long(reply.octets)).is_version_negotiation());
+    try testing.expect((try quic.packet.invariant.read_long(reply.bytes)).is_version_negotiation());
     try testing.expect(reply.to.eql(&from));
     try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
     // RFC 9000 §5.2.2: a datagram too small to start a connection gets nothing.
@@ -297,7 +297,7 @@ fn answers_with_retry() !bool {
     _ = give(padded_initial[0..len], support.client_address());
     var output: [quic.constants.datagram_len_max]u8 = undefined;
     const sent = endpoint.held.connections.replies.take(&output) orelse return false;
-    return (try quic.packet.header.read(sent.octets, constants.quic_id_len)) == .retry;
+    return (try quic.packet.header.read(sent.bytes, constants.quic_id_len)) == .retry;
 }
 
 test "decision 110 as amended: with retry_from_percent, a client gets a Retry only once that share of QUIC slots hold a connection" {

@@ -157,7 +157,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
             .scheme = request.scheme,
             .authority = request.authority,
             .path = request.path,
-            .fields = event.Fields.of(connection.h3.field_section()),
+            .headers = event.Headers.of(connection.h3.field_section()),
             // RFC 9114 §4.1: h3 reports the request's end apart from its head, as a `body` event.
             .end = false,
         },
@@ -175,7 +175,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
 fn on_data(connection: *QuicConnection, data: h3.connection.Data) ?event.Event {
     const record = reading(connection, data.stream_id) orelse return null;
     quic_body.count(connection, record, data.octets.len);
-    return .{ .body = .{ .id = event.id_of(data.stream_id), .octets = data.octets, .end = false } };
+    return .{ .body = .{ .id = event.id_of(data.stream_id), .bytes = data.octets, .end = false } };
 }
 
 fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.Event {
@@ -183,14 +183,14 @@ fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.Event {
     const record = reading(connection, stream_id) orelse return null;
     // RFC 9110 §6.5: a trailer section ends the request.
     record.ended = true;
-    return .{ .trailers = .{ .id = event.id_of(stream_id), .fields = event.Fields.of(connection.h3.field_section()) } };
+    return .{ .trailers = .{ .id = event.id_of(stream_id), .headers = event.Headers.of(connection.h3.field_section()) } };
 }
 
 fn on_end(connection: *QuicConnection, stream_id: u64) ?event.Event {
     stop_waiting(connection, stream_id);
     const record = reading(connection, stream_id) orelse return null;
     record.ended = true;
-    return .{ .body = .{ .id = event.id_of(stream_id), .octets = &.{}, .end = true } };
+    return .{ .body = .{ .id = event.id_of(stream_id), .bytes = &.{}, .end = true } };
 }
 
 /// RFC 9114 §4.1.1: the client cancelled the request. The server resets its response too, so
@@ -266,11 +266,11 @@ const status_max: u16 = 599;
 const final_min: u16 = 200;
 const switching_protocols: u16 = 101;
 
-pub fn write_body(connection: *QuicConnection, id: Number, content: event.Content) SendError!usize {
+pub fn write_body(connection: *QuicConnection, id: Number, content: event.ResponseBody) SendError!usize {
     const record = try writable(connection, id);
     // RFC 9114 §4.1: DATA frames follow the final response's HEADERS frame.
     if (!record.answered) return error.SectionOutOfOrder;
-    const octets = content.octets;
+    const octets = content.bytes;
     const end_stream = content.end;
     if (octets.len == 0 and !end_stream) return 0;
     // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD. RFC 9114 §4.1.2:

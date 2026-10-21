@@ -33,7 +33,7 @@ test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exc
     try testing.expectEqual(event.Protocol.h3, support.find(.connected).?.connected);
     try testing.expectEqual(.response, exchange.response.outcome);
     try testing.expectEqual(ok, exchange.response.status);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("application/dns-message", wanted[0].value.?);
     // RFC 9000 §2.1: the client's first bidirectional stream is 0.
     try testing.expectEqual(0, support.answers[0].id);
@@ -57,7 +57,7 @@ test "RFC 9000 §21.4: the client draws the intervals of the packet numbers it s
 test "RFC 9000 §4.1: a POST's content goes out whole as the server grants more, and it is answered" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     @memset(&upload, 'x');
-    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .body = &upload }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&post.request, &post.response);
     try support.pump(support.rounds_default * 4);
     try testing.expectEqual(upload_len, support.answers[0].received);
@@ -65,14 +65,14 @@ test "RFC 9000 §4.1: a POST's content goes out whole as the server grants more,
     try testing.expectEqual(upload_len, support.answers[0].content_length.?);
     try testing.expect(support.answers[0].https);
     try testing.expectEqual(.response, post.response.outcome);
-    try testing.expectEqual(upload_len, post.response.content_sent);
+    try testing.expectEqual(upload_len, post.response.body_sent);
 }
 
 test "RFC 9000 §3.1: an answered exchange is not reported while its stream may still send its content" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_early = true;
     @memset(&upload, 'y');
-    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .content = &upload }, .response = .{ .body = &bodies[0] } };
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .body = &upload }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&post.request, &post.response);
     var answered_while_live = false;
     for (0..support.rounds_default * 4) |_| {
@@ -133,7 +133,7 @@ test "RFC 9114 §4.1: interim responses are counted, and the final one gives the
     try support.pump(support.rounds_default);
     try testing.expectEqual(2, exchange.response.interims);
     try testing.expectEqual(ok, exchange.response.status);
-    try testing.expectEqualStrings("hello", exchange.response.content_received());
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
 }
 
 test "RFC 9114 §4.1.2: content shorter than its content-length is malformed, and ends the exchange so" {
@@ -198,5 +198,5 @@ test "RFC 9000 §4.1: a response longer than the receive pool arrives whole as t
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default * 8);
     try testing.expectEqual(.response, exchange.response.outcome);
-    try testing.expectEqualSlices(u8, &long_answer, exchange.response.content_received());
+    try testing.expectEqualSlices(u8, &long_answer, exchange.response.body_received());
 }

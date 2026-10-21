@@ -163,7 +163,7 @@ pub const Session = struct {
         // Bounded: each pass consumes an octet or reports one of the finitely many events.
         for (0..input.len + session.slots * constants.requests_max * constants.steps_per_read_max) |_| {
             const held = input[consumed..];
-            const passed: client.Input = if (slot != null and held.len > 0) .{ .stream = .{ .connection = session.connections[slot.?], .octets = held } } else .none;
+            const passed: client.Input = if (slot != null and held.len > 0) .{ .stream = .{ .connection = session.connections[slot.?], .bytes = held } } else .none;
             const received = session.pool.receive(passed, session.now_ns);
             consumed += received.consumed;
             const reported = received.event orelse {
@@ -208,7 +208,7 @@ pub const Session = struct {
         asked.close = true;
     }
 
-    fn exchange_of(session: *Session, id: client.Id) *Exchange {
+    fn exchange_of(session: *Session, id: client.RequestId) *Exchange {
         for (session.exchanges[0..session.requests_count]) |*exchange| {
             if (exchange.id == id) return exchange;
         }
@@ -323,10 +323,10 @@ test "h2: every exchange of the plan shares the connection, and content past the
     try testing.expect(test_client.succeeded() and test_client.closed);
     try testing.expectEqual(client.Protocol.h2, test_client.protocol.?);
     const upload = &test_client.exchanges[1];
-    try testing.expectEqual(content_len, upload.response.content_sent);
+    try testing.expectEqual(content_len, upload.response.body_sent);
     try testing.expectEqual(client_exchange.content_crc32(content_len), upload.sent_crc32());
     try testing.expectEqual(constants.response_status, upload.response.status);
-    try testing.expectEqualStrings(constants.response_body, test_client.exchanges[0].response.content_received());
+    try testing.expectEqualStrings(constants.response_body, test_client.exchanges[0].response.body_received());
     // RFC 9113 §6.8: the step that writes the GOAWAY reads again after it, and reports the close,
     // so the caller closes the socket once the GOAWAY is sent.
     try testing.expect(test_close_written.? > 0);

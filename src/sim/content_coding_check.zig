@@ -183,7 +183,7 @@ fn verify_exchange(storage: *Storage, planned: *const content_coding_plan.Exchan
     const content: []const u8 = if (planned.head) &.{} else storage.run.contents[index][0..planned.content_len];
     const reported: ?Coding = if (expected.decoded) expected.coded else null;
     if (response.coding != reported) return error.ExchangeDiffers;
-    const received = response.content_received();
+    const received = response.body_received();
     // Decision 101: the client passes on a coding it did not offer, which the check decodes.
     const arrived = if (expected.coded != null and !expected.decoded) try decode(storage, expected.coded.?, received) else received;
     if (!std.mem.eql(u8, arrived, content)) return error.ExchangeDiffers;

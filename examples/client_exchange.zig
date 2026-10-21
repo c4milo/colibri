@@ -134,8 +134,8 @@ var get_response: client.Response align(@alignOf(client.Response)) = .{
 const post: client.Request = .{
     .method = "POST",
     .path = "/echo",
-    .fields = &.{.{ .name = "content-type", .value = content_type }},
-    .content = note,
+    .headers = &.{.{ .name = "content-type", .value = content_type }},
+    .body = note,
 };
 var post_response: client.Response align(@alignOf(client.Response)) = .{ .body = &post_body };
 
@@ -235,7 +235,7 @@ fn client_turn() !void {
     try drain(now_ns);
     for (0..datagrams_per_turn_max) |_| {
         const sent = pool.send_datagram(&datagram_output, now_ns) orelse break;
-        try datagram_link.send(.client, sent.octets);
+        try datagram_link.send(.client, sent.bytes);
     }
     try drain(now_ns);
 }
@@ -246,7 +246,7 @@ fn read_datagrams(now_ns: u64) !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try datagram_link.receive(.client) orelse break;
         // A connection takes a datagram only from the address its server answers from.
-        var rest: client.Input = .{ .datagram = .{ .octets = datagram, .from = server_address } };
+        var rest: client.Input = .{ .datagram = .{ .bytes = datagram, .from = server_address } };
         for (0..receive_calls_max) |_| {
             const received = pool.receive(rest, now_ns);
             if (received.consumed > 0) rest = .none;
@@ -269,7 +269,7 @@ fn drain(now_ns: u64) !void {
     for (0..receive_calls_max) |_| {
         const held = input[consumed..];
         const tcp = connections.get(.tcp);
-        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp, .octets = held } } else .none;
+        const read: client.Input = if (held.len > 0) .{ .stream = .{ .connection = tcp, .bytes = held } } else .none;
         const received = pool.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -434,7 +434,7 @@ fn check() Error!void {
 /// Whether `response` ended its exchange as a response with `status`, whose content is `content`.
 fn arrived(response: *const client.Response, status: u16, content: []const u8) bool {
     if (response.outcome != .response or response.status != status) return false;
-    return std.mem.eql(u8, response.content_received(), content);
+    return std.mem.eql(u8, response.body_received(), content);
 }
 
 /// Whether the three requests that no route serves got 405 with the Allow value, 404 and 501.

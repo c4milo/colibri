@@ -10,7 +10,7 @@ const coding_pool = @import("coding_pool.zig");
 const constants = @import("constants.zig");
 const event = @import("event.zig");
 
-const Id = event.Id;
+const RequestId = event.RequestId;
 const Request = event.Request;
 const Response = event.Response;
 const Outcome = event.Outcome;
@@ -31,7 +31,7 @@ pub const Stage = enum {
 
 pub const Slot = struct {
     stage: Stage = .free,
-    id: Id = 0,
+    id: RequestId = 0,
     /// The request the program placed, which the client only reads, and its response, which the
     /// client writes (decision 124).
     request: *const Request = undefined,
@@ -71,14 +71,14 @@ pub const Slot = struct {
     /// protocol refused the rest.
     pub fn content_done(slot: *const Slot) bool {
         assert(slot.stage == .sent);
-        return slot.content_stopped or slot.response.content_sent == slot.request.content.len;
+        return slot.content_stopped or slot.response.body_sent == slot.request.body.len;
     }
 };
 
 pub const Slots = struct {
     slots: [constants.requests_max]Slot,
     /// The id the next exchange gets.
-    next_id: Id,
+    next_id: RequestId,
 
     pub fn init(slots: *Slots) void {
         slots.slots = @splat(.{});
@@ -88,7 +88,7 @@ pub const Slots = struct {
 
     /// Takes a free slot for `request` and its `response`, and returns its id, or null when every
     /// slot is taken.
-    pub fn take(slots: *Slots, request: *const Request, response: *Response) ?Id {
+    pub fn take(slots: *Slots, request: *const Request, response: *Response) ?RequestId {
         const slot = slots.first(.free) orelse return null;
         slot.* = .{ .stage = .queued, .id = slots.next_id, .request = request, .response = response };
         slots.next_id += 1;
@@ -97,7 +97,7 @@ pub const Slots = struct {
     }
 
     /// The slot of the exchange `id`, or null when no slot holds it.
-    pub fn of_id(slots: *Slots, id: Id) ?*Slot {
+    pub fn of_id(slots: *Slots, id: RequestId) ?*Slot {
         for (&slots.slots) |*slot| {
             if (slot.stage != .free and slot.id == id) return slot;
         }

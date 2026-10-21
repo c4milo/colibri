@@ -38,10 +38,10 @@ test "RFC 9113 §8.3.1: a request's pseudo-header fields arrive as its parts, an
     try testing.expectEqualStrings("/index.html", head.path.?);
     try testing.expect(head.end);
     // RFC 9113 §8.3: the pseudo-header fields are not among the regular ones.
-    try testing.expectEqual(1, head.fields.len());
-    var lines = head.fields.iterator();
+    try testing.expectEqual(1, head.headers.len());
+    var lines = head.headers.iterator();
     try testing.expectEqualStrings("accept", lines.next().?.name);
-    try testing.expectEqualStrings("*/*", head.fields.find("accept").?.value);
+    try testing.expectEqualStrings("*/*", head.headers.find("accept").?.value);
 }
 
 test "RFC 9113 §3.4: the server's SETTINGS goes first, before a response to a request read with the preface" {
@@ -70,7 +70,7 @@ test "RFC 9113 §6.1: content that ends with no octet left goes out as an empty 
     _ = try support.receive_copy(try request_frame(1, "/", true));
     try connection.respond(1, .{ .status = ok, .end = false });
     _ = support.drain();
-    try testing.expectEqual(0, try connection.write_body(1, .{ .octets = "", .end = true }));
+    try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = true }));
     const sent = support.drain();
     try testing.expectEqual(constants.frame_header_len, sent.len);
     try testing.expectEqual(constants.frame_type_data, sent[type_index]);
@@ -87,7 +87,7 @@ test "one write_body call takes what the room and the windows allow, cut at the 
     try connection.respond(1, .{ .status = ok, .end = false });
     _ = support.drain();
     // https://github.com/c4milo/colibri/issues/91: one call writes every frame the content needs.
-    try testing.expectEqual(long_body.len, try connection.write_body(1, .{ .octets = &long_body, .end = true }));
+    try testing.expectEqual(long_body.len, try connection.write_body(1, .{ .bytes = &long_body, .end = true }));
     const sent = support.drain();
     const whole_frame_len = constants.frame_header_len + constants.max_frame_size_initial;
     const whole_frames_len = long_body_frames * whole_frame_len;
@@ -105,10 +105,10 @@ test "one write_body call takes what the room and the windows allow, cut at the 
 test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame ends the stream" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try connection.respond(1, .{ .status = ok, .fields = &content_type, .end = false });
+    try connection.respond(1, .{ .status = ok, .headers = &content_type, .end = false });
     // No octets and no end write nothing, not even an empty frame (RFC 9113 §6.1).
-    try testing.expectEqual(0, try connection.write_body(1, .{ .octets = "", .end = false }));
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
+    try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = false }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     const sent = support.drain();
     try testing.expectEqual(constants.frame_type_headers, sent[type_index]);
     try testing.expectEqual(constants.flag_end_headers, sent[flags_index]);
@@ -147,7 +147,7 @@ test "RFC 9113 §8.1: a request's DATA arrives as body events, the last ending i
     const received = try support.receive_copy(writer.written());
     const body = received.event.?.body;
     try testing.expectEqual(1, body.id.number);
-    try testing.expectEqualStrings("hello", body.octets);
+    try testing.expectEqualStrings("hello", body.bytes);
     try testing.expect(body.end);
 }
 
@@ -205,7 +205,7 @@ test "RFC 9113 §5.1.1: an id no client stream can have names no request" {
     try testing.expectError(error.RequestUnknown, connection.respond(0, .{ .status = ok, .end = true }));
     try testing.expectError(error.RequestUnknown, connection.respond(3, .{ .status = ok, .end = true }));
     // RFC 9113 §8.1: content follows the final response's head.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .octets = "x", .end = true }));
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .bytes = "x", .end = true }));
 }
 
 /// Content past the initial window of RFC 9113 §6.9.2. Test-only.
@@ -219,7 +219,7 @@ test "RFC 9113 §6.9: content past the stream's window waits, and write_body say
     var taken: usize = 0;
     // Bounded: each pass takes what the output holds, until the window closes.
     for (0..large_body.len) |_| {
-        const consumed = connection.write_body(1, .{ .octets = large_body[taken..], .end = true }) catch |failure| {
+        const consumed = connection.write_body(1, .{ .bytes = large_body[taken..], .end = true }) catch |failure| {
             try testing.expectEqual(error.Blocked, failure);
             break;
         };
@@ -227,7 +227,7 @@ test "RFC 9113 §6.9: content past the stream's window waits, and write_body say
         _ = support.drain();
     }
     try testing.expectEqual(window_initial, taken);
-    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = large_body[taken..], .end = true }));
+    try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = large_body[taken..], .end = true }));
 }
 
 test "RFC 9113 §4.1: a response head waits when the output has no room for its frame" {
@@ -287,7 +287,7 @@ test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and e
     const received = try support.receive_copy(writer.written());
     const trailers = received.event.?.trailers;
     try testing.expectEqual(1, trailers.id.number);
-    try testing.expectEqualStrings("0", trailers.fields.find("grpc-status").?.value);
+    try testing.expectEqualStrings("0", trailers.headers.find("grpc-status").?.value);
 }
 
 test "RFC 9113 §5.1.1: an id past the largest stream identifier names no request" {
@@ -309,9 +309,9 @@ var long_fields: [long_lines]support.Field align(@alignOf(support.Field)) = unde
 test "RFC 9113 §4.3: a section past what colibri sends in one field block is refused whole" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .fields = &too_many, .end = true }));
+    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .headers = &too_many, .end = true }));
     for (&long_fields) |*line| line.* = .{ .name = "x-long", .value = &long_value };
-    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .fields = &long_fields, .end = true }));
+    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .headers = &long_fields, .end = true }));
     try testing.expectEqual(0, connection.output_len);
     try connection.respond(1, .{ .status = ok, .end = true });
 }
@@ -406,7 +406,7 @@ test "decision 39 as amended: DATA and a trailer section go out after the replie
     try connection.respond(1, .{ .status = ok, .end = false });
     _ = support.drain();
     try read_ping_then_request(3, "GET", &.{}, true);
-    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = false }));
+    try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = false }));
     try expect_ack_then(support.drain(), constants.frame_type_data);
     try read_ping_then_request(5, "GET", &.{}, true);
     try connection.write_trailers(1, &response_trailers);

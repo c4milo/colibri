@@ -38,7 +38,7 @@ const QuicConnection = quic_connection.QuicConnection;
 const Connection = @import("../connection/connection.zig").Connection;
 const ReceiveStorage = quic_connection.ReceiveStorage;
 const Sent = quic_connection.Sent;
-const Id = event.Id;
+const RequestId = event.RequestId;
 const ConnectionHandle = event.ConnectionHandle;
 const SendError = connection_errors.SendError;
 const StartError = connection_errors.StartError;
@@ -48,7 +48,7 @@ pub const LogProvider = endpoint_connections.LogProvider;
 pub const Input = endpoint_held.Input;
 pub const Datagram = endpoint_held.Datagram;
 pub const Security = endpoint_held.Security;
-pub const StreamOctets = endpoint_held.StreamOctets;
+pub const StreamBytes = endpoint_held.StreamBytes;
 
 /// How many connections an endpoint holds, fixed at build time (decision 35): its TCP and its
 /// QUIC connections, either of which may be 0, and the octets each QUIC connection holds that it
@@ -168,20 +168,20 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// of an h11 response a pipelined request waited for. An event's slices stay
         /// valid until the next `receive`, `on_instant`, `send_stream`, `send_datagram`, `accept`,
         /// `transport_closed` or `shutdown`.
-        pub fn receive(endpoint: *Self, input: Input, now_ns: u64) event.Received {
+        pub fn receive(endpoint: *Self, input: Input, now_ns: u64) event.ReceiveResult {
             return endpoint.held.receive(input, now_ns);
         }
 
         /// Sets the word each later event of request `id` carries: its `body`, `trailers`,
         /// `writable` and its one `done` or `cancelled` (decision 119).
-        pub fn set_user_data(endpoint: *Self, id: Id, user_data: usize) error{RequestUnknown}!void {
+        pub fn set_user_data(endpoint: *Self, id: RequestId, user_data: usize) error{RequestUnknown}!void {
             return endpoint.held.set_user_data(id, user_data);
         }
 
         /// Writes the head of the response to request `id`: an interim one (1xx) or the final
         /// one. With `end`, the final response carries no content. `error.NoSpaceLeft` says the
         /// response has no room for it: its `writable` comes once it has.
-        pub fn respond(endpoint: *Self, id: Id, response: event.Response) SendError!void {
+        pub fn respond(endpoint: *Self, id: RequestId, response: event.Response) SendError!void {
             return endpoint.held.respond(id, response);
         }
 
@@ -189,20 +189,20 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// copied over QUIC: the octets stay the caller's until the request is `done` or
         /// `cancelled` (decision 103). A take of less than `content`, or `error.Blocked`, says the
         /// response has no room for more: its `writable` comes once it has.
-        pub fn write_body(endpoint: *Self, id: Id, content: event.Content) SendError!usize {
+        pub fn write_body(endpoint: *Self, id: RequestId, content: event.ResponseBody) SendError!usize {
             return endpoint.held.write_body(id, content);
         }
 
         /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
         /// `error.NoSpaceLeft`, or `error.Blocked` while a coded response's last octets wait, says
         /// the response has no room for it: its `writable` comes once it has.
-        pub fn write_trailers(endpoint: *Self, id: Id, fields: []const http.Field) SendError!void {
+        pub fn write_trailers(endpoint: *Self, id: RequestId, fields: []const http.Field) SendError!void {
             return endpoint.held.write_trailers(id, fields);
         }
 
         /// Ends request `id` before its response is whole: its `cancelled` follows, with the
         /// reason `program`, and nothing more of it.
-        pub fn cancel(endpoint: *Self, id: Id) void {
+        pub fn cancel(endpoint: *Self, id: RequestId) void {
             endpoint.held.cancel(id);
         }
 

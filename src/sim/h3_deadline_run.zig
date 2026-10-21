@@ -209,7 +209,7 @@ fn peer_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
         if (peer.muted) continue;
         const from = server.Address.of(&peer_octets, peer_port);
         storage.record.wire.update(storage.datagram[0..len]);
-        const received = storage.endpoint.receive(.{ .datagram = .{ .octets = storage.datagram[0..len], .from = from } }, now_ns);
+        const received = storage.endpoint.receive(.{ .datagram = .{ .bytes = storage.datagram[0..len], .from = from } }, now_ns);
         if (received.event) |reported| note(storage, reported, now_ms);
     }
     // A deaf peer's request has left, and nothing of its leaves after.
@@ -244,8 +244,8 @@ fn server_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     for (0..limits.datagrams_per_pass_max) |_| {
         const sent = storage.endpoint.send_datagram(&storage.datagram, now_ns) orelse break;
         moved = true;
-        storage.record.wire.update(sent.octets);
-        storage.link.take(sent.octets, now_ms);
+        storage.record.wire.update(sent.bytes);
+        storage.link.take(sent.bytes, now_ms);
         // A link with no rate has carried the datagram already.
         _ = try deliver(storage, now_ns, now_ms);
     }
