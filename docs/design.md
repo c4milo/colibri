@@ -9032,6 +9032,105 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     again, an interval that must be passed rather than reached, and packets of every space
     counted toward it.
 
+  **`observe`, `fire` and `continue.write` test their fields first, 2026-10-21.** The endpoint calls
+  `Connection.receive` several times a request, and the program calls `send` once. Each call ran
+  three pieces of code whose result one or two fields decide. Each piece did work before its test:
+  - `connection_deadline.observe` called `connection_close.finished`, which reads the protocol,
+    before it tested the output. A linger starts only while the output holds octets (decision
+    110). `observe` now tests `output_len` and `linger_since_ns` first, and its new `ended` reads
+    the protocol after them.
+  - `connection_deadline.fire` saved its registers and loaded the stack canary before it returned
+    at an instant it had checked. Its test of `checked_ns` is now inline, and
+    `fire_at_new_instant` keeps the rest.
+  - `connection_continue.write` did the same before it returned with no 100 (Continue) owed. Its
+    test of `continue_owed` is now inline, and `write_owed_continue` keeps the rest.
+
+  `finished` and the functions it calls write nothing, so each linger starts at the same instant
+  as before. The `unreachable` arms of `finished` run on fewer calls, and on no new one. No name,
+  struct or octet changed. The owner ruled on 2026-10-20 that the three changes stay on one
+  branch, in three commits, and that the judge measures them together. Each alone saves less than
+  the noise.
+
+  The estimate comes from a static count of the server's disassembly. `zig build install -Drelease
+  -Dtarget=aarch64-linux-gnu -Dcpu=neoverse_n2` built `http-server` on `9e9d70e` and on the
+  change. The count follows one call of `receive` in h11 cleartext at an instant `fire` checked.
+  The call owes no 100, reads the protocol, reports nothing and leaves the output empty. The count
+  leaves out `read_protocol`, which differs between the builds only in the values of its errors.
+
+  | Part of one call of `receive` | Before | After |
+  | --- | ---: | ---: |
+  | `fire`, with its call | 37 | 5 |
+  | `continue.write`, with its call | 30 | 4 |
+  | The rest of `receive` | 168 | 181 |
+  | The end of `observe`, from its drain test, with `finished` | 58 or 66 | 11 |
+  | All that the count follows | 293 or 301 | 201 |
+
+  The two values before are the two h11 paths of `finished`: 39 instructions while the connection
+  reads or answers a request, and 47 while it is idle. LLVM now inlines
+  `connection_cleartext.choose` and `connection_tls.handshake` into `receive`. So the rest of
+  `receive` keeps more values on the stack, and that costs 13 instructions on this path.
+
+  So a call of `receive` saves 92 to 100 instructions. In the test server's path of `send`, the
+  code from the lookup of the slot to `connection_internal.write_owed` fell from 80 instructions
+  to 25. With `observe`, a call of `send` saves 102 to 110. A call at a new instant saves 38
+  fewer: the inline test of `fire` runs first, and the assertion of `fire_at_new_instant` tests
+  the instant again.
+
+  A keep-alive request on h11-many makes at least three calls:
+  - a `receive` that reads the request;
+  - a `receive` that reports its `done` (decision 103);
+  - a `send`.
+
+  The endpoint makes more calls of `receive` that read nothing, and each of them saves about 100. At three calls, the first at a
+  new instant, the three changes save about 250 to 280 instructions a request. That is about 0.7%
+  of the 36,638 instructions a request that step 13d's run measured for h11-many. It is 1.5% to
+  1.6% of the 17,223 user instructions of that run's first job. Each further call adds about 0.3%
+  and 0.6%.
+
+  On the h2 inputs, `fire` and `continue.write` save the same in each call. The h2 paths of
+  `finished` for an open connection that owes nothing are about 60 to 70 instructions, so
+  `observe` saves more there. No count of the calls of an h2 request exists, so this record gives
+  no estimate a request for h2.
+
+  What each check printed, on macOS arm64 unless a line names another machine:
+  - `zig build test-server` passed 494 of 494 tests. One test and one check are new:
+    - in `connection_sends_test.zig`, the peer takes nothing of an h11 response to a request with
+      `Connection: close`. `deadline_ns()` names the end of the linger, and the connection closes
+      at that instant and not a nanosecond before. `close_reason()` stays null.
+    - in `connection_deadline_test.zig`, a shutdown whose requests finish in time runs no
+      deadline once the response is out.
+  - x86_64 Debug: `zig build test-server -Dtarget=x86_64-linux-gnu` built the tests, and an
+    `ubuntu:24.04` container for `linux/amd64` ran them. All 494 passed.
+  - `zig build test-sim-run` passed 87 of 87 tests in Debug and 87 of 87 in ReleaseSafe. So the
+    deadline check, the deadline trace run and the TCP trace run kept their pinned censuses.
+  - `zig build sim -- --deadline-check 4096` printed the same census on `9e9d70e` and on the
+    change: 2,037 requests, `crc32=0xd03a1f7e` and `wire_crc32=0x6f330cca`.
+  - `zig build test` passed.
+  - 9 mutations of the three changes:
+    - `ended` without `finished`: **NOT CAUGHT** before the new test, and **CAUGHT** by it after.
+    - `observe` without the test of `output_len`: **CAUGHT** by three tests that existed and by
+      the new check.
+    - `observe` without the test of `linger_since_ns`: **CAUGHT** by two tests, one of them new.
+    - `finished` read first again, the old order: equivalent. It changes the count of
+      instructions alone, and every test passed.
+    - `set_deadlines` keeps `checked_ns`: **CAUGHT** by the test of a limit shortened after a
+      call.
+    - The assertion of `fire_at_new_instant` removed: **NOT CAUGHT**. The inline test runs
+      first, so no call can make the assertion fail.
+    - `fire_at_new_instant` stores no `checked_ns`: **NOT CAUGHT**. It is equivalent, because
+      each call then runs the whole check, which adds cost alone.
+    - `continue.write` returns false with no 100 owed: **CAUGHT** by 200 tests.
+    - `write_owed_continue` called with no 100 owed: **CAUGHT** by 17 tests.
+
+  The judge, [run 39631973284](https://github.com/c4milo/colibri/actions/runs/39631973284),
+  measured `cf421c6` against `9e9d70e` with `--h11`. No input loses past the noise by either count
+  in either job:
+  - h2-many wins on the total in both jobs, at 0.9815 and 0.9829, and h2-tls-many at 0.9842 and
+    0.9848. Each saves about 280 user instructions a request.
+  - By the rule docs/performance.md states for the h11 inputs, h11-one wins by its user
+    instructions in both jobs, at 0.9694 and 0.9697. It saves 649 and 642 a connection.
+  - h11-tls-many also wins by its user instructions in both jobs, at 0.9804 and 0.9737.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
