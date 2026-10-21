@@ -7023,6 +7023,84 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   connection. There the server's user instructions fell by 930 in the first job and by 951 in the
   second. On h11-many they fell by 930 and by 1,175 a request, with spreads of 3.9 to 5.2%.
 
+  **`Scanner.scan` keeps its fields in locals, 2026-10-20.** Callgrind counted the server's
+  instructions per source line under h11-many's load, in a Linux container on the laptop. The
+  counts only put the costs in order. Of the costs of `read_request`, the scan of the head came
+  first. `scan` read and wrote each field of the scanner through its pointer. The compiler cannot
+  prove that the scanner and the input do not overlap. So each octet loaded the fields again and
+  stored them again.
+
+  The owner ruled on 2026-10-20 for one parser with its state in locals, not for a scan of eight
+  octets at a time. `scan` now copies the fields into a local at its start. A `defer` stores the
+  copy once on each return: a span, a null or an error. The loop reads the octets of the slice
+  that `reader.peek_rest()` gives. `step` returns early for an octet of a field line, after its
+  CR and LF checks. Each check, limit and citation stays as it was, and each error comes at the
+  same octet.
+
+  The estimate comes from a probe compiled with `zig build-obj -O ReleaseSafe -target
+  aarch64-linux-gnu -mcpu=neoverse_n2 -femit-asm`. The probe compiles `message_scan.zig` with the
+  `core` and `http` modules, and calls `scan` for each role. A check of the probe used the server:
+  `zig build install -Drelease -Dtarget=aarch64-linux-gnu -Dcpu=neoverse_n2`, on this commit and
+  on its parent. The server's `read_head` holds `scan`, so its last row also holds the slice that
+  `read_head` returns. LLVM inlines `step` into `scan` in each build. The table gives the
+  instructions of the loop for a request, from each disassembly:
+
+  | Octet or call | Probe, before | Probe, after | Server, before | Server, after |
+  | --- | ---: | ---: | ---: | ---: |
+  | An octet of the method | 36 | 25 | 41 | 25 |
+  | The SP that ends the method | 37 | 25 | 39 | 25 |
+  | Another octet of the start line | 32 | 22 | 34 | 21 |
+  | An octet of a field line | 28 | 16 | 30 | 16 |
+  | A CR | 19 | 11 | 21 | 10 |
+  | The LF of a line that is not empty | 30 | 18 | 32 | 19 |
+  | The entry of a call with new octets | 24 | 29 | 26 | 30 |
+  | A call with no new octet | 37 | 36 | 42 | 38 |
+  | The LF of the empty line, and the return of the head | 37 | 36 | 53 | 37 |
+
+  wrk sends a head of 41 octets on h11-many and h11-tls-many: 3 octets of the method, the SP, 10
+  more octets of the start line, 21 octets of a field line, 3 CRs and 3 LFs. In the probe its scan
+  costs 1,231 instructions before the change and 790 after, 441 fewer. In the server it costs
+  1,338 before and 781 after, 557 fewer. So the estimate is 440 to 560 fewer a request on those
+  two inputs. On h11-one and h11-tls-one, a `Connection: close` line adds 19 octets, so the head
+  has 60 octets and the estimate is 670 to 820 fewer a connection.
+
+  That is 1.2% to 1.5% of the 36,633 a request that the judge measured for h11-many in the record
+  above. It is 0.9% to 1.1% of h11-tls-many's 51,317, and 0.68% to 0.84% of h11-one's 97,809 a
+  connection. The records above give spreads of 3.9 to 5.2% on h11-many and of 3.47% on h11-one.
+  So the judge can find the change within the noise. A longer head saves more: 12 to 14
+  instructions for each octet of a field line, and 10 to 13 for each other octet of the start
+  line.
+
+  What each check printed:
+  - A new file, `message_scan_test.zig`, holds the old `scan` as a reference that only the tests
+    compile. Its tests require `scan` to return what the reference returns, and to leave the same
+    six fields. Each test reads each input in both roles, at each split into two calls:
+    - each word of up to six octets over CR, LF, SP, 'G', '/' and NUL;
+    - each word of up to three of those octets after each prefix of a request head, before each
+      of three ends;
+    - inputs at `start_line_len_max` and at `head_len_max`, split within two octets of each limit;
+    - each input of up to two octets, as a fuzz property that `core.fuzz.sweep` runs.
+  - The first two tests also require their inputs to give a span, a null, and each error that
+    those inputs can cause. The third requires a span and the two limit errors.
+  - `zig build test-h11` passed 132 of 132 tests. The h11 tests, built for x86_64 in Debug, passed
+    132 of 132 in an amd64 container.
+  - `zig build test` passed. It runs the h11 split check of the simulator, whose census keeps its
+    CRC-32, 0x793d2f38.
+  - 19 mutations, each **CAUGHT** by the new tests and by tests that already existed:
+    - each of the six fields not stored, one at a time, and the copy stored only when `scan`
+      returns an error;
+    - the copy not loaded from `scanner`;
+    - the limit of the start line checked one octet late, and at one octet less;
+    - the limit of the head applied one octet late, and the reader not cut at `head_len_max`;
+    - the method check skipped;
+    - the early return of `step` taken for each octet but NUL, taken one line late, and taken
+      only for NUL;
+    - the loop started one octet early;
+    - `scanned` counted after `step`;
+    - the span read from `scanner`, not from the copy.
+
+  The judge: owed.
+
   **h11 reads the field lines of a head it writes once, 2026-10-21.** Callgrind counted the
   server's instructions per source line under h11-many's load, in a Linux container on the
   laptop. The counts only put the costs in order. Each response of the test server has two field

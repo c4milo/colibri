@@ -91,6 +91,7 @@ test {
     // Every name the root exports resolves, in each namespace it declares.
     _ = core.public_names.reference(@This(), &.{ "core", "http" });
     _ = @import("message/message_scan.zig");
+    _ = @import("message/message_scan_test.zig");
     _ = @import("message/message_start.zig");
     _ = @import("message/message_fields.zig");
     _ = @import("message/message_target.zig");

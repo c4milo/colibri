@@ -84,18 +84,22 @@ pub const Scanner = struct {
     pub fn scan(scanner: *Scanner, role: Role, input: []const u8) Error!?Span {
         assert(scanner.scanned <= input.len);
         assert(scanner.scanned <= constants.head_len_max);
+        // The loop works on a copy of the fields in locals, which stay in registers, and each
+        // return stores the copy once. The compiler cannot prove that `scanner` and `input` do
+        // not overlap, so a loop on `scanner` loads and stores each field for each octet.
+        var state = scanner.*;
+        defer scanner.* = state;
         const limit = @min(input.len, constants.head_len_max);
         var reader = Reader.init(input[0..limit]);
-        _ = reader.take(scanner.scanned) catch unreachable;
-        // Bounded by `head_len_max`, which `limit` never exceeds.
-        for (0..constants.head_len_max) |_| {
-            const octet = reader.read_byte() catch break;
-            scanner.scanned += 1;
-            if (try scanner.step(role, octet)) return scanner.span();
+        _ = reader.take(state.scanned) catch unreachable;
+        // At most `head_len_max` octets, because `limit` never exceeds it.
+        for (reader.peek_rest()) |octet| {
+            state.scanned += 1;
+            if (try state.step(role, octet)) return state.span();
         }
         // RFC 9110 §5.4: no predefined limit, so colibri's applies and the head is refused.
-        if (scanner.scanned == constants.head_len_max) return error.HeadTooLarge;
-        assert(scanner.scanned == input.len);
+        if (state.scanned == constants.head_len_max) return error.HeadTooLarge;
+        assert(state.scanned == input.len);
         return null;
     }
 
@@ -114,11 +118,13 @@ pub const Scanner = struct {
         // RFC 9112 §2.2: a recipient MAY recognize a lone LF as a line end; colibri does not.
         if (octet == '\n') return error.BareLineFeed;
         scanner.line_len += 1;
-        const in_start_line = scanner.lines == 0;
+        // After the start line, the scan checks CR and LF alone: `message_fields` reads each field
+        // line once the head is whole.
+        if (scanner.lines > 0) return false;
         // RFC 9112 §3: no predefined limit on a request line, so colibri's applies. The limit
         // holds for a status line too, which has none either (RFC 9112 §4).
-        if (in_start_line and scanner.line_len > constants.start_line_len_max) return error.StartLineTooLong;
-        if (role == .request and in_start_line and !scanner.method_ended) try scanner.check_method(octet);
+        if (scanner.line_len > constants.start_line_len_max) return error.StartLineTooLong;
+        if (role == .request and !scanner.method_ended) try scanner.check_method(octet);
         return false;
     }
 
