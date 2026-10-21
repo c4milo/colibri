@@ -57,11 +57,14 @@ pub fn write_request(target: *Connection, output: []u8, method: []const u8, targ
     // RFC 9110 §7.8: Upgrade invites the server to switch protocols, which h11 cannot follow, and
     // RFC 9931 §4.1: the server would read what the client sends next in the protocol it chose.
     if (names_upgrade(fields)) return error.UpgradeUnsupported;
-    const written = try write_head(target, output, method, target_uri, fields);
+    // The head writer, the body and the close option read this one pass over the lines.
+    var checked: message.Checked = .{};
+    checked.add(fields);
+    const written = try write_head(target, output, method, target_uri, fields, &checked);
     push(target, .{ .asked = connection.asked_of(method), .idempotent = connection.is_idempotent(method) });
     // write_head refused a Content-Length that is not 1*DIGIT in a u64 (RFC 9110 §8.6).
-    target.writer = connection_body.declared(fields, .none) catch unreachable;
-    target.close_sent = connection.fields_ask_close(fields);
+    target.writer = connection_body.declared(&checked, .none) catch unreachable;
+    target.close_sent = checked.close;
     return written;
 }
 
@@ -74,14 +77,16 @@ fn names_upgrade(fields: []const Field) bool {
 }
 
 /// The request head, with TE when the connection has decoders to offer (decision 91).
-fn write_head(target: *const Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field) connection.SendError!usize {
-    if (target.decoders == null) return message.write_request_head(output, method, target_uri, fields);
+fn write_head(target: *const Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field, checked: *const message.Checked) connection.SendError!usize {
+    if (target.decoders == null) return message.write_request_head_checked(output, method, target_uri, fields, checked);
     var with_te: [core.constants.field_count_max]Field = undefined;
     // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
     if (fields.len + te_fields.len > with_te.len) return error.TooManyFields;
     @memcpy(with_te[0..fields.len], fields);
     @memcpy(with_te[fields.len..][0..te_fields.len], &te_fields);
-    return message.write_request_head(output, method, target_uri, with_te[0 .. fields.len + te_fields.len]);
+    // `te_fields` are valid, and name no field the pass records, so the pass over `fields` is the
+    // pass over `with_te`. A test below pins this.
+    return message.write_request_head_checked(output, method, target_uri, with_te[0 .. fields.len + te_fields.len], checked);
 }
 
 /// Decision 88: whether another request may follow those outstanding (RFC 9112 §9.3.2).
@@ -186,4 +191,11 @@ fn pop(target: *Connection) void {
     assert(target.outstanding_len > 0);
     target.outstanding_first = (target.outstanding_first + 1) % constants.pipeline_depth_max;
     target.outstanding_len -= 1;
+}
+
+test "the TE lines colibri adds are valid, and name no field the pass records" {
+    var checked: message.Checked = .{};
+    checked.add(&te_fields);
+    try std.testing.expect(checked.invalid == null and !checked.close);
+    try std.testing.expect(!checked.names_framing() and checked.host.value == null);
 }

@@ -7023,6 +7023,110 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   connection. There the server's user instructions fell by 930 in the first job and by 951 in the
   second. On h11-many they fell by 930 and by 1,175 a request, with spreads of 3.9 to 5.2%.
 
+  **h11 reads the field lines of a head it writes once, 2026-10-21.** Callgrind counted the
+  server's instructions per source line under h11-many's load, in a Linux container on the
+  laptop. The counts only put the costs in order. Each response of the test server has two field
+  lines, and they went through 13 loops. One loop validated them and one wrote them. The other 11
+  compared their names with a name that a rule reads: Content-Length, Transfer-Encoding or
+  Connection.
+
+  The owner ruled on 2026-10-20 that h11 reads the names of a response's field lines in one pass.
+  Each check keeps its result, its RFC citation and the order of its errors. `Checked.add`, in
+  `message_write_fields.zig`, is the pass. It validates each line, and compares the line's name
+  with Host, Connection, Content-Length or Transfer-Encoding. The length of the name selects the
+  one name it compares. The record keeps these values:
+  - the error of the first line that is not valid;
+  - the first value of each of the four names, and whether a second line has the name;
+  - whether a Connection line carries the close option;
+  - the first Content-Length value as a u64, when `parseUnsigned` reads it.
+
+  These rules now read the record, and none of them scans the lines:
+  - each rule of `write_response_head` and `write_request_head`, through
+    `write_response_head_checked` and `write_request_head_checked`;
+  - in the server's `write_response`, the rule for a 2xx to CONNECT, `declared`, the close option
+    and `write_final_head`;
+  - in the client's `write_request`, `declared` and the close option.
+
+  The order of the checks does not change. A connection applies its rule for a 2xx to CONNECT,
+  and `declared` refuses a Content-Length it cannot count, before the head writer validates the
+  lines. So the pass reads the names of the lines after one that is not valid too. The lines that
+  `write_final_head` and the client add are valid, and they change no value of the record but the
+  close option. So `write_final_head` copies the record and sets its close option, and the client
+  uses the record as it is. A test pins each of the added lines.
+
+  No public name changes (decision 115). The server's own scan, `names_framing` in the `server`
+  module's `connection_h11.zig`, stays. h11 exports no name that could give the server the record.
+
+  The caller holds the record, and `add` writes into it. A first version returned the record, and
+  the copy of its fields cost 79 more instructions in the pass.
+
+  The estimate comes from a static count of the server's disassembly. `zig build install -Drelease
+  -Dtarget=aarch64-linux-gnu -Dcpu=neoverse_n2` built `http-server` before and after the change.
+  The count follows the path of the test server's response to a GET: status 200, reason `OK`,
+  and the lines `content-type` and `content-length: 8`. It starts after the check for an interim
+  status in `write_response`, and it ends when the head is written. It leaves out the two calls
+  of `validate_value`, which are the same before and after.
+
+  | Part of the path | Before | After |
+  | --- | ---: | ---: |
+  | `write_response`, inlined into `connection_coding.write_head` | 91 | 66 |
+  | `line_asks_close`, called for each line | 52 | 0 |
+  | `Checked.add` | 0 | 359 |
+  | `response_body` | 193 | 47 |
+  | `write_final_head` | 49 | 43 |
+  | The head writer, with the octets it writes | 1,116 | 352 |
+  | All | 1,501 | 867 |
+
+  The change removes about 630 instructions a response. The code before this path differs by some
+  register moves, so the count can be wrong by a few instructions. That is 1.7% of the 36,633 a
+  request that the judge measured for h11-many in the record above, and 1.2% of h11-tls-many's
+  51,317. On h11-one it is 0.65% of 97,809 a connection, and more: each response there gets a
+  `Connection: close` line, which each old scan read too. The count does not cover that path.
+  The records above give spreads of 3.9 to 5.2% on h11-many, so the judge can find the change
+  within the noise.
+
+  What each check printed:
+  - Two new test files keep the old code as a reference that only the tests compile. The tests
+    require the same octets or the same error from the new code and the reference:
+    - `message_write_test.zig` holds the old head writers. Its tests write each list of up to
+      three lines from 25 lines. A response head takes seven statuses and three reasons, and a
+      request head takes three methods and two targets. The 25 lines hold each fault, each name
+      that a rule reads, and names one octet away from those names.
+    - `connection_fields_test.zig` holds the old `write_response` and `write_request`. Its
+      tests also require the same state of the connection. They write each list of up to two of
+      the 25 lines, and of three lines from eight of them. Each list answers five requests, with
+      six statuses and two reasons. The tests also write the longest section that
+      `write_final_head` takes, and one line more.
+  - Seven new tests pin orders of errors that no test read before. Among them, a line that is not
+    valid comes before each framing rule of the head writer. The rule for a 2xx to CONNECT comes
+    before the lines. A Content-Length that `declared` cannot count comes first too, unless the
+    request, the status or a Transfer-Encoding decides the body.
+  - 40 mutations: 39 **CAUGHT** and 1 **NOT CAUGHT**.
+    - 16 wrong classifications, each **CAUGHT**:
+      - each of the four names never recorded, or recorded by its length alone;
+      - the close option set by each Connection line, or compared with case;
+      - the last value kept, or a second line not counted;
+      - the last error kept, or no name read after a line that is not valid;
+      - a name or a value not validated;
+      - a Content-Length that `parseUnsigned` refuses, read as 0.
+    - 15 checks given the wrong field, each **CAUGHT**:
+      - each of the six framing rules of the head writer;
+      - the two Host rules, and the rule for the content of a CONNECT request;
+      - two in h11's `Checked.names_framing` and two in `declared`;
+      - the close option in `write_response` and in `write_final_head`.
+    - 8 orders of errors swapped, each **CAUGHT**:
+      - the framing rules, the reason and the rule for a 1xx or 204, each against the lines;
+      - the Host rules against the framing rules, and the rule for CONNECT content against the
+        lines;
+      - `declared` before the rule for a 2xx to CONNECT, and `declared` after the head;
+      - Content-Length before Transfer-Encoding in `declared`.
+    - **NOT CAUGHT**: the record of `with_close` without the close option. The head writer reads
+      no close option from the record, so the mutant does what the code does.
+  - x86_64 Debug: `zig build test-h11 -Dtarget=x86_64-linux-gnu` built the tests, and an
+    `ubuntu:24.04` container for `linux/amd64` ran them. All 150 passed.
+
+  The judge: owed.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

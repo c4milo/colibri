@@ -97,6 +97,8 @@ test {
     _ = @import("message/message_body.zig");
     _ = @import("chunked/chunked_line.zig");
     _ = @import("message/message_write.zig");
+    _ = @import("message/message_write_fields.zig");
+    _ = @import("message/message_write_test.zig");
     _ = @import("chunked/chunked_write.zig");
     _ = @import("message/message_fuzz.zig");
     _ = @import("connection/connection_server_test.zig");
@@ -104,4 +106,5 @@ test {
     _ = @import("connection/connection_tls_test.zig");
     _ = @import("connection/connection_coding_test.zig");
     _ = @import("connection/connection_init_test.zig");
+    _ = @import("connection/connection_fields_test.zig");
 }

@@ -25,6 +25,7 @@ const message_fields = @import("message_fields.zig");
 const message_target = @import("message_target.zig");
 const message_body = @import("message_body.zig");
 const message_write = @import("message_write.zig");
+const message_write_fields = @import("message_write_fields.zig");
 
 const FieldSection = http.FieldSection;
 const Reader = core.Reader;
@@ -43,6 +44,10 @@ pub const Asked = message_body.Asked;
 pub const WriteError = message_write.Error;
 pub const write_request_head = message_write.write_request_head;
 pub const write_response_head = message_write.write_response_head;
+pub const write_request_head_checked = message_write.write_request_head_checked;
+pub const write_response_head_checked = message_write.write_response_head_checked;
+pub const Checked = message_write_fields.Checked;
+pub const line_asks_close = message_write_fields.line_asks_close;
 
 pub const Error = message_scan.Error || message_start.Error || message_fields.Error ||
     message_target.Error || message_body.Error;

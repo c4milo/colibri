@@ -357,31 +357,11 @@ pub fn release_decoding(connection: *Connection) void {
 }
 
 /// Whether a Connection field line of `section` carries the "close" option (RFC 9110 §7.6.1).
+/// A head colibri writes has `message.Checked.close` instead.
 pub fn section_asks_close(section: *const http.FieldSection) bool {
     for (0..section.len()) |index| {
         const line = section.get(@intCast(index));
-        if (line_asks_close(line)) return true;
-    }
-    return false;
-}
-
-/// Whether a Connection field line in `fields` carries the "close" option (RFC 9110 §7.6.1).
-pub fn fields_ask_close(fields: []const http.Field) bool {
-    for (fields) |line| {
-        if (line_asks_close(line)) return true;
-    }
-    return false;
-}
-
-/// Connection = #connection-option, and an option is a token compared case-insensitively
-/// (RFC 9110 §7.6.1).
-fn line_asks_close(line: http.Field) bool {
-    if (!http.field.names_equal(line.name, "Connection")) return false;
-    var options = std.mem.splitScalar(u8, line.value, ',');
-    // Bounded: a value of n octets holds at most n + 1 members.
-    for (0..line.value.len + 1) |_| {
-        const option = options.next() orelse return false;
-        if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, option, " \t"), "close")) return true;
+        if (message.line_asks_close(line)) return true;
     }
     return false;
 }

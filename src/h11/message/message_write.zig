@@ -17,9 +17,11 @@ const core = @import("core");
 const http = @import("http");
 const message_start = @import("message_start.zig");
 const message_target = @import("message_target.zig");
+const message_write_fields = @import("message_write_fields.zig");
 
 const Field = http.Field;
 const Writer = core.Writer;
+const Checked = message_write_fields.Checked;
 
 pub const Error = error{
     /// The caller's buffer cannot hold the head.
@@ -47,26 +49,33 @@ pub const Error = error{
 /// The version colibri writes (RFC 9112 §2.3).
 const version = "HTTP/1.1";
 
-/// The field names the framing rules read. Names compare case-insensitively (RFC 9110 §5.1).
-const host_name = "Host";
-const content_length_name = "Content-Length";
-const transfer_encoding_name = "Transfer-Encoding";
-
 /// `method SP request-target SP HTTP-version CRLF`, the field lines and the empty line
 /// (RFC 9112 §2.1, §3). Returns the octets written.
 pub fn write_request_head(output: []u8, method: []const u8, target: []const u8, fields: []const Field) Error!usize {
+    var checked: Checked = .{};
+    checked.add(fields);
+    return write_request_head_checked(output, method, target, fields, &checked);
+}
+
+/// `write_request_head`, with `checked` from the caller's own pass over `fields`.
+pub fn write_request_head_checked(output: []u8, method: []const u8, target: []const u8, fields: []const Field, checked: *const Checked) Error!usize {
+    assert(fields.len > 0 or checked.host.value == null);
     // RFC 9110 §9.1: method = token.
     http.method.validate(method) catch return error.MethodInvalid;
     const line: message_start.RequestLine = .{ .method = method, .target = target, .version = .{ .major = 1, .minor = 1 } };
     // RFC 9112 §3.2: a request-target of one of the four forms, as its method takes it.
     _ = message_target.target_form(line) catch return error.TargetInvalid;
-    try check_fields(fields);
+    // RFC 9110 §5.1 and §5.5: the first field line that is not valid.
+    if (checked.invalid) |invalid| return invalid;
+    try check_framing(checked);
     // RFC 9110 §9.3.6: a CONNECT request message does not have content.
-    if (http.method.standard(method) == .connect and declares_content(fields)) return error.FramingInvalid;
+    if (http.method.standard(method) == .connect and declares_content(checked)) return error.FramingInvalid;
     // RFC 9112 §3.2: a client MUST send one Host in every HTTP/1.1 request.
-    if (count_named(fields, host_name) != 1) return error.HostInvalid;
+    const host = checked.host.value orelse return error.HostInvalid;
+    // RFC 9112 §3.2: one Host, and no second line of it.
+    if (checked.host.repeated) return error.HostInvalid;
     // RFC 9110 §7.2: Host = uri-host [ ":" port ].
-    if (!http.uri.is_host_port(find(fields, host_name).?)) return error.HostInvalid;
+    if (!http.uri.is_host_port(host)) return error.HostInvalid;
     var writer = Writer.init(output);
     // RFC 9112 §2.1: a head is its start line, field lines and empty line whole, so a buffer
     // that holds less holds no head at all.
@@ -78,15 +87,24 @@ pub fn write_request_head(output: []u8, method: []const u8, target: []const u8, 
 /// (RFC 9112 §2.1, §4). The SP after the status is written even when `reason` is empty, as §4
 /// requires. Returns the octets written.
 pub fn write_response_head(output: []u8, status: u16, reason: []const u8, fields: []const Field) Error!usize {
+    var checked: Checked = .{};
+    checked.add(fields);
+    return write_response_head_checked(output, status, reason, fields, &checked);
+}
+
+/// `write_response_head`, with `checked` from the caller's own pass over `fields`.
+pub fn write_response_head_checked(output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const Checked) Error!usize {
+    assert(fields.len > 0 or !checked.names_framing());
     // RFC 9110 §15: a status code is three digits from 100 to 599.
     const code = http.Status.from_code(status) catch return error.StatusInvalid;
     // RFC 9112 §4: reason-phrase = 1*( HTAB / SP / VCHAR / obs-text ).
     message_start.check_reason(reason) catch return error.ReasonInvalid;
-    try check_fields(fields);
+    // RFC 9110 §5.1 and §5.5: the first field line that is not valid.
+    if (checked.invalid) |invalid| return invalid;
+    try check_framing(checked);
     const forbids_framing = code.is_interim() or status == @intFromEnum(http.status.Code.no_content);
-    const framed = find(fields, content_length_name) != null or find(fields, transfer_encoding_name) != null;
     // RFC 9112 §6.1 and RFC 9110 §8.6: no Transfer-Encoding or Content-Length in a 1xx or 204.
-    if (forbids_framing and framed) return error.FramingInvalid;
+    if (forbids_framing and checked.names_framing()) return error.FramingInvalid;
     var digits: [http.constants.status_digits_len]u8 = undefined;
     var writer = Writer.init(output);
     // RFC 9112 §2.1: a head is its start line, field lines and empty line whole, so a buffer
@@ -95,35 +113,25 @@ pub fn write_response_head(output: []u8, status: u16, reason: []const u8, fields
     return writer.written().len;
 }
 
-/// Every field line is valid, and Content-Length and Transfer-Encoding are not both present.
-fn check_fields(fields: []const Field) Error!void {
-    for (fields) |line| {
-        // RFC 9110 §5.1: field-name = token.
-        http.field.validate_name(line.name) catch return error.FieldNameInvalid;
-        // RFC 9110 §5.5: no NUL, CR, LF or other control, and RFC 9112 §5.2: no obs-fold, which a
-        // value without CR and LF cannot hold.
-        http.field.validate_value(line.value) catch return error.FieldValueInvalid;
-    }
-    const both = find(fields, content_length_name) != null and find(fields, transfer_encoding_name) != null;
+/// The framing fields colibri writes: not Content-Length with Transfer-Encoding, one
+/// Content-Length of 1*DIGIT that fits a u64, and a Transfer-Encoding of chunked alone, since
+/// colibri encodes no other coding (decision 91).
+fn check_framing(checked: *const Checked) Error!void {
+    const content_length = &checked.content_length;
+    const transfer_encoding = &checked.transfer_encoding;
     // RFC 9112 §6.2: a sender MUST NOT send Content-Length in a message with Transfer-Encoding.
-    if (both) return error.FramingInvalid;
-    try check_framing(fields);
-}
-
-/// The framing fields colibri writes: one Content-Length of 1*DIGIT that fits a u64, and a
-/// Transfer-Encoding of chunked alone, since colibri encodes no other coding (decision 91).
-fn check_framing(fields: []const Field) Error!void {
+    if (content_length.value != null and transfer_encoding.value != null) return error.FramingInvalid;
     // RFC 9110 §8.6: one Content-Length value; colibri writes no list of repeats.
-    if (count_named(fields, content_length_name) > 1) return error.FramingInvalid;
-    if (find(fields, content_length_name)) |value| {
+    if (content_length.repeated) return error.FramingInvalid;
+    if (content_length.value) |value| {
         // RFC 9110 §8.6: Content-Length = 1*DIGIT.
         if (value.len == 0 or !http.uri.is_port(value)) return error.FramingInvalid;
         // RFC 9110 §8.6: a length colibri can count, which a u64 holds.
-        _ = std.fmt.parseUnsigned(u64, value, http.constants.content_length_radix) catch return error.FramingInvalid;
+        if (checked.content_length_octets == null) return error.FramingInvalid;
     }
     // RFC 9112 §6.1: colibri applies chunked, once, as the only coding it writes.
-    if (count_named(fields, transfer_encoding_name) > 1) return error.FramingInvalid;
-    if (find(fields, transfer_encoding_name)) |value| {
+    if (transfer_encoding.repeated) return error.FramingInvalid;
+    if (transfer_encoding.value) |value| {
         // RFC 9112 §7.1: the chunked coding's name, compared case-insensitively (§7).
         if (!std.ascii.eqlIgnoreCase(value, "chunked")) return error.FramingInvalid;
     }
@@ -146,27 +154,12 @@ fn write_head(writer: *Writer, fields: []const Field, start_line: [start_line_pa
     try writer.write_bytes("\r\n");
 }
 
-fn count_named(fields: []const Field, name: []const u8) usize {
-    var count: usize = 0;
-    for (fields) |line| {
-        if (http.field.names_equal(line.name, name)) count += 1;
-    }
-    return count;
-}
-
 /// Whether a request's fields declare content: a Transfer-Encoding, or a Content-Length above 0
 /// (RFC 9112 §6.3 rules 4 to 7). `check_framing` has accepted both.
-fn declares_content(fields: []const Field) bool {
-    if (find(fields, transfer_encoding_name) != null) return true;
-    const length = find(fields, content_length_name) orelse return false;
-    return (std.fmt.parseUnsigned(u64, length, http.constants.content_length_radix) catch unreachable) > 0;
-}
-
-fn find(fields: []const Field, name: []const u8) ?[]const u8 {
-    for (fields) |line| {
-        if (http.field.names_equal(line.name, name)) return line.value;
-    }
-    return null;
+fn declares_content(checked: *const Checked) bool {
+    if (checked.transfer_encoding.value != null) return true;
+    if (checked.content_length.value == null) return false;
+    return checked.content_length_octets.? > 0;
 }
 
 const testing = std.testing;
@@ -266,4 +259,74 @@ test "a head that does not fit is not written, and one that fits exactly is" {
     const expected = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
     try testing.expectError(error.OutputTooSmall, write_request_head(test_output[0 .. expected.len - 1], "GET", "/", fields));
     try testing.expectEqual(expected.len, try write_request_head(test_output[0..expected.len], "GET", "/", fields));
+}
+
+test "RFC 9110 §5.1 and §5.5: a field line that is not valid is refused before a framing rule, wherever it stands" {
+    try testing.expectError(error.FieldNameInvalid, write_response_head(&test_output, 200, "", &.{
+        .{ .name = "Content-Length", .value = "1" },
+        .{ .name = "Content-Length", .value = "1" },
+        .{ .name = "a b", .value = "c" },
+    }));
+    try testing.expectError(error.FieldValueInvalid, write_response_head(&test_output, 200, "", &.{
+        .{ .name = "Transfer-Encoding", .value = "gzip" },
+        .{ .name = "a", .value = " b" },
+    }));
+    // RFC 9112 §6.1 and RFC 9110 §8.6: the rule of a 1xx or 204 comes after the lines too.
+    try testing.expectError(error.FieldNameInvalid, write_response_head(&test_output, 204, "", &.{
+        .{ .name = "Content-Length", .value = "0" },
+        .{ .name = "a b", .value = "c" },
+    }));
+    // RFC 9110 §9.3.6: and so does the rule of a CONNECT request.
+    try testing.expectError(error.FieldNameInvalid, write_request_head(&test_output, "CONNECT", "a:1", &.{
+        .{ .name = "Content-Length", .value = "5" },
+        .{ .name = "a b", .value = "c" },
+    }));
+}
+
+test "the first field line that is not valid decides the error, and a line's name comes before its value" {
+    try testing.expectError(error.FieldValueInvalid, write_response_head(&test_output, 200, "", &.{
+        .{ .name = "a", .value = " b" },
+        .{ .name = "a b", .value = "c" },
+    }));
+    try testing.expectError(error.FieldNameInvalid, write_response_head(&test_output, 200, "", &.{
+        .{ .name = "a b", .value = "c" },
+        .{ .name = "a", .value = " b" },
+    }));
+    try testing.expectError(error.FieldNameInvalid, write_response_head(&test_output, 200, "", &.{.{ .name = "a b", .value = " c" }}));
+}
+
+test "the start line is refused before the field lines: the status, then the reason, then the method and target" {
+    const invalid: []const Field = &.{.{ .name = "a b", .value = "c" }};
+    try testing.expectError(error.StatusInvalid, write_response_head(&test_output, 99, "O\r\nK", invalid));
+    try testing.expectError(error.ReasonInvalid, write_response_head(&test_output, 200, "O\r\nK", invalid));
+    try testing.expectError(error.MethodInvalid, write_request_head(&test_output, "G T", "", invalid));
+    try testing.expectError(error.TargetInvalid, write_request_head(&test_output, "GET", "", invalid));
+}
+
+test "RFC 9110 §9.3.6 and RFC 9112 §3.2: the framing rules are applied before the Host is read" {
+    try testing.expectError(error.FramingInvalid, write_request_head(&test_output, "CONNECT", "a:1", &.{.{ .name = "Content-Length", .value = "5" }}));
+    try testing.expectError(error.FramingInvalid, write_request_head(&test_output, "GET", "/", &.{
+        .{ .name = "Host", .value = "u@a" },
+        .{ .name = "Host", .value = "a" },
+        .{ .name = "Content-Length", .value = "x" },
+    }));
+    // The first Host is read, and the second is refused even when the first is valid.
+    try testing.expectError(error.HostInvalid, write_request_head(&test_output, "GET", "/", &.{
+        .{ .name = "Host", .value = "a" },
+        .{ .name = "Host", .value = "u@a" },
+    }));
+    _ = try write_request_head(&test_output, "GET", "/", &.{ .{ .name = "Hosx", .value = "u@a" }, .{ .name = "HOST", .value = "a:1" } });
+}
+
+test "RFC 9110 §5.1: a framing field is found by its name in any case, and a name one octet away is a plain line" {
+    try testing.expectError(error.FramingInvalid, write_response_head(&test_output, 200, "", &.{
+        .{ .name = "content-length", .value = "1" },
+        .{ .name = "TRANSFER-ENCODING", .value = "chunked" },
+    }));
+    const written = try write_response_head(&test_output, 204, "", &.{
+        .{ .name = "content-lengtx", .value = "x" },
+        .{ .name = "Transfer-Encodinx", .value = "gzip" },
+    });
+    try testing.expectEqualStrings("HTTP/1.1 204 \r\ncontent-lengtx: x\r\nTransfer-Encodinx: gzip\r\n\r\n", test_output[0..written]);
+    try testing.expectError(error.HostInvalid, write_request_head(&test_output, "GET", "/", &.{.{ .name = "Hosx", .value = "a" }}));
 }

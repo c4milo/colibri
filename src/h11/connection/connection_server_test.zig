@@ -1,6 +1,7 @@
 //! The tests of a server's side of an h11 connection (`connection_server.zig`), split out because
 //! a hand-written source file stays at or under 500 lines with its tests included (CLAUDE.md).
 const std = @import("std");
+const core = @import("core");
 const http = @import("http");
 const connection = @import("connection.zig");
 
@@ -292,4 +293,59 @@ test "RFC 9112 §9.6: a refused response head leaves the connection open" {
     try testing.expectError(error.FieldNameInvalid, target.write_response(&test_output, 200, "OK", &refused));
     _ = try target.write_response(&test_output, 200, "OK", &.{.{ .name = "Content-Length", .value = "0" }});
     try testing.expect(!target.should_close());
+}
+
+test "RFC 9110 §8.6: a 2xx to CONNECT that names a framing field is refused before its lines are checked" {
+    const target = server();
+    _ = try expect_request(target, "CONNECT a:443 HTTP/1.1\r\nHost: a:443\r\n\r\n", "CONNECT");
+    try testing.expectError(error.FramingInvalid, target.write_response(&test_output, 200, "", &.{
+        .{ .name = "a b", .value = "c" },
+        .{ .name = "content-length", .value = "0" },
+    }));
+    try testing.expectError(error.FieldNameInvalid, target.write_response(&test_output, 200, "", &.{.{ .name = "a b", .value = "c" }}));
+}
+
+test "RFC 9110 §8.6: a Content-Length the body cannot count is refused first, unless the request, status or Transfer-Encoding decide the body" {
+    const invalid: Field = .{ .name = "a b", .value = "c" };
+    const uncounted: Field = .{ .name = "Content-Length", .value = "x" };
+    var target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+    try testing.expectError(error.FramingInvalid, target.write_response(&test_output, 200, "O\r\nK", &.{ invalid, uncounted }));
+    try testing.expectError(error.FieldNameInvalid, target.write_response(&test_output, 200, "", &.{
+        .{ .name = "Transfer-Encoding", .value = "chunked" },
+        invalid,
+        uncounted,
+    }));
+    // RFC 9112 §6.3 rule 1: a 304 has no body, so only the head writer reads its Content-Length.
+    try testing.expectError(error.FieldNameInvalid, target.write_response(&test_output, 304, "", &.{ invalid, uncounted }));
+    target = server();
+    _ = try expect_request(target, "HEAD / HTTP/1.1\r\nHost: h\r\n\r\n", "HEAD");
+    try testing.expectError(error.FieldNameInvalid, target.write_response(&test_output, 200, "", &.{ invalid, uncounted }));
+}
+
+/// A section as long as colibri's limit, whose lines are not valid.
+var test_many: [core.constants.field_count_max]Field align(@alignOf(Field)) = @splat(.{ .name = "a b", .value = "c" });
+
+test "RFC 9110 §5.4: a section with no room for the close option is refused before its lines are checked" {
+    const target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n", "GET");
+    try testing.expectError(error.TooManyFields, target.write_response(&test_output, 200, "", &test_many));
+    try testing.expectError(error.FieldNameInvalid, target.write_response(&test_output, 200, "", test_many[0 .. test_many.len - 1]));
+}
+
+test "RFC 9110 §7.6.1: a response's close option, in any case, ends the connection, and a head carries one" {
+    var target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+    _ = try target.write_response(&test_output, 200, "", &.{ .{ .name = "Connection", .value = "keep-alive" }, .{ .name = "Content-Length", .value = "0" } });
+    try testing.expect(!target.should_close());
+    target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+    var written = try target.write_response(&test_output, 200, "", &.{ .{ .name = "Connection", .value = "Keep-Alive, CLOSE" }, .{ .name = "Content-Length", .value = "0" } });
+    try testing.expect(target.should_close());
+    try testing.expectEqual(1, std.mem.count(u8, test_output[0..written], "Connection: "));
+    // RFC 9112 §9.6: the request asked for the close, and the response's own option says so.
+    target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n", "GET");
+    written = try target.write_response(&test_output, 200, "", &.{ .{ .name = "Connection", .value = "close" }, .{ .name = "Content-Length", .value = "0" } });
+    try testing.expectEqual(1, std.mem.count(u8, test_output[0..written], "Connection: "));
 }

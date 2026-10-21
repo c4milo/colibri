@@ -32,9 +32,6 @@ const status_fields_too_large: u16 = 431;
 /// The field line colibri adds to the last response on a connection (RFC 9112 §9.6).
 const close_field: Field = .{ .name = "Connection", .value = "close" };
 
-/// The framing field RFC 9112 §6.1 defines beside Content-Length. Names compare case-insensitively.
-const transfer_encoding_name = "Transfer-Encoding";
-
 pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
     return switch (target.phase) {
         .closed, .waiting => .{ .consumed = 0, .event = null },
@@ -92,12 +89,15 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     // RFC 9110 §15: a status code is three digits from 100 to 599.
     const code = http.Status.from_code(status) catch return error.StatusInvalid;
     if (code.is_interim()) return message.write_response_head(output, status, reason, fields);
-    if (target.asked == .connect) try answer_connect(target, code, fields);
-    const writer = try response_body(target, code, fields);
+    // Each rule below reads this one pass over the lines, and none reads the lines again.
+    var checked: message.Checked = .{};
+    checked.add(fields);
+    if (target.asked == .connect) try answer_connect(target, code, &checked);
+    const writer = try response_body(target, code, &checked);
     // RFC 9112 §6.3 rule 8: a response with no declared length ends with the connection. RFC 9112
     // §9.6: a server that sends the close option closes after this response.
-    const close_after = target.close_after or writer.kind == .close_delimited or connection.fields_ask_close(fields);
-    const written = try write_final_head(close_after, output, status, reason, fields);
+    const close_after = target.close_after or writer.kind == .close_delimited or checked.close;
+    const written = try write_final_head(close_after, output, status, reason, fields, &checked);
     // The head is written, so the response's state changes now and not on a refusal.
     target.close_after = close_after;
     target.answered = true;
@@ -109,7 +109,7 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
 
 /// What a final response to CONNECT decides besides its framing (decision 109): a 2xx opens the
 /// tunnel and names no framing field, and any other status ends the connection.
-fn answer_connect(target: *Connection, code: http.Status, fields: []const Field) connection.SendError!void {
+fn answer_connect(target: *Connection, code: http.Status, checked: *const message.Checked) connection.SendError!void {
     assert(target.asked == .connect and !code.is_interim());
     if (code.class() != .successful) {
         // RFC 9931 §8: a server that refuses a CONNECT closes the connection and processes no
@@ -119,41 +119,36 @@ fn answer_connect(target: *Connection, code: http.Status, fields: []const Field)
     }
     // RFC 9110 §8.6 and RFC 9112 §6.1: a server MUST NOT send Content-Length or Transfer-Encoding
     // in a 2xx to CONNECT.
-    if (names_framing(fields)) return error.FramingInvalid;
-}
-
-/// Whether `fields` name Content-Length or Transfer-Encoding.
-fn names_framing(fields: []const Field) bool {
-    for (fields) |line| {
-        if (http.field.names_equal(line.name, http.content_length.name)) return true;
-        if (http.field.names_equal(line.name, transfer_encoding_name)) return true;
-    }
-    return false;
+    if (checked.names_framing()) return error.FramingInvalid;
 }
 
 /// How the final response's body is framed (RFC 9112 §6.3 rules 1 and 2, then its own fields).
-fn response_body(target: *const Connection, code: http.Status, fields: []const Field) error{FramingInvalid}!connection_body.Writer {
+fn response_body(target: *const Connection, code: http.Status, checked: *const message.Checked) error{FramingInvalid}!connection_body.Writer {
     // RFC 9112 §6.3 rule 2 and RFC 9110 §6.4.1: every 2xx to CONNECT makes the connection a
     // tunnel, a 204 too. Rule 1 ends a 204 at the empty line as well, so only the tunnel is new.
     if (target.asked == .connect and code.class() == .successful) return .{ .kind = .tunnel };
     const no_content = code.code == @intFromEnum(Code.no_content) or code.code == @intFromEnum(Code.not_modified);
     // RFC 9112 §6.3 rule 1: a response to HEAD, and a 204 or 304, has no body.
     if (target.asked == .head or no_content) return .{ .kind = .none };
-    return connection_body.declared(fields, .close_delimited);
+    return connection_body.declared(checked, .close_delimited);
 }
 
 /// The final head, with `Connection: close` added when the connection closes after it and the
 /// fields do not say so already (RFC 9112 §9.6).
-fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []const u8, fields: []const Field) connection.SendError!usize {
-    if (!close_after or connection.fields_ask_close(fields)) {
-        return message.write_response_head(output, status, reason, fields);
+fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const message.Checked) connection.SendError!usize {
+    if (!close_after or checked.close) {
+        return message.write_response_head_checked(output, status, reason, fields, checked);
     }
     var with_close: [core.constants.field_count_max]Field = undefined;
     // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
     if (fields.len >= with_close.len) return error.TooManyFields;
     @memcpy(with_close[0..fields.len], fields);
     with_close[fields.len] = close_field;
-    return message.write_response_head(output, status, reason, with_close[0 .. fields.len + 1]);
+    // `close_field` is valid and names no framing field or Host, so the pass over `fields` with
+    // the close set is the pass over `with_close`. A test below pins this.
+    var with_close_checked = checked.*;
+    with_close_checked.close = true;
+    return message.write_response_head_checked(output, status, reason, with_close[0 .. fields.len + 1], &with_close_checked);
 }
 
 /// The final response is written whole. The connection reads the next request, or closes.
@@ -209,4 +204,11 @@ fn reason_of(status: u16) []const u8 {
         .http_version_not_supported => "HTTP Version Not Supported",
         else => "Bad Request",
     };
+}
+
+test "the close option colibri adds is a valid line that names no framing field or Host" {
+    var checked: message.Checked = .{};
+    checked.add(&.{close_field});
+    try std.testing.expect(checked.invalid == null and checked.close);
+    try std.testing.expect(!checked.names_framing() and checked.host.value == null);
 }
