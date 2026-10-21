@@ -247,13 +247,20 @@ fn is_past(since: u64, limit: ?u64, now_ns: u64) bool {
 }
 
 /// Ends the connection when a deadline has passed at `now_ns`, and returns whether one had. An h2
-/// body's deadline ends its stream alone.
-pub fn fire(connection: *Connection, now_ns: u64) bool {
+/// body's deadline ends its stream alone. The test of the instant is inline, so a call at the
+/// instant of the last costs no frame of its own.
+pub inline fn fire(connection: *Connection, now_ns: u64) bool {
     // A call at the instant of the last finds nothing to end. Each deadline that started since
     // then started at this instant and passes after it, since every limit is above 0, and the last
     // call checked each one that started before. The endpoint calls `receive` many times at one
     // instant.
     if (connection.clock.checked_ns == now_ns) return false;
+    return fire_at_new_instant(connection, now_ns);
+}
+
+/// `fire` at an instant other than the one `checked_ns` holds.
+fn fire_at_new_instant(connection: *Connection, now_ns: u64) bool {
+    assert(connection.clock.checked_ns != now_ns);
     connection.clock.checked_ns = now_ns;
     connection_sends.linger(connection, now_ns);
     if (!running(connection)) return false;
