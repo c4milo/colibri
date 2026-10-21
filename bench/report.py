@@ -2,9 +2,10 @@
 """The report of bench/run.sh (design §8 step 13a): per-unit counts from perf stat and h2load, each
 input's median and spread over the rounds, and with a base, the change's ratio to it. An input
 loses when the change costs more than the base past the noise, the larger of the two spreads and
-the floor, and a loss makes the run fail (decision 33 as amended on 2026-09-30). The report has one
-block for each protocol of the run, h11, then h2, then h3, and each block has the tables of its
-own inputs.
+the floor, and a loss makes the run fail (decision 33 as amended on 2026-09-30). On the h11 inputs
+the report also compares the server's user instructions: a change wins by them, and loses by either
+count (docs/performance.md). The report has one block for each protocol of the run, h11, then h2,
+then h3, and each block has the tables of its own inputs.
 
     report.py <scratch> <report.md> --many-requests <n> --one-connections <n>
     report.py --test
@@ -31,6 +32,12 @@ JUDGE_FLOOR = 0.005
 FILTER_FLOOR = 0.05
 # The variants that are builds of colibri; any other variant of a run is a competitor's server.
 COLIBRI_VARIANTS = ("base", "change")
+# The protocols whose inputs a judge run also compares by the server's user instructions. wrk's load
+# moves the kernel's count by more than a change of about 1%, so on the h11 inputs a change wins by
+# its user instructions and loses by either count (docs/performance.md, the owner's ruling of
+# 2026-10-21).
+USER_JUDGED_PROTOCOLS = ("h11",)
+USER_METRIC = "user_instructions"
 # The order the report lists comparisons in: losses first.
 READING_ORDER = {"loses": 0, "within the noise": 1, "wins": 2}
 # The rounds before this one are the warm-up, which the report discards.
@@ -242,7 +249,8 @@ def protocol_block(protocol, client, inputs, samples, variants, primary, floor):
     """The lines of the block for `protocol`, whose load `client` sends, with the tables of `inputs`
     alone, and the verdict of each input that the base and the change both ran."""
     competitors = [v for v in variants if v not in COLIBRI_VARIANTS]
-    rows, verdicts, standings, rates = [], [], [], []
+    user_judged = protocol in USER_JUDGED_PROTOCOLS and primary == "instructions"
+    rows, verdicts, user_verdicts, standings, rates = [], [], [], [], []
     for input_name in inputs:
         unit = "request" if input_name.endswith("-many") else "connection"
         summary = {}
@@ -262,6 +270,9 @@ def protocol_block(protocol, client, inputs, samples, variants, primary, floor):
         if "base" in summary and "change" in summary:
             ratio, noise, verdict = compare(summary, "change", "base", primary, floor)
             verdicts.append((verdict, f"| {input_name} | {ratio:.4f} | {noise * 100:.2f}% | {verdict} |"))
+            if user_judged:
+                ratio, noise, verdict = compare(summary, "change", "base", USER_METRIC, floor)
+                user_verdicts.append((verdict, f"| {input_name} | {ratio:.4f} | {noise * 100:.2f}% | {verdict} |"))
         for competitor in (c for c in competitors if c in summary and "change" in summary):
             ratio, noise, reading = compare(summary, "change", competitor, primary, floor)
             standings.append((reading, f"| {input_name} | {competitor} | {ratio:.4f} | {noise * 100:.2f}% | {reading} |"))
@@ -273,6 +284,11 @@ def protocol_block(protocol, client, inputs, samples, variants, primary, floor):
         lines += [f"The change against the base, by {primary} per unit; losses first:", "",
                   "| Input | Change / base | Noise | Verdict |", "| --- | ---: | ---: | --- |"]
         lines += [row for _, row in sorted(verdicts, key=lambda v: READING_ORDER[v[0]])] + [""]
+    if user_verdicts:
+        lines += [f"The change against the base, by {USER_METRIC} per unit; losses first. On the {protocol} inputs a change",
+                  "wins by this table and loses by either table (docs/performance.md):", "",
+                  "| Input | Change / base | Noise | Verdict |", "| --- | ---: | ---: | --- |"]
+        lines += [row for _, row in sorted(user_verdicts, key=lambda v: READING_ORDER[v[0]])] + [""]
     if standings:
         lines += [f"The change against each competitor, by {primary} per unit; losses first. Decision 31 reports",
                   "where colibri wins, matches and loses, and a competitor's numbers never fail the run:", "",
@@ -286,7 +302,7 @@ def protocol_block(protocol, client, inputs, samples, variants, primary, floor):
         lines += ["", "The connections one core of the server completes a second, each with one handshake and one request:",
                   "the reciprocal of the median CPU time per connection.", "",
                   "| Input | Variant | Connections per second |", "| --- | --- | ---: |"] + rates
-    return lines, verdicts
+    return lines, verdicts + user_verdicts
 
 
 def main():
@@ -355,12 +371,13 @@ TEST_WRK = ("Running 2s test @ http://127.0.0.1:18480/\n  2 threads and 16 conne
 TEST_ROUND_FACTORS = (1.5, 1.004, 0.997, 1.002, 0.999, 1.001)
 
 
-def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), failed_request=False, mode="judge", kernel_only=False,
+def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), failed_request=False, mode="judge", kernel_only=False, user_only=False,
                    change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec", competitors=None, with_base=True,
                    change_protocol=None, served=None, h3=False, h11=False):
     """Writes the files a run of bench/run.sh leaves, with the change costing `change_factor` times
     the base on each input in `changed_inputs`: in the server's user and kernel instructions both,
-    or with `kernel_only` in the kernel's alone, as a change that adds system calls costs. The base
+    or with `kernel_only` in the kernel's alone, as a change that adds system calls costs, or with
+    `user_only` in the user's alone, as a change to colibri's own code costs. The base
     runs TLS_AES_256_GCM_SHA384 on its TLS input, and the change runs `change_cipher`. The server
     runs TEST_NANOSECONDS_PER_UNIT a unit, which perf writes in `task_clock_unit`. Each competitor
     in `competitors` costs its factor times the base, and with `with_base` false no base runs. Each
@@ -385,7 +402,7 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
                 base_instructions = TEST_INSTRUCTIONS_PER_UNIT[input_name] * units * round_factor * factors.get(variant, 1.0)
                 user = base_instructions * 0.7 * (change_factor if changed and not kernel_only else 1.0)
                 nanoseconds = TEST_NANOSECONDS_PER_UNIT * units * round_factor
-                kernel = base_instructions * 0.3 * (change_factor if changed else 1.0)
+                kernel = base_instructions * 0.3 * (change_factor if changed and not user_only else 1.0)
                 instructions = user + kernel
                 with open(name + ".perf", "w") as perf:
                     if mode == "filter":
@@ -658,6 +675,30 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(status, 0, output)
         inputs = ({"h11-many"}, {"h2-many", "h2-tls-one"}, {"h3-many"})
         self.assertEqual(self.blocks(output), dict(zip(TEST_HEADINGS, inputs)))
+
+    def test_an_h11_input_wins_by_its_user_instructions(self):
+        # 6% fewer user instructions are 4.2% of the total, inside the floor of 5%.
+        status, output = self.report(0.94, changed_inputs=("h11-many",), h11=True, user_only=True)
+        self.assertEqual(status, 0, output)
+        self.assertIn("| h11-many | 0.9580 | 5.00% | within the noise |", output)
+        self.assertIn("| h11-many | 0.9400 | 5.00% | wins |", output)
+
+    def test_an_h11_loss_in_user_instructions_fails_the_run(self):
+        status, output = self.report(1.06, changed_inputs=("h11-many",), h11=True, user_only=True)
+        self.assertNotEqual(status, 0, output)
+        self.assertIn("| h11-many | 1.0420 | 5.00% | within the noise |", output)
+        self.assertIn("| h11-many | 1.0600 | 5.00% | loses |", output)
+
+    def test_only_the_h11_block_has_a_table_by_user_instructions(self):
+        status, output = self.report(1.0, h11=True, h3=True)
+        self.assertEqual(status, 0, output)
+        self.assertEqual(output.count("by user_instructions"), 1, output)
+        self.assertLess(output.index("by user_instructions"), output.index(TEST_HEADINGS[1]), output)
+
+    def test_a_filter_run_has_no_table_by_user_instructions(self):
+        status, output = self.report(1.0, mode="filter", h11=True)
+        self.assertEqual(status, 0, output)
+        self.assertNotIn("by user_instructions", output)
 
     def test_a_protocol_with_no_input_has_no_block(self):
         # The run has the h2 inputs alone.

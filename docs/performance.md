@@ -74,6 +74,19 @@ The shared rule until design §11 states one in numbers: a change stays when it 
 in `bench/run.sh`'s numbers and no input loses past the noise; the losses come first in the report,
 with the request's or frame's size beside every speed.
 
+The owner amended the rule for the h11 inputs on 2026-10-21. wrk's load moves the kernel's
+instructions so much that a change of about 1% in colibri's own code hides in the total. So on
+those inputs a change wins when its user instructions win past their noise in both jobs. No
+input's total instructions may lose past the noise in either job. The report compares both counts
+on the h11 inputs, and a loss by either count fails the run.
+
+Three runs show the case:
+[39549115441](https://github.com/c4milo/colibri/actions/runs/39549115441),
+[39549122678](https://github.com/c4milo/colibri/actions/runs/39549122678) and
+[39549129900](https://github.com/c4milo/colibri/actions/runs/39549129900). Each change saved 747
+to 957 user instructions a connection on h11-one, with spreads of 0.31% or less. The totals'
+spreads on that input were 1.75% to 9.04%, so each total stayed within the noise.
+
 ## The baselines
 
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a
