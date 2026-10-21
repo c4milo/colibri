@@ -10829,6 +10829,36 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Owed before the push.** `tools/ci.sh` on the exact tree, whose TLA+ section now runs the
     two pool configurations, the two mutants and `tools/pool_trace.sh`: about 4 minutes more on
     this laptop.
+- **Step 23 — colibri's own names for HTTP.** [Decision 126](decisions.md) has `server` and
+  `client` name each concept once, the same for h11, h2 and h3, with the word programmers know.
+  The protocol modules keep each RFC's words. Every rename breaks a dependent's build in 0.9.0.
+  - **Names of `server`.** New: `Protocols`, `Timeouts`, `Timeout`, `StreamBytes`, `Header`,
+    `Headers`, `RequestId`, `RequestBody`, `ResponseBody`, `Finished`, `Result` and
+    `ReceiveResult`. They replace `Versions`, `Deadlines`, `Deadline`, `StreamOctets`, `Field`,
+    `Fields`, `Id`, `Body`, `Content`, `Done`, `Cancelled` and `Received`, and `Security` leaves.
+    The events `done` and `cancelled` become `finished`. `Endpoint.set_deadlines` becomes
+    `set_timeouts`, and `accept` takes a `tls` bool.
+  - **Names of `client`.** New: `ConnectionPool`, `ConnectionPoolOf`, `Protocols`, `Header`,
+    `RequestId`, `WantedHeader`, `Result`, `Destination`, `HttpsRecord`, `StreamBytes` and
+    `ReceiveResult`. They replace `Pool`, `PoolOf`, `Versions`, `Field`, `Id`, `Wanted`,
+    `Outcome`, `Values`, `Https`, `StreamOctets` and `Received`, and `Options` leaves.
+    `set_values` becomes `set_destination`, and `memory_bytes` takes the `Config`.
+  - **Fields.** `fields` becomes `headers`, `octets` becomes `bytes`, `deadlines` becomes
+    `timeouts`, `versions` becomes `protocols`, `outcome` becomes `result`, and the client
+    request's `content` becomes `body`.
+  - **Sub-steps.**
+    - 23.1: decision 126, the names in CLAUDE.md, and this text.
+    - 23.2: headers, bodies, bytes, `RequestId` and `ReceiveResult`, which change names alone.
+    - 23.3: `Protocols` and `Timeouts`.
+    - 23.4: the client's `ConnectionPool`, `Destination`, `HttpsRecord`, `WantedHeader` and
+      `Result`.
+    - 23.5: `Options` folds into `Config`.
+    - 23.6: `accept` takes a `tls` bool.
+    - 23.7: the server's `done` and `cancelled` merge into one `finished` event with a `Result`.
+    - 23.8: docs/usage.md, examples/README.md and the notes of 0.9.0.
+  - **Check.** `tools/ci.sh` on the exact tree. Every census keeps its counts and its wire
+    hashes. A trace hash moves only where a label's words changed, and the commit says which.
+  - **Waits.** `CpuFeatures` (ruling 16) waits for its design, which needs stdx.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

@@ -139,10 +139,15 @@ is added to the root and to the list in its test, which prints the name that dif
 
 - Zig 0.16. One library, no binary, plus test-only entry points named in design §9.
 - Names are settled — use them exactly: **h11**, **h2** and **h3** for the protocols (never
-  "HTTP2"), **field section** and **field line**, the terms RFC 9110 §5.2 uses (never "headers" as a
-  noun for the section), **stream** for both h2 streams and QUIC streams with the protocol always
-  named when both are in scope, **provider** for a caller-supplied vtable, **endpoint** for one side
-  of a connection.
+  "HTTP2"), **stream** for both h2 streams and QUIC streams with the protocol always named when
+  both are in scope, **provider** for a caller-supplied vtable, and **endpoint** for one side of
+  connections, as RFC 9000 §1.2 uses it. `server.Endpoint` is a server's endpoint, which takes part
+  in many connections.
+- The `server` and `client` APIs name each HTTP concept once, the same for h11, h2 and h3, with the
+  word programmers know (decision 126): **header** and **headers**, **request body** and
+  **response body**, **bytes**, **timeouts**. The protocol modules, and every comment that cites
+  an RFC, keep that RFC's terms: **field line** and **field section** (RFC 9110 §5.2), **content**
+  and **octets**.
 - Names spell words out. `field_section_size`, not `fss`. No vowel-dropping. Domain vocabulary
   the RFCs use stays as the RFCs spell it (`alpn`, `aead`, `hkdf`, `psk`, `dcid`, `scid`,
   `pto`, `rtt`, `ack`). One-letter names only for loop indices. `_len` always counts bytes.
