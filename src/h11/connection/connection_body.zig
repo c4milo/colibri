@@ -199,15 +199,16 @@ pub fn end(writer: *Writer, output: []u8, trailers: []const http.Field) WriteErr
 }
 
 /// The body a head declares with its own fields: chunked when Transfer-Encoding names it, fixed
-/// when Content-Length gives a length, and `otherwise` when neither does.
-pub fn declared(fields: []const http.Field, otherwise: Writer.Kind) Writer {
+/// when Content-Length gives a length, and `otherwise` when neither does. A server calls it before
+/// it writes the head, so it refuses a Content-Length it cannot read.
+pub fn declared(fields: []const http.Field, otherwise: Writer.Kind) error{FramingInvalid}!Writer {
     for (fields) |line| {
         if (http.field.names_equal(line.name, "Transfer-Encoding")) return .{ .kind = .chunked };
     }
     for (fields) |line| {
         if (!http.field.names_equal(line.name, http.content_length.name)) continue;
-        // The head writers accepted it as 1*DIGIT that fits a u64 (RFC 9110 §8.6).
-        const octets = std.fmt.parseUnsigned(u64, line.value, http.constants.content_length_radix) catch unreachable;
+        // RFC 9110 §8.6: Content-Length = 1*DIGIT, and colibri counts a length a u64 holds.
+        const octets = std.fmt.parseUnsigned(u64, line.value, http.constants.content_length_radix) catch return error.FramingInvalid;
         return .{ .kind = if (octets == 0) .none else .fixed, .remaining = octets };
     }
     return .{ .kind = otherwise };

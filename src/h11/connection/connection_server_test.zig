@@ -271,3 +271,25 @@ test "decision 95: a response body is counted as the head declared it, until the
     _ = try target.write_end(&test_output, &.{});
     try testing.expect(target.should_close());
 }
+
+test "RFC 9110 §8.6: a response's Content-Length that is not 1*DIGIT or that a u64 cannot hold is refused, and changes nothing" {
+    for ([_][]const u8{ "x", "", "1 2", "99999999999999999999999" }) |value| {
+        const target = server();
+        _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+        const refused = [_]Field{.{ .name = "Content-Length", .value = value }};
+        try testing.expectError(error.FramingInvalid, target.write_response(&test_output, 200, "OK", &refused));
+        // A valid answer follows, and the connection stays open.
+        _ = try target.write_response(&test_output, 200, "OK", &.{.{ .name = "Content-Length", .value = "0" }});
+        try testing.expect(!target.should_close());
+    }
+}
+
+test "RFC 9112 §9.6: a refused response head leaves the connection open" {
+    const target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+    // With no framing field the body would run until the close, but the head is refused first.
+    const refused = [_]Field{.{ .name = "bad name", .value = "v" }};
+    try testing.expectError(error.FieldNameInvalid, target.write_response(&test_output, 200, "OK", &refused));
+    _ = try target.write_response(&test_output, 200, "OK", &.{.{ .name = "Content-Length", .value = "0" }});
+    try testing.expect(!target.should_close());
+}

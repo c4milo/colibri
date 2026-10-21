@@ -59,7 +59,8 @@ pub fn write_request(target: *Connection, output: []u8, method: []const u8, targ
     if (names_upgrade(fields)) return error.UpgradeUnsupported;
     const written = try write_head(target, output, method, target_uri, fields);
     push(target, .{ .asked = connection.asked_of(method), .idempotent = connection.is_idempotent(method) });
-    target.writer = connection_body.declared(fields, .none);
+    // write_head refused a Content-Length that is not 1*DIGIT in a u64 (RFC 9110 §8.6).
+    target.writer = connection_body.declared(fields, .none) catch unreachable;
     target.close_sent = connection.fields_ask_close(fields);
     return written;
 }

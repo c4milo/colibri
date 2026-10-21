@@ -93,12 +93,13 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     const code = http.Status.from_code(status) catch return error.StatusInvalid;
     if (code.is_interim()) return message.write_response_head(output, status, reason, fields);
     if (target.asked == .connect) try answer_connect(target, code, fields);
-    const writer = response_body(target, code, fields);
-    // RFC 9112 §6.3 rule 8: a response with no declared length ends with the connection.
-    if (writer.kind == .close_delimited) target.close_after = true;
-    // RFC 9112 §9.6: a server that sends the close option closes after this response.
-    if (connection.fields_ask_close(fields)) target.close_after = true;
-    const written = try write_final_head(target, output, status, reason, fields);
+    const writer = try response_body(target, code, fields);
+    // RFC 9112 §6.3 rule 8: a response with no declared length ends with the connection. RFC 9112
+    // §9.6: a server that sends the close option closes after this response.
+    const close_after = target.close_after or writer.kind == .close_delimited or connection.fields_ask_close(fields);
+    const written = try write_final_head(close_after, output, status, reason, fields);
+    // The head is written, so the response's state changes now and not on a refusal.
+    target.close_after = close_after;
     target.answered = true;
     target.writer = writer;
     if (writer.kind == .tunnel) target.phase = .tunnel;
@@ -131,7 +132,7 @@ fn names_framing(fields: []const Field) bool {
 }
 
 /// How the final response's body is framed (RFC 9112 §6.3 rules 1 and 2, then its own fields).
-fn response_body(target: *const Connection, code: http.Status, fields: []const Field) connection_body.Writer {
+fn response_body(target: *const Connection, code: http.Status, fields: []const Field) error{FramingInvalid}!connection_body.Writer {
     // RFC 9112 §6.3 rule 2 and RFC 9110 §6.4.1: every 2xx to CONNECT makes the connection a
     // tunnel, a 204 too. Rule 1 ends a 204 at the empty line as well, so only the tunnel is new.
     if (target.asked == .connect and code.class() == .successful) return .{ .kind = .tunnel };
@@ -143,8 +144,8 @@ fn response_body(target: *const Connection, code: http.Status, fields: []const F
 
 /// The final head, with `Connection: close` added when the connection closes after it and the
 /// fields do not say so already (RFC 9112 §9.6).
-fn write_final_head(target: *const Connection, output: []u8, status: u16, reason: []const u8, fields: []const Field) connection.SendError!usize {
-    if (!target.close_after or connection.fields_ask_close(fields)) {
+fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []const u8, fields: []const Field) connection.SendError!usize {
+    if (!close_after or connection.fields_ask_close(fields)) {
         return message.write_response_head(output, status, reason, fields);
     }
     var with_close: [core.constants.field_count_max]Field = undefined;
