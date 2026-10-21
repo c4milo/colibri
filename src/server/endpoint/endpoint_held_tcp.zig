@@ -83,13 +83,17 @@ pub fn take_stream(held: *Held, input: StreamOctets, now_ns: u64) event.Received
         return .{ .consumed = 0, .event = endpoint_held_events.ending(input.connection, table, number, .program) };
     }
     if (send_first(held, slot)) |reported| return .{ .consumed = 0, .event = reported };
+    // No octets, and nothing changed the connection since it read nothing at this instant: the
+    // call would read nothing again, and the slot's last poll asked it everything else.
+    if (input.octets.len == 0 and reads_nothing(held, slot, now_ns)) return .{ .consumed = 0, .event = null };
     const connection = &held.tcp[slot];
-    defer endpoint_held.touch(held, slot);
+    endpoint_held.touch(held, slot);
     const received = connection.receive(input.octets, now_ns) catch {
         // The connection reads nothing more, and `ended` says it failed.
         held.failed[slot] = true;
         return dropped;
     };
+    note_read(held, slot, received, now_ns);
     // A read may carry the peer's WINDOW_UPDATE, which gives a waiting response room.
     if (received.consumed > 0 or connection.plain_in_read > 0) held.room[slot] +%= 1;
     const consumed = if (connection_owed.reads_no_input(connection)) input.octets.len else received.consumed;
@@ -123,10 +127,12 @@ pub fn poll(held: *Held, slot: u32, now_ns: u64) ?Event {
 fn connection_event(held: *Held, slot: u32, connection: *Connection, table: *TcpTable, now_ns: u64) ?Event {
     // Bounded: every event ends a request, or reads a frame the plaintext holds.
     for (0..constants.tcp_events_per_poll_max) |_| {
+        if (reads_nothing(held, slot, now_ns)) return null;
         const received = connection.receive(&.{}, now_ns) catch {
             held.failed[slot] = true;
             continue;
         };
+        note_read(held, slot, received, now_ns);
         if (connection.plain_in_read > 0) held.room[slot] +%= 1;
         const reported = received.event orelse return null;
         if (endpoint_held_events.pass(held, slot, table, reported, @This())) |passed| return passed;
@@ -160,6 +166,8 @@ fn transport_event(held: *Held, slot: u32, connection: *Connection) ?Event {
     if (!connection.should_close()) return null;
     held.transports[slot] = .closed_by_endpoint;
     connection_internal.close_transport(connection);
+    // A connection whose transport closed reports each response it wrote whole.
+    held.empty_read_ns[slot] = null;
     return .{ .close = handle };
 }
 
@@ -221,7 +229,26 @@ pub fn takes(held: *Held, slot: u32, entry: *const Entry) bool {
 
 /// Refuses a request the slot's table has no room for.
 pub fn refuse(held: *Held, slot: u32, number: event.Number) void {
+    // The request comes from a read that reported it, so no note says the connection read
+    // nothing, and the cancel changes the connection before any `receive` that note would skip.
+    assert(held.empty_read_ns[slot] == null);
     held.tcp[slot].cancel(number);
+}
+
+/// Whether the connection in `slot` read nothing at `now_ns`, and no call changed it since: a
+/// `receive` with no octets now would read nothing again. Its deadlines fired and were observed at
+/// that instant (decision 110), so the call would change none of them.
+fn reads_nothing(held: *const Held, slot: u32, now_ns: u64) bool {
+    const read_ns = held.empty_read_ns[slot] orelse return false;
+    return read_ns == now_ns;
+}
+
+/// Notes whether the `receive` the connection in `slot` just made read nothing: it took no octet,
+/// reported no event, and its protocol read none of the plaintext the connection holds. A call
+/// that read something may leave more to read, such as h2 frames past `frames_per_receive_max`.
+fn note_read(held: *Held, slot: u32, received: event.Received, now_ns: u64) void {
+    const read_nothing = received.consumed == 0 and received.event == null and held.tcp[slot].plain_in_read == 0;
+    held.empty_read_ns[slot] = if (read_nothing) now_ns else null;
 }
 
 pub fn table_of(held: *Held, slot: u32) *TcpTable {

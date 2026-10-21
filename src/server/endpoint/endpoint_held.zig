@@ -59,6 +59,7 @@ pub const Storage = struct {
     tcp_tables: []TcpTable,
     transports: []Transport,
     send_outstanding: []bool,
+    empty_read_ns: []?u64,
     quic: []QuicConnection,
     pools: []const ReceiveStorage,
     quic_tables: []QuicTable,
@@ -92,6 +93,11 @@ pub const Held = struct {
     tcp_tables: []TcpTable,
     transports: []Transport,
     send_outstanding: []bool,
+    /// For each TCP slot, the instant of its connection's last `receive` when that call took no
+    /// octet, reported nothing and left the protocol nothing read. A `receive` with no octets at
+    /// that instant reads nothing again, so the endpoint does not make it. Null once a call
+    /// changed the connection (`touch`).
+    empty_read_ns: []?u64,
     /// The configurations a TCP connection borrows, and the transports the endpoint serves.
     tcp_configs: *const endpoint_config.TcpConfigs,
     served: endpoint_config.Served,
@@ -115,11 +121,14 @@ pub const Held = struct {
         assert(storage.tcp.len == storage.tcp_tables.len and storage.tcp.len == storage.transports.len);
         assert(storage.quic.len == storage.quic_tables.len and storage.tcp.len == storage.send_outstanding.len);
         assert(storage.generations.len == storage.failed.len and storage.failed.len == storage.room.len);
+        assert(storage.tcp.len == storage.empty_read_ns.len);
         held.slots.init(storage.generations, storage.live, storage.free, @intCast(storage.tcp.len));
         held.tcp = storage.tcp;
         held.tcp_tables = storage.tcp_tables;
         held.transports = storage.transports;
         held.send_outstanding = storage.send_outstanding;
+        held.empty_read_ns = storage.empty_read_ns;
+        @memset(storage.empty_read_ns, null);
         held.tcp_configs = built.tcp;
         held.served = built.served;
         const quic_config = built.quic;
@@ -378,10 +387,11 @@ pub const Held = struct {
 };
 
 /// Notes that a call changed `slot`: it may owe the program an event, it may owe a datagram,
-/// and its deadline may have moved.
+/// and its deadline may have moved. A TCP connection's `receive` may read something again.
 pub fn touch(held: *Held, slot: u32) void {
     held.ready.touch(slot);
     changed(held, slot);
+    if (held.slots.kind_of(slot) == .tcp) held.empty_read_ns[slot] = null;
 }
 
 /// Notes that the connection in `slot` may owe octets, and that its deadline may have moved. A

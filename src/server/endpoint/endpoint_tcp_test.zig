@@ -99,6 +99,21 @@ test "decision 119: one endpoint holds a cleartext slot and a TLS slot, each rea
     try testing.expectEqualStrings("localhost", endpoint.server_name(secure).?);
 }
 
+test "decision 110: a read with no octets at a later instant asks the connection again" {
+    try support.start(null, .{});
+    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    // Half a head: the connection reads nothing of it at this instant, so a read with no octets
+    // at this instant is not made.
+    const half = get_h11[0.."GET / HT".len];
+    try testing.expectEqual(half.len, support.give(handle, half));
+    try testing.expectEqual(@as(?u64, support.now_ns), endpoint.held.empty_read_ns[handle.slot]);
+    // The head deadline passes, and the program passes no octets and calls no `on_instant`. The
+    // read at the new instant fires the deadline, and the connection answers 408.
+    support.instant_ns = support.now_ns + server_constants.head_timeout_ns;
+    _ = support.give(handle, "");
+    try testing.expect(std.mem.startsWith(u8, support.sent_of(handle.slot), "HTTP/1.1 408"));
+}
+
 test "decision 119: the handle of a connection that ended names nothing once its slot is reused" {
     try support.start(null, .{});
     const first = endpoint.accept(.cleartext, support.now_ns).?;
