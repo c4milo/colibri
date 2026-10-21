@@ -342,6 +342,8 @@ test "decision 110: a shutdown whose requests finish in time closes without a de
     try answer_at(received, early_ns + 2);
     try testing.expect(connection.should_close());
     try testing.expectEqual(null, connection.close_reason());
+    // Decision 110: the response is out, so no linger runs.
+    try testing.expectEqual(null, connection.deadline_ns());
     try support.start_cleartext(.h11);
     try connection.set_deadlines(.{ .drain_ns = null });
     _ = try receive_at(whole_request, early_ns);

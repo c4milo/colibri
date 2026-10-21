@@ -129,9 +129,14 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     // Decision 110: the drain runs from the first call that sees the shutdown.
     if (connection.shutting_down and clock.drain_since_ns == null) clock.drain_since_ns = now_ns;
     // Decision 110: every close is bounded, from the instant the connection ended with octets
-    // still to send.
-    const ended = connection.stopped or connection.phase == .closed or connection_close.finished(connection);
-    if (clock.linger_since_ns == null and ended and connection.output_len > 0) clock.linger_since_ns = now_ns;
+    // still to send. The two reads come first: `ended` reads the protocol, and most calls have
+    // nothing to send.
+    if (clock.linger_since_ns == null and connection.output_len > 0 and ended(connection)) clock.linger_since_ns = now_ns;
+}
+
+/// Whether the connection has ended: stopped, closed, or finished with what it had to say.
+fn ended(connection: *const Connection) bool {
+    return connection.stopped or connection.phase == .closed or connection_close.finished(connection);
 }
 
 /// The soonest instant a deadline passes, or null when none runs.

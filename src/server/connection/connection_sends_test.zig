@@ -98,6 +98,23 @@ test "decision 110: a connection a deadline ended closes at its linger when the 
     try testing.expect(connection.should_close());
 }
 
+test "decision 110: a connection that finished with no deadline closes at its linger when the peer takes nothing" {
+    // RFC 9112 §9.6: the server closes after the response to a request with "close".
+    try support.start_cleartext(.h11);
+    const id = (try receive_at(closing_request, early_ns)).event.?.request.id.number;
+    try connection.respond(id, .{ .status = ok_status, .end = true });
+    // The response is whole, and the peer's socket takes nothing of it.
+    try testing.expectEqual(0, take(0, early_ns));
+    try testing.expectEqual(early_ns + linger_ns, connection.deadline_ns().?);
+    connection.on_instant(early_ns + linger_ns - 1);
+    try testing.expect(!connection.should_close());
+    connection.on_instant(early_ns + linger_ns);
+    try testing.expect(connection.should_close());
+    try testing.expectEqual(null, connection.close_reason());
+}
+
+const closing_request = "GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n";
+
 test "decision 110: with no send rate and no linger, a connection waits on its peer" {
     try support.start_cleartext(.h11);
     try connection.set_deadlines(.{ .send_rate_min = null, .linger_ns = null });
