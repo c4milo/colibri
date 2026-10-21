@@ -5,11 +5,18 @@ const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 
 const Connection = connection_module.Connection;
+const Number = connection_module.Number;
 
 /// Writes the 100 (Continue) owed, and returns whether none is owed any more. A request the
 /// caller answered with a final response, or cancelled, needs none, and the protocol refuses one.
-pub fn write(connection: *Connection) bool {
+/// The test for a 100 owed is inline, so a call that owes none costs no frame of its own.
+pub inline fn write(connection: *Connection) bool {
     const id = connection.continue_owed orelse return true;
+    return write_owed_continue(connection, id);
+}
+
+/// `write` when a 100 is owed for request `id`.
+fn write_owed_continue(connection: *Connection, id: Number) bool {
     if (connection.phase != .open or connection.stopped) {
         connection.continue_owed = null;
         return true;
