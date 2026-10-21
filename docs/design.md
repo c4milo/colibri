@@ -7023,6 +7023,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   connection. There the server's user instructions fell by 930 in the first job and by 951 in the
   second. On h11-many they fell by 930 and by 1,175 a request, with spreads of 3.9 to 5.2%.
 
+  **`write_final_head` leaves `with_close` unfilled, 2026-10-20.** h11 adds `close_field` to the
+  last final response on a connection when the caller's fields do not carry the close option (RFC
+  9112 §9.6). `write_final_head` copied the fields into `with_close`, an array of
+  `field_count_max` fields, 4,096 octets. ReleaseSafe filled the array with 0xAA before the copy.
+  wrk sends `Connection: close` in each request of h11-one and h11-tls-one. So each connection of
+  those inputs paid for the fill once.
+
+  The owner ruled on 2026-10-20 for the method of the record above. h11's `unfilled_lines`
+  returns `undefined` under `@setRuntimeSafety(false)`, and holds nothing else. The array is the
+  result of the call, so `write_final_head` keeps every other safety check. A new function,
+  `write_head_with_close`, copies the fields and `close_field` into the array. It gives the head
+  writer those lines and no other.
+
+  The estimate comes from a probe compiled with `zig build-obj -O ReleaseSafe -target
+  aarch64-linux-gnu -mcpu=neoverse_n2 -femit-asm`. The plain declaration calls `memset` with 0xAA
+  and 4,096 octets. The call to `unfilled_lines` has no `memset` and no copy of the array. In the
+  probe, the loop of `src/testing/memset.zig` has 8 instructions for each 32 octets. That gives
+  about 1,040 for the fill. The judge measured about 7 for each 32 octets in the h2 records, which
+  gives about 900.
+
+  So h11-one saves 900 to 1,040 instructions a connection. That is 0.9% to 1.1% of the 97,809 the
+  judge measured in the record above. h11-tls-one saves the same count, about 0.05% of what it
+  costs. No other input adds the close option. The record above removed a fill of the same size
+  on h11-one, and the judge found that change within the noise there.
+
+  What each check printed:
+  - A new test in h11's `connection_server_test.zig` fills an array four ways: zeros, ones, 0xAA
+    and another pattern. It gives each array to `write_head_with_close` with two fields. It
+    requires the same head each time: the two lines of the caller, then `Connection: close`.
+  - A second new test gives `write_head_with_close` `field_count_max` lines, which leave no room
+    for `close_field`, and requires `TooManyFields` (RFC 9110 §5.4). With one line fewer, that
+    limit does not refuse the head.
+  - The h11 tests, built for x86_64 in Debug, passed 129 of 129 in an amd64 container.
+  - 5 mutations, each **CAUGHT** by the new tests or by tests that already existed:
+    - `write_head_with_close` does not copy `close_field`;
+    - it gives the head writer one line past those it wrote;
+    - it does not copy the lines of the caller;
+    - its limit lets `field_count_max` lines through;
+    - its limit refuses a head one line early.
+  - 1 mutation **NOT CAUGHT**: the array filled as before, which is the old code.
+
+  The judge: owed.
+
   **`Scanner.scan` keeps its fields in locals, 2026-10-20.** Callgrind counted the server's
   instructions per source line under h11-many's load, in a Linux container on the laptop. The
   counts only put the costs in order. Of the costs of `read_request`, the scan of the head came
