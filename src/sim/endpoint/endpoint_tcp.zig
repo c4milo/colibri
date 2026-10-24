@@ -175,7 +175,7 @@ pub const Peers = struct {
         if (!Peer.played_by_client(plan)) return peer.hostile.start(&plan.behaviour);
         const config = &peers.configs[@intFromEnum(way_of(plan))];
         // TCP alone: the pool is given no receive pool, so it offers no QUIC.
-        peer.client.init(&peer.client_memory, config, .{ .addresses = &peers.addresses, .port = endpoint_port }, .{}, null) catch return error.PeerFailed;
+        peer.client.init(&peer.client_memory, config, .{ .addresses = &peers.addresses, .port = endpoint_port }, null) catch return error.PeerFailed;
         // Generation 0 names no connection until the pool's `open`.
         peer.connection = .{ .slot = 0, .generation = 0 };
         const behaviour = &plan.behaviour;

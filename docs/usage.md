@@ -711,15 +711,16 @@ The program keeps the request and the response in place, with each slice they na
 exchange's `finished` event or until `cancel` returns.
 
 A program places the pool and the memory it holds its TCP connections and its exchanges in
-([decision 125](decisions.md)). `client.Options` counts them: `tcp_connections`, 1 by default,
-and `requests`, 16 by default. `ConnectionPool.memory_bytes(options)` gives the octets those counts need.
+([decision 125](decisions.md)). The pool's `client.Config` counts them: `tcp_connections`, 1 by
+default, and `requests`, 16 by default. `ConnectionPool.memory_bytes(.{ .tcp_connections = n,
+.requests = m })` gives the bytes those counts need, with the defaults for a count left out.
 It is pure, so a program sizes a static array with it, as here, or maps that many octets at run
 time:
 
 ```zig
 var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
 // The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
-// `client.Options` give (decision 125).
+// `client.Config` give (decision 125).
 var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 ```
 
@@ -739,7 +740,7 @@ const known: client.Destination = .{ .addresses = &server_addresses, .port = ser
 // `init` builds the TLS configuration of each transport inside the pool, which stays in
 // place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
 // which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
-try pool.init(&pool_memory, &client_config, known, .{}, receive_pool.storage());
+try pool.init(&pool_memory, &client_config, known, receive_pool.storage());
 // `request` only takes a request and its response. The pool asks for a transport, and
 // sends the request over the first connection that completes its handshake, so a program asks
 // at once and never waits.
@@ -861,7 +862,7 @@ fn drain(now_ns: u64) !void {
 }
 ```
 
-A pool holds more than one TCP connection when `client.Options.tcp_connections` says so
+A pool holds more than one TCP connection when `client.Config.tcp_connections` says so
 ([decision 125](decisions.md)). h11 carries one exchange at a time on a connection. So a pool of
 h11 connections opens another connection when an exchange waits and no open connection has room
 for it. It opens no second h2 connection, as RFC 9113 §9.1 asks. The pool example
@@ -869,9 +870,14 @@ for it. It opens no second h2 connection, as RFC 9113 §9.1 asks. The pool examp
 
 ```zig
 const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
-const options: client.Options = .{ .tcp_connections = link_module.streams_max };
+const tcp_connections: u16 = link_module.streams_max;
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
-var pool_memory: [ConnectionPool.memory_bytes(options)]u8 align(ConnectionPool.memory_alignment) = undefined;
+var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;
+var client_config: client.Config align(@alignOf(client.Config)) = .{
+    .authority = origin,
+    .protocols = .{ .h2 = false, .h3 = false },
+    .tcp_connections = tcp_connections,
+};
 ```
 
 Each connection is a socket of its own. The handle of each `open` names the connection's slot,
@@ -930,8 +936,8 @@ amended by [decision 125](decisions.md)):
   `receive` takes some while `send_stream` has written what the connection owes. The pool takes
   an h11 head, an h2 frame and a TLS record whole, and this is the largest of them.
 - `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
-- `ConnectionPool.receive_events_without_input_max(options)`: the most `receive` calls in a row that report
-  an event and take no octet, for a pool of those counts.
+- `ConnectionPool.receive_events_without_input_max(counts)`: the most `receive` calls in a row that
+  report an event and take no byte, for a pool of those counts.
 
 The example bounds each read of the socket with them:
 
@@ -1073,7 +1079,7 @@ fn connect_refused() !void {
     // The pools to one origin share its configuration. With no receive pool this one offers
     // TCP alone.
     const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
-    try refused_pool.init(&refused_memory, &client_config, known, .{}, null);
+    try refused_pool.init(&refused_memory, &client_config, known, null);
     _ = try refused_pool.request(&refused_get, &refused_get_response);
     for (0..receive_calls_max) |_| {
         const received = refused_pool.receive(.none, now_ns);

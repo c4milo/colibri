@@ -118,7 +118,7 @@ var client_config: client.Config align(@alignOf(client.Config)) = undefined;
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
 var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
 // The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
-// `client.Options` give (decision 125).
+// `client.Config` give (decision 125).
 var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 /// The fields of the response the client reads. colibri keeps no other field.
 var wanted: [1]client.WantedHeader align(@alignOf(client.WantedHeader)) = .{.{ .name = "content-type" }};
@@ -213,7 +213,7 @@ fn start_client(cpu: tls.Cpu) !void {
     // `init` builds the TLS configuration of each transport inside the pool, which stays in
     // place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
     // which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
-    try pool.init(&pool_memory, &client_config, known, .{}, receive_pool.storage());
+    try pool.init(&pool_memory, &client_config, known, receive_pool.storage());
     // `request` only takes a request and its response. The pool asks for a transport, and
     // sends the request over the first connection that completes its handshake, so a program asks
     // at once and never waits.
@@ -375,7 +375,7 @@ fn connect_refused() !void {
     // The pools to one origin share its configuration. With no receive pool this one offers
     // TCP alone.
     const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
-    try refused_pool.init(&refused_memory, &client_config, known, .{}, null);
+    try refused_pool.init(&refused_memory, &client_config, known, null);
     _ = try refused_pool.request(&refused_get, &refused_get_response);
     for (0..receive_calls_max) |_| {
         const received = refused_pool.receive(.none, now_ns);

@@ -15,11 +15,11 @@ const h3 = @import("h3");
 /// flight, or finished and not yet reported. A request past them is refused until one is reported.
 pub const requests_max: u32 = 16;
 
-/// TCP connections one pool holds at most (decision 125). `Options.tcp_connections` is at least 1
+/// TCP connections one pool holds at most (decision 125). `Config.tcp_connections` is at least 1
 /// and at most this, and it bounds each loop over a pool's TCP connections.
 pub const pool_tcp_connections_max: u16 = 64;
 
-/// Requests one pool holds at once at most (decision 125). `Options.requests` is at least 1 and
+/// Requests one pool holds at once at most (decision 125). `Config.requests` is at least 1 and
 /// at most this, and it bounds each loop over a pool's table of exchanges.
 pub const pool_requests_max: u16 = 1024;
 

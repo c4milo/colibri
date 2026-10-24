@@ -184,7 +184,7 @@ fn Tests(comptime Pool: type) type {
         fn start_with(versions: protocols_module.Protocols, server_protocols: []const []const u8, server_name: []const u8, exchange: *Exchange) !pool_module.RequestId {
             try tls_support.prepare_server(server_protocols, false);
             config = .{ .tls = tls_support.client_values(server_name), .protocols = pool_support.versions_for(&pool, versions), .authority = support.authority };
-            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, null);
             try tls_support.start_server();
             events_len = 0;
             const id = try pool.request(&exchange.request, &exchange.response);

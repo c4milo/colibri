@@ -25,6 +25,12 @@ pub const Config = struct {
     /// The HTTP versions the client speaks (decision 117). A TCP connection speaks h11 or h2, and
     /// a QUIC connection h3 alone (RFC 9114 §3.1).
     protocols: protocols_module.Protocols = .{},
+    /// TCP connections the pool holds at most: from 1 to `constants.pool_tcp_connections_max`
+    /// (decision 125). `memory_bytes` sizes the memory they take.
+    tcp_connections: u16 = 1,
+    /// Requests the pool holds at once, each until its `finished` event: from 1 to
+    /// `constants.pool_requests_max`.
+    requests: u16 = constants.requests_max,
     /// The authority every request names: `:authority` in h2 and h3 (RFC 9113 §8.3.1, RFC 9114
     /// §4.3.1) and Host in h11 (RFC 9112 §3.2).
     authority: []const u8,

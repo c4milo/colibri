@@ -216,7 +216,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     const octets: [ipv4_len]u8 = @splat(address_octet);
     storage.addresses = .{client.Address.of(&octets, 0)};
     // No receive pool, so the pool offers TCP alone.
-    try storage.pool.init(&storage.pool_memory, &storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, .{}, null);
+    try storage.pool.init(&storage.pool_memory, &storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
     for (storage.requests[0..plan.requests_count], storage.responses[0..plan.requests_count], 0..) |*message, *response, index| {
         message.* = .{ .method = "GET", .path = "/" };
         response.* = .{ .body = &storage.bodies[index] };

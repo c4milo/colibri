@@ -110,14 +110,19 @@ pub const World = struct {
         world.plan.draw(&world.random);
         // Decision 125: h11 alone, so each TCP connection holds one exchange at a time.
         world.endpoint_config = .{ .protocols = .{ .h2 = false } };
-        world.client_config = .{ .authority = "pool.test", .protocols = .{ .h2 = false, .h3 = false } };
+        world.client_config = .{
+            .authority = "pool.test",
+            .protocols = .{ .h2 = false, .h3 = false },
+            .tcp_connections = @intCast(world.plan.slots),
+            .requests = @intCast(world.plan.requests),
+        };
         try world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.random, fill), 0, now_ns);
         const octets: [ipv4_len]u8 = @splat(address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};
-        const options: client.Options = .{ .tcp_connections = @intCast(world.plan.slots), .requests = @intCast(world.plan.requests) };
-        // Decision 125 ruling 2: the pool takes the memory its options need, and no more.
-        const memory = world.pool_memory[0..ConnectionPool.memory_bytes(options)];
-        try world.pool.init(memory, &world.client_config, .{ .addresses = &world.addresses, .port = http_port }, options, null);
+        // Decision 125 ruling 2: the pool takes the memory its counts need, and no more.
+        const bytes = ConnectionPool.memory_bytes(.{ .tcp_connections = world.client_config.tcp_connections, .requests = world.client_config.requests });
+        const memory = world.pool_memory[0..bytes];
+        try world.pool.init(memory, &world.client_config, .{ .addresses = &world.addresses, .port = http_port }, null);
         world.sockets = @splat(.{});
         world.ids = @splat(null);
         world.cancelled = @splat(false);

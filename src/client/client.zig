@@ -55,8 +55,6 @@ pub const ConnectionPool = files.pool.ConnectionPool;
 /// which holds no QUIC state.
 pub const ConnectionPoolOf = files.pool.ConnectionPoolOf;
 pub const Capacity = files.pool.Capacity;
-/// The counts a pool holds, set at run time, and which `ConnectionPool.memory_bytes` sizes (decision 125).
-pub const Options = files.pool.Options;
 /// What DNS knows of the origin, which `ConnectionPool.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a pool learned from Alt-Svc.
 pub const Destination = files.pool.Destination;
@@ -121,18 +119,18 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126). Step 23.3 renames `Versions`
     // to `Protocols`, and 23.4 renames `Pool`, `PoolOf`, `Values`, `Https`, `Wanted` and `Outcome`
     // to `ConnectionPool`, `ConnectionPoolOf`, `Destination`, `HttpsRecord`, `WantedHeader` and
-    // `Result`.
+    // `Result`. 23.5 folds `Options` into `Config`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",       "Config",         "Protocols",         "StartError",         "RequestError",
-        "Header",          "RequestId",      "Protocol",          "Request",            "Response",
-        "WantedHeader",    "Result",         "Finished",          "Sent",               "Address",
-        "Ecn",             "ConnectionPool", "ConnectionPoolOf",  "Capacity",           "Options",
-        "Destination",     "HttpsRecord",    "Alternative",       "Input",              "StreamBytes",
-        "Datagram",        "ReceiveResult",  "Event",             "Open",               "ConnectionHandle",
-        "Connected",       "Transport",      "Phase",             "ReceivePool",        "DefaultReceivePool",
-        "ReceiveStorage",  "Coding",         "DecoderPool",       "DefaultDecoderPool", "Decoders",
-        "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",     "Config",            "Protocols",          "StartError",         "RequestError",
+        "Header",        "RequestId",         "Protocol",           "Request",            "Response",
+        "WantedHeader",  "Result",            "Finished",           "Sent",               "Address",
+        "Ecn",           "ConnectionPool",    "ConnectionPoolOf",   "Capacity",           "Destination",
+        "HttpsRecord",   "Alternative",       "Input",              "StreamBytes",        "Datagram",
+        "ReceiveResult", "Event",             "Open",               "ConnectionHandle",   "Connected",
+        "Transport",     "Phase",             "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",
+        "Coding",        "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool",
+        "ZstdDecoders",  "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 

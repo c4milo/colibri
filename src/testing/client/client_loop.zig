@@ -159,21 +159,21 @@ fn start_connection(connection: *Connection, index: usize, run: *const Run) void
     for (connection.sockets, index * slots..) |*socket, socket_index| socket.init(@as(u64, socket_index) << kind_bits);
     const plans = run.plans[0..run.plans_count];
     const address = client.Address.of(&run.address, 0);
-    const options = client_options.pool_options(run);
-    connection.session.init(memory_of(index, options), options, &pool_config, address, run.port, entropy.random(), run.now_seconds, plans, &bodies[index]) catch {
+    connection.session.init(memory_of(index, &pool_config), &pool_config, address, run.port, entropy.random(), run.now_seconds, plans, &bodies[index]) catch {
         connection.failure = .refused_start;
         return;
     };
     step_session(connection);
 }
 
-/// The slice of `pool_memory` that pool `index` of a run of `options` holds.
-fn memory_of(index: usize, options: client.Options) []align(client.ConnectionPool.memory_alignment) u8 {
-    const len = std.mem.alignForward(usize, client.ConnectionPool.memory_bytes(options), client.ConnectionPool.memory_alignment);
+/// The slice of `pool_memory` that pool `index` of a run whose pools take `config` holds.
+fn memory_of(index: usize, config: *const client.Config) []align(client.ConnectionPool.memory_alignment) u8 {
+    const bytes = client.ConnectionPool.memory_bytes(.{ .tcp_connections = config.tcp_connections, .requests = config.requests });
+    const len = std.mem.alignForward(usize, bytes, client.ConnectionPool.memory_alignment);
     // `client_options.slots_ok` admits no run whose pools need more.
     assert((index + 1) * len <= pool_memory.len);
-    // Decision 125 ruling 2: the pool takes the memory its options need, and no more.
-    return @alignCast(pool_memory[index * len ..][0..client.ConnectionPool.memory_bytes(options)]);
+    // Decision 125 ruling 2: the pool takes the memory its counts need, and no more.
+    return @alignCast(pool_memory[index * len ..][0..bytes]);
 }
 
 fn on_event(live: []Connection, event: rotor.Event) void {
@@ -295,7 +295,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     };
     client_exchange.fill_content();
-    pool_config = .{ .authority = run.authority, .protocols = versions_of(&run) };
+    pool_config = .{ .authority = run.authority, .protocols = versions_of(&run), .tcp_connections = client_options.pool_tcp_connections(&run) };
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
         const features = h11.coding.Features.detect();
@@ -375,7 +375,7 @@ fn test_connection() !*Connection {
     connection.sockets = sockets[0..1];
     connection.sockets[0].init(0);
     const address = client.Address.of(&test_octets, 0);
-    try connection.session.init(memory_of(0, .{}), .{}, &pool_config, address, constants.default_port, entropy.random(), 0, &test_plan, &bodies[0]);
+    try connection.session.init(memory_of(0, &pool_config), &pool_config, address, constants.default_port, entropy.random(), 0, &test_plan, &bodies[0]);
     var none: [0]u8 = .{};
     _ = connection.session.step(null, &none, &none);
     try testing.expect(connection.session.take_asked(0).open != null);

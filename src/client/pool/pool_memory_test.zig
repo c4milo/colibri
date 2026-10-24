@@ -16,10 +16,10 @@ const Connection = connection_module.Connection;
 
 /// A pool of fewer requests than one connection holds, so a request past them is refused.
 const few_requests: u16 = 8;
-const few: pool_module.Options = .{ .requests = few_requests };
+const few: pool_module.Counts = .{ .requests = few_requests };
 /// A pool of several TCP connections, and of fewer requests.
 const counted_tcp: u16 = 3;
-const counted: pool_module.Options = .{ .tcp_connections = counted_tcp, .requests = few_requests };
+const counted: pool_module.Counts = .{ .tcp_connections = counted_tcp, .requests = few_requests };
 
 /// The pool the tests drive, its memory and its configuration, outside any stack frame.
 /// Test-only.
@@ -50,8 +50,8 @@ test "decision 125: memory_bytes counts each TCP connection and each exchange, a
 }
 
 test "decision 125: init keeps the TCP connection and the exchanges in the caller's memory" {
-    config = .{ .authority = support.authority, .protocols = .{ .h3 = false } };
-    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, few, null);
+    config = .{ .authority = support.authority, .protocols = .{ .h3 = false }, .requests = few.requests };
+    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
     const first = @intFromPtr(&pool_memory);
     const end = first + pool_memory.len;
     try testing.expectEqual(1, pool.tcp.len);

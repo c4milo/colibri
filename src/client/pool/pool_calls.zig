@@ -32,14 +32,14 @@ const Event = pool_module.Event;
 const Entry = pool_module.Entry;
 const Link = pool_module.Link;
 const Phase = pool_module.Phase;
-const Options = pool_module.Options;
 const ConnectionHandle = pool_module.ConnectionHandle;
 
-pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Destination, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
+pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Destination, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
-    // Decision 125 ruling 2: memory of another length than the options need is a programmer
+    const counts: pool_module.Counts = .{ .tcp_connections = config.tcp_connections, .requests = config.requests };
+    // Decision 125 ruling 2: memory of another length than the counts need is a programmer
     // error.
-    const layout = pool_module.Layout.of(options);
+    const layout = pool_module.Layout.of(counts);
     assert(memory.len == layout.len);
     // Decision 124: a pool with no QUIC takes no receive pool.
     assert(pool.capacity.quic or receive_pool == null);
@@ -52,12 +52,12 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     if (pool.capacity.quic) pool.receive_pool = receive_pool;
     pool.config = config;
     pool.values = values;
-    pool.options = options;
+    pool.counts = counts;
     pool.tcp = std.mem.bytesAsSlice(connection_module.Connection, memory[0..layout.tcp_len]);
     pool.tcp_links = @alignCast(std.mem.bytesAsSlice(Link, memory[layout.links_offset..layout.entries_offset]));
     pool.entries = @alignCast(std.mem.bytesAsSlice(Entry, memory[layout.entries_offset..layout.len]));
-    assert(pool.tcp.len == options.tcp_connections and pool.tcp_links.len == options.tcp_connections);
-    assert(pool.entries.len == options.requests);
+    assert(pool.tcp.len == counts.tcp_connections and pool.tcp_links.len == counts.tcp_connections);
+    assert(pool.entries.len == counts.requests);
     @memset(pool.tcp_links, .{});
     @memset(pool.entries, .{});
     pool.quic_link = .{};

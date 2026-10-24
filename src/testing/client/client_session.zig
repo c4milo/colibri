@@ -55,7 +55,7 @@ pub const Bodies = [constants.requests_max][constants.response_content_len_max]u
 /// `init`: the TLS configuration it built points into it.
 pub const Session = struct {
     pool: client.ConnectionPool,
-    /// The TCP slots the pool holds, which `init` takes in its options.
+    /// The TCP slots the pool holds, which `init` takes from its `Config`.
     slots: u32,
     /// Each slot's connection, as the pool's last `open` for the slot named it (decision 125).
     /// Generation 0 names none.
@@ -79,13 +79,12 @@ pub const Session = struct {
     protocol: ?client.Protocol,
     opens: u32,
 
-    /// Makes a pool of `options` in `memory` that has opened nothing, with every exchange of
+    /// Makes a pool of `config` in `memory` that has opened nothing, with every exchange of
     /// `plans` requested, to the server at `address`, whose port is 0, and `port`. `memory`,
     /// `config`, `plans` and `bodies` must outlive the session.
     pub fn init(
         session: *Session,
         memory: []align(client.ConnectionPool.memory_alignment) u8,
-        options: client.Options,
         config: *const client.Config,
         address: client.Address,
         port: u16,
@@ -96,11 +95,11 @@ pub const Session = struct {
     ) !void {
         assert(plans.len > 0 and plans.len <= constants.requests_max);
         assert(address.port == 0);
-        assert(options.tcp_connections > 0 and options.tcp_connections <= slots_max);
+        assert(config.tcp_connections > 0 and config.tcp_connections <= slots_max);
         session.requests_count = 0;
         session.addresses = .{address};
-        try session.pool.init(memory, config, .{ .addresses = &session.addresses, .port = port }, options, null);
-        session.slots = options.tcp_connections;
+        try session.pool.init(memory, config, .{ .addresses = &session.addresses, .port = port }, null);
+        session.slots = config.tcp_connections;
         session.random = random;
         session.now_seconds = now_seconds;
         session.now_ns = 0;
@@ -315,7 +314,7 @@ test "h2: every exchange of the plan shares the connection, and content past the
     test_config = .{ .authority = "localhost", .protocols = .{ .h11 = false } };
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
     const content_len = 3 * 65_535;
-    try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
+    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "POST", .path = "/upload", .content_len = content_len },
     }, &test_bodies);
@@ -337,7 +336,7 @@ test "h11: the exchanges go out in order, and the connection ends after the last
     // Decision 117: the server names no version and reads h11 from the client's first octets.
     try test_start_server();
     test_config = .{ .authority = "localhost", .protocols = .{ .h2 = false } };
-    try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
+    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "GET", .path = "/index.html", .content_len = 0 },
     }, &test_bodies);
@@ -358,7 +357,7 @@ const test_short_response = "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx";
 test "decision 119: one step reads every pipelined h11 response the socket holds" {
     client_exchange.fill_content();
     test_config = .{ .authority = "localhost", .protocols = .{ .h2 = false } };
-    try test_client.init(&test_memory, .{}, &test_config, test_address, constants.default_port, entropy.random(), 0, &(.{test_get} ** test_pipelined), &test_bodies);
+    try test_client.init(&test_memory, &test_config, test_address, constants.default_port, entropy.random(), 0, &(.{test_get} ** test_pipelined), &test_bodies);
     // The pool asks for its socket, which connects at once, and its connection writes the
     // requests.
     _ = test_client.step(0, test_to_client[0..0], &test_to_server);

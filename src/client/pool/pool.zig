@@ -179,7 +179,7 @@ pub const Capacity = struct {
     quic: bool = true,
 };
 
-pub const Options = pool_state.Options;
+pub const Counts = pool_state.Counts;
 pub const Layout = pool_state.Layout;
 /// The alignment of the memory a pool's `init` takes. Each pool type names it `memory_alignment`.
 pub const pool_memory_alignment = pool_state.memory_alignment;
@@ -210,9 +210,10 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
         tcp_config: connection_module.Config,
         quic_config: QuicField(capacity, quic_connection.Config),
         quic: QuicField(capacity, quic_connection.QuicConnection),
-        /// The counts `init` took, and the parts of the caller's memory that hold the TCP
-        /// connections, the link of each TCP slot and the table of exchanges (decision 125).
-        options: Options,
+        /// The counts of the configuration `init` took, and the parts of the caller's memory that
+        /// hold the TCP connections, the link of each TCP slot and the table of exchanges (decision
+        /// 125).
+        counts: Counts,
         tcp: []connection_module.Connection,
         tcp_links: []Link,
         entries: []Entry,
@@ -239,14 +240,16 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
         /// The alignment of the memory `init` takes (decision 35 as amended).
         pub const memory_alignment = pool_memory_alignment;
 
-        /// The octets of memory `init` takes for `options` (decision 125). The function is pure,
-        /// so a program calls it at comptime to size a static array, or at run time.
-        pub fn memory_bytes(options: Options) usize {
-            return Layout.of(options).len;
+        /// The bytes of memory `init` takes for the counts of a `Config` (decisions 125 and 126):
+        /// `memory_bytes(.{ .tcp_connections = 4, .requests = 16 })`, with `Config`'s defaults for
+        /// a count left out. The function is pure, so a program calls it at comptime to size a
+        /// static array, or at run time.
+        pub fn memory_bytes(counts: Counts) usize {
+            return Layout.of(counts).len;
         }
 
-        /// The most `receive` calls in a row that report an event and take no octet, for a pool
-        /// of `options` (decision 124 as amended by decision 125). The next call with the same
+        /// The most `receive` calls in a row that report an event and take no byte, for a pool
+        /// of `counts` (decision 124 as amended by decision 125). The next call with the same
         /// input reports no event. The bound holds while the program does only this between the
         /// calls:
         /// - it starts the transport an `open` names, or calls `transport_closed` in place of the
@@ -255,13 +258,13 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
         /// - it calls `shutdown`.
         /// A call that takes octets, a `transport_closed` after the start, and any other call of
         /// the program, start a new count.
-        pub fn receive_events_without_input_max(options: Options) usize {
-            return pool_state.events_without_input_max(options, capacity.quic);
+        pub fn receive_events_without_input_max(counts: Counts) usize {
+            return pool_state.events_without_input_max(counts, capacity.quic);
         }
 
         /// Prepares a pool with nothing opened, and builds the TLS configurations of the
         /// transports it offers, so the pool stays in place from here on. `memory` holds exactly
-        /// `memory_bytes(options)` octets, and the pool keeps its TCP connections and its table
+        /// `memory_bytes` of `config`'s counts, and the pool keeps its TCP connections and its table
         /// of exchanges there until the program stops using the pool (decision 35 as amended).
         /// `receive_pool` is the receive pool its QUIC connections use in turn, or null for a
         /// pool that opens no QUIC. A pool with no QUIC takes null. `error.NoVersion` says the
@@ -270,8 +273,8 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
         /// configuration holds. A program may call `init` again on a pool with no open transport
         /// and no exchange, for example with new addresses. The ids then count from 1 again, and
         /// the handles count again too, so the program keeps no id and no handle from before.
-        pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, values: Destination, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
-            return pool_calls.init(pool, memory, config, values, options, receive_pool);
+        pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, destination: Destination, receive_pool: ?ReceiveStorage) StartError!void {
+            return pool_calls.init(pool, memory, config, destination, receive_pool);
         }
 
         /// Gives the pool new values, for example the addresses of a later DNS answer, while

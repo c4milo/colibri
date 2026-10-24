@@ -48,16 +48,16 @@ test "RFC 9114 §3.1: a pool with no QUIC refuses versions that allow h3, in cle
     const with_h3 = [_]protocols_module.Protocols{ .{}, .{ .h11 = false }, .{ .h2 = false }, .{ .h11 = false, .h2 = false } };
     for (with_h3) |versions| {
         config = .{ .authority = support.authority, .protocols = versions };
-        try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, .{}, null));
+        try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, null));
         config.tls = tls_support.client_values(support.authority);
-        try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, .{}, null));
+        try testing.expectError(error.VersionUnavailable, pool.init(&pool_memory, &config, values, null));
     }
     // With h3 off it offers TCP, and with no version at all it offers nothing (decision 117).
     config = .{ .authority = support.authority, .protocols = .{ .h3 = false } };
-    try pool.init(&pool_memory, &config, values, .{}, null);
+    try pool.init(&pool_memory, &config, values, null);
     try testing.expect(pool.offered.tcp and !pool.offered.quic);
     config.protocols = .{ .h11 = false, .h2 = false, .h3 = false };
-    try testing.expectError(error.NoVersion, pool.init(&pool_memory, &config, values, .{}, null));
+    try testing.expectError(error.NoVersion, pool.init(&pool_memory, &config, values, null));
 }
 
 test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, and has no QUIC connection" {
@@ -66,7 +66,7 @@ test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, a
     var known = values;
     known.https_record = .{ .h3 = true };
     known.alternative = .{ .port = https_port, .fresh_until_ns = support.now_ns + 1 };
-    try pool.init(&pool_memory, &config, known, .{}, null);
+    try pool.init(&pool_memory, &config, known, null);
     var exchange: support.Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     _ = try pool.request(&exchange.request, &exchange.response);
     const opened = pool.receive(.none, support.now_ns).event.?.open;

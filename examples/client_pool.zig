@@ -1,8 +1,9 @@
 //! Example: a client sends exchanges to one origin through a pool of several TCP connections over
 //! h11, and gives the pool a later DNS answer while exchanges run.
 //!
-//! A pool holds up to `tcp_connections` TCP connections, which `client.Options` counts, in memory
-//! the program supplies: `memory_bytes(options)` gives its size (decision 125). h11 carries one
+//! A pool holds up to `tcp_connections` TCP connections, which its `client.Config` counts, in
+//! memory the program supplies: `memory_bytes` of those counts gives its size (decisions 125 and
+//! 126). h11 carries one
 //! exchange at a time on a connection, so the pool opens another connection when an exchange
 //! waits and no open one has room for it. This pool speaks h11 alone, in cleartext, and holds no
 //! QUIC state (decision 124).
@@ -73,15 +74,16 @@ pub const Error = error{
     ExchangeWrong,
 };
 
-// The pool speaks h11 over TCP alone, so it holds no QUIC state (decision 124). Its options count
-// four TCP connections, and `memory_bytes` sizes the memory it holds them in (decision 125).
+// The pool speaks h11 over TCP alone, so it holds no QUIC state (decision 124). Its configuration
+// counts four TCP connections, and `memory_bytes` sizes the memory it holds them in (decision 125).
 const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
-const options: client.Options = .{ .tcp_connections = link_module.streams_max };
+const tcp_connections: u16 = link_module.streams_max;
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
-var pool_memory: [ConnectionPool.memory_bytes(options)]u8 align(ConnectionPool.memory_alignment) = undefined;
+var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;
 var client_config: client.Config align(@alignOf(client.Config)) = .{
     .authority = origin,
     .protocols = .{ .h2 = false, .h3 = false },
+    .tcp_connections = tcp_connections,
 };
 
 // The link holds every queue, so it lives outside the stack.
@@ -91,7 +93,7 @@ var output: [client.constants.stream_output_len_min]u8 = undefined;
 
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop.
-const receive_calls_max = (link_module.queue_len_max + 1) * (ConnectionPool.receive_events_without_input_max(options) + 1);
+const receive_calls_max = (link_module.queue_len_max + 1) * (ConnectionPool.receive_events_without_input_max(.{ .tcp_connections = tcp_connections }) + 1);
 
 /// The connection of each slot's socket, or null when the slot holds none. A slot's socket is
 /// the link's stream of the same index.
@@ -116,7 +118,7 @@ pub fn main() !void {
     try peer.init(&link);
     // The pool takes what the first DNS answer knows: the server's address and its port.
     const known: client.Destination = .{ .addresses = &first_addresses, .port = server_port };
-    try pool.init(&pool_memory, &client_config, known, options, null);
+    try pool.init(&pool_memory, &client_config, known, null);
     try request(first_round);
     for (0..turns_max) |_| {
         try client_turn();

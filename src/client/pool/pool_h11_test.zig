@@ -137,7 +137,7 @@ fn Tests(comptime Pool: type) type {
         /// one exchange written to the peer's buffer.
         fn start(exchange: *Exchange) !void {
             config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(.h11)) };
-            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, .{}, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
             support.peer_h11.init(.server, .{});
             support.peer_requests = 0;
             support.to_peer_len = 0;

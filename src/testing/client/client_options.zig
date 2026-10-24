@@ -49,9 +49,9 @@ pub const ipv4_octets: usize = 4;
 /// fits this memory too.
 pub const pool_memory_len: usize = constants.client_sockets_max * client.ConnectionPool.memory_bytes(.{});
 
-/// The options of each pool of `run`.
-pub fn pool_options(run: *const Run) client.Options {
-    return .{ .tcp_connections = @intCast(run.tcp_connections) };
+/// The TCP connections each pool of `run` holds, which its `Config` names.
+pub fn pool_tcp_connections(run: *const Run) u16 {
+    return @intCast(run.tcp_connections);
 }
 
 /// The address a run connects to unless `--address` names another: the loopback, which RFC 1122
@@ -228,12 +228,12 @@ test "decision 125: --tcp-connections sets each pool's TCP slots, within the soc
     const one = test_read(&[_][]const u8{ "--get", "/" }).?;
     try testing.expectEqual(1, one.tcp_connections);
     const many = test_read(&[_][]const u8{ "--tcp-connections", "8", "--get", "/" }).?;
-    try testing.expectEqual(8, pool_options(&many).tcp_connections);
+    try testing.expectEqual(8, pool_tcp_connections(&many));
     try testing.expect(test_read(&[_][]const u8{ "--tcp-connections", "0", "--get", "/" }) == null);
     try testing.expect(test_read(&[_][]const u8{ "--tcp-connections", "17", "--get", "/" }) == null);
     // 4 pools of 16 slots hold every socket a run holds, and 5 hold more.
     const full = test_read(&[_][]const u8{ "--connections", "4", "--tcp-connections", "16", "--get", "/" }).?;
-    try testing.expect(full.connections_count * client.ConnectionPool.memory_bytes(pool_options(&full)) <= pool_memory_len);
+    try testing.expect(full.connections_count * client.ConnectionPool.memory_bytes(.{ .tcp_connections = pool_tcp_connections(&full) }) <= pool_memory_len);
     try testing.expect(test_read(&[_][]const u8{ "--connections", "5", "--tcp-connections", "16", "--get", "/" }) == null);
     // `--pool` holds one TCP connection.
     try testing.expect(test_read(&([_][]const u8{ "--pool", "--tcp-connections", "2" } ++ test_tls)) == null);

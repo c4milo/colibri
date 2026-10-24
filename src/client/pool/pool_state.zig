@@ -1,6 +1,6 @@
 //! What a pool holds of its own (decision 125): its table of exchanges, a link for each
 //! connection slot, the counts set at run time, and where the memory `init` takes holds each of
-//! them. Split out of `pool.zig` for length; the module's root exports `Options` alone.
+//! them. Split out of `pool.zig` for length; the module's root exports none of it.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -89,16 +89,16 @@ pub const Link = struct {
 
 /// What a pool holds, set at run time (decision 125, decision 35 as amended). `memory_bytes`
 /// gives the octets the counts need, and `init` takes them from the caller.
-pub const Options = struct {
+pub const Counts = struct {
     /// TCP connections the pool holds at most: from 1 to `constants.pool_tcp_connections_max`.
     tcp_connections: u16 = 1,
     /// Requests the pool holds at once, each until its `finished` event: from 1 to `constants.pool_requests_max`.
     requests: u16 = constants.requests_max,
 
     /// Whether each count is inside its limits. A count outside them is a programmer error.
-    pub fn valid(options: Options) bool {
-        if (options.tcp_connections == 0 or options.tcp_connections > constants.pool_tcp_connections_max) return false;
-        return options.requests > 0 and options.requests <= constants.pool_requests_max;
+    pub fn valid(counts: Counts) bool {
+        if (counts.tcp_connections == 0 or counts.tcp_connections > constants.pool_tcp_connections_max) return false;
+        return counts.requests > 0 and counts.requests <= constants.pool_requests_max;
     }
 };
 
@@ -114,25 +114,25 @@ pub const Layout = struct {
     entries_offset: usize,
     len: usize,
 
-    pub fn of(options: Options) Layout {
+    pub fn of(counts: Counts) Layout {
         // Each part's size keeps the part after it aligned.
         comptime assert(@sizeOf(connection_module.Connection) % @alignOf(Link) == 0);
         comptime assert(@sizeOf(Link) % @alignOf(Entry) == 0);
-        assert(options.valid());
-        const tcp_count: usize = options.tcp_connections;
+        assert(counts.valid());
+        const tcp_count: usize = counts.tcp_connections;
         const tcp_len = tcp_count * @sizeOf(connection_module.Connection);
         const entries_offset = tcp_len + tcp_count * @sizeOf(Link);
-        const len = entries_offset + @as(usize, options.requests) * @sizeOf(Entry);
+        const len = entries_offset + @as(usize, counts.requests) * @sizeOf(Entry);
         assert(len > entries_offset and entries_offset > tcp_len);
         return .{ .tcp_len = tcp_len, .links_offset = tcp_len, .entries_offset = entries_offset, .len = len };
     }
 };
 
 /// The most `receive` calls in a row that report an event and take no octet, for a pool of
-/// `options` that holds QUIC or not: one `finished` for each exchange, one `closed`, and
+/// `counts` that holds QUIC or not: one `finished` for each exchange, one `closed`, and
 /// `constants.transport_events_max` for each transport.
-pub fn events_without_input_max(options: Options, holds_quic: bool) usize {
-    assert(options.valid());
-    const transports = @as(usize, options.tcp_connections) + @intFromBool(holds_quic);
-    return @as(usize, options.requests) + transports * constants.transport_events_max + 1;
+pub fn events_without_input_max(counts: Counts, holds_quic: bool) usize {
+    assert(counts.valid());
+    const transports = @as(usize, counts.tcp_connections) + @intFromBool(holds_quic);
+    return @as(usize, counts.requests) + transports * constants.transport_events_max + 1;
 }

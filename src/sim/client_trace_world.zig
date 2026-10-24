@@ -122,7 +122,7 @@ pub const World = struct {
         try world.configure();
         // A plan whose policy is `never` gives no receive pool, so its pool offers no QUIC.
         const receive = if (world.plan.policy == .never) null else world.receive_pool.storage();
-        try world.pool.init(&world.pool_memory, &world.pool_config, world.values(), .{}, receive);
+        try world.pool.init(&world.pool_memory, &world.pool_config, world.values(), receive);
         world.tcp_connection = .{ .slot = 0, .generation = 0 };
         world.quic_connection = .{ .slot = 0, .generation = 0 };
         world.quic_server.started = false;

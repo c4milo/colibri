@@ -153,7 +153,7 @@ test "decision 124: Pool.receive_events_without_input_max bounds the events a po
     const pool = &default.pool;
     // QUIC and TCP are offered, and the pool holds as many exchanges as it can.
     config = quic_pool_support.configured(true);
-    try pool.init(&default.pool_memory, &config, quic_pool_support.values_at(https_port), .{}, quic_pool_support.receive_storage());
+    try pool.init(&default.pool_memory, &config, quic_pool_support.values_at(https_port), quic_pool_support.receive_storage());
     for (&exchanges) |*exchange| {
         exchange.* = .{ .request = .{ .method = "GET", .path = "/" } };
         _ = try pool.request(&exchange.request, &exchange.response);
@@ -192,7 +192,7 @@ fn Tests(comptime Pool: type) type {
         /// `exchange`, which `send` has not written yet.
         fn start_cleartext(protocol: event.Protocol, exchange: *Exchange) !void {
             config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(protocol)) };
-            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, .{}, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
             support.to_peer_len = 0;
             support.to_client_len = 0;
             _ = try pool.request(&exchange.request, &exchange.response);
@@ -257,7 +257,7 @@ fn Tests(comptime Pool: type) type {
         fn start_tls(exchange: *Exchange) !void {
             try tls_support.prepare_server(&support.protocols_h2, false);
             config = .{ .tls = tls_support.client_values(support.authority), .protocols = pool_support.versions_for(&pool, .{}), .authority = support.authority };
-            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, .{}, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = https_port }, null);
             try tls_support.start_server();
             _ = try pool.request(&exchange.request, &exchange.response);
             try collect(&pool);

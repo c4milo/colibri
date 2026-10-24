@@ -143,7 +143,7 @@ fn Tests(comptime Pool: type) type {
             // Every octet 1, so each flag of a connection the pool never started reads as set,
             // and a read of one shows.
             @memset(std.mem.asBytes(&pool), unstarted_octet);
-            try pool.init(&pool_memory, &config, .{ .addresses = to, .port = https_port }, .{}, null);
+            try pool.init(&pool_memory, &config, .{ .addresses = to, .port = https_port }, null);
             starts = true;
             support.peer_h2.init(.server);
             support.to_peer_len = 0;

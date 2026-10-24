@@ -129,7 +129,7 @@ pub fn main() !void {
     // connection from then on.
     const accepted = endpoint.accept(.cleartext, 0) orelse return error.ExchangeWrong;
     // The pool takes what DNS knows as values. A pool with no QUIC takes no receive pool.
-    try asked.init(&asked_memory, &client_config, .{ .addresses = &server_addresses, .port = server_port }, .{}, null);
+    try asked.init(&asked_memory, &client_config, .{ .addresses = &server_addresses, .port = server_port }, null);
     _ = try asked.request(&get, &get_response);
     // The pool asks for a socket. A program connects one, then starts the connection on it, and
     // reads what the connection then owes: in cleartext, that it is connected.

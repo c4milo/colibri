@@ -139,7 +139,7 @@ pub const World = struct {
         world.addresses = .{client.Address.of(&octets, 0)};
         const port = if (over_tls) limits.https_port else limits.http_port;
         // No receive pool, so the pool offers TCP alone.
-        try world.pool.init(&world.pool_memory, &world.client_config, .{ .addresses = &world.addresses, .port = port }, .{}, null);
+        try world.pool.init(&world.pool_memory, &world.client_config, .{ .addresses = &world.addresses, .port = port }, null);
         world.started = false;
         world.socket_closed = false;
         world.connection = .{ .slot = 0, .generation = 0 };

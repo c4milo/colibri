@@ -37,7 +37,7 @@ const content_length_5: []const support.Header = &.{.{ .name = "Content-Length",
 /// started. Returns the handle the `open` named.
 fn start(exchange: *Exchange) !ConnectionHandle {
     config = .{ .authority = support.authority, .protocols = .{ .h2 = false, .h3 = false } };
-    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, .{}, null);
+    try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
     support.peer_h11.init(.server, .{});
     support.peer_requests = 0;
     support.to_peer_len = 0;

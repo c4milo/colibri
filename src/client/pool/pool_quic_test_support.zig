@@ -82,7 +82,7 @@ pub fn start_configured(server_protocols: []const []const u8, values: pool_modul
     // Every octet 1, so each flag of a connection the pool never started reads as set, and a
     // read of one shows. A configuration `init` leaves unwritten keeps the octet too.
     @memset(std.mem.asBytes(&pool), unstarted_octet);
-    try pool.init(&pool_memory, &config, values, .{}, given_pool);
+    try pool.init(&pool_memory, &config, values, given_pool);
     events_len = 0;
     blocked = false;
 }
