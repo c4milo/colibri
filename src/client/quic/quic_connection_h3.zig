@@ -274,7 +274,7 @@ fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {
 /// ends malformed.
 fn end_response(connection: *QuicConnection, stream_id: u64) void {
     const slot = connection.slots.of_stream(stream_id) orelse return;
-    const outcome: event.Outcome = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
+    const outcome: event.Result = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
     slots_module.end(slot, outcome);
 }
 
@@ -297,14 +297,14 @@ fn on_goaway(connection: *QuicConnection, stream_id: u64) void {
     }
 }
 
-fn end_stream(connection: *QuicConnection, stream_id: u64, outcome: event.Outcome) void {
+fn end_stream(connection: *QuicConnection, stream_id: u64, outcome: event.Result) void {
     const slot = connection.slots.of_stream(stream_id) orelse return;
     slots_module.end(slot, outcome);
 }
 
 /// The response did not fit the caller's memory, or its coding is corrupt: the exchange ends with
 /// `outcome`, and H3_REQUEST_CANCELLED tells the server to send no more of it (RFC 9114 §4.1.1).
-fn refuse(connection: *QuicConnection, slot: *Slot, outcome: event.Outcome) void {
+fn refuse(connection: *QuicConnection, slot: *Slot, outcome: event.Result) void {
     cancel_stream(connection, slot.stream_id);
     slots_module.end(slot, outcome);
 }
@@ -346,8 +346,8 @@ test "RFC 9114 §5.2: a GOAWAY refuses the streams at or past its ID and those n
         slot.stream_id = id;
     }
     record(connection, .{ .goaway = 4 });
-    try testing.expectEqual(.pending, responses[0].outcome);
-    try testing.expectEqual(.refused, responses[1].outcome);
-    try testing.expectEqual(.refused, responses[2].outcome);
+    try testing.expectEqual(.pending, responses[0].result);
+    try testing.expectEqual(.refused, responses[1].result);
+    try testing.expectEqual(.refused, responses[2].result);
     try testing.expect(connection.draining and connection.owed.draining);
 }

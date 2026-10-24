@@ -5,7 +5,7 @@
 //! pool holds a QUIC slot and several TCP slots (decision 125), and takes the QUIC slot first, as
 //! the model takes QUIC before TCP. `pool_links.zig` holds each link's life.
 //!
-//! Each step takes a pool of any `PoolOf` type. A pool with no QUIC (decision 124) never
+//! Each step takes a pool of any `ConnectionPoolOf` type. A pool with no QUIC (decision 124) never
 //! opens QUIC, so its code holds no step on a QUIC connection: each one is out at build time.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -217,7 +217,7 @@ fn on_finished(pool: anytype, slot: u32, ended: event.Ended) ?Event {
     if (movable(pool, entry, slot, ended.response_began)) {
         // RFC 9114 §4.1.1: a refused request is treated "as though [it] had never been sent". A
         // request sent again starts its response anew, and counts its content again.
-        const closed = entry.response.outcome == .closed;
+        const closed = entry.response.result == .closed;
         // RFC 9112 §9.3.2: a failed connection is one "not explicitly closed by the server in its
         // last complete response", which leaves the connection draining instead.
         const after_failure = closed and pool.phase(slot) == .failed;
@@ -247,7 +247,7 @@ fn movable(pool: anytype, entry: *const Entry, slot: u32, response_began: bool) 
     // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
     if (entry.moves >= constants.moves_max) return false;
     if (pool.phase(slot) == .open) return false;
-    return switch (entry.response.outcome) {
+    return switch (entry.response.result) {
         // RFC 9113 §8.7: a client "MAY automatically retry" a request no server processed.
         .refused => true,
         // RFC 9110 §9.2.2, RFC 9112 §9.3.1: an idempotent request is repeated after a failure
@@ -272,7 +272,7 @@ fn idempotent(request: *const event.Request) bool {
 /// processed it, and `refused` says that no server did (decision 105).
 fn deliver(entry: *Entry) event.Finished {
     assert(entry.stage == .carried or entry.stage == .ended);
-    if (entry.resent and entry.response.outcome == .refused) entry.response.outcome = .closed;
+    if (entry.resent and entry.response.result == .refused) entry.response.result = .closed;
     const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
     entry.* = .{};
     return reported;
@@ -340,7 +340,7 @@ fn drain_if_shut(pool: anytype) void {
 fn give_up(pool: anytype) void {
     for (pool.entries) |*entry| {
         if (entry.stage != .waiting) continue;
-        entry.response.outcome = .refused;
+        entry.response.result = .refused;
         entry.stage = .ended;
     }
     pool_links.end_attempt(pool);

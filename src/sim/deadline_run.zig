@@ -126,8 +126,8 @@ pub const Storage = struct {
     ended: ?server.Ended,
     client_config: client.Config,
     addresses: [1]client.Address,
-    pool: client.Pool,
-    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    pool: client.ConnectionPool,
+    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     hostile: Hostile,
@@ -413,7 +413,7 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
 fn on_event(storage: *Storage, plan: *const Plan, reported: client.Event) Error!void {
     switch (reported) {
         .finished => |finished| {
-            if (finished.response.outcome == .response) storage.record.requests_done += 1;
+            if (finished.response.result == .response) storage.record.requests_done += 1;
             if (plan.peer == .upload and storage.requests_made < plan.requests_count) try request_next(storage);
         },
         // The peer has one socket, so an exchange that waits for another ends refused.

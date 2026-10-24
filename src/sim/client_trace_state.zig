@@ -25,8 +25,8 @@ pub const Stage = enum { unmade, waiting, queued, sent, ended, reported, cancell
 pub const Carrier = enum { none, quic, tcp };
 pub const Outcome = enum { pending, response, refused, closed, failed };
 pub const Phase = client.Phase;
-/// An entry of `Pool.entries`, named through that field: the root exports no such type.
-const Entry = std.meta.Elem(@FieldType(client.Pool, "entries"));
+/// An entry of `ConnectionPool.entries`, named through that field: the root exports no such type.
+const Entry = std.meta.Elem(@FieldType(client.ConnectionPool, "entries"));
 
 pub const State = struct {
     stage: [requests_max]Stage,
@@ -102,7 +102,7 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
         state.stage[index] = stage_of(world, index);
         state.carrier[index] = tracker.carrier[index];
         state.holds[index] = holds(world, tracker, index);
-        state.outcome[index] = if (world.ids[index] == null) .pending else outcome_of(world.responses[index].outcome);
+        state.outcome[index] = if (world.ids[index] == null) .pending else outcome_of(world.responses[index].result);
         state.moved[index] = tracker.moved[index];
         state.seen[index] = seen(world, tracker, index);
         state.processed[index] = world.ledger.processed[index];
@@ -162,7 +162,7 @@ fn entry_of(world: *World, index: usize) ?Entry {
     return null;
 }
 
-fn outcome_of(outcome: client.Outcome) Outcome {
+fn outcome_of(outcome: client.Result) Outcome {
     return switch (outcome) {
         .pending => .pending,
         .response => .response,

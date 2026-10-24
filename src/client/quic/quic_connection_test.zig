@@ -23,7 +23,7 @@ const values_len: usize = 64;
 
 test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exchange" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
-    var wanted = [_]event.Wanted{.{ .name = "content-type" }};
+    var wanted = [_]event.WantedHeader{.{ .name = "content-type" }};
     var exchange: Exchange = .{
         .request = .{ .method = "GET", .path = "/dns-query" },
         .response = .{ .body = &bodies[0], .wanted = &wanted, .values = &values },
@@ -31,7 +31,7 @@ test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exc
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     try testing.expectEqual(event.Protocol.h3, support.find(.connected).?.connected);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(ok, exchange.response.status);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("application/dns-message", wanted[0].value.?);
@@ -64,7 +64,7 @@ test "RFC 9000 §4.1: a POST's content goes out whole as the server grants more,
     // RFC 9110 §8.6: the client names the content's length; RFC 9114 §4.3.1: over h3, https.
     try testing.expectEqual(upload_len, support.answers[0].content_length.?);
     try testing.expect(support.answers[0].https);
-    try testing.expectEqual(.response, post.response.outcome);
+    try testing.expectEqual(.response, post.response.result);
     try testing.expectEqual(upload_len, post.response.body_sent);
 }
 
@@ -98,8 +98,8 @@ test "RFC 9114 §4.1.1: H3_REQUEST_REJECTED ends an exchange refused, and anothe
     support.server_h3.cancel(&support.server, 0, h3.constants.error_request_rejected);
     support.server_h3.cancel(&support.server, 4, h3.constants.error_internal);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.refused, first.response.outcome);
-    try testing.expectEqual(.reset, second.response.outcome);
+    try testing.expectEqual(.refused, first.response.result);
+    try testing.expectEqual(.reset, second.response.result);
     try testing.expectEqual(h3.constants.error_internal, second.response.error_code);
 }
 
@@ -116,13 +116,13 @@ test "RFC 9114 §5.2: a GOAWAY refuses the exchanges at or past its stream, and 
     _ = try connection.request(&second.request, &second.response);
     try support.pump(support.rounds_default);
     try testing.expect(support.find(.draining) != null);
-    try testing.expectEqual(.refused, second.response.outcome);
+    try testing.expectEqual(.refused, second.response.result);
     var third: Exchange = .{ .request = .{ .method = "GET", .path = "/c" }, .response = .{ .body = &bodies[1] } };
     try testing.expectError(error.Draining, connection.request(&third.request, &third.response));
     // The exchange the server took is still answered.
     support.server_answers = true;
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
 }
 
 test "RFC 9114 §4.1: interim responses are counted, and the final one gives the status" {
@@ -144,7 +144,7 @@ test "RFC 9114 §4.1.2: content shorter than its content-length is malformed, an
     try support.pump(support.rounds_default);
     // The content arrived before the stream's end showed its length was wrong, so the outcome,
     // not the content, says what the response was.
-    try testing.expectEqual(.malformed, exchange.response.outcome);
+    try testing.expectEqual(.malformed, exchange.response.result);
 }
 
 test "RFC 9000 §4.6: an exchange past the server's stream limit waits for its MAX_STREAMS" {
@@ -155,8 +155,8 @@ test "RFC 9000 §4.6: an exchange past the server's stream limit waits for its M
     _ = try connection.request(&first.request, &first.response);
     _ = try connection.request(&second.request, &second.response);
     try support.pump(support.rounds_default * 2);
-    try testing.expectEqual(.response, first.response.outcome);
-    try testing.expectEqual(.response, second.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
+    try testing.expectEqual(.response, second.response.result);
     // RFC 9000 §2.1: the second opened stream 4 once the server allowed a second stream.
     try testing.expectEqual(4, support.answers[1].id);
 }
@@ -197,6 +197,6 @@ test "RFC 9000 §4.1: a response longer than the receive pool arrives whole as t
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/long" }, .response = .{ .body = &long_body } };
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default * 8);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualSlices(u8, &long_answer, exchange.response.body_received());
 }

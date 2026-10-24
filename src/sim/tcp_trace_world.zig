@@ -1,5 +1,5 @@
 //! The endpoints of the TCP trace run (https://github.com/c4milo/colibri/issues/79): a
-//! `client.Pool` with TCP alone (design §8 step 21c) and a `server.Endpoint` that holds one
+//! `client.ConnectionPool` with TCP alone (design §8 step 21c) and a `server.Endpoint` that holds one
 //! connection (step 21b.6), over h2, in cleartext or over TLS, every octet each has handed the
 //! other, and the server's caller, which answers each request as the plan says.
 //!
@@ -81,8 +81,8 @@ pub const World = struct {
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
-    pool: client.Pool,
-    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    pool: client.ConnectionPool,
+    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     /// Whether the first request started the pool's connection, whose memory the run reads
@@ -296,7 +296,7 @@ pub const World = struct {
 
     fn client_cancel(world: *World, stream: u32) void {
         const id = world.client_ids[stream - 1] orelse return;
-        if (world.responses[stream - 1].outcome != .pending or world.moved(id)) return;
+        if (world.responses[stream - 1].result != .pending or world.moved(id)) return;
         world.pool.cancel(id);
         world.client_ids[stream - 1] = null;
         _ = world.pool.send_stream(world.connection, &.{}, world.now_ns);
@@ -434,7 +434,7 @@ pub const World = struct {
     fn deliver_to_client(world: *World) void {
         world.read_client();
         for (world.responses[0..world.requested]) |*response| {
-            if (response.outcome == .malformed) world.malformed = true;
+            if (response.result == .malformed) world.malformed = true;
         }
         const h2_client = world.client_h2() orelse return;
         if (world.open_at_goaway == null and h2_client.streams.goaway_received_last_id != null) {

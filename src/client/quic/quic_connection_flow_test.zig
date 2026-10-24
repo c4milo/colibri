@@ -31,7 +31,7 @@ test "RFC 9114 §4.1.1: content past the caller's memory ends the exchange, and 
     var exchange = get(bodies[0][0..2]);
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.too_large, exchange.response.outcome);
+    try testing.expectEqual(.too_large, exchange.response.result);
     // RFC 9000 §3.5: the server resets the response it was sending, which closes its stream, and
     // the exchange is reported once the client's stream closed too.
     try testing.expect(support.server.streams.lookup(.{ .value = 0 }) != .live);
@@ -51,7 +51,7 @@ test "RFC 9114 §4.1.1: a cancelled exchange's stream is reset, and no event rep
     // which closes its stream.
     try testing.expect(support.server.streams.lookup(.{ .value = 0 }) != .live);
     try testing.expectEqual(null, support.find(.finished));
-    try testing.expectEqual(.pending, exchange.response.outcome);
+    try testing.expectEqual(.pending, exchange.response.result);
 }
 
 /// Content past the server's stream window, so its stream still sends after the response ends
@@ -67,10 +67,10 @@ test "RFC 9114 §4.1.1: a cancel after the response resets the stream still send
     const id = try connection.request(&post.request, &post.response);
     // Bounded: the server answers once the request's head arrives.
     for (0..support.rounds_default) |_| {
-        if (post.response.outcome != .pending) break;
+        if (post.response.result != .pending) break;
         try support.pump(1);
     }
-    try testing.expectEqual(.response, post.response.outcome);
+    try testing.expectEqual(.response, post.response.result);
     try testing.expect(support.answers[0].received < upload_len);
     connection.cancel(id);
     try support.pump(support.rounds_default);
@@ -96,7 +96,7 @@ test "RFC 9114 §5.2: a shut-down connection closes with H3_NO_ERROR after its l
         if (!period_over) closing_seen = true;
     }
     try testing.expect(closing_seen);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expect(support.find(.draining) != null and support.find(.closed) != null);
     // RFC 9000 §10.2: the server read the client's CONNECTION_CLOSE.
     try testing.expect(support.server.termination.state != .active);
@@ -138,7 +138,7 @@ test "RFC 9114 §3.1: a handshake that selects another protocol ends the connect
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     try testing.expectEqual(null, support.find(.connected));
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     try testing.expect(support.find(.closed) != null);
     try testing.expectEqual(0, support.answers_len);
 }
@@ -183,7 +183,7 @@ test "RFC 9000 §10.2: the server's CONNECTION_CLOSE ends the exchange awaiting 
     try support.pump(support.rounds_default);
     quic.connection_close.owe(&support.server, .{ .layer = .application, .error_code = h3.constants.error_internal, .frame_type = null, .reason = "" });
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(.closed, exchange.response.result);
     try testing.expect(support.find(.closed) != null);
 }
 
@@ -197,8 +197,8 @@ test "the transport's close ends a written exchange closed and a waiting one ref
     _ = try connection.request(&waiting.request, &waiting.response);
     connection.transport_closed();
     try support.collect();
-    try testing.expectEqual(.closed, written.response.outcome);
-    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expectEqual(.closed, written.response.result);
+    try testing.expectEqual(.refused, waiting.response.result);
     try testing.expect(support.find(.closed) != null);
     try testing.expect(connection.should_close());
     connection.transport_closed();

@@ -57,7 +57,7 @@ test "decision 101 as amended: an h3 response in zstd, and one in br, decode int
         var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &plain_body } };
         _ = try connection.request(&exchange.request, &exchange.response);
         try support.pump(support.rounds_default);
-        try testing.expectEqual(.response, exchange.response.outcome);
+        try testing.expectEqual(.response, exchange.response.result);
         try testing.expectEqualStrings(name, exchange.response.coding.?.name());
         try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
         try testing.expectEqual(1, coding_support.zstd_pool.storage().free_count());
@@ -75,7 +75,7 @@ test "decision 101: an h3 request offers gzip first, and the coded response deco
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     try testing.expect(support.answers[0].offers_gzip);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(.gzip, exchange.response.coding.?);
     try testing.expectEqualStrings(text, exchange.response.body_received());
     try testing.expectEqual(decoders_all, tcp_support.pool.storage().free_count());
@@ -91,6 +91,6 @@ test "decision 101: an h3 response whose coded stream is cut short ends malforme
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.malformed, exchange.response.outcome);
+    try testing.expectEqual(.malformed, exchange.response.result);
     try testing.expectEqual(decoders_all, tcp_support.pool.storage().free_count());
 }

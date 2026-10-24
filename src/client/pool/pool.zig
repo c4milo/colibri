@@ -53,7 +53,7 @@ pub const Request = event.Request;
 pub const Response = event.Response;
 pub const Protocol = event.Protocol;
 pub const Finished = event.Finished;
-/// What `Pool.request` returns: what `check_request` refuses, and `Full`.
+/// What `ConnectionPool.request` returns: what `check_request` refuses, and `Full`.
 pub const RequestError = connection_module.CheckError || error{
     /// Every entry of the pool holds an exchange, until one's `finished` event is reported or
     /// the caller cancels one.
@@ -66,19 +66,19 @@ pub const Address = quic.PeerAddress;
 pub const Sent = quic_connection.Sent;
 
 /// What DNS knows of the origin, which the caller looked up itself (decision 100).
-pub const Values = struct {
+pub const Destination = struct {
     /// The server's addresses, each with port 0, in the order the caller wants them tried.
     addresses: []const Address,
     /// The origin's port: 443 for "https" unless the URI names another (RFC 9110 §4.2.2).
     port: u16,
     /// An HTTPS record's values (RFC 9460 §9), or null when DNS had none.
-    https: ?Https = null,
+    https_record: ?HttpsRecord = null,
     /// An h3 alternative an earlier pool learned from Alt-Svc, which the caller kept, or null.
     alternative: ?Alternative = null,
 };
 
 /// What an HTTPS record says of the endpoint (RFC 9460 §7.1, §7.2).
-pub const Https = struct {
+pub const HttpsRecord = struct {
     /// Whether the record's ALPN set holds "h3" (RFC 9460 §7.1.2).
     h3: bool,
     /// The record's "port", or null when it names none and the origin's applies (RFC 9460 §7.2).
@@ -107,7 +107,7 @@ pub const Open = struct {
     /// The connection the transport carries, which each later call and event about it names.
     connection: ConnectionHandle,
     transport: Transport,
-    /// One of `Values.addresses`, with only its port set to the port the pool chose for the
+    /// One of `Destination.addresses`, with only its port set to the port the pool chose for the
     /// transport.
     to: Address,
 };
@@ -185,19 +185,19 @@ pub const Layout = pool_state.Layout;
 pub const pool_memory_alignment = pool_state.memory_alignment;
 
 /// A pool of the default capacity, which tries QUIC first and TCP after (decision 120).
-pub const Pool = PoolOf(.{});
+pub const ConnectionPool = ConnectionPoolOf(.{});
 
 /// A pool that holds the connections `capacity` names (decision 124). A pool with no QUIC
 /// holds no QUIC state, and its code holds no step on a QUIC connection. Its `init` refuses
 /// `versions` that allow h3, so it never asks for QUIC, and a call of its `start_quic` does not
 /// compile. The body of each call is in `pool_calls.zig`.
-pub fn PoolOf(comptime capacity: Capacity) type {
+pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
     return struct {
         const Self = @This();
         /// The capacity, which `pool_calls.zig` and `pool_events.zig` read at build time.
         comptime capacity: Capacity = capacity,
         config: *const Config,
-        values: Values,
+        values: Destination,
         /// The transports the configuration offers (decision 120): TCP while `versions` allows
         /// h11 or h2, and QUIC for h3 over TLS with a receive pool given.
         offered: pool_config.Offered,
@@ -218,7 +218,7 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         entries: []Entry,
         /// The QUIC slot's link, which a pool with no QUIC never opens.
         quic_link: Link,
-        /// The index in `Values.addresses` the next connection of each transport goes to. The
+        /// The index in `Destination.addresses` the next connection of each transport goes to. The
         /// TCP slots share theirs, so a new slot starts where the others are.
         quic_address_index: usize,
         tcp_address_index: usize,
@@ -270,7 +270,7 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         /// configuration holds. A program may call `init` again on a pool with no open transport
         /// and no exchange, for example with new addresses. The ids then count from 1 again, and
         /// the handles count again too, so the program keeps no id and no handle from before.
-        pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, values: Values, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
+        pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, values: Destination, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
             return pool_calls.init(pool, memory, config, values, options, receive_pool);
         }
 
@@ -279,9 +279,9 @@ pub fn PoolOf(comptime capacity: Capacity) type {
         /// `values.addresses`, from the first, and each open connection keeps its exchanges. The
         /// port stays the origin's. The pool keeps the h3 alternative it knows unless
         /// `values.alternative` names one. The pool reads `values.addresses` until the next
-        /// `set_values` or `init`.
-        pub fn set_values(pool: *Self, values: Values) void {
-            pool_calls.set_values(pool, values);
+        /// `set_destination` or `init`.
+        pub fn set_destination(pool: *Self, values: Destination) void {
+            pool_calls.set_destination(pool, values);
         }
 
         /// Takes the request `message`, which goes out on the first connection open to take it,
@@ -387,18 +387,18 @@ fn QuicField(comptime capacity: Capacity, comptime Type: type) type {
 test "design §8 step 17f: the pool's public names are the calls a program makes, and phase" {
     // Decision 125: step 22.3 adds `memory_alignment`, `memory_bytes` and
     // `receive_events_without_input_max`, which size a pool and bound a program's loop, and step
-    // 22.7 adds `set_values`, which a program calls after a later DNS answer.
+    // 22.7 adds `set_destination`, which a program calls after a later DNS answer.
     const public_names = @import("core").public_names;
     // Decision 124: a pool with no QUIC names the same calls, and its `start_quic` does not
     // compile.
-    inline for (.{ Pool, PoolOf(.{ .quic = false }) }) |Type| {
+    inline for (.{ ConnectionPool, ConnectionPoolOf(.{ .quic = false }) }) |Type| {
         try public_names.expect(Type, &.{
-            "memory_alignment", "memory_bytes", "receive_events_without_input_max",
-            "init",             "set_values",   "request",
-            "cancel",           "shutdown",     "receive",
-            "send_datagram",    "send_stream",  "deadline_ns",
-            "on_instant",       "start_quic",   "start_tcp",
-            "transport_closed", "take_ticket",  "alternative",
+            "memory_alignment", "memory_bytes",    "receive_events_without_input_max",
+            "init",             "set_destination", "request",
+            "cancel",           "shutdown",        "receive",
+            "send_datagram",    "send_stream",     "deadline_ns",
+            "on_instant",       "start_quic",      "start_tcp",
+            "transport_closed", "take_ticket",     "alternative",
             "phase",
         });
     }

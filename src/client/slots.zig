@@ -13,7 +13,7 @@ const event = @import("event.zig");
 const RequestId = event.RequestId;
 const Request = event.Request;
 const Response = event.Response;
-const Outcome = event.Outcome;
+const Result = event.Result;
 
 pub const Stage = enum {
     free,
@@ -179,7 +179,7 @@ pub const Slots = struct {
 
     /// Ends every queued exchange with `queued_outcome` and every one awaiting its response with
     /// `sent_outcome`, as a connection that carries nothing more does.
-    pub fn end_all(slots: *Slots, queued_outcome: Outcome, sent_outcome: Outcome) void {
+    pub fn end_all(slots: *Slots, queued_outcome: Result, sent_outcome: Result) void {
         for (&slots.slots) |*slot| {
             switch (slot.stage) {
                 .queued => end(slot, queued_outcome),
@@ -200,11 +200,11 @@ pub const Slots = struct {
 };
 
 /// Ends the slot's exchange with `outcome`, whose `finished` event is then owed.
-pub fn end(slot: *Slot, outcome: Outcome) void {
+pub fn end(slot: *Slot, outcome: Result) void {
     assert(slot.stage == .queued or slot.stage == .sent);
     assert(outcome != .pending);
     give_back(slot);
-    slot.response.outcome = outcome;
+    slot.response.result = outcome;
     slot.stage = .ended;
 }
 
@@ -212,7 +212,7 @@ pub fn end(slot: *Slot, outcome: Outcome) void {
 /// `finished` event is owed once the response is read; without, the caller cancelled it.
 pub fn drop(slot: *Slot, report: bool) void {
     assert(slot.stage == .sent);
-    assert(!report or slot.response.outcome != .pending);
+    assert(!report or slot.response.result != .pending);
     give_back(slot);
     slot.stage = .dropping;
     slot.report_after_drop = report;
@@ -274,7 +274,7 @@ test "the oldest exchange awaiting its response may be sent or dropping" {
     try testing.expectEqual(2, slots.oldest_awaiting().?.id);
     // A connection that carries nothing more ends every exchange it holds.
     slots.end_all(.refused, .closed);
-    try testing.expectEqual(.closed, responses[1].outcome);
+    try testing.expectEqual(.closed, responses[1].result);
     try testing.expect(slots.idle());
     try testing.expectEqual(2, slots.count(.ended));
 }

@@ -16,8 +16,8 @@ const slots_max = limits.slots_max;
 pub const Stage = enum { unmade, waiting, queued, sent, ended, reported, cancelled };
 pub const Outcome = enum { pending, response, refused, closed, failed };
 pub const Phase = client.Phase;
-/// An entry of `Pool.entries`, named through that field: the root exports no such type.
-const Entry = std.meta.Elem(@FieldType(world_module.Pool, "entries"));
+/// An entry of `ConnectionPool.entries`, named through that field: the root exports no such type.
+const Entry = std.meta.Elem(@FieldType(world_module.ConnectionPool, "entries"));
 
 pub const State = struct {
     stage: [requests_max]Stage,
@@ -86,7 +86,7 @@ fn compute_exchange(world: *World, tracker: *const Tracker, state: *State, index
     const made = index < world.plan.requests;
     state.stage[index] = if (made) stage_of(world, index) else .unmade;
     state.carrier[index] = if (tracker.carrier[index]) |connection| connection.slot else null;
-    state.outcome[index] = if (world.ids[index] == null) .pending else outcome_of(world.responses[index].outcome);
+    state.outcome[index] = if (world.ids[index] == null) .pending else outcome_of(world.responses[index].result);
     state.moved[index] = tracker.moved[index];
     state.seen[index] = seen(world, tracker, index);
     state.processed[index] = world.processed[index];
@@ -124,7 +124,7 @@ fn entry_of(world: *World, index: usize) ?Entry {
     return null;
 }
 
-fn outcome_of(outcome: client.Outcome) Outcome {
+fn outcome_of(outcome: client.Result) Outcome {
     return switch (outcome) {
         .pending => .pending,
         .response => .response,

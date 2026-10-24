@@ -75,7 +75,7 @@ test "decision 120: a peer closes its socket once its pool reported close, and n
     answer(peer, closing_response);
     try testing.expect(try tcp_module.read(peer, &plan, now_ns, now_ms));
     try testing.expectEqual(1, peer.requests_done);
-    try testing.expectEqual(.response, peer.responses[0].outcome);
+    try testing.expectEqual(.response, peer.responses[0].result);
     // RFC 9112 §9.6: the server closes, so the connection is over, and the pool says so.
     try testing.expect(tcp_module.closes(peer, &plan, now_ms));
     // The peer waits for the endpoint to read what it wrote.
@@ -96,7 +96,7 @@ test "decision 120: a peer opens no second socket, and the exchange that waited 
     try testing.expectEqual(1, peer.requests_done);
     try testing.expectEqual(2, peer.requests_made);
     // RFC 9113 §8.7: no server processed the request, so it ends refused.
-    try testing.expectEqual(.refused, peer.responses[1].outcome);
+    try testing.expectEqual(.refused, peer.responses[1].result);
     // The pool reported the first connection's close before it asked for a second socket.
     try testing.expect(peer.close_reported);
     // The peer started no second connection, so it writes nothing more into its one socket.

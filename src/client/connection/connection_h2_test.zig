@@ -45,7 +45,7 @@ fn start() !void {
 test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the exchange" {
     try start();
     // RFC 9113 §8.3: `:status` is a pseudo-header field and no field, so the caller reads none.
-    var wanted = [_]event.Wanted{ .{ .name = "content-type" }, .{ .name = "age" }, .{ .name = ":status" } };
+    var wanted = [_]event.WantedHeader{ .{ .name = "content-type" }, .{ .name = "age" }, .{ .name = ":status" } };
     var exchange = get(&bodies[0]);
     exchange.response.wanted = &wanted;
     exchange.response.values = &values;
@@ -65,7 +65,7 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     try testing.expectEqual(1, finished.id);
     try testing.expectEqual(&exchange.response, finished.response);
     try testing.expectEqual(&exchange.request, finished.request);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(ok, exchange.response.status);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("application/dns-message", wanted[0].value.?);
@@ -94,7 +94,7 @@ test "RFC 9113 §6.9: content past the stream's window goes out as the peer gran
     try testing.expectEqual(content_len, received);
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(0, exchange.response.body_len);
 }
 
@@ -106,7 +106,7 @@ test "RFC 9110 §15.2: interim responses are counted, and the final one gives th
     support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, early_hints, &.{}, false);
     try support.client_receive();
     try testing.expectEqual(1, exchange.response.interims);
-    try testing.expectEqual(.pending, exchange.response.outcome);
+    try testing.expectEqual(.pending, exchange.response.result);
     try support.peer_h2_answer(1, ok, &.{}, "done");
     try support.client_receive();
     try testing.expectEqual(ok, exchange.response.status);
@@ -122,7 +122,7 @@ test "RFC 9113 §6.4: content past the caller's memory ends the exchange, and CA
     support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
     support.to_client_len += (try support.peer_h2.write_data(support.to_client[support.to_client_len..], 1, "hello", false)).written;
     try support.client_receive();
-    try testing.expectEqual(.too_large, exchange.response.outcome);
+    try testing.expectEqual(.too_large, exchange.response.result);
     support.peer_events_len = 0;
     try support.pump_h2();
     const reset = for (support.peer_events[0..support.peer_events_len]) |peer_event| {
@@ -142,8 +142,8 @@ test "RFC 9113 §8.7: REFUSED_STREAM ends an exchange refused, and another code 
     try support.peer_h2.reset_stream(3, h2.constants.error_internal_error);
     support.peer_h2_owe();
     try support.client_receive();
-    try testing.expectEqual(.refused, first.response.outcome);
-    try testing.expectEqual(.reset, second.response.outcome);
+    try testing.expectEqual(.refused, first.response.result);
+    try testing.expectEqual(.reset, second.response.result);
     try testing.expectEqual(h2.constants.error_internal_error, second.response.error_code);
 }
 
@@ -159,14 +159,14 @@ test "RFC 9113 §6.8: a GOAWAY refuses the exchanges past its last stream, and t
     try h2.frame.write_goaway(&writer, 1, h2.constants.error_no_error, "");
     support.to_client_len += writer.written().len;
     try support.client_receive();
-    try testing.expectEqual(.refused, second.response.outcome);
+    try testing.expectEqual(.refused, second.response.result);
     try testing.expect(support.find(.draining) != null);
     var third = get(&bodies[1]);
     try testing.expectError(error.Draining, connection.request(&third.request, &third.response));
     // The exchange the peer took is answered, and then the connection is over.
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
     try testing.expect(support.find(.closed) != null);
     support.client_send();
     try testing.expect(connection.should_close());
@@ -182,7 +182,7 @@ test "RFC 9113 §6.4: a cancelled exchange's stream is reset with CANCEL, and no
     try support.pump_h2();
     try testing.expectEqual(h2.constants.error_cancel, support.peer_events[0].stream_reset.error_code);
     try testing.expectEqual(0, support.count(.finished));
-    try testing.expectEqual(.pending, exchange.response.outcome);
+    try testing.expectEqual(.pending, exchange.response.result);
 }
 
 test "RFC 9113 §8.3.1: a method h2 refuses to send ends its exchange invalid and spends no stream" {
@@ -192,7 +192,7 @@ test "RFC 9113 §8.3.1: a method h2 refuses to send ends its exchange invalid an
     _ = try connection.request(&bad.request, &bad.response);
     _ = try connection.request(&good.request, &good.response);
     try support.pump_h2();
-    try testing.expectEqual(.invalid, bad.response.outcome);
+    try testing.expectEqual(.invalid, bad.response.result);
     // RFC 9113 §5.1.1: the refused request spent no identifier.
     try testing.expectEqual(1, peer_request().?.stream_id);
 }
@@ -207,7 +207,7 @@ test "RFC 9113 §5.4.1: a peer that breaks the protocol ends every exchange, and
     @memcpy(support.to_client[0..ping.len], ping);
     support.to_client_len = ping.len;
     try support.client_receive();
-    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(.closed, exchange.response.result);
     try testing.expect(support.find(.closed) != null);
     try testing.expectError(error.ConnectionClosed, connection.request(&exchange.request, &exchange.response));
     // The GOAWAY colibri owes goes out before the caller closes.
@@ -260,6 +260,6 @@ test "RFC 9114 §3.1.2: an ALTSVC frame over cleartext teaches no h3" {
     support.to_client_len += try support.peer_h2.write_alt_svc(support.to_client[support.to_client_len..], 1, "h3=\":443\"");
     try support.peer_h2_answer(1, ok, &.{}, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(null, connection.take_alt_svc());
 }

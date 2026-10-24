@@ -1,4 +1,4 @@
-//! The TCP trace run (https://github.com/c4milo/colibri/issues/79): a `client.Pool` and a
+//! The TCP trace run (https://github.com/c4milo/colibri/issues/79): a `client.ConnectionPool` and a
 //! `server.Endpoint` act out a seed's `tcp_trace_plan.zig` over h2, in cleartext or over TLS, and
 //! after each action the run computes `spec/tla/h2_connection`'s state from both
 //! (`tcp_trace_state.zig`). It keeps each state that differs from the last one kept, which
@@ -165,7 +165,7 @@ fn result_of(storage: *const Storage) Result {
         .tls = @intFromBool(world.tls),
         .wire = std.hash.Crc32.hash(world.to_server.octets[0..world.to_server.handed]),
     };
-    for (world.responses[0..world.requested]) |*response| result.responses += @intFromBool(response.outcome == .response);
+    for (world.responses[0..world.requested]) |*response| result.responses += @intFromBool(response.result == .response);
     return result;
 }
 

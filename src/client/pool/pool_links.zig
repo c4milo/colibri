@@ -143,14 +143,14 @@ pub fn clear_tried(pool: anytype) void {
 
 /// A connection of `transport` to `to` failed, so the next one tries the address after it. The
 /// index moves only while it names `to`'s host: another connection to that address may have
-/// failed first and moved it, or `set_values` may have given new addresses since.
+/// failed first and moved it, or `set_destination` may have given new addresses since.
 fn move_past(pool: anytype, transport: Transport, to: *const Address) void {
     const index = address_index(pool, transport);
     const addresses = pool.values.addresses;
     if (addresses[index.* % addresses.len].same_host(to)) index.* += 1;
 }
 
-/// Sends each `open` still owed to the first of the values `set_values` gave, at the port it
+/// Sends each `open` still owed to the first of the values `set_destination` gave, at the port it
 /// chose: the program has not opened its transport yet.
 pub fn retarget_owed(pool: anytype) void {
     for (pool.tcp_links) |*link| retarget(pool, link, .tcp);
@@ -171,7 +171,7 @@ fn port_of(pool: anytype, transport: Transport, now_ns: u64) u16 {
     if (transport == .quic) {
         if (fresh_alternative(pool, now_ns)) |held| return held.port;
     }
-    const https = pool.values.https orelse return pool.values.port;
+    const https = pool.values.https_record orelse return pool.values.port;
     return https.port orelse pool.values.port;
 }
 
@@ -181,7 +181,7 @@ pub fn quic_allowed(pool: anytype, now_ns: u64) bool {
     if (!pool.offered.quic) return false;
     if (fresh_alternative(pool, now_ns)) |_| return true;
     // RFC 9460 §7.1.2: a client uses the transports of the protocols the record names.
-    if (pool.values.https) |https| return https.h3;
+    if (pool.values.https_record) |https| return https.h3;
     return pool.config.quic_first;
 }
 

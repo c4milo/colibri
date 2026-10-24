@@ -1,4 +1,4 @@
-//! Example: a client sends two requests to one origin through a `client.Pool`, which tries
+//! Example: a client sends two requests to one origin through a `client.ConnectionPool`, which tries
 //! QUIC first and carries the requests over TCP when no QUIC datagram gets through.
 //!
 //! The pool carries exchanges to one origin over the QUIC and TCP connections it chooses
@@ -60,8 +60,8 @@ const turns_max = 256;
 
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop. At most
-/// `Pool.receive_events_without_input_max` calls in a row report an event and take no octet.
-const receive_calls_max = (link_module.queue_len_max + 1) * (client.Pool.receive_events_without_input_max(.{}) + 1);
+/// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no octet.
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool.receive_events_without_input_max(.{}) + 1);
 
 /// Datagrams the client reads or writes in one turn, at most.
 const datagrams_per_turn_max = 32;
@@ -116,12 +116,12 @@ const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity
 const ReceivePool = client.ReceivePool(64 * 1024);
 var client_config: client.Config align(@alignOf(client.Config)) = undefined;
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
-var pool: client.Pool align(@alignOf(client.Pool)) = undefined;
+var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
 // The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
 // `client.Options` give (decision 125).
-var pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
+var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 /// The fields of the response the client reads. colibri keeps no other field.
-var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
+var wanted: [1]client.WantedHeader align(@alignOf(client.WantedHeader)) = .{.{ .name = "content-type" }};
 var wanted_values: [content_type.len]u8 = undefined;
 var get_body: [greeting.len]u8 = undefined;
 var post_body: [note.len]u8 = undefined;
@@ -143,7 +143,7 @@ var post_response: client.Response align(@alignOf(client.Response)) = .{ .body =
 /// gets 405 with an Allow value. No route names `/missing`, so its GET gets 404. No route names
 /// DELETE, so its request gets 501 on any path. Each response has no content.
 const allow_expected = "POST";
-var allow: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "allow" }};
+var allow: [1]client.WantedHeader align(@alignOf(client.WantedHeader)) = .{.{ .name = "allow" }};
 var allow_values: [allow_expected.len]u8 = undefined;
 var unanswered_body: [greeting.len]u8 = undefined;
 const get_echo: client.Request = .{ .method = "GET", .path = "/echo" };
@@ -171,8 +171,8 @@ const Connections = std.EnumArray(client.Transport, client.ConnectionHandle);
 var connections: Connections align(@alignOf(Connections)) = .initFill(.{ .slot = 0, .generation = 0 });
 
 /// The second pool, whose connect fails, and its one exchange.
-var refused_pool: client.Pool align(@alignOf(client.Pool)) = undefined;
-var refused_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
+var refused_pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
+var refused_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 var refused_body: [greeting.len]u8 = undefined;
 const refused_get: client.Request = .{ .method = "GET", .path = "/greeting" };
 var refused_get_response: client.Response align(@alignOf(client.Response)) = .{ .body = &refused_body };
@@ -209,7 +209,7 @@ fn start_client(cpu: tls.Cpu) !void {
         .authority = origin,
     };
     // The pool takes what DNS knows as values: the server's addresses and its port.
-    const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
+    const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
     // `init` builds the TLS configuration of each transport inside the pool, which stays in
     // place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
     // which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
@@ -302,7 +302,7 @@ fn report(event: client.Event, now_ns: u64) !void {
         .finished => |ended| {
             // The event names the request and the response, whose memory is the program's again.
             std.debug.print("client: {s}: {s}, {d}\n", .{
-                ended.request.path, @tagName(ended.response.outcome), ended.response.status,
+                ended.request.path, @tagName(ended.response.result), ended.response.status,
             });
             finished += 1;
             // Every exchange has ended, so the client shuts the pool down.
@@ -374,7 +374,7 @@ fn connect_refused() !void {
     const now_ns = link.now_ns(.client);
     // The pools to one origin share its configuration. With no receive pool this one offers
     // TCP alone.
-    const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
+    const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
     try refused_pool.init(&refused_memory, &client_config, known, .{}, null);
     _ = try refused_pool.request(&refused_get, &refused_get_response);
     for (0..receive_calls_max) |_| {
@@ -416,7 +416,7 @@ fn check() Error!void {
     const opened = opens.get(.quic) == 1 and opens.get(.tcp) == 1;
     const closed = closes.get(.quic) == 1 and closes.get(.tcp) == 1;
     const lost = datagram_link.dropped > 0;
-    const refused = refused_get_response.outcome == .refused;
+    const refused = refused_get_response.result == .refused;
     const right = spoken == .h2 and greeted and typed and echoed and unserved and tickets > 0 and refused;
     if (right and opened and closed and lost and peer.check()) {
         std.debug.print("client_exchange: every octet arrived as sent\n", .{});
@@ -433,7 +433,7 @@ fn check() Error!void {
 
 /// Whether `response` ended its exchange as a response with `status`, whose content is `content`.
 fn arrived(response: *const client.Response, status: u16, content: []const u8) bool {
-    if (response.outcome != .response or response.status != status) return false;
+    if (response.result != .response or response.status != status) return false;
     return std.mem.eql(u8, response.body_received(), content);
 }
 

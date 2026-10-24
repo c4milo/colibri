@@ -8,8 +8,8 @@ const constants = @import("../constants.zig");
 const pool_module = @import("pool.zig");
 
 const testing = std.testing;
-const Pool = pool_module.Pool;
-const TcpAlone = pool_module.PoolOf(.{ .quic = false });
+const ConnectionPool = pool_module.ConnectionPool;
+const TcpAlone = pool_module.ConnectionPoolOf(.{ .quic = false });
 const Entry = pool_module.Entry;
 const Link = pool_module.Link;
 const Connection = connection_module.Connection;
@@ -37,16 +37,16 @@ const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
 
 test "decision 125: memory_bytes counts each TCP connection and each exchange, at comptime too" {
     // The function is pure, so a program sizes a static array with it.
-    const default_len = comptime Pool.memory_bytes(.{});
+    const default_len = comptime ConnectionPool.memory_bytes(.{});
     try testing.expectEqual(default_len, TcpAlone.memory_bytes(.{}));
     // One TCP connection, its link, and `requests_max` entries after them.
     try testing.expectEqual(@sizeOf(Connection) + @sizeOf(Link) + constants.requests_max * @sizeOf(Entry), default_len);
     // Each TCP connection and each exchange more adds its size.
     const counted_len = @as(usize, counted_tcp) * (@sizeOf(Connection) + @sizeOf(Link)) + @as(usize, few_requests) * @sizeOf(Entry);
-    try testing.expectEqual(counted_len, Pool.memory_bytes(counted));
-    try testing.expectEqual(default_len + @sizeOf(Entry), Pool.memory_bytes(.{ .requests = constants.requests_max + 1 }));
+    try testing.expectEqual(counted_len, ConnectionPool.memory_bytes(counted));
+    try testing.expectEqual(default_len + @sizeOf(Entry), ConnectionPool.memory_bytes(.{ .requests = constants.requests_max + 1 }));
     // The alignment serves both parts.
-    try testing.expect(Pool.memory_alignment >= @alignOf(Connection) and Pool.memory_alignment >= @alignOf(Entry));
+    try testing.expect(ConnectionPool.memory_alignment >= @alignOf(Connection) and ConnectionPool.memory_alignment >= @alignOf(Entry));
 }
 
 test "decision 125: init keeps the TCP connection and the exchanges in the caller's memory" {
@@ -74,8 +74,8 @@ test "decision 125: receive_events_without_input_max counts each exchange and ea
     const per_transport = constants.transport_events_max;
     const closed = 1;
     const default_transports = 2;
-    try testing.expectEqual(constants.requests_max + default_transports * per_transport + closed, Pool.receive_events_without_input_max(.{}));
+    try testing.expectEqual(constants.requests_max + default_transports * per_transport + closed, ConnectionPool.receive_events_without_input_max(.{}));
     // A pool with no QUIC has no QUIC transport.
     try testing.expectEqual(constants.requests_max + per_transport + closed, TcpAlone.receive_events_without_input_max(.{}));
-    try testing.expectEqual(@as(usize, few_requests) + (@as(usize, counted_tcp) + 1) * per_transport + closed, Pool.receive_events_without_input_max(counted));
+    try testing.expectEqual(@as(usize, few_requests) + (@as(usize, counted_tcp) + 1) * per_transport + closed, ConnectionPool.receive_events_without_input_max(counted));
 }

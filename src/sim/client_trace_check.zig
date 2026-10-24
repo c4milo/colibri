@@ -1,4 +1,4 @@
-//! The client trace run (decision 105, design §8 step 17d): a `client.Pool` carries a seed's
+//! The client trace run (decision 105, design §8 step 17d): a `client.ConnectionPool` carries a seed's
 //! exchanges over QUIC and TCP while the plan loses, delays or refuses QUIC, and its servers
 //! answer, reject, reset and send GOAWAY (`client_trace_world.zig`). After each instant the run
 //! computes spec/tla/client_exchanges's state (`client_trace_state.zig`) and keeps it when it
@@ -192,7 +192,7 @@ fn check_end(world: *const World) Violation!void {
         if (!world.reported[index] and !world.cancelled[index]) return error.NotReported;
         if (!world.plan.clean or !world.reported[index]) continue;
         // Design §8 step 17d: every request made completes.
-        if (world.responses[index].outcome != .response) return error.NoResponse;
+        if (world.responses[index].result != .response) return error.NoResponse;
     }
 }
 
@@ -222,7 +222,7 @@ fn result_of(storage: *const Storage) Result {
         result.moved += last.moved[index];
         result.resent += @intFromBool(storage.tracker.resent[index]);
         if (!world.reported[index]) continue;
-        switch (world.responses[index].outcome) {
+        switch (world.responses[index].result) {
             .response => result.responses += 1,
             .refused => result.refused += 1,
             else => result.failed += 1,

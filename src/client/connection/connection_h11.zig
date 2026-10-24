@@ -103,7 +103,7 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
 /// The content did not fit the caller's memory, or its coding is corrupt: the exchange ends with
 /// `outcome`, and the rest of the response is read and dropped. Returns whether the connection
 /// ended instead, which owes the caller an event.
-fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Outcome) bool {
+fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Result) bool {
     if (!slot.content_done()) {
         // Decision 124 ruling 2: a response dropped while the content goes out ends the connection.
         // RFC 9112 §9.5 asks this when the server closes the connection. A server may also read
@@ -112,7 +112,7 @@ fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Outcome) 
         internal.fail(connection);
         return true;
     }
-    slot.response.outcome = outcome;
+    slot.response.result = outcome;
     slots_module.drop(slot, true);
     return false;
 }
@@ -123,7 +123,7 @@ fn finish(connection: *Connection, slot: *Slot) bool {
         slots_module.settle_drop(slot);
     } else {
         // Decision 101: coded content ends with its stream, or the exchange ends malformed.
-        const outcome: event.Outcome = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
+        const outcome: event.Result = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
         slots_module.end(slot, outcome);
     }
     if (connection.session.h11.phase == .closed) {

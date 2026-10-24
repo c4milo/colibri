@@ -95,7 +95,7 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
         if (done and read.* == .head and closed == .end_stream) read.* = .ended;
     }
     for (world.responses[0..world.requested], 0..) |*response, index| {
-        state.response_read[index] = response_read_of(response.outcome, response.status, response.interims);
+        state.response_read[index] = response_read_of(response.result, response.status, response.interims);
     }
     // The client drops the plaintext it read at once, so all it holds is unread. The server holds
     // what its last event pointed into, `plain_in_read` octets, until its next call.
@@ -193,7 +193,7 @@ fn drop_goaways(frames: *[limits.frames_max]Frame, len: u32) u32 {
 }
 
 /// How far the client read a response, from what it filled in the exchange (RFC 9110 §15.2).
-fn response_read_of(outcome: client.Outcome, status: u16, interims: u32) ResponsePhase {
+fn response_read_of(outcome: client.Result, status: u16, interims: u32) ResponsePhase {
     if (outcome == .response) return .ended;
     if (status != 0) return .final;
     return if (interims > 0) .interim else .none;

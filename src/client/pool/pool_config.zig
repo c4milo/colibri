@@ -1,5 +1,5 @@
 //! A pool's configuration (decision 120, design §8 step 21c): one TLS value, the versions the
-//! client speaks, and what its TCP or QUIC connections alone take. `Pool.init` builds from it,
+//! client speaks, and what its TCP or QUIC connections alone take. `ConnectionPool.init` builds from it,
 //! in the pool's own storage, the TLS configuration of each transport the pool offers and
 //! the configuration each connection borrows. `client.zig` exports `Config` and `StartError`
 //! under their own names.
@@ -50,7 +50,7 @@ pub const Config = struct {
     idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
 };
 
-/// Why `Pool.init`, `start_tcp` or `start_quic` refused. `init` returns every member but
+/// Why `ConnectionPool.init`, `start_tcp` or `start_quic` refused. `init` returns every member but
 /// `TlsRefused`, before the program opens a socket, and the two starts return `TlsRefused` alone.
 pub const StartError = connection_module.StartError || quic_connection.StartError || error{
     /// The TLS value names more anchors than `tls.record.ClientConfig.anchors_max`.

@@ -73,7 +73,7 @@ test "design §8 step 21c.3: a call with no octets waits for half a head or chun
     try expect_nothing();
     const body = give("5\r\nhello\r\n0\r\n\r\n");
     try testing.expectEqual(1, body.event.?.finished.id);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
 }
 
@@ -86,13 +86,13 @@ test "RFC 9114 §3.1.2: a cleartext response's Alt-Svc names nothing, since h3 s
     const fields = [_]Header{ .{ .name = "Content-Length", .value = "5" }, .{ .name = "Alt-Svc", .value = "h3=\":443\"" } };
     try support.peer_h11_answer(ok, &fields, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(null, connection.take_alt_svc());
 }
 
 test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the exchange" {
     try start();
-    var wanted = [_]event.Wanted{.{ .name = "content-length" }};
+    var wanted = [_]event.WantedHeader{.{ .name = "content-length" }};
     var exchange = get(&bodies[0]);
     exchange.response.wanted = &wanted;
     exchange.response.values = &values;
@@ -125,13 +125,13 @@ test "decision 88: a POST's content goes out whole, and the GET after it waits f
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, &empty_fields, "");
     try support.client_receive();
-    try testing.expectEqual(.response, post.response.outcome);
+    try testing.expectEqual(.response, post.response.result);
     support.client_send();
     try testing.expect(sent("GET /dns-query"));
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, &hello_fields, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, after.response.outcome);
+    try testing.expectEqual(.response, after.response.result);
     try testing.expectEqual(2, support.peer_requests);
 }
 
@@ -168,8 +168,8 @@ test "RFC 9112 §9.2: content past the caller's memory is dropped, and the next 
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, &hello_fields, "world");
     try support.client_receive();
-    try testing.expectEqual(.too_large, small.response.outcome);
-    try testing.expectEqual(.response, next.response.outcome);
+    try testing.expectEqual(.too_large, small.response.result);
+    try testing.expectEqual(.response, next.response.result);
     try testing.expectEqualStrings("world", next.response.body_received());
     try testing.expectEqual(null, support.find(.closed));
 }
@@ -188,7 +188,7 @@ test "RFC 9112 §9.2: a cancelled exchange's response is read and dropped, and r
     try support.peer_h11_answer(ok, &hello_fields, "world");
     try support.client_receive();
     try testing.expectEqual(1, support.count(.finished));
-    try testing.expectEqual(.pending, cancelled.response.outcome);
+    try testing.expectEqual(.pending, cancelled.response.result);
     try testing.expectEqualStrings("world", next.response.body_received());
 }
 
@@ -202,9 +202,9 @@ test "RFC 9112 §9.6: a response that closes refuses the exchange waiting, and t
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, &.{ .{ .name = "Content-Length", .value = "0" }, .{ .name = "Connection", .value = "close" } }, "");
     try support.client_receive();
-    try testing.expectEqual(.response, post.response.outcome);
+    try testing.expectEqual(.response, post.response.result);
     // RFC 9112 §9.6: the server never saw the request that waited, so it may go elsewhere.
-    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expectEqual(.refused, waiting.response.result);
     try testing.expect(support.find(.draining) != null and support.find(.closed) != null);
     try testing.expect(connection.should_close());
     var third = get(&bodies[2]);
@@ -223,7 +223,7 @@ test "RFC 9112 §6.3: a body that runs until the close ends with it, and one cut
     try support.client_receive();
     connection.transport_closed();
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try start();
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -235,7 +235,7 @@ test "RFC 9112 §6.3: a body that runs until the close ends with it, and one cut
     try support.client_receive();
     connection.transport_closed();
     try support.client_receive();
-    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(.closed, exchange.response.result);
 }
 
 test "RFC 9112 §8: a malformed response ends its exchange malformed, and the connection" {
@@ -250,8 +250,8 @@ test "RFC 9112 §8: a malformed response ends its exchange malformed, and the co
     @memcpy(support.to_client[0..response.len], response);
     support.to_client_len = response.len;
     try support.client_receive();
-    try testing.expectEqual(.malformed, exchange.response.outcome);
-    try testing.expectEqual(.closed, next.response.outcome);
+    try testing.expectEqual(.malformed, exchange.response.result);
+    try testing.expectEqual(.closed, next.response.result);
     try testing.expect(support.find(.closed) != null);
 }
 
@@ -294,10 +294,10 @@ test "RFC 9112 §9.5: a response that ends before the content went out ends the 
     support.client_send();
     try testing.expect(put.response.body_sent > 0 and put.response.body_sent < upload.len);
     try peer_writes(early_response);
-    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(.response, put.response.result);
     try testing.expectEqual(precondition_failed, put.response.status);
     // The server never saw the request that waited, so it may go on another connection.
-    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expectEqual(.refused, waiting.response.result);
     try testing.expect(support.find(.closed) != null);
     try testing.expect(connection.should_close());
     // No more of the content is written, and the connection takes no new request.
@@ -321,8 +321,8 @@ test "RFC 9112 §9.5: a response dropped while the content goes out ends the con
     // it. The peer reads all of the PUT's content before it writes the last chunk (RFC 9112 §7.1),
     // so the client must not wait for that chunk.
     try peer_writes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhel\r\n2\r\nlo\r\n");
-    try testing.expectEqual(.too_large, put.response.outcome);
-    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expectEqual(.too_large, put.response.result);
+    try testing.expectEqual(.refused, waiting.response.result);
     try testing.expect(support.find(.closed) != null);
     try testing.expect(connection.should_close());
     // No more of the content is written.
@@ -336,7 +336,7 @@ test "RFC 9112 §9.5: a response dropped while the content goes out ends the con
 
 test "RFC 9112 §9.5: a response dropped at its head while the content goes out ends the connection" {
     try start();
-    var wanted = [_]event.Wanted{.{ .name = "content-type" }};
+    var wanted = [_]event.WantedHeader{.{ .name = "content-type" }};
     var put = put_upload(&bodies[0]);
     put.response.wanted = &wanted;
     put.response.values = values[0..2];
@@ -344,7 +344,7 @@ test "RFC 9112 §9.5: a response dropped at its head while the content goes out 
     support.client_send();
     // The value does not fit the two octets of `values`.
     try peer_writes("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhel");
-    try testing.expectEqual(.too_large, put.response.outcome);
+    try testing.expectEqual(.too_large, put.response.result);
     try testing.expect(put.response.body_sent < upload.len);
     try testing.expect(support.find(.closed) != null);
 }
@@ -356,7 +356,7 @@ test "RFC 9112 §9.2: a response dropped after the content went out keeps the co
     _ = try connection.request(&put.request, &put.response);
     try send_content(&put);
     try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello");
-    try testing.expectEqual(.too_large, put.response.outcome);
+    try testing.expectEqual(.too_large, put.response.result);
     try testing.expectEqual(null, support.find(.closed));
     _ = try connection.request(&next.request, &next.response);
     support.client_send();
@@ -371,7 +371,7 @@ test "RFC 9112 §9.5: a response that ends after the content went out keeps the 
     _ = try connection.request(&put.request, &put.response);
     try send_content(&put);
     try peer_writes(ok_response);
-    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(.response, put.response.result);
     try testing.expectEqual(null, support.find(.closed));
     _ = try connection.request(&next.request, &next.response);
     support.client_send();
@@ -390,11 +390,11 @@ test "RFC 9112 §9.3.2: a response to the exchange before the one whose content 
     support.client_send();
     try testing.expect(put.response.body_sent > 0 and put.response.body_sent < upload.len);
     try peer_writes(ok_response);
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
     try testing.expectEqual(null, support.find(.closed));
     try send_content(&put);
     try peer_writes(ok_response);
-    try testing.expectEqual(.response, put.response.outcome);
+    try testing.expectEqual(.response, put.response.result);
     try testing.expectEqual(null, support.find(.closed));
 }
 

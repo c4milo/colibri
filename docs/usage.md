@@ -43,7 +43,7 @@ The library is fifteen modules, each exported by name:
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
 | `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). An `Endpoint` holds the TCP connections you accept, which serve h11 or h2, and the QUIC connections that serve h3 behind one UDP socket you own ([decision 119](decisions.md)). |
-| `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `Pool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
+| `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
 The package also exports stdx's codecs, `codec`, `gzip`, `zlib`, `zstd` and `brotli`, from the stdx
 colibri pins ([decision 101](decisions.md)).
@@ -86,7 +86,7 @@ colibri makes no system call, holds no allocator, and reads no clock. Four thing
   chapulin's session when it sets its transport parameters. A server that sends Retry packets
   checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that links
   `tls` defines chapulin's one hook, `ch_assert_fail`, and passes the source each session draws
-  from: to `Endpoint.init`, to `Pool.start_tcp` and `start_quic`, and to each session it
+  from: to `Endpoint.init`, to `ConnectionPool.start_tcp` and `start_quic`, and to each session it
   starts.
   A program that imports none of `tls`, `server` and `client` never links chapulin.
 
@@ -664,7 +664,7 @@ round trip while it is not. `Config.logs` gives each connection a qlog log
 
 The `client` module sends requests behind one set of calls too. An exchange is one request with its
 response, from the call of `request` to the request's one `finished` event. RFC 9110 §7.5 calls it a
-"request/response exchange". A program makes one `client.Config` for an origin, and a `client.Pool`
+"request/response exchange". A program makes one `client.Config` for an origin, and a `client.ConnectionPool`
 that carries its exchanges there ([decision 120](decisions.md)). The pool carries them over the QUIC
 and TCP connections it chooses between, and tells the program which transport to open ([decision
 105](decisions.md)). Over QUIC its connection speaks h3. Over TCP with TLS, ALPN picks h2 or h11. In
@@ -686,7 +686,7 @@ For each exchange the program places two values in its own memory
 The client only reads the request, so a program may make it a `const`.
 
 ```zig
-var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
+var wanted: [1]client.WantedHeader align(@alignOf(client.WantedHeader)) = .{.{ .name = "content-type" }};
 var wanted_values: [content_type.len]u8 = undefined;
 var get_body: [greeting.len]u8 = undefined;
 var post_body: [note.len]u8 = undefined;
@@ -712,15 +712,15 @@ exchange's `finished` event or until `cancel` returns.
 
 A program places the pool and the memory it holds its TCP connections and its exchanges in
 ([decision 125](decisions.md)). `client.Options` counts them: `tcp_connections`, 1 by default,
-and `requests`, 16 by default. `Pool.memory_bytes(options)` gives the octets those counts need.
+and `requests`, 16 by default. `ConnectionPool.memory_bytes(options)` gives the octets those counts need.
 It is pure, so a program sizes a static array with it, as here, or maps that many octets at run
 time:
 
 ```zig
-var pool: client.Pool align(@alignOf(client.Pool)) = undefined;
+var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
 // The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
 // `client.Options` give (decision 125).
-var pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
+var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 ```
 
 The client gives one configuration with one TLS value, makes the pool, and hands it each
@@ -735,7 +735,7 @@ client_config = .{
     .authority = origin,
 };
 // The pool takes what DNS knows as values: the server's addresses and its port.
-const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
+const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
 // `init` builds the TLS configuration of each transport inside the pool, which stays in
 // place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
 // which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
@@ -766,16 +766,16 @@ The pool takes one `client.Config` ([decision 120](decisions.md)):
 offers QUIC only when it has a pool, a `tls` value and `versions.h3`. A program that passes
 `null` for the pool gets TCP alone.
 
-A program that never speaks h3 holds a `client.PoolOf(.{ .quic = false })` in place of a
-`client.Pool` ([decision 124](decisions.md)). It holds no QUIC connection and no QUIC TLS
+A program that never speaks h3 holds a `client.ConnectionPoolOf(.{ .quic = false })` in place of a
+`client.ConnectionPool` ([decision 124](decisions.md)). It holds no QUIC connection and no QUIC TLS
 configuration. At the default counts it takes 307,376 octets with its memory, in place of
 1,012,288 (docs/performance.md). Its `init` takes `null` for the pool, and it has no
 `start_quic`, so a call of it does not compile. The consumer program holds one:
 
 ```zig
 // The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
-const Pool = client_module.PoolOf(.{ .quic = false });
-var asked: Pool align(@alignOf(Pool)) = undefined;
+const ConnectionPool = client_module.ConnectionPoolOf(.{ .quic = false });
+var asked: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 ```
 
 `init` builds the TLS configuration of each transport the pool offers, inside the pool, so
@@ -787,7 +787,7 @@ the program does not move the pool after it. It returns these errors:
   names more than a TLS configuration holds.
 
 A program may call `init` again on a pool with no open transport and no exchange, for example
-with new addresses. While exchanges run, it calls `set_values` instead (below).
+with new addresses. While exchanges run, it calls `set_destination` instead (below).
 
 A program moves datagrams with addresses over QUIC and a stream of octets over TCP, and it keeps
 time for the pool. Each turn passes the pool what each socket read, fires its deadlines, sends
@@ -868,10 +868,10 @@ for it. It opens no second h2 connection, as RFC 9113 §9.1 asks. The pool examp
 ([`client_pool.zig`](../examples/client_pool.zig)) holds four:
 
 ```zig
-const Pool = client.PoolOf(.{ .quic = false });
+const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
 const options: client.Options = .{ .tcp_connections = link_module.streams_max };
-var pool: Pool align(@alignOf(Pool)) = undefined;
-var pool_memory: [Pool.memory_bytes(options)]u8 align(Pool.memory_alignment) = undefined;
+var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+var pool_memory: [ConnectionPool.memory_bytes(options)]u8 align(ConnectionPool.memory_alignment) = undefined;
 ```
 
 Each connection is a socket of its own. The handle of each `open` names the connection's slot,
@@ -911,7 +911,7 @@ fn drain(slot: u32, now_ns: u64) !void {
 }
 ```
 
-A program that gets a later DNS answer gives it to the pool with `set_values`, while exchanges
+A program that gets a later DNS answer gives it to the pool with `set_destination`, while exchanges
 run. Each connection that opens after the call goes to the new addresses, from the first. Each
 open connection keeps its exchanges. The port stays the origin's. The pool keeps the h3
 alternative it learned, unless the new values name one.
@@ -919,7 +919,7 @@ alternative it learned, unless the new values name one.
 ```zig
         // A later DNS answer names another address. Each connection that opens from now on goes
         // to it, and each open connection keeps its exchanges.
-        pool.set_values(.{ .addresses = &second_addresses, .port = server_port });
+        pool.set_destination(.{ .addresses = &second_addresses, .port = server_port });
 ```
 
 A program sizes its memory and bounds its loops with two limits of `client.constants` and one
@@ -930,7 +930,7 @@ amended by [decision 125](decisions.md)):
   `receive` takes some while `send_stream` has written what the connection owes. The pool takes
   an h11 head, an h2 frame and a TLS record whole, and this is the largest of them.
 - `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
-- `Pool.receive_events_without_input_max(options)`: the most `receive` calls in a row that report
+- `ConnectionPool.receive_events_without_input_max(options)`: the most `receive` calls in a row that report
   an event and take no octet, for a pool of those counts.
 
 The example bounds each read of the socket with them:
@@ -938,8 +938,8 @@ The example bounds each read of the socket with them:
 ```zig
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop. At most
-/// `Pool.receive_events_without_input_max` calls in a row report an event and take no octet.
-const receive_calls_max = (link_module.queue_len_max + 1) * (client.Pool.receive_events_without_input_max(.{}) + 1);
+/// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no octet.
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool.receive_events_without_input_max(.{}) + 1);
 ```
 
 The pool's events say what the program does next, and an exchange ends in exactly one
@@ -964,7 +964,7 @@ fn report(event: client.Event, now_ns: u64) !void {
         .finished => |ended| {
             // The event names the request and the response, whose memory is the program's again.
             std.debug.print("client: {s}: {s}, {d}\n", .{
-                ended.request.path, @tagName(ended.response.outcome), ended.response.status,
+                ended.request.path, @tagName(ended.response.result), ended.response.status,
             });
             finished += 1;
             // Every exchange has ended, so the client shuts the pool down.
@@ -1015,7 +1015,7 @@ The events:
   debt, once the connection read octets or the program made another call.
 - `connected` names the connection that carries the exchanges, and its version: h3 over QUIC, or
   the version ALPN picked over TCP.
-- `ticket` says the server issued a resumption ticket. `Pool.take_ticket` hands it over, and a
+- `ticket` says the server issued a resumption ticket. `ConnectionPool.take_ticket` hands it over, and a
   later connection offers it through the last argument of `start_tcp` or `start_quic`.
 - `close` names a connection that is over. Over TCP, `send_stream` wrote everything
   first, the TLS close_notify too. The program closes the socket, and drops the octets it read
@@ -1072,7 +1072,7 @@ fn connect_refused() !void {
     const now_ns = link.now_ns(.client);
     // The pools to one origin share its configuration. With no receive pool this one offers
     // TCP alone.
-    const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
+    const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
     try refused_pool.init(&refused_memory, &client_config, known, .{}, null);
     _ = try refused_pool.request(&refused_get, &refused_get_response);
     for (0..receive_calls_max) |_| {

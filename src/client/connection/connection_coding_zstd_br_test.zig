@@ -62,7 +62,7 @@ test "decision 101 as amended: the client offers zstd, br and gzip, and decodes 
     try testing.expectEqual(support.pool_decoders - 1, support.pool.storage().free_count());
     // RFC 8878 §7.2: the response is in zstd, and the br and gzip decoders go back with its head.
     try h11_answer("zstd", coding_support.plain_zst);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(.zstd, exchange.response.coding.?);
     try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
     try expect_pools_free();
@@ -79,7 +79,7 @@ test "decision 101 as amended: a coding whose pool has no decoder free is not of
     try testing.expect(sent("Accept-Encoding: br\r\n"));
     // RFC 7932 §13: the response is in br, whose stream holds a 16 MiB window.
     try h11_answer("br", coding_support.plain_br);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(.br, exchange.response.coding.?);
     try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
     taken.release();
@@ -93,7 +93,7 @@ test "RFC 9659 §3: a zstd frame whose window passes 8 MB fails its response, an
     support.client_send();
     try testing.expect(sent("Accept-Encoding: zstd\r\n"));
     try h11_answer("zstd", coding_support.window_16mb_zst);
-    try testing.expectEqual(.malformed, exchange.response.outcome);
+    try testing.expectEqual(.malformed, exchange.response.result);
     try expect_pools_free();
 }
 
@@ -134,7 +134,7 @@ test "decision 101 as amended: a response's head keeps its coding's decoder and 
         try testing.expectEqual(br_left, coding_support.br_pool.storage().free_count());
         try testing.expectEqual(support.pool_decoders - deflate_taken, support.pool.storage().free_count());
         try h2_content(stream_id, content);
-        try testing.expectEqual(.response, exchange.response.outcome);
+        try testing.expectEqual(.response, exchange.response.result);
         try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
         try expect_pools_free();
     }
@@ -156,7 +156,7 @@ test "decision 101 as amended: a head that waits for the stream limit offers aga
     _ = try connection.request(&second.request, &second.response);
     // Each pass writes the second head again, with the decoders its first pass took.
     try support.pump_h2();
-    try testing.expectEqual(.pending, second.response.outcome);
+    try testing.expectEqual(.pending, second.response.result);
     try testing.expectEqual(0, coding_support.zstd_pool.storage().free_count());
     try testing.expectEqual(0, coding_support.br_pool.storage().free_count());
     try testing.expectEqual(support.pool_decoders - 1, support.pool.storage().free_count());
@@ -167,8 +167,8 @@ test "decision 101 as amended: a head that waits for the stream limit offers aga
     const br_answer = [_]h2.hpack.Field{.{ .name = "content-encoding", .value = "br" }};
     try support.peer_h2_answer(3, ok, &br_answer, coding_support.plain_br);
     try support.client_receive();
-    try testing.expectEqual(.response, first.response.outcome);
-    try testing.expectEqual(.response, second.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
+    try testing.expectEqual(.response, second.response.result);
     try testing.expectEqualStrings(coding_support.plain, second.response.body_received());
     try expect_pools_free();
 }
@@ -180,7 +180,7 @@ test "decision 101: a zstd response to a request that did not offer zstd goes on
     support.client_send();
     try testing.expect(sent("Accept-Encoding: br\r\n"));
     try h11_answer("zstd", coding_support.plain_zst);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(null, exchange.response.coding);
     try testing.expectEqualStrings(coding_support.plain_zst, exchange.response.body_received());
     try expect_pools_free();
@@ -198,7 +198,7 @@ test "decision 101 as amended: over h2, br decodes, and a zstd frame or a br str
     const br_answer = [_]h2.hpack.Field{.{ .name = "content-encoding", .value = "br" }};
     try support.peer_h2_answer(1, ok, &br_answer, coding_support.plain_br);
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings(coding_support.plain, exchange.response.body_received());
     // RFC 8878 §3.1.1: a frame without its checksum's last octet never ends.
     var cut: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
@@ -207,13 +207,13 @@ test "decision 101 as amended: over h2, br decodes, and a zstd frame or a br str
     const zstd_answer = [_]h2.hpack.Field{.{ .name = "content-encoding", .value = "zstd" }};
     try support.peer_h2_answer(3, ok, &zstd_answer, coding_support.plain_zst[0 .. coding_support.plain_zst.len - 1]);
     try support.client_receive();
-    try testing.expectEqual(.malformed, cut.response.outcome);
+    try testing.expectEqual(.malformed, cut.response.result);
     // RFC 7932 §9.2: a stream without its last meta-block never ends.
     var cut_br: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     _ = try connection.request(&cut_br.request, &cut_br.response);
     try support.pump_h2();
     try support.peer_h2_answer(5, ok, &br_answer, coding_support.plain_br[0 .. coding_support.plain_br.len - 1]);
     try support.client_receive();
-    try testing.expectEqual(.malformed, cut_br.response.outcome);
+    try testing.expectEqual(.malformed, cut_br.response.result);
     try expect_pools_free();
 }

@@ -163,7 +163,7 @@ test {
     inline for (pool_support.pools) |Pool| _ = Tests(Pool);
 }
 
-/// The tests over a pool of type `Pool`, and the helpers that name the pool itself.
+/// The tests over a pool of type `ConnectionPool`, and the helpers that name the pool itself.
 fn Tests(comptime Pool: type) type {
     return struct {
         /// The pool the tests drive, outside any stack frame. Test-only.
@@ -226,7 +226,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // No connection carried the exchange, and the attempt has no other transport to open.
-            try testing.expectEqual(.refused, exchange.response.outcome);
+            try testing.expectEqual(.refused, exchange.response.result);
             try testing.expectEqual(1, count(.open));
         }
 
@@ -258,7 +258,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // The attempt went on with TCP counted in it, so it opened no second connection.
             try testing.expectEqual(null, find(.connected));
-            try testing.expectEqual(.refused, exchange.response.outcome);
+            try testing.expectEqual(.refused, exchange.response.result);
             try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
             try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
             try testing.expectEqual(1, count(.open));
@@ -269,7 +269,7 @@ fn Tests(comptime Pool: type) type {
             try fail_at_completion(&exchange);
             send();
             try collect(&pool);
-            try testing.expectEqual(.refused, exchange.response.outcome);
+            try testing.expectEqual(.refused, exchange.response.result);
             // The connection counts as a failed attempt, and a new request starts a new one.
             events_len = 0;
             _ = try pool.request(&exchange.request, &exchange.response);
@@ -297,7 +297,7 @@ fn Tests(comptime Pool: type) type {
             send();
             try answer("hello");
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqualStrings("hello", exchange.response.body_received());
             try testing.expectEqual(1, count(.open));
         }
@@ -342,7 +342,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expect(std.mem.startsWith(u8, tls_support.peer_plain[0..tls_support.peer_plain_len], h11_request));
             try tls_support.server_seal(h11_response);
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqualStrings("hello", exchange.response.body_received());
             try testing.expectEqual(1, count(.open));
         }
@@ -359,7 +359,7 @@ fn Tests(comptime Pool: type) type {
             try tls_support.server_open();
             try tls_support.server_seal(h11_response);
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             // h11 owes nothing at its close, so the close_notify goes out alone (RFC 9846 §6.1).
             const sends = count(.send);
             pool.shutdown();
@@ -403,7 +403,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // No connection carried the exchange, and the attempt has no other transport to open.
-            try testing.expectEqual(.refused, exchange.response.outcome);
+            try testing.expectEqual(.refused, exchange.response.result);
             try testing.expectEqual(1, count(.open));
         }
 
@@ -431,7 +431,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             // h11 read the record before the one that failed (RFC 9846 §6), so some of the response
             // arrived, and the GET is not sent again (RFC 9110 §9.2.2).
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(ok, exchange.response.status);
             try testing.expectEqual(1, count(.open));
         }
@@ -442,7 +442,7 @@ fn Tests(comptime Pool: type) type {
             try answer_with("", false);
             forge();
             try collect(&pool);
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(ok, exchange.response.status);
             try testing.expectEqual(1, count(.open));
             // RFC 9846 §6: after the record failed, the alert is all that goes out, and once it is
@@ -469,8 +469,8 @@ fn Tests(comptime Pool: type) type {
             try tls_support.server_seal(out[0..written]);
             forge();
             try collect(&pool);
-            try testing.expectEqual(.response, first.response.outcome);
-            try testing.expectEqual(.closed, second.response.outcome);
+            try testing.expectEqual(.response, first.response.result);
+            try testing.expectEqual(.closed, second.response.result);
             try testing.expectEqual(1, count(.open));
         }
 
@@ -485,7 +485,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(true, tls_support.server_flight().?);
             try seal_in_records(long_response_octets(), odd_record_len);
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqual(ok, exchange.response.status);
             try testing.expectEqual(long_content_len, exchange.response.body_len);
             try testing.expectEqual(0, support.to_client_len);

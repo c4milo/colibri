@@ -19,7 +19,7 @@ pub const RequestId = u64;
 pub const Protocol = enum { h11, h2, h3 };
 
 /// A response field the caller reads: it names the field, and the client sets the value.
-pub const Wanted = struct {
+pub const WantedHeader = struct {
     /// Compared case-insensitively (RFC 9110 §5.1).
     name: []const u8,
     /// The value of every field line of the response's header section with this name, joined by
@@ -28,7 +28,7 @@ pub const Wanted = struct {
 };
 
 /// How an exchange ended.
-pub const Outcome = enum {
+pub const Result = enum {
     /// It has not ended.
     pending,
     /// The final response arrived whole: `status`, `body[0..body_len]` and each wanted value.
@@ -78,13 +78,13 @@ pub const Request = struct {
 /// 123). The client writes it from `request` until the exchange's `finished` event.
 pub const Response = struct {
     /// The response headers the caller reads, and the bytes their values are copied into.
-    wanted: []Wanted = &.{},
+    wanted: []WantedHeader = &.{},
     values: []u8 = &.{},
     /// Where the response's body is copied.
     body: []u8 = &.{},
 
     /// How the exchange ended, set once it has.
-    outcome: Outcome = .pending,
+    result: Result = .pending,
     /// The final response's status code (RFC 9110 §15). The client sets it at the final head, so
     /// it also holds the status when the outcome is `too_large`.
     status: u16 = 0,
@@ -105,7 +105,7 @@ pub const Response = struct {
 
     /// The response's body, once the outcome is `response`.
     pub fn body_received(response: *const Response) []const u8 {
-        assert(response.outcome == .response);
+        assert(response.result == .response);
         return response.body[0..response.body_len];
     }
 };

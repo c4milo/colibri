@@ -1,5 +1,5 @@
 //! The TCP peers of the endpoint check (design §8 step 21b.5, decision 119). Each honest peer is
-//! colibri's client: a `client.Pool` with TCP alone, in cleartext or over TLS (decision 120,
+//! colibri's client: a `client.ConnectionPool` with TCP alone, in cleartext or over TLS (decision 120,
 //! design §8 step 21c). Every other is a hostile peer of the deadline check (`deadline_peer.zig`),
 //! which writes its script in cleartext. Each peer has a socket of two directions. The peer writes
 //! into one at its plan's pace and reads the other at its plan's pace. The run passes the endpoint
@@ -87,8 +87,8 @@ pub const Peer = struct {
     closed: bool,
     /// colibri's client, a pool that opens TCP alone, and whether it reported `close`: its
     /// connection is over and wrote what it owed, so the peer closes its socket.
-    client: client.Pool,
-    client_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    client: client.ConnectionPool,
+    client_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     close_reported: bool,
@@ -336,7 +336,7 @@ fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.Event) Error!boo
         .send => return false,
         .connected, .ticket => return true,
         .finished => |finished| {
-            if (finished.response.outcome == .response) peer.requests_done += 1;
+            if (finished.response.result == .response) peer.requests_done += 1;
             const requests_left = one_at_a_time(plan) and peer.requests_made < plan.behaviour.requests_count;
             if (requests_left) try request_next(peer);
             return true;
@@ -364,7 +364,7 @@ pub fn reset_due(peer: *Peer, plan: *const TcpPeer, now_ms: u64) bool {
     const at_ms = reset_ms(peer, plan) orelse return false;
     if (now_ms < at_ms) return false;
     peer.reset_done = true;
-    if (peer.responses[plan.reset_exchange].outcome != .pending) return false;
+    if (peer.responses[plan.reset_exchange].result != .pending) return false;
     peer.client.cancel(peer.ids[plan.reset_exchange].?);
     return true;
 }

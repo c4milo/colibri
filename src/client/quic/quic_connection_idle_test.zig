@@ -32,7 +32,7 @@ fn answered_once() !void {
     var exchange = get(&bodies[0]);
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
 }
 
 /// Moves time to `at_ns` and fires the client's deadlines there. Test-only.
@@ -85,7 +85,7 @@ test "RFC 9000 §10.1.2: a connection awaiting a response sends a PING near its 
     support.server_answers = true;
     try support.answer_due();
     try support.pump(support.rounds_default);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expect(!connection.retired);
 }
 

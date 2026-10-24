@@ -1,4 +1,4 @@
-//! The TCP connection of one `client.Pool` of the test-only client: one socket at a time, opened
+//! The TCP connection of one `client.ConnectionPool` of the test-only client: one socket at a time, opened
 //! and closed when the pool asks. `client_loop.zig`'s plain modes hold one for each pool of a
 //! run, and `pool_loop.zig`'s pool mode one beside its UDP flow, each on its own Rotor loop.
 //!

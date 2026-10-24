@@ -57,7 +57,7 @@ pub const Exchange = struct {
     /// Whether the exchange ended the way a working peer ends one: a final response read whole,
     /// with the request content sent whole.
     pub fn succeeded(exchange: *const Exchange) bool {
-        if (!exchange.finished or exchange.response.outcome != .response) return false;
+        if (!exchange.finished or exchange.response.result != .response) return false;
         return exchange.response.body_sent == exchange.plan.content_len;
     }
 
@@ -80,7 +80,7 @@ pub const Exchange = struct {
             response.status,                                      response.interims,
             response.body_sent,                                   exchange.sent_crc32(),
             response.body_len,                                    exchange.received_crc32(),
-            response.outcome,                                     response.error_code,
+            response.result,                                      response.error_code,
             if (response.coding) |coding| coding.name() else "-",
         });
     }

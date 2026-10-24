@@ -64,7 +64,7 @@ test "RFC 9114 §3.1: a QUIC handshake whose server speaks no h3 fails, and TCP 
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     try testing.expectEqual(pool_module.Phase.handshake, pool.phase(pool_support.slot_of(pool, .tcp)));
-    try testing.expectEqual(.pending, exchange.response.outcome);
+    try testing.expectEqual(.pending, exchange.response.result);
     // The fallback delay counts only while QUIC's handshake runs, and QUIC's failed.
     try pump(rounds_before_fallback);
     try testing.expect(!pool.fallback);
@@ -103,7 +103,7 @@ test "the first handshake to complete takes the exchange, and the transport stil
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
     try testing.expectEqual(pool_support.slot_of(pool, .tcp), nth(.close, 0).?.close.slot);
     try testing.expectEqual(pool_module.Phase.closed, pool.phase(pool_support.slot_of(pool, .tcp)));
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
 }
 
 test "RFC 9114 §5.2: an exchange a GOAWAY left unprocessed moves, and TCP opens for it" {
@@ -125,10 +125,10 @@ test "RFC 9114 §5.2: an exchange a GOAWAY left unprocessed moves, and TCP opens
     for (fixture.events[0..fixture.events_len]) |reported| {
         if (reported == .finished) try testing.expect(reported.finished.id != second_id);
     }
-    try testing.expectEqual(.pending, second.response.outcome);
+    try testing.expectEqual(.pending, second.response.result);
     quic_support.server_answers = true;
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
 }
 
 test "RFC 9114 §4.1.1: a request an open connection rejects reaches the caller refused" {
@@ -139,21 +139,21 @@ test "RFC 9114 §4.1.1: a request an open connection rejects reaches the caller 
     try pump(quic_support.rounds_default);
     quic_support.server_h3.cancel(&quic_support.server, 0, h3.constants.error_request_rejected);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     try testing.expectEqual(&exchange.response, nth(.finished, 0).?.finished.response);
     try testing.expectEqual(&exchange.request, nth(.finished, 0).?.finished.request);
     try testing.expectEqual(null, opened(1));
 }
 
 test "RFC 9460 §7.1.2, §7.2: an HTTPS record's ALPN set chooses the transport, and its port applies" {
-    const without_h3: pool_module.Values = .{ .addresses = &addresses, .port = https_port, .https = .{ .h3 = false, .port = other_port } };
+    const without_h3: pool_module.Destination = .{ .addresses = &addresses, .port = https_port, .https_record = .{ .h3 = false, .port = other_port } };
     try start(&quic_support.alpn_h3, without_h3, true);
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(Transport.tcp, opened(0).?.transport);
     try testing.expectEqual(other_port, opened(0).?.to.port);
-    const with_h3: pool_module.Values = .{ .addresses = &addresses, .port = https_port, .https = .{ .h3 = true, .port = other_port } };
+    const with_h3: pool_module.Destination = .{ .addresses = &addresses, .port = https_port, .https_record = .{ .h3 = true, .port = other_port } };
     try start(&quic_support.alpn_h3, with_h3, false);
     _ = try pool.request(&exchange.request, &exchange.response);
     try collect();
@@ -162,14 +162,14 @@ test "RFC 9460 §7.1.2, §7.2: an HTTPS record's ALPN set chooses the transport,
 }
 
 test "RFC 7838 §2.2: a fresh Alt-Svc alternative sends QUIC to its port first, and a stale one does not" {
-    const fresh: pool_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns + 1 } };
+    const fresh: pool_module.Destination = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns + 1 } };
     try start(&quic_support.alpn_h3, fresh, false);
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(Transport.quic, opened(0).?.transport);
     try testing.expectEqual(alternative_port, opened(0).?.to.port);
-    const stale: pool_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns } };
+    const stale: pool_module.Destination = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns } };
     try start(&quic_support.alpn_h3, stale, false);
     _ = try pool.request(&exchange.request, &exchange.response);
     try collect();
@@ -204,10 +204,10 @@ test "decision 100: once every transport failed, each waiting exchange ends refu
     // closes, and the pool gives up once both transports closed.
     try pump(rounds_past_probe * 4);
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
 }
 
-/// Two hosts that `set_values` gives the pool. Test-only.
+/// Two hosts that `set_destination` gives the pool. Test-only.
 const ipv4_len: usize = 4;
 const second_octet: u8 = 0x0a;
 const third_octet: u8 = 0x0b;
@@ -220,7 +220,7 @@ const rounds_to_close: usize = 192;
 const second_attempt_open: usize = 2;
 const new_addresses = [_]pool_module.Address{ pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
 
-/// Fails the first QUIC connection at the first address, calls `set_values` with
+/// Fails the first QUIC connection at the first address, calls `set_destination` with
 /// `new_addresses`, ends the attempt, and returns where the next exchange's QUIC goes. With
 /// `over_first`, the QUIC connection is over before the call.
 fn quic_after_set_values(over_first: bool) !pool_module.Address {
@@ -231,10 +231,10 @@ fn quic_after_set_values(over_first: bool) !pool_module.Address {
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     if (over_first) try pump(rounds_to_close);
-    pool.set_values(.{ .addresses = &new_addresses, .port = https_port });
+    pool.set_destination(.{ .addresses = &new_addresses, .port = https_port });
     pool.transport_closed(pool_support.connection_of(pool, .tcp));
     try pump(rounds_to_close);
-    try testing.expectEqual(.refused, exchanges[0].response.outcome);
+    try testing.expectEqual(.refused, exchanges[0].response.result);
     // The next exchange starts another attempt.
     _ = try pool.request(&exchanges[1].request, &exchanges[1].response);
     try collect();
@@ -243,24 +243,24 @@ fn quic_after_set_values(over_first: bool) !pool_module.Address {
     return next.to;
 }
 
-test "decision 125 ruling 8: after set_values, QUIC opens to the first new address" {
+test "decision 125 ruling 8: after set_destination, QUIC opens to the first new address" {
     const to = try quic_after_set_values(true);
     try testing.expectEqualSlices(u8, &second_host, to.octets[0..to.len]);
 }
 
-test "decision 125 ruling 8: a QUIC connection to an old address that fails after set_values skips no new one" {
+test "decision 125 ruling 8: a QUIC connection to an old address that fails after set_destination skips no new one" {
     const to = try quic_after_set_values(false);
     try testing.expectEqualSlices(u8, &second_host, to.octets[0..to.len]);
 }
 
-test "decision 125 ruling 8: a QUIC open still owed when set_values comes goes to a new address" {
+test "decision 125 ruling 8: a QUIC open still owed when set_destination comes goes to a new address" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     // The pool asks for QUIC, and the program has not read the `open` yet.
     pool_events.plan(pool, quic_support.now_ns);
     try testing.expect(pool.quic_link.open_owed);
-    pool.set_values(.{ .addresses = &new_addresses, .port = https_port });
+    pool.set_destination(.{ .addresses = &new_addresses, .port = https_port });
     try collect();
     const open = opened(0).?;
     try testing.expectEqual(Transport.quic, open.transport);
@@ -294,7 +294,7 @@ test "decision 120: start_quic draws the grease value and the two IDs, anew for 
     const first_start = pool.quic.start_values;
     try expect_drawn(&twin, first_start);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
     // The caller's flow closed, so the next exchange opens a second QUIC connection.
     pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
@@ -309,5 +309,5 @@ test "decision 120: start_quic draws the grease value and the two IDs, anew for 
     try testing.expect(!std.mem.eql(u8, &first_start.source_id, &second_start.source_id));
     try testing.expect(!std.mem.eql(u8, &first_start.original_destination_id, &second_start.original_destination_id));
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(.response, second.response.outcome);
+    try testing.expectEqual(.response, second.response.result);
 }

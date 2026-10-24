@@ -57,7 +57,7 @@ test "RFC 9846 §4.7.3: a record opens while a KeyUpdate's answer is owed, and t
     try support.client_receive();
     // The response behind the KeyUpdate opens with the answer still owed.
     try testing.expectEqual(0, support.to_client_len);
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
     try testing.expectEqual(ok, first.response.status);
     try testing.expectEqualStrings("hi", first.response.body_received());
     // RFC 9846 §4.7.3: the answer is sent "prior to sending its next Application Data record".
@@ -89,7 +89,7 @@ test "a record of data ends a run of KeyUpdates, so the next run has the whole l
     try peer_key_updates(plain_support.key_update_run_max);
     try support.client_receive();
     try testing.expectEqual(0, support.to_client_len);
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
     try testing.expect(!connection.failed);
     // No record of data followed the second run, so one more KeyUpdate passes the limit.
     try peer_key_updates(1);

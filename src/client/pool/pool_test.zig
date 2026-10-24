@@ -126,7 +126,7 @@ test {
     inline for (pool_support.pools) |Pool| _ = Tests(Pool);
 }
 
-/// The tests over a pool of type `Pool`, and the helpers that name the pool itself.
+/// The tests over a pool of type `ConnectionPool`, and the helpers that name the pool itself.
 fn Tests(comptime Pool: type) type {
     return struct {
         /// The pool the tests drive, outside any stack frame. Test-only.
@@ -167,7 +167,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             const finished = find(.finished).?.finished;
             try testing.expectEqual(id, finished.id);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqualStrings("hello", exchange.response.body_received());
             // The pool is not closed until its caller shuts it down.
             try testing.expectEqual(null, find(.closed));
@@ -181,7 +181,7 @@ fn Tests(comptime Pool: type) type {
             pool.shutdown();
             try support.peer_h2_answer(1, ok, &.{}, "hello");
             try pump(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // The pool closes once, after its transports did.
             try testing.expectEqual(1, count(.closed));
@@ -201,7 +201,7 @@ fn Tests(comptime Pool: type) type {
             // The pool reads the response and its connection's `closed` in these calls, before
             // any send: h2 holds its GOAWAY, and the connection's output is empty.
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqual(null, find(.close));
             support.peer_events_len = 0;
             support.to_peer_len += pool.send_stream(pool_support.connection_of(pool, .tcp), support.to_peer[support.to_peer_len..], support.now_ns);
@@ -230,7 +230,7 @@ fn Tests(comptime Pool: type) type {
             try pump(&pool);
             try support.peer_h2_answer(1, ok, &.{}, "hello");
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
         }
 
         test "RFC 9110 §9.2.2: a transport the caller closed ends its written POST closed, and asks for no close" {
@@ -240,7 +240,7 @@ fn Tests(comptime Pool: type) type {
             try pump(&pool);
             pool.transport_closed(pool_support.connection_of(pool, .tcp));
             try collect(&pool);
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(&exchange.response, find(.finished).?.finished.response);
             try testing.expectEqual(&exchange.request, find(.finished).?.finished.request);
             try testing.expectEqual(null, find(.close));
@@ -278,7 +278,7 @@ fn Tests(comptime Pool: type) type {
             // refused.
             pool.transport_closed(pool_support.connection_of(pool, .tcp));
             try collect(&pool);
-            try testing.expectEqual(.refused, exchange.response.outcome);
+            try testing.expectEqual(.refused, exchange.response.result);
             events_len = 0;
             _ = try pool.request(&exchange.request, &exchange.response);
             try collect(&pool);
@@ -309,7 +309,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             try testing.expectEqual(id, find(.finished).?.finished.id);
             try testing.expectEqual(1, count(.finished));
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqualStrings("hello", exchange.response.body_received());
         }
 
@@ -325,7 +325,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(PeerRead{ .requests = 1, .content_len = upload_len, .ended = true }, peer_read());
             try support.peer_h2_answer(1, ok, &.{}, "");
             try collect(&pool);
-            try testing.expectEqual(.response, put.response.outcome);
+            try testing.expectEqual(.response, put.response.result);
             try testing.expectEqual(upload_len, put.response.body_sent);
         }
 
@@ -339,7 +339,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(1, peer_read().requests);
             // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
             try close_transport();
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(1, count(.finished));
             try testing.expectEqual(2, count(.open));
         }
@@ -353,7 +353,7 @@ fn Tests(comptime Pool: type) type {
             support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
             try collect(&pool);
             try close_transport();
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(ok, exchange.response.status);
             try testing.expectEqual(1, count(.open));
         }
@@ -377,7 +377,7 @@ fn Tests(comptime Pool: type) type {
             const index_zero = [_]u8{0x80};
             try peer_headers(index_zero.len, &index_zero);
             try collect(&pool);
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(1, count(.open));
         }
 
@@ -391,7 +391,7 @@ fn Tests(comptime Pool: type) type {
             try peer_headers(field_block_len, "");
             try collect(&pool);
             try close_transport();
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(1, count(.open));
         }
 
@@ -401,7 +401,7 @@ fn Tests(comptime Pool: type) type {
             _ = try pool.request(&exchange.request, &exchange.response);
             try pump(&pool);
             try close_transport();
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(1, count(.open));
         }
 
@@ -429,7 +429,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(1, peer_read().requests);
             // The refusal spent the one move (`moves_max`), so the close sends nothing again.
             try close_transport();
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(2, count(.open));
         }
 
@@ -440,7 +440,7 @@ fn Tests(comptime Pool: type) type {
             try pump(&pool);
             try close_transport();
             try goaway_first();
-            try testing.expectEqual(.closed, exchange.response.outcome);
+            try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(1, count(.finished));
             try testing.expectEqual(2, count(.open));
         }

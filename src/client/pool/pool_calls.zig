@@ -1,5 +1,5 @@
 //! The calls a program makes on a pool (decision 100, design §8 step 17d), for a pool of any
-//! capacity (decision 124). Each function of `PoolOf` in `pool.zig` passes its call here, so
+//! capacity (decision 124). Each function of `ConnectionPoolOf` in `pool.zig` passes its call here, so
 //! the type holds no branch of its own, as `server.EndpointOf` does. A pool with no QUIC holds
 //! no QUIC connection, and each step on one is out of its code at build time. The module's root
 //! does not export this file.
@@ -18,7 +18,7 @@ const pool_connection = @import("pool_connection.zig");
 const pool_links = @import("pool_links.zig");
 
 const Config = pool_module.Config;
-const Values = pool_module.Values;
+const Destination = pool_module.Destination;
 const ReceiveStorage = pool_module.ReceiveStorage;
 const StartError = pool_module.StartError;
 const Request = pool_module.Request;
@@ -35,7 +35,7 @@ const Phase = pool_module.Phase;
 const Options = pool_module.Options;
 const ConnectionHandle = pool_module.ConnectionHandle;
 
-pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Values, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
+pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Destination, options: Options, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
     // Decision 125 ruling 2: memory of another length than the options need is a programmer
     // error.
@@ -70,7 +70,7 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     pool.closed_reported = false;
 }
 
-pub fn set_values(pool: anytype, values: Values) void {
+pub fn set_destination(pool: anytype, values: Destination) void {
     assert(values.addresses.len > 0);
     // RFC 9110 §4.3.1: the port is part of the origin, and a pool carries one origin's exchanges.
     assert(values.port == pool.values.port);

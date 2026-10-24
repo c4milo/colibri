@@ -15,7 +15,7 @@
 //! 1. The program requests two GETs. The pool says `open` twice, to the address of the first DNS
 //!    answer, and each connection takes one exchange.
 //! 2. Both exchanges end. The two connections stay open for the next exchanges.
-//! 3. A later DNS answer names another address, and the program calls `set_values`.
+//! 3. A later DNS answer names another address, and the program calls `set_destination`.
 //! 4. The program requests four more GETs. The two open connections take two of them, and the
 //!    pool opens two more connections, to the new address.
 //! 5. Every exchange ends, and the program calls `shutdown`. The pool says `close` of each
@@ -75,10 +75,10 @@ pub const Error = error{
 
 // The pool speaks h11 over TCP alone, so it holds no QUIC state (decision 124). Its options count
 // four TCP connections, and `memory_bytes` sizes the memory it holds them in (decision 125).
-const Pool = client.PoolOf(.{ .quic = false });
+const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
 const options: client.Options = .{ .tcp_connections = link_module.streams_max };
-var pool: Pool align(@alignOf(Pool)) = undefined;
-var pool_memory: [Pool.memory_bytes(options)]u8 align(Pool.memory_alignment) = undefined;
+var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+var pool_memory: [ConnectionPool.memory_bytes(options)]u8 align(ConnectionPool.memory_alignment) = undefined;
 var client_config: client.Config align(@alignOf(client.Config)) = .{
     .authority = origin,
     .protocols = .{ .h2 = false, .h3 = false },
@@ -91,7 +91,7 @@ var output: [client.constants.stream_output_len_min]u8 = undefined;
 
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop.
-const receive_calls_max = (link_module.queue_len_max + 1) * (Pool.receive_events_without_input_max(options) + 1);
+const receive_calls_max = (link_module.queue_len_max + 1) * (ConnectionPool.receive_events_without_input_max(options) + 1);
 
 /// The connection of each slot's socket, or null when the slot holds none. A slot's socket is
 /// the link's stream of the same index.
@@ -115,7 +115,7 @@ pub fn main() !void {
     defer link.deinit();
     try peer.init(&link);
     // The pool takes what the first DNS answer knows: the server's address and its port.
-    const known: client.Values = .{ .addresses = &first_addresses, .port = server_port };
+    const known: client.Destination = .{ .addresses = &first_addresses, .port = server_port };
     try pool.init(&pool_memory, &client_config, known, options, null);
     try request(first_round);
     for (0..turns_max) |_| {
@@ -229,13 +229,13 @@ fn close_socket(connection: client.ConnectionHandle) void {
 /// Counts one ended exchange. The first round's end brings a later DNS answer and the second
 /// round, and the second round's end the shutdown.
 fn on_finished(ended: client.Finished) !void {
-    if (ended.response.outcome != .response or ended.response.status != 200) return error.ExchangeWrong;
+    if (ended.response.result != .response or ended.response.status != 200) return error.ExchangeWrong;
     if (!std.mem.eql(u8, ended.response.body_received(), greeting)) return error.ExchangeWrong;
     finished += 1;
     if (finished == first_round) {
         // A later DNS answer names another address. Each connection that opens from now on goes
         // to it, and each open connection keeps its exchanges.
-        pool.set_values(.{ .addresses = &second_addresses, .port = server_port });
+        pool.set_destination(.{ .addresses = &second_addresses, .port = server_port });
         try request(second_round);
     }
     if (finished == requests_count) pool.shutdown();

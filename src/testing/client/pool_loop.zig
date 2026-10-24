@@ -1,5 +1,5 @@
 //! The pool mode of the test-only client (design §8 step 17d): the plan's exchanges handed to
-//! one `client.Pool`, which chooses between QUIC and TCP for them. `tools/pool_interop.sh`
+//! one `client.ConnectionPool`, which chooses between QUIC and TCP for them. `tools/pool_interop.sh`
 //! runs it against other implementations' h3 servers, and against an h2 server with no UDP, which
 //! the pool falls back to. `zig build http-client -- --pool --tls <anchor-prefix> --seconds
 //! <unix-seconds> --get <path>` runs it.
@@ -39,8 +39,8 @@ var slot_busy: [constants.pool_udp_send_slots]bool = @splat(false);
 var slot_outbound: [constants.pool_udp_send_slots]udp.Outbound align(@alignOf(udp.Outbound)) = undefined;
 var tcp: pool_tcp.Socket align(@alignOf(pool_tcp.Socket)) = undefined;
 
-var pool: client.Pool align(@alignOf(client.Pool)) = undefined;
-var pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
+var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
+var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 /// The TCP connection the pool's last `open` of TCP named (decision 125). Generation 0 names none.
 var tcp_connection: client.ConnectionHandle align(@alignOf(client.ConnectionHandle)) = .{ .slot = 0, .generation = 0 };
 var pool_config: client.Config align(@alignOf(client.Config)) = undefined;

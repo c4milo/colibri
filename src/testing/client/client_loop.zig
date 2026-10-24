@@ -2,7 +2,7 @@
 //! `tools/h2_interop.sh` runs against other implementations' servers. `zig build http-client --
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
-//! Each connection of a run is a `client.Pool` with TCP alone (design §8 step 21c). It speaks
+//! Each connection of a run is a `client.ConnectionPool` with TCP alone (design §8 step 21c). It speaks
 //! cleartext h2 with prior knowledge (RFC 9113 §3.3) or h11, or with `--tls` whichever ALPN selects
 //! over TLS, which the module runs through colibri's `tls.record.Client` (RFC 9113 §3.2, decision
 //! 82). With `--pool` the run is one pool that adds QUIC instead (`pool_loop.zig`).
@@ -85,7 +85,7 @@ var connections: [constants.client_connections_max]Connection align(@alignOf(Con
 var sockets: [constants.client_sockets_max]pool_tcp.Socket align(@alignOf(pool_tcp.Socket)) = undefined;
 /// The memory every pool of the run holds its TCP connections and its exchanges in, a slice of it
 /// each. A run that holds fewer pools gives each more.
-var pool_memory: [client_options.pool_memory_len]u8 align(client.Pool.memory_alignment) = undefined;
+var pool_memory: [client_options.pool_memory_len]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 /// The TCP slots each pool of the run holds, which maps a socket's index to its pool and slot.
 var slots_per_pool: u32 = 1;
 /// The response content of every exchange of every connection. Most of it is never touched, so
@@ -168,12 +168,12 @@ fn start_connection(connection: *Connection, index: usize, run: *const Run) void
 }
 
 /// The slice of `pool_memory` that pool `index` of a run of `options` holds.
-fn memory_of(index: usize, options: client.Options) []align(client.Pool.memory_alignment) u8 {
-    const len = std.mem.alignForward(usize, client.Pool.memory_bytes(options), client.Pool.memory_alignment);
+fn memory_of(index: usize, options: client.Options) []align(client.ConnectionPool.memory_alignment) u8 {
+    const len = std.mem.alignForward(usize, client.ConnectionPool.memory_bytes(options), client.ConnectionPool.memory_alignment);
     // `client_options.slots_ok` admits no run whose pools need more.
     assert((index + 1) * len <= pool_memory.len);
     // Decision 125 ruling 2: the pool takes the memory its options need, and no more.
-    return @alignCast(pool_memory[index * len ..][0..client.Pool.memory_bytes(options)]);
+    return @alignCast(pool_memory[index * len ..][0..client.ConnectionPool.memory_bytes(options)]);
 }
 
 fn on_event(live: []Connection, event: rotor.Event) void {
@@ -410,7 +410,7 @@ test "a socket the system never gave ends the pool's attempt, and the exchange w
     var none: [0]u8 = .{};
     const stepped = connection.session.step(null, &none, &none);
     try testing.expect(stepped.done and connection.session.take_asked(0).open == null);
-    try testing.expectEqual(.refused, connection.session.exchanges[0].response.outcome);
+    try testing.expectEqual(.refused, connection.session.exchanges[0].response.result);
 }
 
 test "a socket the pool asks for while its last one closes waits for that close" {

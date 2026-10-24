@@ -6,7 +6,7 @@ const pool_handle = @import("pool_handle.zig");
 
 /// The pool of the default capacity, and one with no QUIC, which serves the same TCP
 /// connections. Each test over TCP runs on both.
-pub const pools = .{ pool_module.Pool, pool_module.PoolOf(.{ .quic = false }) };
+pub const pools = .{ pool_module.ConnectionPool, pool_module.ConnectionPoolOf(.{ .quic = false }) };
 
 /// `versions` with h3 off for a pool with no QUIC, whose `init` refuses h3, and as given for
 /// any other pool.

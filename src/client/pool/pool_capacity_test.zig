@@ -1,6 +1,6 @@
 //! The tests of a pool's capacity (`pool.zig`, decision 124). A pool with no QUIC holds no
 //! QUIC state, refuses `versions` that allow h3, and has no QUIC connection for a call to use. A
-//! call of its `start_quic` does not compile, so no test makes one. `client.Pool` holds QUIC.
+//! call of its `start_quic` does not compile, so no test makes one. `client.ConnectionPool` holds QUIC.
 //! The tests over TCP run on both types (`pool_test_support.zig`).
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
@@ -11,8 +11,8 @@ const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
 
 const testing = std.testing;
-const Pool = pool_module.Pool;
-const TcpAlone = pool_module.PoolOf(.{ .quic = false });
+const ConnectionPool = pool_module.ConnectionPool;
+const TcpAlone = pool_module.ConnectionPoolOf(.{ .quic = false });
 
 /// The pool with no QUIC the tests drive, and its configuration, outside any stack frame.
 /// Test-only.
@@ -28,12 +28,12 @@ const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
-const values: pool_module.Values = .{ .addresses = &addresses, .port = https_port };
+const values: pool_module.Destination = .{ .addresses = &addresses, .port = https_port };
 
-test "decision 124: client.Pool is a pool of the default capacity, which holds QUIC" {
+test "decision 124: client.ConnectionPool is a pool of the default capacity, which holds QUIC" {
     try testing.expect((pool_module.Capacity{}).quic);
-    try testing.expect(Pool == pool_module.PoolOf(.{ .quic = true }));
-    try testing.expectEqual(quic_connection.QuicConnection, @FieldType(Pool, "quic"));
+    try testing.expect(ConnectionPool == pool_module.ConnectionPoolOf(.{ .quic = true }));
+    try testing.expectEqual(quic_connection.QuicConnection, @FieldType(ConnectionPool, "quic"));
 }
 
 test "decision 124: a pool with no QUIC holds no QUIC connection and no QUIC TLS configuration" {
@@ -41,7 +41,7 @@ test "decision 124: a pool with no QUIC holds no QUIC connection and no QUIC TLS
         try testing.expectEqual(void, @FieldType(TcpAlone, name));
     }
     // The pool is smaller than the default one by at least the QUIC connection.
-    try testing.expect(@sizeOf(TcpAlone) + @sizeOf(quic_connection.QuicConnection) <= @sizeOf(Pool));
+    try testing.expect(@sizeOf(TcpAlone) + @sizeOf(quic_connection.QuicConnection) <= @sizeOf(ConnectionPool));
 }
 
 test "RFC 9114 §3.1: a pool with no QUIC refuses versions that allow h3, in cleartext and over TLS" {
@@ -64,7 +64,7 @@ test "decision 124: a pool with no QUIC opens TCP for an origin that names h3, a
     config = .{ .tls = tls_support.client_values(support.authority), .protocols = .{ .h3 = false }, .authority = support.authority };
     // RFC 9460 §7.1.2 and RFC 7838 §3: the record and Alt-Svc both name h3.
     var known = values;
-    known.https = .{ .h3 = true };
+    known.https_record = .{ .h3 = true };
     known.alternative = .{ .port = https_port, .fresh_until_ns = support.now_ns + 1 };
     try pool.init(&pool_memory, &config, known, .{}, null);
     var exchange: support.Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };

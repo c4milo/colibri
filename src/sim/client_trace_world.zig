@@ -1,4 +1,4 @@
-//! The world of the client trace run (decision 105): the caller of a `client.Pool`, the QUIC
+//! The world of the client trace run (decision 105): the caller of a `client.ConnectionPool`, the QUIC
 //! server over the simulator's datagram network, and the TCP server over an ordered link, acting
 //! out one seed's plan. Time moves from one instant something is due to the next: a datagram or
 //! TCP octets arriving, a deadline, a server's answer, or the plan's next action. At each instant
@@ -28,7 +28,7 @@ const Random = sim.Random;
 const Plan = plan_module.Plan;
 const Ledger = ledger_module.Ledger;
 const Direction = link_module.Direction;
-const Pool = client.Pool;
+const ConnectionPool = client.ConnectionPool;
 const Transport = client.Transport;
 
 pub const Error = error{
@@ -61,9 +61,9 @@ pub const World = struct {
     /// Each QUIC connection's grease value and IDs, and every TLS session's draws.
     tls_random: Random,
     now_ns: u64,
-    pool: Pool,
+    pool: ConnectionPool,
     /// The memory the pool holds its TCP connection and its exchanges in (decision 125).
-    pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment),
+    pool_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment),
     /// The connection each transport's last `open` named (decision 125), which the caller's
     /// calls about that transport name. Generation 0 names no connection.
     tcp_connection: client.ConnectionHandle,
@@ -142,12 +142,12 @@ pub const World = struct {
         try world.tcp_server.configure();
     }
 
-    fn values(world: *World) client.Values {
+    fn values(world: *World) client.Destination {
         world.addresses = .{client.Address.of(&server_host, 0)};
-        var held: client.Values = .{ .addresses = &world.addresses, .port = https_port };
+        var held: client.Destination = .{ .addresses = &world.addresses, .port = https_port };
         // RFC 9460 §7.1.2: an HTTPS record naming h3 has the pool try QUIC first, and one naming
         // no h3 has it wait for Alt-Svc.
-        if (world.plan.https) held.https = .{ .h3 = world.plan.policy == .first };
+        if (world.plan.https) held.https_record = .{ .h3 = world.plan.policy == .first };
         return held;
     }
 
@@ -206,7 +206,7 @@ pub const World = struct {
         for (0..world.plan.requests) |index| {
             if (!world.plan.cancel_on_end[index] or world.cancelled[index] or world.reported[index]) continue;
             const id = world.ids[index] orelse continue;
-            if (world.responses[index].outcome == .pending) continue;
+            if (world.responses[index].result == .pending) continue;
             world.pool.cancel(id);
             world.cancelled[index] = true;
             world.settled_ns = world.now_ns;

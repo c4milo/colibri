@@ -105,7 +105,7 @@ It hands both to a pool. The pool asks for a QUIC or a TCP transport, and sends 
 request over the first connection that completes its handshake:
 
 ```zig
-const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
+const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
 // `init` builds the TLS configuration of each transport inside the pool, which stays in
 // place from here on. It keeps the pool's TCP connections and its exchanges in `pool_memory`,
 // which `.{}`, the default counts, sizes. The receive pool is what makes the pool offer QUIC.
@@ -125,7 +125,7 @@ request and the response:
 .finished => |ended| {
     // The event names the request and the response, whose memory is the program's again.
     std.debug.print("client: {s}: {s}, {d}\n", .{
-        ended.request.path, @tagName(ended.response.outcome), ended.response.status,
+        ended.request.path, @tagName(ended.response.result), ended.response.status,
     });
     finished += 1;
     // Every exchange has ended, so the client shuts the pool down.

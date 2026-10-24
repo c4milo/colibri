@@ -16,7 +16,7 @@
 //!   value `step` last accepted.
 //!
 //! Each chunk writes a `feed` record, each value an `accept` record, and a refusal a `reject`
-//! record, and the run ends with an `end` record naming the `Outcome` (design §6.6).
+//! record, and the run ends with an `end` record naming the `Result` (design §6.6).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");

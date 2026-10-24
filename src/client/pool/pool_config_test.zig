@@ -46,7 +46,7 @@ fn expect_tcp_alone(given: pool_module.Config, receive_storage: ?pool_module.Rec
     try testing.expectEqual(Transport.tcp, opened(0).?.transport);
     pool.transport_closed(pool_support.connection_of(pool, .tcp));
     try collect();
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     try testing.expectEqual(null, opened(1));
     try testing.expectEqual(pool_module.Phase.none, pool.phase(pool_support.slot_of(pool, .quic)));
 }
@@ -82,7 +82,7 @@ test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP after QUIC fail
     try pump(rounds_past_probe * 4);
     try testing.expectEqual(null, opened(1));
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     try testing.expectEqual(pool_module.Phase.none, pool.phase(pool_support.slot_of(pool, .tcp)));
 }
 
@@ -115,7 +115,7 @@ test "decision 120: a pool whose values allow no transport ends each exchange re
     const id = try pool.request(&exchange.request, &exchange.response);
     const first = pool.receive(.none, quic_support.now_ns);
     try testing.expectEqual(id, first.event.?.finished.id);
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     try collect();
     try testing.expectEqual(null, opened(0));
 }
@@ -155,7 +155,7 @@ test "decision 120: a QUIC connection gets the authority, ECN, the idle timeout,
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(idle_timeout_ms, quic_support.server.peer_parameters.?.max_idle_timeout_ms);
 }
 

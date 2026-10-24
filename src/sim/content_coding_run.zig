@@ -85,8 +85,8 @@ pub const Storage = struct {
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
-    pool: client.Pool,
-    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    pool: client.ConnectionPool,
+    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     to_server: Stream,

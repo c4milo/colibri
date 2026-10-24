@@ -9,13 +9,13 @@ const pool_support = @import("pool_test_support.zig");
 const testing = std.testing;
 const Exchange = support.Exchange;
 const Event = pool_module.Event;
-const Pool = pool_module.Pool;
+const ConnectionPool = pool_module.ConnectionPool;
 const ConnectionHandle = pool_module.ConnectionHandle;
 
 /// The pool the tests drive, its memory, its configuration and the events it reported, outside
 /// any stack frame. Test-only.
-var pool: Pool align(@alignOf(Pool)) = undefined;
-var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
+var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+var pool_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment) = undefined;
 var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
@@ -120,7 +120,7 @@ test "decision 125: a pool says send once for each debt, and not again for a deb
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, content_length_5, "hello");
     try collect();
-    try testing.expectEqual(.response, first.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
     // The answer let the second request go, and the pool says `send` for it.
     try testing.expectEqual(3, count(.send));
     try testing.expect(send(connection) > 0);

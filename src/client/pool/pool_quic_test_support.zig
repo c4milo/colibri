@@ -11,14 +11,14 @@ const pool_module = @import("pool.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
 const event = @import("../event.zig");
 
-const Pool = pool_module.Pool;
+const ConnectionPool = pool_module.ConnectionPool;
 const Exchange = support.Exchange;
 const Event = pool_module.Event;
 
 /// The pool the tests drive, its configurations and the events it reported, outside any stack
 /// frame. Test-only.
-pub var pool: Pool align(@alignOf(Pool)) = undefined;
-pub var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
+pub var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+pub var pool_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment) = undefined;
 pub var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 pub var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 pub var events_len: usize = 0;
@@ -55,7 +55,7 @@ var receive_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.st
 
 /// A pool offering every version over TLS, with a receive pool, whose QUIC server selects from
 /// `server_protocols`.
-pub fn start(server_protocols: []const []const u8, values: pool_module.Values, quic_first: bool) !void {
+pub fn start(server_protocols: []const []const u8, values: pool_module.Destination, quic_first: bool) !void {
     try start_configured(server_protocols, values, configured(quic_first), receive_pool.storage());
 }
 
@@ -76,7 +76,7 @@ pub fn receive_storage() pool_module.ReceiveStorage {
 
 /// As `start`, with the pool's configuration `given` and the receive pool `given_pool`, or
 /// none.
-pub fn start_configured(server_protocols: []const []const u8, values: pool_module.Values, given: pool_module.Config, given_pool: ?pool_module.ReceiveStorage) !void {
+pub fn start_configured(server_protocols: []const []const u8, values: pool_module.Destination, given: pool_module.Config, given_pool: ?pool_module.ReceiveStorage) !void {
     try quic_support.prepare(&quic_support.alpn_h3, server_protocols, false);
     config = given;
     // Every octet 1, so each flag of a connection the pool never started reads as set, and a
@@ -87,7 +87,7 @@ pub fn start_configured(server_protocols: []const []const u8, values: pool_modul
     blocked = false;
 }
 
-pub fn values_at(port: u16) pool_module.Values {
+pub fn values_at(port: u16) pool_module.Destination {
     return .{ .addresses = &addresses, .port = port };
 }
 

@@ -25,9 +25,9 @@ var coded: [256]u8 = undefined;
 const Endpoint = server_module.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 // The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
-const Pool = client_module.PoolOf(.{ .quic = false });
-var asked: Pool align(@alignOf(Pool)) = undefined;
-var asked_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
+const ConnectionPool = client_module.ConnectionPoolOf(.{ .quic = false });
+var asked: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+var asked_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment) = undefined;
 /// The connection the pool's `open` named, which each later call about it names.
 var asked_connection: client_module.ConnectionHandle align(@alignOf(client_module.ConnectionHandle)) = .{ .slot = 0, .generation = 0 };
 const get: client_module.Request = .{ .method = "GET", .path = "/" };
@@ -141,7 +141,7 @@ pub fn main() !void {
     for (0..exchange_rounds_max) |_| {
         try serve(accepted, asked.send_stream(asked_connection, &wire, 0));
     }
-    if (get_response.outcome != .response or get_response.status != 204) return error.ExchangeWrong;
+    if (get_response.result != .response or get_response.status != 204) return error.ExchangeWrong;
     std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
 }
 

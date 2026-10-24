@@ -18,7 +18,7 @@ pub const Error = coding.Error;
 
 /// How an exchange whose response the client refused ends: `too_large` when the caller's memory
 /// is full, and `malformed` when its content coding is corrupt (decision 101).
-pub fn outcome_of(failure: Error) event.Outcome {
+pub fn outcome_of(failure: Error) event.Result {
     return switch (failure) {
         error.NoSpaceLeft => .too_large,
         error.CodingCorrupt => .malformed,
@@ -98,7 +98,7 @@ test "RFC 9110 §5.3: the field lines of a wanted name are joined in order, and 
     try test_section.append("cache-control", "max-age=60");
     try test_section.append("content-type", "application/dns-message");
     try test_section.append("Cache-Control", "no-transform");
-    var wanted = [_]event.Wanted{ .{ .name = "cache-control" }, .{ .name = "age" }, .{ .name = "Content-Type" } };
+    var wanted = [_]event.WantedHeader{ .{ .name = "cache-control" }, .{ .name = "age" }, .{ .name = "Content-Type" } };
     var values: [64]u8 = undefined;
     var response: Response = .{ .wanted = &wanted, .values = &values };
     var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
@@ -112,7 +112,7 @@ test "RFC 9110 §5.3: the field lines of a wanted name are joined in order, and 
 test "a value or content past the caller's memory is refused whole" {
     test_section.init();
     try test_section.append("content-type", "application/dns-message");
-    var wanted = [_]event.Wanted{.{ .name = "content-type" }};
+    var wanted = [_]event.WantedHeader{.{ .name = "content-type" }};
     var values: [8]u8 = undefined;
     var body: [4]u8 = undefined;
     var response: Response = .{ .wanted = &wanted, .values = &values, .body = &body };

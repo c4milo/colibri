@@ -152,12 +152,12 @@ fn end_response(connection: *Connection, stream_id: u32) bool {
 fn finish(connection: *Connection, slot: *Slot) bool {
     if (!slot.content_done()) cancel_stream(connection, slot.stream_id);
     // Decision 101: coded content ends with its stream, or the exchange ends malformed.
-    const outcome: event.Outcome = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
+    const outcome: event.Result = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
     slots_module.end(slot, outcome);
     return true;
 }
 
-fn end_stream(connection: *Connection, stream_id: u32, outcome: event.Outcome) bool {
+fn end_stream(connection: *Connection, stream_id: u32, outcome: event.Result) bool {
     const slot = connection.slots.of_stream(stream_id) orelse return false;
     slots_module.end(slot, outcome);
     return true;
@@ -165,7 +165,7 @@ fn end_stream(connection: *Connection, stream_id: u32, outcome: event.Outcome) b
 
 /// The response did not fit the caller's memory, or its coding is corrupt: the exchange ends with
 /// `outcome`, and CANCEL tells the server to send no more of it (RFC 9113 §6.4).
-fn refuse(connection: *Connection, slot: *Slot, outcome: event.Outcome) bool {
+fn refuse(connection: *Connection, slot: *Slot, outcome: event.Result) bool {
     cancel_stream(connection, slot.stream_id);
     slots_module.end(slot, outcome);
     return true;

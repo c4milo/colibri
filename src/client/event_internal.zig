@@ -23,7 +23,7 @@ pub fn content_length(request: *const Request, digits: []u8) ?[]const u8 {
 /// Clears what the client writes into `response`, so an exchange writes it anew, and keeps where
 /// the response goes.
 pub fn clear(response: *Response) void {
-    response.outcome = .pending;
+    response.result = .pending;
     response.status = 0;
     response.interims = 0;
     response.body_len = 0;
@@ -32,20 +32,20 @@ pub fn clear(response: *Response) void {
     response.error_code = 0;
     response.coding = null;
     for (response.wanted) |*wanted| wanted.value = null;
-    assert(response.outcome == .pending and response.body_len == 0);
+    assert(response.result == .pending and response.body_len == 0);
 }
 
 const testing = std.testing;
 
 test "clearing a response makes it pending again, and keeps where the response goes" {
-    var wanted = [_]event.Wanted{.{ .name = "content-type", .value = "text/plain" }};
+    var wanted = [_]event.WantedHeader{.{ .name = "content-type", .value = "text/plain" }};
     var response: Response = .{ .wanted = &wanted };
-    response.outcome = .response;
+    response.result = .response;
     response.status = 200;
     response.body_len = 3;
     response.coding = .gzip;
     clear(&response);
-    try testing.expectEqual(.pending, response.outcome);
+    try testing.expectEqual(.pending, response.result);
     try testing.expectEqual(0, response.body_len);
     try testing.expectEqual(null, response.coding);
     try testing.expectEqual(null, response.wanted[0].value);

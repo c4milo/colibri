@@ -69,7 +69,7 @@ test "the connected event comes first, even before an exchange that ended as it 
     var bad: Exchange = .{ .request = .{ .method = "G ET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&bad.request, &bad.response);
     support.client_send();
-    try testing.expectEqual(.invalid, bad.response.outcome);
+    try testing.expectEqual(.invalid, bad.response.result);
     try support.client_receive();
     try testing.expectEqual(.connected, std.meta.activeTag(support.events[0]));
     try testing.expectEqual(.finished, std.meta.activeTag(support.events[1]));
@@ -104,8 +104,8 @@ test "RFC 9112 §9.3.1: the transport's close ends a written exchange closed and
     support.client_send();
     connection.transport_closed();
     try support.client_receive();
-    try testing.expectEqual(.closed, post.response.outcome);
-    try testing.expectEqual(.refused, waiting.response.outcome);
+    try testing.expectEqual(.closed, post.response.result);
+    try testing.expectEqual(.refused, waiting.response.result);
     try testing.expect(support.find(.closed) != null);
     try testing.expect(connection.should_close());
     // A second close changes nothing.

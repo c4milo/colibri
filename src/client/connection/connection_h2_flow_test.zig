@@ -48,7 +48,7 @@ test "RFC 9113 §8.1: a response that ends before the upload does closes the str
     // The server answers whole while most of the content is still to come.
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, post.response.outcome);
+    try testing.expectEqual(.response, post.response.result);
     try testing.expect(post.response.body_sent < upload.len);
     support.peer_events_len = 0;
     try support.pump_h2();
@@ -66,8 +66,8 @@ test "RFC 9113 §6.8: an exchange not yet written when a GOAWAY arrives is refus
     try h2.frame.write_goaway(&writer, 1, h2.constants.error_no_error, "");
     support.to_client_len += writer.written().len;
     try support.client_receive();
-    try testing.expectEqual(.refused, waiting.response.outcome);
-    try testing.expectEqual(.pending, sent.response.outcome);
+    try testing.expectEqual(.refused, waiting.response.result);
+    try testing.expectEqual(.pending, sent.response.result);
 }
 
 test "RFC 9113 §5.1.2: an exchange past the server's stream limit waits for a stream to close" {
@@ -82,14 +82,14 @@ test "RFC 9113 §5.1.2: an exchange past the server's stream limit waits for a s
     _ = try connection.request(&second.request, &second.response);
     try support.pump_h2();
     try testing.expectEqual(1, connection.slots.count(.sent));
-    try testing.expectEqual(.pending, second.response.outcome);
+    try testing.expectEqual(.pending, second.response.result);
     try support.peer_h2_answer(1, ok, &.{}, "");
     try support.pump_h2();
     // The first stream closed, so the second exchange opened stream 3.
     try support.peer_h2_answer(3, ok, &.{}, "");
     try support.client_receive();
-    try testing.expectEqual(.response, first.response.outcome);
-    try testing.expectEqual(.response, second.response.outcome);
+    try testing.expectEqual(.response, first.response.result);
+    try testing.expectEqual(.response, second.response.result);
 }
 
 test "RFC 9113 §5.1.1: with no stream identifier left, an exchange is refused and the connection drains" {
@@ -98,7 +98,7 @@ test "RFC 9113 §5.1.1: with no stream identifier left, an exchange is refused a
     var exchange = get(&bodies[0]);
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     try testing.expect(support.find(.draining) != null);
 }
 
@@ -114,7 +114,7 @@ test "RFC 9113 §4.3: a field section past what h2 sends in one block ends its e
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .headers = &fields }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
-    try testing.expectEqual(.invalid, exchange.response.outcome);
+    try testing.expectEqual(.invalid, exchange.response.result);
 }
 
 test "RFC 9113 §8.1: content before the response's head is malformed, and colibri resets the stream" {
@@ -126,7 +126,7 @@ test "RFC 9113 §8.1: content before the response's head is malformed, and colib
     try h2.frame.write_data(&writer, 1, "hello", true, 0);
     support.to_client_len += writer.written().len;
     try support.client_receive();
-    try testing.expectEqual(.malformed, exchange.response.outcome);
+    try testing.expectEqual(.malformed, exchange.response.result);
     try testing.expectEqual(0, exchange.response.body_len);
     support.peer_events_len = 0;
     try support.pump_h2();

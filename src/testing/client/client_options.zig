@@ -1,5 +1,5 @@
 //! The command line of the test-only client (`client_loop.zig`): where it connects, how many
-//! connections it opens, each a `client.Pool`, how many TCP connections each pool holds, and the
+//! connections it opens, each a `client.ConnectionPool`, how many TCP connections each pool holds, and the
 //! plan of exchanges every one of them runs. Split off the loop for length.
 const std = @import("std");
 const client = @import("client");
@@ -29,7 +29,7 @@ pub const Run = struct {
     /// The protocol every connection speaks in cleartext: h2 with prior knowledge unless `--h11`
     /// says h11. Over TLS, `--h11` offers `http/1.1` alone, and ALPN picks the protocol.
     protocol: Protocol,
-    /// Whether `--pool` adds QUIC: the plan goes to one `client.Pool` (`pool_loop.zig`),
+    /// Whether `--pool` adds QUIC: the plan goes to one `client.ConnectionPool` (`pool_loop.zig`),
     /// which tries h3 over QUIC first and falls back to TCP, where every other run's pools hold
     /// TCP alone. It needs `--tls`, since h3 serves only "https" origins (RFC 9114 §3.1.2), and runs
     /// one pool, so no `--connections`.
@@ -47,7 +47,7 @@ pub const ipv4_octets: usize = 4;
 /// The octets of every pool's memory in a run: a pool of one TCP connection for each socket the
 /// run may hold. Each TCP connection of a pool adds the same octets, so a run whose sockets fit
 /// fits this memory too.
-pub const pool_memory_len: usize = constants.client_sockets_max * client.Pool.memory_bytes(.{});
+pub const pool_memory_len: usize = constants.client_sockets_max * client.ConnectionPool.memory_bytes(.{});
 
 /// The options of each pool of `run`.
 pub fn pool_options(run: *const Run) client.Options {
@@ -233,7 +233,7 @@ test "decision 125: --tcp-connections sets each pool's TCP slots, within the soc
     try testing.expect(test_read(&[_][]const u8{ "--tcp-connections", "17", "--get", "/" }) == null);
     // 4 pools of 16 slots hold every socket a run holds, and 5 hold more.
     const full = test_read(&[_][]const u8{ "--connections", "4", "--tcp-connections", "16", "--get", "/" }).?;
-    try testing.expect(full.connections_count * client.Pool.memory_bytes(pool_options(&full)) <= pool_memory_len);
+    try testing.expect(full.connections_count * client.ConnectionPool.memory_bytes(pool_options(&full)) <= pool_memory_len);
     try testing.expect(test_read(&[_][]const u8{ "--connections", "5", "--tcp-connections", "16", "--get", "/" }) == null);
     // `--pool` holds one TCP connection.
     try testing.expect(test_read(&([_][]const u8{ "--pool", "--tcp-connections", "2" } ++ test_tls)) == null);

@@ -11,13 +11,13 @@ const constants = @import("../constants.zig");
 const testing = std.testing;
 const Exchange = support.Exchange;
 const Event = pool_module.Event;
-const Pool = pool_module.Pool;
+const ConnectionPool = pool_module.ConnectionPool;
 const ConnectionHandle = pool_module.ConnectionHandle;
 
 /// The pool the tests drive, its memory, its configuration and the events it reported, outside
 /// any stack frame. Test-only.
-var pool: Pool align(@alignOf(Pool)) = undefined;
-var pool_memory: [Pool.memory_bytes(.{})]u8 align(Pool.memory_alignment) = undefined;
+var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
+var pool_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment) = undefined;
 var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
@@ -124,7 +124,7 @@ test "decision 125: a cancel gives a blocked h2 connection its next send, for it
 /// Test-only.
 const many_count: u16 = constants.requests_max + many_waiting;
 const many_waiting: u16 = 4;
-var many_memory: [Pool.memory_bytes(.{ .requests = many_count })]u8 align(Pool.memory_alignment) = undefined;
+var many_memory: [ConnectionPool.memory_bytes(.{ .requests = many_count })]u8 align(ConnectionPool.memory_alignment) = undefined;
 var many_bodies: [many_count][body_len]u8 = undefined;
 var many: [many_count]Exchange align(@alignOf(Exchange)) = undefined;
 

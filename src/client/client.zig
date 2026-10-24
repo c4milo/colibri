@@ -1,7 +1,7 @@
 //! colibri's client (decision 100, design §8 step 17): HTTP requests behind one set of calls for
 //! h11, h2 and h3, over TCP or QUIC, the version chosen by ALPN over TLS and named in cleartext.
 //!
-//! A program makes one `Config` for an origin, then a `Pool` to it, in storage it owns
+//! A program makes one `Config` for an origin, then a `ConnectionPool` to it, in storage it owns
 //! (decision 120). The pool says which transport to open and where, and the program starts the
 //! connection it asked for on the socket it opened. For each exchange the program places a
 //! `Request` and a `Response` in its own memory, and hands both to `request` (decision 124). It
@@ -30,7 +30,7 @@ const files = struct {
 
 pub const Config = files.pool.Config;
 pub const Protocols = files.protocols.Protocols;
-/// Why `Pool.init`, `Pool.start_tcp` or `Pool.start_quic` refused (decisions 120 and 123).
+/// Why `ConnectionPool.init`, `ConnectionPool.start_tcp` or `ConnectionPool.start_quic` refused (decisions 120 and 123).
 pub const StartError = files.pool.StartError;
 pub const RequestError = files.pool.RequestError;
 pub const Header = files.event.Header;
@@ -39,30 +39,30 @@ pub const Protocol = files.event.Protocol;
 /// What a program sends, and where the response goes and what arrived (decision 124).
 pub const Request = files.event.Request;
 pub const Response = files.event.Response;
-pub const Wanted = files.event.Wanted;
-pub const Outcome = files.event.Outcome;
+pub const WantedHeader = files.event.WantedHeader;
+pub const Result = files.event.Result;
 pub const Finished = files.event.Finished;
-/// A datagram `Pool.send_datagram` wrote, with its ECN codepoint and the address it goes to.
+/// A datagram `ConnectionPool.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = files.pool.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = files.pool.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
-pub const Pool = files.pool.Pool;
-/// A pool that holds the connections a `Capacity` names (decision 124). `Pool` is
-/// `PoolOf(.{})`, and a program that never speaks h3 places a `PoolOf(.{ .quic = false })`,
+pub const ConnectionPool = files.pool.ConnectionPool;
+/// A pool that holds the connections a `Capacity` names (decision 124). `ConnectionPool` is
+/// `ConnectionPoolOf(.{})`, and a program that never speaks h3 places a `ConnectionPoolOf(.{ .quic = false })`,
 /// which holds no QUIC state.
-pub const PoolOf = files.pool.PoolOf;
+pub const ConnectionPoolOf = files.pool.ConnectionPoolOf;
 pub const Capacity = files.pool.Capacity;
-/// The counts a pool holds, set at run time, and which `Pool.memory_bytes` sizes (decision 125).
+/// The counts a pool holds, set at run time, and which `ConnectionPool.memory_bytes` sizes (decision 125).
 pub const Options = files.pool.Options;
-/// What DNS knows of the origin, which `Pool.init` takes, an HTTPS record's values in it, and
+/// What DNS knows of the origin, which `ConnectionPool.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a pool learned from Alt-Svc.
-pub const Values = files.pool.Values;
-pub const Https = files.pool.Https;
+pub const Destination = files.pool.Destination;
+pub const HttpsRecord = files.pool.HttpsRecord;
 pub const Alternative = files.pool.Alternative;
-/// What a program passes `Pool.receive`, and what it returns.
+/// What a program passes `ConnectionPool.receive`, and what it returns.
 pub const Input = files.pool.Input;
 /// The octets a TCP socket read, with the connection whose socket read them (decision 125).
 pub const StreamBytes = files.pool.StreamBytes;
@@ -78,7 +78,7 @@ pub const ConnectionHandle = files.pool.ConnectionHandle;
 pub const Connected = files.pool.Connected;
 pub const Transport = files.pool.Transport;
 /// Where a transport's connection stands at a pool, as spec/tla/client_exchanges names it
-/// (decision 105). `Pool.phase` returns it, and the simulator's trace reads it. A program reads
+/// (decision 105). `ConnectionPool.phase` returns it, and the simulator's trace reads it. A program reads
 /// the events.
 pub const Phase = files.pool.Phase;
 /// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
@@ -115,26 +115,28 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // the `Channel` prefix from the channel's types, and takes out `ChannelEntry`, which no call
     // of `Channel` takes or returns. Step 21f.2 puts `Request` and `Response` in place of
     // `HttpExchange` (decision 124). Step 21f.6 adds `ChannelOf` and `Capacity` (decision 124).
-    // Step 22.2 renames `Channel` to `Pool` and `ChannelOf` to `PoolOf`, step 22.3 adds
+    // Step 22.2 renames `Channel` to `ConnectionPool` and `ChannelOf` to `ConnectionPoolOf`, step 22.3 adds
     // `Options`, and step 22.4 adds `StreamOctets`, `ConnectionHandle` and `Connected` (decision
     // 125). Step 23.2 renames `Field`, `Id`, `StreamOctets` and `Received` to `Header`,
     // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126). Step 23.3 renames `Versions`
-    // to `Protocols`.
+    // to `Protocols`, and 23.4 renames `Pool`, `PoolOf`, `Values`, `Https`, `Wanted` and `Outcome`
+    // to `ConnectionPool`, `ConnectionPoolOf`, `Destination`, `HttpsRecord`, `WantedHeader` and
+    // `Result`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",       "Config",        "Protocols",         "StartError",         "RequestError",
-        "Header",          "RequestId",     "Protocol",          "Request",            "Response",
-        "Wanted",          "Outcome",       "Finished",          "Sent",               "Address",
-        "Ecn",             "Pool",          "PoolOf",            "Capacity",           "Options",
-        "Values",          "Https",         "Alternative",       "Input",              "StreamBytes",
-        "Datagram",        "ReceiveResult", "Event",             "Open",               "ConnectionHandle",
-        "Connected",       "Transport",     "Phase",             "ReceivePool",        "DefaultReceivePool",
-        "ReceiveStorage",  "Coding",        "DecoderPool",       "DefaultDecoderPool", "Decoders",
-        "ZstdDecoderPool", "ZstdDecoders",  "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",       "Config",         "Protocols",         "StartError",         "RequestError",
+        "Header",          "RequestId",      "Protocol",          "Request",            "Response",
+        "WantedHeader",    "Result",         "Finished",          "Sent",               "Address",
+        "Ecn",             "ConnectionPool", "ConnectionPoolOf",  "Capacity",           "Options",
+        "Destination",     "HttpsRecord",    "Alternative",       "Input",              "StreamBytes",
+        "Datagram",        "ReceiveResult",  "Event",             "Open",               "ConnectionHandle",
+        "Connected",       "Transport",      "Phase",             "ReceivePool",        "DefaultReceivePool",
+        "ReceiveStorage",  "Coding",         "DecoderPool",       "DefaultDecoderPool", "Decoders",
+        "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 
-test "decision 124: StartError names what Pool.init and the two starts return, and no other error" {
+test "decision 124: StartError names what ConnectionPool.init and the two starts return, and no other error" {
     // A switch names each member of the set once. A member added to a set, or taken out of it,
     // stops the test from compiling. A pool with no QUIC returns the same set.
     const names = struct {
@@ -153,10 +155,10 @@ test "decision 124: StartError names what Pool.init and the two starts return, a
             return @typeInfo(@typeInfo(Call).@"fn".return_type.?).error_union.error_set;
         }
     };
-    const TcpAlone = PoolOf(.{ .quic = false });
+    const TcpAlone = ConnectionPoolOf(.{ .quic = false });
     const sets = .{
-        StartError,                              names.returned(@TypeOf(Pool.init)),
-        names.returned(@TypeOf(Pool.start_tcp)), names.returned(@TypeOf(Pool.start_quic)),
+        StartError,                                        names.returned(@TypeOf(ConnectionPool.init)),
+        names.returned(@TypeOf(ConnectionPool.start_tcp)), names.returned(@TypeOf(ConnectionPool.start_quic)),
         names.returned(@TypeOf(TcpAlone.init)),
     };
     inline for (sets) |Set| {
@@ -166,7 +168,7 @@ test "decision 124: StartError names what Pool.init and the two starts return, a
     }
 }
 
-test "decision 121: RequestError names what Pool.request returns, and no other error" {
+test "decision 121: RequestError names what ConnectionPool.request returns, and no other error" {
     // A switch names each member of the set once. A member added to a set, or taken out of it,
     // stops the test from compiling. A connection that drains or closes gets no new exchange from
     // its pool, so `request` never returns `Draining` or `ConnectionClosed`.
@@ -179,7 +181,7 @@ test "decision 121: RequestError names what Pool.request returns, and no other e
             };
         }
     };
-    const Returned = @typeInfo(@typeInfo(@TypeOf(Pool.request)).@"fn".return_type.?).error_union.error_set;
+    const Returned = @typeInfo(@typeInfo(@TypeOf(ConnectionPool.request)).@"fn".return_type.?).error_union.error_set;
     inline for (.{ RequestError, Returned }) |Set| {
         inline for (@typeInfo(Set).error_set.?) |member| {
             try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));

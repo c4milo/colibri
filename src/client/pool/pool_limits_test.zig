@@ -112,7 +112,7 @@ fn seal_largest_first(plaintext: []const u8) !usize {
 
 /// The pool of the default capacity, which the test of the events with no input drives with QUIC
 /// offered.
-const default = Tests(pool_module.Pool);
+const default = Tests(pool_module.ConnectionPool);
 
 /// What `receive` reported in a run with no input: the calls that reported an event, and whether
 /// one of them was `closed`.
@@ -122,10 +122,10 @@ const Run = struct {
 };
 
 /// The bound of a default pool, with QUIC and the default counts (decision 125).
-const events_bound = pool_module.Pool.receive_events_without_input_max(.{});
+const events_bound = pool_module.ConnectionPool.receive_events_without_input_max(.{});
 
 /// Calls `receive` with no input until a call reports no event, at most one call more than
-/// `Pool.receive_events_without_input_max`. Each `open` names a transport that does not open, and the
+/// `ConnectionPool.receive_events_without_input_max`. Each `open` names a transport that does not open, and the
 /// pool shuts down at the last exchange's `finished`.
 fn run_without_input() !Run {
     const pool = &default.pool;
@@ -163,7 +163,7 @@ test "decision 124: Pool.receive_events_without_input_max bounds the events a po
     try testing.expect(run.closed);
     try testing.expect(run.events <= events_bound);
     try testing.expectEqual(null, pool.receive(.none, support.now_ns).event);
-    for (&exchanges) |*exchange| try testing.expectEqual(.refused, exchange.response.outcome);
+    for (&exchanges) |*exchange| try testing.expectEqual(.refused, exchange.response.result);
     // The worst case that a test makes: an `open` of each transport, a `finished` of each exchange,
     // and `closed`. The bound also counts the `close` of each transport and its connection's
     // `connected` and `ticket`. No run that a test makes holds them beside these.
@@ -176,7 +176,7 @@ test {
     inline for (pool_support.pools) |Pool| _ = Tests(Pool);
 }
 
-/// The tests over a pool of type `Pool`, and the helpers that name the pool itself.
+/// The tests over a pool of type `ConnectionPool`, and the helpers that name the pool itself.
 fn Tests(comptime Pool: type) type {
     return struct {
         /// The pool the tests drive, outside any stack frame. Test-only.
@@ -217,7 +217,7 @@ fn Tests(comptime Pool: type) type {
             const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.stream_input_len_min] } }, support.now_ns);
             try testing.expectEqual(whole.len, taken.consumed);
             try testing.expectEqual(&exchange.response, taken.event.?.finished.response);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqual(ok, exchange.response.status);
         }
 
@@ -247,7 +247,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(constants.frame_len_max, taken.consumed);
             take(taken.consumed);
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqualSlices(u8, &content, exchange.response.body_received());
         }
 
@@ -299,7 +299,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(record_len, taken.consumed);
             take(taken.consumed);
             try collect(&pool);
-            try testing.expectEqual(.response, exchange.response.outcome);
+            try testing.expectEqual(.response, exchange.response.result);
             try testing.expectEqualSlices(u8, &content, exchange.response.body_received());
         }
 

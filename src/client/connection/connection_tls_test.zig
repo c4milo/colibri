@@ -86,7 +86,7 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and an exchange goes out 
     // RFC 9110 §4.2.2: a request over TLS names the https scheme.
     try testing.expectEqualStrings("https", request.request.scheme.?);
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
 }
 
@@ -133,7 +133,7 @@ test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_
     const written = try support.peer_h11.write_response(peer_out, ok, "", &fields);
     try server_seal(peer_out[0..written]);
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     const advert = connection.take_alt_svc() orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(u16, 8443), advert.h3.port);
     try testing.expectEqual(@as(u64, 60), advert.h3.max_age_s);
@@ -151,7 +151,7 @@ test "RFC 7838 §3: an h2 response's Alt-Svc over TLS names h3 for take_alt_svc"
     const fields = [_]h2.hpack.Field{.{ .name = "alt-svc", .value = "h3=\":443\"" }};
     _ = try peer_h2_answer_with(&fields, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     const advert = connection.take_alt_svc() orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(u16, 443), advert.h3.port);
 }
@@ -174,7 +174,7 @@ fn learned_from_altsvc(stream_id: u32, origin: []const u8) !?client_alt_svc.Adve
     try h2.frame.write_altsvc(&writer, stream_id, origin, "h3=\":9443\"; ma=30");
     _ = try peer_h2_answer_after(writer.written(), &.{}, "hello");
     try support.client_receive();
-    try testing.expectEqual(.response, exchange.response.outcome);
+    try testing.expectEqual(.response, exchange.response.result);
     return connection.take_alt_svc();
 }
 
@@ -210,7 +210,7 @@ test "RFC 9846 §6.2: a handshake the client refuses ends the connection, and it
     try testing.expectEqual(null, support.find(.connected));
     try testing.expect(connection.failed);
     // The server never saw the request, so it may go on another connection.
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     try testing.expectError(error.ConnectionClosed, connection.request(&exchange.request, &exchange.response));
     try testing.expect(support.find(.closed) != null);
     // The alert that says why goes out before the caller closes (RFC 9846 §6.2).
@@ -238,7 +238,7 @@ test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol ends t
     try testing.expectEqual(null, support.find(.connected));
     try testing.expect(support.find(.closed) != null);
     // The server never saw the request, so it may go on another connection.
-    try testing.expectEqual(.refused, exchange.response.outcome);
+    try testing.expectEqual(.refused, exchange.response.result);
     // The client's Finished goes out before the caller closes, and no alert after it.
     try testing.expect(!connection.should_close());
     support.client_send();
@@ -286,7 +286,7 @@ test "RFC 9846 §6.1: the server's close_notify ends the exchange awaiting its r
     const provider = server.provider();
     support.to_client_len += try provider.vtable.send_close_notify(provider.context, support.to_client[support.to_client_len..]);
     try support.client_receive();
-    try testing.expectEqual(.closed, exchange.response.outcome);
+    try testing.expectEqual(.closed, exchange.response.result);
     try testing.expect(support.find(.closed) != null);
 }
 

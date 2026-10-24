@@ -1,7 +1,7 @@
 //! The two clients of `server_exchange.zig`. This file is not an example by itself: it holds what
 //! the server example runs against.
 //!
-//! Each peer is one `client.Pool`:
+//! Each peer is one `client.ConnectionPool`:
 //! - the TCP peer holds no receive pool, so its pool opens TCP alone, and ALPN picks h2. It
 //!   sends five requests: a GET and a POST that each match a route, a GET whose path holds a
 //!   parameter, a POST to a path whose route names GET alone, and a GET of a path that no route
@@ -69,7 +69,7 @@ const Asked = struct {
     request: client.Request,
     response: client.Response,
     /// The content type of a 200, and the Allow value of a 405.
-    wanted: [2]client.Wanted,
+    wanted: [2]client.WantedHeader,
     values: [content_type.len + greeting_allow.len]u8,
     body: [note.len]u8,
 
@@ -86,7 +86,7 @@ const Asked = struct {
     /// Whether the exchange ended in a 200 response with `content` and the content type.
     fn arrived(asked: *const Asked, content: []const u8) bool {
         const response = &asked.response;
-        if (response.outcome != .response or response.status != 200) return false;
+        if (response.result != .response or response.status != 200) return false;
         if (!std.mem.eql(u8, asked.wanted[0].value orelse "", content_type)) return false;
         return std.mem.eql(u8, response.body_received(), content);
     }
@@ -95,7 +95,7 @@ const Asked = struct {
     /// is `allow`, or which has no Allow field when `allow` is null.
     fn refused(asked: *const Asked, status: u16, allow: ?[]const u8) bool {
         const response = &asked.response;
-        if (response.outcome != .response or response.status != status) return false;
+        if (response.result != .response or response.status != status) return false;
         if (response.body_received().len != 0) return false;
         const held = asked.wanted[1].value orelse return allow == null;
         return std.mem.eql(u8, held, allow orelse return false);
@@ -105,8 +105,8 @@ const Asked = struct {
 /// One client: its configuration, its pool, and what it saw.
 const Peer = struct {
     config: client.Config,
-    pool: client.Pool,
-    pool_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment),
+    pool: client.ConnectionPool,
+    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
     /// The connection the pool's last `open` named (decision 125).
     connection: client.ConnectionHandle,
     asked: [requests_max]Asked,
@@ -147,7 +147,7 @@ const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity
 pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     stream_link = stream;
     datagram_link = datagrams;
-    const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
+    const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
     start(&tcp_peer, cpu, .{}, false);
     // No receive pool: the pool opens TCP alone.
     try tcp_peer.pool.init(&tcp_peer.pool_memory, &tcp_peer.config, known, .{}, null);
@@ -283,7 +283,7 @@ fn open_transport(peer: *Peer, open: client.Open, now_ns: u64) void {
 /// every exchange has ended.
 fn finish(peer: *Peer, ended: client.Finished) void {
     std.debug.print("client: {s}: {s}, {d}\n", .{
-        ended.request.path, @tagName(ended.response.outcome), ended.response.status,
+        ended.request.path, @tagName(ended.response.result), ended.response.status,
     });
     peer.finished += 1;
     if (peer.finished == peer.asked_count and !peer.keeps) peer.pool.shutdown();

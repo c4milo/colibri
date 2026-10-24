@@ -1,5 +1,5 @@
 //! One connection of the test-only client, on the `client` module (design §8 step 21c): the
-//! plan's exchanges handed to a `client.Pool` with TCP alone, which speaks h2 or h11 and runs TLS
+//! plan's exchanges handed to a `client.ConnectionPool` with TCP alone, which speaks h2 or h11 and runs TLS
 //! itself. `client_loop.zig` is the socket around it, and these tests run it against §9's server in
 //! one process.
 //!
@@ -54,7 +54,7 @@ pub const Bodies = [constants.requests_max][constants.response_content_len_max]u
 /// One connection's client state, in storage the caller places. The pool stays in place after
 /// `init`: the TLS configuration it built points into it.
 pub const Session = struct {
-    pool: client.Pool,
+    pool: client.ConnectionPool,
     /// The TCP slots the pool holds, which `init` takes in its options.
     slots: u32,
     /// Each slot's connection, as the pool's last `open` for the slot named it (decision 125).
@@ -84,7 +84,7 @@ pub const Session = struct {
     /// `config`, `plans` and `bodies` must outlive the session.
     pub fn init(
         session: *Session,
-        memory: []align(client.Pool.memory_alignment) u8,
+        memory: []align(client.ConnectionPool.memory_alignment) u8,
         options: client.Options,
         config: *const client.Config,
         address: client.Address,
@@ -248,7 +248,7 @@ const ServerSession = server_session.SessionOf(1);
 /// The two sessions the tests run, their bodies, and the octets each has written that the other
 /// has not read. Placed outside any stack frame. Test-only.
 var test_client: Session align(@alignOf(Session)) = undefined;
-var test_memory: [client.Pool.memory_bytes(.{})]u8 align(client.Pool.memory_alignment) = undefined;
+var test_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
 var test_server: ServerSession align(@alignOf(ServerSession)) = undefined;
 /// Decision 117: the server names no version, and reads it from the client's first octets.
 var test_server_config: server_session.server.Config align(@alignOf(server_session.server.Config)) = .{};
