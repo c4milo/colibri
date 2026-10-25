@@ -527,27 +527,27 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ### INV-30 — every request ends once, before its connection
 
-- **Claim.** Each request the endpoint reports with `request` ends with exactly one `done` or
-  `cancelled`, and no event of the request follows its ending. A connection's `ended` comes after
+- **Claim.** Each request the endpoint reports with `request` ends with exactly one `finished`,
+  whose result is `sent` or `cancelled` (decision 126), and no event of the request follows it. A connection's `ended` comes after
   the ending of every request it carried, and no event of the connection follows `ended`.
 - **Mechanism.** Each slot keeps a table of its open requests, from the `request` event to the
   ending. An entry leaves the table only when its ending is reported, and the endpoint drops
-  every event of a number the table does not hold. The program's `cancel` owes `cancelled` with
-  the reason `program`. A connection that stops with requests open owes `cancelled` with the
-  reason `closed` for each, after the endings it already owed: QUIC's `stop` keeps its ring of
-  owed endings, so a response the peer acknowledged before the stop still ends with `done`.
+  every event of a number the table does not hold. The program's `cancel` owes a cancelled `finished`
+  with the reason `program`. A connection that stops with requests open owes one with the reason
+  `closed` for each, after the endings it already owed: QUIC's `stop` keeps its ring of owed
+  endings, so a response the peer acknowledged before the stop still ends `sent`.
   `ended` comes once the table is empty, and the slot's generation then advances, so every id of
   the connection names nothing ([decision 119](decisions.md)).
 - **Check.** Runtime assertion: `end` in `src/server/endpoint/endpoint_held_quic.zig` and in
   `endpoint_held_tcp.zig` asserts that the connection stopped and its table is empty when it
   reports `ended`. Simulator invariant: the h3
-  deadline check requires every request its application read to have a `done` or a `cancelled`
-  when its run ends. The tests in `endpoint_held_test.zig` cover a word carried to the ending,
+  deadline check requires every request its application read to have a `finished` when its run
+  ends. The tests in `endpoint_held_test.zig` cover a word carried to the ending,
   the program's own cancel, a failure, a failed send and an acknowledged response that outlives a
   stop. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's check over seeds.
 - **Violation.** A stop that drops the endings its connection owed, so a program that frees a
-  request's state on `done` holds it forever, and keeps octets QUIC no longer reads. Or an event
-  of a request after its `cancelled`, which a program that freed the request's state reads after
+  request's state on `finished` holds it forever, and keeps octets QUIC no longer reads. Or an event
+  of a request after its `finished`, which a program that freed the request's state reads after
   it freed it.
 
 ### INV-31 — the endpoint's deadline is the soonest of its connections'

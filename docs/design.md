@@ -10859,6 +10859,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Check.** `tools/ci.sh` on the exact tree. Every census keeps its counts and its wire
     hashes. A trace hash moves only where a label's words changed, and the commit says which.
   - **Waits.** `CpuFeatures` (ruling 16) waits for its design, which needs stdx.
+  - **Two rulings of 2026-10-24.** `memory_bytes` takes the pool's two counts,
+    `.{ .tcp_connections = n }`, because a `Config` with TLS values cannot size a static array.
+    `accept` runs TLS by default, and a cleartext socket passes `.{ .tls = false }`.
+  - **The end of a request.** A connection still reports `done` and `cancelled` to its endpoint,
+    in the internal `ConnectionEvent`, and the endpoint turns each into `finished`. The tests of
+    the connections stand as they were. The endpoint check records a `finished` under its old kind.
+  - **What ran.** `zig build test` on each sub-step: 183 of 183 steps, 3190 of 3190 tests. Every
+    census keeps its counts and its pinned hashes, the endpoint check's event hash included, so the
+    renames and the merge change no event and no byte on the wire. The memory table keeps its
+    sizes under the new names. Mutations of 23.7: 2 of 2 **CAUGHT**.
+  - **Owed before the push.** `tools/ci.sh` on the exact tree.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
