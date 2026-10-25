@@ -276,7 +276,7 @@ fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
 fn test_start_server() !void {
     test_server_now_ns = 0;
     try test_server.init(&test_server_config, entropy.random(), test_server_now_ns);
-    try testing.expect(test_server.accept(0, .cleartext, null, test_server_now_ns));
+    try testing.expect(test_server.accept(0, false, null, test_server_now_ns));
 }
 
 /// Runs the client against the server until the client is done or neither moves. The one socket

@@ -98,7 +98,7 @@ pub fn init(stream: *Link, cpu: tls.Cpu) !void {
 /// The listener accepts the socket the client connected.
 pub fn accept() !void {
     if (accepted != null) return error.ExchangeWrong;
-    accepted = endpoint.accept(.tls, link.now_ns(.server)) orelse return error.ExchangeWrong;
+    accepted = endpoint.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
 }
 
 /// One turn of the server: fire its deadlines, pass the endpoint the octets the socket read, and

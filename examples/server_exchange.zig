@@ -204,13 +204,13 @@ fn start_server(cpu: tls.Cpu) !void {
     // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
     // names the connection in every later call and event. Null says the endpoint starts no
     // connection, and a program then closes the socket.
-    accepted = endpoint.accept(.tls, now_ns) orelse return error.ExchangeWrong;
+    accepted = endpoint.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 }
 
 /// Accepts a second socket, which its peer closes before it sends an octet, as a port scan does.
 /// This example has no link for it: only the calls a program makes for such a socket are here.
 fn accept_closed() !void {
-    const closed = endpoint.accept(.tls, link.now_ns(.server)) orelse return error.ExchangeWrong;
+    const closed = endpoint.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
     // The peer closed the socket first, so the program closes its own end and tells the endpoint.
     // A program calls `transport_closed` then, and when a socket fails. The connection's `ended`
     // follows, with no `close`.

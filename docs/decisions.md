@@ -4959,11 +4959,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      10. `client.HttpsRecord` replaces `client.Https`. Beat: `Svcb` and `HttpsRr`. A program that
          uses cocuyo also meets `cocuyo.Https`, its configuration of DNS over HTTPS.
      11. Bytes. `StreamBytes` replaces `StreamOctets`, and fields named `octets` become `bytes`.
-     12. `accept` takes a `tls` bool. Beat: the `Security` enum.
+     12. `accept` takes `.{ .tls = false }` for a cleartext socket, and runs TLS by default, as the
+         owner ruled on 2026-10-24. Beat: the `Security` enum, and cleartext by default.
      13. `client.Destination` and `set_destination` replace `Values` and `set_values`. Beat:
          `Resolved`, since the Alt-Svc alternative does not come from DNS.
-     14. `client.Options` folds into `client.Config`: `memory_bytes(config)`. The client then has
-         `Capacity` and `Config`, as the server has. Amends decision 125 ruling 2.
+     14. `client.Options` folds into `client.Config`. The client then has `Capacity` and `Config`,
+         as the server has. `memory_bytes` takes the two counts, `.{ .tcp_connections = n }`,
+         because a `Config` with TLS values cannot size a static array (the owner, 2026-10-24).
+         Amends decision 125 ruling 2.
      15. `ReceiveResult` replaces `Received`, what `receive` returns: the bytes taken and one
          event. Beat: `ReceivedBytes`, which names only the first half.
      16. `CpuFeatures` names the CPU's answers in both places: the codec pools' `Features`, and

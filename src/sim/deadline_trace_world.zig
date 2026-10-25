@@ -133,7 +133,7 @@ pub const World = struct {
         const source = tls.Random.init(&world.tls_random, fill);
         try world.endpoint.init(&world.endpoint_config, source, 0, world.now_ns);
         // A new endpoint has its one slot free.
-        world.accepted = world.endpoint.accept(.cleartext, world.now_ns) orelse return error.StartRefused;
+        world.accepted = world.endpoint.accept(.{ .tls = false }, world.now_ns) orelse return error.StartRefused;
         world.client.init(.client);
         world.to_server = .{};
         world.to_client = .{};

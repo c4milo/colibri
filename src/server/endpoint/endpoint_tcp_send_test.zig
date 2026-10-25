@@ -21,7 +21,7 @@ const get_kept = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
 /// when `end` is false.
 fn start_h2(end: bool) !event.ConnectionHandle {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, h2_support.client_preface);
     _ = support.give(handle, try h2_support.request_frame(1, "/", end));
     try testing.expectEqual(1, support.nth(.request, 0).?.number);
@@ -63,7 +63,7 @@ test "decision 119: a send comes once for each debt, and again only after a send
 
 test "INV-30: a response written whole ends with done when the program closes the socket" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, get_kept);
     const id = support.id_of(handle, support.nth(.request, 0).?.number);
     try endpoint.set_user_data(id, word);
@@ -103,7 +103,7 @@ test "decision 119: the program's cancel is reported before the input that names
 
 test "decision 119: an h11 cancel ends the request, and then the connection" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, get_kept);
     endpoint.cancel(support.id_of(handle, support.nth(.request, 0).?.number));
     support.collect();
@@ -132,7 +132,7 @@ test "decision 101: a coded response's ring owes octets, which a send writes out
     support.config.codings = &tcp_support.codings;
     support.config.encoders = tcp_support.pool.encoders();
     try endpoint.init(&support.config, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns);
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, "GET / HTTP/1.1\r\nHost: example.com\r\nAccept-Encoding: gzip\r\n\r\n");
     const id = support.id_of(handle, support.nth(.request, 0).?.number);
     try endpoint.respond(id, .{ .status = ok, .end = false, .codable = true });
@@ -145,7 +145,7 @@ test "decision 101: a coded response's ring owes octets, which a send writes out
 test "RFC 9112 §9.6: input after h11 closed is consumed and dropped" {
     try support.start(null, .{});
     support.flushing = false;
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n");
     try endpoint.respond(support.id_of(handle, support.nth(.request, 0).?.number), .{ .status = ok, .end = true });
     support.collect();
@@ -164,7 +164,7 @@ test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UP
     support.config.codings = &tcp_support.codings;
     support.config.encoders = tcp_support.pool.encoders();
     try endpoint.init(&support.config, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns);
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, preface_small_window);
     const accepts_gzip = [_]tcp_support.Field{.{ .name = "accept-encoding", .value = "gzip" }};
     _ = support.give(handle, try h2_support.request_frame_with(1, "GET", "/", &accepts_gzip, true));
@@ -187,7 +187,7 @@ const coded_len: usize = 2_048;
 
 test "decision 119: a pipelined h11 request held by the program is read once it is passed after done" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     const two = "GET /a HTTP/1.1\r\nHost: example.com\r\n\r\n" ++ "GET /b HTTP/1.1\r\nHost: example.com\r\n\r\n";
     // h11 reads /a, and holds /b until /a's response ends: the program keeps the rest.
     const held = support.give(handle, two);
@@ -207,6 +207,6 @@ test "decision 119: a pipelined h11 request held by the program is read once it 
 
 test "decision 119: an endpoint that serves no TCP version accepts nothing" {
     try support.start(support.identity(), .{ .h11 = false, .h2 = false });
-    try testing.expectEqual(null, endpoint.accept(.tls, support.now_ns));
-    try testing.expectEqual(null, endpoint.accept(.cleartext, support.now_ns));
+    try testing.expectEqual(null, endpoint.accept(.{}, support.now_ns));
+    try testing.expectEqual(null, endpoint.accept(.{ .tls = false }, support.now_ns));
 }

@@ -133,8 +133,7 @@ pub const World = struct {
         // server's connection starts here, and the client's at the first request, which every plan
         // makes before any other action, so each draws what it drew before.
         try world.endpoint.init(&world.endpoint_config, source, identity.now_seconds, world.now_ns);
-        const security: server.Security = if (over_tls) .tls else .cleartext;
-        world.accepted = world.endpoint.accept(security, world.now_ns) orelse return error.StartRefused;
+        world.accepted = world.endpoint.accept(.{ .tls = over_tls }, world.now_ns) orelse return error.StartRefused;
         const octets: [limits.ipv4_len]u8 = @splat(limits.address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};
         const port = if (over_tls) limits.https_port else limits.http_port;

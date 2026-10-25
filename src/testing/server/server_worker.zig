@@ -207,10 +207,10 @@ fn on_accept(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     socket.open(descriptor);
     // `server_options.read` refuses `--echo` but for h11 in cleartext.
     const echo: ?*h11_echo.Echo = if (server_mode.echo_mode) &echoes[worker.index][index] else null;
-    const security: server.Security = if (server_mode.identity != null) .tls else .cleartext;
+    const tls = server_mode.identity != null;
     // A free socket implies a free slot, so the endpoint refuses only a session chapulin does
     // not start.
-    if (!worker.session.accept(index, security, echo, now_ns)) socket.failed = true;
+    if (!worker.session.accept(index, tls, echo, now_ns)) socket.failed = true;
     worker.session.mark(index);
 }
 

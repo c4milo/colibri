@@ -220,7 +220,7 @@ pub const World = struct {
             world.pool.transport_closed(open.connection);
             return;
         }
-        const accepted = world.endpoint.accept(.cleartext, now_ns) orelse return error.NoRoom;
+        const accepted = world.endpoint.accept(.{ .tls = false }, now_ns) orelse return error.NoRoom;
         socket.* = .{ .connected = true, .client = open.connection, .server = accepted, .opens = socket.opens };
         world.pool.start_tcp(open.connection, tls.Random.init(&world.random, fill), 0, null) catch return error.Refused;
     }

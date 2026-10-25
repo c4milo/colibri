@@ -18,10 +18,13 @@ const limits = sim.constants.endpoint;
 
 /// What a peer does beside its behaviour: nothing more, cancel one of its requests, or close its
 /// connection early.
+/// Whether a peer's TCP connection runs TLS, as the plan draws it.
+pub const Security = enum { cleartext, tls };
+
 pub const Overlay = enum { none, resetting, early_closing };
 
 pub const TcpPeer = struct {
-    security: server.Security,
+    security: Security,
     /// Its protocol, how it behaves, its pace and the deadlines the program sets for it. Its
     /// `base_ms` is not read: the run has one base.
     behaviour: deadline_plan.Plan,
@@ -127,7 +130,7 @@ const plan_seeds: u64 = 512;
 
 /// What the plans of `plan_seeds` seeds drew at least once.
 const Drawn = struct {
-    security: [std.enums.values(server.Security).len]bool = @splat(false),
+    security: [std.enums.values(Security).len]bool = @splat(false),
     tcp: [std.enums.values(deadline_plan.Peer).len]bool = @splat(false),
     quic: [std.enums.values(h3_deadline_plan.Peer).len]bool = @splat(false),
     overlay: [std.enums.values(Overlay).len]bool = @splat(false),

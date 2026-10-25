@@ -15,6 +15,7 @@ const sim = @import("sim");
 const server = @import("server");
 const ledger_module = @import("endpoint_ledger.zig");
 const answer_module = @import("endpoint_answer.zig");
+const plan_module = @import("endpoint_plan.zig");
 
 const limits = sim.constants.endpoint;
 const Ledger = ledger_module.Ledger;
@@ -118,8 +119,8 @@ pub const Program = struct {
 
     /// Accepts a TCP socket. P1: a handle is one the endpoint never gave, none comes after
     /// `shutdown`, and null comes only with every TCP slot taken.
-    pub fn accept(program: *Program, security: server.Security, now_ns: u64) Violation!?Handle {
-        const accepted = program.endpoint.accept(security, now_ns);
+    pub fn accept(program: *Program, security: plan_module.Security, now_ns: u64) Violation!?Handle {
+        const accepted = program.endpoint.accept(.{ .tls = security == .tls }, now_ns);
         try program.called("accept");
         const handle = accepted orelse {
             if (program.ledger.shut_down) return null;

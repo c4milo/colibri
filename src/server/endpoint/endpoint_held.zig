@@ -41,7 +41,7 @@ pub const QuicTable = endpoint_held_quic.QuicTable;
 pub const Datagram = endpoint_held_quic.Datagram;
 pub const TcpTable = endpoint_held_tcp.TcpTable;
 pub const Transport = endpoint_held_tcp.Transport;
-pub const Security = endpoint_held_tcp.Security;
+pub const Accepted = endpoint_held_tcp.Accepted;
 pub const StreamBytes = endpoint_held_tcp.StreamBytes;
 
 /// What `receive` takes: nothing new, to read what the endpoint owes, octets a TCP connection's
@@ -161,8 +161,8 @@ pub const Held = struct {
     }
 
     /// Starts a connection on a TCP socket the program accepted, or returns null.
-    pub fn accept(held: *Held, security: Security, now_ns: u64) ?ConnectionHandle {
-        return endpoint_held_tcp.accept(held, security, now_ns);
+    pub fn accept(held: *Held, socket: Accepted, now_ns: u64) ?ConnectionHandle {
+        return endpoint_held_tcp.accept(held, socket, now_ns);
     }
 
     /// Writes what a TCP connection owes its socket into `output`.

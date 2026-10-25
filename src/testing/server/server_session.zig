@@ -123,8 +123,8 @@ pub fn SessionOf(comptime connections_max: usize) type {
         /// Starts the connection of a socket the listener accepted at `now_ns`, in the free entry
         /// `index`. False when the endpoint starts none: the caller closes the socket. The caller
         /// marks the entry, so its first step runs.
-        pub fn accept(session: *Self, index: usize, security: server.Security, echo: ?*h11_echo.Echo, now_ns: u64) bool {
-            return accept_into(session, index, security, echo, now_ns);
+        pub fn accept(session: *Self, index: usize, tls: bool, echo: ?*h11_echo.Echo, now_ns: u64) bool {
+            return accept_into(session, index, tls, echo, now_ns);
         }
 
         /// Serves the socket of entry `index` at `now_ns`: consumes what it can of `input` and
@@ -171,11 +171,11 @@ pub fn SessionOf(comptime connections_max: usize) type {
 }
 
 /// `accept` of a session of any size.
-fn accept_into(session: anytype, index: usize, security: server.Security, echo: ?*h11_echo.Echo, now_ns: u64) bool {
+fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.Echo, now_ns: u64) bool {
     const entry = &session.entries[index];
     assert(!entry.attached);
     session.now_ns = now_ns;
-    const handle = session.endpoint.accept(security, now_ns) orelse return false;
+    const handle = session.endpoint.accept(.{ .tls = tls }, now_ns) orelse return false;
     // A slot the endpoint hands out is one whose last connection it reported `ended`.
     assert(session.entry_of[handle.slot] == null);
     session.entry_of[handle.slot] = @intCast(index);

@@ -20,7 +20,7 @@ const long_content: [server_constants.output_len + 1]u8 = @splat('c');
 test "decision 119: h11 content past the output is writable once send_stream empties it" {
     try support.start(null, .{});
     support.flushing = false;
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
     const id = support.id_of(handle, support.nth(.request, 0).?.number);
     try endpoint.set_user_data(id, word);
@@ -44,7 +44,7 @@ const preface_small_window = h2.constants.client_preface ++ "\x00\x00\x06\x04\x0
 
 test "RFC 9113 §6.9.1: h2 content a stream's window holds is writable once a WINDOW_UPDATE opens it" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, preface_small_window);
     _ = support.give(handle, try h2_support.request_frame(1, "/", true));
     const id = support.id_of(handle, 1);
@@ -82,7 +82,7 @@ const seconds_max: u64 = 40;
 /// program writes before it passes the peer's WINDOW_UPDATE, or after.
 fn expect_cut_at_send_rate(writes_first: bool) !void {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, preface_no_window);
     _ = support.give(handle, try h2_support.request_frame(1, "/", true));
     const id = support.id_of(handle, 1);

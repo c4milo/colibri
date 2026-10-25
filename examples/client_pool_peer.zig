@@ -55,7 +55,7 @@ pub fn init(streams: *StreamsLink) !void {
 /// The listener accepts the socket the client connected on `stream`.
 pub fn accept(stream: usize) !void {
     if (accepted[stream] != null) return error.ExchangeWrong;
-    accepted[stream] = endpoint.accept(.cleartext, link.now_ns(.server)) orelse return error.ExchangeWrong;
+    accepted[stream] = endpoint.accept(.{ .tls = false }, link.now_ns(.server)) orelse return error.ExchangeWrong;
 }
 
 /// The client closed the socket of `stream`, and the endpoint hears it.

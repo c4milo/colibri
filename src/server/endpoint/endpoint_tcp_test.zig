@@ -19,7 +19,7 @@ const get_h11 = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\
 
 test "RFC 9112 §9.6: an h11 request in cleartext is answered, sent, done, closed, and ended" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     try testing.expectEqual(0, support.give(handle, get_h11));
     const request = support.nth(.request, 0).?;
     try testing.expectEqual(handle, request.connection);
@@ -37,7 +37,7 @@ test "RFC 9112 §9.6: an h11 request in cleartext is answered, sent, done, close
 
 test "decision 119 as amended: an h11 head in cleartext that two reads carry is read once whole" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     // The endpoint polls the slot with no octets between the program's two passes.
     const first = get_h11[0.."GET / HT".len];
     try testing.expectEqual(first.len, support.give(handle, first));
@@ -48,7 +48,7 @@ test "decision 119 as amended: an h11 head in cleartext that two reads carry is 
 
 test "RFC 9113 §3.3: an h2 preface in cleartext chooses h2, and a request on stream 1 is answered" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, h2_support.client_preface);
     _ = support.give(handle, try h2_support.request_frame(1, "/", true));
     const request = support.nth(.request, 0).?;
@@ -64,7 +64,7 @@ test "RFC 9113 §3.3: an h2 preface in cleartext chooses h2, and a request on st
 test "RFC 7301 §3.2: over TLS, ALPN chooses h2 by default, h11 with h2 turned off, and SNI is read" {
     for ([_]bool{ true, false }) |with_h2| {
         try support.start(support.identity(), .{ .h2 = with_h2 });
-        const handle = endpoint.accept(.tls, support.now_ns).?;
+        const handle = endpoint.accept(.{}, support.now_ns).?;
         try support.start_client(&tcp_support.protocols_both);
         try testing.expect(try support.handshake(handle));
         const chosen = endpoint.tcp[handle.slot].protocol().?;
@@ -76,7 +76,7 @@ test "RFC 7301 §3.2: over TLS, ALPN chooses h2 by default, h11 with h2 turned o
 
 test "RFC 9113 §3.3, decision 117: a TLS client that selects no protocol is refused with h11 off" {
     try support.start(support.identity(), .{ .h11 = false });
-    const handle = endpoint.accept(.tls, support.now_ns).?;
+    const handle = endpoint.accept(.{}, support.now_ns).?;
     try support.start_client(&.{});
     _ = try support.handshake(handle);
     support.collect();
@@ -88,8 +88,8 @@ test "RFC 9113 §3.3, decision 117: a TLS client that selects no protocol is ref
 
 test "decision 119: one endpoint holds a cleartext slot and a TLS slot, each read as it is" {
     try support.start(support.identity(), .{});
-    const cleartext = endpoint.accept(.cleartext, support.now_ns).?;
-    const secure = endpoint.accept(.tls, support.now_ns).?;
+    const cleartext = endpoint.accept(.{ .tls = false }, support.now_ns).?;
+    const secure = endpoint.accept(.{}, support.now_ns).?;
     try testing.expect(cleartext.slot != secure.slot);
     _ = support.give(cleartext, get_h11);
     try testing.expectEqual(cleartext, support.nth(.request, 0).?.connection);
@@ -101,7 +101,7 @@ test "decision 119: one endpoint holds a cleartext slot and a TLS slot, each rea
 
 test "decision 110: a read with no octets at a later instant asks the connection again" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     // Half a head: the connection reads nothing of it at this instant, so a read with no octets
     // at this instant is not made.
     const half = get_h11[0.."GET / HT".len];
@@ -116,15 +116,15 @@ test "decision 110: a read with no octets at a later instant asks the connection
 
 test "decision 119: the handle of a connection that ended names nothing once its slot is reused" {
     try support.start(null, .{});
-    const first = endpoint.accept(.cleartext, support.now_ns).?;
+    const first = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(first, get_h11);
     const id = support.id_of(first, support.nth(.request, 0).?.number);
     endpoint.transport_closed(first);
     support.collect();
     try testing.expectEqual(first, support.nth(.ended, 0).?.connection);
     // Both slots are free, and the next connection takes the one the first held.
-    _ = endpoint.accept(.cleartext, support.now_ns).?;
-    const second = endpoint.accept(.cleartext, support.now_ns).?;
+    _ = endpoint.accept(.{ .tls = false }, support.now_ns).?;
+    const second = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     try testing.expect(second.slot == first.slot or second.generation != first.generation);
     const before = support.seen_len;
     try testing.expectEqual(0, support.give(first, get_h11));
@@ -139,11 +139,11 @@ test "decision 119: the handle of a connection that ended names nothing once its
 
 test "decision 119: accept starts nothing with every TCP slot held, after shutdown, or with no TCP version" {
     try support.start(null, .{});
-    for (0..support.tcp_slots) |_| _ = endpoint.accept(.cleartext, support.now_ns).?;
-    try testing.expectEqual(null, endpoint.accept(.cleartext, support.now_ns));
+    for (0..support.tcp_slots) |_| _ = endpoint.accept(.{ .tls = false }, support.now_ns).?;
+    try testing.expectEqual(null, endpoint.accept(.{ .tls = false }, support.now_ns));
     try support.start(null, .{});
     endpoint.shutdown(support.now_ns);
-    try testing.expectEqual(null, endpoint.accept(.cleartext, support.now_ns));
+    try testing.expectEqual(null, endpoint.accept(.{ .tls = false }, support.now_ns));
     // RFC 9114 §3.1: h3 alone leaves a TCP connection nothing to speak, and with no identity the
     // QUIC slot serves nothing either.
     try testing.expectError(error.NoVersion, support.start(null, .{ .h11 = false, .h2 = false }));
@@ -151,7 +151,7 @@ test "decision 119: accept starts nothing with every TCP slot held, after shutdo
 
 test "decision 119: TCP slots owe no datagram, and an endpoint that serves no QUIC drops datagrams" {
     try support.start(null, .{});
-    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, get_h11);
     var output: [@import("quic").constants.datagram_len_max]u8 = undefined;
     try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
@@ -182,7 +182,7 @@ const decoded_len: usize = 16;
 
 test "RFC 9846 §6.1: over TLS, h11's close sends the close_notify before the endpoint's close" {
     try support.start(support.identity(), .{ .h2 = false });
-    const handle = endpoint.accept(.tls, support.now_ns).?;
+    const handle = endpoint.accept(.{}, support.now_ns).?;
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(handle));
     _ = try support.give_sealed(handle, get_h11);
@@ -195,7 +195,7 @@ test "RFC 9846 §6.1: over TLS, h11's close sends the close_notify before the en
 
 test "RFC 9846 §5.2: a forged record over TLS sends the alert once, closes, and fails" {
     try support.start(support.identity(), .{});
-    const handle = endpoint.accept(.tls, support.now_ns).?;
+    const handle = endpoint.accept(.{}, support.now_ns).?;
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(handle));
     const sends_before = count(.send);
@@ -214,7 +214,7 @@ fn count(kind: std.meta.Tag(@import("../event.zig").Event)) usize {
 
 test "RFC 9846 §6.1: a TLS connection shut down with no request sends its close_notify, and closes" {
     try support.start(support.identity(), .{ .h2 = false });
-    const handle = endpoint.accept(.tls, support.now_ns).?;
+    const handle = endpoint.accept(.{}, support.now_ns).?;
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(handle));
     support.collect();
@@ -253,7 +253,7 @@ test "RFC 9846 §6: a TLS slot's session is wiped at the endpoint's close, and a
     // sends its alert and no close_notify. The program hears `close` and makes no call before it
     // closes the socket, so the endpoint has wiped the session by then.
     try support.start(support.identity(), .{ .h2 = false });
-    const closed = endpoint.accept(.tls, support.now_ns).?;
+    const closed = endpoint.accept(.{}, support.now_ns).?;
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(closed));
     try testing.expectEqual(.connected, endpoint.tcp[closed.slot].tls_server.session.recordState());
@@ -262,7 +262,7 @@ test "RFC 9846 §6: a TLS slot's session is wiped at the endpoint's close, and a
     try testing.expectEqual(.closed, endpoint.tcp[closed.slot].tls_server.session.recordState());
     // The program closes: the peer left first, and `transport_closed` wipes with no `close`.
     try support.start(support.identity(), .{ .h2 = false });
-    const left = endpoint.accept(.tls, support.now_ns).?;
+    const left = endpoint.accept(.{}, support.now_ns).?;
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(left));
     try testing.expectEqual(.connected, endpoint.tcp[left.slot].tls_server.session.recordState());
@@ -315,7 +315,7 @@ test "decision 110 as amended: retry_from_percent is a share of the QUIC slots a
     support.config.retry = &retry;
     support.config.retry_from_percent = 50;
     try endpoint.init(&support.config, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns);
-    for (0..support.tcp_slots) |_| _ = endpoint.accept(.cleartext, support.now_ns).?;
+    for (0..support.tcp_slots) |_| _ = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     // Both TCP slots hold a connection and the one QUIC slot holds none, so no Retry is owed,
     // and the Initial takes the QUIC slot.
     try testing.expect(!try answers_with_retry(&initial_id));

@@ -184,7 +184,7 @@ try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
 // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
 // names the connection in every later call and event. Null says the endpoint starts no
 // connection, and a program then closes the socket.
-accepted = endpoint.accept(.tls, now_ns) orelse return error.ExchangeWrong;
+accepted = endpoint.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 ```
 
 `now_seconds` is Unix time, which the server's tickets are issued at. With a `ticket_key` the
@@ -193,7 +193,8 @@ the session. `now_ns` is the instant on
 the clock every later call passes, and a connection's deadlines count from the instant its
 `accept` is given. `accept` returns null when no slot is free, after `shutdown`, when `protocols`
 allows neither h11 nor h2, or when the TLS stack refuses to start a session. The program closes
-the socket then. A program passes `.tls` only when its configuration holds an identity. With h3
+the socket then. A socket runs TLS unless the program passes `.{ .tls = false }`, and a
+configuration with no identity takes cleartext sockets alone. With h3
 turned off, or with no identity, an endpoint that serves no TCP version returns `error.NoVersion`
 from `init`, and one that also serves TCP starts no QUIC connection. The endpoint reads the
 configuration while it runs and keeps pointers into itself, so the program keeps both where `init`
@@ -451,7 +452,7 @@ example accepts a second socket to show that call, a socket its peer closes befo
 octet:
 
 ```zig
-const closed = endpoint.accept(.tls, link.now_ns(.server)) orelse return error.ExchangeWrong;
+const closed = endpoint.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
 // The peer closed the socket first, so the program closes its own end and tells the endpoint.
 // A program calls `transport_closed` then, and when a socket fails. The connection's `ended`
 // follows, with no `close`.

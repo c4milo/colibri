@@ -21,8 +21,9 @@ const Event = event.Event;
 const ConnectionHandle = event.ConnectionHandle;
 const Entry = endpoint_requests.Entry;
 
-/// Whether a TCP connection the program accepted runs TLS.
-pub const Security = enum { cleartext, tls };
+/// What `accept` takes of a TCP socket the program accepted: whether its connection runs TLS,
+/// which it does unless the program opts out with `.tls = false`.
+pub const Accepted = struct { tls: bool = true };
 
 /// Bytes a TCP connection's socket read, which chapulin may open in place.
 pub const StreamBytes = struct { connection: ConnectionHandle, bytes: []u8 };
@@ -37,17 +38,14 @@ pub const Transport = enum(u8) { open, closed_by_endpoint, closed_by_program };
 /// Starts a connection on a socket the program accepted, in a free TCP slot, or returns null
 /// when none is free, after `shutdown`, when `versions` allows no TCP version, or when chapulin
 /// refuses to start its session. The program closes the socket on null.
-pub fn accept(held: *Held, security: Security, now_ns: u64) ?ConnectionHandle {
+pub fn accept(held: *Held, socket: Accepted, now_ns: u64) ?ConnectionHandle {
     assert(held.slots.tcp_count > 0);
     // An endpoint that serves no TCP version builds no TCP configuration to read.
     if (held.shutting_down or !held.served.tcp) return null;
-    assert(security == .cleartext or held.tcp_configs.secure.tls != null);
+    assert(!socket.tls or held.tcp_configs.secure.tls != null);
     const handle = held.slots.take(.tcp) orelse return null;
     const slot = handle.slot;
-    const config = switch (security) {
-        .cleartext => &held.tcp_configs.cleartext,
-        .tls => &held.tcp_configs.secure,
-    };
+    const config = if (socket.tls) &held.tcp_configs.secure else &held.tcp_configs.cleartext;
     const seconds = held.connections.seconds_at(now_ns);
     held.tcp[slot].init(config, held.connections.random, seconds, now_ns) catch |failure| {
         // `init` refuses the versions and the limits `build` already took, so chapulin alone may

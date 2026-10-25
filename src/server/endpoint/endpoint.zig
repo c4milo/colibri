@@ -47,7 +47,7 @@ pub const Config = endpoint_config.Config;
 pub const LogProvider = endpoint_connections.LogProvider;
 pub const Input = endpoint_held.Input;
 pub const Datagram = endpoint_held.Datagram;
-pub const Security = endpoint_held.Security;
+pub const Accepted = endpoint_held.Accepted;
 pub const StreamBytes = endpoint_held.StreamBytes;
 
 /// How many connections an endpoint holds, fixed at build time (decision 35): its TCP and its
@@ -149,12 +149,12 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
             }, random, now_seconds, now_ns);
         }
 
-        /// Starts a connection on a TCP socket the program accepted, in cleartext or over TLS,
-        /// and returns the handle that names it. Null when no TCP slot is free, after `shutdown`,
-        /// when `versions` allows no TCP version, or when chapulin refuses to start its session:
-        /// the program closes the socket then.
-        pub fn accept(endpoint: *Self, security: Security, now_ns: u64) ?ConnectionHandle {
-            return endpoint.held.accept(security, now_ns);
+        /// Starts a connection on a TCP socket the program accepted, over TLS by default, `.{}`,
+        /// or in cleartext, `.{ .tls = false }`, and returns the handle that names it. Null when no TCP slot is
+        /// free, after `shutdown`, when `protocols` allows no TCP protocol, or when chapulin
+        /// refuses to start its session: the program closes the socket then.
+        pub fn accept(endpoint: *Self, socket: Accepted, now_ns: u64) ?ConnectionHandle {
+            return endpoint.held.accept(socket, now_ns);
         }
 
         /// Takes what `input` brings, then reports the next event any connection owes. The

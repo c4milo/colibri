@@ -60,8 +60,6 @@ pub const Capacity = files.endpoint.Capacity;
 /// `Datagram` its UDP socket read.
 pub const Input = files.endpoint.Input;
 pub const Datagram = files.endpoint.Datagram;
-/// Whether a TCP connection `Endpoint.accept` takes runs TLS.
-pub const Security = files.endpoint.Security;
 pub const StreamBytes = files.endpoint.StreamBytes;
 pub const LogProvider = files.endpoint.LogProvider;
 /// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
@@ -123,19 +121,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // (decision 122). 23.2 renames `StreamOctets`, `Field`, `Id`, `Fields`, `Body`, `Content` and
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
-    // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`.
+    // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",   "Config",             "Protocols",      "Limits",           "Timeout",
-        "Timeouts",    "CloseReason",        "Limit",          "Endpoint",         "EndpointOf",
-        "Capacity",    "Input",              "Datagram",       "Security",         "StreamBytes",
-        "LogProvider", "Sent",               "Address",        "Ecn",              "StartError",
-        "SendError",   "Header",             "RequestId",      "ConnectionHandle", "Version",
-        "Headers",     "Event",              "Request",        "RequestBody",      "Trailers",
-        "Cancelled",   "CancelReason",       "Done",           "Writable",         "Ended",
-        "Response",    "ResponseBody",       "ReceiveResult",  "Alternative",      "Coding",
-        "EncoderPool", "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool",
-        "Decoders",    "Features",           "PathParameters", "router",
+        "constants",          "Config",         "Protocols",        "Limits",             "Timeout",
+        "Timeouts",           "CloseReason",    "Limit",            "Endpoint",           "EndpointOf",
+        "Capacity",           "Input",          "Datagram",         "StreamBytes",        "LogProvider",
+        "Sent",               "Address",        "Ecn",              "StartError",         "SendError",
+        "Header",             "RequestId",      "ConnectionHandle", "Version",            "Headers",
+        "Event",              "Request",        "RequestBody",      "Trailers",           "Cancelled",
+        "CancelReason",       "Done",           "Writable",         "Ended",              "Response",
+        "ResponseBody",       "ReceiveResult",  "Alternative",      "Coding",             "EncoderPool",
+        "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool", "Decoders",
+        "Features",           "PathParameters", "router",
     });
 }
 

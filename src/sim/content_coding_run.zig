@@ -151,7 +151,7 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     const source = tls.Random.init(&storage.tls_random, fill);
     try storage.endpoint.init(&storage.endpoint_config, source, 0, now_ns);
     // A new endpoint has its one slot free.
-    storage.accepted = storage.endpoint.accept(.cleartext, now_ns) orelse return error.ExchangeRefused;
+    storage.accepted = storage.endpoint.accept(.{ .tls = false }, now_ns) orelse return error.ExchangeRefused;
     const octets: [ipv4_len]u8 = @splat(address_octet);
     storage.addresses = .{client.Address.of(&octets, 0)};
     // No receive pool, so the pool offers TCP alone.

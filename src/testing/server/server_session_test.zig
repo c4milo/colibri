@@ -47,7 +47,7 @@ fn fresh_session(protocol: Protocol, echo: ?*h11_echo.Echo) !*Session {
     // Cleartext draws nothing from the source.
     test_now_ns = 0;
     try test_session.init(&test_config, entropy.random(), test_now_ns);
-    try testing.expect(test_session.accept(0, .cleartext, echo, test_now_ns));
+    try testing.expect(test_session.accept(0, false, echo, test_now_ns));
     return &test_session;
 }
 
@@ -271,7 +271,7 @@ test "decision 119: an event that names another connection reaches that connecti
     // h2 alone: each connection owes its preface, a SETTINGS frame, before it reads anything
     // (RFC 9113 §3.4), and the endpoint reports each one's `send` when its turn comes.
     _ = try fresh_session(.h2, null);
-    try testing.expect(test_session.accept(1, .cleartext, null, test_now_ns));
+    try testing.expect(test_session.accept(1, false, null, test_now_ns));
     const first = step_entry(0, client_preface, &test_output);
     try testing.expectEqual(h2.constants.frame_type_settings, test_output[type_index]);
     try testing.expect(first.written > 0);
@@ -291,7 +291,7 @@ test "decision 119: an event that names another connection reaches that connecti
 
 test "decision 110: one instant's deadlines end two connections, each in its own entry" {
     _ = try fresh_session(.h11, null);
-    try testing.expect(test_session.accept(1, .cleartext, null, test_now_ns));
+    try testing.expect(test_session.accept(1, false, null, test_now_ns));
     // Entry 0 sends half a head, which it holds until the rest arrives, and entry 1 nothing.
     const half = "GET / HT";
     const held = half[step_entry(0, half, &test_output).consumed..];
@@ -315,7 +315,7 @@ test "decision 110: one instant's deadlines end two connections, each in its own
 
 test "decision 119: a slot serves a new entry while its last entry still holds its socket" {
     _ = try fresh_session(.h11, null);
-    try testing.expect(test_session.accept(1, .cleartext, null, test_now_ns));
+    try testing.expect(test_session.accept(1, false, null, test_now_ns));
     const first = test_session.entries[0].handle;
     // Entry 0's connection ends with its response: the endpoint frees its slot, and the entry
     // stays its socket's until the octets are sent and the socket is closed.
@@ -329,7 +329,7 @@ test "decision 119: a slot serves a new entry while its last entry still holds i
     try testing.expectEqual(0, left.consumed + left.written);
     try testing.expect(!left.done);
     // Entry 1 takes a new socket.
-    try testing.expect(test_session.accept(1, .cleartext, null, test_now_ns));
+    try testing.expect(test_session.accept(1, false, null, test_now_ns));
     const second = test_session.entries[1].handle;
     try testing.expectEqual(first.slot, second.slot);
     try testing.expect(first.generation != second.generation);
@@ -410,7 +410,7 @@ test "decision 119: a send_stream that filled its room stays owed until the resp
 
 test "the echo mode returns each of two connections its own request" {
     _ = try fresh_session(.h11, &test_echo);
-    try testing.expect(test_session.accept(1, .cleartext, &test_other_echo, test_now_ns));
+    try testing.expect(test_session.accept(1, false, &test_other_echo, test_now_ns));
     // Entry 0's head arrives, then entry 1's whole request, then entry 0's content.
     const waiting = step_entry(0, "POST /one HTTP/1.1\r\nHost: a\r\nContent-Length: 3\r\n\r\n", &test_output);
     try testing.expectEqual(0, waiting.written);
@@ -431,7 +431,7 @@ test "an entry a new socket takes starts with nothing owed and not closing" {
     try testing.expect(step_entry(0, get_h11_close, &test_output).done);
     try testing.expect(entry.closing and !entry.attached);
     // The entry's next socket: its connection reads and answers, and is not closing.
-    try testing.expect(test_session.accept(0, .cleartext, null, test_now_ns));
+    try testing.expect(test_session.accept(0, false, null, test_now_ns));
     try testing.expect(!entry.closing);
     // Its peer leaves while the response's send is owed: the room held one octet.
     var cramped: [1]u8 = undefined;
@@ -440,7 +440,7 @@ test "an entry a new socket takes starts with nothing owed and not closing" {
     test_session.peer_closed(0, test_now_ns);
     try testing.expect(entry.send_owed and !entry.attached);
     // The third socket's connection owes nothing of the second's.
-    try testing.expect(test_session.accept(0, .cleartext, null, test_now_ns));
+    try testing.expect(test_session.accept(0, false, null, test_now_ns));
     try testing.expect(!entry.send_owed);
     const answered = step_entry(0, get_h11, &test_output);
     try testing.expectEqualStrings(response ++ constants.response_body, test_output[0..answered.written]);
