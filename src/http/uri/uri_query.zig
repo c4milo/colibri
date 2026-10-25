@@ -147,3 +147,115 @@ test "decision 127: too many pairs, or a buffer too small, is refused and leaves
     try testing.expectError(error.NoSpaceLeft, parameters.read("ab=cd", &small));
     try testing.expectEqual(0, parameters.count);
 }
+
+/// Most bytes a fuzz input carries: enough for one pair more than `query_parameters_max`.
+/// Test-only.
+const fuzz_input_len_max = 80;
+/// The short buffer each input is read into a second time, so `NoSpaceLeft` is reached. Test-only.
+const fuzz_storage_short_len = 8;
+
+/// The pairs `read` must write, from a parser written apart from `read`: one pass over the
+/// query, byte by byte. Test-only.
+const Reference = struct {
+    names: [constants.query_parameters_max][]const u8 = @splat(""),
+    values: [constants.query_parameters_max][]const u8 = @splat(""),
+    count: usize = 0,
+    storage: [fuzz_input_len_max]u8 = undefined,
+    len: usize = 0,
+    limit: usize,
+
+    fn parse(reference: *Reference, query: []const u8) ReadError!void {
+        var first: usize = 0;
+        for (0..query.len + 1) |index| {
+            if (index < query.len and query[index] != '&') continue;
+            if (index > first) try reference.pair(query[first..index]);
+            first = index + 1;
+        }
+    }
+
+    fn pair(reference: *Reference, piece: []const u8) ReadError!void {
+        if (reference.count == constants.query_parameters_max) return error.Full;
+        var mark = piece.len;
+        for (piece, 0..) |byte, index| {
+            if (byte == '=') {
+                mark = index;
+                break;
+            }
+        }
+        reference.names[reference.count] = try reference.decode(piece[0..mark]);
+        reference.values[reference.count] = try reference.decode(piece[@min(mark + 1, piece.len)..]);
+        reference.count += 1;
+    }
+
+    fn decode(reference: *Reference, encoded: []const u8) ReadError![]const u8 {
+        const first = reference.len;
+        var index: usize = 0;
+        while (index < encoded.len) {
+            const byte, const taken = reference_byte(encoded[index..]);
+            if (reference.len == reference.limit) return error.NoSpaceLeft;
+            reference.storage[reference.len] = byte;
+            reference.len += 1;
+            index += taken;
+        }
+        return reference.storage[first..reference.len];
+    }
+};
+
+/// The first byte that `encoded` decodes to, and how many bytes of `encoded` it takes. Test-only.
+fn reference_byte(encoded: []const u8) struct { u8, usize } {
+    const radix = 16;
+    const digits = 2;
+    if (encoded[0] == '%' and encoded.len > digits) {
+        const high = std.fmt.charToDigit(encoded[1], radix) catch null;
+        const low = std.fmt.charToDigit(encoded[digits], radix) catch null;
+        if (high != null and low != null) return .{ high.? * radix + low.?, digits + 1 };
+    }
+    return .{ if (encoded[0] == '+') ' ' else encoded[0], 1 };
+}
+
+fn fuzz_read(_: void, smith: *testing.Smith) anyerror!void {
+    var input: [fuzz_input_len_max]u8 = @splat(0);
+    const query = input[0..smith.slice(&input)];
+    var storage: [fuzz_input_len_max]u8 = undefined;
+    try expect_read(query, &storage);
+    try expect_read(query, storage[0..fuzz_storage_short_len]);
+}
+
+fn expect_read(query: []const u8, storage: []u8) !void {
+    var reference: Reference = .{ .limit = storage.len };
+    const expected = reference.parse(query);
+    var parameters: QueryParameters = .{};
+    parameters.count = 1;
+    const result = parameters.read(query, storage);
+    if (expected) |_| try result else |failure| {
+        try testing.expectError(failure, result);
+        try testing.expectEqual(0, parameters.count);
+        return;
+    }
+    try testing.expectEqual(reference.count, parameters.count);
+    const storage_end = @intFromPtr(storage.ptr) + storage.len;
+    for (0..reference.count) |index| {
+        try testing.expectEqualStrings(reference.names[index], parameters.names[index]);
+        try testing.expectEqualStrings(reference.values[index], parameters.values[index]);
+        // Each name and value is a slice of the buffer `read` was given.
+        inline for (.{ parameters.names[index], parameters.values[index] }) |slice| {
+            if (slice.len > 0) try testing.expect(@intFromPtr(slice.ptr) >= @intFromPtr(storage.ptr) and
+                @intFromPtr(slice.ptr) + slice.len <= storage_end);
+        }
+    }
+}
+
+test "fuzz: read writes the pairs of a parser written apart, or refuses and leaves no pair" {
+    try testing.fuzz({}, fuzz_read, .{ .corpus = &.{
+        core.fuzz.input("a=1&b=2"),
+        core.fuzz.input("&&a&=&=b&"),
+        core.fuzz.input("a+b=%2B%26%3D"),
+        core.fuzz.input("%%4%zz%4g=%"),
+        core.fuzz.input("abcdefgh=i"),
+        core.fuzz.input("a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a&a"),
+    } });
+}
+
+test "fuzz: the sweep of read over every query of up to two bytes" {
+    try core.fuzz.sweep(fuzz_read, null);
+}

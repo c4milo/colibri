@@ -67,7 +67,8 @@ fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parame
     try testing.expectEqualStrings(decoded, value);
     if (std.mem.indexOfScalar(u8, path, '%') == null) try testing.expectEqual(path.ptr + 1, value.ptr);
     if (comptime !std.mem.eql(u8, name, "*")) try testing.expectEqual(null, std.mem.indexOfScalar(u8, path[1..], '/'));
-    // Each encoded segment of the value is not empty and decodes to no dot segment.
+    // Each encoded segment of the value is not empty, and decodes to no dot segment and to no
+    // "/", "\\" or NUL (RFC 3986 §7.3).
     var segments = std.mem.splitScalar(u8, path[1..], '/');
     for (0..path.len + 1) |_| {
         const segment = segments.next() orelse break;
@@ -75,6 +76,7 @@ fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parame
         var segment_storage: [fuzz_input_len_max]u8 = undefined;
         const plain = reference_decode(segment, &segment_storage);
         try testing.expect(!std.mem.eql(u8, plain, ".") and !std.mem.eql(u8, plain, ".."));
+        try testing.expectEqual(null, std.mem.indexOfAny(u8, plain, "/\\\x00"));
     }
 }
 
@@ -102,7 +104,7 @@ fn reference_decode(encoded: []const u8, out: []u8) []const u8 {
     return out[0..len];
 }
 
-test "fuzz: a found path equals a pattern before its query, or binds segments that are not empty or a dot" {
+test "fuzz: a found path equals a pattern before its query, or binds segments that are not empty, a dot or a slash" {
     try testing.fuzz({}, fuzz_match, .{ .corpus = &.{
         core.fuzz.input("/"),
         core.fuzz.input("/a"),
@@ -116,6 +118,10 @@ test "fuzz: a found path equals a pattern before its query, or binds segments th
         core.fuzz.input("/%"),
         core.fuzz.input("/%61"),
         core.fuzz.input("/b/%2F"),
+        core.fuzz.input("/b/%2f"),
+        core.fuzz.input("/b%5C"),
+        core.fuzz.input("/%00"),
+        core.fuzz.input("/b/%252F"),
         core.fuzz.input("/%2E%2e"),
         core.fuzz.input("//"),
         core.fuzz.input("/b/c"),

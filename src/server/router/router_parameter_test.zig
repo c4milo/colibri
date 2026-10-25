@@ -119,9 +119,6 @@ test "decision 127: each segment is percent-decoded after the split, and a stray
     var parameters: PathParameters = .{};
     try testing.expectEqual(.user, posts.match("GET", "/users/%6De", &parameters).found);
     try testing.expectEqualStrings("me", parameters.get("id").?);
-    // RFC 3986 §2.1: an encoded "/" stays inside its segment.
-    try testing.expectEqual(.user, posts.match("GET", "/users/a%2Fb", &parameters).found);
-    try testing.expectEqualStrings("a/b", parameters.get("id").?);
     try testing.expectEqual(.posts, posts.match("GET", "/users/caf%C3%A9/posts", &parameters).found);
     try testing.expectEqualStrings("caf\xc3\xa9", parameters.get("id").?);
     try testing.expectEqual(.user, posts.match("GET", "/users/50%", &parameters).found);
@@ -156,9 +153,22 @@ test "decision 122 ruling 6: the wildcard matches one segment or more, the rest 
     inline for (.{ "/files", "/files/", "/files/a/../b", "/files/a/./b", "/files/a//b", "/files/a/", "/files/a/%2E%2E/b" }) |refused| {
         try expect_not_found(files, "GET", refused);
     }
-    // Decision 127: the rest is decoded, an encoded "/" with it.
-    try testing.expectEqual(.wildcard, files.match("GET", "/files/a%2Fb/c%20d", &parameters).found);
-    try testing.expectEqualStrings("a/b/c d", parameters.get("*").?);
+    // Decision 127: the rest is decoded.
+    try testing.expectEqual(.wildcard, files.match("GET", "/files/a%2Bb/c%20d", &parameters).found);
+    try testing.expectEqualStrings("a+b/c d", parameters.get("*").?);
+}
+
+test "RFC 3986 §7.3: a segment that encodes a slash, a backslash or NUL matches nothing" {
+    inline for (.{ "/users/a%2Fb", "/users/a%2fb", "/users/%5C", "/users/a%5cb", "/users/%00", "/users/%2F/posts" }) |refused| {
+        try expect_not_found(posts, "GET", refused);
+    }
+    inline for (.{ "/files/a%2F..%2Fb", "/files/a/%2F", "/files/a/b%5C", "/files/%00/b" }) |refused| {
+        try expect_not_found(files, "GET", refused);
+    }
+    // The walk decodes once, so "%252F" is the three octets "%2F" and matches.
+    var parameters: PathParameters = .{};
+    try testing.expectEqual(.user, posts.match("GET", "/users/%252F", &parameters).found);
+    try testing.expectEqualStrings("%2F", parameters.get("id").?);
 }
 
 /// Tables where the wildcard competes with a literal and a parameter. Each table is a constant of

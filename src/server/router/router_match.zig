@@ -13,9 +13,9 @@
 //!   6. One pass reads each octet of the path once, before the walk. A path matches nothing when
 //!      a segment holds an octet outside `path_octets` and "%", when a segment other than the
 //!      root's is empty, or when a segment is "." or "..", encoded or not (RFC 3986 §6.2.2.2).
-//!   6a. The walk splits the path on "/", then percent-decodes each segment it reads (RFC 3986
-//!      §2.1, decision 127), so an encoded "/" stays inside its segment. A "%" that two hex
-//!      digits do not follow stays as written.
+//!   6a. A segment that encodes "/", "\\" or NUL matches nothing (RFC 3986 §7.3). The walk splits
+//!      the path on "/", then percent-decodes each segment it reads (RFC 3986 §2.1, decision 127).
+//!      A "%" that two hex digits do not follow stays as written.
 //!   7. The path "/" is the root, with no segment.
 //!   8. The walk starts at the root. At each node it tries the literal edge that equals the
 //!      segment, octet for octet, then the parameter child, then the wildcard child. The wildcard
@@ -158,7 +158,26 @@ fn segment_matches(segment: []const u8) bool {
     if (segment.len == 0) return false;
     // RFC 3986 §3.3, §6.2.2.3: "." and ".." are dot-segments, which match no route. §6.2.2.2:
     // "%2E" is ".", so an encoded dot-segment matches none either.
-    return !is_dot_segment(segment);
+    if (is_dot_segment(segment)) return false;
+    // RFC 3986 §7.3: a decoded "/" or "\\" would let a parameter carry a path of its own, such
+    // as "../x", past the check of dot-segments, and a NUL ends a C string early. So a segment
+    // that encodes one matches no route (the owner's ruling of 2026-10-25).
+    return !encodes_refused_octet(segment);
+}
+
+/// Whether `segment` holds a "%" whose two hex digits name "/", "\\" or NUL.
+fn encodes_refused_octet(segment: []const u8) bool {
+    var index: usize = 0;
+    // Bounded: each pass takes one octet of the segment, or three for an encoded one.
+    while (index < segment.len) {
+        const octet = percent.decoded_at(segment, index) orelse {
+            index += 1;
+            continue;
+        };
+        if (octet == '/' or octet == '\\' or octet == 0) return true;
+        index += percent.encoded_len;
+    }
+    return false;
 }
 
 /// Whether `segment` decodes to "." or "..".

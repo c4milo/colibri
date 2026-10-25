@@ -10910,15 +10910,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Standard's percent-decode keeps it. colibri hands the decoded bytes back as they are, and
     checks no UTF-8. `get` returns the first value of a name, as URLSearchParams' `get` does.
   - **The router.** `server.router` splits a path into segments, then percent-decodes each one
-    (RFC 3986 §2.1), so `%2F` stays inside its segment. A literal compares with the decoded
-    segment, and a parameter holds the decoded bytes, in memory the `PathParameters` holds. It
-    no longer refuses a `%` (amends decision 122).
+    (RFC 3986 §2.1). A literal compares with the decoded segment, and a parameter holds the
+    decoded bytes, in memory the `PathParameters` holds. It no longer refuses a `%` (amends
+    decision 122). A segment that encodes "/", "\\" or NUL matches nothing (RFC 3986 §7.3, the
+    owner's ruling of 2026-10-25), so a decoded value cannot carry a path past the check of
+    dot-segments.
   - **Sub-steps.**
     - 24.1: this text and the tests that list the names.
     - 24.2: `Request.query`, in h11, h2 and h3.
     - 24.3: `QueryParameters`.
     - 24.4: the router's decoding.
     - 24.5: docs/usage.md and the server example.
+    - 24.6: the refusal of an encoded "/", "\\" or NUL, and the fuzz tests of the query reader.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

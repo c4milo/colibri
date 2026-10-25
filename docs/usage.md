@@ -576,9 +576,11 @@ fn route(request: server.Request, state: *Served) !void {
   `not_implemented`. A table with an OPTIONS route gives `not_found`, because "*" is not a path.
   A program that answers `OPTIONS *` reads `request.path` before it calls `match`.
 - **Each segment is percent-decoded** (RFC 3986 §2.1, decision 127). `match` splits the path on
-  "/" first, then decodes each segment it reads, so `%2F` stays inside its segment as a "/". A
-  literal compares with the decoded segment: `/users/%6De` matches `/users/me`. A "%" that two hex
-  digits do not follow stays as written, and colibri checks no UTF-8.
+  "/" first, then decodes each segment it reads. A literal compares with the decoded segment:
+  `/users/%6De` matches `/users/me`. A "%" that two hex digits do not follow stays as written, and
+  colibri checks no UTF-8.
+- **A segment that encodes "/", "\\" or NUL matches nothing** (RFC 3986 §7.3). So no parameter
+  holds a "/" or a "\\", no part of the wildcard's rest is a dot-segment, and no value holds a NUL.
 - **A parameter's value is the decoded segment.** A segment with no "%" is a slice of the path,
   valid until the next endpoint call that the comment on `Endpoint.receive` lists. A decoded one
   is a slice of the `PathParameters`, valid until its next `match`. A program that keeps a value
