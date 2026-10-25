@@ -126,15 +126,20 @@ const router = server.router(Route, .{
     .{ .get, "/greetings/:name", .named },
 });
 
-/// Written by each `match`. Its values are slices of the request's path.
+/// Written by each `match`. Its values are the decoded segments of the request's path.
 var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
 
 /// What the server keeps for one request, which `set_user_data` names.
+/// The bytes of a request's decoded query that the server keeps.
+const query_len_max = 64;
+
 const Served = struct {
     /// Whether the request is the POST, whose content the server sends back once it ends.
     echo: bool = false,
     /// The content of the response: the POST's content, or the greeting to a name.
     content: [note.len]u8 = undefined,
+    /// Where the query's pairs are decoded.
+    query: [query_len_max]u8 = undefined,
     content_len: usize = 0,
     /// Whether the response is whole.
     done: bool = false,
@@ -330,7 +335,7 @@ fn route(request: server.Request, state: *Served) !void {
             .greeting => try answer(request.id, greeting),
             // The content follows in `body` events, and `take_body` answers at its end.
             .echo => state.echo = true,
-            .named => try answer_named(request.id, state, parameters.get("name").?),
+            .named => try answer_named(request, state, parameters.get("name").?),
         },
         // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
         .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
@@ -344,15 +349,22 @@ fn route(request: server.Request, state: *Served) !void {
     }
 }
 
-/// Answers a GET of `/greetings/:name` with a greeting to the name. The slice `name` stays valid
-/// until the next endpoint call, and QUIC reads the content again until `done`. So the server
-/// writes the content into the request's state first.
-fn answer_named(id: server.RequestId, state: *Served, name: []const u8) !void {
-    const content = std.fmt.bufPrint(&state.content, "hello, {s}\n", .{name}) catch {
+/// Answers a GET of `/greetings/:name` with a greeting to the name, ended with the query's `mark`.
+/// The router decoded the name, and `QueryParameters` decodes the query's pairs into the
+/// request's state (decision 127). The slice `name` stays valid until the next endpoint call, and
+/// QUIC reads the content again until the request's `finished`. So the server writes the content
+/// into the request's state first.
+fn answer_named(request: server.Request, state: *Served, name: []const u8) !void {
+    var query: server.QueryParameters = .{};
+    query.read(request.query orelse "", &state.query) catch {
         // RFC 9110 §15.5.15: the target is longer than this server takes.
-        return endpoint.respond(id, .{ .status = 414, .end = true });
+        return endpoint.respond(request.id, .{ .status = 414, .end = true });
     };
-    try answer(id, content);
+    const mark = query.get("mark") orelse "";
+    const content = std.fmt.bufPrint(&state.content, "hello, {s}{s}\n", .{ name, mark }) catch {
+        return endpoint.respond(request.id, .{ .status = 414, .end = true });
+    };
+    try answer(request.id, content);
 }
 
 /// Keeps the POST's content, and sends it back once it ends. Over h3 a GET's end can come in a

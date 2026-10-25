@@ -29,9 +29,11 @@ pub const greeting = "hello from colibri\n";
 pub const note = "a note the client posts, which the server sends back\n";
 pub const content_type = "text/plain; charset=utf-8";
 
-/// The name the TCP peer asks the server to greet, and the greeting it must get back.
+/// The name the TCP peer asks the server to greet, encoded in part, the mark its query asks for,
+/// and the greeting it must get back: the server decodes both (decision 127).
 const name = "colibri";
-const named_greeting = "hello, " ++ name ++ "\n";
+const named_target = "/greetings/col%69bri?mark=%21";
+const named_greeting = "hello, " ++ name ++ "!\n";
 
 /// The Allow value of the path "/greeting", whose one route names GET. A HEAD request finds a GET
 /// route, so the value lists HEAD after GET.
@@ -153,7 +155,7 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     try tcp_peer.pool.init(&tcp_peer.pool_memory, &tcp_peer.config, known, null);
     try tcp_peer.ask("GET", "/greeting", "");
     try tcp_peer.ask("POST", "/echo", note);
-    try tcp_peer.ask("GET", "/greetings/" ++ name, "");
+    try tcp_peer.ask("GET", named_target, "");
     // The route of "/greeting" names GET alone, so a POST gets 405.
     try tcp_peer.ask("POST", "/greeting", "");
     // A parameter matches one segment, so no route names this path.

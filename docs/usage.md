@@ -517,7 +517,7 @@ const router = server.router(Route, .{
     .{ .get, "/greetings/:name", .named },
 });
 
-/// Written by each `match`. Its values are slices of the request's path.
+/// Written by each `match`. Its values are the decoded segments of the request's path.
 var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
 ```
 
@@ -536,7 +536,7 @@ fn route(request: server.Request, state: *Served) !void {
             .greeting => try answer(request.id, greeting),
             // The content follows in `body` events, and `take_body` answers at its end.
             .echo => state.echo = true,
-            .named => try answer_named(request.id, state, parameters.get("name").?),
+            .named => try answer_named(request, state, parameters.get("name").?),
         },
         // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
         .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
@@ -555,7 +555,7 @@ fn route(request: server.Request, state: *Served) !void {
 
 - **The method comes first.** When no route of the table names the method, the result is
   `not_implemented`, on any path, and the program answers 501 (RFC 9110 §9.1, §15.6.2). Then
-  `match` reads the path, up to the first "?". The query does not change the result.
+  `match` reads the path. The query does not change the result.
 - **A literal, then a parameter, then the wildcard.** At each segment, `match` tries the literal
   that equals the segment, then the parameter, then the wildcard. When a deeper segment fails, it
   backs up one level and tries the next kind. So the order of the table does not change the
@@ -575,28 +575,43 @@ fn route(request: server.Request, state: *Served) !void {
 - **`OPTIONS *` gets one of two results.** A table with no OPTIONS route gives
   `not_implemented`. A table with an OPTIONS route gives `not_found`, because "*" is not a path.
   A program that answers `OPTIONS *` reads `request.path` before it calls `match`.
-- **A parameter's value is a slice of the path.** It stays valid until the next endpoint call
-  that the comment on `Endpoint.receive` lists. A program that keeps a value longer copies it
-  first. `answer_named` below writes its content into the request's state, because QUIC reads the
-  content again until the request's `finished`.
-- **A path that holds a "%" or an octet outside `pchar` matches nothing** (RFC 3986 §2.1, §3.3).
-  colibri does not decode a path. A router that decoded `/users/%6De` could route it past a check
-  written for `/users/me`. So a parameter never holds a "/", a space or an octet above 0x7F. h11
-  refuses a target with an octet outside `pchar`, and this rule makes h2 and h3 route the same
-  way.
-- **Other paths that match nothing:** a path with an empty segment, such as `/a//b` or `/a/`, a
-  path with a "." or ".." segment, and a path longer than `server.constants.path_len_max` octets,
-  its query included.
+- **Each segment is percent-decoded** (RFC 3986 §2.1, decision 127). `match` splits the path on
+  "/" first, then decodes each segment it reads, so `%2F` stays inside its segment as a "/". A
+  literal compares with the decoded segment: `/users/%6De` matches `/users/me`. A "%" that two hex
+  digits do not follow stays as written, and colibri checks no UTF-8.
+- **A parameter's value is the decoded segment.** A segment with no "%" is a slice of the path,
+  valid until the next endpoint call that the comment on `Endpoint.receive` lists. A decoded one
+  is a slice of the `PathParameters`, valid until its next `match`. A program that keeps a value
+  longer copies it first. `answer_named` below writes its content into the request's state,
+  because QUIC reads the content again until the request's `finished`.
+- **Paths that match nothing:** a path with an octet outside `pchar` and "%", a path with an empty
+  segment, such as `/a//b` or `/a/`, a path with a "." or ".." segment, encoded or not, such as
+  `/a/%2E%2E`, and a path longer than `server.constants.path_len_max` bytes, its query included.
+
+### Query
+
+`request.path` holds the path alone, and `request.query` holds the bytes after the first "?", or
+null (decision 127). `server.QueryParameters` reads its `name=value` pairs, as the WHATWG URL
+Standard's `application/x-www-form-urlencoded` parser does: it splits on "&" and on the first "=",
+skips empty pieces, reads "+" as a space, and percent-decodes. `read` writes the decoded names and
+values into a buffer the program gives, and refuses a query of more than
+`http.constants.query_parameters_max` pairs, 32, or of more bytes than the buffer holds. `get`
+returns the first value of a name.
 
 The server example answers a parameter route like this:
 
 ```zig
-fn answer_named(id: server.RequestId, state: *Served, name: []const u8) !void {
-    const content = std.fmt.bufPrint(&state.content, "hello, {s}\n", .{name}) catch {
+fn answer_named(request: server.Request, state: *Served, name: []const u8) !void {
+    var query: server.QueryParameters = .{};
+    query.read(request.query orelse "", &state.query) catch {
         // RFC 9110 §15.5.15: the target is longer than this server takes.
-        return endpoint.respond(id, .{ .status = 414, .end = true });
+        return endpoint.respond(request.id, .{ .status = 414, .end = true });
     };
-    try answer(id, content);
+    const mark = query.get("mark") orelse "";
+    const content = std.fmt.bufPrint(&state.content, "hello, {s}{s}\n", .{ name, mark }) catch {
+        return endpoint.respond(request.id, .{ .status = 414, .end = true });
+    };
+    try answer(request.id, content);
 }
 ```
 
