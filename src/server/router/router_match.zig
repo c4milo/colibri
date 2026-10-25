@@ -11,8 +11,11 @@
 //!   5. A query alone, such as "?x", is the root with a query. Any other path that does not
 //!      start with "/" matches nothing: "*" and "".
 //!   6. One pass reads each octet of the path once, before the walk. A path matches nothing when
-//!      a segment holds an octet outside `path_octets`, a "%" included, when a segment other than
-//!      the root's is empty, or when a segment is "." or "..".
+//!      a segment holds an octet outside `path_octets` and "%", when a segment other than the
+//!      root's is empty, or when a segment is "." or "..", encoded or not (RFC 3986 §6.2.2.2).
+//!   6a. The walk splits the path on "/", then percent-decodes each segment it reads (RFC 3986
+//!      §2.1, decision 127), so an encoded "/" stays inside its segment. A "%" that two hex
+//!      digits do not follow stays as written.
 //!   7. The path "/" is the root, with no segment.
 //!   8. The walk starts at the root. At each node it tries the literal edge that equals the
 //!      segment, octet for octet, then the parameter child, then the wildcard child. The wildcard
@@ -26,9 +29,9 @@
 //!      `found` with the entry's value. A HEAD request finds the GET entry of a leaf with no HEAD
 //!      entry. Otherwise the result is `method_not_allowed` with the leaf's Allow value, which
 //!      lists HEAD after GET.
-//!  12. `found` writes the name and the segment of each parameter of the walk into `parameters`,
-//!      and for the wildcard the name "*" and the rest of the path, without its first "/". Each
-//!      other result leaves `parameters.count` at 0.
+//!  12. `found` writes the name and the decoded segment of each parameter of the walk into
+//!      `parameters`, and for the wildcard the name "*" and the decoded rest of the path, without
+//!      its first "/". Each other result leaves `parameters.count` at 0.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -36,9 +39,12 @@ const PathParameters = @import("../path_parameters.zig").PathParameters;
 const router_method = @import("router_method.zig");
 const router_pattern = @import("router_pattern.zig");
 const router_trie = @import("router_trie.zig");
+const percent = @import("http").uri_percent;
 
 /// The octet that ends a path and starts its query (RFC 3986 §3.3, §3.4).
 const query_start = '?';
+/// The octet that starts a percent-encoded octet (RFC 3986 §2.1).
+const percent_sign = '%';
 
 /// What `match` gives for a method and a path.
 pub fn Match(comptime Value: type) type {
@@ -124,11 +130,17 @@ fn path_of(target: []const u8) ?[]const u8 {
             segment_first = index + 1;
             continue;
         }
-        // RFC 3986 §3.3: segment = *pchar. `path_octets` holds no "%", which starts a
-        // pct-encoded octet (RFC 3986 §2.1), so a path with one matches nothing (decision 122).
-        if (!router_pattern.path_octets[octet]) return null;
+        // RFC 3986 §3.3: segment = *pchar, and a pchar may be pct-encoded (§2.1), which the walk
+        // decodes (decision 127).
+        if (!path_octet(octet)) return null;
     }
     return path_end(target, segment_first);
+}
+
+/// Whether `octet` may stand in a path that a route matches: a pchar, or the "%" of a pct-encoded
+/// octet (RFC 3986 §2.1, §3.3).
+fn path_octet(octet: u8) bool {
+    return router_pattern.path_octets[octet] or octet == percent_sign;
 }
 
 /// `path`, or null when its last segment matches no route.
@@ -144,10 +156,29 @@ fn path_end(path: []const u8, segment_first: usize) ?[]const u8 {
 fn segment_matches(segment: []const u8) bool {
     // Decision 122: an empty segment matches no route, though RFC 3986 §3.3 allows one.
     if (segment.len == 0) return false;
-    // RFC 3986 §3.3, §6.2.2.3: "." and ".." are dot-segments, which match no route.
-    if (std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return false;
-    return true;
+    // RFC 3986 §3.3, §6.2.2.3: "." and ".." are dot-segments, which match no route. §6.2.2.2:
+    // "%2E" is ".", so an encoded dot-segment matches none either.
+    return !is_dot_segment(segment);
 }
+
+/// Whether `segment` decodes to "." or "..".
+fn is_dot_segment(segment: []const u8) bool {
+    var dots: usize = 0;
+    var index: usize = 0;
+    // Bounded: each pass takes one octet of the segment, or three for an encoded dot.
+    while (index < segment.len) {
+        if (segment[index] == '.') {
+            index += 1;
+        } else if (std.ascii.startsWithIgnoreCase(segment[index..], "%2e")) {
+            index += percent.encoded_len;
+        } else return false;
+        dots += 1;
+    }
+    return dots > 0 and dots <= dot_segment_len_max;
+}
+
+/// The dots of the longer dot-segment, ".." (RFC 3986 §3.3).
+const dot_segment_len_max = 2;
 
 /// The node of a walk, and the count of parameters that it wrote.
 const Walked = struct { node: usize, count: usize };
@@ -214,7 +245,7 @@ fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *
         return .{ .found = .{ .node = frame.node, .count = frame.count } };
     }
     const segment_end = std.mem.indexOfScalarPos(u8, path, frame.segment_first, router_pattern.separator) orelse path.len;
-    const segment = path[frame.segment_first..segment_end];
+    const segment = decoded(parameters, path, frame.segment_first, segment_end);
     const at = layout.nodes[frame.node];
     const next_first = segment_end + 1;
     // Decision 122: the literal edge first, then the parameter child, then the wildcard. INV-32:
@@ -236,11 +267,35 @@ fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *
         frame.tried = .wildcard;
         // Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path.
         if (at.wildcard) |wildcard| {
-            bind(parameters, frame.count, router_pattern.wildcard, path[frame.segment_first..]);
+            bind(parameters, frame.count, router_pattern.wildcard, decoded(parameters, path, frame.segment_first, path.len));
             return .{ .found = .{ .node = wildcard, .count = frame.count + 1 } };
         }
     }
     return .back;
+}
+
+/// `path[first..end]` percent-decoded (RFC 3986 §2.1): the path's own octets when they hold no
+/// "%", or else the decoded octets, written into `parameters.storage` at the same offset. A
+/// decoded run is never longer than its encoded one, so it stays inside its own place. A "%" that
+/// two hex digits do not follow stays as written (decision 127).
+fn decoded(parameters: *PathParameters, path: []const u8, first: usize, end: usize) []const u8 {
+    assert(first <= end and end <= path.len and path.len <= parameters.storage.len);
+    const encoded = path[first..end];
+    if (std.mem.indexOfScalar(u8, encoded, percent_sign) == null) return encoded;
+    const out = parameters.storage[first..end];
+    var written: usize = 0;
+    var index: usize = 0;
+    // Bounded: each pass takes one octet of `encoded`, or three for a decoded "%".
+    while (index < encoded.len) : (written += 1) {
+        if (percent.decoded_at(encoded, index)) |value| {
+            out[written] = value;
+            index += percent.encoded_len;
+            continue;
+        }
+        out[written] = encoded[index];
+        index += 1;
+    }
+    return out[0..written];
 }
 
 /// Writes `name` and `value` as the parameter at `index` of a walk.

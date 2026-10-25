@@ -10902,7 +10902,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   on 2026-10-25.
   - **Names.** `server.Request` gains `query`, the raw query after the `?`, or null, and its
     `path` holds the path alone. `server.QueryParameters` is new, with `read(query, storage)` and
-    `get(name)`, and `server.constants.query_parameters_max` is 32. An absolute-form target with an
+    `get(name)`, and `http.constants.query_parameters_max` is 32. The owner ruled on 2026-10-25 that
+    the URL code lives in `src/http/uri/`: `uri.zig`, `uri_percent.zig` and `uri_query.zig`, so the
+    client reaches it too. `http` exports `QueryParameters`, and `server` re-exports it. An absolute-form target with an
     empty path and a query gives the path `/`.
   - **Rulings of 2026-10-25.** A `%` that two hex digits do not follow stays as written, as the URL
     Standard's percent-decode keeps it. colibri hands the decoded bytes back as they are, and

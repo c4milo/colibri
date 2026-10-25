@@ -94,11 +94,11 @@ const posts = router(Person, .{
     .{ .get, "/users/:id/posts", .posts },
 });
 
-test "RFC 3986 §3.3: a path with a \"%\", an empty or dot segment, or an octet outside pchar matches nothing" {
+test "RFC 3986 §3.3: an empty or dot segment, encoded or not, or an octet outside pchar matches nothing" {
     inline for (.{
-        "/users/%6De",        "/users/42%2F", "/users/.",       "/users/..",       "/users/a b",
-        "/users//posts",      "/users/42/",   "/users/./posts", "/users/../posts", "/users/a#b",
-        "/users/caf\xc3\xa9", "/users/a\\b",  "/users/a\"b",    "/users/42//",     "/users/%",
+        "/users/%2E",         "/users/.",    "/users/..",      "/users/a b",      "/users/%2e%2E",
+        "/users//posts",      "/users/42/",  "/users/./posts", "/users/../posts", "/users/a#b",
+        "/users/caf\xc3\xa9", "/users/a\\b", "/users/a\"b",    "/users/42//",     "/users/.%2E/posts",
     }) |path| try expect_not_found(posts, "GET", path);
     var parameters: PathParameters = .{};
     inline for (.{ "...", ".well-known", "a.b", ".a", "a..", "~!$&'()*+,;=:@" }) |segment| {
@@ -114,6 +114,27 @@ const files = router(Last, .{
     .{ .get, "/files/*", .wildcard },
     .{ .get, "/files/a*b", .literal },
 });
+
+test "decision 127: each segment is percent-decoded after the split, and a stray % stays" {
+    var parameters: PathParameters = .{};
+    try testing.expectEqual(.user, posts.match("GET", "/users/%6De", &parameters).found);
+    try testing.expectEqualStrings("me", parameters.get("id").?);
+    // RFC 3986 §2.1: an encoded "/" stays inside its segment.
+    try testing.expectEqual(.user, posts.match("GET", "/users/a%2Fb", &parameters).found);
+    try testing.expectEqualStrings("a/b", parameters.get("id").?);
+    try testing.expectEqual(.posts, posts.match("GET", "/users/caf%C3%A9/posts", &parameters).found);
+    try testing.expectEqualStrings("caf\xc3\xa9", parameters.get("id").?);
+    try testing.expectEqual(.user, posts.match("GET", "/users/50%", &parameters).found);
+    try testing.expectEqualStrings("50%", parameters.get("id").?);
+    try testing.expectEqual(.user, posts.match("GET", "/users/%zz%4", &parameters).found);
+    try testing.expectEqualStrings("%zz%4", parameters.get("id").?);
+    // A literal compares with the decoded segment.
+    try testing.expectEqual(.literal, files.match("GET", "/files/a%2Ab", &parameters).found);
+    // A segment with no "%" is the path's own octets, with no copy.
+    const path: []const u8 = "/users/42";
+    _ = posts.match("GET", path, &parameters);
+    try testing.expectEqual(path.ptr + "/users/".len, parameters.get("id").?.ptr);
+}
 
 test "decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path" {
     var parameters: PathParameters = .{};
@@ -132,9 +153,12 @@ test "decision 122 ruling 6: the wildcard matches one segment or more, the rest 
     try testing.expectEqual(0, parameters.count);
     try testing.expectEqual(.wildcard, files.match("GET", "/files/axb", &parameters).found);
     // The wildcard needs one segment, and each segment of the rest passes the checks of the path.
-    inline for (.{ "/files", "/files/", "/files/a/../b", "/files/a/./b", "/files/a//b", "/files/a/", "/files/%2F" }) |refused| {
+    inline for (.{ "/files", "/files/", "/files/a/../b", "/files/a/./b", "/files/a//b", "/files/a/", "/files/a/%2E%2E/b" }) |refused| {
         try expect_not_found(files, "GET", refused);
     }
+    // Decision 127: the rest is decoded, an encoded "/" with it.
+    try testing.expectEqual(.wildcard, files.match("GET", "/files/a%2Fb/c%20d", &parameters).found);
+    try testing.expectEqualStrings("a/b/c d", parameters.get("*").?);
 }
 
 /// Tables where the wildcard competes with a literal and a parameter. Each table is a constant of
