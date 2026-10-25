@@ -20,13 +20,18 @@ const files = struct {
     pub const content_length = @import("content_length.zig");
     pub const message_lines = @import("message_lines.zig");
     pub const message_request = @import("message_request.zig");
-    pub const uri = @import("uri.zig");
+    pub const uri = @import("uri/uri.zig");
+    pub const uri_percent = @import("uri/uri_percent.zig");
+    pub const uri_query = @import("uri/uri_query.zig");
     pub const content_coding = @import("content_coding.zig");
 };
 
 pub const FieldSection = files.field_section.FieldSection;
 pub const Field = files.field.Field;
 pub const Status = files.status.Status;
+/// The `name=value` pairs of a query, which the program places and reads with `get` (decision
+/// 127).
+pub const QueryParameters = files.uri_query.QueryParameters;
 
 pub const field = struct {
     pub const is_tchar = files.field.is_tchar;
@@ -81,6 +86,15 @@ pub const uri = struct {
     pub const split_host_port = files.uri.split_host_port;
 };
 
+pub const uri_percent = struct {
+    pub const decoded_at = files.uri_percent.decoded_at;
+    pub const encoded_len = files.uri_percent.encoded_len;
+};
+
+pub const uri_query = struct {
+    pub const ReadError = files.uri_query.ReadError;
+};
+
 pub const content_coding = struct {
     pub const Acceptance = files.content_coding.Acceptance;
     pub const Coding = files.content_coding.Coding;
@@ -91,10 +105,11 @@ pub const content_coding = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",            "constants", "FieldSection",   "Field",
-        "Status",          "field",     "field_section",  "connection_specific",
-        "method",          "status",    "content_length", "message_lines",
-        "message_request", "uri",       "content_coding",
+        "core",                "constants",       "FieldSection", "Field",
+        "Status",              "QueryParameters", "field",        "field_section",
+        "connection_specific", "method",          "status",       "content_length",
+        "message_lines",       "message_request", "uri",          "uri_percent",
+        "uri_query",           "content_coding",
     });
 }
 

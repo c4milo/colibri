@@ -31,3 +31,11 @@ comptime {
 test "the status range spans exactly five classes" {
     try std.testing.expectEqual(5, (status_code_max + 1 - status_code_min) / status_class_size);
 }
+
+/// The pairs one query holds at most, which sizes `QueryParameters` (decision 127, the owner's
+/// ruling of 2026-10-25). `read` refuses a query of more.
+pub const query_parameters_max: usize = 32;
+
+comptime {
+    std.debug.assert(query_parameters_max > 0);
+}

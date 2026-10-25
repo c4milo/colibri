@@ -17,7 +17,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const method_module = @import("method.zig");
 const message_lines = @import("message_lines.zig");
-const uri = @import("uri.zig");
+const uri = @import("uri/uri.zig");
 
 const Seen = message_lines.Seen;
 

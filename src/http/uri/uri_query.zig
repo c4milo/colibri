@@ -12,13 +12,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
+const percent = @import("uri_percent.zig");
 
 pub const ReadError = error{
-    /// The query holds more pairs than `constants.query_parameters_max`.
-    TooManyParameters,
+    /// The query holds more pairs than `constants.query_parameters_max`: the table is full.
+    Full,
     /// The decoded names and values do not fit the buffer `read` was given.
-    StorageFull,
+    NoSpaceLeft,
 };
 
 /// The pairs that one `read` wrote: a name and a value for each, in the order of the query.
@@ -42,7 +43,7 @@ pub const QueryParameters = struct {
         while (pieces.next()) |piece| {
             // Step 3.1: an empty sequence adds no pair.
             if (piece.len == 0) continue;
-            if (count == constants.query_parameters_max) return error.TooManyParameters;
+            if (count == constants.query_parameters_max) return error.Full;
             // Steps 3.2 and 3.3: the name runs to the first "=", and the value after it.
             const mark = std.mem.indexOfScalar(u8, piece, '=');
             const name = if (mark) |at| piece[0..at] else piece;
@@ -75,25 +76,16 @@ fn decode(writer: *core.Writer, encoded: []const u8) ReadError![]const u8 {
     var index: usize = 0;
     // Bounded: each pass takes one byte of `encoded`, or three for a decoded "%".
     while (index < encoded.len) {
-        const byte = encoded[index];
-        if (byte == '%' and index + 2 < encoded.len) {
-            if (hex_pair(encoded[index + 1 ..][0..2])) |value| {
-                writer.write_byte(value) catch return error.StorageFull;
-                index += 3;
-                continue;
-            }
+        if (percent.decoded_at(encoded, index)) |value| {
+            writer.write_byte(value) catch return error.NoSpaceLeft;
+            index += percent.encoded_len;
+            continue;
         }
-        writer.write_byte(if (byte == '+') ' ' else byte) catch return error.StorageFull;
+        const byte = encoded[index];
+        writer.write_byte(if (byte == '+') ' ' else byte) catch return error.NoSpaceLeft;
         index += 1;
     }
     return writer.written()[first..];
-}
-
-/// The byte two hex digits name, or null when either is not a hex digit (RFC 3986 §2.1).
-fn hex_pair(digits: *const [2]u8) ?u8 {
-    const high = std.fmt.charToDigit(digits[0], 16) catch return null;
-    const low = std.fmt.charToDigit(digits[1], 16) catch return null;
-    return high * 16 + low;
 }
 
 const testing = std.testing;
@@ -147,11 +139,11 @@ test "decision 127: too many pairs, or a buffer too small, is refused and leaves
     const pair = "a=1&";
     var query: [pair.len * (constants.query_parameters_max + 1)]u8 = undefined;
     for (0..constants.query_parameters_max + 1) |index| @memcpy(query[index * pair.len ..][0..pair.len], pair);
-    try testing.expectError(error.TooManyParameters, parameters.read(&query, &storage));
+    try testing.expectError(error.Full, parameters.read(&query, &storage));
     try testing.expectEqual(0, parameters.count);
     try parameters.read(query[0 .. pair.len * constants.query_parameters_max], &storage);
     try testing.expectEqual(constants.query_parameters_max, parameters.count);
     var small: [3]u8 = undefined;
-    try testing.expectError(error.StorageFull, parameters.read("ab=cd", &small));
+    try testing.expectError(error.NoSpaceLeft, parameters.read("ab=cd", &small));
     try testing.expectEqual(0, parameters.count);
 }

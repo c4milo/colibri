@@ -41,7 +41,6 @@ const files = struct {
     pub const protocols = @import("protocols.zig");
     pub const limits = @import("limits.zig");
     pub const path_parameters = @import("path_parameters.zig");
-    pub const query_parameters = @import("query_parameters.zig");
     pub const router = @import("router/router.zig");
 };
 
@@ -109,7 +108,7 @@ pub const Features = files.coding_pool.Features;
 pub const PathParameters = files.path_parameters.PathParameters;
 /// The `name=value` pairs of a request's query, which the program places and reads with `get`
 /// (decision 127).
-pub const QueryParameters = files.query_parameters.QueryParameters;
+pub const QueryParameters = http.QueryParameters;
 
 /// Builds a route table at compile time, whose `match` names the route of a method and a path
 /// (decision 122). A function named after its file is exported under its own name.
