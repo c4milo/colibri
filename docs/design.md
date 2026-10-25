@@ -10944,6 +10944,62 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - 24.4: the router's decoding.
     - 24.5: docs/usage.md and the server example.
     - 24.6: the refusal of an encoded "/", "\\" or NUL, and the fuzz tests of the query reader.
+- **Step 25 — a route table that calls the program's functions.** [Decision 127](decisions.md)
+  rulings 2 to 5. The owner approved the names on 2026-10-25.
+  - **The table.** `server.router(Context, table)` replaces `server.router(Value, table)`. `table`
+    is a struct with `error_handler`, `routes` and, optionally, `middleware`. Each route is a
+    method, a pattern, a function or a struct, and optionally options such as `.whole_body` and
+    `.middleware`.
+  - **The function form.** A route function has five parameters in this order:
+    1. `*Context`.
+    2. `*const server.Request`.
+    3. The path parameters: a struct with one `[]const u8` field for each `:name` of the pattern,
+       and `rest` for a trailing `*`, or `void`.
+    4. The query: a struct of `[]const u8` and `?[]const u8` fields, a field with a default value,
+       or `http.QueryParameters`, or `void`. A required field that the query lacks gives 400.
+    5. `*server.ResponseWriter`.
+
+    It returns `!void`, and its error goes to `error_handler`.
+  - **The struct form.** A struct with `head`, which takes a `*State` after `*Context` and else
+    the parameters of the function form, and any of `body`, `writable` and `finished`, with a
+    `State` that each request's entry holds. `body` reads the request body through a
+    `*std.Io.Reader`, and bytes it leaves unread wait for the next call. With `.whole_body`, the
+    router calls `head` once the body is whole.
+  - **The router's calls.** `Router.Of(options)` is the type a program places: a pool of
+    `options.requests` entries, with `options.response_bytes` of response memory and
+    `options.body_bytes` for `.whole_body` in each. `memory_bytes` is its size.
+    `handle(context, endpoint, event)` takes one event and returns `Handled`: `.taken`, or `.event`
+    with the event the program acts on (`send`, `close`, `ended` or `closed`). A request that finds
+    no free entry gets 503. A request that matches no route gets 404, 405 with Allow, or 501, and
+    the router writes each with no function call.
+  - **`match` stays.** Its `found` gives `Router.Route`, an enum with one tag for each entry, named
+    by its method and pattern, such as `.@"GET /users/:id"`, and the path parameters (the owner's
+    ruling of 2026-10-25). `bench/router`, `router-check` and the hidden-route checks read it.
+  - **`server.ResponseWriter`.** The field `status`, which is 200 by default, and `header(name,
+    value)`, `body()`, which returns a `*std.Io.Writer` over the entry's response memory, `end()`,
+    `trailers(headers)` and `head_sent()`. The first byte of the body sends the head.
+    `write_kept(bytes)` sends bytes the program keeps valid until the request's `finished`, with no
+    copy, such as a file the program mapped (the owner's ruling of 2026-10-25). Over h3 the bytes
+    of `body()` stay in the entry until `finished` (decision 103), so `body()` serves a response of
+    `response_bytes` at most, and `write_kept` serves a larger one.
+  - **Errors.** The table must name `error_handler`, which the router calls with the context, the
+    request, the error and the response writer. Before the head goes out it chooses the status.
+    After the head, the router ends or cancels the response itself.
+  - **Middleware.** A struct with any of `head`, `wrap_body` and `wrap_response`. `head` returns
+    `server.middleware.Next`: `.next` or `.answered`. The chain runs the table's middleware first,
+    then the route's, in table order. `server.middleware.decode_request` and
+    `server.middleware.encode_response` are colibri's two, and `Response.codable` and the encoder
+    pools leave `server.Config` (decision 101 as amended).
+  - **Sub-steps.**
+    - 25.1: this text.
+    - 25.2: `server.ResponseWriter`, with the test that lists its names.
+    - 25.3: `router(Context, table)` with the function form, `Route`, `Of`, `handle`,
+      `error_handler`, and the answers 404, 405, 501 and 503. `bench/router`, `router-check` and
+      the examples move to the new table.
+    - 25.4: the typed path and query structs, and their refusals at compile time.
+    - 25.5: the struct form, the body reader, `.whole_body`, `writable` and `finished`.
+    - 25.6: middleware, `decode_request` and `encode_response`, and the removal of `codable`.
+    - 25.7: docs/usage.md and the server example.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
