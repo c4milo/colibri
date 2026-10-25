@@ -82,6 +82,6 @@ test "decision 97: a core whose probe finds no FEAT_DIT, as a virtual machine's 
         else => .not_stated,
     };
     // Neither probe reaches `set_dit`, which a core without FEAT_DIT would refuse.
-    try testing.expectEqual(expected, timing_of(.{ .aes_clmul = .yes, .dit = .no }));
-    try testing.expectEqual(expected, timing_of(.{ .aes_clmul = .yes, .dit = .not_known }));
+    try testing.expectEqual(expected, timing_of(.{ .aes_clmul = .yes, .dit = .no, .sha256 = .no, .sha512 = .no, .sha3 = .no }));
+    try testing.expectEqual(expected, timing_of(.{ .aes_clmul = .yes, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no }));
 }

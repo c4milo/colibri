@@ -33,7 +33,7 @@ pub const cpu_unknown: values.Cpu = described(.not_known, .data_independent);
 pub const cpu_not_stated: values.Cpu = described(.yes, .not_stated);
 
 fn described(aes_clmul: platform.Answer, timing: values.Timing) values.Cpu {
-    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known }, .timing = timing };
+    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no }, .timing = timing };
 }
 /// The first and the last instant the identity is valid at, which chapulin counts inside.
 pub const not_before_seconds = testdata.not_before_seconds;

@@ -19,7 +19,7 @@ pub const now_seconds: u64 = testdata.now_seconds;
 /// The CPU the run describes: the build target's probe, as the tests pass it, and the thread's mode
 /// stated, so a host runs the suites a program that states it runs (decision 97 as amended).
 pub const cpu: tls.Cpu = .{
-    .probe = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known },
+    .probe = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no },
     .timing = .data_independent,
 };
 /// The authority the certificate names, which every request of the run carries.
