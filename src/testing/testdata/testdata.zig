@@ -44,6 +44,15 @@ pub const aes_instructions_present: bool = switch (builtin.cpu.arch) {
     else => false,
 };
 
+/// Whether the build target has the SHA-256, SHA-512 and SHA-3 instructions: arm64's sha2 and sha3
+/// features, the second of which holds FEAT_SHA512 and FEAT_SHA3. The TLS tests give it as the
+/// probe's `sha256`, `sha512` and `sha3`, as they give the AES answer. colibri states the SHA
+/// instructions on arm64 alone, so every other target answers no.
+pub const sha_instructions_present: bool = switch (builtin.cpu.arch) {
+    .aarch64 => std.Target.aarch64.featureSetHasAll(builtin.cpu.features, .{ .sha2, .sha3 }),
+    else => false,
+};
+
 comptime {
     assert(not_before_seconds <= now_seconds and now_seconds <= not_after_seconds);
 }

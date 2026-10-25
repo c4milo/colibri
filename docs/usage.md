@@ -1325,10 +1325,12 @@ Every configuration also takes `cpu`, which has no default: a `tls.Cpu` holding 
 colibri probes nothing and sets no CPU mode. A program probes its CPU once, at start, and passes
 the same value to each configuration. A session runs the AES instructions only where the probe's
 `aes_clmul` is `yes` and the timing is `data_independent`; otherwise it runs none and holds
-TLS_CHACHA20_POLY1305_SHA256 alone. `data_independent` states that the thread runs Arm's and
-Intel's listed instructions in data-independent time: on arm64 a core with FEAT_DIT whose thread
-set PSTATE.DIT, and on x86-64 a part on Intel's DOIT list whose operating system set DOITM. Under
-`not_stated` a session also runs the portable multiply in place of the native one.
+TLS_CHACHA20_POLY1305_SHA256 alone. On arm64, under the same timing, a session also runs the
+SHA-256, SHA-512 and SHA-3 instructions where the probe's `sha256`, `sha512` and `sha3` are `yes`.
+`data_independent` states that the thread runs Arm's and Intel's listed instructions in
+data-independent time: on arm64 a core with FEAT_DIT whose thread set PSTATE.DIT, and on x86-64 a
+part on Intel's DOIT list whose operating system set DOITM. Under `not_stated` a session also runs
+the portable multiply in place of the native one.
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };

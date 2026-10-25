@@ -2949,6 +2949,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     runner than on the competitors and the recorded baselines; and a judge run that only confirms
     the cause before the change.
 
+    **Amended by the owner on 2026-10-24, for the SHA instructions**
+    ([stdx#19](https://github.com/c4milo/stdx/issues/19)). stdx's probe answers `sha256`, `sha512`
+    and `sha3` since stdx `f4c20dd`, which colibri pins.
+    [chapulin#188](https://github.com/c4milo/chapulin/issues/188) measured one TLS 1.3 server
+    handshake on GitHub's arm64 runner at 1,829,644 user instructions without chapulin's three SHA
+    claims, and at 1,307,477 with them.
+    - On arm64 colibri makes each SHA claim under `data_independent` where the probe answers `yes`,
+      as it makes the AES claim. chapulin then hashes the transcript, derives the keys and runs
+      ML-KEM's hashes on the instructions.
+    - On x86-64 colibri makes no SHA claim. chapulin refuses the SHA-512 and SHA-3 claims there,
+      and its SHA-256 claim needs SSSE3 and SSE4.1 too, which the probe does not answer.
+
+    The alternative refused: the SHA-256 claim on x86-64 from the probe's `sha256` alone. A core
+    that hides SSE4.1 and shows the SHA extensions would fault, and no judge measures x86-64.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.

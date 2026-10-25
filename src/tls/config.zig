@@ -9,6 +9,7 @@
 //! A conversion refuses only a list longer than the one it copies into. Every other rule is
 //! chapulin's, which a session's `start` or the server's `check` reports (design §8 step 16c).
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const values = @import("values.zig");
@@ -182,13 +183,19 @@ fn has_cpu(comptime Values: type) bool {
 /// chapulin's description of the CPU from what the program said: each constant-time claim rests on
 /// the program's statement of the thread's mode, and the AES claim on the probe's `yes` as well,
 /// since `no` and `not_known` give no ground to run the instructions. chapulin refuses a session
-/// whose description is unset, and colibri's values have none unset. `avx2` and `vaes` stay false
-/// until stdx's probe answers them (https://github.com/c4milo/stdx/issues/16).
+/// whose description is unset, and colibri's values have none unset. The SHA claims follow the
+/// AES rule on arm64 alone: chapulin refuses the SHA-512 and SHA-3 claims on x86-64, and its SHA-256
+/// claim there needs SSSE3 and SSE4.1 too, which stdx's probe does not answer. `avx2` and `vaes`
+/// stay false until the probe answers them (https://github.com/c4milo/stdx/issues/16).
 fn cpu_of(comptime chapulin: type, cpu: values.Cpu) chapulin.Cpu {
     const stated = cpu.timing == .data_independent;
+    const sha_stated = builtin.cpu.arch == .aarch64 and stated;
     return .{
         .constant_time_aes = stated and cpu.probe.aes_clmul == .yes,
         .constant_time_multiply = stated,
+        .constant_time_sha256 = sha_stated and cpu.probe.sha256 == .yes,
+        .constant_time_sha512 = sha_stated and cpu.probe.sha512 == .yes,
+        .constant_time_sha3 = sha_stated and cpu.probe.sha3 == .yes,
     };
 }
 

@@ -28,7 +28,8 @@ pub fn probe() tls.Cpu {
 /// (decision 97 as amended), under the program's name.
 pub fn print(program: []const u8) void {
     const cpu = probe();
-    std.debug.print("{s}: cpu aes_clmul {t}, dit {t}, timing {t}\n", .{ program, cpu.probe.aes_clmul, cpu.probe.dit, cpu.timing });
+    const found = cpu.probe;
+    std.debug.print("{s}: cpu aes_clmul {t}, dit {t}, sha256 {t}, sha512 {t}, sha3 {t}, timing {t}\n", .{ program, found.aes_clmul, found.dit, found.sha256, found.sha512, found.sha3, cpu.timing });
 }
 
 /// The mode of the program's thread: on arm64 PSTATE.DIT, which this sets where the core has

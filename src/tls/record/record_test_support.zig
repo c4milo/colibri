@@ -21,19 +21,34 @@ pub const public_key: *const [constants.p256_public_key_len]u8 = testdata.public
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The CPU the tests describe: the build target's answer on the AES instructions, since a test runs
-/// where it was built, and the thread's mode stated `data_independent`. No test's result depends
-/// on its timing, and the statement lets a session run the paths a program that makes it runs.
-pub const cpu: values.Cpu = described(if (testdata.aes_instructions_present) .yes else .no, .data_independent);
+/// The CPU the tests describe: the build target's answers on the AES and the SHA instructions,
+/// since a test runs where it was built, and the thread's mode stated `data_independent`. No test's
+/// result depends on its timing, and the statement lets a session run the paths a program runs.
+pub const cpu: values.Cpu = described(if (testdata.aes_instructions_present) .yes else .no, sha_answer, .data_independent);
 /// A description under which a session runs the AES instructions, and those under which it does
 /// not: a probe that does not say yes, and a mode the program does not state.
-pub const cpu_with_aes: values.Cpu = described(.yes, .data_independent);
-pub const cpu_without_aes: values.Cpu = described(.no, .data_independent);
-pub const cpu_unknown: values.Cpu = described(.not_known, .data_independent);
-pub const cpu_not_stated: values.Cpu = described(.yes, .not_stated);
+pub const cpu_with_aes: values.Cpu = described(.yes, sha_answer, .data_independent);
+pub const cpu_without_aes: values.Cpu = described(.no, sha_answer, .data_independent);
+pub const cpu_unknown: values.Cpu = described(.not_known, sha_answer, .data_independent);
+pub const cpu_not_stated: values.Cpu = described(.yes, .yes, .not_stated);
+/// Descriptions whose probe says yes on one SHA instruction each, whatever the build target has, so
+/// a claim made from another answer shows. The tests convert them to chapulin's claims and run no
+/// session under them.
+pub const cpus_with_sha = [_]values.Cpu{
+    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no }),
+    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .yes, .sha3 = .no }),
+    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .yes }),
+};
 
-fn described(aes_clmul: platform.Answer, timing: values.Timing) values.Cpu {
-    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no }, .timing = timing };
+fn with_sha(probe: platform.Cpu) values.Cpu {
+    return .{ .probe = probe, .timing = .data_independent };
+}
+
+/// The build target's answer on the SHA-256, SHA-512 and SHA-3 instructions.
+const sha_answer: platform.Answer = if (testdata.sha_instructions_present) .yes else .no;
+
+fn described(aes_clmul: platform.Answer, sha: platform.Answer, timing: values.Timing) values.Cpu {
+    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha, .sha512 = sha, .sha3 = sha }, .timing = timing };
 }
 /// The first and the last instant the identity is valid at, which chapulin counts inside.
 pub const not_before_seconds = testdata.not_before_seconds;

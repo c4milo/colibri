@@ -31,19 +31,29 @@ test "decision 97: on x86-64 and arm64 the object takes the caller's description
     if (host) try testing.expect(support.aes_gcm);
 }
 
-test "decision 97: a description becomes chapulin's claims: the AES one under a yes and the mode, the multiply under the mode" {
+test "decision 97: a description becomes chapulin's claims: AES and SHA under a yes and the mode, the multiply under the mode" {
     if (comptime !support.takes_cpu) return;
     // Bounded by the descriptions a test may run under, at most four.
-    for (support.cpus) |described| {
-        try support.configure(web_pki_under(described), .{ .cpu = described });
-        const stated = described.timing == .data_independent;
-        for ([_]@TypeOf(support.client_config.values.cpu){ support.client_config.values.cpu, support.server_config.values.cpu }) |converted| {
-            const claims = converted.?;
-            try testing.expectEqual(stated and described.probe.aes_clmul == .yes, claims.constant_time_aes);
-            try testing.expectEqual(stated, claims.constant_time_multiply);
-            // https://github.com/c4milo/stdx/issues/16: stdx's probe answers neither yet.
-            try testing.expect(!claims.avx2 and !claims.vaes);
-        }
+    for (support.cpus) |described| try expect_claims(described);
+    // A probe's yes on one SHA instruction gives that claim alone, and on arm64 alone.
+    for (support.cpus_with_sha) |described| try expect_claims(described);
+}
+
+/// Configures both sides under `described` and checks the claims colibri gives chapulin.
+fn expect_claims(described: values.Cpu) !void {
+    try support.configure(web_pki_under(described), .{ .cpu = described });
+    const stated = described.timing == .data_independent;
+    // chapulin refuses the SHA-512 and SHA-3 claims on x86-64, and colibri makes none there.
+    const sha_stated = builtin.cpu.arch == .aarch64 and stated;
+    for ([_]@TypeOf(support.client_config.values.cpu){ support.client_config.values.cpu, support.server_config.values.cpu }) |converted| {
+        const claims = converted.?;
+        try testing.expectEqual(stated and described.probe.aes_clmul == .yes, claims.constant_time_aes);
+        try testing.expectEqual(stated, claims.constant_time_multiply);
+        try testing.expectEqual(sha_stated and described.probe.sha256 == .yes, claims.constant_time_sha256);
+        try testing.expectEqual(sha_stated and described.probe.sha512 == .yes, claims.constant_time_sha512);
+        try testing.expectEqual(sha_stated and described.probe.sha3 == .yes, claims.constant_time_sha3);
+        // https://github.com/c4milo/stdx/issues/16: stdx's probe answers neither yet.
+        try testing.expect(!claims.avx2 and !claims.vaes);
     }
 }
 
