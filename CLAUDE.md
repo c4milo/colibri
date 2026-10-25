@@ -76,9 +76,10 @@ The architecture depends on every rule in this section.
     do not cite it. An obsoleting revision renumbers, so a section number carried over from the
     older one may name a different rule or none at all; find the section that states the rule and
     cite that. The copies to read are in `docs/rfcs/`, unmodified from rfc-editor.org, with
-    `docs/rfcs/SHA256SUMS` to show they stay that way. The one exception to RFCs alone is qlog,
-    written from the three Internet-Drafts pinned in `docs/rfcs/qlog/` until they publish
-    (decision 102).
+    `docs/rfcs/SHA256SUMS` to show they stay that way. There are two exceptions to RFCs alone:
+    qlog, written from the three Internet-Drafts pinned in `docs/rfcs/qlog/` until they publish
+    (decision 102), and a query's `name=value` pairs, written from the WHATWG URL Standard pinned
+    in `docs/rfcs/whatwg/` (decision 127).
 
 ## Tests are proved by mutation
 

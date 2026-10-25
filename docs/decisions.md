@@ -4990,3 +4990,59 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      17. Kept: exchange (decision 125), `ended`, `close` and `closed`.
 
      Every rename is breaking, and 0.9.0's notes list each one.
+
+127. **The server reads a request's query, and a route table calls the program's functions, with
+     middleware.** Ruled by the owner on 2026-10-20 and 2026-10-21. Amends decisions 101, 118 and
+     122. The owner asked how other Zig servers do it. http.zig, zap, jetzig and tokamak each call
+     a handler that the program registers. Zig's own `std.http.Server` reads a body through a
+     `std.Io.Reader` and writes one through a `std.Io.Writer`. colibri had matched its pull loop
+     and its caller memory, and not its bodies.
+
+     The rulings:
+     1. The query.
+        - `server.Request.path` holds the path alone, and `server.Request.query` holds the raw
+          query, or null. Beat: the path with its query, which every program split itself.
+        - `server.QueryParameters` reads the `name=value` pairs of a query by name, with `get`,
+          after the WHATWG URL Standard's `application/x-www-form-urlencoded` parser
+          (`urlencoded-parsing`). It decodes `+` as a space and percent-decodes (RFC 3986 §2.1)
+          into a buffer the program gives.
+        - The URL Standard becomes a source beside qlog's drafts, pinned in `docs/rfcs/whatwg/`
+          (non-negotiable 10). Beat: RFC 3986 alone, which leaves the pairs to the program.
+        - `server.router` percent-decodes a path before it matches it, and no longer refuses a
+          `%` (amends decision 122). Path parameters hold the decoded bytes.
+     2. A route's function. colibri may call a function of the program's, but only inside a call
+        the program made, and never from a loop of its own (amends decisions 118 and 122). Beat:
+        a table of plain values that the program dispatches, and a framework package that owns
+        the sockets.
+        - `server.router(Context, table)` builds a router type at compile time. `Router.Of` sizes
+          its pool of request entries, which the program places. `router.handle(context,
+          endpoint, event)` takes the events of a request and calls the route's functions.
+        - A route holds a function, which answers at the head, or a struct with `head` and any
+          of `body`, `writable` and `finished`, and a `State`. Both forms stay.
+        - The function runs at the head. The body comes in later calls, through a
+          `std.Io.Reader`, and bytes the function leaves unread wait for the next call. A route
+          may ask for one call with the whole body.
+        - The response goes through `server.ResponseWriter`: a status, headers, and a body that
+          is a `std.Io.Writer` over the entry's memory. A struct with `writable` writes a large
+          response over many calls. Beat: answering at the head with no body, and large bodies
+          left for later.
+        - A request that finds no free entry gets 503.
+     3. The compiler checks the table. Each function's parameters, the parameter struct against
+        the pattern's names (`rest` for a trailing `*`), the query struct's fields, each `State`
+        and each middleware are refusals, as decision 122's are, each naming its route.
+     4. Errors. The table must declare an error function, which the router calls with the request,
+        the error and the response writer. Before the head goes out it sets the status, and after
+        it ends or cancels the response. The owner: "The user always decides what status to
+        return". Beat: an automatic 500.
+     5. Middleware. A compile-time chain, global and for each route, that sees the head and may
+        answer it, and may wrap the body reader and the response writer (decision 118 reversed).
+        - colibri ships two. `server.middleware.decode_request` decodes gzip, deflate and zstd,
+          and answers 415 with Accept-Encoding to another coding (RFC 9110 §12.5.3).
+          `server.middleware.encode_response` codes a response as decision 101 chooses.
+        - The endpoint codes no response any more: `codable` and the encoder pools leave
+          `server.Config` (amends decision 101). Beat: coding in both places.
+        - The `std.Io` adapters of the decoders and encoders belong in stdx, which colibri asks
+          for. Beat: wrappers inside colibri.
+
+     The API list of each step comes to the owner before its code (decision 115). Every change is
+     breaking, and 0.9.0's notes list each one.

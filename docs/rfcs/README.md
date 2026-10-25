@@ -105,6 +105,22 @@ here too, copied from rfc-editor.org on the same day.
 | [7464](qlog/rfc7464.txt) | JavaScript Object Notation (JSON) Text Sequences | The record separator and line feed around each record |
 | [8259](qlog/rfc8259.txt) | The JavaScript Object Notation (JSON) Data Interchange Format | The objects, strings and numbers inside a record |
 
+## The URL Standard
+
+The WHATWG URL Standard is not an RFC. It is the source of the `name=value&name=value` form of a
+query and of `+` as a space, which no RFC defines: RFC 3986 §3.4 says only where a query starts and
+ends. The owner ruled it a source on 2026-10-21, beside qlog's drafts ([decision 127](../decisions.md)).
+`whatwg/url.bs` is its Bikeshed source, copied unmodified on 2026-10-25 from
+`https://raw.githubusercontent.com/whatwg/url/845bafca22fb0c5a42c4bf384a9bdea525a2f10d/url.bs`, the
+commit of 2026-10-19. A citation names its section by the id the source gives it, such as
+`urlencoded-parsing`.
+
+| Source | Title | What colibri uses it for |
+|---|---|---|
+| [url.bs](whatwg/url.bs) | URL Standard | The `application/x-www-form-urlencoded` parser (`urlencoded-parsing`), which the server's query reader follows |
+
+Percent-decoding itself is RFC 3986 §2.1, which colibri cites for it.
+
 ## Extensions colibri declines
 
 Each is read so that saying no is done correctly on the wire.
