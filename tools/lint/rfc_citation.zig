@@ -48,8 +48,10 @@ pub const scope: Scope = .{
 };
 
 /// Errors that report a short input, a full output buffer or a full pool. CLAUDE.md calls these
-/// operational: a limit reached, which no RFC states, so they need no citation.
-const operational_errors = [_][]const u8{ "Truncated", "NoSpaceLeft", "Full" };
+/// operational: a limit reached, which no RFC states, so they need no citation. `WriteFailed` is
+/// the error of a `std.Io.Writer` that takes no more, as a response body's writer does when its
+/// memory is full (decision 127).
+const operational_errors = [_][]const u8{ "Truncated", "NoSpaceLeft", "Full", "WriteFailed" };
 
 /// The prefix of an error a fuzz property function returns to fail its test.
 const test_error_prefix = "Test";

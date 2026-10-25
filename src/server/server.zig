@@ -42,6 +42,7 @@ const files = struct {
     pub const limits = @import("limits.zig");
     pub const path_parameters = @import("path_parameters.zig");
     pub const router = @import("router/router.zig");
+    pub const response_writer = @import("response_writer/response_writer.zig");
 };
 
 /// What a program configures a server with, once: the endpoint reads it while it runs (decision
@@ -87,6 +88,9 @@ pub const Writable = files.event.Writable;
 pub const Ended = files.event.Ended;
 pub const Response = files.event.Response;
 pub const ResponseBody = files.event.ResponseBody;
+/// The response a route's function writes: a status, headers, and a body through a
+/// `std.Io.Writer` (decision 127).
+pub const ResponseWriter = files.response_writer.ResponseWriter;
 pub const ReceiveResult = files.event.ReceiveResult;
 pub const Alternative = files.alt_svc.Alternative;
 /// The content codings a server applies (decision 101).
@@ -122,19 +126,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
     // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
-    // `Finished` and `Result` in place of `Done` and `Cancelled`.
+    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",         "Protocols",        "Limits",             "Timeout",
-        "Timeouts",           "CloseReason",    "Limit",            "Endpoint",           "EndpointOf",
-        "Capacity",           "Input",          "Datagram",         "StreamBytes",        "LogProvider",
-        "Sent",               "Address",        "Ecn",              "StartError",         "SendError",
-        "Header",             "RequestId",      "ConnectionHandle", "Version",            "Headers",
-        "Event",              "Request",        "RequestBody",      "Trailers",           "CancelReason",
-        "Finished",           "Result",         "Writable",         "Ended",              "Response",
-        "ResponseBody",       "ReceiveResult",  "Alternative",      "Coding",             "EncoderPool",
-        "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool", "Decoders",
-        "Features",           "PathParameters", "router",
+        "constants",    "Config",             "Protocols",        "Limits",      "Timeout",
+        "Timeouts",     "CloseReason",        "Limit",            "Endpoint",    "EndpointOf",
+        "Capacity",     "Input",              "Datagram",         "StreamBytes", "LogProvider",
+        "Sent",         "Address",            "Ecn",              "StartError",  "SendError",
+        "Header",       "RequestId",          "ConnectionHandle", "Version",     "Headers",
+        "Event",        "Request",            "RequestBody",      "Trailers",    "CancelReason",
+        "Finished",     "Result",             "Writable",         "Ended",       "Response",
+        "ResponseBody", "ResponseWriter",     "ReceiveResult",    "Alternative", "Coding",
+        "EncoderPool",  "DefaultEncoderPool", "Encoders",         "DecoderPool", "DefaultDecoderPool",
+        "Decoders",     "Features",           "PathParameters",   "router",
     });
 }
 
@@ -209,6 +213,7 @@ test {
     _ = @import("router/router_parameter_test.zig");
     _ = @import("router/router_fuzz_test.zig");
     _ = @import("router/router_refusal_test.zig");
+    _ = @import("response_writer/response_writer_internal.zig");
     // `zig build router-hidden-check` runs `router/router_hidden_test.zig` and
     // `router/router_quota_test.zig`, each in a binary of its own, because each compile takes
     // about a minute (the owner's rulings of 2026-10-14).

@@ -97,6 +97,15 @@ pub const quic_response_kept_len: usize = 8192;
 /// and each run of the caller's octets `write_body` took, which stay the caller's (decision 103).
 pub const quic_response_pieces_max: usize = 16;
 
+/// The headers and trailers one `ResponseWriter` holds until it writes them (decision 127, design
+/// §8 step 25.2). Its `header` and `trailers` refuse one more.
+pub const response_headers_max: usize = 32;
+
+/// The runs of body bytes one `ResponseWriter` holds until the endpoint takes them: each run the
+/// body's writer wrote before a flush, and each run of `write_kept`. An h3 response holds as many
+/// (decision 103).
+pub const response_pieces_max: usize = quic_response_pieces_max;
+
 /// Octets of request content h3 copies out of the receive pool in one event (decision 80).
 pub const quic_read_len: usize = 16_384;
 
@@ -271,6 +280,8 @@ comptime {
     assert(requests_max > 0 and requests_max <= h2.constants.concurrent_streams_max);
     assert(peer_resets_max > 0 and resets_sent_max > 0);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
+    // A response can carry one header and one run of its body at least.
+    assert(response_headers_max > 0 and response_pieces_max > 0);
     // A pattern can hold one parameter at least.
     assert(path_parameters_max > 0);
     // Each path that the endpoint gives the program fits, in each version.

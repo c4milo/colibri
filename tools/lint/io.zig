@@ -9,6 +9,10 @@
 //! design §9 and is the one directory permitted to touch a socket (CLAUDE.md, Layout), so it is
 //! exempt.
 //!
+//! `std.Io.Writer` and `std.Io.Reader`, and every name under them, are not findings. They are
+//! interfaces over memory, and decision 127 has a route read a request body through one and write
+//! a response body through the other. A program may pass one that does I/O, which is its own.
+//!
 //! The rule reads what a file names, not what it reaches. A module that received another module
 //! from build/modules.zig can call through it, and this rule cannot see where that call ends up.
 //! The module graph is what bounds that; this rule is what stops a file under `src/` reaching the
@@ -34,6 +38,12 @@ const forbidden_prefixes = [_][]const u8{
     "std.process",
 };
 
+/// The two interfaces a body goes through (decision 127). An empty prefix matches each last segment.
+const memory_interfaces = [_]forbidden_references.Exception{
+    .{ .prefix = "std.Io.Writer", .last_segment_prefixes = &.{""} },
+    .{ .prefix = "std.Io.Reader", .last_segment_prefixes = &.{""} },
+};
+
 /// The configuration. It reads `src/`, and exempts `src/testing/`: the test-only entry points of
 /// docs/design.md §9, which are excluded from the packaged library.
 pub const config: forbidden_references.Config = .{
@@ -45,6 +55,7 @@ pub const config: forbidden_references.Config = .{
         .exclude_paths = &.{"src/sim/run_main.zig"},
     },
     .prefixes = &forbidden_prefixes,
+    .exceptions = &memory_interfaces,
     .reason = "colibri owns no I/O (invariant 2)",
 };
 
@@ -119,7 +130,7 @@ test "io flags every prefix on its list, in a parameter type as well as a body" 
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/quic/quic.zig",
         \\fn send(socket: std.posix.socket_t, file: std.fs.File, count: u32) void {}
-        \\const reader = std.Io.Reader;
+        \\const reader = std.Io.File.Reader;
         \\const argv = std.process.args;
         \\const listener = std.net.Server;
         \\const worker = std.Thread;
@@ -127,7 +138,7 @@ test "io flags every prefix on its list, in a parameter type as well as a body" 
     try harness.expect_messages(findings, &.{
         "reference to std.posix.socket_t: colibri owns no I/O (invariant 2)",
         "reference to std.fs.File: colibri owns no I/O (invariant 2)",
-        "reference to std.Io.Reader: colibri owns no I/O (invariant 2)",
+        "reference to std.Io.File.Reader: colibri owns no I/O (invariant 2)",
         "reference to std.process.args: colibri owns no I/O (invariant 2)",
         "reference to std.net.Server: colibri owns no I/O (invariant 2)",
         "reference to std.Thread: colibri owns no I/O (invariant 2)",
@@ -143,6 +154,21 @@ test "io does not flag a name that merely starts with the same letters" {
         \\const order = std.mem.readInt(u32, bytes[0..4], .big);
     );
     try harness.expect_messages(findings, &.{});
+}
+
+test "decision 127: io passes std.Io.Writer and std.Io.Reader, and flags the rest of std.Io" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/server/server.zig",
+        \\fn body(writer: *std.Io.Writer, reader: *std.Io.Reader) std.Io.Writer.Error!void {}
+        \\const vtable: std.Io.Writer.VTable = .{ .rebase = std.Io.Writer.failingRebase };
+        \\const file = std.Io.File;
+        \\const io = std.Io;
+    );
+    try harness.expect_messages(findings, &.{
+        "reference to std.Io.File: colibri owns no I/O (invariant 2)",
+        "reference to std.Io: colibri owns no I/O (invariant 2)",
+    });
 }
 
 test "io exempts src/testing/ and reads nothing outside src/" {
