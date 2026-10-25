@@ -234,6 +234,10 @@ fail() {  # fail <message> <server log>
   save_container_log
   echo "run.sh: $1; the server's log ends:" >&2
   tail -20 "$2" >&2
+  # A server that cannot bind the port shows AddressInUse in its log, and these lines name the
+  # sockets that hold the port and their processes.
+  echo "run.sh: the sockets on port $port:" >&2
+  { sudo -n ss -tuanp "sport = :$port" 2>/dev/null || ss -tuan "sport = :$port"; } >&2 || true
   exit 1
 }
 
@@ -320,6 +324,23 @@ stop_server() {
     exit 1
   fi
   server_pid=""
+  wait_udp_port_free
+}
+
+# A server on io_uring can hold its UDP socket after it exits, because the kernel ends the ring's
+# requests after the process. The next h3 server then fails with AddressInUse, so this waits until
+# no UDP socket holds the port, for at most ready_tries tenths of a second, and logs each wait.
+wait_udp_port_free() {
+  local tries
+  for tries in $(seq 0 "$ready_tries"); do
+    if [ -z "$(ss -Huan "sport = :$port")" ]; then
+      if [ "$tries" -gt 0 ]; then echo "run.sh: UDP port $port free after $tries waits" >&2; fi
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "run.sh: UDP port $port is still in use after the server stopped" >&2
+  exit 1
 }
 
 # The nanoseconds the process's threads have run, from the first field of each thread's schedstat.
