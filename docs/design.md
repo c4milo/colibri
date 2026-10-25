@@ -6120,6 +6120,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     judge never compares two runs, so these are two counts and not a ratio, and no run has
     measured the competitors since.
 
+  **16f with stdx `f4c20dd`, 2026-10-25.** The stdx pin moves from `5da4397` to `f4c20dd`, whose
+  probe answers `sha256`, `sha512` and `sha3` ([stdx#19](https://github.com/c4milo/stdx/issues/19)).
+  On arm64 colibri makes chapulin's three SHA claims where the probe answers `yes` under
+  `data_independent`, and on x86-64 it makes none ([decision 97](decisions.md) as amended on
+  2026-10-24).
+  - On macOS arm64 the `tls` tests passed 60 of 60, and on `-Dcpu=generic` too. Built for x86-64
+    Linux and run in Docker, they passed 60 of 60.
+  - 5 mutations, each **CAUGHT** by the test of chapulin's claims: the SHA claims without the
+    timing; the claims without the arm64 condition, on x86-64; the SHA-256 claim never made; and
+    the SHA-3 claim read from `sha512`, and the SHA-512 claim from `sha256`. The SHA-3 mutation
+    was **NOT CAUGHT** until the tests described one SHA answer at a time.
+  - Three judge runs stopped when a UDP server of the base or of the change met AddressInUse on
+    the port, and no socket held the port moments later. A server on io_uring can hold its socket
+    after it exits, so `bench/run.sh` now waits for the UDP port to be free after each server
+    stops. The next run logged one such wait.
+
+  The judge, [run 40159041766](https://github.com/c4milo/colibri/actions/runs/40159041766),
+  measured the change against `6d783e6` with `--h11` and `--h3`. No input loses past the noise by
+  either count in either job, and each input that makes a handshake wins in both jobs:
+  - h2-tls-one at 0.7310 in both jobs: 1,928,164 instructions a connection fall to 1,409,582 in
+    the first.
+  - h11-tls-one at 0.7267 in both jobs, and at 0.7057 and 0.7054 by its user instructions.
+  - h3-one at 0.7806 and 0.7815: 3,588,696 instructions a connection fall to 2,801,492 in the
+    first.
+  - h2-tls-many at 0.9759 and 0.9767, and h3-many at 0.9936 in the first job, within the noise in
+    the second.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27
