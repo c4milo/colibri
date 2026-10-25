@@ -593,7 +593,7 @@ fn route(request: server.Request, state: *Served) !void {
 ### Query
 
 `request.path` holds the path alone, and `request.query` holds the bytes after the first "?", or
-null (decision 127). `server.QueryParameters` reads its `name=value` pairs, as the WHATWG URL
+null (decision 127). `http.QueryParameters` reads its `name=value` pairs, as the WHATWG URL
 Standard's `application/x-www-form-urlencoded` parser does: it splits on "&" and on the first "=",
 skips empty pieces, reads "+" as a space, and percent-decodes. `read` writes the decoded names and
 values into a buffer the program gives, and refuses a query of more than
@@ -604,7 +604,7 @@ The server example answers a parameter route like this:
 
 ```zig
 fn answer_named(request: server.Request, state: *Served, name: []const u8) !void {
-    var query: server.QueryParameters = .{};
+    var query: http.QueryParameters = .{};
     query.read(request.query orelse "", &state.query) catch {
         // RFC 9110 §15.5.15: the target is longer than this server takes.
         return endpoint.respond(request.id, .{ .status = 414, .end = true });

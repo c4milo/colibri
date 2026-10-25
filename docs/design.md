@@ -10901,11 +10901,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   query, after the WHATWG URL Standard pinned in `docs/rfcs/whatwg/`. The owner approved the names
   on 2026-10-25.
   - **Names.** `server.Request` gains `query`, the raw query after the `?`, or null, and its
-    `path` holds the path alone. `server.QueryParameters` is new, with `read(query, storage)` and
+    `path` holds the path alone. `http.QueryParameters` is new, with `read(query, storage)` and
     `get(name)`, and `http.constants.query_parameters_max` is 32. The owner ruled on 2026-10-25 that
     the URL code lives in `src/http/uri/`: `uri.zig`, `uri_percent.zig` and `uri_query.zig`, so the
-    client reaches it too. `http` exports `QueryParameters`, and `server` re-exports it. An absolute-form target with an
-    empty path and a query gives the path `/`.
+    client reaches it too. The owner ruled the same day that `server` does not re-export it, so one
+    type has one name. An absolute-form target with an empty path and a query gives the path `/`.
   - **Rulings of 2026-10-25.** A `%` that two hex digits do not follow stays as written, as the URL
     Standard's percent-decode keeps it. colibri hands the decoded bytes back as they are, and
     checks no UTF-8. `get` returns the first value of a name, as URLSearchParams' `get` does.

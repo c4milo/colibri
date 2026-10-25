@@ -149,7 +149,7 @@ pub const Request = struct {
     /// 9113 §8.5, RFC 9114 §4.4, RFC 9112 §3.2.3). `server.router` matches this value.
     path: ?[]const u8,
     /// The query after the path's `?` (RFC 3986 §3.4), without the `?`, or null when the target
-    /// carries none. `server.QueryParameters` reads its pairs (decision 127).
+    /// carries none. `http.QueryParameters` reads its pairs (decision 127).
     query: ?[]const u8,
     headers: Headers,
     /// Whether the head ended the request, so no content follows.

@@ -36,6 +36,7 @@
 //! Run it with `zig build example-server_exchange`, or every example with `zig build examples`.
 const std = @import("std");
 const assert = std.debug.assert;
+const http = @import("http");
 const server = @import("server");
 const tls = @import("tls");
 const platform = @import("platform");
@@ -355,7 +356,7 @@ fn route(request: server.Request, state: *Served) !void {
 /// QUIC reads the content again until the request's `finished`. So the server writes the content
 /// into the request's state first.
 fn answer_named(request: server.Request, state: *Served, name: []const u8) !void {
-    var query: server.QueryParameters = .{};
+    var query: http.QueryParameters = .{};
     query.read(request.query orelse "", &state.query) catch {
         // RFC 9110 §15.5.15: the target is longer than this server takes.
         return endpoint.respond(request.id, .{ .status = 414, .end = true });

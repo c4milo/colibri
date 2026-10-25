@@ -106,9 +106,6 @@ pub const Features = files.coding_pool.Features;
 /// The parameters of a path that a route table matched, which the program places and reads with
 /// `get` (decision 122).
 pub const PathParameters = files.path_parameters.PathParameters;
-/// The `name=value` pairs of a request's query, which the program places and reads with `get`
-/// (decision 127).
-pub const QueryParameters = http.QueryParameters;
 
 /// Builds a route table at compile time, whose `match` names the route of a method and a path
 /// (decision 122). A function named after its file is exported under its own name.
@@ -125,7 +122,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
     // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
-    // `Finished` and `Result` in place of `Done` and `Cancelled`. 24.3 adds `QueryParameters`.
+    // `Finished` and `Result` in place of `Done` and `Cancelled`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",          "Config",         "Protocols",        "Limits",             "Timeout",
@@ -137,7 +134,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "Finished",           "Result",         "Writable",         "Ended",              "Response",
         "ResponseBody",       "ReceiveResult",  "Alternative",      "Coding",             "EncoderPool",
         "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool", "Decoders",
-        "Features",           "PathParameters", "QueryParameters",  "router",
+        "Features",           "PathParameters", "router",
     });
 }
 

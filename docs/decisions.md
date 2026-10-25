@@ -5002,7 +5002,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      1. The query.
         - `server.Request.path` holds the path alone, and `server.Request.query` holds the raw
           query, or null. Beat: the path with its query, which every program split itself.
-        - `server.QueryParameters` reads the `name=value` pairs of a query by name, with `get`,
+        - `http.QueryParameters` reads the `name=value` pairs of a query by name, with `get`,
           after the WHATWG URL Standard's `application/x-www-form-urlencoded` parser
           (`urlencoded-parsing`). It decodes `+` as a space and percent-decodes (RFC 3986 §2.1)
           into a buffer the program gives.
