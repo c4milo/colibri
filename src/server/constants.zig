@@ -234,6 +234,10 @@ pub const bodies_max: usize = h2.constants.concurrent_streams_max;
 /// never fails at run time.
 pub const path_parameters_max: usize = 8;
 
+/// The pairs one query holds at most, which sizes `QueryParameters` (decision 127, the owner's
+/// ruling of 2026-10-25). `read` refuses a query of more.
+pub const query_parameters_max: usize = 32;
+
 /// The most octets of a path that a route table matches, its query included (decision 122 ruling
 /// 13). It is the endpoint's own bound on a path: an h11 request line, or an h2 or h3 `:path`
 /// field value. `match` gives `not_found` for a longer path, so the octets that one match reads
@@ -272,7 +276,7 @@ comptime {
     assert(peer_resets_max > 0 and resets_sent_max > 0);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
     // A pattern can hold one parameter at least.
-    assert(path_parameters_max > 0);
+    assert(path_parameters_max > 0 and query_parameters_max > 0);
     // Each path that the endpoint gives the program fits, in each version.
     assert(path_len_max >= h11.constants.start_line_len_max and path_len_max >= core.constants.field_value_len_max);
 }

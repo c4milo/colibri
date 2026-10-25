@@ -41,6 +41,7 @@ const files = struct {
     pub const protocols = @import("protocols.zig");
     pub const limits = @import("limits.zig");
     pub const path_parameters = @import("path_parameters.zig");
+    pub const query_parameters = @import("query_parameters.zig");
     pub const router = @import("router/router.zig");
 };
 
@@ -106,6 +107,9 @@ pub const Features = files.coding_pool.Features;
 /// The parameters of a path that a route table matched, which the program places and reads with
 /// `get` (decision 122).
 pub const PathParameters = files.path_parameters.PathParameters;
+/// The `name=value` pairs of a request's query, which the program places and reads with `get`
+/// (decision 127).
+pub const QueryParameters = files.query_parameters.QueryParameters;
 
 /// Builds a route table at compile time, whose `match` names the route of a method and a path
 /// (decision 122). A function named after its file is exported under its own name.
@@ -122,7 +126,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
     // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
-    // `Finished` and `Result` in place of `Done` and `Cancelled`.
+    // `Finished` and `Result` in place of `Done` and `Cancelled`. 24.3 adds `QueryParameters`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",          "Config",         "Protocols",        "Limits",             "Timeout",
@@ -134,7 +138,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "Finished",           "Result",         "Writable",         "Ended",              "Response",
         "ResponseBody",       "ReceiveResult",  "Alternative",      "Coding",             "EncoderPool",
         "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool", "Decoders",
-        "Features",           "PathParameters", "router",
+        "Features",           "PathParameters", "QueryParameters",  "router",
     });
 }
 
