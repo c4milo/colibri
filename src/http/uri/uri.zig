@@ -62,9 +62,35 @@ fn in_class(class: Class, octet: u8) bool {
     };
 }
 
+/// Each class's octets as a table with one entry for each octet value, built at comptime from
+/// `in_class`, so `matches` tests an octet with one load.
+const class_tables = tables: {
+    @setEvalBranchQuota(class_count * octet_values * table_branches_per_octet);
+    var tables: [class_count][octet_values]bool = undefined;
+    for (&tables, 0..) |*table, class_index| {
+        for (table, 0..) |*entry, octet| entry.* = in_class(@enumFromInt(class_index), @intCast(octet));
+    }
+    break :tables tables;
+};
+const class_count = @typeInfo(Class).@"enum".fields.len;
+const octet_values = std.math.maxInt(u8) + 1;
+/// The comptime branches `in_class` takes for one octet, with room to spare.
+const table_branches_per_octet = 64;
+
 /// True when every octet of `octets` is of `class` or starts a `pct-encoded` of `"%" HEXDIG
-/// HEXDIG` (RFC 3986 §2.1).
+/// HEXDIG` (RFC 3986 §2.1). The common case, octets of the class alone, is one pass over the
+/// slice.
 fn matches(class: Class, octets: []const u8) bool {
+    const table = &class_tables[@intFromEnum(class)];
+    for (octets) |octet| {
+        if (!table[octet]) return matches_encoded(class, octets);
+    }
+    return true;
+}
+
+/// `matches` for octets that hold one outside the class: a "%" that may start a `pct-encoded`, or
+/// an octet the class refuses.
+fn matches_encoded(class: Class, octets: []const u8) bool {
     var reader = Reader.init(octets);
     // Bounded: each pass consumes at least one octet.
     for (0..octets.len) |_| {
@@ -289,6 +315,19 @@ test "RFC 3986 §3.2.2: a reg-name host takes unreserved, sub-delims and percent
     for ([_][]const u8{ "a b", "a@b", "a/b", "a%2", "a%zz", "a:b", "é" }) |host| {
         try testing.expect(!is_host(host));
     }
+}
+
+test "RFC 3986 §2: each class's table holds exactly the octets its rule allows" {
+    // Bounded: four classes of 256 octets.
+    for (0..class_count) |class_index| {
+        const class: Class = @enumFromInt(class_index);
+        for (0..octet_values) |value| {
+            const octet: u8 = @intCast(value);
+            try testing.expectEqual(in_class(class, octet), class_tables[class_index][octet]);
+        }
+    }
+    try testing.expect(!class_tables[@intFromEnum(Class.reg_name)]['%']);
+    try testing.expect(class_tables[@intFromEnum(Class.query)]['?']);
 }
 
 test "RFC 3986 §3.2.2: IPv6 literals, eight groups or fewer with one ::, an IPv4 tail allowed" {
