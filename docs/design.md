@@ -9158,6 +9158,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     instructions in both jobs, at 0.9694 and 0.9697. It saves 649 and 642 a connection.
   - h11-tls-many also wins by its user instructions in both jobs, at 0.9804 and 0.9737.
 
+  **A URI octet's class is one table load, 2026-10-25.** Each request checks its target, and its
+  Host or `:authority`, against RFC 3986's classes. `uri.matches` read each octet through the
+  reader and tested it against a chain of comparisons. A comptime table for each class now holds
+  every octet value's answer, and the common case, octets of the class alone, is one pass over the
+  slice. A "%" or a refused octet takes the reader's path as before.
+  - `zig build test-http` passed, with a test that compares each table with the class's rule for
+    every octet value.
+  - 3 mutations, each **CAUGHT**: the fast path accepts an octet outside the class, every class
+    built as reg-name, and the reader's path accepts an octet outside the class.
+
+  The judge, [run 40228870787](https://github.com/c4milo/colibri/actions/runs/40228870787),
+  measured `367d432` against `534f297` with `--h11` and `--h3`. No input loses past the noise by
+  either count in either job:
+  - h2-many wins on the total in both jobs, at 0.9889 and 0.9895, and h2-tls-many at 0.9894 and
+    0.9922. Each saves about 165 user instructions a request.
+  - By the rule docs/performance.md states for the h11 inputs, h11-one wins by its user
+    instructions in both jobs, at 0.9862 and 0.9850. It saves 283 and 308 a connection.
+
+  A second change, a 64-bit division for the rate quotas in `deadline.quota`, won no input in
+  either job of [run 40229115862](https://github.com/c4milo/colibri/actions/runs/40229115862),
+  and did not land.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
