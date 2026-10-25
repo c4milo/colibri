@@ -16,8 +16,8 @@ const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
 const Error = connection_module.Error;
 const Field = http.Field;
-const Event = event.Event;
-const ReceiveResult = event.ReceiveResult;
+const ConnectionEvent = event.ConnectionEvent;
+const ConnectionResult = event.ConnectionResult;
 const Number = event.Number;
 
 /// RFC 9113 is HTTP/2, which RFC 9110 §2.5 numbers 2.0.
@@ -26,7 +26,7 @@ const version_major: u8 = 2;
 
 /// Reads frames from `plaintext` until one means something to the caller, h2 needs more octets,
 /// or the replies h2 owes must be written first and `output` has no room for them.
-pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!ReceiveResult {
+pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!ConnectionResult {
     const session = &connection.session.h2;
     // RFC 9113 §3.4: the server's SETTINGS "MUST be the first frame the server sends", so it goes
     // into the output before any frame is read that could bring a request the caller answers.
@@ -48,7 +48,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Erro
 }
 
 /// The server's event for h2's, or null for one that concerns the connection alone.
-fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
+fn report(session: *const h2.Connection, h2_event: h2.Event) ?ConnectionEvent {
     return switch (h2_event) {
         .request => |arrived| .{
             .request = .{

@@ -16,7 +16,7 @@ const zlib = @import("zlib");
 
 const Connection = connection_module.Connection;
 const Config = connection_module.Config;
-pub const ReceiveResult = connection_module.ReceiveResult;
+pub const ConnectionResult = connection_module.ConnectionResult;
 pub const Field = connection_module.Field;
 pub const server_constants = @import("../constants.zig");
 pub const Request = event.Request;
@@ -143,7 +143,7 @@ pub fn fill_incompressible() void {
 }
 
 /// Copies `octets` into the test input and reads one event from it.
-pub fn receive_copy(octets: []const u8) !ReceiveResult {
+pub fn receive_copy(octets: []const u8) !ConnectionResult {
     @memcpy(input[0..octets.len], octets);
     return connection.receive(input[0..octets.len], now_ns);
 }
@@ -278,7 +278,7 @@ pub fn seal_all(offset: usize, plaintext: []const u8) !usize {
 }
 
 /// Seals `plaintext` as the client's records and reads one event from them.
-pub fn receive_sealed(plaintext: []const u8) !ReceiveResult {
+pub fn receive_sealed(plaintext: []const u8) !ConnectionResult {
     const sealed_len = try seal_all(0, plaintext);
     return connection.receive(input[0..sealed_len], now_ns);
 }

@@ -9,11 +9,13 @@ const endpoint_held = @import("endpoint_held.zig");
 
 const Held = endpoint_held.Held;
 const Event = event.Event;
+const ConnectionEvent = event.ConnectionEvent;
 const RequestId = event.RequestId;
 const ConnectionHandle = event.ConnectionHandle;
 
-/// `reported`, as the program reads it, or null for an event of no request `table` holds.
-pub fn pass(held: *Held, slot: u32, table: anytype, reported: Event, comptime Side: type) ?Event {
+/// `reported`, as the program reads it, or null for an event of no request `table` holds. A
+/// connection's `done` and `cancelled` each become the request's one `finished` (decision 126).
+pub fn pass(held: *Held, slot: u32, table: anytype, reported: ConnectionEvent, comptime Side: type) ?Event {
     const handle = held.slots.handle_of(slot);
     switch (reported) {
         .request => |request| {
@@ -40,14 +42,12 @@ pub fn pass(held: *Held, slot: u32, table: anytype, reported: Event, comptime Si
             const entry = table.find(done.id.number) orelse return null;
             const user_data = entry.user_data;
             table.remove(done.id.number);
-            return .{ .done = .{ .id = id_on(handle, done.id), .user_data = user_data } };
+            return .{ .finished = .{ .id = id_on(handle, done.id), .user_data = user_data, .result = .sent } };
         },
         .cancelled => |cancelled| {
             if (table.find(cancelled.id.number) == null) return null;
             return ending(handle, table, cancelled.id.number, cancelled.reason);
         },
-        // A connection reports none of these: the endpoint does.
-        .writable, .send, .close, .ended, .closed => unreachable,
     }
 }
 
@@ -74,7 +74,7 @@ pub fn writable_of(held: *Held, slot: u32, table: anytype, comptime Side: type) 
     return null;
 }
 
-/// The number of a request whose `cancelled` the program's own `cancel` owes, or null.
+/// The number of a request whose cancelled `finished` the program's own `cancel` owes, or null.
 pub fn owed_cancel(table: anytype) ?event.Number {
     if (table.cancels_owed == 0) return null;
     var open = table.in_use.iterator(.{});
@@ -85,11 +85,11 @@ pub fn owed_cancel(table: anytype) ?event.Number {
     return null;
 }
 
-/// Request `number`'s `cancelled` for `reason`, which ends it: it leaves the table.
+/// Request `number`'s `finished`, cancelled for `reason`, which ends it: it leaves the table.
 pub fn ending(handle: ConnectionHandle, table: anytype, number: event.Number, reason: event.CancelReason) Event {
     const user_data = table.find(number).?.user_data;
     table.remove(number);
-    return .{ .cancelled = .{ .id = .{ .connection = handle, .number = number }, .user_data = user_data, .reason = reason } };
+    return .{ .finished = .{ .id = .{ .connection = handle, .number = number }, .user_data = user_data, .result = .{ .cancelled = reason } } };
 }
 
 /// `id`, naming the connection `handle` holds.

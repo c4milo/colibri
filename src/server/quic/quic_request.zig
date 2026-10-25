@@ -122,7 +122,7 @@ pub const Owed = struct {
     }
 
     /// The oldest event owed, as the caller reads it, or null.
-    pub fn take(owed: *Owed) ?event.Event {
+    pub fn take(owed: *Owed) ?event.ConnectionEvent {
         if (owed.len == 0) return null;
         const ending = owed.endings[owed.first];
         owed.first = (owed.first + 1) % owed.endings.len;

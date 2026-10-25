@@ -12,13 +12,13 @@ const internal = @import("connection_internal.zig");
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
 const Protocol = event.Protocol;
-const ReceiveResult = event.ReceiveResult;
+const ConnectionResult = event.ConnectionResult;
 
 const preface = h2.constants.client_preface;
 
 /// Chooses the protocol from the octets `input` holds, and then reads it from them. Until they
 /// choose, nothing is consumed: the caller passes them again with what it reads next.
-pub fn choose(connection: *Connection, input: []u8, now_ns: u64) Error!ReceiveResult {
+pub fn choose(connection: *Connection, input: []u8, now_ns: u64) Error!ConnectionResult {
     assert(connection.phase == .choosing and connection.config.tls == null);
     const chosen = chosen_by(input) orelse return .{ .consumed = 0, .event = null };
     internal.open_session(connection, chosen);

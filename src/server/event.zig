@@ -195,8 +195,8 @@ pub const Writable = struct {
     user_data: usize,
 };
 
-/// A connection is over (decision 119). Every request it carried had its `done` or `cancelled`
-/// first, and its handle and every id on it name nothing from here on.
+/// A connection is over (decision 119). Every request it carried had its `finished` first, and
+/// its handle and every id on it name nothing from here on.
 pub const Ended = struct {
     connection: ConnectionHandle,
     /// The deadline that passed or the limit the peer passed, when colibri closed the connection
@@ -207,12 +207,49 @@ pub const Ended = struct {
     failed: bool,
 };
 
-pub const Event = union(enum) {
+/// How a request ended, in its `finished` event (decision 126).
+pub const Result = union(enum) {
+    /// The response is whole, and the server reads none of the caller's bytes for it again, so
+    /// the caller may reuse the memory its body came from (decision 103). h11 and h2 report it
+    /// after the call that wrote the response's last byte, and h3 once the peer acknowledged every
+    /// byte of it.
+    sent,
+    /// The request ended before its response did, for this reason.
+    cancelled: CancelReason,
+};
+
+/// A request is over, once: its response was sent, or it was cancelled (decision 126). The
+/// caller may reuse the memory of both. Through a connection, the id of a refused request may be
+/// one no `request` event named, when the refusal came before the head was read whole.
+pub const Finished = struct {
+    id: RequestId,
+    user_data: usize = 0,
+    result: Result,
+};
+
+/// What a connection reports to the endpoint that holds it, which the endpoint turns into an
+/// `Event`: a request's end comes as `done` or `cancelled` here, and as `finished` there. The root
+/// does not export it.
+pub const ConnectionEvent = union(enum) {
     request: Request,
     body: RequestBody,
     trailers: Trailers,
     cancelled: Cancelled,
     done: Done,
+};
+
+/// What one `receive` call of a connection took and reported.
+pub const ConnectionResult = struct {
+    /// Bytes of the caller's input taken.
+    consumed: usize,
+    event: ?ConnectionEvent,
+};
+
+pub const Event = union(enum) {
+    request: Request,
+    body: RequestBody,
+    trailers: Trailers,
+    finished: Finished,
     /// A response can take more (decision 119).
     writable: Writable,
     /// A TCP connection owes octets: the program calls `send_stream` for it (decision 119).

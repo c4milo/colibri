@@ -173,7 +173,7 @@ const pseudo_sets = [_]PseudoSet{
 };
 
 /// Sends a HEADERS frame on stream 1 holding `pseudo` and then `regular`, and returns the event.
-fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool) !event.Event {
+fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool) !event.ConnectionEvent {
     var block: [h2.constants.frame_size_max]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
     encoder.init(h2.constants.header_table_size_initial, .never);

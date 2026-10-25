@@ -9,10 +9,36 @@ const endpoint_support = @import("quic_endpoint_test_support.zig");
 
 const Event = event.Event;
 
+/// The kind of what the server reported. A request's `finished` counts as `done` when its
+/// response was sent and as `cancelled` when it was not, so a test reads the two apart.
+pub const Kind = enum { request, body, trailers, cancelled, done, writable, send, close, ended, closed };
+
+fn kind_of(reported: Event) Kind {
+    return switch (reported) {
+        .finished => |finished| switch (finished.result) {
+            .sent => .done,
+            .cancelled => .cancelled,
+        },
+        inline else => |_, tag| @field(Kind, @tagName(tag)),
+    };
+}
+
+/// The event the endpoint would report for what a connection reported: its `done` and its
+/// `cancelled` as `finished` (decision 126).
+pub fn as_event(reported: event.ConnectionEvent) Event {
+    return switch (reported) {
+        .request => |head| .{ .request = head },
+        .body => |body| .{ .body = body },
+        .trailers => |trailers| .{ .trailers = trailers },
+        .done => |done| .{ .finished = .{ .id = done.id, .user_data = done.user_data, .result = .sent } },
+        .cancelled => |cancelled| .{ .finished = .{ .id = cancelled.id, .user_data = cancelled.user_data, .result = .{ .cancelled = cancelled.reason } } },
+    };
+}
+
 /// What the server reported, kept past the call that reported it: its kind, its request, and a
 /// request's path, a body event's length and end, or why a request was cancelled.
 pub const Seen = struct {
-    kind: std.meta.Tag(Event),
+    kind: Kind,
     id: u64,
     /// The connection a request's id named, through an endpoint (decision 119).
     connection: event.ConnectionHandle = .{ .slot = 0, .generation = 0 },
@@ -37,7 +63,7 @@ pub var seen_len: usize = 0;
 pub fn keep(reported: Event) void {
     assert(seen_len < seen.len);
     const entry = &seen[seen_len];
-    entry.* = .{ .kind = reported, .id = 0 };
+    entry.* = .{ .kind = kind_of(reported), .id = 0 };
     switch (reported) {
         .request => |head| {
             entry.id = head.id.number;
@@ -56,14 +82,10 @@ pub fn keep(reported: Event) void {
             entry.id = trailers.id.number;
             entry.user_data = trailers.user_data;
         },
-        .cancelled => |cancelled| {
-            entry.id = cancelled.id.number;
-            entry.user_data = cancelled.user_data;
-            entry.reason = cancelled.reason;
-        },
-        .done => |done| {
-            entry.id = done.id.number;
-            entry.user_data = done.user_data;
+        .finished => |finished| {
+            entry.id = finished.id.number;
+            entry.user_data = finished.user_data;
+            if (finished.result == .cancelled) entry.reason = finished.result.cancelled;
         },
         .writable => |writable| {
             entry.id = writable.id.number;
@@ -75,7 +97,7 @@ pub fn keep(reported: Event) void {
 }
 
 /// The `n`th event of `kind` the server reported, or null.
-pub fn nth(kind: std.meta.Tag(Event), n: usize) ?*const Seen {
+pub fn nth(kind: Kind, n: usize) ?*const Seen {
     var count: usize = 0;
     for (seen[0..seen_len]) |*entry| {
         if (entry.kind != kind) continue;

@@ -98,7 +98,7 @@ test "decision 119: the program's cancel is reported before the input that names
     try h2.frame.write_data(&writer, 1, "x", true, 0);
     const received = endpoint.receive(.{ .stream = .{ .connection = handle, .bytes = &frame } }, support.now_ns);
     try testing.expectEqual(0, received.consumed);
-    try testing.expectEqual(event.CancelReason.program, received.event.?.cancelled.reason);
+    try testing.expectEqual(event.CancelReason.program, received.event.?.finished.result.cancelled);
 }
 
 test "decision 119: an h11 cancel ends the request, and then the connection" {

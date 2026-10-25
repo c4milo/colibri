@@ -17,7 +17,7 @@ const first_word: usize = 0x5eed;
 const second_word: usize = 0xbead;
 
 /// Where the first event of `kind` the server reported is among them all.
-fn index_of(kind: std.meta.Tag(event.Event)) ?usize {
+fn index_of(kind: seen_support.Kind) ?usize {
     for (seen_support.seen[0..seen_support.seen_len], 0..) |entry, index| {
         if (entry.kind == kind) return index;
     }

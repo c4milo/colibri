@@ -244,7 +244,7 @@ fn reads_nothing(held: *const Held, slot: u32, now_ns: u64) bool {
 /// Notes whether the `receive` the connection in `slot` just made read nothing: it took no octet,
 /// reported no event, and its protocol read none of the plaintext the connection holds. A call
 /// that read something may leave more to read, such as h2 frames past `frames_per_receive_max`.
-fn note_read(held: *Held, slot: u32, received: event.ReceiveResult, now_ns: u64) void {
+fn note_read(held: *Held, slot: u32, received: event.ConnectionResult, now_ns: u64) void {
     const read_nothing = received.consumed == 0 and received.event == null and held.tcp[slot].plain_in_read == 0;
     held.empty_read_ns[slot] = if (read_nothing) now_ns else null;
 }

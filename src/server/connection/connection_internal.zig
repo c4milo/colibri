@@ -16,7 +16,7 @@ const h2 = @import("h2");
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
 const Protocol = event.Protocol;
-const ReceiveResult = event.ReceiveResult;
+const ConnectionResult = event.ConnectionResult;
 
 /// The transport closed: nothing more is read or written, and over TLS the session's secrets are
 /// wiped. The `done` of each response written whole stays owed, which a server's endpoint reports
@@ -104,7 +104,7 @@ pub fn whole_units(connection: *const Connection) bool {
 
 /// Reads at most one event from the protocol's octets, and the octets before it that mean
 /// nothing to the caller.
-pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!ReceiveResult {
+pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!ConnectionResult {
     if (connection.stopped) return .{ .consumed = 0, .event = null };
     return switch (connection.session) {
         .h2 => connection_h2.receive(connection, plaintext, now_ns),

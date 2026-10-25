@@ -275,10 +275,13 @@ fn on_event(session: anytype, reported: server.Event) void {
         .request => |request| named(session, request.id.connection).answers.on_request(request),
         .body => |body| named(session, body.id.connection).answers.on_body(body),
         .trailers => |trailers| named(session, trailers.id.connection).answers.finish_reading(trailers.id.number),
-        .cancelled => |cancelled| named(session, cancelled.id.connection).answers.forget(cancelled.id.number),
         // Every response body is a constant or the echo's own copy, so nothing waits to be freed.
-        // The connection may read again, and the entry's next step passes its input.
-        .done => |done| _ = named(session, done.id.connection),
+        // The connection may read again, and the entry's next step passes its input. A cancelled
+        // request takes no answer.
+        .finished => |finished| switch (finished.result) {
+            .sent => _ = named(session, finished.id.connection),
+            .cancelled => named(session, finished.id.connection).answers.forget(finished.id.number),
+        },
         .writable => |writable| _ = named(session, writable.id.connection),
         .send => |handle| named(session, handle).send_owed = true,
         .close => |handle| named(session, handle).closing = true,

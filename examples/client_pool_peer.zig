@@ -99,7 +99,7 @@ fn read(stream: usize, now_ns: u64) !void {
 fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
         .request => |request| try answer(request),
-        .done => answered += 1,
+        .finished => |finished| answered += @intFromBool(finished.result == .sent),
         .send => |connection| try flush(connection, now_ns),
         .ended => |connection| {
             if (connection.failed) return error.ExchangeWrong;
@@ -107,7 +107,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
         },
         // The client closes each socket, so the server is never the first to say `close`.
         .close => return error.ExchangeWrong,
-        .body, .trailers, .cancelled, .writable => {},
+        .body, .trailers, .writable => {},
         // Only a shutdown ends in `closed`.
         .closed => unreachable,
     }

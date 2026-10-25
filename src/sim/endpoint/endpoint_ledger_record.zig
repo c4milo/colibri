@@ -18,7 +18,7 @@ pub fn encode(reported: server.Event, now_ms: u64) [record_len]u8 {
     var record: [record_len]u8 = @splat(0);
     const fields = fields_of(reported);
     var at: usize = 0;
-    put(&record, &at, u8, @intFromEnum(std.meta.activeTag(reported)));
+    put(&record, &at, u8, @intFromEnum(kind_of(reported)));
     put(&record, &at, u8, fields.detail);
     put(&record, &at, u16, @intCast(fields.handle.slot));
     put(&record, &at, u32, fields.handle.generation);
@@ -44,13 +44,29 @@ const Fields = struct {
     length: u64 = 0,
 };
 
+/// The kind each record names: the kinds of the events from before decision 126, when a request's
+/// end came as `cancelled` or `done`, so the CRC of the events stays what it was.
+const Kind = enum(u8) { request, body, trailers, cancelled, done, writable, send, close, ended, closed };
+
+fn kind_of(reported: server.Event) Kind {
+    return switch (reported) {
+        .finished => |finished| switch (finished.result) {
+            .sent => .done,
+            .cancelled => .cancelled,
+        },
+        inline else => |_, tag| @field(Kind, @tagName(tag)),
+    };
+}
+
 fn fields_of(reported: server.Event) Fields {
     return switch (reported) {
         .request => |request| .{ .handle = request.id.connection, .number = request.id.number, .detail = @intFromBool(request.end), .length = request.version.major },
         .body => |body| .{ .handle = body.id.connection, .number = body.id.number, .word = body.user_data, .detail = @intFromBool(body.end), .length = body.bytes.len },
         .trailers => |trailers| .{ .handle = trailers.id.connection, .number = trailers.id.number, .word = trailers.user_data, .length = trailers.headers.len() },
-        .cancelled => |cancelled| .{ .handle = cancelled.id.connection, .number = cancelled.id.number, .word = cancelled.user_data, .detail = @intFromEnum(cancelled.reason), .length = reason_detail(cancelled.reason) },
-        .done => |done| .{ .handle = done.id.connection, .number = done.id.number, .word = done.user_data },
+        .finished => |finished| switch (finished.result) {
+            .sent => .{ .handle = finished.id.connection, .number = finished.id.number, .word = finished.user_data },
+            .cancelled => |reason| .{ .handle = finished.id.connection, .number = finished.id.number, .word = finished.user_data, .detail = @intFromEnum(reason), .length = reason_detail(reason) },
+        },
         .writable => |writable| .{ .handle = writable.id.connection, .number = writable.id.number, .word = writable.user_data },
         .send => |handle| .{ .handle = handle },
         .close => |handle| .{ .handle = handle },

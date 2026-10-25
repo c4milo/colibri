@@ -397,6 +397,20 @@ pub const World = struct {
         world.broken = true;
     }
 
+    /// A request's end: its response was sent, or it was cancelled.
+    fn on_finished(world: *World, finished: server.Finished) void {
+        const index = h2_trace_pair.index_of(@intCast(finished.id.number));
+        switch (finished.result) {
+            .sent => world.done[index] = true,
+            .cancelled => |reason| {
+                world.answers[index].cancelled = true;
+                // RFC 9113 §8.1.1: an honest client sends no malformed request, so the run expects
+                // a client's reset and the caller's own cancel alone.
+                if (reason != .peer_reset and reason != .program) world.malformed = true;
+            },
+        }
+    }
+
     fn on_server_event(world: *World, event: server.Event, plan: *const Plan) void {
         switch (event) {
             .request => |head| {
@@ -411,14 +425,7 @@ pub const World = struct {
                 world.request_read[h2_trace_pair.index_of(@intCast(body.id.number))] = .ended;
             },
             .trailers => |section| world.request_read[h2_trace_pair.index_of(@intCast(section.id.number))] = .ended,
-            .cancelled => |cancelled| {
-                world.answers[h2_trace_pair.index_of(@intCast(cancelled.id.number))].cancelled = true;
-                // RFC 9113 §8.1.1: colibri refuses a malformed request, which an honest client
-                // never sends; a client's reset and the caller's own cancel are the cancels the
-                // run expects.
-                if (cancelled.reason != .peer_reset and cancelled.reason != .program) world.malformed = true;
-            },
-            .done => |done| world.done[h2_trace_pair.index_of(@intCast(done.id.number))] = true,
+            .finished => |finished| world.on_finished(finished),
             // The run hands octets out and writes each response in actions of its own.
             .send, .writable => {},
             // The endpoint closes the connection once its caller shut it down and no request is

@@ -35,7 +35,7 @@ pub const RequestId = event.RequestId;
 /// The number of a request on this connection, which its calls take (decision 119): an event's
 /// `id.number`.
 pub const Number = event.Number;
-pub const ReceiveResult = event.ReceiveResult;
+pub const ConnectionResult = event.ConnectionResult;
 pub const Field = connection_module.Field;
 pub const Error = connection_module.Error;
 pub const SendError = connection_module.SendError;
@@ -168,7 +168,7 @@ pub const QuicConnection = struct {
     /// A request that expects a 100 (Continue) gets one at the next `receive`, or before the next
     /// datagram the endpoint sends for the connection, unless the caller answers it first: with a
     /// final response, with its own 100, or with `cancel` (RFC 9110 §10.1.1).
-    pub fn receive(connection: *QuicConnection, now_ns: u64) Error!ReceiveResult {
+    pub fn receive(connection: *QuicConnection, now_ns: u64) Error!ConnectionResult {
         connection.last_ns = now_ns;
         quic_deadline.fire(connection, now_ns);
         const received = try connection.receive_event(now_ns);
@@ -176,7 +176,7 @@ pub const QuicConnection = struct {
         return received;
     }
 
-    fn receive_event(connection: *QuicConnection, now_ns: u64) Error!ReceiveResult {
+    fn receive_event(connection: *QuicConnection, now_ns: u64) Error!ConnectionResult {
         if (connection.failure_owed) {
             connection.failure_owed = false;
             // RFC 9000 §10.2: a connection that failed reads nothing more from its peer.

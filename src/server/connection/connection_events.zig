@@ -11,7 +11,7 @@ const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
 
-pub fn note(connection: *Connection, reported: event.Event) void {
+pub fn note(connection: *Connection, reported: event.ConnectionEvent) void {
     switch (reported) {
         .request => |request| {
             if (expect.expects_continue(request)) connection.continue_owed = request.id.number;
@@ -31,7 +31,5 @@ pub fn note(connection: *Connection, reported: event.Event) void {
             connection_sends.remove(connection, cancelled.id.number);
         },
         .done => {},
-        // A connection reports none of these: the endpoint does (decision 119).
-        .writable, .send, .close, .ended, .closed => unreachable,
     }
 }

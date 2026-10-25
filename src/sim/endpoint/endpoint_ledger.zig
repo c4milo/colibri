@@ -220,8 +220,10 @@ pub const Ledger = struct {
                 _ = try ledger.open_request(trailers.id, trailers.user_data, "trailers", now_ms);
             },
             .writable => |writable| try ledger.note_writable(writable, now_ms),
-            .done => |done| try ledger.note_done(done, now_ms),
-            .cancelled => |cancelled| try ledger.note_cancelled(cancelled, now_ms),
+            .finished => |finished| switch (finished.result) {
+                .sent => try ledger.note_done(finished, now_ms),
+                .cancelled => |reason| try ledger.note_cancelled(finished, reason, now_ms),
+            },
             .send => |handle| {
                 ledger.counts.sends += 1;
                 _ = try ledger.open_socket(handle, "send", now_ms);
@@ -284,7 +286,7 @@ pub const Ledger = struct {
 
     /// P3: `done` comes once the program's write that ended the response returned, and ends the
     /// request.
-    fn note_done(ledger: *Ledger, done: server.Done, now_ms: u64) Violation!void {
+    fn note_done(ledger: *Ledger, done: server.Finished, now_ms: u64) Violation!void {
         const request = try ledger.open_request(done.id, done.user_data, "done", now_ms);
         if (request.answer.phase != .ended) return ledger.fail(error.DoneEarly, "done", done.id.connection, done.id.number, now_ms);
         ledger.end_request(request);
@@ -294,18 +296,18 @@ pub const Ledger = struct {
 
     /// P3: a request the program cancelled ends with the reason `program`, and only such a request
     /// does.
-    fn note_cancelled(ledger: *Ledger, cancelled: server.Cancelled, now_ms: u64) Violation!void {
+    fn note_cancelled(ledger: *Ledger, cancelled: server.Finished, reason: server.CancelReason, now_ms: u64) Violation!void {
         const request = try ledger.open_request(cancelled.id, cancelled.user_data, "cancelled", now_ms);
-        if (request.cancel_called != (cancelled.reason == .program)) {
+        if (request.cancel_called != (reason == .program)) {
             return ledger.fail(error.CancelWrong, "cancelled", cancelled.id.connection, cancelled.id.number, now_ms);
         }
         const connection = ledger.connection_at(request);
-        if (connection.honest and !honest_cancel(cancelled.reason, connection.reads_slowly)) {
+        if (connection.honest and !honest_cancel(reason, connection.reads_slowly)) {
             return ledger.fail(error.HonestCut, "cancelled", cancelled.id.connection, cancelled.id.number, now_ms);
         }
         ledger.end_request(request);
         ledger.connection_at(request).cancelled += 1;
-        ledger.counts.cancelled[@intFromEnum(cancelled.reason)] += 1;
+        ledger.counts.cancelled[@intFromEnum(reason)] += 1;
     }
 
     fn end_request(ledger: *Ledger, request: *Request) void {
@@ -440,15 +442,15 @@ test "P1 and P3: an id seen before is refused, and nothing of a request comes af
     try testing.expectError(error.IdReused, ledger.note(test_request(4), 1));
     const id: server.RequestId = .{ .connection = test_handle, .number = 4 };
     // `done` before the program's ending write returned.
-    try testing.expectError(error.DoneEarly, ledger.note(.{ .done = .{ .id = id } }, 2));
+    try testing.expectError(error.DoneEarly, ledger.note(.{ .finished = .{ .id = id, .result = .sent } }, 2));
     ledger.request_of(id).?.answer.phase = .ended;
-    try ledger.note(.{ .done = .{ .id = id } }, 3);
-    try testing.expectError(error.EventAfterEnding, ledger.note(.{ .cancelled = .{ .id = id, .reason = .closed } }, 4));
+    try ledger.note(.{ .finished = .{ .id = id, .result = .sent } }, 3);
+    try testing.expectError(error.EventAfterEnding, ledger.note(.{ .finished = .{ .id = id, .result = .{ .cancelled = .closed } } }, 4));
     // A `writable` nobody asked for, and a `cancelled` for the program's reason with no cancel.
     try ledger.note(test_request(8), 5);
     const next: server.RequestId = .{ .connection = test_handle, .number = 8 };
     try testing.expectError(error.WritableUnasked, ledger.note(.{ .writable = .{ .id = next, .user_data = 0 } }, 6));
-    try testing.expectError(error.CancelWrong, ledger.note(.{ .cancelled = .{ .id = next, .reason = .program } }, 7));
+    try testing.expectError(error.CancelWrong, ledger.note(.{ .finished = .{ .id = next, .result = .{ .cancelled = .program } } }, 7));
 }
 
 test "P4: a connection ends after its requests and its socket, and nothing names it after" {
@@ -460,7 +462,7 @@ test "P4: a connection ends after its requests and its socket, and nothing names
     const ended: server.Event = .{ .ended = .{ .connection = test_handle, .reason = null, .failed = false } };
     try testing.expectError(error.EndedEarly, ledger.note(ended, 1));
     ledger.request_of(.{ .connection = test_handle, .number = 1 }).?.cancel_called = true;
-    try ledger.note(.{ .cancelled = .{ .id = .{ .connection = test_handle, .number = 1 }, .reason = .program } }, 2);
+    try ledger.note(.{ .finished = .{ .id = .{ .connection = test_handle, .number = 1 }, .result = .{ .cancelled = .program } } }, 2);
     try testing.expectError(error.EndedOpen, ledger.note(ended, 3));
     try ledger.expect_closed_ended(3);
     connection.close_socket(.closed_by_program);

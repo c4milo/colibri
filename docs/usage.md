@@ -294,9 +294,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
         .request => |request| try take_request(request),
         .body => |body| try take_body(body),
-        // The response to this request is whole: colibri reads none of the program's octets for
-        // it again. Over QUIC the client has acknowledged every octet of it.
-        .done => |done| (try served_of(done.user_data)).done = true,
+        // The request is over. A `sent` result says its response is whole, and colibri reads none
+        // of the program's bytes for it again. Over QUIC the client acknowledged every byte of it.
+        .finished => |finished| (try served_of(finished.user_data)).done = finished.result == .sent,
         // A TCP connection owes its socket octets.
         .send => |connection| try flush(connection, now_ns),
         // colibri reads and writes nothing more on this TCP connection. A program closes the
@@ -307,7 +307,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
         .ended => |over| try count_ended(over, now_ns),
         // The shut-down endpoint holds no connection.
         .closed => endpoint_closed = true,
-        .trailers, .cancelled, .writable => {},
+        .trailers, .writable => {},
     }
 }
 ```
@@ -318,16 +318,16 @@ fn serve(event: server.Event, now_ns: u64) !void {
   no body may end this way too, in a `body` event with no bytes, as a GET over h3 often does. A
   program that waits for a request's end reads `end` in both events.
 - `trailers` carries the request's trailers, in `headers`.
-- `done` says the response is whole, and colibri reads none of the program's octets for it again.
-  `cancelled` says the request ended before its response did, and its `reason` says why. Every
-  request ends with one of the two, and a connection's `ended` comes after its requests' endings.
+- `finished` says a request is over, once. Its `result` is `sent` when the response is whole, and
+  colibri reads none of the program's bytes for it again. It is `cancelled` with a reason when the
+  request ended before its response did. A connection's `ended` comes after its requests' ends.
 - `writable` says a response whose last write found no room can take more.
 - `send` says a TCP connection owes its socket octets, `close` says the program closes a TCP
   connection's socket, and `ended` says a connection is over. The paragraphs below describe each.
 - `closed` comes after `shutdown`, once every connection has ended.
 
 `set_user_data` sets a word that each later event of a request carries back: its `body`,
-`trailers`, `writable`, and its one `done` or `cancelled`. A program finds its own state for the
+`trailers`, `writable`, and its one `finished`. A program finds its own state for the
 request by the word, with no lookup. Here the word names the request's place in the server's
 table. `route` answers the request by its route, as [Router](#router) shows:
 
@@ -388,8 +388,8 @@ as the client acknowledges what was sent (RFC 9000 §3.1), and a head or a trail
 than the room the response's earlier frames leave waits until the client has acknowledged all of
 them. Either way the endpoint reports `writable` for the request, once, when the response has
 room, and the program writes again. `cancel` ends one
-request before its response is whole, and its `cancelled` follows with the reason `program`. A
-connection that stops with requests open ends each with `cancelled` and the reason `closed`.
+request before its response is whole, and its `finished` follows, cancelled with the reason
+`program`. A connection that stops with requests open ends each cancelled, with the reason `closed`.
 `shutdown` ends every connection once the requests it holds are answered, and the `closed` event
 follows once every connection has ended.
 
@@ -436,7 +436,7 @@ fn sleep_ns() u64 {
 
 The program then calls `on_instant` with the instant it woke at, as the turn above does, and a
 connection whose peer is late ends. Over h2, a request whose content is late may end by itself,
-with a `cancelled` whose reason names the timeout. `receive` and `send_stream` fire a deadline
+with a `finished` whose result is cancelled, with the timeout as its reason. `receive` and `send_stream` fire a deadline
 that passed too, on the connection they read or write. The configuration's `timeouts` sets the
 limits, and `Endpoint.init` refuses limits a connection would refuse, with
 `error.TimeoutInvalid`. `set_timeouts` changes one connection's limits, by its handle, as
@@ -460,8 +460,9 @@ endpoint.transport_closed(closed);
 ```
 
 Either way colibri reads and writes nothing more on the connection, and wipes its TLS session's
-secrets. The endpoint then reports the `done` of each response written whole, the `cancelled` of
-each other request with the reason `closed`, and last the connection's `ended`, once. A later
+secrets. The endpoint then reports a `finished` for each request: `sent` for each response
+written whole, and cancelled with the reason `closed` for the others. Last comes the connection's
+`ended`, once. A later
 socket or client takes the connection's slot, and the ended connection's handle and every id on it
 name nothing from then on. `ended` carries two more fields:
 
@@ -577,7 +578,7 @@ fn route(request: server.Request, state: *Served) !void {
 - **A parameter's value is a slice of the path.** It stays valid until the next endpoint call
   that the comment on `Endpoint.receive` lists. A program that keeps a value longer copies it
   first. `answer_named` below writes its content into the request's state, because QUIC reads the
-  content again until `done`.
+  content again until the request's `finished`.
 - **A path that holds a "%" or an octet outside `pchar` matches nothing** (RFC 3986 §2.1, §3.3).
   colibri does not decode a path. A router that decoded `/users/%6De` could route it past a check
   written for `/users/me`. So a parameter never holds a "/", a space or an octet above 0x7F. h11
@@ -641,8 +642,8 @@ The same events and the same calls serve h3. A program moves datagrams with addr
 a stream of octets, and it keeps time for each connection. Two things differ from TCP:
 
 - **The body is not copied.** QUIC reads the program's bytes again whenever it sends them again.
-  They stay the program's until the request is `done` or `cancelled`. `done` comes once the peer
-  has acknowledged every octet of the response.
+  They stay the program's until the request's `finished`. A `sent` result comes once the peer
+  has acknowledged every byte of the response.
 - **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`, for loss
   recovery and acknowledgments too, so a program sleeps until then when no datagram arrives.
   `Config.idle_timeout_ms` is QUIC's own idle timeout, which ends a peer that sends nothing at

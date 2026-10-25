@@ -80,9 +80,9 @@ pub const Event = files.event.Event;
 pub const Request = files.event.Request;
 pub const RequestBody = files.event.RequestBody;
 pub const Trailers = files.event.Trailers;
-pub const Cancelled = files.event.Cancelled;
 pub const CancelReason = files.event.CancelReason;
-pub const Done = files.event.Done;
+pub const Finished = files.event.Finished;
+pub const Result = files.event.Result;
 pub const Writable = files.event.Writable;
 pub const Ended = files.event.Ended;
 pub const Response = files.event.Response;
@@ -121,7 +121,8 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // (decision 122). 23.2 renames `StreamOctets`, `Field`, `Id`, `Fields`, `Body`, `Content` and
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
-    // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`.
+    // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
+    // `Finished` and `Result` in place of `Done` and `Cancelled`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",          "Config",         "Protocols",        "Limits",             "Timeout",
@@ -129,8 +130,8 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "Capacity",           "Input",          "Datagram",         "StreamBytes",        "LogProvider",
         "Sent",               "Address",        "Ecn",              "StartError",         "SendError",
         "Header",             "RequestId",      "ConnectionHandle", "Version",            "Headers",
-        "Event",              "Request",        "RequestBody",      "Trailers",           "Cancelled",
-        "CancelReason",       "Done",           "Writable",         "Ended",              "Response",
+        "Event",              "Request",        "RequestBody",      "Trailers",           "CancelReason",
+        "Finished",           "Result",         "Writable",         "Ended",              "Response",
         "ResponseBody",       "ReceiveResult",  "Alternative",      "Coding",             "EncoderPool",
         "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool", "Decoders",
         "Features",           "PathParameters", "router",

@@ -287,9 +287,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
         .request => |request| try take_request(request),
         .body => |body| try take_body(body),
-        // The response to this request is whole: colibri reads none of the program's octets for
-        // it again. Over QUIC the client has acknowledged every octet of it.
-        .done => |done| (try served_of(done.user_data)).done = true,
+        // The request is over. A `sent` result says its response is whole, and colibri reads none
+        // of the program's bytes for it again. Over QUIC the client acknowledged every byte of it.
+        .finished => |finished| (try served_of(finished.user_data)).done = finished.result == .sent,
         // A TCP connection owes its socket octets.
         .send => |connection| try flush(connection, now_ns),
         // colibri reads and writes nothing more on this TCP connection. A program closes the
@@ -300,7 +300,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
         .ended => |over| try count_ended(over, now_ns),
         // The shut-down endpoint holds no connection.
         .closed => endpoint_closed = true,
-        .trailers, .cancelled, .writable => {},
+        .trailers, .writable => {},
     }
 }
 

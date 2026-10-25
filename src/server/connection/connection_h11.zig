@@ -22,8 +22,8 @@ const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
 const Error = connection_module.Error;
 const Field = http.Field;
-const Event = event.Event;
-const ReceiveResult = event.ReceiveResult;
+const ConnectionEvent = event.ConnectionEvent;
+const ConnectionResult = event.ConnectionResult;
 const Number = event.Number;
 const Code = http.status.Code;
 
@@ -43,7 +43,7 @@ const path_empty = "/";
 
 /// Reads at most one event from `plaintext`. h11 reports one event a call at most, and takes the
 /// octets of none at times, such as an empty line before a request (RFC 9112 §2.2).
-pub fn receive(connection: *Connection, plaintext: []const u8) Error!ReceiveResult {
+pub fn receive(connection: *Connection, plaintext: []const u8) Error!ConnectionResult {
     const session = &connection.session.h11;
     // h11 requires each call's octets to start with every octet it left unconsumed. The caller
     // passes them again (decision 119 as amended), so a call with none waits for that one.
@@ -60,7 +60,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8) Error!ReceiveResu
     return .{ .consumed = consumed, .event = null };
 }
 
-fn report(connection: *Connection, h11_event: h11.connection.Event) Event {
+fn report(connection: *Connection, h11_event: h11.connection.Event) ConnectionEvent {
     const session = &connection.session.h11;
     const id = event.id_of(connection.current_id);
     return switch (h11_event) {
@@ -76,7 +76,7 @@ fn report(connection: *Connection, h11_event: h11.connection.Event) Event {
     };
 }
 
-fn start_request(connection: *Connection, request: h11.connection.Request) Event {
+fn start_request(connection: *Connection, request: h11.connection.Request) ConnectionEvent {
     const session = &connection.session.h11;
     connection.current_id = connection.next_id;
     connection.next_id += 1;

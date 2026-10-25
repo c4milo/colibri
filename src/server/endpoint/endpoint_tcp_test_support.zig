@@ -20,9 +20,23 @@ pub const tcp_slots: usize = 2;
 pub var endpoint: TcpEndpoint align(@alignOf(TcpEndpoint)) = undefined;
 pub var config: endpoint_module.Config align(@alignOf(endpoint_module.Config)) = undefined;
 
+/// The kind of what the endpoint reported. A request's `finished` counts as `done` when its
+/// response was sent and as `cancelled` when it was not, so a test reads the two apart.
+pub const Kind = enum { request, body, trailers, cancelled, done, writable, send, close, ended, closed };
+
+fn kind_of(reported: Event) Kind {
+    return switch (reported) {
+        .finished => |finished| switch (finished.result) {
+            .sent => .done,
+            .cancelled => .cancelled,
+        },
+        inline else => |_, tag| @field(Kind, @tagName(tag)),
+    };
+}
+
 /// What the endpoint reported, oldest first.
 pub const Seen = struct {
-    kind: std.meta.Tag(Event),
+    kind: Kind,
     connection: ConnectionHandle = .{ .slot = 0, .generation = 0 },
     number: u64 = 0,
     user_data: usize = 0,
@@ -120,7 +134,7 @@ pub fn check_deadline() void {
 fn note(reported: Event) void {
     assert(seen_len < seen.len);
     const entry = &seen[seen_len];
-    entry.* = .{ .kind = reported };
+    entry.* = .{ .kind = kind_of(reported) };
     seen_len += 1;
     switch (reported) {
         .request => |request| {
@@ -128,11 +142,16 @@ fn note(reported: Event) void {
             entry.number = request.id.number;
             entry.end = request.end;
         },
-        .body => |body| entry.* = .{ .kind = reported, .connection = body.id.connection, .number = body.id.number, .user_data = body.user_data, .end = body.end },
-        .trailers => |trailers| entry.* = .{ .kind = reported, .connection = trailers.id.connection, .number = trailers.id.number, .user_data = trailers.user_data },
-        .cancelled => |cancelled| entry.* = .{ .kind = reported, .connection = cancelled.id.connection, .number = cancelled.id.number, .user_data = cancelled.user_data, .reason = cancelled.reason },
-        .done => |done| entry.* = .{ .kind = reported, .connection = done.id.connection, .number = done.id.number, .user_data = done.user_data },
-        .writable => |writable| entry.* = .{ .kind = reported, .connection = writable.id.connection, .number = writable.id.number, .user_data = writable.user_data },
+        .body => |body| entry.* = .{ .kind = kind_of(reported), .connection = body.id.connection, .number = body.id.number, .user_data = body.user_data, .end = body.end },
+        .trailers => |trailers| entry.* = .{ .kind = kind_of(reported), .connection = trailers.id.connection, .number = trailers.id.number, .user_data = trailers.user_data },
+        .finished => |finished| entry.* = .{
+            .kind = kind_of(reported),
+            .connection = finished.id.connection,
+            .number = finished.id.number,
+            .user_data = finished.user_data,
+            .reason = if (finished.result == .cancelled) finished.result.cancelled else null,
+        },
+        .writable => |writable| entry.* = .{ .kind = kind_of(reported), .connection = writable.id.connection, .number = writable.id.number, .user_data = writable.user_data },
         .send => |handle| {
             entry.connection = handle;
             if (flushing) flush(handle);
@@ -141,7 +160,7 @@ fn note(reported: Event) void {
             entry.connection = handle;
             closed[handle.slot] = true;
         },
-        .ended => |over| entry.* = .{ .kind = reported, .connection = over.connection, .failed = over.failed },
+        .ended => |over| entry.* = .{ .kind = kind_of(reported), .connection = over.connection, .failed = over.failed },
         .closed => {},
     }
 }
@@ -160,7 +179,7 @@ pub fn flush(handle: ConnectionHandle) void {
 }
 
 /// The `n`th event of `kind` the endpoint reported, or null.
-pub fn nth(kind: std.meta.Tag(Event), n: usize) ?*const Seen {
+pub fn nth(kind: Kind, n: usize) ?*const Seen {
     var count: usize = 0;
     for (seen[0..seen_len]) |*entry| {
         if (entry.kind != kind) continue;
@@ -171,7 +190,7 @@ pub fn nth(kind: std.meta.Tag(Event), n: usize) ?*const Seen {
 }
 
 /// Where the first event of `kind` is among those the endpoint reported, or null.
-pub fn index_of(kind: std.meta.Tag(Event)) ?usize {
+pub fn index_of(kind: Kind) ?usize {
     for (seen[0..seen_len], 0..) |entry, index| {
         if (entry.kind == kind) return index;
     }

@@ -322,11 +322,15 @@ pub const World = struct {
             .body => |body| if (body.end) {
                 world.req_read[index_of(@intCast(body.id.number))] = .ended;
             },
-            .done => |done| world.done[index_of(@intCast(done.id.number))] = true,
+            .finished => |finished| switch (finished.result) {
+                .sent => world.done[index_of(@intCast(finished.id.number))] = true,
+                // Two honest endpoints cancel no request.
+                .cancelled => world.broken = true,
+            },
             // The run hands octets out and offers content in actions of its own.
             .send, .writable => {},
             // Two honest endpoints cause none of these, and the run never shuts the endpoint down.
-            .trailers, .cancelled, .close, .ended, .closed => world.broken = true,
+            .trailers, .close, .ended, .closed => world.broken = true,
         }
     }
 

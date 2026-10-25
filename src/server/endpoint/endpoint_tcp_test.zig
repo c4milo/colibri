@@ -206,7 +206,7 @@ test "RFC 9846 §5.2: a forged record over TLS sends the alert once, closes, and
     try testing.expect(support.nth(.ended, 0).?.failed);
 }
 
-fn count(kind: std.meta.Tag(@import("../event.zig").Event)) usize {
+fn count(kind: support.Kind) usize {
     var n: usize = 0;
     while (support.nth(kind, n) != null) n += 1;
     return n;

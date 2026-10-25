@@ -13,7 +13,7 @@ const internal = @import("quic_connection_internal.zig");
 const event = @import("../event.zig");
 
 pub const QuicConnection = quic_connection.QuicConnection;
-pub const Event = event.Event;
+pub const ConnectionEvent = event.ConnectionEvent;
 pub const Field = quic_connection.Field;
 
 /// The connection IDs and grease value each side starts from. Test-only.
@@ -334,7 +334,7 @@ pub fn collect() void {
             server_failed = true;
             continue;
         };
-        seen_support.keep(received_event.event orelse return);
+        seen_support.keep(seen_support.as_event(received_event.event orelse return));
     }
 }
 

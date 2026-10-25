@@ -131,14 +131,15 @@ fn serve(event: server.Event, now_ns: u64) !void {
             posted_len += body.bytes.len;
             if (body.end) try answer(body.id, posted[0..posted_len]);
         },
-        .done => answered += 1,
+        // A request is over: its response was sent, or it was cancelled.
+        .finished => |finished| answered += @intFromBool(finished.result == .sent),
         .send => |connection| try flush(connection, now_ns),
         .close => closes += 1,
         .ended => |connection| {
             if (connection.failed or connection.reason != null) return error.ExchangeWrong;
             ended += 1;
         },
-        .trailers, .cancelled, .writable => {},
+        .trailers, .writable => {},
         // Only a shutdown ends in `closed`.
         .closed => unreachable,
     }

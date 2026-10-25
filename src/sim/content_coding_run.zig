@@ -233,11 +233,12 @@ fn server_read(storage: *Storage) Error!void {
                 storage.answers[storage.answers_len] = .{ .id = head.id, .index = storage.answers_len, .responded = false, .written = 0 };
                 storage.answers_len += 1;
             },
-            .body, .trailers, .done => {},
+            .body, .trailers => {},
             // The run writes every answer and sends once in each round, so it waits for neither.
             .writable, .send => {},
             // The server refused what the client wrote: it ended a request, or the connection.
-            .cancelled, .close => return error.ExchangeRefused,
+            .finished => |finished| if (finished.result == .cancelled) return error.ExchangeRefused,
+            .close => return error.ExchangeRefused,
             // The run closes no socket and never shuts the endpoint down.
             .ended, .closed => unreachable,
         }

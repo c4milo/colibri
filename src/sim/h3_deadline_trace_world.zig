@@ -373,15 +373,9 @@ pub const World = struct {
                 world.processed[index] = true;
                 world.content_ended[index] = request.end;
             },
-            .body => |body| if (index_of(body.id.number)) |index| {
-                if (body.end) world.content_ended[index] = true;
-            },
-            .trailers => |trailers| if (index_of(trailers.id.number)) |index| {
-                world.content_ended[index] = true;
-            },
-            .cancelled => |cancelled| if (index_of(cancelled.id.number)) |index| {
-                world.cancelled[index] = true;
-            },
+            .body => |body| if (body.end) mark(&world.content_ended, body.id.number),
+            .trailers => |trailers| mark(&world.content_ended, trailers.id.number),
+            .finished => |finished| if (finished.result == .cancelled) mark(&world.cancelled, finished.id.number),
             .ended => |over| world.broken = world.broken or over.failed,
             else => {},
         }
@@ -443,6 +437,11 @@ fn push(list: *[allowed_max]Action, len: *usize, action: Action) void {
 
 pub fn stream_of(index: usize) u64 {
     return @as(u64, index) * request_stream_step;
+}
+
+/// Sets the flag of request `number` in `flags`, when the number names a request of the run.
+fn mark(flags: []bool, number: u64) void {
+    if (index_of(number)) |index| flags[index] = true;
 }
 
 fn index_of(number: u64) ?usize {

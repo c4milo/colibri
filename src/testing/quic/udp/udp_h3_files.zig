@@ -62,8 +62,7 @@ pub const Files = struct {
             .request => |request| files.take(request),
             .body => |body| if (body.end) files.answer(endpoint, body.id),
             .trailers => |trailers| files.answer(endpoint, trailers.id),
-            .cancelled => |cancelled| files.release(cancelled.id),
-            .done => |done| files.release(done.id),
+            .finished => |finished| files.release(finished.id),
             .writable => {},
             // The run reads `ended`. A QUIC connection owes no `send` or `close`, and the run never
             // shuts the endpoint down (decision 119).

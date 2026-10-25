@@ -344,7 +344,7 @@ fn note_event(storage: *Storage, plan: *const Plan, reported: server.Event, now_
         },
         // The run never shuts the endpoint down.
         .closed => unreachable,
-        .request, .body, .trailers, .cancelled, .done => {
+        .request, .body, .trailers, .finished => {
             storage.record.app.note_event(reported, now_ms);
             return true;
         },

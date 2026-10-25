@@ -58,12 +58,12 @@ pub const Application = struct {
             .request => |request| app.note_request(request.id, now_ms),
             .body => |body| if (body.end) app.note_content_end(body.id.number, now_ms),
             .trailers => |trailers| app.note_content_end(trailers.id.number, now_ms),
-            .cancelled => |cancelled| if (app.find(cancelled.id.number)) |pending| {
-                pending.cancelled_ms = now_ms;
-                if (cancelled.reason == .timeout) pending.cancelled = cancelled.reason.timeout;
-            },
-            .done => |done| if (app.find(done.id.number)) |pending| {
-                pending.done_ms = now_ms;
+            .finished => |finished| if (app.find(finished.id.number)) |pending| switch (finished.result) {
+                .sent => pending.done_ms = now_ms,
+                .cancelled => |reason| {
+                    pending.cancelled_ms = now_ms;
+                    if (reason == .timeout) pending.cancelled = reason.timeout;
+                },
             },
             .writable => {},
             // The run reads `ended`. A QUIC connection owes no `send` or `close`, and the run never
