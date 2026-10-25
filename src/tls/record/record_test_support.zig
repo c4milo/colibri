@@ -35,9 +35,9 @@ pub const cpu_not_stated: values.Cpu = described(.yes, .yes, .not_stated);
 /// a claim made from another answer shows. The tests convert them to chapulin's claims and run no
 /// session under them.
 pub const cpus_with_sha = [_]values.Cpu{
-    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no }),
-    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .yes, .sha3 = .no }),
-    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .yes }),
+    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .yes, .sha512 = .no, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no }),
+    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .yes, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no }),
+    with_sha(.{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .yes, .ssse3 = .no, .sse4_1 = .no }),
 };
 
 fn with_sha(probe: platform.Cpu) values.Cpu {
@@ -48,7 +48,7 @@ fn with_sha(probe: platform.Cpu) values.Cpu {
 const sha_answer: platform.Answer = if (testdata.sha_instructions_present) .yes else .no;
 
 fn described(aes_clmul: platform.Answer, sha: platform.Answer, timing: values.Timing) values.Cpu {
-    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha, .sha512 = sha, .sha3 = sha }, .timing = timing };
+    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known, .sha256 = sha, .sha512 = sha, .sha3 = sha, .ssse3 = .no, .sse4_1 = .no }, .timing = timing };
 }
 /// The first and the last instant the identity is valid at, which chapulin counts inside.
 pub const not_before_seconds = testdata.not_before_seconds;

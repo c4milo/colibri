@@ -21,6 +21,6 @@ fn fill_source(_: *anyopaque, buffer: []u8) void {
 
 pub fn main() !void {
     const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
-    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } }, .alpn = &.{"h2"}, .cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no }, .timing = .not_stated } });
+    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } }, .alpn = &.{"h2"}, .cpu = .{ .probe = .{ .aes_clmul = .no, .dit = .not_known, .sha256 = .no, .sha512 = .no, .sha3 = .no, .ssse3 = .no, .sse4_1 = .no }, .timing = .not_stated } });
     try client.start(&config, source, now_seconds, null);
 }
