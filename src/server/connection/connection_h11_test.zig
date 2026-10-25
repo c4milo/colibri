@@ -165,10 +165,16 @@ test "RFC 9112 §3.2.2: an absolute-form target's authority replaces Host's" {
     const head = try expect_request("GET http://origin.test/a?b HTTP/1.1\r\nHost: other.test\r\n\r\n", 1);
     try testing.expectEqualStrings("http", head.scheme.?);
     try testing.expectEqualStrings("origin.test", head.authority.?);
-    try testing.expectEqualStrings("/a?b", head.path.?);
+    // Decision 127: the path and the query come apart at the first "?" (RFC 3986 §3.4).
+    try testing.expectEqualStrings("/a", head.path.?);
+    try testing.expectEqualStrings("b", head.query.?);
     const bare = try expect_after_response("GET http://origin.test HTTP/1.1\r\nHost: origin.test\r\n\r\n", 2);
     // RFC 9110 §4.2.3: an empty path is "/".
     try testing.expectEqualStrings("/", bare.path.?);
+    try testing.expectEqual(null, bare.query);
+    const query_alone = try expect_after_response("GET http://origin.test?x=1 HTTP/1.1\r\nHost: origin.test\r\n\r\n", 3);
+    try testing.expectEqualStrings("/", query_alone.path.?);
+    try testing.expectEqualStrings("x=1", query_alone.query.?);
 }
 
 /// Answers request `id - 1` and reads `request` as request `id`. Test-only.

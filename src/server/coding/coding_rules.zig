@@ -128,6 +128,7 @@ fn test_asked(method: []const u8, version: event.Version, lines: []const http.Fi
         .scheme = "https",
         .authority = "example.test",
         .path = "/",
+        .query = null,
         .headers = event.Headers.of(&test_section),
         .end = true,
     });

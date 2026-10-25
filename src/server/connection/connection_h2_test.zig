@@ -29,13 +29,16 @@ const error_code_len: usize = 4;
 
 test "RFC 9113 §8.3.1: a request's pseudo-header fields arrive as its parts, and its fields after" {
     try start();
-    const received = try support.receive_copy(try request_frame(1, "/index.html", true));
+    const received = try support.receive_copy(try request_frame(1, "/index.html?page=2", true));
     const head = received.event.?.request;
     try testing.expectEqual(1, head.id.number);
     try testing.expectEqualStrings("GET", head.method);
     try testing.expectEqualStrings("http", head.scheme.?);
     try testing.expectEqualStrings("example.com", head.authority.?);
+    // Decision 127: `:path` comes apart at its first "?" (RFC 3986 §3.4).
     try testing.expectEqualStrings("/index.html", head.path.?);
+    try testing.expectEqualStrings("page=2", head.query.?);
+    try testing.expectEqualStrings("/index.html?page=2", head.target);
     try testing.expect(head.end);
     // RFC 9113 §8.3: the pseudo-header fields are not among the regular ones.
     try testing.expectEqual(1, head.headers.len());

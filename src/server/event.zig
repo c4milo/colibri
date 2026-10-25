@@ -113,6 +113,21 @@ fn is_pseudo(name: []const u8) bool {
     return name.len > 0 and name[0] == ':';
 }
 
+/// A target's path and query, apart (decision 127): the path before the first `?` (RFC 3986 §3.3),
+/// "/" when that is empty, and the rest after the `?`, or null with no `?`.
+pub const Target = struct { path: ?[]const u8, query: ?[]const u8 };
+
+pub fn split_target(target: ?[]const u8) Target {
+    const whole = target orelse return .{ .path = null, .query = null };
+    // RFC 3986 §3.4: the query starts at the first "?" and runs to the end of the target.
+    const mark = std.mem.indexOfScalar(u8, whole, '?') orelse return .{ .path = whole, .query = null };
+    // RFC 9110 §4.2.3: an empty path is "/".
+    const path = if (mark == 0) root_path else whole[0..mark];
+    return .{ .path = path, .query = whole[mark + 1 ..] };
+}
+
+const root_path = "/";
+
 /// A request's head.
 pub const Request = struct {
     id: RequestId,
@@ -128,13 +143,14 @@ pub const Request = struct {
     /// The `:authority` of h2 and h3. For h11 it is an absolute-form target's authority, else the
     /// Host field (RFC 9112 §3.2.2, §3.3). Null when the request carries none.
     authority: ?[]const u8,
-    /// The `:path` of h2 and h3. For h11 it is the target's path and query, or `*` for the
-    /// asterisk-form (RFC 9112 §3.2). An absolute-form target with an empty path and no query
-    /// gives "/" (RFC 9110 §4.2.3). With a query it gives the query alone, such as "?x", and
-    /// `server.router` reads that as the root (https://github.com/c4milo/colibri/issues/103).
-    /// Null for CONNECT (RFC 9113 §8.5, RFC 9114 §4.4, RFC 9112 §3.2.3). `server.router` matches
-    /// this value.
+    /// The path of h2's and h3's `:path`, or of h11's target, without its query, or `*` for the
+    /// asterisk-form (RFC 9112 §3.2). An empty path, as an absolute-form target may carry, gives
+    /// "/" (RFC 9110 §4.2.3, https://github.com/c4milo/colibri/issues/103). Null for CONNECT (RFC
+    /// 9113 §8.5, RFC 9114 §4.4, RFC 9112 §3.2.3). `server.router` matches this value.
     path: ?[]const u8,
+    /// The query after the path's `?` (RFC 3986 §3.4), without the `?`, or null when the target
+    /// carries none. `server.QueryParameters` reads its pairs (decision 127).
+    query: ?[]const u8,
     headers: Headers,
     /// Whether the head ended the request, so no content follows.
     end: bool,
@@ -268,6 +284,14 @@ pub const ReceiveResult = struct {
     consumed: usize,
     event: ?Event,
 };
+
+test "decision 127: a target comes apart at its first ?, and an empty path is /" {
+    try std.testing.expectEqualDeep(Target{ .path = "/a", .query = "b=1?c" }, split_target("/a?b=1?c"));
+    try std.testing.expectEqualDeep(Target{ .path = "/a", .query = null }, split_target("/a"));
+    try std.testing.expectEqualDeep(Target{ .path = "/a", .query = "" }, split_target("/a?"));
+    try std.testing.expectEqualDeep(Target{ .path = "/", .query = "x" }, split_target("?x"));
+    try std.testing.expectEqualDeep(Target{ .path = null, .query = null }, split_target(null));
+}
 
 test "decision 119: a connection's ids name no connection, which the endpoint that holds it names" {
     const id = id_of(7);

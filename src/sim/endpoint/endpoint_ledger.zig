@@ -417,6 +417,7 @@ fn test_request(number: u64) server.Event {
         .scheme = "https",
         .authority = null,
         .path = "/",
+        .query = null,
         .headers = undefined,
         .end = true,
     } };

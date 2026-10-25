@@ -10897,6 +10897,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     renames and the merge change no event and no byte on the wire. The memory table keeps its
     sizes under the new names. Mutations of 23.7: 2 of 2 **CAUGHT**.
   - **Owed before the push.** `tools/ci.sh` on the exact tree.
+- **Step 24 — a request's query.** [Decision 127](decisions.md) ruling 1: the server reads a
+  query, after the WHATWG URL Standard pinned in `docs/rfcs/whatwg/`. The owner approved the names
+  on 2026-10-25.
+  - **Names.** `server.Request` gains `query`, the raw query after the `?`, or null, and its
+    `path` holds the path alone. `server.QueryParameters` is new, with `read(query, storage)` and
+    `get(name)`, and `server.constants.query_parameters_max` is 32. An absolute-form target with an
+    empty path and a query gives the path `/`.
+  - **Rulings of 2026-10-25.** A `%` that two hex digits do not follow stays as written, as the URL
+    Standard's percent-decode keeps it. colibri hands the decoded bytes back as they are, and
+    checks no UTF-8. `get` returns the first value of a name, as URLSearchParams' `get` does.
+  - **The router.** `server.router` splits a path into segments, then percent-decodes each one
+    (RFC 3986 §2.1), so `%2F` stays inside its segment. A literal compares with the decoded
+    segment, and a parameter holds the decoded bytes, in memory the `PathParameters` holds. It
+    no longer refuses a `%` (amends decision 122).
+  - **Sub-steps.**
+    - 24.1: this text and the tests that list the names.
+    - 24.2: `Request.query`, in h11, h2 and h3.
+    - 24.3: `QueryParameters`.
+    - 24.4: the router's decoding.
+    - 24.5: docs/usage.md and the server example.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

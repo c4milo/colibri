@@ -156,7 +156,8 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
             .target = request.path orelse request.authority.?,
             .scheme = request.scheme,
             .authority = request.authority,
-            .path = request.path,
+            .path = event.split_target(request.path).path,
+            .query = event.split_target(request.path).query,
             .headers = event.Headers.of(connection.h3.field_section()),
             // RFC 9114 §4.1: h3 reports the request's end apart from its head, as a `body` event.
             .end = false,

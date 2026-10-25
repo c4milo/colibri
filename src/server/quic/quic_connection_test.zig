@@ -27,11 +27,13 @@ fn get(path: []const u8) !*support.Fetch {
 }
 
 test "RFC 9114 §4.1: a GET's head arrives as a request event, and its end as a body event" {
-    const fetch = try get("/index.html");
+    const fetch = try get("/index.html?page=2");
     try testing.expectEqual(event.Protocol.h3, connection.protocol().?);
     const head = support.nth(.request, 0).?;
     try testing.expectEqual(fetch.id, head.id);
+    // Decision 127: `:path` comes apart at its first "?" (RFC 3986 §3.4).
     try testing.expectEqualStrings("/index.html", head.path_of());
+    try testing.expectEqualStrings("page=2", head.query_of());
     // RFC 9114 §4.1: the request's end comes apart from its head.
     const end = support.nth(.body, 0).?;
     try testing.expect(end.end and end.len == 0);

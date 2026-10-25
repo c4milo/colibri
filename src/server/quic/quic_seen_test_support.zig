@@ -44,6 +44,9 @@ pub const Seen = struct {
     connection: event.ConnectionHandle = .{ .slot = 0, .generation = 0 },
     path: [path_len_max]u8 = undefined,
     path_len: usize = 0,
+    /// A request's query, or none.
+    query: [path_len_max]u8 = undefined,
+    query_len: usize = 0,
     len: usize = 0,
     end: bool = false,
     reason: ?event.CancelReason = null,
@@ -52,6 +55,10 @@ pub const Seen = struct {
 
     pub fn path_of(entry: *const Seen) []const u8 {
         return entry.path[0..entry.path_len];
+    }
+
+    pub fn query_of(entry: *const Seen) []const u8 {
+        return entry.query[0..entry.query_len];
     }
 };
 const path_len_max: usize = 256;
@@ -71,6 +78,9 @@ pub fn keep(reported: Event) void {
             const path = head.path orelse "";
             @memcpy(entry.path[0..path.len], path);
             entry.path_len = path.len;
+            const query = head.query orelse "";
+            @memcpy(entry.query[0..query.len], query);
+            entry.query_len = query.len;
         },
         .body => |body| {
             entry.id = body.id.number;

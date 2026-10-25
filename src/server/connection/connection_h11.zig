@@ -84,6 +84,7 @@ fn start_request(connection: *Connection, request: h11.connection.Request) Conne
     connection.chunked_allowed = request.line.version.minor > 0;
     connection.head_request = session.asked == .head;
     const target = target_of(request, &session.section, connection.config.tls != null);
+    const parts = event.split_target(target.path);
     return .{
         .request = .{
             .id = event.id_of(connection.current_id),
@@ -92,7 +93,8 @@ fn start_request(connection: *Connection, request: h11.connection.Request) Conne
             .target = request.line.target,
             .scheme = target.scheme,
             .authority = target.authority,
-            .path = target.path,
+            .path = parts.path,
+            .query = parts.query,
             .headers = .{ .section = &session.section, .first = 0 },
             // h11 reads no body for a request that declared none.
             .end = session.phase == .waiting,
