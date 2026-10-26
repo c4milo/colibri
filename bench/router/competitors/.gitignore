@@ -1,0 +1,3 @@
+# Local builds; run.sh builds from copies in the tree's .zig-cache.
+rust/target/
+node/node_modules/

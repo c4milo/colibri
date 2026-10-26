@@ -1,0 +1,12 @@
+[package]
+name = "router-bench"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+matchit = "=0.8.6"
+actix-router = "=0.5.3"
+
+[profile.release]
+debug = 1

@@ -1,0 +1,11 @@
+.{
+    .name = .colibri_router_competitors,
+    .version = "0.0.0",
+    .fingerprint = 0xe07a3d23e5d2ac59,
+    .minimum_zig_version = "0.16.0",
+    // run.sh copies this directory into the tree's `.zig-cache`, three levels below the tree.
+    .dependencies = .{
+        .colibri = .{ .path = "../../.." },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "hook.zig", "github_routes.txt" },
+}

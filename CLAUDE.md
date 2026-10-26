@@ -436,6 +436,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   one builds from a copy of `bench/router/` in the tree's `.zig-cache`, so the packages that Zig
   fetches stay out of `bench/` (design §8 step 21e, decision 122 as amended on 2026-10-14). Neither
   one is part of `tools/ci.sh`, and their numbers are never published (decision 32).
+  `bench/router/competitors/run.sh [rounds]` matches the GitHub API's 203 routes of
+  go-http-routing-benchmark with colibri's `match` and with http.zig's, matchit's, actix-router's,
+  httprouter's, chi's, ServeMux's and find-my-way's routers, on Linux in containers, and prints the
+  nanoseconds of one match and, where callgrind counts it, its instructions (the owner's ruling of
+  2026-10-26). It needs Docker, and Zig 0.17 for http.zig; it is not part of `tools/ci.sh`, and its
+  numbers are never published.
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
   the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
   `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC

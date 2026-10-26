@@ -1,0 +1,8 @@
+{
+  "name": "router-bench",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "find-my-way": "9.3.0"
+  }
+}
