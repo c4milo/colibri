@@ -214,6 +214,7 @@ fn on_accept(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     const index = free_socket(worker) orelse unreachable; // `arm_accept` waits for one.
     const socket = &worker.sockets[index];
     socket.open(descriptor);
+    send_at_once(descriptor);
     // `server_options.read` refuses `--echo` but for h11 in cleartext.
     const echo: ?*h11_echo.Echo = if (server_mode.echo_mode) &echoes[worker.index][index] else null;
     const tls = server_mode.identity != null;
@@ -221,6 +222,14 @@ fn on_accept(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     // not start.
     if (!worker.session.accept(index, tls, echo, now_ns)) socket.failed = true;
     worker.session.mark(index);
+}
+
+/// Turns Nagle's algorithm off on an accepted socket (TCP_NODELAY), so a small response leaves at
+/// once and does not wait for the peer to acknowledge the one before it. With it on, h2 at low
+/// rates waited about 3 ms a request on the judge (design §8 step 13f), as Go's server, which sets
+/// it, did not. A socket that refuses the option is served as it is.
+pub fn send_at_once(descriptor: rotor.Descriptor) void {
+    rotor.sync.set_no_delay(descriptor, true) catch {};
 }
 
 /// The index of an entry this worker can put a socket in.

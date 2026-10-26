@@ -187,6 +187,11 @@ try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
 accepted = endpoint.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 ```
 
+A program turns Nagle's algorithm off on each TCP socket it accepts, with `TCP_NODELAY`. Each
+`send_stream` writes what a connection owes in one piece, so a small write that waits for the
+peer to acknowledge the one before it only adds latency: over h2 at low rates, colibri's test-only
+server waited about 3 ms a request with the option off (design §8 step 13f).
+
 `now_seconds` is Unix time, which the server's tickets are issued at. With a `ticket_key` the
 endpoint issues each client a ticket, which a later connection of that client offers to resume
 the session. `now_ns` is the instant on

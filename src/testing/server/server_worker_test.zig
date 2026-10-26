@@ -253,3 +253,16 @@ test "design §8 step 13f: the --routes mode answers through the worker's router
     deliver(worker, index, "GET /users/colibri/repos HTTP/1.1\r\nHost: a\r\n\r\n", constants.tick_ns);
     try testing.expect(std.mem.endsWith(u8, staged(worker, index), "\r\n\r\nok\n"));
 }
+
+test "design §8 step 13f: an accepted socket sends at once, with Nagle's algorithm off" {
+    const descriptor = std.c.socket(std.c.AF.INET, std.c.SOCK.STREAM, 0);
+    try testing.expect(descriptor >= 0);
+    defer _ = std.c.close(descriptor);
+    // The worker's accept takes the socket, as it takes each socket its listener accepts.
+    const worker = try fresh_worker();
+    handle(worker, &.{rotor.Event.success(server_worker.accept_user_data, @intCast(descriptor))}, null, constants.tick_ns);
+    var enabled: c_int = 0;
+    var enabled_len: std.c.socklen_t = @sizeOf(c_int);
+    try testing.expectEqual(0, std.c.getsockopt(descriptor, std.c.IPPROTO.TCP, std.c.TCP.NODELAY, &enabled, &enabled_len));
+    try testing.expect(enabled != 0);
+}
