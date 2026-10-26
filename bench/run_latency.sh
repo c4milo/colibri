@@ -75,7 +75,7 @@ build_oha() {
   echo "run_latency.sh: building oha ${oha_version} with h3" >&2
   (cd "$repository_root/bench/competitors/axum" &&
     cargo install --quiet --locked --git https://github.com/hatoo/oha --rev "$oha_commit" \
-      --features http3 --root "$scratch/oha" >&2)
+      --features http3 --root "$scratch/oha" oha >&2)
   echo "$scratch/oha/bin/oha"
 }
 
@@ -197,6 +197,11 @@ machine() {
 
 oha="${BENCH_OHA:-}"
 if [ -z "$oha" ]; then oha="$(build_oha)"; fi
+# set -e does not stop the script inside a command substitution, so a failed build shows here.
+if [ ! -x "$oha" ]; then
+  echo "run_latency.sh: no oha at $oha" >&2
+  exit 1
+fi
 build_servers
 # The GET routes, with each parameter given a value, as the paths oha sends to each server's port.
 awk '$1 == "GET" { print $2 }' "$routes" | sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths.txt"
