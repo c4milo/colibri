@@ -11,7 +11,7 @@ const router_trie_layout = @import("router_trie_layout.zig");
 const router_hidden = @import("router_hidden.zig");
 const constants = @import("../constants.zig");
 const core = @import("core");
-const router = @import("router.zig").router;
+const router = @import("router_table.zig").table_of;
 const support = @import("router_test_support.zig");
 
 const testing = std.testing;

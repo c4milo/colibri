@@ -2,7 +2,7 @@
 //! constant, as a program declares one.
 const std = @import("std");
 const http = @import("http");
-const router = @import("router.zig").router;
+const router = @import("router_table.zig").table_of;
 const router_trie = @import("router_trie.zig");
 const router_hidden = @import("router_hidden.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;

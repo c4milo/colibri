@@ -29,7 +29,7 @@
 //! segment X of 8150 octets, and 7 parameters at most under "/b". The loops below build the same
 //! table, in the same order.
 const std = @import("std");
-const router = @import("router.zig").router;
+const router = @import("router_table.zig").table_of;
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const constants = @import("../constants.zig");
 const support = @import("router_test_support.zig");

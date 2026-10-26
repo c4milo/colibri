@@ -10963,15 +10963,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **The struct form.** A struct with `head`, which takes a `*State` after `*Context` and else
     the parameters of the function form, and any of `body`, `writable` and `finished`, with a
     `State` that each request's entry holds. `body` reads the request body through a
-    `*std.Io.Reader`, and bytes it leaves unread wait for the next call. With `.whole_body`, the
-    router calls `head` once the body is whole.
+    `*std.Io.Reader`, and bytes it leaves unread wait for the next call. A read past the bytes
+    that arrived fails with `error.ReadFailed` while more is to come, and a `body` that returns it
+    waits. With `.whole_body`, `head` runs at the head, and `body` runs once, after the last byte,
+    with every byte in the entry's `body_bytes`. The owner ruled this on 2026-10-25, since the
+    head's slices are gone by the last byte, and a copy of every header would cost each entry a
+    whole header section.
   - **The router's calls.** `Router.Of(options)` is the type a program places: a pool of
     `options.requests` entries, with `options.response_bytes` of response memory and
-    `options.body_bytes` for `.whole_body` in each. `memory_bytes` is its size.
+    `options.body_bytes` for the request body in each. `memory_bytes` is its size.
     `handle(context, endpoint, event)` takes one event and returns `Handled`: `.taken`, or `.event`
     with the event the program acts on (`send`, `close`, `ended` or `closed`). A request that finds
     no free entry gets 503. A request that matches no route gets 404, 405 with Allow, or 501, and
-    the router writes each with no function call.
+    the router writes each with no function call. It writes 400 for a query that lacks a required
+    pair, 414 for one with too many pairs, and 413 for a body larger than `body_bytes`.
   - **`match` stays.** Its `found` gives `Router.Route`, an enum with one tag for each entry, named
     by its method and pattern, such as `.@"GET /users/:id"`, and the path parameters (the owner's
     ruling of 2026-10-25). `bench/router`, `router-check` and the hidden-route checks read it.
@@ -10993,13 +10998,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Sub-steps.**
     - 25.1: this text.
     - 25.2: `server.ResponseWriter`, with the test that lists its names.
-    - 25.3: `router(Context, table)` with the function form, `Route`, `Of`, `handle`,
-      `error_handler`, and the answers 404, 405, 501 and 503. `bench/router`, `router-check` and
-      the examples move to the new table.
-    - 25.4: the typed path and query structs, and their refusals at compile time.
-    - 25.5: the struct form, the body reader, `.whole_body`, `writable` and `finished`.
-    - 25.6: middleware, `decode_request` and `encode_response`, and the removal of `codable`.
-    - 25.7: docs/usage.md and the server example.
+    - 25.3: `router(Context, table)` with the function and the struct forms, `Route`, `Of`,
+      `handle`, `Handled`, `error_handler`, the body reader, `.whole_body`, `writable` and
+      `finished`. `bench/router`, `router-check`, the examples and docs/usage.md move to the new
+      table. The struct form came forward from 25.5, because the server example's POST reads its
+      body.
+    - 25.4: the refusals at compile time of a route's function, its struct, and its path and query
+      structs, each naming its route.
+    - 25.5: middleware, `decode_request` and `encode_response`, and the removal of `codable`.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

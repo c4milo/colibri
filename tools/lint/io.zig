@@ -9,8 +9,8 @@
 //! design §9 and is the one directory permitted to touch a socket (CLAUDE.md, Layout), so it is
 //! exempt.
 //!
-//! `std.Io.Writer` and `std.Io.Reader`, and every name under them, are not findings. They are
-//! interfaces over memory, and decision 127 has a route read a request body through one and write
+//! `std.Io.Writer` and `std.Io.Reader`, every name under them, and `std.Io.Limit`, the count
+//! they take, are not findings. They are interfaces over memory, and decision 127 has a route read a request body through one and write
 //! a response body through the other. A program may pass one that does I/O, which is its own.
 //!
 //! The rule reads what a file names, not what it reaches. A module that received another module
@@ -38,10 +38,11 @@ const forbidden_prefixes = [_][]const u8{
     "std.process",
 };
 
-/// The two interfaces a body goes through (decision 127). An empty prefix matches each last segment.
+/// The two interfaces a body goes through, and their count type (decision 127). An empty prefix matches each last segment.
 const memory_interfaces = [_]forbidden_references.Exception{
     .{ .prefix = "std.Io.Writer", .last_segment_prefixes = &.{""} },
     .{ .prefix = "std.Io.Reader", .last_segment_prefixes = &.{""} },
+    .{ .prefix = "std.Io.Limit", .last_segment_prefixes = &.{""} },
 };
 
 /// The configuration. It reads `src/`, and exempts `src/testing/`: the test-only entry points of
@@ -162,6 +163,7 @@ test "decision 127: io passes std.Io.Writer and std.Io.Reader, and flags the res
     const findings = try findings_of(arena_state.allocator(), "src/server/server.zig",
         \\fn body(writer: *std.Io.Writer, reader: *std.Io.Reader) std.Io.Writer.Error!void {}
         \\const vtable: std.Io.Writer.VTable = .{ .rebase = std.Io.Writer.failingRebase };
+        \\const limit = std.Io.Limit.unlimited;
         \\const file = std.Io.File;
         \\const io = std.Io;
     );

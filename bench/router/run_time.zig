@@ -24,7 +24,7 @@ fn index_of(edges: usize, position: []const u8) usize {
 }
 
 fn run(comptime edges: usize, path: []const u8, count: usize) u64 {
-    const table = comptime server.router(u16, tables.literals(edges, ""));
+    const table = comptime server.router(void, tables.table_of(tables.literals(edges, "")));
     // A volatile read, so the compiler does not move the match out of the loop.
     var held: []const u8 = path;
     const volatile_path: *volatile []const u8 = &held;

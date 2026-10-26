@@ -60,6 +60,11 @@ pub fn resume_writes(response: *ResponseWriter) Error!bool {
     return response.complete;
 }
 
+/// Whether bytes, the head or the end wait for the endpoint, which a `writable` sends.
+pub fn waiting(response: *const ResponseWriter) bool {
+    return response.piece_sent < response.piece_count or (response.ended and !response.complete);
+}
+
 /// Whether the endpoint took the whole response.
 pub fn complete(response: *const ResponseWriter) bool {
     return response.complete;

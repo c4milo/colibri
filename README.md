@@ -134,28 +134,23 @@ request and the response:
 ```
 
 A server holds its TCP and QUIC connections in one endpoint, and calls `accept` for each TCP socket
-it accepts. It gets one event from each `receive`, and answers a request by its id, in h11, h2 and
-h3 alike. It finds the route of a method and a path through a table that it declares at compile
-time, with `server.router`. These lines are from
+it accepts. It gets one event from each `receive`, in h11, h2 and h3 alike, and passes it to a
+router that it declares at compile time with `server.router`. The router calls the function of each
+request's route with the path's parameters and the query as structs, and the function writes its
+response through a `std.Io.Writer`. These lines are from
 [`examples/server_exchange.zig`](examples/server_exchange.zig):
 
 ```zig
-fn answer(id: server.RequestId, content: []const u8) !void {
-    var digits: [8]u8 = undefined;
-    const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try endpoint.respond(id, .{
-        .status = 200,
-        .headers = &.{
-            .{ .name = "content-type", .value = content_type },
-            .{ .name = "content-length", .value = length },
-        },
-        .end = false,
-    });
-    // `write_body` returns the octets it took. It takes fewer than it was given when the room or
-    // the peer's window runs out, and the request's `writable` event then says when to write the
-    // rest.
-    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
-    assert(taken == content.len);
+fn greet_named(
+    _: *App,
+    _: *const server.Request,
+    path: struct { name: []const u8 },
+    query: struct { mark: []const u8 = "" },
+    response: *server.ResponseWriter,
+) !void {
+    try response.header("content-type", content_type);
+    try response.body().print("hello, {s}{s}\n", .{ path.name, query.mark });
+    try response.end();
 }
 ```
 

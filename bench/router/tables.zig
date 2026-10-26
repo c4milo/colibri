@@ -2,8 +2,22 @@
 //! lists, and a path that one of its routes matches.
 const std = @import("std");
 const http = @import("http");
+const server = @import("server");
 
-pub const Entry = struct { http.method.Standard, []const u8, u16 };
+pub const Entry = struct { http.method.Standard, []const u8, *const Route };
+
+/// The type of every route's function, which no probe calls.
+pub const Route = fn (*void, *const server.Request, void, void, *server.ResponseWriter) anyerror!void;
+
+fn route(_: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) anyerror!void {}
+
+/// The error function of every table, which no probe calls.
+pub fn on_error(_: *void, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
+
+/// The table `server.router` takes, with the routes `entries`.
+pub fn table_of(comptime entries: anytype) struct { error_handler: @TypeOf(on_error), routes: @TypeOf(entries) } {
+    return .{ .error_handler = on_error, .routes = entries };
+}
 
 /// One route.
 pub const one = .{ .entries = literals(1, ""), .path = "/r000" };
@@ -35,8 +49,8 @@ pub fn literal(comptime index: usize) [4]u8 {
 pub fn literals(comptime count: usize, comptime extra: []const u8) [count + @intFromBool(extra.len > 0)]Entry {
     @setEvalBranchQuota(100_000);
     var table: [count + @intFromBool(extra.len > 0)]Entry = undefined;
-    for (0..count) |index| table[index] = .{ .get, "/" ++ literal(index), @intCast(index) };
-    if (extra.len > 0) table[count] = .{ .get, extra, @intCast(count) };
+    for (0..count) |index| table[index] = .{ .get, "/" ++ literal(index), route };
+    if (extra.len > 0) table[count] = .{ .get, extra, route };
     return table;
 }
 
@@ -47,11 +61,11 @@ fn resources() [resource_names.len * 5]Entry {
     for (resource_names, 0..) |resource, index| {
         const collection = "/api/v1/" ++ resource;
         const member = collection ++ "/:id";
-        table[index * 5 + 0] = .{ .get, collection, index * 5 + 0 };
-        table[index * 5 + 1] = .{ .post, collection, index * 5 + 1 };
-        table[index * 5 + 2] = .{ .get, member, index * 5 + 2 };
-        table[index * 5 + 3] = .{ .put, member, index * 5 + 3 };
-        table[index * 5 + 4] = .{ .delete, member, index * 5 + 4 };
+        table[index * 5 + 0] = .{ .get, collection, route };
+        table[index * 5 + 1] = .{ .post, collection, route };
+        table[index * 5 + 2] = .{ .get, member, route };
+        table[index * 5 + 3] = .{ .put, member, route };
+        table[index * 5 + 4] = .{ .delete, member, route };
     }
     return table;
 }
@@ -59,7 +73,7 @@ fn resources() [resource_names.len * 5]Entry {
 fn named(comptime count: usize) [count]Entry {
     @setEvalBranchQuota(100_000);
     var table: [count]Entry = undefined;
-    for (0..count) |index| table[index] = .{ .get, "/" ++ literal(index) ++ "/:id", @intCast(index) };
+    for (0..count) |index| table[index] = .{ .get, "/" ++ literal(index) ++ "/:id", route };
     return table;
 }
 
@@ -67,16 +81,16 @@ const words = [_][]const u8{ "zeta", "a", "mm", "users", "b", "posts", "c4", "x"
 
 fn mixed() [2 + words.len * (words.len * 2 + 4)]Entry {
     @setEvalBranchQuota(1_000_000);
-    var entries: []const Entry = &.{ .{ .get, "/", 0 }, .{ .options, "/", 1 } };
+    var entries: []const Entry = &.{ .{ .get, "/", route }, .{ .options, "/", route } };
     for (words) |first| {
         for (words) |second| {
-            entries = entries ++ [_]Entry{.{ .get, "/" ++ first ++ "/" ++ second, @intCast(entries.len) }};
-            entries = entries ++ [_]Entry{.{ .put, "/" ++ first ++ "/" ++ second, @intCast(entries.len) }};
+            entries = entries ++ [_]Entry{.{ .get, "/" ++ first ++ "/" ++ second, route }};
+            entries = entries ++ [_]Entry{.{ .put, "/" ++ first ++ "/" ++ second, route }};
         }
-        entries = entries ++ [_]Entry{.{ .get, "/" ++ first ++ "/:id", @intCast(entries.len) }};
-        entries = entries ++ [_]Entry{.{ .get, "/" ++ first ++ "/*", @intCast(entries.len) }};
-        entries = entries ++ [_]Entry{.{ .head, "/" ++ first, @intCast(entries.len) }};
-        entries = entries ++ [_]Entry{.{ .get, "/" ++ first, @intCast(entries.len) }};
+        entries = entries ++ [_]Entry{.{ .get, "/" ++ first ++ "/:id", route }};
+        entries = entries ++ [_]Entry{.{ .get, "/" ++ first ++ "/*", route }};
+        entries = entries ++ [_]Entry{.{ .head, "/" ++ first, route }};
+        entries = entries ++ [_]Entry{.{ .get, "/" ++ first, route }};
     }
     return entries[0..entries.len].*;
 }
@@ -113,6 +127,6 @@ fn large_pattern(comptime index: usize) []const u8 {
 const large_table: [large_routes]Entry = build: {
     @setEvalBranchQuota(large_routes * large_segments * large_segment_len * large_segment_len);
     var table: [large_routes]Entry = undefined;
-    for (&table, 0..) |*entry, index| entry.* = .{ if (index == large_routes - 1) .put else .get, large_pattern(index), index };
+    for (&table, 0..) |*entry, index| entry.* = .{ if (index == large_routes - 1) .put else .get, large_pattern(index), route };
     break :build table;
 };

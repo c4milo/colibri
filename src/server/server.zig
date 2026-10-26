@@ -42,6 +42,7 @@ const files = struct {
     pub const limits = @import("limits.zig");
     pub const path_parameters = @import("path_parameters.zig");
     pub const router = @import("router/router.zig");
+    pub const router_pool = @import("router/router_pool.zig");
     pub const response_writer = @import("response_writer/response_writer.zig");
 };
 
@@ -111,8 +112,12 @@ pub const Features = files.coding_pool.Features;
 /// `get` (decision 122).
 pub const PathParameters = files.path_parameters.PathParameters;
 
-/// Builds a route table at compile time, whose `match` names the route of a method and a path
-/// (decision 122). A function named after its file is exported under its own name.
+/// What a router's `handle` did with an event: it took it, or hands it back (decision 127).
+pub const Handled = files.router_pool.Handled;
+
+/// Builds a route table at compile time, which calls the program's functions in `handle`, and
+/// whose `match` names the route of a method and a path (decisions 122 and 127). A function named
+/// after its file is exported under its own name.
 pub const router = files.router.router;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
@@ -126,7 +131,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
     // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
-    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`.
+    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, and 25.3 `Handled`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",    "Config",             "Protocols",        "Limits",      "Timeout",
@@ -138,7 +143,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "Finished",     "Result",             "Writable",         "Ended",       "Response",
         "ResponseBody", "ResponseWriter",     "ReceiveResult",    "Alternative", "Coding",
         "EncoderPool",  "DefaultEncoderPool", "Encoders",         "DecoderPool", "DefaultDecoderPool",
-        "Decoders",     "Features",           "PathParameters",   "router",
+        "Decoders",     "Features",           "PathParameters",   "Handled",     "router",
     });
 }
 
@@ -209,6 +214,7 @@ test {
     _ = @import("coding/coding_rules.zig");
     _ = @import("coding/coding_fields.zig");
     _ = @import("coding/coding_response.zig");
+    _ = @import("router/router_table.zig");
     _ = @import("router/router_test.zig");
     _ = @import("router/router_parameter_test.zig");
     _ = @import("router/router_fuzz_test.zig");

@@ -5,7 +5,9 @@
 //! speak h3. The program calls `accept` for each TCP socket, and the handle it gets names the
 //! connection from then on. A QUIC connection starts from a client's first datagram.
 //!
-//! The server routes each request through a table of `server.router`, which the compiler builds.
+//! The server routes each request through a table of `server.router`, which the compiler builds
+//! and checks. Its router calls the function of the request's route, and answers 404, 405, 501 and
+//! 503 itself.
 //!
 //! In a turn the server fires the deadlines that passed, then passes the endpoint what each socket
 //! read: the octets of a TCP socket under the handle of its connection, and each datagram with the
@@ -16,7 +18,6 @@
 //! deadline passes (decision 110).
 //!
 //! The server also shows:
-//! - `set_user_data`, which names the server's own state for a request in each later event of it;
 //! - `transport_closed`, for a socket whose peer closes it before it sends an octet;
 //! - `set_timeouts`, which shortens the idle deadline of the one QUIC connection the endpoint
 //!   holds once it has a request, so the server closes it when its client keeps it open;
@@ -36,7 +37,6 @@
 //! Run it with `zig build example-server_exchange`, or every example with `zig build examples`.
 const std = @import("std");
 const assert = std.debug.assert;
-const http = @import("http");
 const server = @import("server");
 const tls = @import("tls");
 const platform = @import("platform");
@@ -116,37 +116,29 @@ var started_ns: u64 = 0;
 /// The connection of the socket the TCP client opened, which `accept` named.
 var accepted: server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = undefined;
 
-/// What a route of the server names.
-const Route = enum { greeting, echo, named };
+/// The server's own state, which each route's function gets: here the requests whose head it read,
+/// and those whose response is whole.
+const App = struct {
+    requests: u32 = 0,
+    done: u32 = 0,
+};
+var app: App align(@alignOf(App)) = .{};
 
-/// The server's table of routes, which the compiler builds. A malformed table, or a table with a
-/// conflict, does not compile.
-const router = server.router(Route, .{
-    .{ .get, "/greeting", .greeting },
-    .{ .post, "/echo", .echo },
-    .{ .get, "/greetings/:name", .named },
+/// The server's table of routes, which the compiler builds and checks. A malformed table, or a
+/// table with a conflict, does not compile.
+const routes = server.router(App, .{
+    .error_handler = on_error,
+    .routes = .{
+        .{ .get, "/greeting", greet },
+        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .get, "/greetings/:name", greet_named },
+    },
 });
 
-/// Written by each `match`. Its values are the decoded segments of the request's path.
-var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
-
-/// What the server keeps for one request, which `set_user_data` names.
-/// The bytes of a request's decoded query that the server keeps.
-const query_len_max = 64;
-
-const Served = struct {
-    /// Whether the request is the POST, whose content the server sends back once it ends.
-    echo: bool = false,
-    /// The content of the response: the POST's content, or the greeting to a name.
-    content: [note.len]u8 = undefined,
-    /// Where the query's pairs are decoded.
-    query: [query_len_max]u8 = undefined,
-    content_len: usize = 0,
-    /// Whether the response is whole.
-    done: bool = false,
-};
-var served: [requests_max]Served align(@alignOf(Served)) = undefined;
-var served_count: usize = 0;
+/// The router's pool: an entry for each request at once, with room for its response and for the
+/// POST's content. The program places it once and does not move it.
+const Router = @TypeOf(routes).Of(.{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+var router: Router align(@alignOf(Router)) = .{};
 
 /// Sockets the endpoint said to close, connections that are over, those that ended at their idle
 /// deadline, and whether the shut-down endpoint is over.
@@ -291,118 +283,83 @@ fn serve_all(input: server.Input, now_ns: u64) !void {
 /// connection too, in h11, h2 and h3 alike.
 fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
-        .request => |request| try take_request(request),
-        .body => |body| try take_body(body),
+        .request => |request| try note_request(request),
         // The request is over. A `sent` result says its response is whole, and colibri reads none
         // of the program's bytes for it again. Over QUIC the client acknowledged every byte of it.
-        .finished => |finished| (try served_of(finished.user_data)).done = finished.result == .sent,
-        // A TCP connection owes its socket octets.
-        .send => |connection| try flush(connection, now_ns),
-        // colibri reads and writes nothing more on this TCP connection. A program closes the
-        // socket once the socket has taken the octets `send_stream` returned, and owes the
-        // endpoint no call: the connection's `ended` follows by itself.
-        .close => closes += 1,
-        // The connection is over, and its slot takes a later socket or client.
-        .ended => |over| try count_ended(over, now_ns),
-        // The shut-down endpoint holds no connection.
-        .closed => endpoint_closed = true,
-        .trailers, .writable => {},
+        .finished => |finished| app.done += @intFromBool(finished.result == .sent),
+        else => {},
+    }
+    // The router takes each event of a request: it calls the route's function at the head, passes
+    // the body to `Echo`, sends what waits at `writable`, and frees the request's entry at its
+    // `finished`. It hands back the events of the connections, which are the program's I/O.
+    switch (router.handle(&app, &endpoint, event)) {
+        .taken => {},
+        .event => |other| switch (other) {
+            // A TCP connection owes its socket octets.
+            .send => |connection| try flush(connection, now_ns),
+            // colibri reads and writes nothing more on this TCP connection. A program closes the
+            // socket once the socket has taken the octets `send_stream` returned, and owes the
+            // endpoint no call: the connection's `ended` follows by itself.
+            .close => closes += 1,
+            // The connection is over, and its slot takes a later socket or client.
+            .ended => |over| try count_ended(over, now_ns),
+            // The shut-down endpoint holds no connection.
+            .closed => endpoint_closed = true,
+            else => return error.ExchangeWrong,
+        },
     }
 }
 
-/// Keeps state for a request's head, and answers the request by its route. A GET gets its answer
-/// at once. The POST's content follows in `body` events, and the answer waits for its end.
-fn take_request(request: server.Request) !void {
+/// Notes a request's head before the router answers it.
+fn note_request(request: server.Request) !void {
     std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-    if (served_count == served.len) return error.ExchangeWrong;
-    const state = &served[served_count];
-    state.* = .{};
-    served_count += 1;
-    // Each later event of the request carries this word, and the server finds its state by it.
-    try endpoint.set_user_data(request.id, served_count);
+    app.requests += 1;
     if (request.version.major == 3) {
         // The endpoint holds one QUIC connection at a time. A client can keep its connection
         // open after the response, so the server shortens its idle deadline, and the slot is
         // free sooner.
         try endpoint.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
-    try route(request, state);
 }
 
-/// Answers a request by the route that its method and its path match.
-fn route(request: server.Request, state: *Served) !void {
-    switch (router.match(request.method, request.path orelse "", &parameters)) {
-        .found => |found| switch (found) {
-            .greeting => try answer(request.id, greeting),
-            // The content follows in `body` events, and `take_body` answers at its end.
-            .echo => state.echo = true,
-            .named => try answer_named(request, state, parameters.get("name").?),
-        },
-        // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
-        .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
-            .status = 405,
-            .headers = &.{.{ .name = "allow", .value = allowed }},
-            .end = true,
-        }),
-        .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
-        // RFC 9110 §9.1: no route names the method, such as DELETE. No client here sends one.
-        .not_implemented => try endpoint.respond(request.id, .{ .status = 501, .end = true }),
-    }
+/// Answers a GET of `/greeting`. The router passes the request, the path's parameters and the
+/// query, here none, and the response's writer. The router ends a response the function leaves
+/// open, and `end` adds its Content-Length.
+fn greet(_: *App, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+    try response.header("content-type", content_type);
+    try response.body().writeAll(greeting);
+    try response.end();
 }
 
 /// Answers a GET of `/greetings/:name` with a greeting to the name, ended with the query's `mark`.
-/// The router decoded the name, and `QueryParameters` decodes the query's pairs into the
-/// request's state (decision 127). The slice `name` stays valid until the next endpoint call, and
-/// QUIC reads the content again until the request's `finished`. So the server writes the content
-/// into the request's state first.
-fn answer_named(request: server.Request, state: *Served, name: []const u8) !void {
-    var query: http.QueryParameters = .{};
-    query.read(request.query orelse "", &state.query) catch {
-        // RFC 9110 §15.5.15: the target is longer than this server takes.
-        return endpoint.respond(request.id, .{ .status = 414, .end = true });
-    };
-    const mark = query.get("mark") orelse "";
-    const content = std.fmt.bufPrint(&state.content, "hello, {s}{s}\n", .{ name, mark }) catch {
-        return endpoint.respond(request.id, .{ .status = 414, .end = true });
-    };
-    try answer(request.id, content);
+/// The router decodes the name and the query's pairs, and fills each struct by its field names.
+fn greet_named(
+    _: *App,
+    _: *const server.Request,
+    path: struct { name: []const u8 },
+    query: struct { mark: []const u8 = "" },
+    response: *server.ResponseWriter,
+) !void {
+    try response.header("content-type", content_type);
+    try response.body().print("hello, {s}{s}\n", .{ path.name, query.mark });
+    try response.end();
 }
 
-/// Keeps the POST's content, and sends it back once it ends. Over h3 a GET's end can come in a
-/// `body` event with no octets, which needs no answer.
-fn take_body(body: server.RequestBody) !void {
-    const state = try served_of(body.user_data);
-    if (!state.echo) return;
-    if (state.content_len + body.bytes.len > state.content.len) return error.ExchangeWrong;
-    @memcpy(state.content[state.content_len..][0..body.bytes.len], body.bytes);
-    state.content_len += body.bytes.len;
-    if (body.end) try answer(body.id, state.content[0..state.content_len]);
-}
+/// Sends the POST's content back. With `.whole_body`, the router calls `body` once, after the
+/// last byte, with a reader over the whole content in the request's entry.
+const Echo = struct {
+    pub fn head(_: *App, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
 
-/// The state `user_data` names. The word is 0 for a request whose head set none.
-fn served_of(user_data: usize) !*Served {
-    if (user_data == 0 or user_data > served_count) return error.ExchangeWrong;
-    return &served[user_data - 1];
-}
+    pub fn body(_: *App, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+        try response.header("content-type", content_type);
+        try response.body().writeAll(content.buffered());
+        try response.end();
+    }
+};
 
-/// Answers request `id` with 200 and `content`: the head, then the content, which ends the
-/// response.
-fn answer(id: server.RequestId, content: []const u8) !void {
-    var digits: [8]u8 = undefined;
-    const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try endpoint.respond(id, .{
-        .status = 200,
-        .headers = &.{
-            .{ .name = "content-type", .value = content_type },
-            .{ .name = "content-length", .value = length },
-        },
-        .end = false,
-    });
-    // `write_body` returns the octets it took. It takes fewer than it was given when the room or
-    // the peer's window runs out, and the request's `writable` event then says when to write the
-    // rest.
-    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
-    assert(taken == content.len);
+/// Chooses the status after a route's error. No route of this server returns one.
+fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+    response.status = 500;
 }
 
 /// Sends what `connection` owes its socket, after its `send` event. A call that fills the buffer
@@ -457,16 +414,14 @@ const requests_count = 6;
 /// The clients saw what the server sent. The server saw each response done, one `close`, and
 /// every connection end, the QUIC one at its idle deadline.
 fn check() Error!void {
-    var done_count: u32 = 0;
-    for (served[0..served_count]) |state| done_count += @intFromBool(state.done);
-    const answered = served_count == requests_count and done_count == requests_count;
+    const answered = app.requests == requests_count and app.done == requests_count;
     const over = closes == 1 and connections_ended == connections_count and idle_ended == 1;
     if (peers.check() and answered and over) {
         std.debug.print("server_exchange: every octet arrived as sent\n", .{});
         return;
     }
     std.debug.print("server_exchange: requests {d}, done {d}, closes {d}, ended {d}, idle {d}\n", .{
-        served_count, done_count, closes, connections_ended, idle_ended,
+        app.requests, app.done, closes, connections_ended, idle_ended,
     });
     return error.ExchangeWrong;
 }

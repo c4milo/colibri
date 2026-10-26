@@ -1,7 +1,7 @@
 //! The fuzz test and the sweep of `match` (decision 122, design §8 step 21e).
 const std = @import("std");
 const core = @import("core");
-const router = @import("router.zig").router;
+const router = @import("router_table.zig").table_of;
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 
 const testing = std.testing;

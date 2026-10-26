@@ -287,30 +287,42 @@ fn serve_all(input: server.Input, now_ns: u64) !void {
 ```
 
 An event names a request by its id, in h11, h2 and h3 alike, or a connection by its handle. The id
-names the request's connection too, so the program answers by the id alone:
+names the request's connection too. The program passes each event to its router's `handle`, which
+answers each request, as [Router](#router) shows. `handle` hands back the events of the
+connections, which are the program's I/O:
 
 ```zig
 fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
-        .request => |request| try take_request(request),
-        .body => |body| try take_body(body),
+        .request => |request| try note_request(request),
         // The request is over. A `sent` result says its response is whole, and colibri reads none
         // of the program's bytes for it again. Over QUIC the client acknowledged every byte of it.
-        .finished => |finished| (try served_of(finished.user_data)).done = finished.result == .sent,
-        // A TCP connection owes its socket octets.
-        .send => |connection| try flush(connection, now_ns),
-        // colibri reads and writes nothing more on this TCP connection. A program closes the
-        // socket once the socket has taken the octets `send_stream` returned, and owes the
-        // endpoint no call: the connection's `ended` follows by itself.
-        .close => closes += 1,
-        // The connection is over, and its slot takes a later socket or client.
-        .ended => |over| try count_ended(over, now_ns),
-        // The shut-down endpoint holds no connection.
-        .closed => endpoint_closed = true,
-        .trailers, .writable => {},
+        .finished => |finished| app.done += @intFromBool(finished.result == .sent),
+        else => {},
+    }
+    // The router takes each event of a request: it calls the route's function at the head, passes
+    // the body to `Echo`, sends what waits at `writable`, and frees the request's entry at its
+    // `finished`. It hands back the events of the connections, which are the program's I/O.
+    switch (router.handle(&app, &endpoint, event)) {
+        .taken => {},
+        .event => |other| switch (other) {
+            // A TCP connection owes its socket octets.
+            .send => |connection| try flush(connection, now_ns),
+            // colibri reads and writes nothing more on this TCP connection. A program closes the
+            // socket once the socket has taken the octets `send_stream` returned, and owes the
+            // endpoint no call: the connection's `ended` follows by itself.
+            .close => closes += 1,
+            // The connection is over, and its slot takes a later socket or client.
+            .ended => |over| try count_ended(over, now_ns),
+            // The shut-down endpoint holds no connection.
+            .closed => endpoint_closed = true,
+            else => return error.ExchangeWrong,
+        },
     }
 }
 ```
+
+The events, which a program that answers requests itself reads:
 
 - `request` carries the method, the target and the headers, which `headers.find` and
   `headers.iterator` read. Its `end` says the head ended the request, so no body follows.
@@ -327,26 +339,20 @@ fn serve(event: server.Event, now_ns: u64) !void {
 - `closed` comes after `shutdown`, once every connection has ended.
 
 `set_user_data` sets a word that each later event of a request carries back: its `body`,
-`trailers`, `writable`, and its one `finished`. A program finds its own state for the
-request by the word, with no lookup. Here the word names the request's place in the server's
-table. `route` answers the request by its route, as [Router](#router) shows:
+`trailers`, `writable`, and its one `finished`. A program finds its own state for the request by
+the word, with no lookup. The router sets it for each request it answers. Before the router
+answers, the example notes each head:
 
 ```zig
-fn take_request(request: server.Request) !void {
+fn note_request(request: server.Request) !void {
     std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-    if (served_count == served.len) return error.ExchangeWrong;
-    const state = &served[served_count];
-    state.* = .{};
-    served_count += 1;
-    // Each later event of the request carries this word, and the server finds its state by it.
-    try endpoint.set_user_data(request.id, served_count);
+    app.requests += 1;
     if (request.version.major == 3) {
         // The endpoint holds one QUIC connection at a time. A client can keep its connection
         // open after the response, so the server shortens its idle deadline, and the slot is
         // free sooner.
         try endpoint.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
-    try route(request, state);
 }
 ```
 
@@ -357,30 +363,29 @@ call. An answer the program gives first takes the place of the 100. A program th
 request therefore answers it before its next call: a final response, the program's own 100, or
 `cancel` takes the place of the 100 the connection owes.
 
-The program answers with a head, then content:
+A route's function answers through a `server.ResponseWriter` ([decision 127](decisions.md)). It
+sets `status`, which is 200 by default, adds headers, and writes the body through the
+`std.Io.Writer` that `body()` returns:
 
 ```zig
-fn answer(id: server.RequestId, content: []const u8) !void {
-    var digits: [8]u8 = undefined;
-    const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try endpoint.respond(id, .{
-        .status = 200,
-        .headers = &.{
-            .{ .name = "content-type", .value = content_type },
-            .{ .name = "content-length", .value = length },
-        },
-        .end = false,
-    });
-    // `write_body` returns the octets it took. It takes fewer than it was given when the room or
-    // the peer's window runs out, and the request's `writable` event then says when to write the
-    // rest.
-    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
-    assert(taken == content.len);
+fn greet(_: *App, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+    try response.header("content-type", content_type);
+    try response.body().writeAll(greeting);
+    try response.end();
 }
 ```
 
-A response with no content sets `end` in `respond`, and `write_trailers` ends a response with a
-trailer section. A write can find no room: `write_body` takes fewer octets than it was given, or
+`end` sends a head that carries the whole body with its Content-Length. The writer copies each
+header and writes the body into the request's entry, which the endpoint may read until the
+request's `finished` (decision 103). So the entry's `response_bytes` bound a body that `body()`
+writes. `write_kept` sends bytes the program keeps valid until the `finished`, with no copy, such
+as a file the program mapped. `trailers` ends the response with a trailer section. When the
+endpoint takes less than the writer gives it, the rest waits, and the router sends it at the
+request's `writable`.
+
+The writer calls the endpoint's three calls that write a response, which a program that answers
+requests itself calls by the request's id: `respond` writes the head, `write_body` the content and
+`write_trailers` the trailer section. A response with no content sets `end` in `respond`. A write can find no room: `write_body` takes fewer octets than it was given, or
 any of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often
 returns `error.Blocked`, and `respond` and `write_trailers` `error.NoSpaceLeft`. `write_trailers`
 returns `error.Blocked` while a coded response's last octets wait. Over QUIC, room comes back only
@@ -440,7 +445,7 @@ with a `finished` whose result is cancelled, with the timeout as its reason. `re
 that passed too, on the connection they read or write. The configuration's `timeouts` sets the
 limits, and `Endpoint.init` refuses limits a connection would refuse, with
 `error.TimeoutInvalid`. `set_timeouts` changes one connection's limits, by its handle, as
-`take_request` does above. A program that wakes only when octets arrive never ends a silent peer.
+`note_request` does above. A program that wakes only when octets arrive never ends a silent peer.
 
 A TCP connection's socket closes in one of two ways. The endpoint reports `close` once the
 connection has finished and `send_stream` has written every octet it owed, the TLS close_notify
@@ -468,7 +473,7 @@ name nothing from then on. `ended` carries two more fields:
 
 - `reason` names the deadline that passed, or the limit the peer passed, when colibri closed the
   connection for one. It is null otherwise. In the example, the QUIC connection ends at the idle
-  deadline `take_request` shortened.
+  deadline `note_request` shortened.
 - `failed` says colibri closed the connection because its peer broke a protocol rule or its record
   layer failed. For a TCP connection, the endpoint reports a `send` for what colibri owes that
   peer, such as h2's GOAWAY or an h11 server's 400, before the `close`.
@@ -501,60 +506,103 @@ Three more things a server sets:
 
 ### Router
 
-A program finds the route of a request through a table that it declares at compile time
-([decision 122](decisions.md)). `server.router` builds the table. Each entry holds a method, a
-pattern and a value of the program's type. The routes of the server example name an enum:
+A program declares its routes in a table at compile time, and the router calls the function of each
+request's route ([decisions 122 and 127](decisions.md)). `server.router` builds the table from the
+program's context type and a struct of two fields: `error_handler` and `routes`. Each route holds
+a method, a pattern and a function, and options may follow. `Of` gives the type of the pool the
+program places:
 
 ```zig
-/// What a route of the server names.
-const Route = enum { greeting, echo, named };
-
-/// The server's table of routes, which the compiler builds. A malformed table, or a table with a
-/// conflict, does not compile.
-const router = server.router(Route, .{
-    .{ .get, "/greeting", .greeting },
-    .{ .post, "/echo", .echo },
-    .{ .get, "/greetings/:name", .named },
+const routes = server.router(App, .{
+    .error_handler = on_error,
+    .routes = .{
+        .{ .get, "/greeting", greet },
+        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .get, "/greetings/:name", greet_named },
+    },
 });
 
-/// Written by each `match`. Its values are the decoded segments of the request's path.
-var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
+/// The router's pool: an entry for each request at once, with room for its response and for the
+/// POST's content. The program places it once and does not move it.
+const Router = @TypeOf(routes).Of(.{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+var router: Router align(@alignOf(Router)) = .{};
 ```
 
-The method of an entry is an enum literal, one of RFC 9110 §9.1's eight methods, or the token of
+The method of a route is an enum literal, one of RFC 9110 §9.1's eight methods, or the token of
 another method, such as `"PATCH"`. CONNECT does not compile, because a CONNECT request has no path
 (RFC 9110 §9.3.6, decision 19). Each segment of a pattern is a literal, a parameter such as
 `:name`, or the wildcard `*` as the last segment. A pattern holds
-`server.constants.path_parameters_max` parameters at most, the wildcard included. `match` takes
-the request's method and its path, and gives one of four results. The program writes a response
-for each:
+`server.constants.path_parameters_max` parameters at most, the wildcard included.
+
+A route's function takes five parameters, in this order: the program's context, the request, the
+path's parameters, the query, and the response's writer. The path's parameters are `void`, or a
+struct with one `[]const u8` field for each parameter of the pattern, and `rest` for the wildcard.
+The query is `void`, `http.QueryParameters`, or a struct whose fields name the query's pairs:
 
 ```zig
-fn route(request: server.Request, state: *Served) !void {
-    switch (router.match(request.method, request.path orelse "", &parameters)) {
-        .found => |found| switch (found) {
-            .greeting => try answer(request.id, greeting),
-            // The content follows in `body` events, and `take_body` answers at its end.
-            .echo => state.echo = true,
-            .named => try answer_named(request, state, parameters.get("name").?),
-        },
-        // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
-        .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
-            .status = 405,
-            .headers = &.{.{ .name = "allow", .value = allowed }},
-            .end = true,
-        }),
-        .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
-        // RFC 9110 §9.1: no route names the method, such as DELETE. No client here sends one.
-        .not_implemented => try endpoint.respond(request.id, .{ .status = 501, .end = true }),
-    }
+fn greet_named(
+    _: *App,
+    _: *const server.Request,
+    path: struct { name: []const u8 },
+    query: struct { mark: []const u8 = "" },
+    response: *server.ResponseWriter,
+) !void {
+    try response.header("content-type", content_type);
+    try response.body().print("hello, {s}{s}\n", .{ path.name, query.mark });
+    try response.end();
 }
 ```
+
+A field of the query's struct is `[]const u8`, `?[]const u8`, or a field with a default value. A
+query that lacks a `[]const u8` field with no default gets 400, and a query with more pairs than
+`http.constants.query_parameters_max` gets 414, with no call. A function runs at the request's
+head and reads no body. The router ends a response the function leaves open.
+
+A route can be a struct instead, with `head` and any of `body`, `writable` and `finished`, and a
+`State` that the request's entry holds. `head` takes a `*State` after the context, and else the
+parameters of a function. `body` reads the request body through a `std.Io.Reader`. A read past the
+bytes that arrived fails with `error.ReadFailed` while more of the body is to come, and a `body`
+that returns that error waits for them: the bytes it left unread come first in its next call. At
+the body's last byte a read fails with `error.EndOfStream`. With `.whole_body`, the router calls
+`body` once, after the last byte, with every byte in the entry's `body_bytes`:
+
+```zig
+const Echo = struct {
+    pub fn head(_: *App, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+
+    pub fn body(_: *App, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+        try response.header("content-type", content_type);
+        try response.body().writeAll(content.buffered());
+        try response.end();
+    }
+};
+```
+
+A body larger than `body_bytes` gets 413. The router ends the response once `body` ran with the
+last byte, unless the route has `writable`. `writable` writes a response over many calls: the
+router calls it while the response is open and the endpoint took all it was given, and the route
+ends the response itself. `finished` runs at the request's `finished`, with its result.
+
+The table must name `error_handler`, which chooses the status after a route's function returns an
+error ([decision 127](decisions.md) ruling 4). After the head went out, the router cancels the
+request instead, since its body may be cut short:
+
+```zig
+fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+    response.status = 500;
+}
+```
+
+The router answers a request with no call of a function in four cases: 404 when no route names
+the path, 405 with an Allow field when no route of the path names the method, 501 when no route
+of the table names the method, and 503 when the pool has no free entry. A program that dispatches
+a request itself calls `match`, with the request's method and path. Its `found` gives the route's
+`Route` tag, named by its method and its pattern, such as `.@"GET /greetings/:name"`.
 
 `match` follows these rules:
 
 - **The method comes first.** When no route of the table names the method, the result is
-  `not_implemented`, on any path, and the program answers 501 (RFC 9110 §9.1, §15.6.2). Then
+  `not_implemented`, on any path, and the router answers 501 (RFC 9110 §9.1, §15.6.2). Then
   `match` reads the path. The query does not change the result.
 - **A literal, then a parameter, then the wildcard.** At each segment, `match` tries the literal
   that equals the segment, then the parameter, then the wildcard. When a deeper segment fails, it
@@ -565,7 +613,7 @@ fn route(request: server.Request, state: *Served) !void {
   `/files`.
 - **The first pattern that matches the whole path decides.** When no route of that pattern names
   the method, the result is `method_not_allowed` with the Allow value of the pattern, and the
-  program writes a 405 with an "allow" field (RFC 9110 §15.5.6). `match` does not try another
+  router writes a 405 with an "allow" field (RFC 9110 §15.5.6). `match` does not try another
   pattern for the method. The field name is in lowercase, because h2 and h3 refuse an uppercase
   field name.
 - **HEAD finds GET.** A HEAD request finds the GET route of a pattern that names no HEAD route,
@@ -574,7 +622,7 @@ fn route(request: server.Request, state: *Served) !void {
   `request.method` when it must know which one it got.
 - **`OPTIONS *` gets one of two results.** A table with no OPTIONS route gives
   `not_implemented`. A table with an OPTIONS route gives `not_found`, because "*" is not a path.
-  A program that answers `OPTIONS *` reads `request.path` before it calls `match`.
+  A program that answers `OPTIONS *` reads the request before it passes it to `handle`.
 - **Each segment is percent-decoded** (RFC 3986 §2.1, decision 127). `match` splits the path on
   "/" first, then decodes each segment it reads. A literal compares with the decoded segment:
   `/users/%6De` matches `/users/me`. A "%" that two hex digits do not follow stays as written, and
@@ -583,9 +631,8 @@ fn route(request: server.Request, state: *Served) !void {
   holds a "/" or a "\\", no part of the wildcard's rest is a dot-segment, and no value holds a NUL.
 - **A parameter's value is the decoded segment.** A segment with no "%" is a slice of the path,
   valid until the next endpoint call that the comment on `Endpoint.receive` lists. A decoded one
-  is a slice of the `PathParameters`, valid until its next `match`. A program that keeps a value
-  longer copies it first. `answer_named` below writes its content into the request's state,
-  because QUIC reads the content again until the request's `finished`.
+  is a slice of the router's `PathParameters`, valid until the next request. A route that keeps a
+  value longer copies it into its `State`.
 - **Paths that match nothing:** a path with an octet outside `pchar` and "%", a path with an empty
   segment, such as `/a//b` or `/a/`, a path with a "." or ".." segment, encoded or not, such as
   `/a/%2E%2E`, and a path longer than `server.constants.path_len_max` bytes, its query included.
@@ -598,44 +645,8 @@ Standard's `application/x-www-form-urlencoded` parser does: it splits on "&" and
 skips empty pieces, reads "+" as a space, and percent-decodes. `read` writes the decoded names and
 values into a buffer the program gives, and refuses a query of more than
 `http.constants.query_parameters_max` pairs, 32, or of more bytes than the buffer holds. `get`
-returns the first value of a name.
-
-The server example answers a parameter route like this:
-
-```zig
-fn answer_named(request: server.Request, state: *Served, name: []const u8) !void {
-    var query: http.QueryParameters = .{};
-    query.read(request.query orelse "", &state.query) catch {
-        // RFC 9110 §15.5.15: the target is longer than this server takes.
-        return endpoint.respond(request.id, .{ .status = 414, .end = true });
-    };
-    const mark = query.get("mark") orelse "";
-    const content = std.fmt.bufPrint(&state.content, "hello, {s}{s}\n", .{ name, mark }) catch {
-        return endpoint.respond(request.id, .{ .status = 414, .end = true });
-    };
-    try answer(request.id, content);
-}
-```
-
-A route's value can also be a function that the program calls. The server of
-[`examples/client_peer.zig`](../examples/client_peer.zig) names one in each route:
-
-```zig
-/// What a route of this server names: the function that answers the request.
-const Handler = *const fn (request: server.Request, parameters: *const server.PathParameters) anyerror!void;
-
-/// The server's table of routes, which the compiler builds.
-const router = server.router(Handler, .{
-    .{ .get, "/greeting", greet },
-    .{ .post, "/echo", echo },
-});
-```
-
-It then calls the function of the route that matches:
-
-```zig
-.found => |handler| try handler(request, &parameters),
-```
+returns the first value of a name. The router reads a route's query this way before it fills the
+route's struct, and a route that names `http.QueryParameters` gets the pairs to read by name.
 
 A malformed table, or a table with a conflict, does not compile, and the compile error names the
 entry and the rule. A route that other routes hide is a conflict, in two cases:

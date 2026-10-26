@@ -4,12 +4,10 @@
 //! The server is one `server.Endpoint` with one TCP slot and no UDP socket, so every datagram of
 //! the client's QUIC connection is lost. It answers a GET with a greeting and a POST with its own
 //! content. It answers 405, 404 or 501 to a request that no route serves, and it issues a
-//! resumption ticket on its connection. Each of its routes names the
-//! function that answers the request, where the routes of `server_exchange.zig` name an enum. It
-//! runs over the stream link, on the server's loop. `docs/usage.md` shows the server's calls with
+//! resumption ticket on its connection. Its router calls the function of each route, as the
+//! router of `server_exchange.zig` does. It runs over the stream link, on the server's loop. `docs/usage.md` shows the server's calls with
 //! the server example, so the comments here are short.
 const std = @import("std");
-const assert = std.debug.assert;
 const server = @import("server");
 const tls = @import("tls");
 const identity = @import("testdata");
@@ -43,14 +41,17 @@ pub const Error = error{
     SendUnfinished,
 };
 
-/// What a route of this server names: the function that answers the request.
-const Handler = *const fn (request: server.Request, parameters: *const server.PathParameters) anyerror!void;
-
 /// The server's table of routes, which the compiler builds.
-const router = server.router(Handler, .{
-    .{ .get, "/greeting", greet },
-    .{ .post, "/echo", echo },
+const routes = server.router(void, .{
+    .error_handler = on_error,
+    .routes = .{
+        .{ .get, "/greeting", greet },
+        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+    },
 });
+
+/// One request at a time, with room for the POST's content.
+const Router = @TypeOf(routes).Of(.{ .requests = 1, .response_bytes = 256, .body_bytes = note.len });
 
 /// One TCP connection at a time, and no QUIC connection: this server has no UDP socket.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
@@ -65,11 +66,8 @@ var config: server.Config align(@alignOf(server.Config)) = undefined;
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
-/// Written by each `match`.
-var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
-/// The content of the POST, which the server sends back once the request ends.
-var posted: [note.len]u8 = undefined;
-var posted_len: usize = 0;
+var router: Router align(@alignOf(Router)) = .{};
+var context: void = {};
 /// Responses that are whole, sockets the endpoint said to close, and connections that are over.
 var answered: u32 = 0;
 var closes: u32 = 0;
@@ -124,65 +122,46 @@ pub fn turn() !void {
 
 fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
-        .request => |request| try take_request(request),
-        .body => |body| {
-            if (posted_len + body.bytes.len > posted.len) return error.ExchangeWrong;
-            @memcpy(posted[posted_len..][0..body.bytes.len], body.bytes);
-            posted_len += body.bytes.len;
-            if (body.end) try answer(body.id, posted[0..posted_len]);
-        },
+        .request => |request| std.debug.print("server: {s} {s}\n", .{ request.method, request.target }),
         // A request is over: its response was sent, or it was cancelled.
         .finished => |finished| answered += @intFromBool(finished.result == .sent),
-        .send => |connection| try flush(connection, now_ns),
-        .close => closes += 1,
-        .ended => |connection| {
-            if (connection.failed or connection.reason != null) return error.ExchangeWrong;
-            ended += 1;
+        else => {},
+    }
+    // The router answers each request, and hands back the events of the connection.
+    switch (router.handle(&context, &endpoint, event)) {
+        .taken => {},
+        .event => |other| switch (other) {
+            .send => |connection| try flush(connection, now_ns),
+            .close => closes += 1,
+            .ended => |connection| {
+                if (connection.failed or connection.reason != null) return error.ExchangeWrong;
+                ended += 1;
+            },
+            // Only a shutdown ends in `closed`.
+            else => unreachable,
         },
-        .trailers, .writable => {},
-        // Only a shutdown ends in `closed`.
-        .closed => unreachable,
     }
 }
 
-/// Calls the function of the route that the request's method and path match, or refuses the
-/// request.
-fn take_request(request: server.Request) !void {
-    std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-    switch (router.match(request.method, request.path orelse "", &parameters)) {
-        .found => |handler| try handler(request, &parameters),
-        // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
-        .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
-            .status = 405,
-            .headers = &.{.{ .name = "allow", .value = allowed }},
-            .end = true,
-        }),
-        .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
-        // RFC 9110 §9.1: no route names the method.
-        .not_implemented => try endpoint.respond(request.id, .{ .status = 501, .end = true }),
+fn greet(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+    try response.header("content-type", content_type);
+    try response.body().writeAll(greeting);
+    try response.end();
+}
+
+/// Sends the POST's content back, once all of it arrived.
+const Echo = struct {
+    pub fn head(_: *void, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+
+    pub fn body(_: *void, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+        try response.header("content-type", content_type);
+        try response.body().writeAll(content.buffered());
+        try response.end();
     }
-}
+};
 
-fn greet(request: server.Request, _: *const server.PathParameters) anyerror!void {
-    try answer(request.id, greeting);
-}
-
-/// The content follows in `body` events, and the server answers at its end.
-fn echo(_: server.Request, _: *const server.PathParameters) anyerror!void {}
-
-fn answer(id: server.RequestId, content: []const u8) !void {
-    var digits: [8]u8 = undefined;
-    const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try endpoint.respond(id, .{
-        .status = 200,
-        .headers = &.{
-            .{ .name = "content-type", .value = content_type },
-            .{ .name = "content-length", .value = length },
-        },
-        .end = false,
-    });
-    const taken = try endpoint.write_body(id, .{ .bytes = content, .end = true });
-    assert(taken == content.len);
+fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
+    response.status = 500;
 }
 
 fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {

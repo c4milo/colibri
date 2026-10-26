@@ -1,7 +1,7 @@
 //! The tests of `match` on routes with a parameter or the wildcard (decision 122, design §8 step
 //! 21e).
 const std = @import("std");
-const router = @import("router.zig").router;
+const router = @import("router_table.zig").table_of;
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const constants = @import("../constants.zig");
 const support = @import("router_test_support.zig");
