@@ -4926,7 +4926,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     build, with handshakes per second for §11.1's short connections.
   - **13e**, QUIC throughput under msquic's `secnetperf`, through the `perf` ALPN endpoint of §9.
   - **13f**, latency percentiles at stated offered loads, from a generator that sends on a
-    schedule.
+    schedule. The owner ruled its form on 2026-10-26: the throughput and the latency of a server
+    that routes, against servers that route in other languages.
+    - **The servers.** Each serves the GitHub API's 203 routes of
+      `bench/router/competitors/github_routes.txt` and answers every route with 200 and `ok\n`, on
+      one core. colibri's test-only server routes through `server.router` with `--routes github`.
+      The competitors are Go's net/http with chi (`GOMAXPROCS=1`), Rust's axum on a single-thread
+      tokio runtime, http.zig with its router and one worker, and Node's Fastify, each pinned in
+      `bench/competitors/`.
+    - **The load.** oha, pinned by release and SHA-256, sends GET requests over the 131 GET routes
+      at fixed rates with `--latency-correction`, so the latency holds the queue time that
+      coordinated omission hides. It sends h11, and h2 in cleartext with prior knowledge to every
+      server but http.zig, which has no h2. At each rate the report gives p50, p99 and p99.9, and
+      for each server the highest rate whose p99 stays under a stated bound.
+    - **The method.** `bench/run.sh --latency` runs the servers in turns in one job on the judge,
+      five rounds after a warm-up it discards, and reports each median with its spread. A time
+      is compared only inside one job (§11.4).
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,
