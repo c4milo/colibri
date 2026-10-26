@@ -248,6 +248,23 @@ test "the slot read first is the one get last found or open last wrote" {
     try testing.expectEqual(0, pool.last_slot);
 }
 
+test "open and get write the slot of an identifier's bucket, which get reads before it scans" {
+    var pool: TestPool = undefined;
+    pool.init();
+    for ([_]u64{ 1, 2, 3 }) |id| _ = try pool.open(id);
+    // Each open wrote its own bucket, and 3 is the slot read last.
+    for ([_]u64{ 1, 2, 3 }) |id| {
+        try testing.expectEqual(scanned_slot(&pool, id).?, pool.slot_by_bucket[id % test_capacity]);
+    }
+    // 5 shares 1's bucket, so its open moves the bucket to its own slot.
+    _ = try pool.open(5);
+    try testing.expectEqual(scanned_slot(&pool, 5).?, pool.slot_by_bucket[5 % test_capacity]);
+    // A get of 1 finds it by the scan and writes the bucket back.
+    try testing.expectEqual(1, pool.get(1).?.id);
+    try testing.expectEqual(scanned_slot(&pool, 1).?, pool.slot_by_bucket[1 % test_capacity]);
+    try expect_gets_as_scanned(&pool);
+}
+
 test "open, get and close round-trip one entry" {
     var pool: TestPool = undefined;
     pool.init();

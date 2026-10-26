@@ -14,8 +14,9 @@
 //! named, and a scan is deterministic (non-negotiable 5). `iterator` visits the live entries in
 //! the same order, which the settings sweep of invariant 15 requires. The three scans are
 //! in file-scope functions over the flag and entry slices, so each is scored on its own.
-//! Two slot numbers shorten two of them and choose nothing: `get` reads the slot it found last
-//! before it scans, and `open` starts its scan for the lowest free slot at `free_from`.
+//! Slot numbers the pool keeps shorten two of them and choose nothing: `get` reads the slot it
+//! found last, then the slot `slot_by_bucket` names for the identifier, before it scans, and `open`
+//! starts its scan for the lowest free slot at `free_from`.
 //!
 //! Nothing here is a protocol rule. Which class an identifier is in, which identifiers a peer
 //! may open, and when a stream closes are h2's and QUIC's (decision 14). The protocol module
@@ -86,6 +87,12 @@ pub fn Pool(
         /// The slot `get` last found an entry in, or `open` last wrote. `get` reads it before it
         /// scans, because a frame and its answer look one stream up several times in a row.
         last_slot: Slot,
+        /// `slot_by_bucket[id % capacity]` is the slot that `open` last wrote, or `get` last found,
+        /// an identifier of that bucket in. `get` reads it after `last_slot` and before it scans.
+        /// A slot that has closed since, or holds another identifier, fails the same check, and
+        /// the scan runs, so a stale slot number costs one check and never a wrong answer. Live
+        /// identifiers less than `capacity` apart fall into different buckets.
+        slot_by_bucket: [capacity]Slot,
         /// No slot below this one is free. `open` scans for the lowest free slot from here and
         /// leaves it one past the slot it took, and a close lowers it to the slot it frees when
         /// that slot is below it. An `open` after a close at or below it then reads one flag,
@@ -99,6 +106,7 @@ pub fn Pool(
             pool.count = 0;
             pool.watermark = @splat(null);
             pool.last_slot = 0;
+            pool.slot_by_bucket = @splat(0);
             pool.free_from = 0;
             assert(pool.len() == 0);
             assert(pool.free_slot() == 0);
@@ -117,6 +125,7 @@ pub fn Pool(
             assert(pool.live[slot]);
             assert(pool.entries[slot].id == id);
             pool.last_slot = @intCast(slot);
+            pool.slot_by_bucket[bucket_of(id)] = @intCast(slot);
             return &pool.entries[slot];
         }
 
@@ -148,6 +157,7 @@ pub fn Pool(
             pool.count += 1;
             pool.watermark[class] = id;
             pool.last_slot = @intCast(slot);
+            pool.slot_by_bucket[bucket_of(id)] = @intCast(slot);
             // No slot below `free_from` was free, the scan passed the rest below this one, and
             // this one is live now.
             pool.free_from = @intCast(slot + 1);
@@ -238,7 +248,15 @@ pub fn Pool(
             // No two live entries hold one identifier, so the slot the scan would find is this
             // one whenever this one holds `id`.
             if (pool.live[pool.last_slot] and pool.entries[pool.last_slot].id == id) return pool.last_slot;
+            const bucketed = pool.slot_by_bucket[bucket_of(id)];
+            assert(bucketed < capacity);
+            if (pool.live[bucketed] and pool.entries[bucketed].id == id) return bucketed;
             return live_slot_holding(Entry, &pool.entries, &pool.live, id);
+        }
+
+        /// The index of `id` in `slot_by_bucket`.
+        fn bucket_of(id: u64) u32 {
+            return @intCast(id % capacity);
         }
 
         /// The lowest free slot. The caller has checked that one exists.
