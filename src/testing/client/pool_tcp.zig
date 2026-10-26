@@ -85,7 +85,7 @@ pub const Socket = struct {
         }
         socket.reset();
         socket.address = to;
-        socket.descriptor = rotor.sync.open_socket(to.family) catch return false;
+        socket.descriptor = open_descriptor(to.family) catch return false;
         socket.state = .connecting;
         submit(loop, rotor.Operation.connect(socket.user_data(.connect), socket.descriptor, &socket.address));
         return true;
@@ -249,6 +249,15 @@ fn submit(loop: *rotor.Loop, operation: rotor.Operation) void {
     assert(taken == 1);
 }
 
+/// Opens a TCP socket with Nagle's algorithm off (TCP_NODELAY), so a small request leaves at once
+/// and does not wait for the peer to acknowledge the one before it, as the test-only server's
+/// accepted sockets do (design §8 step 13f). A socket that refuses the option is used as it is.
+pub fn open_descriptor(family: rotor.Address.Family) !rotor.Descriptor {
+    const descriptor = try rotor.sync.open_socket(family);
+    rotor.sync.set_no_delay(descriptor, true) catch {};
+    return descriptor;
+}
+
 const testing = std.testing;
 
 test "the socket's user data lies between the UDP send slots' and the UDP receive's" {
@@ -260,4 +269,13 @@ test "the socket's user data lies between the UDP send slots' and the UDP receiv
     try testing.expect(!socket.owns(constants.pool_udp_send_slots - 1));
     try testing.expect(!socket.owns(socket.user_data(.close) + 1));
     try testing.expect(!socket.owns(std.math.maxInt(u64)));
+}
+
+test "design §8 step 13f: a client socket opens with Nagle's algorithm off" {
+    const descriptor = try open_descriptor(.ipv4);
+    defer rotor.sync.close_now(descriptor);
+    var enabled: c_int = 0;
+    var enabled_len: std.c.socklen_t = @sizeOf(c_int);
+    try testing.expectEqual(0, std.c.getsockopt(@intCast(descriptor), std.c.IPPROTO.TCP, std.c.TCP.NODELAY, &enabled, &enabled_len));
+    try testing.expect(enabled != 0);
 }

@@ -1078,7 +1078,8 @@ The events:
 
 - `open` names a connection, its transport and where it goes. The program opens a UDP flow or
   connects a TCP socket to `open.to`, then calls `start_quic`, or `start_tcp` with the
-  connection's handle. Each later call and event about the connection names that handle. QUIC goes first when the origin is
+  connection's handle. A program turns Nagle's algorithm off on each TCP socket it connects, with
+  `TCP_NODELAY`, as a server does on each socket it accepts, so a small request leaves at once. Each later call and event about the connection names that handle. QUIC goes first when the origin is
   known to speak h3, or when `Config.quic_first` says to try it. TCP opens when QUIC fails or
   `fallback_delay_ns` passes. The first connection whose handshake completes takes the exchanges.
 - `send` names a TCP connection that owes octets. The program calls `send_stream` for it until a
