@@ -27,11 +27,11 @@ const App = struct {
 const Lines = struct {
     pub const State = struct { kept: [kept_len]u8 = undefined, len: usize = 0 };
 
-    pub fn head(app: *App, _: *State, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {
+    pub fn on_request(app: *App, _: *State, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {
         app.heads += 1;
     }
 
-    pub fn body(app: *App, state: *State, reader: *std.Io.Reader, _: *ResponseWriter) !void {
+    pub fn on_body(app: *App, state: *State, reader: *std.Io.Reader, _: *ResponseWriter) !void {
         app.bodies += 1;
         if (app.fail_body) return error.TestRefused;
         // Bounded: each pass takes one line of the bytes that arrived.
@@ -48,7 +48,7 @@ const Lines = struct {
         }
     }
 
-    pub fn finished(app: *App, state: *State, result: event.Result) void {
+    pub fn on_finished(app: *App, state: *State, result: event.Result) void {
         _ = state;
         app.finished += 1;
         app.result = result;
@@ -57,9 +57,9 @@ const Lines = struct {
 
 /// Answers with the whole body after its last byte.
 const Whole = struct {
-    pub fn head(_: *App, _: *void, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *void, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {}
 
-    pub fn body(app: *App, _: *void, reader: *std.Io.Reader, response: *ResponseWriter) !void {
+    pub fn on_body(app: *App, _: *void, reader: *std.Io.Reader, response: *ResponseWriter) !void {
         app.bodies += 1;
         try response.body().writeAll(reader.buffered());
         try response.end();
@@ -72,12 +72,21 @@ const Counter = struct {
     pub const State = struct { next: u8 = 0 };
     const digits = "0123456789abcdefghij";
 
-    pub fn head(_: *App, _: *State, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *State, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {}
 
-    pub fn writable(_: *App, state: *State, response: *ResponseWriter) !void {
+    pub fn on_writable(_: *App, state: *State, response: *ResponseWriter) !void {
         if (state.next == digits.len) return response.end();
         try response.write_kept(digits[state.next..][0..1]);
         state.next += 1;
+    }
+};
+
+/// Requires the query pair `id`, and counts its calls of `on_body`.
+const Needs = struct {
+    pub fn on_request(_: *App, _: *void, _: *const event.Request, _: void, _: struct { id: []const u8 }, _: *ResponseWriter) !void {}
+
+    pub fn on_body(app: *App, _: *void, _: *std.Io.Reader, _: *ResponseWriter) !void {
+        app.bodies += 1;
     }
 };
 
@@ -91,6 +100,7 @@ const routes = router(App, .{
         .{ .post, "/lines", Lines },
         .{ .post, "/whole", Whole, .{ .whole_body = true } },
         .{ .get, "/count", Counter },
+        .{ .post, "/needs", Needs },
     },
 });
 
@@ -196,4 +206,11 @@ test "decision 127: writable writes a response over many events, and ends it its
     try testing.expectEqualStrings(Counter.digits, fixture.recorder.body_bytes());
     try testing.expect(fixture.recorder.ended);
     try testing.expectEqual(0, fixture.recorder.cancelled);
+}
+
+test "RFC 9110 §15.5.1: a struct route whose query lacks a required pair gets 400, and no on_body" {
+    var fixture: Fixture = .{};
+    fixture.head("POST", "/needs", true);
+    try testing.expectEqual(400, fixture.recorder.heads[0].status);
+    try testing.expectEqual(0, fixture.app.bodies);
 }

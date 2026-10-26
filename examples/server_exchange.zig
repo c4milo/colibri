@@ -128,6 +128,7 @@ var app: App align(@alignOf(App)) = .{};
 /// table with a conflict, does not compile.
 const routes = server.router(App, .{
     .error_handler = on_error,
+    .middleware = .{Brand},
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
@@ -348,12 +349,22 @@ fn greet_named(
 /// Sends the POST's content back. With `.whole_body`, the router calls `body` once, after the
 /// last byte, with a reader over the whole content in the request's entry.
 const Echo = struct {
-    pub fn head(_: *App, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
 
-    pub fn body(_: *App, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *App, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
         try response.header("content-type", content_type);
         try response.body().writeAll(content.buffered());
         try response.end();
+    }
+};
+
+/// A middleware of the route table, which the router calls before each route: it adds a `server`
+/// header to each response a route writes. A middleware that answers the request itself, such as
+/// with a 401, returns `.answered`, and the router calls no route.
+const Brand = struct {
+    pub fn on_request(_: *App, _: *const server.Request, response: *server.ResponseWriter) !server.middleware.Next {
+        try response.header("server", "colibri");
+        return .next;
     }
 };
 

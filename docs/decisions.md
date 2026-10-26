@@ -5017,13 +5017,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `server.router(Context, table)` builds a router type at compile time. `Router.Of` sizes
           its pool of request entries, which the program places. `router.handle(context,
           endpoint, event)` takes the events of a request and calls the route's functions.
-        - A route holds a function, which answers at the head, or a struct with `head` and any
-          of `body`, `writable` and `finished`, and a `State`. Both forms stay.
+        - A route holds a function, which answers at the head, or a struct with `on_request` and
+          any of `on_body`, `on_writable` and `on_finished`, and a `State`. Both forms stay. The
+          owner named the four on 2026-10-25, in place of `head`, `body`, `writable` and
+          `finished`.
         - The function runs at the head. The body comes in later calls, through a
           `std.Io.Reader`, and bytes the function leaves unread wait for the next call. A route
           may ask for one call with the whole body.
         - The response goes through `server.ResponseWriter`: a status, headers, and a body that
-          is a `std.Io.Writer` over the entry's memory. A struct with `writable` writes a large
+          is a `std.Io.Writer` over the entry's memory. A struct with `on_writable` writes a large
           response over many calls. Beat: answering at the head with no body, and large bodies
           left for later.
         - A request that finds no free entry gets 503.

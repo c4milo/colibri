@@ -10960,12 +10960,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     5. `*server.ResponseWriter`.
 
     It returns `!void`, and its error goes to `error_handler`.
-  - **The struct form.** A struct with `head`, which takes a `*State` after `*Context` and else
-    the parameters of the function form, and any of `body`, `writable` and `finished`, with a
-    `State` that each request's entry holds. `body` reads the request body through a
-    `*std.Io.Reader`, and bytes it leaves unread wait for the next call. A read past the bytes
-    that arrived fails with `error.ReadFailed` while more is to come, and a `body` that returns it
-    waits. With `.whole_body`, `head` runs at the head, and `body` runs once, after the last byte,
+  - **The struct form.** A struct with `on_request`, which takes a `*State` after `*Context` and
+    else the parameters of the function form, and any of `on_body`, `on_writable` and
+    `on_finished`, with a `State` that each pool entry holds. The owner named the four on
+    2026-10-25 for the moment each runs, as zap names `on_request`, in place of `head`, `body`,
+    `writable` and `finished`, which a reader took for the HEAD method or the endpoint's events.
+    `on_body` reads the request body through a `*std.Io.Reader`, and bytes it leaves unread wait
+    for the next call. A read past the bytes that arrived fails with `error.ReadFailed` while more
+    is to come, and an `on_body` that returns it waits. With `.whole_body`, `on_request` runs at
+    the head, and `on_body` runs once, after the last byte,
     with every byte in the entry's `body_bytes`. The owner ruled this on 2026-10-25, since the
     head's slices are gone by the last byte, and a copy of every header would cost each entry a
     whole header section.
@@ -10990,9 +10993,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Errors.** The table must name `error_handler`, which the router calls with the context, the
     request, the error and the response writer. Before the head goes out it chooses the status.
     After the head, the router ends or cancels the response itself.
-  - **Middleware.** A struct with any of `head`, `wrap_body` and `wrap_response`. `head` returns
-    `server.middleware.Next`: `.next` or `.answered`. The chain runs the table's middleware first,
-    then the route's, in table order. `server.middleware.decode_request` and
+  - **Middleware.** A struct with any of `on_request`, `on_finished`, `wrap_body` and
+    `wrap_response`. `on_request` takes the context, the request and the response's writer, and
+    returns `server.middleware.Next`: `.next` or `.answered`. The chain runs the route table's
+    middleware first, then the route entry's, in table order, one after the other: no middleware
+    calls the next. An error of `on_request` goes to `error_handler`. `on_finished` takes the
+    context, the request's id and its `server.Result`, and runs in the reverse order when the
+    request ends, for each middleware whose turn came, as code after `next()` runs in Express or
+    Go (the owner's ruling of 2026-10-25). A route table holds its middleware in
+    its `middleware` field, and a route entry in its options, as `.{ .middleware = .{Guard} }`. `server.middleware.decode_request` and
     `server.middleware.encode_response` are colibri's two, and `Response.codable` and the encoder
     pools leave `server.Config` (decision 101 as amended).
   - **Sub-steps.**
@@ -11005,7 +11014,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       body.
     - 25.4: the refusals at compile time of a route's function, its struct, and its path and query
       structs, each naming its route.
-    - 25.5: middleware, `decode_request` and `encode_response`, and the removal of `codable`.
+    - 25.5: middleware with `on_request` and `on_finished`, the route table's and the route
+      entry's, and `server.middleware` with `Next`. The struct form's four functions take their
+      `on_` names. The refusals of a route table as a whole gain names, as a route entry's have.
+    - 25.6: `wrap_body` and `wrap_response`, `decode_request` and `encode_response`, and the removal
+      of `codable` and the encoder pools from `server.Config`. It waits for the `std.Io` adapters of
+      stdx's decoders and encoders, which decision 127 places in stdx:
+      https://github.com/c4milo/stdx/issues/21. The owner ruled on 2026-10-25 that
+      `encode_response` is one middleware, configured with the codings it may use in order of
+      preference, such as `.codings = &.{ .br, .gzip }`: it reads Accept-Encoding and picks the
+      first coding the client accepts. The same day, the owner added the brotli and zstd encoders'
+      adapters to stdx#21, once stdx builds those encoders
+      (https://github.com/c4milo/stdx/issues/8, https://github.com/c4milo/stdx/issues/7).
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

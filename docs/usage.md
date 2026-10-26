@@ -506,8 +506,8 @@ Three more things a server sets:
 
 ### Router
 
-A program declares its routes in a table at compile time, and the router calls the function of each
-request's route ([decisions 122 and 127](decisions.md)). `server.router` builds the table from the
+A program declares its routes in a route table at compile time, and the router calls the function of each
+request's route ([decisions 122 and 127](decisions.md)). `server.router` builds the route table from the
 program's context type and a struct of two fields: `error_handler` and `routes`. Each route holds
 a method, a pattern and a function, and options may follow. `Of` gives the type of the pool the
 program places:
@@ -515,6 +515,7 @@ program places:
 ```zig
 const routes = server.router(App, .{
     .error_handler = on_error,
+    .middleware = .{Brand},
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
@@ -558,19 +559,20 @@ query that lacks a `[]const u8` field with no default gets 400, and a query with
 `http.constants.query_parameters_max` gets 414, with no call. A function runs at the request's
 head and reads no body. The router ends a response the function leaves open.
 
-A route can be a struct instead, with `head` and any of `body`, `writable` and `finished`, and a
-`State` that the request's entry holds. `head` takes a `*State` after the context, and else the
-parameters of a function. `body` reads the request body through a `std.Io.Reader`. A read past the
-bytes that arrived fails with `error.ReadFailed` while more of the body is to come, and a `body`
-that returns that error waits for them: the bytes it left unread come first in its next call. At
-the body's last byte a read fails with `error.EndOfStream`. With `.whole_body`, the router calls
-`body` once, after the last byte, with every byte in the entry's `body_bytes`:
+A route can be a struct instead, with `on_request` and any of `on_body`, `on_writable` and
+`on_finished`, and a `State` that the request's pool entry holds. `on_request` takes a `*State`
+after the context, and else the parameters of a function. `on_body` reads the request body through
+a `std.Io.Reader`. A read past the bytes that arrived fails with `error.ReadFailed` while more of
+the request body is to come, and an `on_body` that returns that error waits for them: the bytes it
+left unread come first in its next call. At the request body's last byte a read fails with
+`error.EndOfStream`. With `.whole_body`, the router calls `on_body` once, after the last byte, with
+every byte in the pool entry's `body_bytes`:
 
 ```zig
 const Echo = struct {
-    pub fn head(_: *App, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+    pub fn on_request(_: *App, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
 
-    pub fn body(_: *App, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+    pub fn on_body(_: *App, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
         try response.header("content-type", content_type);
         try response.body().writeAll(content.buffered());
         try response.end();
@@ -578,12 +580,13 @@ const Echo = struct {
 };
 ```
 
-A body larger than `body_bytes` gets 413. The router ends the response once `body` ran with the
-last byte, unless the route has `writable`. `writable` writes a response over many calls: the
-router calls it while the response is open and the endpoint took all it was given, and the route
-ends the response itself. `finished` runs at the request's `finished`, with its result.
+A request body larger than `body_bytes` gets 413. The router ends the response once `on_body` ran
+with the last byte, unless the route has `on_writable`. `on_writable` writes a response over many
+calls: the router calls it while the response is open and the endpoint took all it was given, and
+the route ends the response itself. `on_finished` runs at the request's `finished` event, with its
+result.
 
-The table must name `error_handler`, which chooses the status after a route's function returns an
+The route table must name `error_handler`, which chooses the status after a route's function returns an
 error ([decision 127](decisions.md) ruling 4). After the head went out, the router cancels the
 request instead, since its body may be cut short:
 
@@ -595,18 +598,18 @@ fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.Re
 
 The router answers a request with no call of a function in four cases: 404 when no route names
 the path, 405 with an Allow field when no route of the path names the method, 501 when no route
-of the table names the method, and 503 when the pool has no free entry. A program that dispatches
+of the route table names the method, and 503 when the pool has no free entry. A program that dispatches
 a request itself calls `match`, with the request's method and path. Its `found` gives the route's
 `Route` tag, named by its method and its pattern, such as `.@"GET /greetings/:name"`.
 
 `match` follows these rules:
 
-- **The method comes first.** When no route of the table names the method, the result is
+- **The method comes first.** When no route of the route table names the method, the result is
   `not_implemented`, on any path, and the router answers 501 (RFC 9110 §9.1, §15.6.2). Then
   `match` reads the path. The query does not change the result.
 - **A literal, then a parameter, then the wildcard.** At each segment, `match` tries the literal
   that equals the segment, then the parameter, then the wildcard. When a deeper segment fails, it
-  backs up one level and tries the next kind. So the order of the table does not change the
+  backs up one level and tries the next kind. So the order of the route table does not change the
   result: with `/users/me` beside `/users/:id`, the path `/users/me` matches `/users/me` first.
 - **A parameter matches one segment.** The wildcard matches one segment or more, and
   `get("*")` gives the rest of the path, without its first "/". So `/files/*` does not match
@@ -620,8 +623,8 @@ a request itself calls `match`, with the request's method and path. Its `found` 
   and the Allow value lists HEAD after GET. The endpoint writes no content in a response to HEAD,
   in h11, h2 and h3 (RFC 9110 §9.3.2). So a program writes one answer for GET and HEAD. It reads
   `request.method` when it must know which one it got.
-- **`OPTIONS *` gets one of two results.** A table with no OPTIONS route gives
-  `not_implemented`. A table with an OPTIONS route gives `not_found`, because "*" is not a path.
+- **`OPTIONS *` gets one of two results.** A route table with no OPTIONS route gives
+  `not_implemented`. A route table with an OPTIONS route gives `not_found`, because "*" is not a path.
   A program that answers `OPTIONS *` reads the request before it passes it to `handle`.
 - **Each segment is percent-decoded** (RFC 3986 §2.1, decision 127). `match` splits the path on
   "/" first, then decodes each segment it reads. A literal compares with the decoded segment:
@@ -637,6 +640,33 @@ a request itself calls `match`, with the request's method and path. Its `found` 
   segment, such as `/a//b` or `/a/`, a path with a "." or ".." segment, encoded or not, such as
   `/a/%2E%2E`, and a path longer than `server.constants.path_len_max` bytes, its query included.
 
+### Middleware
+
+A middleware is a struct that the router calls before a route
+([decision 127](decisions.md) ruling 5). The router calls the route table's `middleware` first,
+then the route entry's, as `.{ .get, "/admin", admin, .{ .middleware = .{Auth} } }`, in table order.
+They run one after the other: no middleware calls the next. A chain is a tuple, so a program names
+one, such as `const api = .{ Auth, RateLimit };`, and joins it to another with `++`.
+
+`on_request` runs at the request's head. It returns `.next`, and the router calls the next
+middleware, then the route. Or it writes the response and returns `.answered`, and the router calls
+nothing more for the request. An error goes to `error_handler`. The server example's middleware
+adds a header to each response:
+
+```zig
+const Brand = struct {
+    pub fn on_request(_: *App, _: *const server.Request, response: *server.ResponseWriter) !server.middleware.Next {
+        try response.header("server", "colibri");
+        return .next;
+    }
+};
+```
+
+`on_finished` runs when the request ends, with its id and its result, in the reverse order, for
+each middleware the chain reached. It holds what a framework whose middleware wraps the next one
+runs after `next()` returns, such as an access log. A middleware declares `on_request`,
+`on_finished` or both.
+
 ### Query
 
 `request.path` holds the path alone, and `request.query` holds the bytes after the first "?", or
@@ -648,7 +678,7 @@ values into a buffer the program gives, and refuses a query of more than
 returns the first value of a name. The router reads a route's query this way before it fills the
 route's struct, and a route that names `http.QueryParameters` gets the pairs to read by name.
 
-A malformed table, or a table with a conflict, does not compile, and the compile error names the
+A malformed route table, or a route table with a conflict, does not compile, and the compile error names the
 entry and the rule. A route that other routes hide is a conflict, in two cases:
 
 - **`route_hidden`:** a request that the route matches gets 405 from another pattern. With
@@ -658,10 +688,10 @@ entry and the rule. A route that other routes hide is a conflict, in two cases:
   `GET /a/:x/*`, each path of two segments matches `/a/:x` first, and each longer path matches
   `/a/:x/*` first.
 
-The cost of this rule: a literal names each method that the parameter beside it names. A table
+The cost of this rule: a literal names each method that the parameter beside it names. A route table
 with `GET /users/me`, `GET /users/:id` and `PUT /users/:id` does not compile, because a PUT of
 `/users/me` gets 405. Add `PUT /users/me` to make it compile. The check runs at compile time and
-adds no cost to `match`. The largest table that the tests build holds 256 routes, each a pattern
+adds no cost to `match`. The largest route table that the tests build holds 256 routes, each a pattern
 of four segments and 64 octets.
 
 ### Over QUIC

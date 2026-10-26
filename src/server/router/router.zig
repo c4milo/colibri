@@ -30,9 +30,13 @@ const router_handler = @import("router_handler.zig");
 /// for its wildcard. The query is `void`, `http.QueryParameters`, or a struct of fields that name
 /// query pairs.
 ///
-/// A route can be a struct instead, with `head`, which takes a `*State` after the context and else
-/// the parameters of a function, and any of `body`, `writable` and `finished`. `body` reads the
-/// request body through a `*std.Io.Reader`. With `.whole_body`, it runs once, after the last byte.
+/// A route can be a struct instead, with `on_request`, which takes a `*State` after the context and
+/// else the parameters of a function, and any of `on_body`, `on_writable` and `on_finished`.
+/// `on_body` reads the request body through a `*std.Io.Reader`. With `.whole_body`, it runs once,
+/// after the last byte.
+///
+/// Middleware run before a route: the route table's `middleware`, then the route entry's, each a
+/// struct with `on_request`, `on_finished` or both (`server.middleware`).
 ///
 /// A program places one `Of(options)` and passes each event of its endpoint to its `handle`.
 /// `match` stays for a program that dispatches a request itself: its `found` gives the route's
@@ -45,7 +49,7 @@ fn Router(comptime Context: type, comptime table: anytype) type {
     router_call.check_table(Context, table);
     const RouteTag = route_enum(table.routes);
     const Table = @TypeOf(router_table.table_of(RouteTag, values_of(RouteTag, table.routes)));
-    router_handler.check(Context, table.routes);
+    router_handler.check(Context, table);
     return struct {
         /// One tag for each route, in the table's order, named by its method and its pattern.
         pub const Route = RouteTag;
@@ -135,4 +139,5 @@ test "decision 127: a router's type exports Route, Match, Options, match and Of"
 test {
     _ = @import("router_handle_test.zig");
     _ = @import("router_struct_test.zig");
+    _ = @import("router_middleware_test.zig");
 }

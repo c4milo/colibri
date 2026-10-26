@@ -7,8 +7,8 @@
 //! for the request is the entry's index plus one, so 0 names no entry.
 //!
 //! The router ends a response the program left open: a function's at its return, and a struct
-//! route's once the request body ended and `body` ran with its last byte, unless the route has
-//! `writable`. A route with `writable` ends its response itself.
+//! route's once the request body ended and `on_body` ran with its last byte, unless the route has
+//! `on_writable`. A route with `on_writable` ends its response itself.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -27,7 +27,7 @@ pub const Options = struct {
     /// Octets of each entry's response memory: the copies of its headers and trailers, and the
     /// bytes its body's writer writes.
     response_bytes: usize,
-    /// Octets of each entry's request body memory: the bytes a `body` left unread, and every byte
+    /// Octets of each entry's request body memory: the bytes an `on_body` left unread, and every byte
     /// of a `.whole_body` route.
     body_bytes: usize = 0,
 };
@@ -46,7 +46,7 @@ const content_too_large: u16 = @intFromEnum(http.status.Code.content_too_large);
 const not_implemented: u16 = @intFromEnum(http.status.Code.not_implemented);
 const service_unavailable: u16 = @intFromEnum(http.status.Code.service_unavailable);
 
-/// The calls of `writable` one event makes while the endpoint takes all it is given, so a route
+/// The calls of `on_writable` one event makes while the endpoint takes all it is given, so a route
 /// that writes little at a time cannot hold the program's call.
 const writable_calls_max = constants.response_pieces_max;
 
@@ -60,6 +60,8 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         memory: [options_of.response_bytes]u8 = undefined,
         state: [state_layout.size]u8 align(state_layout.alignment) = undefined,
         body: router_body.Body(options_of.body_bytes) = .{},
+        /// The middleware of the request's chain that ran, whose `on_finished` runs at its end.
+        chain_ran: u16 = 0,
     };
     return struct {
         entries: [options_of.requests]EntryOf = @splat(.{}),
@@ -81,7 +83,7 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
                 // A trailer section ends the body (RFC 9110 §6.5).
                 .trailers => |trailers| if (entry_of(Self, pool, trailers.user_data)) |entry| on_body(Self, entry, context, endpoint, "", true),
                 .writable => |writable| if (entry_of(Self, pool, writable.user_data)) |entry| on_writable(Self, entry, context, endpoint),
-                .finished => |finished| if (entry_of(Self, pool, finished.user_data)) |entry| on_finished(Self, entry, context, finished.result),
+                .finished => |finished| if (entry_of(Self, pool, finished.user_data)) |entry| on_finished(Self, entry, context, finished),
                 .send, .close, .ended, .closed => return .{ .event = received },
             }
             return .taken;
@@ -125,7 +127,8 @@ fn start(comptime P: type, pool: *P, context: *P.Context, endpoint: anytype, req
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
             const state = state_of(P, handler, entry);
             if (comptime router_call.StateOf(handler) != void) state.* = .{};
-            const outcome = router_call.call_head(handler, context, state, request, &pool.parameters, &pool.query, &entry.response);
+            if (!run_chain(P, @intFromEnum(tag), entry, context, endpoint, request)) return;
+            const outcome = router_call.call_on_request(handler, context, state, request, &pool.parameters, &pool.query, &entry.response);
             if (!after(P, entry, context, endpoint, request, outcome)) return;
             if (comptime !router_call.is_struct(handler)) return finish(endpoint, &entry.response);
             if (request.end) on_body(P, entry, context, endpoint, "", true);
@@ -148,7 +151,7 @@ fn entry_of(comptime P: type, pool: *P, user_data: usize) ?*P.Entry {
     return entry;
 }
 
-/// Passes body bytes to a struct route's `body`. A function, or a struct without `body`,
+/// Passes body bytes to a struct route's `on_body`. A function, or a struct without `on_body`,
 /// reads none.
 fn on_body(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anytype, bytes: []const u8, end: bool) void {
     if (entry.body.delivered) return;
@@ -156,7 +159,7 @@ fn on_body(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: any
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
-            if (comptime !router_call.has(handler, "body")) return body_ended(P, entry, context, endpoint, handler, end);
+            if (comptime !router_call.has(handler, "on_body")) return body_ended(P, entry, context, endpoint, handler, end);
             const outcome = read_body(P, @intFromEnum(tag), entry, context, bytes, end) catch return refuse_body(P, entry, endpoint);
             if (!after(P, entry, context, endpoint, null, outcome)) return;
             body_ended(P, entry, context, endpoint, handler, end);
@@ -184,7 +187,7 @@ fn read_body(comptime P: type, comptime index: usize, entry: *P.Entry, context: 
 fn body_ended(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anytype, comptime handler: anytype, end: bool) void {
     if (!end) return;
     entry.body.delivered = true;
-    if (comptime router_call.has(handler, "writable")) return run_writable(P, entry, context, endpoint, handler);
+    if (comptime router_call.has(handler, "on_writable")) return run_writable(P, entry, context, endpoint, handler);
     finish(endpoint, &entry.response);
 }
 
@@ -194,12 +197,12 @@ fn on_writable(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint:
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
-            if (comptime router_call.has(handler, "writable")) run_writable(P, entry, context, endpoint, handler);
+            if (comptime router_call.has(handler, "on_writable")) run_writable(P, entry, context, endpoint, handler);
         },
     }
 }
 
-/// Calls `writable` while the response is open and the endpoint took all it was given.
+/// Calls `on_writable` while the response is open and the endpoint took all it was given.
 fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anytype, comptime handler: anytype) void {
     for (0..writable_calls_max) |_| {
         if (entry.response.ended or writer_internal.waiting(&entry.response)) return;
@@ -211,11 +214,13 @@ fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint
     if (!entry.response.ended and !writer_internal.waiting(&entry.response)) endpoint.cancel(entry.response.id);
 }
 
-fn on_finished(comptime P: type, entry: *P.Entry, context: *P.Context, result: event.Result) void {
+fn on_finished(comptime P: type, entry: *P.Entry, context: *P.Context, finished: event.Finished) void {
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
-            if (comptime router_call.has(handler, "finished")) handler.finished(context, state_of(P, handler, entry), result);
+            if (comptime router_call.has(handler, "on_finished")) handler.on_finished(context, state_of(P, handler, entry), finished.result);
+            const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[@intFromEnum(tag)]);
+            router_call.finish_chain(chain, entry.chain_ran, context, finished.id, finished.result);
         },
     }
     entry.used = false;
@@ -276,8 +281,26 @@ fn route_options(comptime entry: anytype) router_call.RouteOptions {
     if (entry.len <= router_call.options_part) return .{};
     const given = entry[router_call.options_part];
     var held: router_call.RouteOptions = .{};
-    inline for (@typeInfo(@TypeOf(given)).@"struct".fields) |field| @field(held, field.name) = @field(given, field.name);
+    inline for (@typeInfo(@TypeOf(given)).@"struct".fields) |field| {
+        if (comptime !std.mem.eql(u8, field.name, router_call.middleware_field)) @field(held, field.name) = @field(given, field.name);
+    }
     return held;
+}
+
+/// Runs the middleware of the route table and of the route entry at `index`, and returns whether
+/// the router goes on to the route (decision 127 ruling 5).
+fn run_chain(comptime P: type, comptime index: usize, entry: *P.Entry, context: *P.Context, endpoint: anytype, request: *const event.Request) bool {
+    const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[index]);
+    if (chain.len == 0) return true;
+    switch (router_call.run_chain(chain, context, request, &entry.response, &entry.chain_ran)) {
+        .next => return true,
+        .answered => {
+            entry.body.delivered = true;
+            finish(endpoint, &entry.response);
+            return false;
+        },
+        .failed => |failure| return after(P, entry, context, endpoint, request, .{ .failed = failure }),
+    }
 }
 
 /// The size and the alignment of the largest state of the table's struct routes.

@@ -1,11 +1,11 @@
 //! The request body a route reads through a `std.Io.Reader` (decision 127 ruling 2, design §8 step
 //! 25.3). The root exports none of it.
 //!
-//! A route's `body` gets a reader over the bytes that arrived. When it has read them all and the
-//! body has not ended, a read fails with `error.ReadFailed`, and a `body` that returns it waits for
+//! A route's `on_body` gets a reader over the bytes that arrived. When it has read them all and the
+//! body has not ended, a read fails with `error.ReadFailed`, and an `on_body` that returns it waits for
 //! the next bytes. At the request's last byte a read fails with `error.EndOfStream`. The bytes a
 //! call leaves unread are copied into the entry's `body_bytes`, and the next call reads them first.
-//! With `.whole_body`, every byte is copied there, and `body` runs once, after the last.
+//! With `.whole_body`, every byte is copied there, and `on_body` runs once, after the last.
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -17,7 +17,7 @@ pub fn Body(comptime body_bytes: usize) type {
         /// The bytes a call left unread, then the bytes that arrived after them.
         held: [body_bytes]u8 = undefined,
         held_len: usize = 0,
-        /// Whether `body` ran with the last byte, so it runs no more.
+        /// Whether `on_body` ran with the last byte, so it runs no more.
         delivered: bool = false,
         cursor: Cursor = .{},
 

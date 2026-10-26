@@ -54,7 +54,7 @@ const tables = struct {
     // The refusals of a route's handler (decision 127 ruling 3, design §8 step 25.4).
     pub const handler_type = .{ valid, .{ .get, "/a", 42 } };
     pub const handler_type_not_struct = .{ valid, .{ .get, "/a", u8 } };
-    pub const head_missing = .{ valid, .{ .get, "/a", struct {} } };
+    pub const on_request_missing = .{ valid, .{ .get, "/a", struct {} } };
     pub const parameters_count = .{ valid, .{ .get, "/a", handlers.four } };
     pub const context_parameter = .{ valid, .{ .get, "/a", handlers.context } };
     pub const state_parameter = .{ valid, .{ .get, "/a", handlers.Stated } };
@@ -66,14 +66,26 @@ const tables = struct {
     pub const query_parameter = .{ valid, .{ .get, "/a", handlers.query } };
     pub const response_parameter = .{ valid, .{ .get, "/a", handlers.response } };
     pub const return_type = .{ valid, .{ .get, "/a", handlers.returns } };
-    pub const body_parameters = .{ valid, .{ .post, "/a", handlers.Body } };
-    pub const writable_parameters = .{ valid, .{ .get, "/a", handlers.Writable } };
-    pub const finished_parameters = .{ valid, .{ .get, "/a", handlers.Finished } };
+    pub const on_body_parameters = .{ valid, .{ .post, "/a", handlers.Body } };
+    pub const on_writable_parameters = .{ valid, .{ .get, "/a", handlers.Writable } };
+    pub const on_finished_parameters = .{ valid, .{ .get, "/a", handlers.Finished } };
     pub const finished_returns = .{ valid, .{ .get, "/a", handlers.FinishedReturns } };
     pub const state_defaults = .{ valid, .{ .get, "/a", handlers.Defaults } };
     pub const state_not_struct = .{ valid, .{ .get, "/a", handlers.NotStruct } };
     pub const option_unknown = .{ valid, .{ .get, "/a", route, .{ .streaming = true } } };
     pub const option_not_struct = .{ valid, .{ .get, "/a", route, 7 } };
+    pub const middleware_type = .{ valid, .{ .get, "/a", route, .{ .middleware = .{42} } } };
+    pub const middleware_on_request = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.NoNext} } } };
+    // The refusals of a route table as a whole: each case holds a whole route table.
+    pub const table_middleware_hooks = .{ .whole_table = .{ .error_handler = on_error, .middleware = .{struct {}}, .routes = .{valid} } };
+    pub const middleware_on_finished = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.FinishedLate} } } };
+    pub const middleware_on_finished_parameters = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.FinishedParameters} } } };
+    pub const middleware_on_request_parameters = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.RequestParameters} } } };
+    pub const route_table_shape = .{ .whole_table = 42 };
+    pub const routes_missing = .{ .whole_table = .{ .error_handler = on_error } };
+    pub const table_field_unknown = .{ .whole_table = .{ .error_handler = on_error, .routes = .{valid}, .extra = 1 } };
+    pub const error_handler_missing = .{ .whole_table = .{ .routes = .{valid} } };
+    pub const error_handler_type = .{ .whole_table = .{ .error_handler = route, .routes = .{valid} } };
     pub const whole_body_unread = .{ valid, .{ .post, "/a", route, .{ .whole_body = true } } };
 };
 
@@ -84,7 +96,7 @@ const handlers = struct {
     fn four(_: *void, _: *const Request, _: void, _: void) !void {}
     fn context(_: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
     const Stated = struct {
-        pub fn head(_: *void, _: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
     };
     fn request(_: *void, _: Request, _: void, _: void, _: *Writer) !void {}
     fn path(_: *void, _: *const Request, _: u8, _: void, _: *Writer) !void {}
@@ -96,35 +108,65 @@ const handlers = struct {
     fn returns(_: *void, _: *const Request, _: void, _: void, _: *Writer) u8 {
         return 0;
     }
-    fn plain_head(_: *void, _: *void, _: *const Request, _: void, _: void, _: *Writer) !void {}
+    fn plain_on_request(_: *void, _: *void, _: *const Request, _: void, _: void, _: *Writer) !void {}
     const Body = struct {
-        pub const head = handlers.plain_head;
-        pub fn body(_: *void, _: *void, _: []const u8, _: *Writer) !void {}
+        pub const on_request = handlers.plain_on_request;
+        pub fn on_body(_: *void, _: *void, _: []const u8, _: *Writer) !void {}
     };
     const Writable = struct {
-        pub const head = handlers.plain_head;
-        pub fn writable(_: *void, _: *void) !void {}
+        pub const on_request = handlers.plain_on_request;
+        pub fn on_writable(_: *void, _: *void) !void {}
     };
     const Finished = struct {
-        pub const head = handlers.plain_head;
-        pub fn finished(_: *void, _: *void, _: u8) void {}
+        pub const on_request = handlers.plain_on_request;
+        pub fn on_finished(_: *void, _: *void, _: u8) void {}
     };
     const FinishedReturns = struct {
-        pub const head = handlers.plain_head;
-        pub fn finished(_: *void, _: *void, _: server.Result) !void {}
+        pub const on_request = handlers.plain_on_request;
+        pub fn on_finished(_: *void, _: *void, _: server.Result) !void {}
     };
     const NotStruct = struct {
         pub const State = u8;
-        pub fn head(_: *void, _: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *u8, _: *const Request, _: void, _: void, _: *Writer) !void {}
+    };
+    const FinishedParameters = struct {
+        pub fn on_finished(_: *void, _: u8, _: server.Result) void {}
+    };
+    const RequestParameters = struct {
+        pub fn on_request(_: *void, _: *const Request) server.middleware.Next {
+            return .next;
+        }
+    };
+    const FinishedLate = struct {
+        pub fn on_finished(_: *void, _: server.RequestId, _: server.Result) !void {}
+    };
+    const NoNext = struct {
+        pub fn on_request(_: *void, _: *const Request, _: *Writer) !void {}
     };
     const Defaults = struct {
         pub const State = struct { count: u8 };
-        pub fn head(_: *void, _: *State, _: *const Request, _: void, _: void, _: *Writer) !void {}
+        pub fn on_request(_: *void, _: *State, _: *const Request, _: void, _: void, _: *Writer) !void {}
     };
 };
 
 comptime {
-    _ = server.router(void, .{ .error_handler = on_error, .routes = @field(tables, case) });
+    _ = server.router(void, table_of(@field(tables, case)));
+}
+
+/// The route table of a case: the whole route table a case holds in `whole_table`, and else a
+/// route table of the case's route entries.
+fn table_of(comptime held: anytype) TableOf(@TypeOf(held)) {
+    if (comptime is_whole(@TypeOf(held))) return held.whole_table;
+    return .{ .error_handler = on_error, .routes = held };
+}
+
+fn TableOf(comptime Held: type) type {
+    if (is_whole(Held)) return @FieldType(Held, "whole_table");
+    return struct { error_handler: @TypeOf(on_error), routes: Held };
+}
+
+fn is_whole(comptime Held: type) bool {
+    return @typeInfo(Held) == .@"struct" and @hasField(Held, "whole_table");
 }
 
 /// The function of every route of the fixture.

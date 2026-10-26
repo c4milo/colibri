@@ -141,17 +141,17 @@ const cases = [_]Case{
     .{
         .name = "handler_type",
         .message = "server.router: route 1, \"/a\": handler_type: " ++
-            "a route holds a function, or a struct with head (decision 127)",
+            "a route holds a function, or a struct with on_request (decision 127)",
     },
     .{
-        .name = "head_missing",
-        .message = "server.router: route 1, \"/a\": head_missing: " ++
-            "a struct route declares pub fn head (decision 127)",
+        .name = "on_request_missing",
+        .message = "server.router: route 1, \"/a\": on_request_missing: " ++
+            "a struct route declares pub fn on_request (decision 127)",
     },
     .{
         .name = "parameters_count",
         .message = "server.router: route 1, \"/a\": parameters_count: " ++
-            "a route's function takes five parameters, and head six (decision 127)",
+            "a route's function takes five parameters, and on_request six (decision 127)",
     },
     .{
         .name = "context_parameter",
@@ -161,7 +161,7 @@ const cases = [_]Case{
     .{
         .name = "state_parameter",
         .message = "server.router: route 1, \"/a\": state_parameter: " ++
-            "head, body, writable and finished take a *State after the context",
+            "on_request, on_body, on_writable and on_finished take a *State after the context",
     },
     .{
         .name = "request_parameter",
@@ -194,18 +194,18 @@ const cases = [_]Case{
             "a route's function returns void or an error union of void",
     },
     .{
-        .name = "body_parameters",
-        .message = "server.router: route 1, \"/a\": body_parameters: " ++
+        .name = "on_body_parameters",
+        .message = "server.router: route 1, \"/a\": on_body_parameters: " ++
             "body takes the context, *State, *std.Io.Reader and *server.ResponseWriter",
     },
     .{
-        .name = "writable_parameters",
-        .message = "server.router: route 1, \"/a\": writable_parameters: " ++
+        .name = "on_writable_parameters",
+        .message = "server.router: route 1, \"/a\": on_writable_parameters: " ++
             "writable takes the context, *State and *server.ResponseWriter",
     },
     .{
-        .name = "finished_parameters",
-        .message = "server.router: route 1, \"/a\": finished_parameters: " ++
+        .name = "on_finished_parameters",
+        .message = "server.router: route 1, \"/a\": on_finished_parameters: " ++
             "finished takes the context, *State and server.Result, and returns void",
     },
     .{
@@ -216,12 +216,12 @@ const cases = [_]Case{
     .{
         .name = "option_unknown",
         .message = "server.router: route 1, \"/a\": option_unknown: " ++
-            "a route's options are whole_body alone",
+            "a route's options are whole_body and middleware",
     },
     .{
         .name = "handler_type_not_struct",
         .message = "server.router: route 1, \"/a\": handler_type: " ++
-            "a route holds a function, or a struct with head (decision 127)",
+            "a route holds a function, or a struct with on_request (decision 127)",
     },
     .{
         .name = "path_field_type",
@@ -235,7 +235,7 @@ const cases = [_]Case{
     },
     .{
         .name = "finished_returns",
-        .message = "server.router: route 1, \"/a\": finished_parameters: " ++
+        .message = "server.router: route 1, \"/a\": on_finished_parameters: " ++
             "finished takes the context, *State and server.Result, and returns void",
     },
     .{
@@ -246,12 +246,67 @@ const cases = [_]Case{
     .{
         .name = "option_not_struct",
         .message = "server.router: route 1, \"/a\": option_unknown: " ++
-            "a route's options are whole_body alone",
+            "a route's options are whole_body and middleware",
     },
     .{
         .name = "whole_body_unread",
         .message = "server.router: route 1, \"/a\": whole_body_unread: " ++
-            "whole_body needs a struct route with body",
+            "whole_body needs a struct route with on_body",
+    },
+    .{
+        .name = "middleware_type",
+        .message = "server.router: route 1, \"/a\": middleware_type: " ++
+            "middleware is a tuple of structs (decision 127 ruling 5)",
+    },
+    .{
+        .name = "middleware_on_request",
+        .message = "server.router: route 1, \"/a\": middleware_on_request: " ++
+            "a middleware's on_request takes the context, *const server.Request and *server.ResponseWriter, and returns server.middleware.Next",
+    },
+    .{
+        .name = "table_middleware_hooks",
+        .message = "server.router: middleware: middleware_hooks: " ++
+            "a middleware declares on_request, on_finished or both (decision 127 ruling 5)",
+    },
+    .{
+        .name = "middleware_on_finished",
+        .message = "server.router: route 1, \"/a\": middleware_on_finished: " ++
+            "a middleware's on_finished takes the context, server.RequestId and server.Result, and returns void",
+    },
+    .{
+        .name = "middleware_on_finished_parameters",
+        .message = "server.router: route 1, \"/a\": middleware_on_finished: " ++
+            "a middleware's on_finished takes the context, server.RequestId and server.Result, and returns void",
+    },
+    .{
+        .name = "middleware_on_request_parameters",
+        .message = "server.router: route 1, \"/a\": middleware_on_request: " ++
+            "a middleware's on_request takes the context, *const server.Request and *server.ResponseWriter, and returns server.middleware.Next",
+    },
+    .{
+        .name = "route_table_shape",
+        .message = "server.router: route table: route_table_shape: " ++
+            "a route table is a struct with error_handler and routes (decision 127)",
+    },
+    .{
+        .name = "routes_missing",
+        .message = "server.router: route table: routes_missing: " ++
+            "a route table names routes, a tuple of route entries",
+    },
+    .{
+        .name = "table_field_unknown",
+        .message = "server.router: route table: table_field_unknown: " ++
+            "a route table holds error_handler, routes and middleware alone",
+    },
+    .{
+        .name = "error_handler_missing",
+        .message = "server.router: route table: error_handler_missing: " ++
+            "a route table names error_handler, which chooses the status after an error (decision 127 ruling 4)",
+    },
+    .{
+        .name = "error_handler_type",
+        .message = "server.router: route table: error_handler_type: " ++
+            "error_handler takes the context, *const server.Request, anyerror and *server.ResponseWriter, and returns void",
     },
 };
 

@@ -43,6 +43,7 @@ const files = struct {
     pub const path_parameters = @import("path_parameters.zig");
     pub const router = @import("router/router.zig");
     pub const router_pool = @import("router/router_pool.zig");
+    pub const middleware = @import("middleware.zig");
     pub const response_writer = @import("response_writer/response_writer.zig");
 };
 
@@ -120,6 +121,11 @@ pub const Handled = files.router_pool.Handled;
 /// after its file is exported under its own name.
 pub const router = files.router.router;
 
+/// What a router's middleware returns (decision 127 ruling 5).
+pub const middleware = struct {
+    pub const Next = files.middleware.Next;
+};
+
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21a adds `Protocols` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
     // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram`. 21b.7 gives the name
@@ -131,7 +137,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
     // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
-    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, and 25.3 `Handled`.
+    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, 25.3 `Handled`, and 25.5 `middleware`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",    "Config",             "Protocols",        "Limits",      "Timeout",
@@ -144,6 +150,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "ResponseBody", "ResponseWriter",     "ReceiveResult",    "Alternative", "Coding",
         "EncoderPool",  "DefaultEncoderPool", "Encoders",         "DecoderPool", "DefaultDecoderPool",
         "Decoders",     "Features",           "PathParameters",   "Handled",     "router",
+        "middleware",
     });
 }
 
