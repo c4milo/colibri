@@ -87,6 +87,19 @@ Three runs show the case:
 to 957 user instructions a connection on h11-one, with spreads of 0.31% or less. The totals'
 spreads on that input were 1.75% to 9.04%, so each total stayed within the noise.
 
+The owner admitted one change that loses by the rule, on 2026-10-26: `TCP_NODELAY` on each socket
+the test-only server accepts. The rule counts instructions, and this change trades instructions
+for latency, which `bench/run.sh --latency` measures (design §8 step 13f).
+
+- **The cost.** One `setsockopt` for each connection: h2-one lost 1.38% and 1.49% of its
+  instructions per connection, past the noise, in the two jobs of
+  [40374474584](https://github.com/c4milo/colibri/actions/runs/40374474584). Every other input
+  stayed within the noise, and the system calls per connection rose by one.
+- **The gain.** Over h2 at 2,000 req/s, colibri's p50 went from 3.40 ms to 0.06 ms and its p99 from
+  11.1 ms to 0.10 ms, in [40370739729](https://github.com/c4milo/colibri/actions/runs/40370739729)
+  without it and [40374461009](https://github.com/c4milo/colibri/actions/runs/40374461009) with
+  it. A small write had waited for the peer to acknowledge the one before it (Nagle's algorithm).
+
 ## The baselines
 
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a

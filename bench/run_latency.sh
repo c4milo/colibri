@@ -43,8 +43,9 @@ readonly h11_connections=32
 readonly h2_connections=8
 readonly h2_streams=4
 # The rates oha sends at, in requests per second, the seconds of each measurement, and the p99 in
-# milliseconds that a server holds at the rates the report counts as sustained.
-readonly rates=(2000 5000 10000 20000 40000 80000)
+# milliseconds that a server holds at the rates the report counts as sustained. The first judge
+# run found colibri and axum sustained at 80,000, so the rates go past it.
+readonly rates=(2000 5000 10000 20000 40000 80000 160000 320000)
 readonly seconds=5
 readonly p99_bound_ms=10
 # The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
