@@ -181,6 +181,7 @@ if command -v python3 >/dev/null 2>&1; then
   qif_lines="$(grep -E "^qif_interop: ok" "${scratch}/last.log")"
   # Design §8 step 13a: the verdicts of the judge's report on runs with a known cost.
   section "The judge's report, on synthetic runs" python3 bench/report.py --test
+  section "The latency report, on synthetic runs" python3 bench/report_latency.py --test
 else
   qif_lines="No python3 on PATH, so this run made no QIF interop."
 fi

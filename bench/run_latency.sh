@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+#
+# The latency inputs of design §8 step 13f, which `bench/run.sh --latency` runs: the throughput
+# and the latency of servers that route, at fixed request rates. colibri's test-only server routes
+# the GitHub API's 203 routes of bench/router/competitors/github_routes.txt with `--routes github`,
+# and Go's chi, axum, http.zig and Fastify route the same routes, from bench/competitors/. Every
+# route answers 200 and "ok\n". oha, pinned by release and SHA-256, sends GET requests over the 131
+# GET routes at each rate of `rates`, with its latency correction, so the latency holds the queue
+# time that coordinated omission hides. It sends h11, and h2 in cleartext with prior knowledge to
+# every server but http.zig, which has no h2.
+#
+#   bench/run_latency.sh [--rounds <n>] [report.md]
+#
+# It runs on Linux, with the server and oha pinned to cores of their own by taskset, as the judge
+# runs bench/run.sh (decision 33 as amended). Round 0 is a warm-up that the report discards. A time
+# is compared only inside one job (design §11.4). It needs Zig, Go, cargo, Node and npm, curl and
+# python3, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. BENCH_OHA names an oha
+# binary built or fetched already.
+set -euo pipefail
+
+readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+rounds=5
+report="${repository_root}/bench-report.md"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rounds) rounds="$2"; shift 2 ;;
+    *) report="$1"; shift ;;
+  esac
+done
+
+readonly port=18490
+# Decision 33 as amended: the server and the load generator each run on cores of their own. On
+# its one core colibri's server runs one worker, which holds 32 connections at once
+# (`connections_per_worker_max`), so every server gets 32 requests in flight: 32 h11 connections,
+# or 8 h2 connections of 4 streams each.
+readonly server_core=1
+readonly load_cores=2,3
+readonly h11_connections=32
+readonly h2_connections=8
+readonly h2_streams=4
+# The rates oha sends at, in requests per second, the seconds of each measurement, and the p99 in
+# milliseconds that a server holds at the rates the report counts as sustained.
+readonly rates=(2000 5000 10000 20000 40000 80000)
+readonly seconds=5
+readonly p99_bound_ms=10
+# The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
+readonly ready_tries=100
+# oha's release, and the SHA-256 of its Linux build for each architecture.
+readonly oha_version=v1.16.0
+readonly oha_arm64_sha256=99a790eb8c3e0feaca974bd6b32f0f8d4426a0c5b289f39e833e5b2c7529cd39
+readonly oha_amd64_sha256=620bb9e16fb53eabc9a3fc45f88bdb41fefa3fee5c05e75892011ce320391716
+readonly routes="${repository_root}/bench/router/competitors/github_routes.txt"
+readonly servers=(colibri chi axum httpz fastify)
+readonly protocols=(h11 h2)
+
+scratch="$(mktemp -d)"
+server_pid=""
+cleanup() {
+  if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; fi
+  rm -rf "$scratch"
+}
+trap cleanup EXIT
+
+fetch_oha() {
+  local asset sha256
+  case "$(uname -m)" in
+    aarch64 | arm64) asset="oha-linux-arm64"; sha256="$oha_arm64_sha256" ;;
+    x86_64 | amd64) asset="oha-linux-amd64"; sha256="$oha_amd64_sha256" ;;
+    *) echo "run_latency.sh: no oha build for $(uname -m)" >&2; exit 1 ;;
+  esac
+  curl -fsSL -o "$scratch/oha" "https://github.com/hatoo/oha/releases/download/${oha_version}/${asset}"
+  echo "${sha256}  $scratch/oha" | sha256sum -c --quiet
+  chmod +x "$scratch/oha"
+  echo "$scratch/oha"
+}
+
+build_servers() {
+  echo "run_latency.sh: building the servers" >&2
+  (cd "$repository_root" && zig build install -Drelease --prefix "$scratch/colibri" >/dev/null)
+  (cd "$repository_root/bench/competitors/chi" && go build -o "$scratch/chi" .)
+  (cd "$repository_root/bench/competitors/axum" &&
+    cargo build --release --locked --quiet --target-dir "$scratch/axum-target")
+  # From a copy, so the packages that Zig fetches beside build.zig.zon stay out of bench/.
+  cp -R "$repository_root/bench/competitors/httpz" "$scratch/httpz-source"
+  (cd "$scratch/httpz-source" &&
+    "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.0 that builds http.zig}" build \
+      --prefix "$scratch/httpz" --cache-dir "$scratch/httpz-cache" >/dev/null)
+  cp -R "$repository_root/bench/competitors/fastify" "$scratch/fastify"
+  (cd "$scratch/fastify" && npm ci --silent --no-audit --no-fund >/dev/null)
+}
+
+# Whether <server> speaks <protocol>: http.zig has no h2.
+serves() {  # serves <server> <protocol>
+  [ "$1" != httpz ] || [ "$2" = h11 ]
+}
+
+# The command that starts <server> for <protocol>, into the array `command`. GOMAXPROCS=1 and a
+# one-thread runtime keep chi and axum on one thread, as taskset keeps every server on one core.
+server_command() {  # server_command <server> <protocol>
+  case "$1" in
+    colibri) command=("$scratch/colibri/bin/http-server" --port "$port" --routes github) ;;
+    chi) command=(env GOMAXPROCS=1 "$scratch/chi" --port "$port" --routes "$routes") ;;
+    axum) command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --routes "$routes") ;;
+    httpz) command=("$scratch/httpz/bin/colibri-bench-httpz" --port "$port" --routes "$routes") ;;
+    fastify)
+      command=(node "$scratch/fastify/main.js" --port "$port" --routes "$routes")
+      # A Fastify server speaks h11, or h2 alone.
+      if [ "$2" = h2 ]; then command+=(--h2); fi
+      ;;
+  esac
+}
+
+start_server() {  # start_server <server> <protocol>
+  server_command "$1" "$2"
+  taskset -c "$server_core" "${command[@]}" >"$scratch/server.log" 2>&1 &
+  server_pid=$!
+  local probe=(curl -s -o /dev/null --max-time 1)
+  if [ "$2" = h2 ]; then probe+=(--http2-prior-knowledge); fi
+  for _ in $(seq "$ready_tries"); do
+    if "${probe[@]}" "http://127.0.0.1:${port}/events"; then return 0; fi
+    sleep 0.1
+  done
+  echo "run_latency.sh: $1 did not start for $2" >&2
+  cat "$scratch/server.log" >&2
+  exit 1
+}
+
+stop_server() {
+  kill "$server_pid" 2>/dev/null || true
+  wait "$server_pid" 2>/dev/null || true
+  server_pid=""
+}
+
+# oha's load at <rate> for <protocol>, into <out>, as JSON.
+load() {  # load <protocol> <rate> <out>
+  local shape=(-c "$h11_connections")
+  if [ "$1" = h2 ]; then shape=(--http2 -c "$h2_connections" -p "$h2_streams"); fi
+  taskset -c "$load_cores" "$oha" --no-tui --urls-from-file "$scratch/urls.txt" -z "${seconds}s" \
+    -q "$2" --latency-correction "${shape[@]}" --output-format json >"$3"
+}
+
+machine() {
+  echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "kernel=$(uname -sr)"
+  echo "cpu=$(sed -n 's/^model name\t*: //p;s/^CPU part\t*: //p' /proc/cpuinfo 2>/dev/null | sort -u | paste -sd ' ' -)"
+  echo "colibri=$(git -C "$repository_root" rev-parse --short HEAD), zig $(zig version)"
+  echo "chi=$(sed -n 's|.*go-chi/chi/v5 \(v[0-9.]*\).*|\1|p' "$repository_root/bench/competitors/chi/go.mod" | head -1), $(go version | cut -d' ' -f3)"
+  echo "axum=$(awk '$0 == "name = \"axum\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock"), $(cd "$repository_root/bench/competitors/axum" && rustc --version)"
+  echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("$BENCH_ZIG_HTTPZ" version)"
+  echo "fastify=$(sed -n 's/.*"fastify": "\(.*\)".*/\1/p' "$repository_root/bench/competitors/fastify/package.json"), node $(node --version)"
+  echo "oha=${oha_version}"
+  echo "rounds=$rounds seconds=$seconds p99_bound_ms=$p99_bound_ms"
+  echo "load=h11 ${h11_connections} connections, h2 ${h2_connections} connections of ${h2_streams} streams"
+  echo "path=loopback, 127.0.0.1"
+}
+
+oha="${BENCH_OHA:-}"
+if [ -z "$oha" ]; then oha="$(fetch_oha)"; fi
+build_servers
+# The GET routes, with each parameter given a value, as the paths oha sends.
+awk '$1 == "GET" { print $2 }' "$routes" | sed -E "s#:[a-z_]+#v1#g; s#^#http://127.0.0.1:${port}#" >"$scratch/urls.txt"
+machine >"$scratch/machine.txt"
+
+# In each round the servers take turns, each through every rate of a protocol. Their list starts
+# one place later each round, so in n rounds that follow one another, each of n servers goes
+# first once.
+for round in $(seq 0 "$rounds"); do
+  for protocol in "${protocols[@]}"; do
+    serving=()
+    for server in "${servers[@]}"; do
+      if serves "$server" "$protocol"; then serving+=("$server"); fi
+    done
+    for ((place = 0; place < ${#serving[@]}; place++)); do
+      server="${serving[(round + place) % ${#serving[@]}]}"
+      echo "run_latency.sh: round $round, $protocol, $server" >&2
+      start_server "$server" "$protocol"
+      mkdir -p "$scratch/runs/$round/$protocol/$server"
+      for rate in "${rates[@]}"; do
+        load "$protocol" "$rate" "$scratch/runs/$round/$protocol/$server/$rate.json"
+      done
+      stop_server
+    done
+  done
+done
+
+python3 "$repository_root/bench/report_latency.py" "$scratch" "$report" --p99-bound-ms "$p99_bound_ms"

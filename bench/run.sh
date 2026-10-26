@@ -11,9 +11,10 @@
 # With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
-# (design §8 step 13d).
+# (design §8 step 13d). With --latency, bench/run_latency.sh runs instead: the throughput and the
+# latency of servers that route, at fixed request rates, under oha (design §8 step 13f).
 #
-#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--rounds <n>] [report.md]
+#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--latency] [--rounds <n>] [report.md]
 #
 # The judge runs on Linux with perf and taskset, as .github/workflows/bench.yml runs it on the
 # ubuntu-24.04-arm runner. --filter runs without either and reads the server's CPU time from each
@@ -44,6 +45,7 @@ while [ $# -gt 0 ]; do
     --competitors) competitors=yes; shift ;;
     --h11) h11=yes; shift ;;
     --h3) h3=yes; shift ;;
+    --latency) shift; exec "$repository_root/bench/run_latency.sh" --rounds "$rounds" "$@" ;;
     --rounds) rounds="$2"; shift 2 ;;
     *) report="$1"; shift ;;
   esac

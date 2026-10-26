@@ -6,7 +6,9 @@
 # Ubuntu's packages, hyper and http.zig answer the same requests in the same job (design §8 steps
 # 13c and 13g), and with `h11` four h11 inputs join the four h2 ones, which wrk sends. With `h3`,
 # the UDP server answers the load over h3 too, and with `competitors` and `h3`, so does quic-go's
-# server from its image (design §8 step 13d). The work is bench/run.sh, which a person on Linux
+# server from its image (design §8 step 13d). With `latency`, bench/run.sh --latency measures the
+# throughput and the latency of servers that route, colibri's and chi's, axum's, http.zig's and
+# Fastify's, at fixed rates under oha (design §8 step 13f). The work is bench/run.sh, which a person on Linux
 # with perf runs for the same answer; this file only installs what it needs.
 name: bench
 on:
@@ -30,6 +32,10 @@ on:
         default: false
       h3:
         description: "Measure the UDP server over h3 too, under h2load built with HTTP/3"
+        type: boolean
+        default: false
+      latency:
+        description: "Measure the latency of servers that route at fixed rates under oha, in place of the other inputs"
         type: boolean
         default: false
 permissions:
@@ -56,6 +62,7 @@ jobs:
       COMPETITORS: ${{ inputs.competitors }}
       H11: ${{ inputs.h11 }}
       H3: ${{ inputs.h3 }}
+      LATENCY: ${{ inputs.latency }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -92,7 +99,7 @@ jobs:
       # bench/competitors/hyper/rust-toolchain.toml names on the first call. It builds http.zig
       # with Zig 0.17.0, which no other step uses.
       - name: Install Rust and Zig 0.17.0
-        if: env.COMPETITORS == 'true'
+        if: env.COMPETITORS == 'true' || env.LATENCY == 'true'
         run: |
           command -v rustup >/dev/null ||
             curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
@@ -102,6 +109,11 @@ jobs:
           mkdir -p "${HOME}/zig-httpz" && tar -xJf zig-httpz.tar.xz -C "${HOME}/zig-httpz" --strip-components=1
           rm zig-httpz.tar.xz
           echo "BENCH_ZIG_HTTPZ=${HOME}/zig-httpz/zig" >>"${GITHUB_ENV}"
+      # Fastify, a server of the latency inputs, needs Node 20 or later.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: env.LATENCY == 'true'
+        with:
+          node-version: 24
       # Ubuntu's h2load has no HTTP/3, so the h3 inputs run the one tools/h3load/Dockerfile builds
       # from pinned release tags.
       - name: Build h2load with HTTP/3
@@ -133,6 +145,8 @@ jobs:
           if [ "${COMPETITORS}" = true ]; then arguments+=(--competitors); fi
           if [ "${H11}" = true ]; then arguments+=(--h11); fi
           if [ "${H3}" = true ]; then arguments+=(--h3); fi
+          # --latency runs bench/run_latency.sh in place of the other inputs.
+          if [ "${LATENCY}" = true ]; then arguments+=(--latency); fi
           bench/run.sh "${arguments[@]}" bench-report.md
       - name: Publish the report
         if: always()

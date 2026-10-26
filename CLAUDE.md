@@ -429,6 +429,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   Zig, h2load, python3, and Go to mint the TLS identity. `zig build bench-memory` prints the static
   memory per connection for the objects the build targets (design §8 step 13b), and `zig build
   test` fails when `docs/performance.md`'s table for those objects differs from it.
+  `bench/run.sh --latency [--rounds <n>] [report.md]` runs `bench/run_latency.sh` instead: oha,
+  pinned by release and SHA-256, sends GET requests at fixed rates, with its latency correction,
+  over the GitHub API's routes to colibri's server with `--routes github` and to chi, axum,
+  http.zig and Fastify from `bench/competitors/`, and the report gives p50, p99 and p99.9 at each
+  rate and each server's highest rate whose p99 stays under 10 ms (design §8 step 13f). It needs
+  Go, cargo, Node and BENCH_ZIG_HTTPZ, and the workflow's `latency` input runs it on the judge.
+  `python3 bench/report_latency.py --test` checks its report, and `tools/ci.sh` runs it.
 - Router probes: `bench/router/compile_time.sh [--tree <tree>] [table...]` compiles each route
   table of `bench/router/build.zig` twice and prints the wall time of each compile.
   `bench/router/run_time.sh [--tree <tree>] [count]` counts the instructions of one `match` under

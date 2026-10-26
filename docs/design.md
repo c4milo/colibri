@@ -4937,8 +4937,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **The load.** oha, pinned by release and SHA-256, sends GET requests over the 131 GET routes
       at fixed rates with `--latency-correction`, so the latency holds the queue time that
       coordinated omission hides. It sends h11, and h2 in cleartext with prior knowledge to every
-      server but http.zig, which has no h2. At each rate the report gives p50, p99 and p99.9, and
-      for each server the highest rate whose p99 stays under a stated bound.
+      server but http.zig, which has no h2. Every server gets 32 requests in flight: 32 h11
+      connections, or 8 h2 connections of 4 streams. On its one core colibri's server runs one
+      worker, which holds `connections_per_worker_max`, 32, connections at once, and a 33rd waits
+      unaccepted, which a load of 64 connections showed. At each rate the report gives p50, p99 and
+      p99.9, and for each server the highest rate whose p99 stays under 10 ms.
     - **The method.** `bench/run.sh --latency` runs the servers in turns in one job on the judge,
       five rounds after a warm-up it discards, and reports each median with its spread. A time
       is compared only inside one job (§11.4).
@@ -4948,7 +4951,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         `handle` compiled over 203 routes needs more than the default comptime budget in `start`
         and `on_finished`, which now grows with the route count.
       - 13f.2: the four competitor servers.
-      - 13f.3: oha and `bench/run.sh --latency`, with its report, and its job on the judge.
+      - 13f.3: oha and `bench/run.sh --latency`, which runs `bench/run_latency.sh`, its report
+        `bench/report_latency.py` with its `--test`, and the workflow's `latency` input. A run in a
+        container on a laptop, on 2026-10-26, measured every server and wrote the report. Its
+        numbers are not the judge's: at 80,000 req/s each server reached about 40,000, which may
+        be oha's own ceiling on two cores, and the judge's run tells.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,
