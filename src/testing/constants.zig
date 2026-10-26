@@ -92,6 +92,18 @@ pub const cache_line_bytes: u32 = 128;
 /// stopped reading.
 pub const responses_owed_max: u32 = h2.constants.concurrent_streams_max + 1;
 
+/// The comptime branches that building the `--routes github` route table takes: it reads 203
+/// routes of up to about 70 octets each (design §8 step 13f).
+pub const routes_quota: u32 = 1_000_000;
+
+/// The requests one worker's router answers at once in the `--routes` mode. Step 13f's load holds
+/// one request on each of 64 connections, and the router answers 503 past this.
+pub const routes_requests_max: u32 = 1024;
+
+/// Octets of each request's response memory in the `--routes` mode: the copies of its header and
+/// its answer, `server_routes.answer_body`.
+pub const routes_response_bytes: usize = 128;
+
 /// Most steps one session takes between two reads from the socket. A step that neither consumes
 /// nor writes ends the loop, so this only bounds it: one step answers at most one request, and a
 /// read holds at most one frame.

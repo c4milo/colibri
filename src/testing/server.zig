@@ -87,6 +87,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     server_mode.listen_address = options.address;
     server_mode.echo_mode = options.echo;
     server_mode.coded_mode = options.coded;
+    server_mode.routes_mode = options.routes;
     if (options.h3_port) |port| server_mode.h3_alternative = .{ .port = port };
     if (options.identity_prefix) |prefix| try load_tls(prefix);
     try listen_and_serve(options.port);

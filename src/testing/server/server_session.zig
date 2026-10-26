@@ -38,6 +38,7 @@ pub const server = @import("server");
 const constants = @import("../constants.zig");
 const h11_echo = @import("../h11/h11_echo.zig");
 const server_session_answer = @import("server_session_answer.zig");
+const server_routes = @import("server_routes.zig");
 
 /// What one step did.
 pub const Step = struct {
@@ -100,6 +101,9 @@ pub fn SessionOf(comptime connections_max: usize) type {
         events_max: usize,
         /// The instant of the last call (design §4.2).
         now_ns: u64,
+        /// The router that answers every request in the `--routes github` mode, or null, when
+        /// each connection's `answers` do (design §8 step 13f).
+        routes: ?*server_routes.Pool,
 
         /// Prepares a session that holds no connection, under `config`, which the endpoint reads
         /// while it runs. The server issues no ticket, so it judges none at a clock: chapulin's 0
@@ -113,6 +117,7 @@ pub fn SessionOf(comptime connections_max: usize) type {
                 entry.answers.reset(null);
             }
             session.events_max = events_per_step_max;
+            session.routes = null;
             session.entry_of = @splat(null);
             session.pending = Pending.initEmpty();
             session.undrained = false;
@@ -271,6 +276,9 @@ fn drain(session: anytype) void {
 /// Notes what one event says in the entry of the connection it names. The event's octets are
 /// valid until the endpoint's next call, so the echo copies them now.
 fn on_event(session: anytype, reported: server.Event) void {
+    if (session.routes) |pool| {
+        if (routed(session, pool, reported)) return;
+    }
     switch (reported) {
         .request => |request| named(session, request.id.connection).answers.on_request(request),
         .body => |body| named(session, body.id.connection).answers.on_body(body),
@@ -293,6 +301,24 @@ fn on_event(session: anytype, reported: server.Event) void {
         // The server never shuts its endpoint down.
         .closed => unreachable,
     }
+}
+
+/// Passes a request's event to the router, and returns whether it took it. The router writes the
+/// response itself, so the connection's entry is stepped, and its `answers` owe nothing.
+fn routed(session: anytype, pool: *server_routes.Pool, reported: server.Event) bool {
+    const connection = switch (reported) {
+        .request => |request| request.id.connection,
+        .body => |body| body.id.connection,
+        .trailers => |trailers| trailers.id.connection,
+        .writable => |writable| writable.id.connection,
+        .finished => |finished| finished.id.connection,
+        .send, .close, .ended, .closed => return false,
+    };
+    _ = named(session, connection);
+    var context: void = {};
+    const handled = pool.handle(&context, &session.endpoint, reported);
+    assert(handled == .taken);
+    return true;
 }
 
 /// The entry of the connection `handle` names, which an event named: its worker steps it.

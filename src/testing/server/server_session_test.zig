@@ -10,6 +10,7 @@ const h2 = @import("h2");
 const constants = @import("../constants.zig");
 const h11_echo = @import("../h11/h11_echo.zig");
 const session_module = @import("server_session.zig");
+const server_routes = @import("server_routes.zig");
 const entropy = @import("../entropy.zig");
 
 const testing = std.testing;
@@ -71,6 +72,24 @@ fn owed_count(index: usize) u32 {
 
 /// The instant of the tests' last step. Test-only.
 var test_now_ns: u64 = 0;
+
+/// The router pool of the `--routes` mode's test. Test-only.
+var test_routes: server_routes.Pool align(@alignOf(server_routes.Pool)) = undefined;
+
+test "design §8 step 13f: in the --routes mode the router answers each h11 request by its route" {
+    const session = try fresh_session(.h11, null);
+    test_routes = .{};
+    session.routes = &test_routes;
+    const input = "GET /repos/a/b/events HTTP/1.1\r\nHost: a\r\n\r\nGET /nothing HTTP/1.1\r\nHost: a\r\n\r\n";
+    const first = step(input, &test_output);
+    const routed = "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 3\r\n\r\n" ++ server_routes.answer_body;
+    try testing.expectEqualStrings(routed, test_output[0..routed.len]);
+    // h11 reads the pipelined request once the first response is done, at a later step.
+    var written = first.written;
+    for (0..test_connections) |_| written += step(input[first.consumed..], test_output[written..]).written;
+    try testing.expect(std.mem.indexOf(u8, test_output[routed.len..written], "HTTP/1.1 404") != null);
+    try testing.expectEqual(0, owed_count(0));
+}
 
 test "every h11 request is answered with 200 and the body, pipelined ones in order" {
     _ = try fresh_session(.h11, null);

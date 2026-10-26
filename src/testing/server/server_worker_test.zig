@@ -244,3 +244,12 @@ test "a socket Rotor has closed keeps its entry until its connection has ended" 
     try testing.expect(!worker.sockets[index].live);
     try testing.expectEqual(index, accept(worker, constants.tick_ns));
 }
+
+test "design §8 step 13f: the --routes mode answers through the worker's router" {
+    server_mode.routes_mode = true;
+    defer server_mode.routes_mode = false;
+    const worker = try fresh_worker();
+    const index = accept(worker, 0);
+    deliver(worker, index, "GET /users/colibri/repos HTTP/1.1\r\nHost: a\r\n\r\n", constants.tick_ns);
+    try testing.expect(std.mem.endsWith(u8, staged(worker, index), "\r\n\r\nok\n"));
+}

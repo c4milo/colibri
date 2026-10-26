@@ -39,6 +39,10 @@ pub const Handled = union(enum) {
     event: event.Event,
 };
 
+/// The comptime branches of a switch over the routes: a base, and a share for each route's prong.
+const branch_quota_base = 1000;
+const branch_quota_per_route = 100;
+
 /// The statuses the router answers with, with no call of a program's function.
 const not_found: u16 = @intFromEnum(http.status.Code.not_found);
 const method_not_allowed: u16 = @intFromEnum(http.status.Code.method_not_allowed);
@@ -89,6 +93,11 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
             return .taken;
         }
 
+        /// The comptime branches a switch over every route takes in `start` and `on_finished`: an
+        /// `inline else` makes one prong for each route, and the default budget of 1,000 does not
+        /// hold the GitHub API's 203 routes there (`src/testing/server/server_routes.zig`).
+        const branch_quota = branch_quota_base + branch_quota_per_route * table_of.routes.len;
+
         // What the free functions below read of the pool's type.
         const Entry = EntryOf;
         const Context = ContextOf;
@@ -112,6 +121,7 @@ fn on_request(comptime P: type, pool: *P, context: *P.Context, endpoint: anytype
 }
 
 fn start(comptime P: type, pool: *P, context: *P.Context, endpoint: anytype, request: *const event.Request, route: P.Route) void {
+    @setEvalBranchQuota(P.branch_quota);
     // RFC 9110 §15.6.4: a server that cannot take the request now answers 503.
     const index = free_index(P, pool) orelse return answer(endpoint, request.id, service_unavailable, &.{});
     const entry = &pool.entries[index];
@@ -215,6 +225,7 @@ fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint
 }
 
 fn on_finished(comptime P: type, entry: *P.Entry, context: *P.Context, finished: event.Finished) void {
+    @setEvalBranchQuota(P.branch_quota);
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];

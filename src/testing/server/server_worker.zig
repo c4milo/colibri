@@ -21,6 +21,7 @@ const entropy = @import("../entropy.zig");
 const h11_echo = @import("../h11/h11_echo.zig");
 const server_mode = @import("server_mode.zig");
 const server_session = @import("server_session.zig");
+const server_routes = @import("server_routes.zig");
 const server_socket = @import("server_socket.zig");
 
 const Socket = server_socket.Socket;
@@ -69,6 +70,10 @@ pub const Worker = struct {
 
 /// The workers, in static storage: each is large, and there is one per core at most.
 pub var workers: [constants.workers_max]Worker align(@alignOf(Worker)) = undefined;
+
+/// Each worker's router pool in the `--routes github` mode, which `start` prepares in that mode
+/// alone (design §8 step 13f).
+var route_pools: [constants.workers_max]server_routes.Pool align(@alignOf(server_routes.Pool)) = undefined;
 
 comptime {
     // The loop's memory leads the struct, so its alignment is the struct's, and every worker
@@ -128,6 +133,10 @@ pub fn start(index: usize) server.StartError!void {
     // The loop starts on the worker's own thread, later, so no instant is read yet. The endpoint
     // takes this one for its tickets' clock alone, and the server issues no ticket.
     try worker.session.init(&worker.config, entropy.random(), 0);
+    if (server_mode.routes_mode) {
+        route_pools[index] = .{};
+        worker.session.routes = &route_pools[index];
+    }
 }
 
 /// Serves connections on `workers[index]`, which `start` prepared and whose listener is bound,

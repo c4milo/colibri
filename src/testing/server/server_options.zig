@@ -36,6 +36,9 @@ const h2_option = "--h2";
 const echo_option = "--echo";
 const h3_port_option = "--h3-port";
 const coded_option = "--coded";
+const routes_option = "--routes";
+/// The one route table `--routes` names.
+const github_routes = "github";
 
 /// What the command line asked for.
 pub const Options = struct {
@@ -52,6 +55,9 @@ pub const Options = struct {
     coded: bool = false,
     /// The UDP port each TLS connection advertises h3 on, or null for none.
     h3_port: ?u16 = null,
+    /// Whether the server routes through `server.router` the GitHub API's routes (`--routes
+    /// github`, design §8 step 13f).
+    routes: bool = false,
 };
 
 /// Reads the options from `arguments`, anything with a `next` that answers the next argument or
@@ -68,7 +74,10 @@ pub fn read(arguments: anytype) ?Options {
     }
     // The echo is h11's, and the Garden reaches its origins in cleartext.
     const echo_ok = !options.echo or (options.alone == .h11 and options.identity_prefix == null);
-    return if (echo_ok) options else null;
+    // The router answers every request itself, so no other mode answers too, and it codes no
+    // response until design §8 step 25.6.
+    const routes_ok = !options.routes or (!options.echo and !options.coded);
+    return if (echo_ok and routes_ok) options else null;
 }
 
 /// Whether `read_flag` took an argument as a flag, or left it for `read_setting`.
@@ -103,10 +112,13 @@ fn read_setting(options: *Options, option: []const u8, value: []const u8) ?void 
         options.identity_prefix = value;
     } else if (eql(u8, option, h3_port_option)) {
         options.h3_port = std.fmt.parseInt(u16, value, constants.port_radix) catch return null;
+    } else if (eql(u8, option, routes_option)) {
+        if (!eql(u8, value, github_routes)) return null;
+        options.routes = true;
     } else return null;
 }
 
-pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix>] [--h3-port <port>]\n";
+pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix>] [--h3-port <port>] [--routes github]\n";
 
 const testing = std.testing;
 
@@ -150,4 +162,14 @@ test "the options read into what the server runs, and unreadable ones are refuse
 test "the echo is h11's, in cleartext" {
     try testing.expectEqual(null, test_read(&.{"--echo"}));
     try testing.expectEqual(null, test_read(&.{ "--h11", "--echo", "--tls", "id" }));
+}
+
+test "design §8 step 13f: --routes takes github alone, and no other mode that answers or codes" {
+    try testing.expect(test_read(&.{ "--routes", "github" }).?.routes);
+    try testing.expect(test_read(&.{ "--h2", "--routes", "github" }).?.routes);
+    try testing.expect(!test_read(&.{}).?.routes);
+    try testing.expectEqual(null, test_read(&.{ "--routes", "gitlab" }));
+    try testing.expectEqual(null, test_read(&.{"--routes"}));
+    try testing.expectEqual(null, test_read(&.{ "--h11", "--echo", "--routes", "github" }));
+    try testing.expectEqual(null, test_read(&.{ "--coded", "--routes", "github" }));
 }

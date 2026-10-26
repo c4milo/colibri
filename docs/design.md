@@ -4942,6 +4942,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **The method.** `bench/run.sh --latency` runs the servers in turns in one job on the judge,
       five rounds after a warm-up it discards, and reports each median with its spread. A time
       is compared only inside one job (§11.4).
+    - **Sub-steps.**
+      - 13f.1: the test-only server's `--routes github` mode, whose router answers every request
+        from a pool of `routes_requests_max` entries for each worker. Its first build showed that
+        `handle` compiled over 203 routes needs more than the default comptime budget in `start`
+        and `on_finished`, which now grows with the route count.
+      - 13f.2: the four competitor servers.
+      - 13f.3: oha and `bench/run.sh --latency`, with its report, and its job on the judge.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,

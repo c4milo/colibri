@@ -11,6 +11,8 @@ const server_options = @import("server_options.zig");
 pub var versions: server.Protocols align(@alignOf(server.Protocols)) = .{};
 pub var listen_address: [server_options.ipv4_octets]u8 = server_options.loopback_octets;
 pub var echo_mode: bool = false;
+/// Whether the router of `server_routes.zig` answers every request (`--routes github`).
+pub var routes_mode: bool = false;
 /// Whether responses are coded (`--coded`), in gzip or deflate, gzip first.
 pub var coded_mode: bool = false;
 pub const served_codings = [_]server.Coding{ .gzip, .deflate };
