@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "find-my-way": "9.3.0"
+    "find-my-way": "9.7.0"
   }
 }
