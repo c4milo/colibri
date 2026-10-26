@@ -9209,6 +9209,34 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   either job of [run 40229115862](https://github.com/c4milo/colibri/actions/runs/40229115862),
   and did not land.
 
+  **h3's stream lookups and response fills, 2026-10-26.** Three changes, each judged alone against
+  `9968e85` with `--h3`:
+  1. `core.slots.Pool` keeps `slot_by_bucket`, the slot each identifier modulo the capacity was
+     last written or found in, and `get` checks it before it scans. QUIC's `Streams.lookup` reads
+     the watermark before the pool, as h2's does, so a new stream's lookup scans nothing. Each pool
+     grows by its capacity in octets, and the memory table follows.
+     - 7 mutations: 5 **CAUGHT**, and 2 **NOT CAUGHT** that are equivalent: `get` with no bucket
+       check, and QUIC's old order, which invariant 13 makes give the same answers.
+     - [Run 40343779763](https://github.com/c4milo/colibri/actions/runs/40343779763): h3-many wins
+       at 0.9618 and 0.9584, about 5,700 and 6,150 user instructions a request. h2-many wins at
+       0.9709 and 0.9692, 455 a request, and h2-tls-many at 0.9785 and 0.9756.
+  2. h3 `respond` declares the 12,288 octets of rewritten field lines only in `respond_planned`,
+     which a coded final response alone calls: the branch of 2026-09-30, held until this judge
+     existed, ported. 4 mutations of `quic_coding.plans`, each **CAUGHT**.
+     - [Run 40344315015](https://github.com/c4milo/colibri/actions/runs/40344315015): h3-many wins
+       at 0.9853 and 0.9794, about 2,250 and 3,050 user instructions a request.
+  3. `Requests.take` writes a new record through `make_record`, with runtime safety off at the
+     owner's ruling of 2026-10-26, so the response pieces' 8 KiB of kept frames and their run table
+     stay unfilled. A test runs the pieces over three storage fills and requires the same reads. 3
+     mutations of `Pieces.init`, each **CAUGHT**.
+     - [Run 40346185767](https://github.com/c4milo/colibri/actions/runs/40346185767): h3-many wins
+       at 0.9826 and 0.9837, about 2,350 and 2,150 user instructions a request.
+
+  No input loses past the noise in any of the three runs. A fourth change, a QPACK dynamic table of
+  4,096 octets that the server advertises with 0 blocked streams, lost on h3-many at 1.1013 and
+  1.1054 in [run 40346835608](https://github.com/c4milo/colibri/actions/runs/40346835608), and did
+  not land.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
