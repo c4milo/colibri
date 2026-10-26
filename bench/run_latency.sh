@@ -28,7 +28,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-readonly port=18490
+# The first port a server listens on. Each start takes the next one: a server that stopped a moment
+# before leaves its connections on its port, and a server that binds without SO_REUSEADDR is
+# refused it, as axum was on the judge.
+readonly first_port=18490
+port="$first_port"
 # Decision 33 as amended: the server and the load generator each run on cores of their own. On
 # its one core colibri's server runs one worker, which holds 32 connections at once
 # (`connections_per_worker_max`), so every server gets 32 requests in flight: 32 h11 connections,
@@ -111,6 +115,8 @@ server_command() {  # server_command <server> <protocol>
 }
 
 start_server() {  # start_server <server> <protocol>
+  port=$((port + 1))
+  sed -E "s#^#http://127.0.0.1:${port}#" "$scratch/paths.txt" >"$scratch/urls.txt"
   server_command "$1" "$2"
   taskset -c "$server_core" "${command[@]}" >"$scratch/server.log" 2>&1 &
   server_pid=$!
@@ -157,8 +163,8 @@ machine() {
 oha="${BENCH_OHA:-}"
 if [ -z "$oha" ]; then oha="$(fetch_oha)"; fi
 build_servers
-# The GET routes, with each parameter given a value, as the paths oha sends.
-awk '$1 == "GET" { print $2 }' "$routes" | sed -E "s#:[a-z_]+#v1#g; s#^#http://127.0.0.1:${port}#" >"$scratch/urls.txt"
+# The GET routes, with each parameter given a value, as the paths oha sends to each server's port.
+awk '$1 == "GET" { print $2 }' "$routes" | sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths.txt"
 machine >"$scratch/machine.txt"
 
 # In each round the servers take turns, each through every rate of a protocol. Their list starts
