@@ -1,0 +1,5 @@
+# The Rust release that builds axum, as it builds hyper (design §8 steps 13f and 13g), which rustup installs on the first cargo
+# call: 1.99.0, of 2026-10-01.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"

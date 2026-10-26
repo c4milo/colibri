@@ -1,0 +1,12 @@
+# axum, on hyper and a one-thread tokio runtime, a server of colibri's request benchmark (design §8
+# step 13f). bench/run.sh --latency builds it with `cargo build --release --locked`, so Cargo.lock
+# pins every crate.
+[package]
+name = "colibri-bench-axum"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+axum = { version = "=0.8.6", default-features = false, features = ["http1", "http2", "tokio"] }
+tokio = { version = "1", features = ["rt", "net"] }
