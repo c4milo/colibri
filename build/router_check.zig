@@ -138,6 +138,121 @@ const cases = [_]Case{
             "no request reaches this route, because another pattern matches each of its paths first: " ++
             "\"/a/:x\", \"/a/:x/*\"",
     },
+    .{
+        .name = "handler_type",
+        .message = "server.router: route 1, \"/a\": handler_type: " ++
+            "a route holds a function, or a struct with head (decision 127)",
+    },
+    .{
+        .name = "head_missing",
+        .message = "server.router: route 1, \"/a\": head_missing: " ++
+            "a struct route declares pub fn head (decision 127)",
+    },
+    .{
+        .name = "parameters_count",
+        .message = "server.router: route 1, \"/a\": parameters_count: " ++
+            "a route's function takes five parameters, and head six (decision 127)",
+    },
+    .{
+        .name = "context_parameter",
+        .message = "server.router: route 1, \"/a\": context_parameter: " ++
+            "the first parameter is a pointer to the router's Context",
+    },
+    .{
+        .name = "state_parameter",
+        .message = "server.router: route 1, \"/a\": state_parameter: " ++
+            "head, body, writable and finished take a *State after the context",
+    },
+    .{
+        .name = "request_parameter",
+        .message = "server.router: route 1, \"/a\": request_parameter: " ++
+            "the request parameter is *const server.Request",
+    },
+    .{
+        .name = "path_parameter",
+        .message = "server.router: route 1, \"/a\": path_parameter: " ++
+            "the path parameter is void, or a struct of []const u8 fields",
+    },
+    .{
+        .name = "path_fields_differ",
+        .message = "server.router: route 1, \"/a/:id\": path_fields_differ: " ++
+            "the path struct has one field for each parameter of the pattern, and rest for its \"*\"",
+    },
+    .{
+        .name = "query_parameter",
+        .message = "server.router: route 1, \"/a\": query_parameter: " ++
+            "the query parameter is void, http.QueryParameters, or a struct of []const u8 and ?[]const u8 fields",
+    },
+    .{
+        .name = "response_parameter",
+        .message = "server.router: route 1, \"/a\": response_parameter: " ++
+            "the last parameter is *server.ResponseWriter",
+    },
+    .{
+        .name = "return_type",
+        .message = "server.router: route 1, \"/a\": return_type: " ++
+            "a route's function returns void or an error union of void",
+    },
+    .{
+        .name = "body_parameters",
+        .message = "server.router: route 1, \"/a\": body_parameters: " ++
+            "body takes the context, *State, *std.Io.Reader and *server.ResponseWriter",
+    },
+    .{
+        .name = "writable_parameters",
+        .message = "server.router: route 1, \"/a\": writable_parameters: " ++
+            "writable takes the context, *State and *server.ResponseWriter",
+    },
+    .{
+        .name = "finished_parameters",
+        .message = "server.router: route 1, \"/a\": finished_parameters: " ++
+            "finished takes the context, *State and server.Result, and returns void",
+    },
+    .{
+        .name = "state_defaults",
+        .message = "server.router: route 1, \"/a\": state_defaults: " ++
+            "each field of State has a default value, which each request starts from",
+    },
+    .{
+        .name = "option_unknown",
+        .message = "server.router: route 1, \"/a\": option_unknown: " ++
+            "a route's options are whole_body alone",
+    },
+    .{
+        .name = "handler_type_not_struct",
+        .message = "server.router: route 1, \"/a\": handler_type: " ++
+            "a route holds a function, or a struct with head (decision 127)",
+    },
+    .{
+        .name = "path_field_type",
+        .message = "server.router: route 1, \"/a/:id\": path_parameter: " ++
+            "the path parameter is void, or a struct of []const u8 fields",
+    },
+    .{
+        .name = "path_field_extra",
+        .message = "server.router: route 1, \"/a/:id\": path_fields_differ: " ++
+            "the path struct has one field for each parameter of the pattern, and rest for its \"*\"",
+    },
+    .{
+        .name = "finished_returns",
+        .message = "server.router: route 1, \"/a\": finished_parameters: " ++
+            "finished takes the context, *State and server.Result, and returns void",
+    },
+    .{
+        .name = "state_not_struct",
+        .message = "server.router: route 1, \"/a\": state_defaults: " ++
+            "each field of State has a default value, which each request starts from",
+    },
+    .{
+        .name = "option_not_struct",
+        .message = "server.router: route 1, \"/a\": option_unknown: " ++
+            "a route's options are whole_body alone",
+    },
+    .{
+        .name = "whole_body_unread",
+        .message = "server.router: route 1, \"/a\": whole_body_unread: " ++
+            "whole_body needs a struct route with body",
+    },
 };
 
 /// Adds `zig build router-check` and returns its step, which `zig build test` depends on.

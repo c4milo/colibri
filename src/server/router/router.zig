@@ -12,6 +12,7 @@ const router_pattern = @import("router_pattern.zig");
 const router_trie = @import("router_trie.zig");
 const router_pool = @import("router_pool.zig");
 const router_call = @import("router_call.zig");
+const router_handler = @import("router_handler.zig");
 
 /// Builds a route table at compile time. `table` is a struct with two fields:
 ///
@@ -44,6 +45,7 @@ fn Router(comptime Context: type, comptime table: anytype) type {
     router_call.check_table(Context, table);
     const RouteTag = route_enum(table.routes);
     const Table = @TypeOf(router_table.table_of(RouteTag, values_of(RouteTag, table.routes)));
+    router_handler.check(Context, table.routes);
     return struct {
         /// One tag for each route, in the table's order, named by its method and its pattern.
         pub const Route = RouteTag;
