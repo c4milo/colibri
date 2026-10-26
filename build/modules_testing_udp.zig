@@ -20,6 +20,8 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
     const module = create(b, "src/testing/quic_udp.zig", target, optimize);
+    // Design §8 step 13f: `routes=github` builds the route table of the TCP server's `--routes`.
+    module.addAnonymousImport("github_routes", .{ .root_source_file = b.path("bench/router/competitors/github_routes.txt") });
     module.addImport("h2", graph.h2);
     module.addImport("quic", graph.quic);
     // The h3 server and client of design §9, ruled by the owner on 2026-09-24.

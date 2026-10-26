@@ -1,7 +1,8 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [no-switch] [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
+//!         [no-switch] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
+//!         [qlogdir=<directory>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
 //!
@@ -20,6 +21,9 @@
 //! - `h3` serves h3 alone, through colibri's `server` module and its `Endpoint` (design §8 step
 //!   17b), where without it the server serves h3 or hq-interop by ALPN on its own connections. It
 //!   holds `quic_connections_max` connections, and writes no qlog.
+//! - `routes=github`, with `h3`, routes each request through `server.router` over the GitHub API's
+//!   routes, as the TCP server's `--routes github` does, and answers every route with 200 and
+//!   "ok\n", in place of the files of `<www>` (design §8 step 13f).
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
@@ -70,12 +74,20 @@ pub const Server = struct {
     switch_to: ?quic.crypto.suite.Version = .v2,
     /// Whether the server serves h3 alone, through `server` (design §8 step 17b).
     h3: bool = false,
+    /// Whether the h3 server routes the GitHub API's routes (`routes=github`, design §8 step 13f).
+    routes: bool = false,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
     /// The Unix seconds the server started at, or 0 for none.
     now_seconds: u64 = 0,
     /// The directory each connection's qlog goes in, or null for no qlog.
     qlogdir: ?[]const u8 = null,
+
+    /// Whether the options agree: the router answers through `server`, which the `h3` mode
+    /// alone runs on.
+    fn complete(server: Server) bool {
+        return !server.routes or server.h3;
+    }
 
     /// The Unix seconds at `now_ns`: `now_seconds` and the seconds Rotor's instant has advanced
     /// since `started_ns`, the first tick's (decision 63). 0 for a server given no clock.
@@ -135,24 +147,30 @@ pub fn parse(init: std.process.Init.Minimal) Arguments {
 }
 
 fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Server {
+    return server_of(arguments, address) orelse usage();
+}
+
+/// The server the words of `arguments` name, or null when they break the usage. `arguments` is
+/// any iterator whose `next` gives the words in turn.
+fn server_of(arguments: anytype, address: udp.Address) ?Server {
     var server: Server = .{
         .address = address,
-        .identity_prefix = arguments.next() orelse usage(),
-        .www = arguments.next() orelse usage(),
+        .identity_prefix = arguments.next() orelse return null,
+        .www = arguments.next() orelse return null,
     };
     // Bounded by the options there are, each of which may appear once.
     for (0..server_options_count) |_| {
-        const word = arguments.next() orelse return server;
+        const word = arguments.next() orelse break;
         if (parse_server_word(&server, word)) continue;
         if (parse_seconds(word)) |seconds| {
             server.now_seconds = seconds;
         } else if (parse_qlogdir(word)) |directory| {
             server.qlogdir = directory;
         } else {
-            server.connections = parse_connections(word) orelse usage();
+            server.connections = parse_connections(word) orelse return null;
         }
-    }
-    if (arguments.next() != null) usage();
+    } else if (arguments.next() != null) return null;
+    if (!server.complete()) return null;
     return server;
 }
 
@@ -171,6 +189,8 @@ fn parse_server_word(server: *Server, word: []const u8) bool {
         server.switch_to = null;
     } else if (std.mem.eql(u8, word, h3_word)) {
         server.h3 = true;
+    } else if (std.mem.eql(u8, word, routes_word)) {
+        server.routes = true;
     } else return false;
     return true;
 }
@@ -188,9 +208,11 @@ const client_options_count: usize = 7;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `h3`, `connections=<n>`,
+/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `h3`, `routes=github`, `connections=<n>`,
 /// `seconds=<unix-seconds>` and `qlogdir=<directory>`.
-const server_options_count: usize = 9;
+const server_options_count: usize = 10;
+/// The one route table the h3 server routes.
+const routes_word = "routes=github";
 
 const connections_prefix = "connections=";
 const seconds_prefix = "seconds=";
@@ -294,7 +316,7 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [no-switch] [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
+        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [no-switch] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
             "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...\n",
         .{},
     );
@@ -358,4 +380,23 @@ test "main schema §12.1: a qlog directory is one word, and an empty one is none
     try testing.expectEqual(null, parse_qlogdir("qlogdir="));
     try testing.expectEqual(null, parse_qlogdir("qlog=/logs"));
     try testing.expectEqual(null, parse_qlogdir("/index.html"));
+}
+
+test "routes=github is one word, and a server routes over h3 alone" {
+    const Words = struct {
+        words: []const []const u8,
+        fn next(words: *@This()) ?[]const u8 {
+            if (words.words.len == 0) return null;
+            defer words.words = words.words[1..];
+            return words.words[0];
+        }
+    };
+    const address = udp.Address.ipv4(.{ 127, 0, 0, 1 }, 443);
+    var routed: Words = .{ .words = &.{ "identity", "www", "h3", "routes=github" } };
+    const server = server_of(&routed, address).?;
+    try testing.expect(server.h3 and server.routes);
+    var alone: Words = .{ .words = &.{ "identity", "www", "routes=github" } };
+    try testing.expectEqual(null, server_of(&alone, address));
+    var other: Words = .{ .words = &.{ "identity", "www", "h3", "routes=gitlab" } };
+    try testing.expectEqual(null, server_of(&other, address));
 }

@@ -430,9 +430,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   memory per connection for the objects the build targets (design §8 step 13b), and `zig build
   test` fails when `docs/performance.md`'s table for those objects differs from it.
   `bench/run.sh --latency [--rounds <n>] [report.md]` runs `bench/run_latency.sh` instead: oha,
-  pinned by release and SHA-256, sends GET requests at fixed rates, with its latency correction,
-  over the GitHub API's routes to colibri's server with `--routes github` and to chi, axum,
-  http.zig and Fastify from `bench/competitors/`, and the report gives p50, p99 and p99.9 at each
+  pinned by release and commit and built with h3, sends GET requests at fixed rates, with its
+  latency correction, over the GitHub API's routes to colibri's server with `--routes github` and
+  to chi, axum, http.zig and Fastify from `bench/competitors/`, over h11 and h2, and over h3 to
+  the UDP server with `h3 routes=github`, chi and axum. The report gives p50, p99 and p99.9 at each
   rate and each server's highest rate whose p99 stays under 10 ms (design §8 step 13f). It needs
   Go, cargo, Node and BENCH_ZIG_HTTPZ, and the workflow's `latency` input runs it on the judge.
   `python3 bench/report_latency.py --test` checks its report, and `tools/ci.sh` runs it.
@@ -502,7 +503,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
-  [retry] [errors] [no-ecn] [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]`
+  [retry] [errors] [no-ecn] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
+  [qlogdir=<directory>]`
   and `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
   [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...` run design §9's servers and
   clients over Rotor's UDP loop and `tls.quic`. With `pin` the client trusts the server's key, whose
@@ -513,7 +515,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   its client's ALPN asks for, and a client with `h3` fetches over h3. A server with `h3` serves h3
   alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
   connections and writes no qlog; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
-  it. An address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh`
+  it. With `routes=github` too, `server.router` answers every request over the GitHub API's routes
+  in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). An address is IPv4
+  or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh`
   runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
   checks each file arrives octet for octet, that a missing one is refused, that a client with
   `chacha20` runs TLS_CHACHA20_POLY1305_SHA256, and that a second connection resumes the first one's

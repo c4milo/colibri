@@ -24,6 +24,7 @@ const udp_arguments = @import("udp_arguments.zig");
 const udp_identity = @import("udp_identity.zig");
 const udp_h3_files = @import("udp_h3_files.zig");
 const udp_qlog = @import("udp_qlog.zig");
+const server_routes = @import("../../server/server_routes.zig");
 
 const Endpoint = udp_h3_files.Endpoint;
 
@@ -47,22 +48,15 @@ var qlogs: [constants.quic_connections_max]udp_qlog.Qlog align(@alignOf(udp_qlog
 var qlog_in_use: [constants.quic_connections_max]bool = @splat(false);
 var qlog_directory: ?[]const u8 = null;
 var log_context: u8 = 0;
+/// The router of `routes=github`, which answers every request in place of `files` (design §8 step
+/// 13f).
+var route_pool: server_routes.Pool align(@alignOf(server_routes.Pool)) = undefined;
 const log_vtable: server.LogProvider.VTable = .{ .open = open_log, .close = close_log };
 
 /// Serves until the run is over: with `once`, the first connection's end; without it, the ticks
 /// running out.
 pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64) void {
-    qlog_directory = asked.qlogdir;
-    endpoint_config = .{
-        .tls = udp_identity.server_identity(),
-        .ecn = asked.ecn,
-        .idle_timeout_ms = constants.quic_idle_timeout_ms,
-        .switch_to = asked.switch_to,
-        .retry = if (asked.retry) udp_identity.retry_config() else null,
-        .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
-    };
-    endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns) catch |failure| fail("the endpoint did not start: {t}", .{failure});
-    for (&files) |*held| held.init(asked.www);
+    start(asked, started_ns);
     for (0..constants.quic_run_ticks_max) |_| {
         const ready = socket.tick(&events, wait_ns(socket)) catch |failure| fail("the tick failed: {t}", .{failure});
         const now_ns = socket.now_ns();
@@ -77,6 +71,22 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
     close_logs();
     socket.close() catch |failure| fail("the socket did not close: {t}", .{failure});
     std.debug.print("quic-udp: served {d} files, {d} connection errors\n", .{ served, connection_errors });
+}
+
+/// Starts the endpoint, the files of `<www>` and, with `routes=github`, the router's pool.
+fn start(asked: udp_arguments.Server, started_ns: u64) void {
+    qlog_directory = asked.qlogdir;
+    endpoint_config = .{
+        .tls = udp_identity.server_identity(),
+        .ecn = asked.ecn,
+        .idle_timeout_ms = constants.quic_idle_timeout_ms,
+        .switch_to = asked.switch_to,
+        .retry = if (asked.retry) udp_identity.retry_config() else null,
+        .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
+    };
+    endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns) catch |failure| fail("the endpoint did not start: {t}", .{failure});
+    for (&files) |*held| held.init(asked.www);
+    if (asked.routes) route_pool = .{};
 }
 
 /// How long the next tick may wait: until the endpoint's next deadline, and never longer than
@@ -111,7 +121,11 @@ fn take(asked: udp_arguments.Server, input: server.Input, now_ns: u64) void {
             // A QUIC connection owes no `send` or `close`, and the run never shuts the endpoint
             // down.
             .send, .close, .closed => unreachable,
-            inline else => |carried| files[carried.id.connection.slot].on_event(&endpoint, reported),
+            inline else => |carried| if (asked.routes) {
+                var context: void = {};
+                const handled = route_pool.handle(&context, &endpoint, reported);
+                std.debug.assert(handled == .taken);
+            } else files[carried.id.connection.slot].on_event(&endpoint, reported),
         }
     }
 }

@@ -4933,12 +4933,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       one core. colibri's test-only server routes through `server.router` with `--routes github`.
       The competitors are Go's net/http with chi (`GOMAXPROCS=1`), Rust's axum on a single-thread
       tokio runtime, http.zig with its router and one worker, and Node's Fastify, each pinned in
-      `bench/competitors/`.
-    - **The load.** oha, pinned by release and SHA-256, sends GET requests over the 131 GET routes
+      `bench/competitors/`. Over h3, which the owner added on 2026-10-26, colibri's test-only UDP
+      server routes with `h3 routes=github`, chi serves through quic-go's `http3.Server`, and axum
+      through quinn and the `h3` crate. http.zig and Fastify have no h3.
+    - **The load.** oha, pinned by release and commit, sends GET requests over the 131 GET routes
       at fixed rates with `--latency-correction`, so the latency holds the queue time that
       coordinated omission hides. It sends h11, and h2 in cleartext with prior knowledge to every
-      server but http.zig, which has no h2. Every server gets 32 requests in flight: 32 h11
-      connections, or 8 h2 connections of 4 streams. On its one core colibri's server runs one
+      server but http.zig, which has no h2, and h3 over TLS to the three servers that speak it.
+      oha's release builds have no h3, so the script builds oha from its tag with the `http3`
+      feature. Every server gets 32 requests in flight: 32 h11 connections, or 8 h2 or h3
+      connections of 4 streams. On its one core colibri's server runs one
       worker, which holds `connections_per_worker_max`, 32, connections at once, and a 33rd waits
       unaccepted, which a load of 64 connections showed. At each rate the report gives p50, p99 and
       p99.9, and for each server the highest rate whose p99 stays under 10 ms.
@@ -4956,6 +4960,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         container on a laptop, on 2026-10-26, measured every server and wrote the report. Its
         numbers are not the judge's: at 80,000 req/s each server reached about 40,000, which may
         be oha's own ceiling on two cores, and the judge's run tells.
+      - 13f.4: h3, with the UDP server's `routes=github` word, which `server.router` answers
+        through `server.Endpoint` in place of the files of `<www>`. The word needs `h3`. Three
+        mutations, all CAUGHT: the check of the two words always passes, `routes=github` sets
+        `h3`, and the last word returns before the check. On a laptop, oha built from source got
+        200 over h3 from colibri, chi and axum.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,

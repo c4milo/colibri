@@ -9,4 +9,13 @@ publish = false
 
 [dependencies]
 axum = { version = "=0.8.6", default-features = false, features = ["http1", "http2", "tokio"] }
-tokio = { version = "1", features = ["rt", "net"] }
+tokio = { version = "1", features = ["rt", "net", "time"] }
+# h3 for the latency inputs (design §8 step 13f): quinn and the h3 crate, with rustls on ring.
+bytes = "1"
+h3 = "=0.0.8"
+h3-quinn = "=0.0.10"
+http = "1"
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
+tower = { version = "0.5", features = ["util"] }

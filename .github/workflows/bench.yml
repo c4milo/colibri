@@ -8,7 +8,7 @@
 # the UDP server answers the load over h3 too, and with `competitors` and `h3`, so does quic-go's
 # server from its image (design §8 step 13d). With `latency`, bench/run.sh --latency measures the
 # throughput and the latency of servers that route, colibri's and chi's, axum's, http.zig's and
-# Fastify's, at fixed rates under oha (design §8 step 13f). The work is bench/run.sh, which a person on Linux
+# Fastify's, at fixed rates under oha, over h11, h2 and h3 (design §8 step 13f). The work is bench/run.sh, which a person on Linux
 # with perf runs for the same answer; this file only installs what it needs.
 name: bench
 on:

@@ -1,9 +1,10 @@
 // Go's net/http with chi, one of the servers of colibri's request benchmark (design §8 step 13f),
 // as bench/run.sh --latency starts it: GOMAXPROCS=1, the routes of --routes registered with chi,
 // and every route answered with 200 and "ok\n". It serves h11, and h2 in cleartext with prior
-// knowledge, on one port.
+// knowledge, on one port. With --h3 it serves h3 instead, on UDP, through quic-go's http3.Server,
+// over the TLS identity whose <prefix>.chain.pem and <prefix>.key.pem --tls names.
 //
-//	colibri-bench-chi --port <port> --routes <routes file>
+//	colibri-bench-chi --port <port> --routes <routes file> [--h3 --tls <prefix>]
 package main
 
 import (
@@ -17,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/quic-go/quic-go/http3"
 )
 
 var answer = []byte("ok\n")
@@ -41,6 +43,8 @@ func braces(path string) string {
 func main() {
 	port := flag.Int("port", 0, "the port to listen on")
 	routes := flag.String("routes", "", "the routes file, one \"METHOD /path\" on each line")
+	h3 := flag.Bool("h3", false, "serve h3 on UDP instead of h11 and h2 on TCP")
+	tls := flag.String("tls", "", "the prefix of the TLS identity h3 serves")
 	flag.Parse()
 	runtime.GOMAXPROCS(1)
 	file, err := os.Open(*routes)
@@ -54,6 +58,10 @@ func main() {
 		mux.MethodFunc(parts[0], braces(parts[1]), ok)
 	}
 	file.Close()
+	if *h3 {
+		serveH3(*port, *tls, mux)
+		return
+	}
 	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 	if err != nil {
 		panic(err)
@@ -65,6 +73,19 @@ func main() {
 	protocols.SetUnencryptedHTTP2(true)
 	server.Protocols = &protocols
 	if err := server.Serve(listener); err != nil {
+		panic(err)
+	}
+}
+
+// serveH3 serves h3 on UDP port `port` through quic-go, until the process is stopped.
+func serveH3(port int, prefix string, handler http.Handler) {
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("listening on port %d\n", conn.LocalAddr().(*net.UDPAddr).Port)
+	server := &http3.Server{Handler: handler}
+	if err := server.ServeListener(listenerOf(conn, prefix)); err != nil {
 		panic(err)
 	}
 }
