@@ -50,22 +50,33 @@ pub const Requests = struct {
         assert(requests.of(stream_id) == null);
         for (&requests.records) |*record| {
             if (record.in_use) continue;
-            record.* = .{
-                .in_use = true,
-                .stream_id = stream_id,
-                .ended = false,
-                .answered = false,
-                .finished = false,
-                .over = false,
-                .continue_owed = false,
-                .response = undefined,
-                .asked = .{},
-                .coded = null,
-            };
+            make_record(record, stream_id);
             record.response.init();
             return record;
         }
         return null;
+    }
+
+    /// Writes a fresh record for the request on `stream_id` and leaves its response pieces as
+    /// they are. ReleaseSafe fills a field written as `undefined` with 0xAA, which for
+    /// `quic_response.Pieces` is its 8 KiB of kept frames and its run table on every request.
+    /// Runtime safety is off in this function alone, at the owner's ruling of 2026-10-26.
+    /// `Pieces.init` then writes every field a read reaches, which `quic_response.zig`'s tests
+    /// hold: pieces read the same whatever their storage held before.
+    fn make_record(record: *Request, stream_id: u64) void {
+        @setRuntimeSafety(false);
+        record.* = .{
+            .in_use = true,
+            .stream_id = stream_id,
+            .ended = false,
+            .answered = false,
+            .finished = false,
+            .over = false,
+            .continue_owed = false,
+            .response = undefined,
+            .asked = .{},
+            .coded = null,
+        };
     }
 
     /// The record of the request on `stream_id`, or null.

@@ -167,3 +167,40 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     test_keep(pieces, "END");
     try testing.expectEqualStrings("END", output[0..pieces.read(24, &output)]);
 }
+
+/// The offsets `run_pieces` releases below and reads from, as the second test does. Test-only.
+const partly_acknowledged: u64 = 6;
+const after_head: u64 = 4;
+const after_release: u64 = 24;
+
+/// Runs the second test's steps over `pieces` and writes each read into `record`. Test-only.
+fn run_pieces(pieces: *Pieces, record: []u8) usize {
+    pieces.init();
+    test_keep(pieces, "HEAD");
+    pieces.add_caller("hello");
+    test_keep(pieces, "DH");
+    pieces.add_caller("world");
+    var at = pieces.read(0, record);
+    _ = pieces.release_below(partly_acknowledged);
+    test_keep(pieces, "TRAILERS");
+    at += pieces.read(after_head, record[at..]);
+    _ = pieces.release_below(pieces.end);
+    test_keep(pieces, "END");
+    at += pieces.read(after_release, record[at..]);
+    return at;
+}
+
+test "pieces read the same whatever their storage held before init" {
+    // `quic_request.zig`'s `make_record` leaves the pieces' octets unfilled, so `init` must write
+    // every field a read reaches.
+    const fills = [_]u8{ 0x00, 0xff, 0xaa };
+    var first: [64]u8 = undefined;
+    @memset(std.mem.asBytes(&test_pieces), fills[0]);
+    const first_len = run_pieces(&test_pieces, &first);
+    try testing.expectEqualStrings("HEADhelloDHworldhelloDHworldTRAILERSEND", first[0..first_len]);
+    for (fills[1..]) |fill| {
+        var again: [64]u8 = undefined;
+        @memset(std.mem.asBytes(&test_pieces), fill);
+        try testing.expectEqualStrings(first[0..first_len], again[0..run_pieces(&test_pieces, &again)]);
+    }
+}
