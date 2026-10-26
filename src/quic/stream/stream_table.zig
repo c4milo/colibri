@@ -171,10 +171,12 @@ pub const Streams = struct {
         return streams.pool.len();
     }
 
-    /// The stream `id` names, or why there is none.
+    /// The stream `id` names, or why there is none. An identifier above its type's watermark was
+    /// never opened, so the pool holds no entry for it (invariant 13). That answer comes first,
+    /// because it reads no entry, and every new stream gets it.
     pub fn lookup(streams: *Streams, id: StreamId) Lookup {
-        if (streams.pool.get(id.value)) |stream| return .{ .live = stream };
         if (streams.pool.is_above_watermark(id.value)) return .unopened;
+        if (streams.pool.get(id.value)) |stream| return .{ .live = stream };
         return .closed;
     }
 
