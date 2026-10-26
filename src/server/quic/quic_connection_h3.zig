@@ -21,6 +21,7 @@ const quic_continue = @import("quic_continue.zig");
 const resets = @import("quic_connection_resets.zig");
 const coding_rules = @import("../coding/coding_rules.zig");
 const coding_fields = @import("../coding/coding_fields.zig");
+const coding_response = @import("../coding/coding_response.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
@@ -249,8 +250,21 @@ pub fn respond(connection: *QuicConnection, id: Number, response: event.Response
     if (status < status_min or status > status_max or status == switching_protocols) return error.StatusInvalid;
     // RFC 9110 §15: one final response answers a request, after any interim ones.
     if (record.answered) return error.SectionOutOfOrder;
+    if (quic_coding.plans(connection, response)) return respond_planned(connection, record, response);
+    return send_head(connection, record, response, .{ .fields = response.headers, .slot = null });
+}
+
+/// A final response on a connection that codes, with its head as decision 101 plans it. The
+/// rewritten field lines live in this frame alone, so a response that `plans` passes over does not
+/// pay for the room: a safe build fills `undefined` memory on every call.
+fn respond_planned(connection: *QuicConnection, record: *Request, response: event.Response) SendError!void {
     var rewritten: coding_fields.Rewritten = undefined;
-    const head = try quic_coding.plan_head(connection, record, response, &rewritten);
+    return send_head(connection, record, response, try quic_coding.plan_head(connection, record, response, &rewritten));
+}
+
+/// Writes `head` as the response's HEADERS frame, and records what the response owes next.
+fn send_head(connection: *QuicConnection, record: *Request, response: event.Response, head: coding_response.Head) SendError!void {
+    const status = response.status;
     errdefer if (head.slot) |slot| connection.config.encoders.?.give_back(slot);
     try build_section(connection, status, head.fields);
     try keep_head(connection, record, .response);

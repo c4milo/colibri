@@ -19,12 +19,16 @@ const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
 const SendError = quic_connection.SendError;
 
-/// The head `response` goes out with: the caller's for an interim response or when the connection
-/// codes nothing, and as decision 101 plans it for a final one.
+/// Whether decision 101 plans `response`'s head: a final response on a connection that codes. Any
+/// other head goes out as the caller wrote it, and needs no room for rewritten field lines.
+pub fn plans(connection: *const QuicConnection, response: event.Response) bool {
+    return connection.config.encoders != null and response.status >= final_min;
+}
+
+/// The head a response that `plans` passes goes out with, as decision 101 plans it.
 pub fn plan_head(connection: *QuicConnection, record: *const Request, response: event.Response, into: *coding_fields.Rewritten) coding_fields.Error!coding_response.Head {
-    const encoders = connection.config.encoders orelse return .{ .fields = response.headers, .slot = null };
-    if (response.status < final_min) return .{ .fields = response.headers, .slot = null };
-    return coding_response.plan_head(encoders, record.asked, response, into);
+    assert(plans(connection, response));
+    return coding_response.plan_head(connection.config.encoders.?, record.asked, response, into);
 }
 
 const final_min: u16 = 200;
