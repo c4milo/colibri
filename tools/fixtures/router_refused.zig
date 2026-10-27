@@ -5,6 +5,7 @@
 //!
 //! The table `accepted` must compile. Each other table must fail to compile, with the refusal of
 //! its name. In a refused table the first entry is valid, so the message must name route 1.
+const std = @import("std");
 const server = @import("server");
 const http = @import("http");
 const case = @import("router_case").case;
@@ -81,6 +82,10 @@ const tables = struct {
     pub const middleware_on_finished = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.FinishedLate} } } };
     pub const middleware_on_finished_parameters = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.FinishedParameters} } } };
     pub const middleware_on_request_parameters = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.RequestParameters} } } };
+    pub const middleware_state_defaults = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.WrapDefaults} } } };
+    pub const middleware_wrap_body = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.WrapBody} } } };
+    pub const middleware_wrap_response = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.WrapResponse} } } };
+    pub const middleware_finish_response = .{ valid, .{ .get, "/a", route, .{ .middleware = .{handlers.FinishAlone} } } };
     pub const route_table_shape = .{ .whole_table = 42 };
     pub const routes_missing = .{ .whole_table = .{ .error_handler = on_error } };
     pub const table_field_unknown = .{ .whole_table = .{ .error_handler = on_error, .routes = .{valid}, .extra = 1 } };
@@ -146,6 +151,26 @@ const handlers = struct {
     const Defaults = struct {
         pub const State = struct { count: u8 };
         pub fn on_request(_: *void, _: *State, _: *const Request, _: void, _: void, _: *Writer) !void {}
+    };
+    const WrapDefaults = struct {
+        pub const State = struct { count: u8 };
+        pub fn wrap_body(_: *void, _: *State, _: *const Request, _: *std.Io.Reader) ?*std.Io.Reader {
+            return null;
+        }
+    };
+    const WrapBody = struct {
+        pub fn wrap_body(_: *void, _: *void, _: *const Request, _: *std.Io.Reader) *std.Io.Reader {
+            unreachable;
+        }
+    };
+    const WrapResponse = struct {
+        pub fn wrap_response(_: *void, _: *void, _: *const Request, _: *std.Io.Writer) ?*std.Io.Writer {
+            return null;
+        }
+    };
+    const FinishAlone = struct {
+        pub fn on_finished(_: *void, _: server.RequestId, _: server.Result) void {}
+        pub fn finish_response(_: *void, _: *void) !void {}
     };
 };
 

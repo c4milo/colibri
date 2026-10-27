@@ -33,7 +33,7 @@ pub const content_type = "text/plain; charset=utf-8";
 /// and the greeting it must get back: the server decodes both (decision 127).
 const name = "colibri";
 const named_target = "/greetings/col%69bri?mark=%21";
-const named_greeting = "hello, " ++ name ++ "!\n";
+pub const named_greeting = "hello, " ++ name ++ "!\n";
 
 /// The Allow value of the path "/greeting", whose one route names GET. A HEAD request finds a GET
 /// route, so the value lists HEAD after GET.

@@ -9,7 +9,7 @@ const connection_errors = @import("../connection/connection_errors.zig");
 const heads_max = 8;
 const body_len_max = 256;
 
-/// An endpoint that records each head, the body bytes, the words and the cancels. `room` is how
+/// An endpoint that records each head, the body bytes, the trailers, the words and the cancels. `room` is how
 /// many body bytes it takes before it blocks. Test-only.
 pub const Recorder = struct {
     heads: [heads_max]event.Response = undefined,
@@ -20,6 +20,9 @@ pub const Recorder = struct {
     ended: bool = false,
     user_data: usize = 0,
     cancelled: usize = 0,
+    /// The name and the value of the last trailer section's first line.
+    trailer_name: []const u8 = "",
+    trailer_value: []const u8 = "",
     room: usize = std.math.maxInt(usize),
 
     pub fn respond(recorder: *Recorder, _: event.RequestId, response: event.Response) connection_errors.SendError!void {
@@ -40,7 +43,13 @@ pub const Recorder = struct {
         return taken;
     }
 
-    pub fn write_trailers(_: *Recorder, _: event.RequestId, _: []const http.Field) connection_errors.SendError!void {}
+    pub fn write_trailers(recorder: *Recorder, _: event.RequestId, headers: []const http.Field) connection_errors.SendError!void {
+        if (headers.len > 0) {
+            recorder.trailer_name = headers[0].name;
+            recorder.trailer_value = headers[0].value;
+        }
+        recorder.ended = true;
+    }
 
     pub fn set_user_data(recorder: *Recorder, _: event.RequestId, user_data: usize) error{RequestUnknown}!void {
         recorder.user_data = user_data;

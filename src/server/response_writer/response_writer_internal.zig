@@ -14,6 +14,10 @@ const ResponseWriter = @import("response_writer.zig").ResponseWriter;
 /// not take until the request's `writable`. `NoSpaceLeft` here says the entry's memory is full.
 pub const Error = error{Full} || connection_errors.SendError;
 
+/// How a program ended a response whose body a middleware wraps (design §8 step 25.6): not yet,
+/// with `end`, or with `trailers`.
+pub const EndAsked = enum { none, end, trailers };
+
 /// The digits of the largest Content-Length value.
 pub const length_digits_max = std.fmt.count("{d}", .{std.math.maxInt(u64)});
 
@@ -134,6 +138,50 @@ pub fn copy_trailers(response: *ResponseWriter, headers: []const http.Field) Err
     response.writer.buffer = response.memory[first..];
 }
 
+/// Ends the body, and sends what waits.
+pub fn end_now(response: *ResponseWriter) Error!void {
+    try cut(response);
+    close_body(response);
+    if (!response.head_out) add_content_length(response);
+    try push(response);
+}
+
+/// Ends the body with the trailers that `lines` holds after the headers, and sends what waits.
+pub fn trailers_now(response: *ResponseWriter) Error!void {
+    close_body(response);
+    response.trailers_owed = true;
+    try push(response);
+}
+
+/// Ends a wrapped response the way the program asked, once each wrapper wrote what it owes. A
+/// response the program left open ends as `end` ends it.
+pub fn end_wrapped(response: *ResponseWriter) Error!void {
+    assert(response.wrapped != null and !response.ended and response.body_started);
+    if (response.end_asked != .trailers) return end_now(response);
+    try cut(response);
+    return trailers_now(response);
+}
+
+/// Copies the trailers to the end of `response.memory`, where a wrapper's last bytes do not reach,
+/// and keeps the body's writer before them.
+pub fn copy_trailers_last(response: *ResponseWriter, headers: []const http.Field) Error!void {
+    // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
+    if (response.header_count + headers.len > constants.response_headers_max) return error.SectionTooLarge;
+    var total: usize = 0;
+    for (headers) |line| total += line.name.len + line.value.len;
+    // The writer's buffer ends where the memory ends, until the body closes.
+    assert(response.writer.buffer.ptr + response.writer.buffer.len == response.memory.ptr + response.memory.len);
+    if (total > response.writer.buffer.len - response.writer.end) return error.NoSpaceLeft;
+    var first = response.memory.len - total;
+    for (headers, 0..) |line, index| {
+        const copied = try copy_line(response, first, line.name, line.value);
+        response.lines[response.header_count + index] = copied.field;
+        first = copied.end;
+    }
+    response.trailer_count = @intCast(headers.len);
+    response.writer.buffer = response.writer.buffer[0 .. response.writer.buffer.len - total];
+}
+
 /// Adds Content-Length to a head that carries the whole body, unless the program set one, the
 /// head has no room, or the status forbids it.
 pub fn add_content_length(response: *ResponseWriter) void {
@@ -223,7 +271,8 @@ fn wait_or(failure: connection_errors.SendError) Error!bool {
 
 /// The body writer's drain: it sends what the writer holds, then copies what fits of `data` into
 /// the memory after it. Memory the endpoint may still read is never written again (decision 103).
-/// After `end` the buffer is empty, so every write fails.
+/// Before the body starts and after `end` the buffer is empty, so every write fails: a wrapper
+/// writes nothing while the headers are open (design §8 step 25.6).
 fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
     const response: *ResponseWriter = @alignCast(@fieldParentPtr("writer", writer));
     cut(response) catch return error.WriteFailed;

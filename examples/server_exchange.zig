@@ -121,6 +121,9 @@ var accepted: server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) =
 const App = struct {
     requests: u32 = 0,
     done: u32 = 0,
+    /// The responses `Counted` wrapped, and the body bytes the routes wrote through it.
+    counted: u32 = 0,
+    body_bytes: usize = 0,
 };
 var app: App align(@alignOf(App)) = .{};
 
@@ -128,7 +131,7 @@ var app: App align(@alignOf(App)) = .{};
 /// table with a conflict, does not compile.
 const routes = server.router(App, .{
     .error_handler = on_error,
-    .middleware = .{Brand},
+    .middleware = .{ Brand, Counted },
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
@@ -368,6 +371,35 @@ const Brand = struct {
     }
 };
 
+/// A middleware that wraps each response's body writer: it counts the bytes a route writes, and
+/// writes them on unchanged. Its `State` lives in the request's pool entry. A middleware that
+/// codes a body, such as gzip, wraps the writer the same way, and writes what it owes at the end,
+/// such as its last block, in `finish_response`.
+const Counted = struct {
+    pub const State = struct {
+        writer: std.Io.Writer = undefined,
+        inner: *std.Io.Writer = undefined,
+        bytes: usize = 0,
+    };
+
+    pub fn wrap_response(_: *App, state: *State, _: *const server.Request, _: *server.ResponseWriter, inner: *std.Io.Writer) ?*std.Io.Writer {
+        state.* = .{ .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{} }, .inner = inner };
+        return &state.writer;
+    }
+
+    pub fn finish_response(app_state: *App, state: *State) !void {
+        app_state.counted += 1;
+        app_state.body_bytes += state.bytes;
+    }
+
+    fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        const state: *State = @alignCast(@fieldParentPtr("writer", writer));
+        const written = try state.inner.writeSplat(data, splat);
+        state.bytes += written;
+        return written;
+    }
+};
+
 /// Chooses the status after a route's error. No route of this server returns one.
 fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
     response.status = 500;
@@ -421,18 +453,23 @@ fn sleep_ns() u64 {
 /// The sockets the server accepts, the QUIC connection, and the requests the clients send.
 const connections_count = 3;
 const requests_count = 6;
+/// The responses a route wrote, through `Counted`: the greeting over TCP and over QUIC, the note,
+/// and the greeting to a name. The router answers the other two itself.
+const routed_count = 4;
+const routed_bytes = 2 * greeting.len + note.len + peers.named_greeting.len;
 
 /// The clients saw what the server sent. The server saw each response done, one `close`, and
 /// every connection end, the QUIC one at its idle deadline.
 fn check() Error!void {
-    const answered = app.requests == requests_count and app.done == requests_count;
+    const answered = app.requests == requests_count and app.done == requests_count and
+        app.counted == routed_count and app.body_bytes == routed_bytes;
     const over = closes == 1 and connections_ended == connections_count and idle_ended == 1;
     if (peers.check() and answered and over) {
         std.debug.print("server_exchange: every octet arrived as sent\n", .{});
         return;
     }
-    std.debug.print("server_exchange: requests {d}, done {d}, closes {d}, ended {d}, idle {d}\n", .{
-        app.requests, app.done, closes, connections_ended, idle_ended,
+    std.debug.print("server_exchange: requests {d}, done {d}, counted {d}, bytes {d}, closes {d}, ended {d}, idle {d}\n", .{
+        app.requests, app.done, app.counted, app.body_bytes, closes, connections_ended, idle_ended,
     });
     return error.ExchangeWrong;
 }

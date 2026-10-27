@@ -520,7 +520,7 @@ program places:
 ```zig
 const routes = server.router(App, .{
     .error_handler = on_error,
-    .middleware = .{Brand},
+    .middleware = .{ Brand, Counted },
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
@@ -669,8 +669,53 @@ const Brand = struct {
 
 `on_finished` runs when the request ends, with its id and its result, in the reverse order, for
 each middleware the chain reached. It holds what a framework whose middleware wraps the next one
-runs after `next()` returns, such as an access log. A middleware declares `on_request`,
-`on_finished` or both.
+runs after `next()` returns, such as an access log.
+
+A middleware can also wrap the bytes of a body (design §8 step 25.6). `wrap_body` gets the reader
+of the request body and returns another, which the next middleware wraps and the route's `on_body`
+reads. `wrap_response` does the same for the writer that the route's `body()` returns, and may add
+a header, such as Content-Encoding. Each runs at the head, after the middleware's `on_request`
+returns `.next`, and null keeps the reader or the writer it got. A wrapper writes nothing before
+the route starts the body, because the headers are still open. A middleware keeps its wrapper in
+its `State`, which the request's pool entry holds, and each field of a `State` has a default
+value, which each request starts from.
+
+When the route ends a wrapped response, the router calls each `finish_response` from the route's
+side outward, so a wrapper writes what it owes at the end, such as a gzip trailer. It flushes the
+writer of a middleware that declares none. Then the router ends the response, so Content-Length
+counts the bytes the wrappers wrote. An error of `finish_response` cancels the request.
+`write_kept` copies its bytes through the wrapper. The server example counts the bytes of each
+response:
+
+```zig
+const Counted = struct {
+    pub const State = struct {
+        writer: std.Io.Writer = undefined,
+        inner: *std.Io.Writer = undefined,
+        bytes: usize = 0,
+    };
+
+    pub fn wrap_response(_: *App, state: *State, _: *const server.Request, _: *server.ResponseWriter, inner: *std.Io.Writer) ?*std.Io.Writer {
+        state.* = .{ .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{} }, .inner = inner };
+        return &state.writer;
+    }
+
+    pub fn finish_response(app_state: *App, state: *State) !void {
+        app_state.counted += 1;
+        app_state.body_bytes += state.bytes;
+    }
+
+    fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+        const state: *State = @alignCast(@fieldParentPtr("writer", writer));
+        const written = try state.inner.writeSplat(data, splat);
+        state.bytes += written;
+        return written;
+    }
+};
+```
+
+A middleware declares one or more of `on_request`, `on_finished`, `wrap_body` and
+`wrap_response`, and `finish_response` only beside `wrap_response`.
 
 ### Query
 

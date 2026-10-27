@@ -9,6 +9,7 @@ const ResponseWriter = @import("../response_writer/response_writer.zig").Respons
 const router_pattern = @import("router_pattern.zig");
 const router_call = @import("router_call.zig");
 const middleware = @import("../middleware.zig");
+const router_wrap = @import("router_wrap.zig");
 
 /// Why the router refuses a route's handler. Each name is the one the compile error writes.
 pub const Reason = enum {
@@ -33,6 +34,10 @@ pub const Reason = enum {
     middleware_hooks,
     middleware_on_request,
     middleware_on_finished,
+    middleware_state_defaults,
+    middleware_wrap_body,
+    middleware_wrap_response,
+    middleware_finish_response,
 
     /// The sentence that the compile error writes after the name. Comptime-only.
     pub fn sentence(reason: Reason) []const u8 {
@@ -55,9 +60,13 @@ pub const Reason = enum {
             .option_unknown => "a route's options are whole_body and middleware",
             .whole_body_unread => "whole_body needs a struct route with on_body",
             .middleware_type => "middleware is a tuple of structs (decision 127 ruling 5)",
-            .middleware_hooks => "a middleware declares on_request, on_finished or both (decision 127 ruling 5)",
+            .middleware_hooks => "a middleware declares one or more of on_request, on_finished, wrap_body and wrap_response (decision 127 ruling 5)",
             .middleware_on_finished => "a middleware's on_finished takes the context, server.RequestId and server.Result, and returns void",
             .middleware_on_request => "a middleware's on_request takes the context, *const server.Request and *server.ResponseWriter, and returns server.middleware.Next",
+            .middleware_state_defaults => "each field of a middleware's State has a default value, which each request starts from",
+            .middleware_wrap_body => "wrap_body takes the context, *State, *const server.Request and *std.Io.Reader, and returns ?*std.Io.Reader",
+            .middleware_wrap_response => "wrap_response takes the context, *State, *const server.Request, *server.ResponseWriter and *std.Io.Writer, and returns ?*std.Io.Writer",
+            .middleware_finish_response => "finish_response goes with wrap_response, takes the context and *State, and returns an error union of void",
         };
     }
 };
@@ -125,18 +134,42 @@ fn chain_refusal(comptime Context: type, comptime chain: anytype) ?Reason {
 fn hooks_refusal(comptime Context: type, comptime Middleware: type) ?Reason {
     const requested = @hasDecl(Middleware, "on_request");
     const finished = @hasDecl(Middleware, "on_finished");
-    if (!requested and !finished) return .middleware_hooks;
+    if (!requested and !finished and !router_wrap.wraps(Middleware)) return .middleware_hooks;
+    if (state_refusal(router_wrap.StateOf(Middleware)) != null) return .middleware_state_defaults;
+    if (wrap_refusal(Context, Middleware)) |reason| return reason;
     if (requested) {
-        const on_request = @typeInfo(@TypeOf(Middleware.on_request));
-        if (on_request != .@"fn" or !takes_types(on_request.@"fn", &.{ *Context, *const event.Request, *ResponseWriter })) return .middleware_on_request;
-        if (!returns(on_request.@"fn".return_type.?, middleware.Next)) return .middleware_on_request;
+        if (!fits(@TypeOf(Middleware.on_request), &.{ *Context, *const event.Request, *ResponseWriter }, middleware.Next, true)) return .middleware_on_request;
     }
     if (finished) {
-        const on_finished = @typeInfo(@TypeOf(Middleware.on_finished));
-        if (on_finished != .@"fn" or !takes_types(on_finished.@"fn", &.{ *Context, event.RequestId, event.Result })) return .middleware_on_finished;
-        if (on_finished.@"fn".return_type.? != void) return .middleware_on_finished;
+        if (!fits(@TypeOf(Middleware.on_finished), &.{ *Context, event.RequestId, event.Result }, void, false)) return .middleware_on_finished;
     }
     return null;
+}
+
+/// The first refusal of a middleware's `wrap_body`, `wrap_response` and `finish_response`, or
+/// null (design §8 step 25.6).
+fn wrap_refusal(comptime Context: type, comptime Middleware: type) ?Reason {
+    const Stated = router_wrap.StatePointer(Middleware);
+    if (@hasDecl(Middleware, "wrap_body")) {
+        if (!fits(@TypeOf(Middleware.wrap_body), &.{ *Context, Stated, *const event.Request, *std.Io.Reader }, ?*std.Io.Reader, false)) return .middleware_wrap_body;
+    }
+    if (@hasDecl(Middleware, "wrap_response")) {
+        if (!fits(@TypeOf(Middleware.wrap_response), &.{ *Context, Stated, *const event.Request, *ResponseWriter, *std.Io.Writer }, ?*std.Io.Writer, false)) return .middleware_wrap_response;
+    }
+    if (@hasDecl(Middleware, "finish_response")) {
+        if (!@hasDecl(Middleware, "wrap_response")) return .middleware_finish_response;
+        if (!takes(Middleware.finish_response, &.{ *Context, Stated })) return .middleware_finish_response;
+    }
+    return null;
+}
+
+/// Whether `Hook` is a function that takes exactly `types` and returns `Return`, or an error union
+/// of it when `fallible` is true.
+fn fits(comptime Hook: type, comptime types: []const type, comptime Return: type, comptime fallible: bool) bool {
+    const info = @typeInfo(Hook);
+    if (info != .@"fn" or !takes_types(info.@"fn", types)) return false;
+    const returned = info.@"fn".return_type.?;
+    return if (fallible) returns(returned, Return) else returned == Return;
 }
 
 /// Whether `info`'s parameters are exactly `types`.

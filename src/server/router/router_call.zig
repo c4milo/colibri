@@ -7,6 +7,7 @@ const http = @import("http");
 const event = @import("../event.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
+const router_wrap = @import("router_wrap.zig");
 
 /// A route's parts: the method, the pattern, the handler, then the options, which may be absent.
 pub const handler_part = 2;
@@ -132,10 +133,13 @@ pub const Passed = union(enum) {
 };
 
 /// Calls each middleware of `chain` that declares `on_request`, in order, until one answers or
-/// fails. `ran` counts the middleware the chain reached, the one that answered or failed included,
-/// whose `on_finished` the router calls when the request ends.
-pub fn run_chain(comptime chain: anytype, context: anytype, request: *const event.Request, response: *ResponseWriter, ran: *u16) Passed {
+/// fails, and the wrappers of each that returned `.next`. `ran` counts the middleware the chain
+/// reached, the one that answered or failed included, whose `on_finished` the router calls when the
+/// request ends. `kept` holds the chain's `states` and what its wrappers gave, `held`
+/// (`router_wrap.zig`).
+pub fn run_chain(comptime chain: anytype, context: anytype, request: *const event.Request, response: *ResponseWriter, ran: *u16, kept: anytype) Passed {
     comptime std.debug.assert(chain.len <= std.math.maxInt(u16));
+    router_wrap.reset(chain, kept.states);
     inline for (0..chain.len) |index| {
         const Middleware = chain[index];
         ran.* = index + 1;
@@ -144,6 +148,7 @@ pub fn run_chain(comptime chain: anytype, context: anytype, request: *const even
             const next = if (@typeInfo(@TypeOf(result)) == .error_union) (result catch |failure| return .{ .failed = failure }) else result;
             if (next == .answered) return .answered;
         }
+        router_wrap.wrap(chain, index, context, kept.states, kept.held, request, response);
     }
     return .next;
 }

@@ -19,6 +19,7 @@ const ResponseWriter = @import("../response_writer/response_writer.zig").Respons
 const writer_internal = @import("../response_writer/response_writer_internal.zig");
 const router_call = @import("router_call.zig");
 const router_body = @import("router_body.zig");
+const router_wrap = @import("router_wrap.zig");
 
 /// The sizes of a router's pool.
 pub const Options = struct {
@@ -57,6 +58,7 @@ const writable_calls_max = constants.response_pieces_max;
 pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime RouteOf: type, comptime TableOf: type, comptime options_of: Options) type {
     comptime assert(options_of.requests > 0);
     const state_layout = state_layout_of(table_of.routes);
+    const wrap_layout = router_wrap.layout_of(table_of);
     const EntryOf = struct {
         used: bool = false,
         route: RouteOf = undefined,
@@ -66,6 +68,9 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
         body: router_body.Body(options_of.body_bytes) = .{},
         /// The middleware of the request's chain that ran, whose `on_finished` runs at its end.
         chain_ran: u16 = 0,
+        /// The state of each middleware of the request's chain, and what their wrappers gave.
+        middleware_states: [wrap_layout.size]u8 align(wrap_layout.alignment) = undefined,
+        held: router_wrap.Held(wrap_layout.chain_max) = .{},
     };
     return struct {
         entries: [options_of.requests]EntryOf = @splat(.{}),
@@ -132,6 +137,7 @@ fn start(comptime P: type, pool: *P, context: *P.Context, endpoint: anytype, req
     entry.body.delivered = false;
     entry.body.cursor = .{ .ended = request.end };
     writer_internal.init(&entry.response, writer_internal.Sink.of(@TypeOf(endpoint.*), endpoint), request.id, &entry.memory);
+    entry.held = .{ .reader = &entry.body.cursor.reader };
     switch (route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
@@ -140,7 +146,7 @@ fn start(comptime P: type, pool: *P, context: *P.Context, endpoint: anytype, req
             if (!run_chain(P, @intFromEnum(tag), entry, context, endpoint, request)) return;
             const outcome = router_call.call_on_request(handler, context, state, request, &pool.parameters, &pool.query, &entry.response);
             if (!after(P, entry, context, endpoint, request, outcome)) return;
-            if (comptime !router_call.is_struct(handler)) return finish(endpoint, &entry.response);
+            if (comptime !router_call.is_struct(handler)) return finish(P, entry, context, endpoint);
             if (request.end) on_body(P, entry, context, endpoint, "", true);
         },
     }
@@ -170,7 +176,7 @@ fn on_body(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: any
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
             if (comptime !router_call.has(handler, "on_body")) return body_ended(P, entry, context, endpoint, handler, end);
-            const outcome = read_body(P, @intFromEnum(tag), entry, context, bytes, end) catch return refuse_body(P, entry, endpoint);
+            const outcome = read_body(P, @intFromEnum(tag), entry, context, bytes, end) catch return refuse_body(P, entry, context, endpoint);
             if (!after(P, entry, context, endpoint, null, outcome)) return;
             body_ended(P, entry, context, endpoint, handler, end);
         },
@@ -184,8 +190,9 @@ fn read_body(comptime P: type, comptime index: usize, entry: *P.Entry, context: 
     if (whole or entry.body.held_len > 0) try entry.body.append(bytes);
     if (whole and !end) return .returned;
     const over_bytes = entry.body.held_len == 0;
-    const reader = entry.body.reader_over(bytes);
-    const outcome = router_call.call_body(handler, context, state_of(P, handler, entry), reader, &entry.response);
+    // Design §8 step 25.6: the route reads through the last wrapper, which reads the held bytes.
+    _ = entry.body.reader_over(bytes);
+    const outcome = router_call.call_body(handler, context, state_of(P, handler, entry), entry.held.reader, &entry.response);
     if (end) {
         entry.body.delivered = true;
         return outcome;
@@ -198,7 +205,7 @@ fn body_ended(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: 
     if (!end) return;
     entry.body.delivered = true;
     if (comptime router_call.has(handler, "on_writable")) return run_writable(P, entry, context, endpoint, handler);
-    finish(endpoint, &entry.response);
+    finish(P, entry, context, endpoint);
 }
 
 fn on_writable(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anytype) void {
@@ -240,11 +247,16 @@ fn on_finished(comptime P: type, entry: *P.Entry, context: *P.Context, finished:
 /// Acts on a call's outcome, and returns whether the router goes on with the request.
 fn after(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anytype, request: ?*const event.Request, outcome: router_call.Outcome) bool {
     switch (outcome) {
-        .returned, .waiting => return true,
+        .returned, .waiting => {
+            // Design §8 step 25.6: the program ended a wrapped response, which ends once the
+            // wrappers finish.
+            if (entry.response.end_asked != .none) finish(P, entry, context, endpoint);
+            return true;
+        },
         .refused => |status| {
             entry.response.status = status;
             entry.body.delivered = true;
-            finish(endpoint, &entry.response);
+            finish(P, entry, context, endpoint);
             return false;
         },
         .failed => |failure| {
@@ -255,17 +267,17 @@ fn after(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anyty
             }
             // Decision 127 ruling 4: the program chooses the status after an error.
             P.table.error_handler(context, request orelse &no_request, failure, &entry.response);
-            finish(endpoint, &entry.response);
+            finish(P, entry, context, endpoint);
             return false;
         },
     }
 }
 
-fn refuse_body(comptime P: type, entry: *P.Entry, endpoint: anytype) void {
+fn refuse_body(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anytype) void {
     entry.body.delivered = true;
     if (entry.response.head_sent()) return endpoint.cancel(entry.response.id);
     entry.response.status = content_too_large;
-    finish(endpoint, &entry.response);
+    finish(P, entry, context, endpoint);
 }
 
 fn state_of(comptime P: type, comptime handler: anytype, entry: *P.Entry) *router_call.StateOf(handler) {
@@ -303,11 +315,12 @@ fn route_options(comptime entry: anytype) router_call.RouteOptions {
 fn run_chain(comptime P: type, comptime index: usize, entry: *P.Entry, context: *P.Context, endpoint: anytype, request: *const event.Request) bool {
     const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[index]);
     if (chain.len == 0) return true;
-    switch (router_call.run_chain(chain, context, request, &entry.response, &entry.chain_ran)) {
+    const kept = .{ .states = @as([*]u8, &entry.middleware_states), .held = &entry.held };
+    switch (router_call.run_chain(chain, context, request, &entry.response, &entry.chain_ran, kept)) {
         .next => return true,
         .answered => {
             entry.body.delivered = true;
-            finish(endpoint, &entry.response);
+            finish(P, entry, context, endpoint);
             return false;
         },
         .failed => |failure| return after(P, entry, context, endpoint, request, .{ .failed = failure }),
@@ -326,10 +339,30 @@ fn state_layout_of(comptime routes: anytype) struct { size: usize, alignment: us
     return .{ .size = size, .alignment = alignment };
 }
 
-/// Ends a response the program left open. An error of the endpoint cancels the request.
-fn finish(endpoint: anytype, response: *ResponseWriter) void {
+/// Ends a response the program left open, or a wrapped one the program ended, once each wrapper
+/// wrote what it owes (design §8 step 25.6). An error of a wrapper or of the endpoint cancels the
+/// request.
+fn finish(comptime P: type, entry: *P.Entry, context: *P.Context, endpoint: anytype) void {
+    @setEvalBranchQuota(P.branch_quota);
+    const response = &entry.response;
     if (response.ended) return;
-    response.end() catch endpoint.cancel(response.id);
+    if (response.wrapped == null) return response.end() catch endpoint.cancel(response.id);
+    // The headers close before a wrapper writes what it owes.
+    if (!response.body_started) writer_internal.start_body(response);
+    switch (entry.route) {
+        inline else => |tag| {
+            const chain = comptime router_call.table_chain(P.table) ++ router_call.entry_chain(P.table.routes[@intFromEnum(tag)]);
+            router_wrap.finish(chain, context, &entry.middleware_states, &entry.held) catch return cancel_wrapped(endpoint, response);
+        },
+    }
+    writer_internal.end_wrapped(response) catch cancel_wrapped(endpoint, response);
+}
+
+/// Cancels a wrapped response that could not end, and marks it ended, so no later call finishes
+/// it again.
+fn cancel_wrapped(endpoint: anytype, response: *ResponseWriter) void {
+    response.ended = true;
+    endpoint.cancel(response.id);
 }
 
 /// Answers a request with no entry: a head with `status`, `headers` and no content. A head the

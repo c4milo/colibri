@@ -11106,14 +11106,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     request, the error and the response writer. Before the head goes out it chooses the status.
     After the head, the router ends or cancels the response itself.
   - **Middleware.** A struct with any of `on_request`, `on_finished`, `wrap_body` and
-    `wrap_response`. `on_request` takes the context, the request and the response's writer, and
-    returns `server.middleware.Next`: `.next` or `.answered`. The chain runs the route table's
-    middleware first, then the route entry's, in table order, one after the other: no middleware
-    calls the next. An error of `on_request` goes to `error_handler`. `on_finished` takes the
-    context, the request's id and its `server.Result`, and runs in the reverse order when the
-    request ends, for each middleware whose turn came, as code after `next()` runs in Express or
-    Go (the owner's ruling of 2026-10-25). A route table holds its middleware in
-    its `middleware` field, and a route entry in its options, as `.{ .middleware = .{Guard} }`. `server.middleware.decode_request` and
+    `wrap_response`, and with `finish_response` beside `wrap_response` (25.6). `on_request` takes
+    the context, the request and the response's writer, and returns `server.middleware.Next`:
+    `.next` or `.answered`. The chain runs the route table's middleware first, then the route
+    entry's, in table order, one after the other: no middleware calls the next. An error of
+    `on_request` goes to `error_handler`. `on_finished` takes the context, the request's id and its
+    `server.Result`, and runs in the reverse order when the request ends, for each middleware whose
+    turn came, as code after `next()` runs in Express or Go (the owner's ruling of 2026-10-25). A
+    route table holds its middleware in its `middleware` field, and a route entry in its options, as
+    `.{ .middleware = .{Guard} }`. `server.middleware.decode_request` and
     `server.middleware.encode_response` are colibri's two, and `Response.codable` and the encoder
     pools leave `server.Config` (decision 101 as amended).
   - **Sub-steps.**
@@ -11129,7 +11130,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - 25.5: middleware with `on_request` and `on_finished`, the route table's and the route
       entry's, and `server.middleware` with `Next`. The struct form's four functions take their
       `on_` names. The refusals of a route table as a whole gain names, as a route entry's have.
-    - 25.6: `wrap_body` and `wrap_response`, `decode_request` and `encode_response`, and the removal
+    - 25.6: a middleware's `State`, `wrap_body`, `wrap_response` and `finish_response`, which the
+      owner approved on 2026-10-26, and the tests of a chain of two wrappers:
+      - Each request's entry holds one `State` for each middleware of its chain, and `memory_bytes`
+        counts them. Each field of a `State` has a default value, as a struct route's does.
+      - `wrap_body(*Context, *State, *const server.Request, *std.Io.Reader) ?*std.Io.Reader`
+        runs at the head, after the middleware's `on_request` returns `.next`. The reader it
+        returns is what the next middleware wraps and what the route's `on_body` reads. Null keeps
+        the reader it got.
+      - `wrap_response(*Context, *State, *const server.Request, *server.ResponseWriter,
+        *std.Io.Writer) ?*std.Io.Writer` does the same for the writer that `body()` returns. It may
+        add a header, such as Content-Encoding. A wrapper writes nothing before the route starts
+        the body, because the headers are still open. `write_kept` then copies its bytes through
+        the writer, because a wrapper must see each byte.
+      - `finish_response(*Context, *State) !void` writes what a wrapper owes at the end, such as a
+        gzip trailer, as `std.compress.flate.Compress.finish` does. With a wrapper, the route's
+        `end` and `trailers` only record that the response ends. When the route's call returns,
+        the router calls each `finish_response` from the route's side outward, or flushes a writer
+        whose middleware declares none, and then ends the response. So Content-Length counts the
+        coded bytes. An error of `finish_response` cancels the request.
+      - The owner ruled the same day that the router runs the chain, and that no middleware calls
+        the next one: a function such as Express's `next()` would return at the head, before the
+        body. Code that runs at the end goes in `on_finished`.
+    - 25.7: `decode_request` and `encode_response`, and the removal
       of `codable` and the encoder pools from `server.Config`. It waits for the `std.Io` adapters of
       stdx's decoders and encoders, which decision 127 places in stdx:
       https://github.com/c4milo/stdx/issues/21. The owner ruled on 2026-10-25 that

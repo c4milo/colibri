@@ -140,4 +140,5 @@ test {
     _ = @import("router_handle_test.zig");
     _ = @import("router_struct_test.zig");
     _ = @import("router_middleware_test.zig");
+    _ = @import("router_wrap_test.zig");
 }

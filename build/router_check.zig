@@ -266,7 +266,7 @@ const cases = [_]Case{
     .{
         .name = "table_middleware_hooks",
         .message = "server.router: middleware: middleware_hooks: " ++
-            "a middleware declares on_request, on_finished or both (decision 127 ruling 5)",
+            "a middleware declares one or more of on_request, on_finished, wrap_body and wrap_response (decision 127 ruling 5)",
     },
     .{
         .name = "middleware_on_finished",
@@ -282,6 +282,26 @@ const cases = [_]Case{
         .name = "middleware_on_request_parameters",
         .message = "server.router: route 1, \"/a\": middleware_on_request: " ++
             "a middleware's on_request takes the context, *const server.Request and *server.ResponseWriter, and returns server.middleware.Next",
+    },
+    .{
+        .name = "middleware_state_defaults",
+        .message = "server.router: route 1, \"/a\": middleware_state_defaults: " ++
+            "each field of a middleware's State has a default value, which each request starts from",
+    },
+    .{
+        .name = "middleware_wrap_body",
+        .message = "server.router: route 1, \"/a\": middleware_wrap_body: " ++
+            "wrap_body takes the context, *State, *const server.Request and *std.Io.Reader, and returns ?*std.Io.Reader",
+    },
+    .{
+        .name = "middleware_wrap_response",
+        .message = "server.router: route 1, \"/a\": middleware_wrap_response: " ++
+            "wrap_response takes the context, *State, *const server.Request, *server.ResponseWriter and *std.Io.Writer, and returns ?*std.Io.Writer",
+    },
+    .{
+        .name = "middleware_finish_response",
+        .message = "server.router: route 1, \"/a\": middleware_finish_response: " ++
+            "finish_response goes with wrap_response, takes the context and *State, and returns an error union of void",
     },
     .{
         .name = "route_table_shape",

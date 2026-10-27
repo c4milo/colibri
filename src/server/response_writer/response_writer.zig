@@ -11,6 +11,10 @@
 //! (decision 103). So the bytes of `body` stay in the entry's memory, and the memory serves one
 //! response of `response_bytes` at most. A larger body goes through `write_kept`.
 //!
+//! A middleware's `wrap_response` may wrap the body's writer (design §8 step 25.6). `body` then
+//! returns the wrapper, and `end` and `trailers` only record that the response ends: the router
+//! ends it once each wrapper wrote what it owes.
+//!
 //! When the endpoint takes less than the writer offers, the rest waits in the writer. The router
 //! sends it on the request's `writable`, so a call that queues returns with no error.
 const std = @import("std");
@@ -50,6 +54,12 @@ pub const ResponseWriter = struct {
     ended: bool = false,
     trailers_owed: bool = false,
     complete: bool = false,
+    /// The writer of the last middleware's `wrap_response`, which `body` returns in place of
+    /// `writer` (design §8 step 25.6), or null.
+    wrapped: ?*std.Io.Writer = null,
+    /// How the program ended a wrapped response, which the router completes once the wrappers
+    /// finish.
+    end_asked: internal.EndAsked = .none,
 
     /// Adds one header to the head. Each name and value is copied into the entry's memory. A
     /// header after the body started is refused, as is one past `response_headers_max`.
@@ -68,15 +78,17 @@ pub const ResponseWriter = struct {
     /// the headers. A write past the memory, or after `end`, fails with `error.WriteFailed`.
     pub fn body(response: *ResponseWriter) *std.Io.Writer {
         if (!response.body_started) internal.start_body(response);
-        return &response.writer;
+        return response.wrapped orelse &response.writer;
     }
 
     /// Sends `bytes` after the body written so far, with no copy. The program keeps them valid
     /// until the request's `finished`. The head goes out first, when it has not.
     pub fn write_kept(response: *ResponseWriter, bytes: []const u8) internal.Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
-        if (response.ended) return error.SectionOutOfOrder;
+        if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
+        // Design §8 step 25.6: a wrapper sees each byte, so the bytes are copied through it.
+        if (response.wrapped) |wrapper| return wrapper.writeAll(bytes) catch error.NoSpaceLeft;
         try internal.cut(response);
         try internal.add_piece(response, bytes);
         try internal.push(response);
@@ -86,25 +98,32 @@ pub const ResponseWriter = struct {
     /// Content-Length when the program set none.
     pub fn end(response: *ResponseWriter) internal.Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
-        if (response.ended) return error.SectionOutOfOrder;
+        if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
-        try internal.cut(response);
-        internal.close_body(response);
-        if (!response.head_out) internal.add_content_length(response);
-        try internal.push(response);
+        // Design §8 step 25.6: the router ends a wrapped response once each wrapper finishes.
+        if (response.wrapped != null) {
+            response.end_asked = .end;
+            return;
+        }
+        return internal.end_now(response);
     }
 
     /// Ends the response with a trailer section (RFC 9110 §6.5). Each name and value is copied into
     /// the entry's memory after the body.
     pub fn trailers(response: *ResponseWriter, headers: []const http.Field) internal.Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
-        if (response.ended) return error.SectionOutOfOrder;
+        if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
+        // Design §8 step 25.6: the trailers wait at the end of the memory while the wrappers
+        // finish, since the program's slices may not live that long.
+        if (response.wrapped != null) {
+            try internal.copy_trailers_last(response, headers);
+            response.end_asked = .trailers;
+            return;
+        }
         try internal.cut(response);
         try internal.copy_trailers(response, headers);
-        internal.close_body(response);
-        response.trailers_owed = true;
-        try internal.push(response);
+        return internal.trailers_now(response);
     }
 
     /// Whether the head went to the endpoint. Before it has, the program may still choose the
