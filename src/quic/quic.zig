@@ -69,6 +69,7 @@ const files = struct {
     pub const connection_datagram = @import("connection/connection_datagram.zig");
     pub const connection_qlog = @import("connection/connection_qlog.zig");
     pub const crypto_stream = @import("crypto_stream.zig");
+    pub const bit_runs = @import("bit_runs.zig");
     pub const transport_parameters = @import("transport_parameters.zig");
     pub const transport_parameters_read = @import("transport_parameters_read.zig");
 };

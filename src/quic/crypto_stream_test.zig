@@ -99,6 +99,60 @@ test "RFC 9000 §7.5: data past the window is CRYPTO_BUFFER_EXCEEDED, and the wi
     try test_stream.receive(constants.crypto_buffer_len, "x");
 }
 
+test "a frame at the window's far end moves the held octets down, and only those" {
+    test_stream.init();
+    try test_stream.receive(0, "abc");
+    try test_stream.receive(6, "ghi");
+    test_stream.consume(3);
+    // "ghi" is held past a gap, so the window starts 3 octets into `buffer`. A frame at its far
+    // end passes the end of `buffer`, and the held octets move down to make room.
+    const far: u64 = 3 + constants.crypto_buffer_len - 1;
+    try test_stream.receive(far, "z");
+    try test_stream.receive(3, "def");
+    try testing.expectEqualStrings("defghi", test_stream.readable());
+    // Filling the rest makes the whole window readable, with "z" as its last octet.
+    test_fill(9, far, 'm');
+    const readable = test_stream.readable();
+    try testing.expectEqual(constants.crypto_buffer_len, readable.len);
+    try testing.expectEqualStrings("defghim", readable[0..7]);
+    try testing.expectEqual('m', readable[readable.len - 2]);
+    try testing.expectEqual('z', readable[readable.len - 1]);
+}
+
+test "consume that leaves octets held keeps them, and a window read whole starts again" {
+    test_stream.init();
+    try test_stream.receive(0, "abcdef");
+    test_stream.consume(2);
+    try testing.expectEqualStrings("cdef", test_stream.readable());
+    test_stream.consume(4);
+    // Nothing is held, so the window starts again at the front of `buffer`.
+    try testing.expectEqual(0, test_stream.head);
+    // The octets read before are forgotten: a frame past a gap makes nothing readable.
+    try test_stream.receive(8, "x");
+    try testing.expectEqual(0, test_stream.readable().len);
+    // The whole window is free from the new base: frames that fill it exactly are admitted,
+    // and the octets are readable at once.
+    test_fill(6, 6 + constants.crypto_buffer_len, 'n');
+    try testing.expectEqual(constants.crypto_buffer_len, test_stream.readable().len);
+    try testing.expectEqual(6, test_stream.consumed_len());
+}
+
+/// Writes `octet` at every offset of `[from, to)`, one frame of up to a chunk at a time.
+fn test_fill(from: u64, to: u64, octet: u8) void {
+    var chunk: [fill_chunk_len]u8 = undefined;
+    @memset(&chunk, octet);
+    var at = from;
+    // Bounded by the range, which each frame shortens by at least one octet.
+    while (at < to) {
+        const len: usize = @intCast(@min(to - at, fill_chunk_len));
+        test_stream.receive(at, chunk[0..len]) catch unreachable;
+        at += len;
+    }
+}
+
+/// The octets one frame of `test_fill` carries. Test-only.
+const fill_chunk_len: usize = 1000;
+
 test "a frame carrying no octets is neither an error nor a change" {
     test_stream.init();
     try test_stream.receive(0, "ab");

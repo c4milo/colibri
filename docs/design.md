@@ -5029,6 +5029,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       keeps on arm64 for Zig and for chapulin's C code, with `--no-inline`. A function that Zig
       inlined counts in the function that holds it. Run 40568694619 sampled `cpu-clock`, and
       each input's stacks held colibri's functions.
+    - That profile showed 19% of h3-one's CPU in `memcpy`. `std.StaticBitSet.isSet` takes its
+      set by value, and the CRYPTO window and each block of a stream's unread octets called it
+      once per octet, so each call copied 512 or 128 octets. `src/quic/bit_runs.zig` now reads
+      the sets 64 bits at a time, and a consumed CRYPTO window moves its `head`, not its octets.
+      A laptop's uprobe counted 4.2 MB of `memcpy` per h3 connection before and 19.5 KB after.
+      The judge's run 40579559875 against main admitted it: h3-one fell to 0.6239 and 0.6206 of
+      the base's instructions per connection, from 2,362,218 to 1,473,728 in job 1, and h3-many
+      to 0.9796 and 0.9766. No input lost. `head` adds 8 octets to each of a connection's three
+      CRYPTO streams, so `quic.Connection` grew from 141,888 octets to 141,912.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,

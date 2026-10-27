@@ -12,15 +12,20 @@
 //! instead is §7.5's buffer limit, which is the only thing bounding what a peer can make colibri
 //! hold, because "there is no flow control of CRYPTO frames".
 //!
-//! **The window is anchored at what the handshake has taken.** `buffer[0]` is the octet at
+//! **The window is anchored at what the handshake has taken.** `buffer[head]` is the octet at
 //! `base`, every octet below `base` has been read and forgotten, and `contiguous` counts the
 //! octets from `base` that are present with no gap. So `readable` is the run the handshake may
-//! read now, and `consume` slides the window forward. Data past the window is more than §7.5
-//! obliges colibri to buffer and is a connection error of CRYPTO_BUFFER_EXCEEDED.
+//! read now, and `consume` moves `head` forward without moving an octet. Data past the window is
+//! more than §7.5 obliges colibri to buffer and is a connection error of CRYPTO_BUFFER_EXCEEDED.
+//!
+//! **No octet moves on the common path.** When `consume` leaves nothing held, `head` returns to
+//! 0. Octets move down only when a frame would pass the end of `buffer` while octets past a gap
+//! are held, and then only those octets move.
 const std = @import("std");
 const assert = std.debug.assert;
 const crypto = @import("crypto");
 const constants = @import("constants.zig");
+const bit_runs = @import("bit_runs.zig");
 
 /// Why a peer's CRYPTO data is refused.
 pub const Error = error{
@@ -36,10 +41,13 @@ pub const CryptoStream = struct {
     base: u64,
     /// Octets from `base` that are present with no gap, which is what `readable` returns.
     contiguous: usize,
-    /// The window of octets at and above `base` (RFC 9000 §7.5).
+    /// The index in `buffer` of the octet at `base`.
+    head: usize,
+    /// The window of octets at and above `base` (RFC 9000 §7.5), from `buffer[head]`.
     buffer: [constants.crypto_buffer_len]u8,
-    /// Which octets of `buffer` a frame has delivered. A bit rather than a byte each, because
-    /// the byte would cost eight times the window per level and hold one answer.
+    /// Which octets of `buffer` a frame has delivered, by their index in `buffer`. A bit rather
+    /// than a byte each, because the byte would cost eight times the window per level and hold
+    /// one answer. A bit below `head` is stale, and no scan reads it.
     present: std.StaticBitSet(constants.crypto_buffer_len),
     /// Octets colibri has sent on this level, which is the Offset the next CRYPTO frame it writes
     /// carries (RFC 9000 §19.6). The two directions are separate flows at one level, so the
@@ -58,6 +66,7 @@ pub const CryptoStream = struct {
     pub fn init(stream: *CryptoStream) void {
         stream.base = 0;
         stream.contiguous = 0;
+        stream.head = 0;
         stream.present = .initEmpty();
         stream.sent_len = 0;
         stream.send_base = 0;
@@ -163,8 +172,21 @@ pub const CryptoStream = struct {
         // Past the window: §7.5 obliges colibri to buffer 4096 octets of out-of-order data and
         // this is more, so the connection ends rather than the buffer growing.
         if (end > stream.base + stream.buffer.len) return Error.CryptoBufferExceeded;
+        if (stream.head + @as(usize, @intCast(end - stream.base)) > stream.buffer.len) stream.move_down();
         stream.write_within(offset, data);
         stream.advance();
+    }
+
+    /// Moves the octets held from `head` to the start of `buffer`, so that the window's far end
+    /// is the end of `buffer` again. Only the octets up to the last one present move.
+    fn move_down(stream: *CryptoStream) void {
+        assert(stream.head > 0);
+        const held_end = bit_runs.end_of_set(&stream.present, stream.head);
+        const held = held_end - stream.head;
+        std.mem.copyForwards(u8, stream.buffer[0..held], stream.buffer[stream.head..held_end]);
+        bit_runs.shift_down(&stream.present, stream.head);
+        stream.head = 0;
+        assert(stream.readable().len == stream.contiguous);
     }
 
     /// Copies the part of `data` at or above `base` into the window.
@@ -172,37 +194,37 @@ pub const CryptoStream = struct {
         const from = @max(offset, stream.base);
         const skipped: usize = @intCast(from - offset);
         const source = data[skipped..];
-        const start: usize = @intCast(from - stream.base);
+        const start: usize = stream.head + @as(usize, @intCast(from - stream.base));
         assert(start + source.len <= stream.buffer.len);
         @memcpy(stream.buffer[start..][0..source.len], source);
-        // Bounded by the window, which `receive` has already held the frame inside.
-        for (start..start + source.len) |index| stream.present.set(index);
+        stream.present.setRangeValue(.{ .start = start, .end = start + source.len }, true);
     }
 
     /// Extends the in-order run over every octet now present at its end.
     fn advance(stream: *CryptoStream) void {
-        // Bounded by the window: every turn moves one octet and the window is fixed.
-        while (stream.contiguous < stream.buffer.len and stream.present.isSet(stream.contiguous)) {
-            stream.contiguous += 1;
-        }
+        const end = bit_runs.first_unset(&stream.present, stream.head + stream.contiguous, stream.buffer.len);
+        stream.contiguous = end - stream.head;
     }
 
     /// The octets the handshake may read now: every one from `base` with no gap before it.
     pub fn readable(stream: *const CryptoStream) []const u8 {
-        return stream.buffer[0..stream.contiguous];
+        return stream.buffer[stream.head..][0..stream.contiguous];
     }
 
-    /// Forgets the first `len` octets of `readable`, sliding the window forward by that much.
+    /// Forgets the first `len` octets of `readable`, and moves the window forward by that much.
+    /// No octet moves: `head` does.
     pub fn consume(stream: *CryptoStream, len: usize) void {
         assert(len <= stream.contiguous);
         if (len == 0) return;
-        const kept = stream.buffer.len - len;
-        std.mem.copyForwards(u8, stream.buffer[0..kept], stream.buffer[len..]);
-        // Bounded by the window, twice: what moves down and what is cleared behind it.
-        for (0..kept) |index| stream.present.setValue(index, stream.present.isSet(index + len));
-        for (kept..stream.buffer.len) |index| stream.present.unset(index);
+        stream.head += len;
         stream.base += len;
         stream.contiguous -= len;
+        // Nothing is held from `head`, so the window starts again at the front of `buffer`, and
+        // no octet moves.
+        if (stream.contiguous == 0 and bit_runs.end_of_set(&stream.present, stream.head) == stream.head) {
+            stream.present.setRangeValue(.{ .start = 0, .end = stream.head }, false);
+            stream.head = 0;
+        }
         assert(stream.readable().len == stream.contiguous);
     }
 
