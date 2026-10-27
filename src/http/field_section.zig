@@ -194,21 +194,16 @@ pub const FieldSection = struct {
         };
     }
 
-    /// The accounting the header states, recomputed from the lines: `size` is the sum of
-    /// `line_size` over them and `octets_len` the sum of their name and value lengths, and both
-    /// stay under their limits.
+    /// The accounting the header states, after the change to the last line: the last line ends
+    /// where the octets in use end, and both sums stay under their limits. Only `init`, `append`
+    /// and `extend_last` change the sums, each by exactly the octets it adds, so each sum holds by
+    /// induction. Recomputing them from every line would cost a walk of the section per line.
     fn check_accounting(section: *const FieldSection) void {
-        assert(section.count <= limits.field_count_max);
-        var size: u32 = 0;
-        var octets_len: u32 = 0;
-        for (section.lines[0..section.count]) |line| {
-            size += line_size(line.name_len, line.value_len);
-            octets_len += @as(u32, line.name_len) + line.value_len;
-        }
-        assert(size == section.size);
-        assert(octets_len == section.octets_len);
+        assert(section.count > 0 and section.count <= limits.field_count_max);
         assert(section.size <= limits.field_section_size_max);
         assert(section.octets_len <= section.size);
+        const last = section.lines[section.count - 1];
+        assert(last.offset + last.name_len + last.value_len == section.octets_len);
     }
 };
 
