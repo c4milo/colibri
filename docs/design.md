@@ -9246,6 +9246,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   1.1054 in [run 40346835608](https://github.com/c4milo/colibri/actions/runs/40346835608), and did
   not land.
 
+  **A closing stream's received blocks, and Huffman decoding, 2026-10-26.** Two changes, each
+  judged alone against `377a614` with `--h3`:
+  1. `Incoming.release` gives a closing stream's received blocks back by probing its own block
+     numbers, from the block of its read offset up, until it holds none. It walked every bucket of
+     the receive pool before. A peer that holds one block at each end of its window still costs
+     about as many probes as the pool has buckets, which is what the walk cost.
+     - 3 mutations: 1 **CAUGHT**; 1 **NOT CAUGHT** until a test released a stream that had read
+       past the pool's size, then **CAUGHT**; and 1 **NOT CAUGHT** that is equivalent: no stop
+       once none is held.
+     - [Run 40425024722](https://github.com/c4milo/colibri/actions/runs/40425024722): h3-many wins
+       at 0.9701 and 0.9726, about 4,000 user instructions a request.
+  2. `wire.huffman.decode` reads four bits a step through a machine built at comptime from RFC 7541
+     Appendix B's table, in `huffman_decode.zig`. The bit decoder stays as `decode_by_bits`, the
+     reference: the tests compare the two on every input of one and two octets, on longer ones,
+     and with EOS starting at every bit of an octet.
+     - 5 mutations, each **CAUGHT**.
+     - [Run 40425796746](https://github.com/c4milo/colibri/actions/runs/40425796746): h3-many wins
+       at 0.9759 and 0.9782, about 3,300 and 3,000 user instructions a request, and h2-one at
+       0.9796 and 0.9764, about 2,500 a connection. Cycles on h3-many fell 0.3% and 0.5%, inside
+       the noise.
+
+  No input loses past the noise in either run. A third change, the pool's live flags kept as bits
+  in 64-bit words, lost on h3-many at 1.0162 and 1.0201 and on h2-many at 1.0128 and 1.0108 in
+  [run 40425392749](https://github.com/c4milo/colibri/actions/runs/40425392749), and did not land.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
