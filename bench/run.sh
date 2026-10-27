@@ -425,6 +425,7 @@ machine() {
     fi
   fi
   [ "$mode" = judge ] && echo "perf=$(sudo -n "${PERF:-perf}" --version)"
+  [ -n "$profile" ] && echo "profile=${profile_event} at ${profile_frequency} Hz, ${profile_loads} loads, frame pointers"
   echo "rounds=$rounds"
   # Decision 33: the path, the socket buffer sizes and the certificate type go beside the numbers.
   # The report adds the cipher suite each build ran, from h2load's output.

@@ -9,17 +9,16 @@
 # run.sh assigns the variables that this file reads, as run_h3.sh does. Check the files with
 # `shellcheck bench/run.sh`.
 
-# The samples each second, and the octets of stack that each sample copies. perf unwinds the stack
-# with the DWARF call frame information, which a ReleaseSafe build keeps for Zig and for chapulin's
-# C code.
+# The samples each second.
 readonly profile_frequency=1999
-readonly profile_stack_bytes=16384
 # The times perf record runs each input's load. One h2-many load keeps the server busy for about
 # a quarter of a second, which gave 127 samples at 499 Hz on a laptop.
 readonly profile_loads=10
-# The event perf samples on: the cycles on the judge, or BENCH_PROFILE_EVENT=cpu-clock on a machine
-# whose kernel exposes no hardware counters, such as a virtual machine on a laptop.
-readonly profile_event="${BENCH_PROFILE_EVENT:-cycles}"
+# The events perf may sample on, in order: the first one that the kernel lets perf sample. The
+# judge's PMU refuses overflow interrupts, so perf there cannot sample `cycles`, and it read
+# `cpu-clock` as a hardware event (run 40566337675). BENCH_PROFILE_EVENT names one event instead.
+readonly profile_events=(cpu-clock software/cpu-clock/ task-clock cycles)
+profile_event=""
 
 # A profile needs perf, and records colibri's build alone, in one round after the warm-up.
 check_profile() {
@@ -29,16 +28,27 @@ check_profile() {
     exit 2
   fi
   rounds=1
+  local event
+  for event in ${BENCH_PROFILE_EVENT:-"${profile_events[@]}"}; do
+    if sudo -n "${PERF:-perf}" record -q -e "$event" -F "$profile_frequency" -o /dev/null -- true 2>/dev/null; then
+      profile_event="$event"
+      return 0
+    fi
+  done
+  echo "run.sh: perf samples none of the events ${BENCH_PROFILE_EVENT:-${profile_events[*]}}" >&2
+  exit 2
 }
 
-# Samples the server under one input, and writes each sample's stack as text for the report. Zig
-# inlines much of colibri, so perf script names each inlined function as a frame of its own.
+# Samples the server under one input, and writes each sample's stack as text for the report.
+# perf walks each stack by its frame pointers, which Zig and chapulin's C code keep on arm64. The
+# DWARF unwinder of perf 6.17 and 7.0 gave no frame in user space, and perf 7.0's inlined frames
+# drop each name's namespace, so the report names the functions the binary holds.
 record_profile() {  # record_profile <name> <variant> <input>
-  sudo -n "${PERF:-perf}" record -q -e "$profile_event" -F "$profile_frequency" \
-    --call-graph "dwarf,$profile_stack_bytes" \
+  sudo -n "${PERF:-perf}" record -e "$profile_event" -F "$profile_frequency" --call-graph fp \
     -o "$scratch/$1.data" -p "$server_pid" -- \
     taskset -c "$load_cores" bash -c 'for _ in $(seq "$1"); do bash "$2" "$3" "$4"; done' \
     load "$profile_loads" "$scratch/load.sh" "$3" "$(port_of "$2")" >"$scratch/$1.h2load"
-  sudo -n "${PERF:-perf}" script -i "$scratch/$1.data" --inline -F comm,ip,sym,dso >"$scratch/$1.stacks" 2>/dev/null
+  # perf's warnings, such as lost samples, go to the job's log.
+  sudo -n "${PERF:-perf}" script -i "$scratch/$1.data" --no-inline -F comm,ip,sym,dso >"$scratch/$1.stacks"
   echo "$3,$scratch/$1.stacks" >>"$scratch/profiles.csv"
 }

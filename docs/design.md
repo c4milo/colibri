@@ -5006,8 +5006,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **13h**, a profile of the server on the judge, which the owner ruled on 2026-10-27, to find
     where colibri spends its time. `bench/run.sh --profile` runs each input once after the
     warm-up, under `perf record` at 1,999 Hz with the call stacks, in place of `perf stat`. Each
-    input sends its load ten times under the one record. `perf script --inline` names each
-    function that Zig inlined as a frame of its own.
+    input sends its load ten times under the one record.
     `bench/report_profile.py` writes the functions with the most samples, by self and by
     inclusive share, and each input's folded stacks. The `profile` input of `bench.yml` runs it, and
     the artifact keeps the stacks. A profile is not a measurement, and no document publishes its
@@ -5020,11 +5019,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - In an Ubuntu 24.04 container on a laptop, perf 6.8 sampled the h2 server with `cpu-clock`
       under one h2-many load of 200,000 requests. It took 127 samples, which the report read with
       their inlined frames, so each input now sends its load ten times.
+    - The judge's first run, 40563761760, sampled `cycles` and unwound stacks from DWARF. Its
+      samples held kernel frames alone. The second run, 40566337675, failed: the judge's PMU
+      refuses overflow interrupts, and perf 6.17 read `cpu-clock` as a hardware event. On a
+      laptop, perf 7.0's DWARF unwinder gave no frame in user space, and its inlined frames had
+      no namespace.
+    - So the script now samples the first event of `cpu-clock`, `software/cpu-clock/`,
+      `task-clock` and `cycles` that perf accepts. It walks frame pointers, which ReleaseSafe
+      keeps on arm64 for Zig and for chapulin's C code, with `--no-inline`. A function that Zig
+      inlined counts in the function that holds it. Run 40568694619 sampled `cpu-clock`, and
+      each input's stacks held colibri's functions.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
       so the program writes no profile. A profile for chapulin's C code must therefore come from a
       clang of the same LLVM, 21, and it is chapulin's build to change.
+    - The owner ruled on 2026-10-27 not to ask chapulin for it. Run 40568694619 showed that the
+      handshakes spend chapulin's time in X25519 and SHA-256, which branch little, and PGO
+      helps branches most.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,
