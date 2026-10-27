@@ -4971,6 +4971,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         cost of QUIC. The judge's run 40422314867 found that colibri and axum hold 80,000 req/s
         over h2 and 20,000 over h3, and chi 20,000 and 10,000. The job's limit rose from 90
         minutes to 120, since the run without h2-tls took 60.
+      - 13f.5 waited for chapulin a6703587. Before it, chapulin's server sent `record_size_limit`
+        to a client that did not offer it, which RFC 9846 §4.3 forbids, and oha's rustls aborted
+        (https://github.com/c4milo/chapulin/issues/206). The bump from 50d7d17b moved three
+        pinned censuses. The TCP trace run and the h3 deadline run moved in their CRC-32s alone.
+        The endpoint run kept each total, and 2 of its 1,577 requests moved from a cancel to
+        `done`. On a laptop, oha sent 1,000 req/s over h2-tls for 2 s, and colibri answered
+        1,999 with 200.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,

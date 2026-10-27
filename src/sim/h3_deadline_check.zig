@@ -47,12 +47,12 @@ pub const check_name = "h3-deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0x8742d7c9;
+pub const census_crc32_expected: u32 = 0xaaf2936e;
 
 /// The CRC-32 of the runs' datagram CRC-32s, in seed order. It follows what the wire carried apart
 /// from what the application reads, so a change to how the server reports events keeps it, and a
 /// change to what it sends does not (design §8 step 21b.3).
-pub const census_wire_crc32_expected: u32 = 0x99c38067;
+pub const census_wire_crc32_expected: u32 = 0x8f682988;
 
 pub const Violation = h3_deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.

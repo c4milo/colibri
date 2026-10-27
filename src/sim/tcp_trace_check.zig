@@ -196,7 +196,7 @@ const expected = struct {
     const refused: u64 = 3;
     const shut_down: u64 = 25;
     const tls: u64 = 38;
-    const wire_crc32: u32 = 0x553ad660;
+    const wire_crc32: u32 = 0x45a96a01;
 };
 
 test "TCP trace run: a client's first flight and every exchange after it, with no error, and replayed" {
