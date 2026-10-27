@@ -9373,6 +9373,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   flow-control credit in place of `credit_owed`'s walk, was dropped at the owner's ruling: about
   six sites change what the count reads.
 
+  **chapulin bbfd316, 2026-10-27.** chapulin keeps each AES traffic key's schedule in its host
+  objects (chapulin#205), so a record does not expand its key again. Its daf336e stores a schedule
+  only under the session's AES bit, which keeps INV-26. The bump was judged against `eaa59ea`
+  with `--h3`.
+  - [Run 40561211242](https://github.com/c4milo/colibri/actions/runs/40561211242): h3-many at
+    0.9755 and 0.9906, inside its noise of 5.02% and 4.18%. Every h2 input stays within 0.3%.
+  - No input wins or loses past the noise. The bump landed for chapulin's fixes, at the owner's
+    ruling, and claims no saving.
+  - The schedules add 480 octets to a TLS session over TCP and 2,464 to one inside QUIC.
+    `server.Endpoint` grows from 40,940,448 to 40,987,552 octets, as docs/performance.md lists.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
