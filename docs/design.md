@@ -9271,6 +9271,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   in 64-bit words, lost on h3-many at 1.0162 and 1.0201 and on h2-many at 1.0128 and 1.0108 in
   [run 40425392749](https://github.com/c4milo/colibri/actions/runs/40425392749), and did not land.
 
+  **An h3 response's acknowledged end, and a field section's accounting, 2026-10-27.** Two changes,
+  each judged alone against `069366b` with `--h3`:
+  1. `settle` reads `acknowledged_end` only when `Pieces.may_release` says a run can go: the first
+     run ends within the stream's `acknowledged_len`. The end is never above that count, so no
+     other read releases a run. Each read scans every packet in flight, and `settle` runs after
+     each datagram.
+     - 5 mutations, each **CAUGHT**.
+     - [Run 40446126816](https://github.com/c4milo/colibri/actions/runs/40446126816): h3-many wins
+       at 0.9438 and 0.9445, about 7,400 and 7,200 user instructions a request.
+  2. `FieldSection.check_accounting` reads the last line and the limits, not every line. Only
+     `init`, `append` and `extend_last` change the sums, each by the octets it adds, so the sums
+     hold by induction. A check of the sums once a section is complete needs a new public name.
+     - 4 mutations, each **CAUGHT**.
+     - [Run 40446261122](https://github.com/c4milo/colibri/actions/runs/40446261122): h2-many wins
+       at 0.9872 in both jobs, about 190 user instructions a request, and h2-tls-many at 0.9890 in
+       one job.
+
+  No input loses past the noise in either run. A third candidate, a count of the streams that owe
+  flow-control credit in place of `credit_owed`'s walk, was dropped at the owner's ruling: about
+  six sites change what the count reads.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
