@@ -24,6 +24,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
+const bit_runs = @import("../bit_runs.zig");
 
 pub const block_len: usize = constants.stream_receive_block_len;
 
@@ -299,10 +300,8 @@ pub const Incoming = struct {
 
 /// How many octets from `within` have arrived, up to `limit`.
 fn present_run(block: *const Block, within: usize, limit: usize) usize {
-    var run: usize = 0;
-    // Bounded by `limit`, which is at most a block.
-    while (run < limit and within + run < block_len and block.present.isSet(within + run)) run += 1;
-    return run;
+    assert(within <= block_len);
+    return bit_runs.first_unset(&block.present, within, @min(within + limit, block_len)) - within;
 }
 
 test {
