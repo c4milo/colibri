@@ -3,11 +3,13 @@
 //! and every route answered with 200 and "ok\n". It serves h11, and h2 in cleartext with prior
 //! knowledge, on one port. With --h3 it serves h3 instead, on UDP, through quinn and the h3 crate,
 //! over the TLS identity whose <prefix>.chain.pem and <prefix>.key.pem --tls names; each request
-//! goes to the same axum router.
+//! goes to the same axum router. With --tls alone it serves h2 over TLS on TCP, and h11 to a
+//! client that offers no h2 in ALPN, through hyper and tokio-rustls.
 //!
-//!   colibri-bench-axum --port <port> --routes <routes file> [--h3 --tls <prefix>]
+//!   colibri-bench-axum --port <port> --routes <routes file> [--h3] [--tls <prefix>]
 
 mod h3_server;
+mod tls_server;
 
 use std::collections::BTreeMap;
 
@@ -39,7 +41,7 @@ fn filter(method: &str) -> MethodFilter {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: colibri-bench-axum --port <port> --routes <routes file> [--h3 --tls <prefix>]");
+    eprintln!("usage: colibri-bench-axum --port <port> --routes <routes file> [--h3] [--tls <prefix>]");
     std::process::exit(2);
 }
 
@@ -74,6 +76,10 @@ fn main() {
     if h3 {
         let prefix = tls.unwrap_or_else(|| usage());
         runtime.block_on(h3_server::serve(port, &prefix, router));
+        return;
+    }
+    if let Some(prefix) = tls {
+        runtime.block_on(tls_server::serve(port, &prefix, router));
         return;
     }
     runtime.block_on(async move {

@@ -2,9 +2,10 @@
 // as bench/run.sh --latency starts it: GOMAXPROCS=1, the routes of --routes registered with chi,
 // and every route answered with 200 and "ok\n". It serves h11, and h2 in cleartext with prior
 // knowledge, on one port. With --h3 it serves h3 instead, on UDP, through quic-go's http3.Server,
-// over the TLS identity whose <prefix>.chain.pem and <prefix>.key.pem --tls names.
+// over the TLS identity whose <prefix>.chain.pem and <prefix>.key.pem --tls names. With --tls
+// alone it serves h2 over TLS on TCP, and h11 to a client that offers no h2 in ALPN.
 //
-//	colibri-bench-chi --port <port> --routes <routes file> [--h3 --tls <prefix>]
+//	colibri-bench-chi --port <port> --routes <routes file> [--h3] [--tls <prefix>]
 package main
 
 import (
@@ -44,7 +45,7 @@ func main() {
 	port := flag.Int("port", 0, "the port to listen on")
 	routes := flag.String("routes", "", "the routes file, one \"METHOD /path\" on each line")
 	h3 := flag.Bool("h3", false, "serve h3 on UDP instead of h11 and h2 on TCP")
-	tls := flag.String("tls", "", "the prefix of the TLS identity h3 serves")
+	tls := flag.String("tls", "", "the prefix of the TLS identity to serve over")
 	flag.Parse()
 	runtime.GOMAXPROCS(1)
 	file, err := os.Open(*routes)
@@ -71,8 +72,14 @@ func main() {
 	var protocols http.Protocols
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
+	protocols.SetHTTP2(true)
 	server.Protocols = &protocols
-	if err := server.Serve(listener); err != nil {
+	if *tls != "" {
+		err = server.ServeTLS(listener, *tls+".chain.pem", *tls+".key.pem")
+	} else {
+		err = server.Serve(listener)
+	}
+	if err != nil {
 		panic(err)
 	}
 }

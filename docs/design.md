@@ -4940,6 +4940,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       at fixed rates with `--latency-correction`, so the latency holds the queue time that
       coordinated omission hides. It sends h11, and h2 in cleartext with prior knowledge to every
       server but http.zig, which has no h2, and h3 over TLS to the three servers that speak it.
+      It also sends h2-tls, h2 over TLS 1.3 with ALPN, to every server but http.zig, which has
+      no TLS. h2-tls gives h3 a baseline with the same encryption over TCP.
       oha's release builds have no h3, so the script builds oha from its tag with the `http3`
       feature. Every server gets 32 requests in flight: 32 h11 connections, or 8 h2 or h3
       connections of 4 streams. On its one core colibri's server runs one
@@ -4965,6 +4967,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         mutations, all CAUGHT: the check of the two words always passes, `routes=github` sets
         `h3`, and the last word returns before the check. On a laptop, oha built from source got
         200 over h3 from colibri, chi and axum.
+      - 13f.5: h2-tls, which the owner asked for on 2026-10-26 to tell the cost of TLS from the
+        cost of QUIC. The judge's run 40422314867 found that colibri and axum hold 80,000 req/s
+        over h2 and 20,000 over h3, and chi 20,000 and 10,000. The job's limit rose from 90
+        minutes to 120, since the run without h2-tls took 60.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,

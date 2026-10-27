@@ -7,7 +7,9 @@
 # route answers 200 and "ok\n". oha, pinned by release and commit, sends GET requests over the 131
 # GET routes at each rate of `rates`, with its latency correction, so the latency holds the queue
 # time that coordinated omission hides. It sends h11, and h2 in cleartext with prior knowledge to
-# every server but http.zig, which has no h2. Over TLS it sends h3 to colibri's UDP server with
+# every server but http.zig, which has no h2. Over TLS 1.3 it sends h2-tls, h2 with ALPN, to
+# every server but http.zig, which has no TLS, so the h3 numbers have a TLS baseline over TCP.
+# It also sends h3 to colibri's UDP server with
 # `routes=github`, to chi on quic-go's http3.Server and to axum on quinn and the h3 crate, the
 # three that speak it. oha's release builds have no h3, so the script builds oha from its tag.
 #
@@ -60,7 +62,7 @@ readonly oha_version=v1.16.0
 readonly oha_commit=c156bf3d442f5150fb1ad73e8c5144bd882ac4cd
 readonly routes="${repository_root}/bench/router/competitors/github_routes.txt"
 readonly servers=(colibri chi axum httpz fastify)
-readonly protocols=(h11 h2 h3)
+readonly protocols=(h11 h2 h2-tls h3)
 
 scratch="$(mktemp -d)"
 server_pid=""
@@ -97,11 +99,12 @@ build_servers() {
   (cd "$scratch/fastify" && npm ci --silent --no-audit --no-fund >/dev/null)
 }
 
-# Whether <server> speaks <protocol>: http.zig has no h2, and h3 is colibri's, chi's and axum's.
+# Whether <server> speaks <protocol>: http.zig has no h2 and no TLS, and h3 is colibri's, chi's
+# and axum's.
 serves() {  # serves <server> <protocol>
   case "$2" in
     h11) return 0 ;;
-    h2) [ "$1" != httpz ] ;;
+    h2 | h2-tls) [ "$1" != httpz ] ;;
     h3) [ "$1" = colibri ] || [ "$1" = chi ] || [ "$1" = axum ] ;;
   esac
 }
@@ -109,23 +112,29 @@ serves() {  # serves <server> <protocol>
 # The command that starts <server> for <protocol>, into the array `command`. GOMAXPROCS=1 and a
 # one-thread runtime keep chi and axum on one thread, as taskset keeps every server on one core.
 server_command() {  # server_command <server> <protocol>
-  local h3=()
-  if [ "$2" = h3 ]; then h3=(--h3 --tls "$scratch/identity"); fi
+  local tls=()
+  case "$2" in
+    h2-tls) tls=(--tls "$scratch/identity") ;;
+    h3) tls=(--h3 --tls "$scratch/identity") ;;
+  esac
   case "$1" in
     colibri)
       if [ "$2" = h3 ]; then
         command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 routes=github)
       else
-        command=("$scratch/colibri/bin/http-server" --port "$port" --routes github)
+        command=("$scratch/colibri/bin/http-server" --port "$port" --routes github "${tls[@]}")
       fi
       ;;
-    chi) command=(env GOMAXPROCS=1 "$scratch/chi" --port "$port" --routes "$routes" "${h3[@]}") ;;
-    axum) command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --routes "$routes" "${h3[@]}") ;;
+    chi) command=(env GOMAXPROCS=1 "$scratch/chi" --port "$port" --routes "$routes" "${tls[@]}") ;;
+    axum) command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --routes "$routes" "${tls[@]}") ;;
     httpz) command=("$scratch/httpz/bin/colibri-bench-httpz" --port "$port" --routes "$routes") ;;
     fastify)
       command=(node "$scratch/fastify/main.js" --port "$port" --routes "$routes")
       # A Fastify server speaks h11, or h2 alone.
-      if [ "$2" = h2 ]; then command+=(--h2); fi
+      case "$2" in
+        h2) command+=(--h2) ;;
+        h2-tls) command+=(--h2 "${tls[@]}") ;;
+      esac
       ;;
   esac
 }
@@ -133,7 +142,7 @@ server_command() {  # server_command <server> <protocol>
 start_server() {  # start_server <server> <protocol>
   port=$((port + 1))
   local scheme=http
-  if [ "$2" = h3 ]; then scheme=https; fi
+  if [ "$2" = h2-tls ] || [ "$2" = h3 ]; then scheme=https; fi
   sed -E "s#^#${scheme}://127.0.0.1:${port}#" "$scratch/paths.txt" >"$scratch/urls.txt"
   server_command "$1" "$2"
   taskset -c "$server_core" "${command[@]}" >"$scratch/server.log" 2>&1 &
@@ -150,9 +159,13 @@ start_server() {  # start_server <server> <protocol>
     exit 1
   fi
   local probe=(curl -s -o /dev/null --max-time 1)
-  if [ "$2" = h2 ]; then probe+=(--http2-prior-knowledge); fi
+  case "$2" in
+    h2) probe+=(--http2-prior-knowledge) ;;
+    # The servers present a test identity, which the probe does not verify.
+    h2-tls) probe+=(--http2 --insecure) ;;
+  esac
   for _ in $(seq "$ready_tries"); do
-    if "${probe[@]}" "http://127.0.0.1:${port}/events"; then return 0; fi
+    if "${probe[@]}" "${scheme}://127.0.0.1:${port}/events"; then return 0; fi
     sleep 0.1
   done
   echo "run_latency.sh: $1 did not start for $2" >&2
@@ -171,6 +184,7 @@ load() {  # load <protocol> <rate> <out>
   local shape=(-c "$h11_connections")
   case "$1" in
     h2) shape=(--http2 -c "$h2_connections" -p "$h2_streams") ;;
+    h2-tls) shape=(--http2 --insecure -c "$h2_connections" -p "$h2_streams") ;;
     # The servers present a test identity, which oha does not verify.
     h3) shape=(--http-version 3 --insecure -c "$h3_connections" -p "$h3_streams") ;;
   esac
@@ -191,7 +205,7 @@ machine() {
   echo "h3=$(awk '$0 == "name = \"h3\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock"), quinn $(awk '$0 == "name = \"quinn\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock")"
   echo "oha=${oha_version} ${oha_commit}, with h3"
   echo "rounds=$rounds seconds=$seconds p99_bound_ms=$p99_bound_ms"
-  echo "load=h11 ${h11_connections} connections, h2 ${h2_connections} connections of ${h2_streams} streams, h3 ${h3_connections} connections of ${h3_streams} streams"
+  echo "load=h11 ${h11_connections} connections, h2 and h2-tls ${h2_connections} connections of ${h2_streams} streams, h3 ${h3_connections} connections of ${h3_streams} streams"
   echo "path=loopback, 127.0.0.1"
 }
 

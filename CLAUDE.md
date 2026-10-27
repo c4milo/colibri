@@ -432,8 +432,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   `bench/run.sh --latency [--rounds <n>] [report.md]` runs `bench/run_latency.sh` instead: oha,
   pinned by release and commit and built with h3, sends GET requests at fixed rates, with its
   latency correction, over the GitHub API's routes to colibri's server with `--routes github` and
-  to chi, axum, http.zig and Fastify from `bench/competitors/`, over h11 and h2, and over h3 to
-  the UDP server with `h3 routes=github`, chi and axum. The report gives p50, p99 and p99.9 at each
+  to chi, axum, http.zig and Fastify from `bench/competitors/`, over h11 and h2, over h2 with TLS
+  to all but http.zig, and over h3 to the UDP server with `h3 routes=github`, chi and axum. The report gives p50, p99 and p99.9 at each
   rate and each server's highest rate whose p99 stays under 10 ms (design §8 step 13f). It needs
   Go, cargo, Node and BENCH_ZIG_HTTPZ, and the workflow's `latency` input runs it on the judge.
   `python3 bench/report_latency.py --test` checks its report, and `tools/ci.sh` runs it.
