@@ -1,3 +1,4 @@
-# bench/run.sh sources bench/run_h3.sh. With this line, shellcheck follows the source line in
-# run.sh and checks the two files together, as `shellcheck -x` does.
+# bench/run.sh sources bench/run_h3.sh, bench/run_competitors.sh and bench/run_profile.sh. With
+# this line, shellcheck follows each source line in run.sh and checks the files together, as
+# `shellcheck -x` does.
 external-sources=true

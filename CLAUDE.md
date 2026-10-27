@@ -437,6 +437,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   rate and each server's highest rate whose p99 stays under 10 ms (design §8 step 13f). It needs
   Go, cargo, Node and BENCH_ZIG_HTTPZ, and the workflow's `latency` input runs it on the judge.
   `python3 bench/report_latency.py --test` checks its report, and `tools/ci.sh` runs it.
+  `bench/run.sh --profile [--h11] [--h3] [report.md]` runs each input once after the warm-up,
+  under `perf record` with the call stacks, in place of the counts (design §8 step 13h). The
+  report gives the functions that took the most samples, and `<report>-profile/` holds each
+  input's folded stacks for a flame graph. The workflow's `profile` input runs it on the judge, and
+  no document publishes its numbers. `python3 bench/report_profile.py --test` checks its report,
+  and `tools/ci.sh` runs it.
 - Router probes: `bench/router/compile_time.sh [--tree <tree>] [table...]` compiles each route
   table of `bench/router/build.zig` twice and prints the wall time of each compile.
   `bench/router/run_time.sh [--tree <tree>] [count]` counts the instructions of one `match` under

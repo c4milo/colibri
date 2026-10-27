@@ -8,8 +8,10 @@
 # the UDP server answers the load over h3 too, and with `competitors` and `h3`, so does quic-go's
 # server from its image (design §8 step 13d). With `latency`, bench/run.sh --latency measures the
 # throughput and the latency of servers that route, colibri's and chi's, axum's, http.zig's and
-# Fastify's, at fixed rates under oha, over h11, h2, h2 over TLS and h3 (design §8 step 13f). The work is bench/run.sh, which a person on Linux
-# with perf runs for the same answer; this file only installs what it needs.
+# Fastify's, at fixed rates under oha, over h11, h2, h2 over TLS and h3 (design §8 step 13f). With
+# `profile`, perf record samples colibri's server and its call stacks under each input, and the
+# artifact holds the folded stacks (design §8 step 13h). The work is bench/run.sh, which a person on
+# Linux with perf runs for the same answer; this file only installs what it needs.
 name: bench
 on:
   workflow_dispatch:
@@ -38,6 +40,10 @@ on:
         description: "Measure the latency of servers that route at fixed rates under oha, in place of the other inputs"
         type: boolean
         default: false
+      profile:
+        description: "Sample colibri's server and its call stacks under each input, in place of the counts"
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -64,6 +70,7 @@ jobs:
       H11: ${{ inputs.h11 }}
       H3: ${{ inputs.h3 }}
       LATENCY: ${{ inputs.latency }}
+      PROFILE: ${{ inputs.profile }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -148,6 +155,7 @@ jobs:
           if [ "${H3}" = true ]; then arguments+=(--h3); fi
           # --latency runs bench/run_latency.sh in place of the other inputs.
           if [ "${LATENCY}" = true ]; then arguments+=(--latency); fi
+          if [ "${PROFILE}" = true ]; then arguments+=(--profile); fi
           bench/run.sh "${arguments[@]}" bench-report.md
       - name: Publish the report
         if: always()
@@ -157,5 +165,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bench-report-${{ matrix.job }}
-          path: bench-report.md
+          # With `profile`, the folded stacks of each input go beside the report.
+          path: |
+            bench-report.md
+            bench-report-profile/
+          if-no-files-found: ignore
           retention-days: 90

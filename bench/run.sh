@@ -12,9 +12,10 @@
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
 # (design §8 step 13d). With --latency, bench/run_latency.sh runs instead: the throughput and the
-# latency of servers that route, at fixed request rates, under oha (design §8 step 13f).
+# latency of servers that route, at fixed request rates, under oha (design §8 step 13f). With
+# --profile, perf record samples the server's call stacks under each input (bench/run_profile.sh).
 #
-#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--latency] [--rounds <n>] [report.md]
+#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--latency] [--profile] [--rounds <n>] [report.md]
 #
 # The judge runs on Linux with perf and taskset, as .github/workflows/bench.yml runs it on the
 # ubuntu-24.04-arm runner. --filter runs without either and reads the server's CPU time from each
@@ -36,6 +37,7 @@ base=""
 competitors=""
 h11=""
 h3=""
+profile=""
 rounds=5
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
@@ -45,6 +47,7 @@ while [ $# -gt 0 ]; do
     --competitors) competitors=yes; shift ;;
     --h11) h11=yes; shift ;;
     --h3) h3=yes; shift ;;
+    --profile) profile=yes; shift ;;
     --latency) shift; exec "$repository_root/bench/run_latency.sh" --rounds "$rounds" "$@" ;;
     --rounds) rounds="$2"; shift 2 ;;
     *) report="$1"; shift ;;
@@ -92,6 +95,9 @@ readonly tls_suite=TLS_AES_256_GCM_SHA384
 # The h3 pieces: the load of the h3 inputs, colibri's UDP servers and quic-go's container.
 # shellcheck source-path=SCRIPTDIR source=run_h3.sh
 source "$repository_root/bench/run_h3.sh"
+# shellcheck source-path=SCRIPTDIR source=run_profile.sh
+source "$repository_root/bench/run_profile.sh"
+check_profile
 
 scratch="$(mktemp -d)"
 server_pid=""
@@ -356,7 +362,9 @@ measure() {  # measure <variant> <input> <round>
   local name="$1-$2-$3"
   # Each measurement keeps its server's log, which report.py prints when the load failed.
   start_server "$1" "$2" "$scratch/$name.server"
-  if [ "$mode" = judge ]; then
+  if [ -n "$profile" ] && [ "$3" -gt 0 ]; then
+    record_profile "$name" "$1" "$2"
+  elif [ "$mode" = judge ]; then
     sudo -n "${PERF:-perf}" stat -x, -o "$scratch/$name.perf" \
       -e instructions:u,instructions:k,cycles:u,cycles:k,task-clock,raw_syscalls:sys_enter \
       -p "$server_pid" -- taskset -c "$load_cores" bash "$scratch/load.sh" "$2" "$(port_of "$1")" >"$scratch/$name.h2load"
@@ -439,34 +447,9 @@ if [ -z "$base_server" ] && [ -n "$base" ]; then
   build "$base" "$scratch/base"
   base_server="$scratch/base/bin/http-server"
 fi
-# Whether --competitors measures <competitor>.
-wants() {  # wants <competitor>
-  local name
-  for name in "${competitor_names[@]}"; do [ "$name" = "$1" ] && return 0; done
-  return 1
-}
+# shellcheck source-path=SCRIPTDIR source=run_competitors.sh
+source "$repository_root/bench/run_competitors.sh"
 
-# The version of <crate> that bench/competitors/hyper/Cargo.lock pins.
-locked() {  # locked <crate>
-  awk -v crate="$1" '$0 == "name = \"" crate "\"" { getline; gsub(/version = |"/, ""); print; exit }' \
-    "$repository_root/bench/competitors/hyper/Cargo.lock"
-}
-
-hyper_server="${BENCH_HYPER:-}"
-if [ -n "$competitors" ] && wants hyper && [ -z "$hyper_server" ]; then
-  echo "run.sh: building hyper" >&2
-  # rustup reads the release that rust-toolchain.toml names in the directory cargo runs in.
-  (cd "$repository_root/bench/competitors/hyper" && cargo build --release --locked --quiet --target-dir "$scratch/hyper")
-  hyper_server="$scratch/hyper/release/colibri-bench-hyper"
-fi
-httpz_server="${BENCH_HTTPZ:-}"
-if [ -n "$competitors" ] && wants httpz && [ -z "$httpz_server" ]; then
-  echo "run.sh: building http.zig" >&2
-  (cd "$repository_root/bench/competitors/httpz" &&
-    "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.0 that builds http.zig}" build \
-      --prefix "$scratch/httpz" --cache-dir "$scratch/httpz-cache" >/dev/null)
-  httpz_server="$scratch/httpz/bin/colibri-bench-httpz"
-fi
 identity="${BENCH_IDENTITY:-}"
 if [ -z "$identity" ]; then
   (cd "$repository_root" && go run tools/h2_interop/tls_identity.go "$scratch/identity")
@@ -495,5 +478,9 @@ for round in $(seq 0 "$rounds"); do
   done
 done
 
-python3 "$repository_root/bench/report.py" "$scratch" "$report" \
-  --many-requests "$many_requests" --one-connections "$((one_runs * one_clients))"
+if [ -n "$profile" ]; then
+  python3 "$repository_root/bench/report_profile.py" "$scratch" "$report"
+else
+  python3 "$repository_root/bench/report.py" "$scratch" "$report" \
+    --many-requests "$many_requests" --one-connections "$((one_runs * one_clients))"
+fi

@@ -57,6 +57,11 @@ Performance section states the rules, and design §11 holds the method's numbers
   [36686649022](https://github.com/c4milo/colibri/actions/runs/36686649022) (its one job that
   passed), [36717711394](https://github.com/c4milo/colibri/actions/runs/36717711394), and, with
   the `memset` override, [36727047216](https://github.com/c4milo/colibri/actions/runs/36727047216).
+- A profile shows where the time goes, and is never a measurement. `bench/run.sh --profile`, and
+  `bench.yml`'s `profile` input, sample the server at 1,999 Hz with `perf record`, through ten loads of each input after the
+  warm-up. They unwind each stack from its DWARF call frame information (design §8 step 13h). The report names the functions with the most samples, and the artifact holds the
+  folded stacks for a flame graph. A change takes its price from the counts above, never from a
+  profile.
 - A laptop run is a filter: it orders candidates and never lands in a document.
   `bench/run.sh --filter` needs neither perf nor taskset, and reads the server's CPU time from
   each thread's `/proc` schedstat.

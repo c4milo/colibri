@@ -4907,7 +4907,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Every check step 12 names has passed, and the step owes nothing more.
 
 - **Step 13 — `bench/`.** The judge, the competitor matrix and the memory measurement, under
-  §11's method on the `ubuntu-24.04-arm` runner (decision 33 as amended on 2026-09-30). Seven parts;
+  §11's method on the `ubuntu-24.04-arm` runner (decision 33 as amended on 2026-09-30). Eight parts;
   the owner ruled on 2026-09-30 that 13a and 13b come first:
   - **13a**, the judge. `bench/run.sh` builds colibri's test-only servers in ReleaseSafe, pins each
     server and h2load to cores of their own, and counts the server's instructions, cycles and
@@ -5003,6 +5003,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           - colibri's rate divided by axum's at 80,000 offered went from 1.06 and 1.05 to 1.10
             and 1.09.
         - `docs/performance.md` holds run 40526708637 as 13f's baseline.
+  - **13h**, a profile of the server on the judge, which the owner ruled on 2026-10-27, to find
+    where colibri spends its time. `bench/run.sh --profile` runs each input once after the
+    warm-up, under `perf record` at 1,999 Hz with the call stacks, in place of `perf stat`. Each
+    input sends its load ten times under the one record. `perf script --inline` names each
+    function that Zig inlined as a frame of its own.
+    `bench/report_profile.py` writes the functions with the most samples, by self and by
+    inclusive share, and each input's folded stacks. The `profile` input of `bench.yml` runs it, and
+    the artifact keeps the stacks. A profile is not a measurement, and no document publishes its
+    numbers. `bench/run.sh` reached 499 lines, so the competitor builds moved to
+    `bench/run_competitors.sh`. **Check:** `python3 bench/report_profile.py --test`, in
+    `tools/ci.sh`, reads synthetic stacks.
+    - Seven mutations of the report, each CAUGHT: self counts the outer frame, a function counts
+      twice on one stack, a stack not reversed, a kernel frame not marked, an unknown frame with
+      no file, the sample's line read as a frame, and the file left in the name.
+    - In an Ubuntu 24.04 container on a laptop, perf 6.8 sampled the h2 server with `cpu-clock`
+      under one h2-many load of 200,000 requests. It took 127 samples, which the report read with
+      their inlined frames, so each input now sends its load ten times.
+    - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
+      it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
+      With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
+      so the program writes no profile. A profile for chapulin's C code must therefore come from a
+      clang of the same LLVM, 21, and it is chapulin's build to change.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,
