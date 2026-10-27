@@ -68,6 +68,13 @@ pub const Pieces = struct {
         pieces.end += octets.len;
     }
 
+    /// Whether `release_below` can drop a run once the peer has acknowledged `acknowledged_len`
+    /// octets of the stream. The offset under which it acknowledged every octet is no higher, so
+    /// no run is dropped unless the first one ends within that count.
+    pub fn may_release(pieces: *const Pieces, acknowledged_len: u64) bool {
+        return pieces.runs_len > 0 and pieces.runs[0].end() <= acknowledged_len;
+    }
+
     /// Drops every run below `acknowledged`, the offset under which the peer has acknowledged
     /// every octet, and moves the kept frames after them down to the front of `kept`. Returns the
     /// octets of the caller's runs dropped, which a coded response frees from its ring.
@@ -166,6 +173,24 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     try testing.expectEqual(0, pieces.kept_len);
     test_keep(pieces, "END");
     try testing.expectEqualStrings("END", output[0..pieces.read(24, &output)]);
+}
+
+test "a release can drop a run only once its first run is acknowledged in count" {
+    const pieces = &test_pieces;
+    pieces.init();
+    try testing.expect(!pieces.may_release(0));
+    test_keep(pieces, "HEAD");
+    pieces.add_caller("hello");
+    // The first run is four octets: a count of three cannot cover it, and a count of four can.
+    try testing.expect(!pieces.may_release(3));
+    try testing.expect(pieces.may_release(4));
+    try testing.expectEqual(0, pieces.release_below(3));
+    _ = pieces.release_below(4);
+    // Each count is from the stream's start, so "hello" goes at nine and not at five.
+    try testing.expect(!pieces.may_release(8));
+    try testing.expect(pieces.may_release(9));
+    _ = pieces.release_below(9);
+    try testing.expect(!pieces.may_release(pieces.end));
 }
 
 /// The offsets `run_pieces` releases below and reads from, as the second test does. Test-only.

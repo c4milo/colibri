@@ -89,13 +89,19 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
         },
         .ready, .send, .data_sent => {},
     }
-    if (quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, id)) |acknowledged| {
-        const freed = record.response.release_below(@min(acknowledged, record.response.end));
-        // A coded response's runs are its ring's, which frees what the peer acknowledged.
-        if (record.coded) |*coded| coded.ring.free(freed);
-    }
+    // The acknowledged end scans every packet in flight, and `settle` runs after each datagram,
+    // so it is read only when a run can go.
+    if (record.response.may_release(stream.outgoing.acknowledged_len)) release(connection, record, id);
     quic_coding.go_on(connection, record);
     quic_continue.write(connection, record, stream);
+}
+
+/// Drops the runs of `record`'s response that the peer acknowledged.
+fn release(connection: *QuicConnection, record: *Request, id: StreamId) void {
+    const acknowledged = quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, id) orelse return;
+    const freed = record.response.release_below(@min(acknowledged, record.response.end));
+    // A coded response's runs are its ring's, which frees what the peer acknowledged.
+    if (record.coded) |*coded| coded.ring.free(freed);
 }
 
 pub fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_request.Ending, "kind")) void {
