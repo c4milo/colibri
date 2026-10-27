@@ -4978,6 +4978,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         The endpoint run kept each total, and 2 of its 1,577 requests moved from a cancel to
         `done`. On a laptop, oha sent 1,000 req/s over h2-tls for 2 s, and colibri answered
         1,999 with 200.
+      - 13f.6: GSO and GRO in the UDP server's `h3` mode, which the owner ruled on 2026-10-27,
+        to find whether they bring colibri's h3 p99 nearer axum's. Rotor's pin moved from
+        59599a88 to d75b411, whose `DatagramOptions.coalesce` asks for UDP_GRO. The `src/testing/`
+        server alone changed, and the library did not:
+        - The socket asks the kernel to coalesce, into receive buffers of 66 KiB, and the server
+          hands each segment of a coalesced delivery to the endpoint as a datagram.
+        - Each turn, `udp_batch.zig` adds each datagram the endpoint owes to a batch for its peer
+          and its codepoint, and each batch goes out as one send of segments (UDP_SEGMENT). The
+          endpoint takes its connections in turn, so two datagrams in a row seldom share a peer.
+        - On macOS, which has neither, each batch holds one datagram.
+        - In an Ubuntu 24.04 container on a laptop, `h2load --h3` fetched a 30,000-octet file
+          2,000 times, and every request succeeded. The server made 12,518 `sendmsg` calls for
+          the 60,000,000 octets, about 4 datagrams for each call.
+        - Ten mutations, each CAUGHT on Linux: the peer, the codepoint, a longer datagram, the
+          segment count and the octet count each ignored, a shorter datagram that does not close
+          its batch, one datagram sent as segments, a delivery not split, no UDP_GRO, and a batch
+          in flight that takes a datagram.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,

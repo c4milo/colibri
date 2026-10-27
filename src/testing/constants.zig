@@ -237,6 +237,22 @@ pub const udp_receive_buffers: u32 = 16;
 /// control messages, and the datagram after it.
 pub const udp_buffer_bytes: u32 = 2048;
 
+/// Octets of one receive buffer of a socket that asks the kernel to coalesce datagrams (UDP_GRO):
+/// rotor's prefix of 192 and the largest UDP datagram, whose length field holds 16 bits (RFC 768),
+/// rounded up to the next KiB.
+pub const udp_coalesced_buffer_bytes: u32 = 66 * 1024;
+
+/// The largest send that the kernel cuts into segments (UDP_SEGMENT): an IPv4 datagram's 65,535
+/// octets less its 20-octet header and the 8-octet UDP header (RFC 791 §3.1, RFC 768).
+pub const udp_segmented_bytes_max: usize = 65_507;
+
+/// Segments in one segmented send: rotor's limit, which is Linux's.
+pub const udp_segments_max: usize = 64;
+
+/// Segmented sends the h3 server may have in flight to the kernel at once. Each holds
+/// `udp_segmented_bytes_max` octets, so the batches stay a few MiB.
+pub const udp_batches: usize = 16;
+
 /// The largest datagram an endpoint must receive whole: Ethernet's MTU, which the paths of
 /// design §9's endpoints stay within.
 pub const udp_payload_len_min: u32 = 1500;
@@ -379,6 +395,9 @@ comptime {
     assert(udp_operations_max > 1);
     assert(std.math.isPowerOfTwo(udp_receive_buffers));
     assert(udp_buffer_bytes > udp_payload_len_min);
+    assert(udp_coalesced_buffer_bytes > std.math.maxInt(u16) + udp_buffer_bytes - udp_payload_len_min);
+    assert(udp_segmented_bytes_max >= quic_datagram_len_max and udp_segments_max > 1);
+    assert(udp_batches > 0 and udp_batches < udp_send_slots);
 }
 
 comptime {

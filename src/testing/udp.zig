@@ -12,6 +12,7 @@
 //! else, which is decision 46's rule on a loop colibri did not write.
 const std = @import("std");
 const assert = std.debug.assert;
+const builtin = @import("builtin");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 
@@ -34,42 +35,55 @@ const group_id: u16 = 1;
 /// a QUIC stack asks for.
 const group_options: rotor.datagram.GroupOptions = .{};
 
-const group_bytes = rotor.buffers.group_bytes(constants.udp_receive_buffers, constants.udp_buffer_bytes);
-
 /// The user data of the endpoint's receive. Sends carry the caller's, which must differ.
 pub const receive_user_data: u64 = std.math.maxInt(u64);
 
-/// Every block rotor runs an endpoint on, placed by the caller.
-pub const Memory = struct {
-    loop: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
-    /// Larger than the group by its alignment, because a static declared that aligned is not
-    /// always placed that aligned on macOS, and rotor's guide aligns forward inside the block.
-    group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
+/// Every block rotor runs an endpoint on, placed by the caller, with receive buffers of
+/// `udp_buffer_bytes`.
+pub const Memory = MemoryOf(constants.udp_buffer_bytes, false);
 
-    fn group_memory(memory: *Memory) []align(rotor.buffers.group_alignment) u8 {
-        const start = std.mem.alignForward(usize, @intFromPtr(&memory.group), rotor.buffers.group_alignment);
-        const aligned: [*]align(rotor.buffers.group_alignment) u8 = @ptrFromInt(start);
-        return aligned[0..group_bytes];
-    }
-};
+/// The same, for a socket that asks the kernel to coalesce datagrams from one peer (UDP_GRO): each
+/// receive buffer holds a coalesced datagram of up to 64 KiB. On macOS the kernel coalesces none.
+pub const CoalescedMemory = MemoryOf(constants.udp_coalesced_buffer_bytes, true);
+
+fn MemoryOf(comptime buffer_bytes: u32, comptime coalesce: bool) type {
+    return struct {
+        loop: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+        /// Larger than the group by its alignment, because a static declared that aligned is not
+        /// always placed that aligned on macOS, and rotor's guide aligns forward inside the block.
+        group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
+
+        const group_bytes = rotor.buffers.group_bytes(constants.udp_receive_buffers, buffer_bytes);
+        const receive_buffer_bytes = buffer_bytes;
+        const socket_options: rotor.sync.DatagramOptions = .{ .coalesce = coalesce };
+
+        fn group_memory(memory: *@This()) []align(rotor.buffers.group_alignment) u8 {
+            const start = std.mem.alignForward(usize, @intFromPtr(&memory.group), rotor.buffers.group_alignment);
+            const aligned: [*]align(rotor.buffers.group_alignment) u8 = @ptrFromInt(start);
+            return aligned[0..group_bytes];
+        }
+    };
+}
 
 pub const Endpoint = struct {
     loop: rotor.Loop,
     socket: rotor.Descriptor,
     receiving: rotor.Handle,
 
-    /// Starts the loop in `memory`, binds a datagram socket to `bind_to` and starts receiving.
-    pub fn open(endpoint: *Endpoint, memory: *Memory, bind_to: Address) !void {
+    /// Starts the loop in `memory`, a `*Memory` or a `*CoalescedMemory`, binds a datagram socket
+    /// to `bind_to` and starts receiving.
+    pub fn open(endpoint: *Endpoint, memory: anytype, bind_to: Address) !void {
+        const Placed = @TypeOf(memory.*);
         try endpoint.loop.init(&memory.loop, loop_options);
         errdefer endpoint.loop.deinit();
         try endpoint.loop.provide_datagram_buffers(
             group_id,
             memory.group_memory(),
             constants.udp_receive_buffers,
-            constants.udp_buffer_bytes,
+            Placed.receive_buffer_bytes,
             group_options,
         );
-        endpoint.socket = try rotor.sync.open_datagram(bind_to.family, &bind_to, .{});
+        endpoint.socket = try rotor.sync.open_datagram(bind_to.family, &bind_to, Placed.socket_options);
         errdefer rotor.sync.close_now(endpoint.socket);
         endpoint.start_receive();
     }
@@ -102,7 +116,9 @@ pub const Endpoint = struct {
         return rotor.sync.local_address(endpoint.socket);
     }
 
-    /// Sends `octets` as one datagram to where `outbound` says. Both belong to the loop until the
+    /// Sends `octets` as one datagram to where `outbound` says, or as datagrams of
+    /// `outbound.segment_bytes` each when it is not 0, which the kernel cuts (UDP_SEGMENT, Linux
+    /// alone). Both belong to the loop until the
     /// send's event, which carries `user_data` (rotor's rule 3). False when the loop has no room
     /// for the send yet.
     pub fn send(endpoint: *Endpoint, user_data: u64, octets: []const u8, outbound: *const Outbound) bool {
@@ -151,8 +167,10 @@ pub const Endpoint = struct {
 };
 
 comptime {
-    // A datagram as large as the endpoint's paths carry arrives whole.
+    // A datagram as large as the endpoint's paths carry arrives whole, and so does the largest
+    // coalesced one.
     assert(rotor.datagram.payload_capacity(constants.udp_buffer_bytes, group_options) >= constants.udp_payload_len_min);
+    assert(rotor.datagram.payload_capacity(constants.udp_coalesced_buffer_bytes, group_options) >= std.math.maxInt(u16));
 }
 
 const testing = std.testing;
@@ -282,4 +300,40 @@ fn exchange(sender: *Endpoint, receiver: *Endpoint, outbound: *const Outbound) !
     try testing.expectEqualStrings(test_octets, got.bytes);
     try testing.expectEqual((try sender.local_address()).port, got.from.peer.port);
     receiver.finish_receive(arrived[0]);
+}
+
+/// The memory of a receiver that asks the kernel to coalesce. Test-only.
+var test_coalesced_memory: CoalescedMemory align(@alignOf(CoalescedMemory)) = undefined;
+/// Three segments of one send: two of `test_segment_len` and a shorter last one. Test-only.
+const test_segment_len: u16 = 100;
+/// The shorter last segment. Test-only.
+const test_last_len: u16 = 50;
+const test_segments = [_]u8{'a'} ** test_segment_len ++ [_]u8{'b'} ** test_segment_len ++ [_]u8{'c'} ** test_last_len;
+
+test "design §8 step 13f.6: a segmented send arrives coalesced at a receiver that asks for it" {
+    // UDP_SEGMENT and UDP_GRO are Linux's; macOS refuses the one and ignores the other.
+    if (builtin.os.tag != .linux) return;
+    const receiver = &test_endpoints[0];
+    const sender = &test_endpoints[1];
+    try receiver.open(&test_coalesced_memory, Address.ipv4(loopback_octets, 0));
+    try sender.open(&test_memory[1], Address.ipv4(loopback_octets, 0));
+    const outbound: Outbound = .{
+        .peer = try receiver.local_address(),
+        .local = undefined,
+        .segment_bytes = test_segment_len,
+        .ecn = .not_ect,
+        .flags = .{ .peer = true },
+    };
+    var events: [constants.udp_operations_max]Event = undefined;
+    try testing.expect(sender.send(test_send_user_data, &test_segments, &outbound));
+    const sent = try sender.tick(&events, test_wait_ns);
+    try testing.expectEqual(@as(u32, test_segments.len), try sent[0].outcome());
+    const arrived = try receiver.tick(&events, test_wait_ns);
+    try testing.expectEqual(1, arrived.len);
+    const got = receiver.delivery(arrived[0]);
+    try testing.expectEqualStrings(&test_segments, got.bytes);
+    try testing.expectEqual(test_segment_len, got.from.segment_bytes);
+    receiver.finish_receive(arrived[0]);
+    try receiver.close();
+    try sender.close();
 }

@@ -6,8 +6,13 @@
 //! endpoint, which routes it (RFC 9000 §5.2) or starts a connection from it, fires every deadline,
 //! answers each event the endpoint reports, by its connection's slot, and sends what the endpoint
 //! owes. A sent datagram's
-//! octets belong to Rotor until its send's event (Rotor's rule 3), so each is built in a slot of
-//! its own, and a datagram Rotor has no room for is one lost on the way, which RFC 9002 recovers.
+//! octets belong to Rotor until its send's event (Rotor's rule 3), so each goes into a batch of its
+//! peer's, which holds it until then, and a datagram Rotor has no room for is one lost on the way,
+//! which RFC 9002 recovers.
+//!
+//! On Linux the socket asks the kernel to coalesce datagrams (UDP_GRO), and each batch goes out as
+//! one segmented send (UDP_SEGMENT, `udp_batch.zig`, design §8 step 13f.6). A coalesced delivery
+//! holds segments of one length, and each goes to the endpoint as a datagram of its own.
 //!
 //! With `qlogdir`, each connection writes its qlog there: the endpoint asks its log provider for a
 //! log as each connection starts, and hands it back once the connection is over (decision 102 as
@@ -24,6 +29,7 @@ const udp_arguments = @import("udp_arguments.zig");
 const udp_identity = @import("udp_identity.zig");
 const udp_h3_files = @import("udp_h3_files.zig");
 const udp_qlog = @import("udp_qlog.zig");
+const udp_batch = @import("udp_batch.zig");
 const server_routes = @import("../../server/server_routes.zig");
 
 const Endpoint = udp_h3_files.Endpoint;
@@ -33,10 +39,11 @@ var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
 /// The files each connection serves, at its slot in the endpoint.
 var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;
 var events: [constants.udp_operations_max]udp.Event align(@alignOf(udp.Event)) = undefined;
-var slots: [constants.udp_send_slots][constants.quic_datagram_len_max]u8 = undefined;
-var slot_busy: [constants.udp_send_slots]bool = @splat(false);
-/// Where each slot's datagram goes, which its send reads until its event (Rotor's rule 3).
-var slot_outbound: [constants.udp_send_slots]udp.Outbound align(@alignOf(udp.Outbound)) = undefined;
+/// The datagram the endpoint writes, before it joins its peer's batch.
+var datagram: [constants.quic_datagram_len_max]u8 = undefined;
+var batches: udp_batch.Batches align(@alignOf(udp_batch.Batches)) = .{};
+/// Where each batch goes, which its send reads until its event (Rotor's rule 3).
+var batch_outbound: [constants.udp_batches]udp.Outbound align(@alignOf(udp.Outbound)) = undefined;
 /// Connections that failed, which fail the run unless the server was asked to expect them
 /// (`errors`), files the ended connections served, and the connections that ended.
 var connection_errors: u64 = 0;
@@ -98,16 +105,27 @@ fn wait_ns(socket: *const udp.Endpoint) u64 {
 
 fn on_event(asked: udp_arguments.Server, socket: *udp.Endpoint, event: udp.Event, now_ns: u64) void {
     if (event.user_data != udp.receive_user_data) {
-        // A send's event gives its slot back.
-        slot_busy[@intCast(event.user_data)] = false;
+        // A send's event gives its batch back.
+        batches.release(@intCast(event.user_data));
         return;
     }
-    if (event.flags.buffer) {
-        const delivery = socket.delivery(event);
-        const ecn = udp_peer.received_ecn(&delivery.from);
-        take(asked, .{ .datagram = .{ .bytes = delivery.bytes, .ecn = ecn, .from = udp_peer.peer_address(delivery.from.peer) } }, now_ns);
-    }
+    if (event.flags.buffer) take_delivery(asked, socket.delivery(event), now_ns);
     socket.finish_receive(event);
+}
+
+/// Hands the endpoint each datagram of a delivery: the delivery itself, or each segment of one the
+/// kernel coalesced, the last of which may be shorter. A delivery cut short is dropped, as a lost
+/// datagram is.
+fn take_delivery(asked: udp_arguments.Server, delivery: udp.Delivery, now_ns: u64) void {
+    if (delivery.from.flags.truncated) return;
+    const ecn = udp_peer.received_ecn(&delivery.from);
+    const from = udp_peer.peer_address(delivery.from.peer);
+    var segments = udp_batch.Segments.of(delivery.bytes, delivery.from.segment_bytes);
+    // Bounded: each pass takes one segment, and a delivery holds at most `udp_segments_max`.
+    for (0..constants.udp_segments_max) |_| {
+        const bytes = segments.next() orelse return;
+        take(asked, .{ .datagram = .{ .bytes = bytes, .ecn = ecn, .from = from } }, now_ns);
+    }
 }
 
 /// Passes `input` to the endpoint, then answers every event it reports until it reports none.
@@ -143,23 +161,31 @@ fn end(asked: udp_arguments.Server, over: server.Ended) void {
     if (!asked.errors) fail("a connection ended on a connection error", .{});
 }
 
-/// Sends every datagram the endpoint owes now, each from a free slot.
+/// Sends every datagram the endpoint owes now, while a batch is free to take it, in one send for
+/// each batch.
 fn flush(socket: *udp.Endpoint, now_ns: u64) void {
-    for (&slots, 0..) |*slot, index| {
-        if (slot_busy[index]) continue;
-        const sent = endpoint.send_datagram(slot, now_ns) orelse return;
-        slot_outbound[index] = outbound(sent);
-        if (socket.send(index, sent.bytes, &slot_outbound[index])) slot_busy[index] = true;
+    // Bounded: each pass adds one datagram, and the batches hold at most this many.
+    for (0..constants.udp_batches * constants.udp_segments_max) |_| {
+        if (!batches.has_free()) break;
+        const sent = endpoint.send_datagram(&datagram, now_ns) orelse break;
+        batches.add(sent);
+    }
+    for (&batches.batches, 0..) |*batch, index| {
+        if (batch.state != .open) continue;
+        batch_outbound[index] = outbound(batch);
+        // A batch Rotor has no room for is freed, and its datagrams are lost on the way.
+        batch.state = if (socket.send(index, batch.bytes[0..batch.len], &batch_outbound[index])) .sending else .free;
     }
 }
 
-/// Where a datagram goes, asking Rotor to set the codepoint colibri named (decision 68).
-fn outbound(sent: server.Sent) udp.Outbound {
-    const ecn = udp_peer.sent_ecn(sent.ecn);
+/// Where a batch goes, asking Rotor to set the codepoint colibri named (decision 68), and to cut
+/// it into segments of its first datagram's length.
+fn outbound(batch: *const udp_batch.Batch) udp.Outbound {
+    const ecn = udp_peer.sent_ecn(batch.ecn);
     return .{
-        .peer = udp_peer.udp_address(sent.to),
+        .peer = udp_peer.udp_address(batch.to),
         .local = undefined,
-        .segment_bytes = 0,
+        .segment_bytes = batch.segment_bytes(),
         .ecn = ecn,
         .flags = .{ .peer = true, .ecn = ecn != .not_ect },
     };

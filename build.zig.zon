@@ -15,8 +15,8 @@
         // (decision 58). Lazy, and requested only when colibri is the root build, like
         // pepegrillo.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor#59599a887a7e96a34cc155777a3bf43c1c6ae8b5",
-            .hash = "rotor-0.6.0-YZkxRImMEwBfvylbAcRm5qlHtIiE1PRaXI9A76wXG4NO",
+            .url = "git+https://github.com/c4milo/rotor#d75b411db94f4293c38a8182d38086199e43d5bb",
+            .hash = "rotor-0.7.0-YZkxRMiXFAAySDfsAfSPiGvOcKmiQfar-ZiFhymuypCi",
             .lazy = true,
         },
         // The QPACK vectors of qpackers/qifs, which tools/qpack_vectors.zig decodes (decisions 25

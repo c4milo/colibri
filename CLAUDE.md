@@ -516,7 +516,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
   connections and writes no qlog; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
   it. With `routes=github` too, `server.router` answers every request over the GitHub API's routes
-  in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). An address is IPv4
+  in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). On Linux the `h3`
+  mode receives with UDP_GRO and sends each peer's datagrams of a turn as one send of segments
+  (UDP_SEGMENT, design §8 step 13f.6). An address is IPv4
   or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh`
   runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
   checks each file arrives octet for octet, that a missing one is refused, that a client with

@@ -52,6 +52,9 @@ pub const Connection = struct {
 };
 
 var memory: udp.Memory align(@alignOf(udp.Memory)) = undefined;
+/// The memory of the `h3` server's socket, which asks the kernel to coalesce datagrams (UDP_GRO,
+/// design §8 step 13f.6).
+var coalesced_memory: udp.CoalescedMemory align(@alignOf(udp.CoalescedMemory)) = undefined;
 var socket: udp.Endpoint align(@alignOf(udp.Endpoint)) = undefined;
 /// Sized for the most a server may hold, because `src/` has no heap (CLAUDE.md non-negotiable 4).
 /// `table` is the part in use.
@@ -89,7 +92,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .server => |asked| asked.address,
         .client => |asked| any_address(asked.address.family),
     };
-    try socket.open(&memory, bind);
+    if (arguments == .server and arguments.server.h3) try socket.open(&coalesced_memory, bind) else try socket.open(&memory, bind);
     // Decision 63: this first tick reads the clock whose instant every turn then passes on.
     _ = try socket.tick(&events, 0);
     started_ns = socket.now_ns();
