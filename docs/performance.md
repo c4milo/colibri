@@ -152,6 +152,34 @@ inputs are set:
 - Each answers with the fields its own code adds, which h2load counts before QPACK: colibri's
   server sends 25 octets of field lines, `content-length` alone, and quic-go's sends 155.
 
+### Latency at fixed rates
+
+`bench/run.sh --latency` measures servers that route, under oha at fixed rates (design §8 step
+13f). Run [40526708637](https://github.com/c4milo/colibri/actions/runs/40526708637) is the
+baseline. It measured main at `42445f1c` on the judge, `ubuntu-24.04-arm` with Linux
+6.17.0-1022-azure, in two jobs on 2026-10-27.
+
+This table gives each server's highest rate whose median p99 stays under 10 ms. At that rate,
+every request got 200, and every round reached 95% of the rate. A cell with two values gives job 1,
+then job 2.
+
+| Server | h11 | h2 | h2-tls | h3 |
+|---|---|---|---|---|
+| colibri | 80,000 | 80,000 | 40,000 | 20,000 |
+| axum | 80,000 | 40,000 / 80,000 | 40,000 | 20,000 |
+| chi | 40,000 | 20,000 | 10,000 / 20,000 | 10,000 |
+| http.zig | 40,000 | — | — | — |
+| Fastify | 10,000 | 10,000 | none | — |
+
+The rates step by a factor of two, so the table hides a difference smaller than that. Compare the
+p99 at one rate inside one job (§11.4):
+
+- **h2-tls at 40,000 req/s.** colibri loses here: its p99 was 4.68 ms and 3.72 ms, and axum's
+  3.49 ms and 2.93 ms. At 20,000 req/s the two match, about 1.2 ms each.
+- **h3 at 40,000 req/s.** colibri's p99 was 13.76 ms and 11.98 ms, and axum's 15.79 ms and
+  14.28 ms. Neither stays under 10 ms.
+- **h3 at 80,000 offered.** colibri reached 64,439 and 66,865 req/s, and axum 58,465 and 61,102.
+
 ## Memory per connection
 
 The table gives the size in bytes of each struct a program places, and of the connection in each

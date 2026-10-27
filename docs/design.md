@@ -4995,6 +4995,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           segment count and the octet count each ignored, a shorter datagram that does not close
           its batch, one datagram sent as segments, a delivery not split, no UDP_GRO, and a batch
           in flight that takes a datagram.
+        - The judge's run 40526708637 measured `42445f1c`, and run 40516121513 measured
+          `291d0d61`, the tree before. Over h3, colibri and axum held 20,000 req/s in both
+          runs. The change moved colibri against axum, in each job:
+          - colibri's p99 divided by axum's at 40,000 req/s went from 0.92 and 0.91 to 0.87 and
+            0.84.
+          - colibri's rate divided by axum's at 80,000 offered went from 1.06 and 1.05 to 1.10
+            and 1.09.
+        - `docs/performance.md` holds run 40526708637 as 13f's baseline.
   - **13g**, competitors in Rust and in Zig, and four h11 inputs, which the owner ruled on
     2026-10-17:
     - hyper answers over h11 and h2, in cleartext and over TLS, from `bench/competitors/hyper/`,
