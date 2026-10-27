@@ -15,6 +15,7 @@ const files = struct {
     pub const varint = @import("varint.zig");
     pub const prefixed_integer = @import("prefixed_integer.zig");
     pub const huffman = @import("huffman.zig");
+    pub const huffman_decode = @import("huffman_decode.zig");
     pub const huffman_table = @import("huffman_table.zig");
     pub const string_literal = @import("string_literal.zig");
     pub const table_size = @import("table_size.zig");
@@ -35,7 +36,7 @@ pub const prefixed_integer = struct {
 
 pub const huffman = struct {
     pub const DecodeError = files.huffman.DecodeError;
-    pub const decode = files.huffman.decode;
+    pub const decode = files.huffman_decode.decode;
     pub const encode = files.huffman.encode;
     pub const encoded_len = files.huffman.encoded_len;
     pub const encoded_len_max = files.huffman.encoded_len_max;

@@ -11,10 +11,11 @@
 //! ones (invariant 12). A run of thirty ones is legal without EOS: symbol 204 ends in five ones and
 //! symbol 22 begins with twenty-nine, so the octets 204 and 22 encode to a run of thirty-four.
 //!
-//! The decoder reads the code bit by bit using the table's canonical order, which the comptime
+//! `decode` reads four bits a step through a machine built from the table, in `huffman_decode.zig`.
+//! `decode_by_bits` reads the code bit by bit using the table's canonical order, which the comptime
 //! block below proves rather than assumes: at each length, the codes of that length are one
 //! contiguous range, so a partial code is a complete symbol exactly when it falls inside its
-//! length's range.
+//! length's range. It is the reference the machine's tests compare with.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -154,7 +155,10 @@ const Partial = struct {
 
 /// Decodes all of `encoded` into `output`. On an error the output cursor does not move: it moves
 /// once, when the whole string has decoded, and octets past it are scratch.
-pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
+pub const decode = @import("huffman_decode.zig").decode;
+
+/// What `decode` does, one bit at a time: the reference its tests compare with.
+pub fn decode_by_bits(encoded: []const u8, output: *Writer) DecodeError!void {
     var cursor = output.*;
     var partial: Partial = .{};
     for (encoded) |octet| {
