@@ -212,7 +212,7 @@ fn run_seed(seed: u64) !void {
             .peek => try copy(storage, side, &draw, false),
             .discard => discard(storage, side, &draw),
             .release => {
-                side.incoming.release(storage, side.id);
+                side.incoming.release(storage, side.id, side.read);
                 side.list.release();
                 side.* = .{ .id = take_id() };
             },
@@ -254,7 +254,7 @@ test "RFC 9000 §21.7: one octet in each block of a stream's window leaves every
     try testing.expectEqual(capacity_blocks, incoming.held);
     try testing.expectEqual(1, longest_chain(storage));
     try testing.expectEqual(0, incoming.contiguous_end(storage, id, 0));
-    incoming.release(storage, id);
+    incoming.release(storage, id, 0);
     try testing.expectEqual(0, longest_chain(storage));
 }
 
@@ -286,7 +286,7 @@ fn colliding_ids(storage: stream_incoming.Storage, ids: []u64) !void {
             ids[found] = id;
             found += 1;
         } else {
-            candidate.release(storage, id);
+            candidate.release(storage, id, 0);
         }
         id += id_step;
     }
@@ -331,7 +331,7 @@ test "decision 61 as amended: streams whose blocks share a bucket each keep thei
     try expect_first_block(storage, &incomings[2], ids[2], true);
     try testing.expectEqual(1, longest_chain(storage));
     try expect_first_block(storage, &incomings[0], ids[0], false);
-    incomings[0].release(storage, ids[0]);
+    incomings[0].release(storage, ids[0], 0);
     try testing.expectEqual(0, longest_chain(storage));
     try testing.expect(incomings[0].is_empty());
 }

@@ -109,12 +109,27 @@ test "decision 61: streams share the pool, and a released stream gives its block
     try second.write(storage, stream_b, 0, block_len, frame(block_len, 2 * block_len));
     try testing.expectEqual(block_len, first.contiguous_end(storage, stream_a, 0));
     try testing.expectEqual(0, second.contiguous_end(storage, stream_b, 0));
-    second.release(storage, stream_b);
+    second.release(storage, stream_b, 0);
     try testing.expect(second.is_empty());
     try testing.expectEqual(all - 1, free_blocks(storage));
     try testing.expectEqual(block_len, first.read(storage, stream_a, 0, &output));
     try testing.expectEqual(all, free_blocks(storage));
 }
+
+test "decision 61: a release finds the blocks of a stream that has read past the pool's size" {
+    const storage = fresh();
+    const all = free_blocks(storage);
+    var far: Incoming = .{};
+    // The stream read more blocks than the pool holds, so its blocks' numbers pass the pool's.
+    const read_offset: u64 = far_blocks * storage.blocks.len * block_len + block_len / 2;
+    try far.write(storage, stream_a, read_offset, read_offset, frame(read_offset, read_offset + block_len));
+    try testing.expectEqual(2, far.held);
+    far.release(storage, stream_a, read_offset);
+    try testing.expect(far.is_empty());
+    try testing.expectEqual(all, free_blocks(storage));
+}
+/// How many pools' worth of blocks the stream above has read. Test-only.
+const far_blocks: u64 = 3;
 
 test "decision 61: a pool with no block free refuses the write" {
     const storage = fresh();

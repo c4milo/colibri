@@ -149,7 +149,7 @@ fn take_reset(connection: *Connection, stream_id: u64, application_error_code: u
         connection.receive_flow.consume(final_size - stream.receive_flow.consumed);
     }
     // RFC 9000 §3.2: a reset stream's octets are not delivered, so the pool takes them back.
-    if (connection.receive_storage) |storage| stream.incoming.release(storage, stream.id);
+    if (connection.receive_storage) |storage| stream.incoming.release(storage, stream.id, stream.receive_flow.consumed);
 }
 
 /// A STOP_SENDING frame (RFC 9000 §19.5): the peer wants nothing more on a stream this endpoint

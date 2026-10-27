@@ -136,29 +136,6 @@ pub const Storage = struct {
         return index;
     }
 
-    /// Takes every block of `stream_id` out of the chain that starts at `bucket`, gives each back
-    /// to the pool, and returns how many there were.
-    fn remove_all(storage: Storage, bucket: *Index, stream_id: u64) u32 {
-        var removed: u32 = 0;
-        var previous: Index = no_block;
-        var current = bucket.*;
-        // Bounded by the pool's blocks: a chain holds each block once.
-        for (0..storage.blocks.len) |_| {
-            if (current == no_block) break;
-            const next = storage.blocks[current].next;
-            if (storage.blocks[current].stream_id == stream_id) {
-                if (previous == no_block) bucket.* = next else storage.blocks[previous].next = next;
-                storage.blocks[current].next = storage.header.free_head;
-                storage.header.free_head = current;
-                removed += 1;
-            } else {
-                previous = current;
-            }
-            current = next;
-        }
-        return removed;
-    }
-
     /// Takes block `index` out of its bucket's chain and gives it back to the pool.
     fn remove(storage: Storage, index: Index) void {
         const removed = &storage.blocks[index];
@@ -298,11 +275,18 @@ pub const Incoming = struct {
         return at;
     }
 
-    /// Gives every block back, which a stream that was reset or closed no longer needs. Only a
-    /// stream reset with octets unread holds any, so the walk of every bucket is rare.
-    pub fn release(incoming: *Incoming, storage: Storage, stream_id: u64) void {
-        if (incoming.held == 0) return;
-        for (storage.buckets) |*bucket| incoming.held -= storage.remove_all(bucket, stream_id);
+    /// Gives every block back, which a stream that was reset or closed no longer needs, given the
+    /// stream's read offset. It probes the stream's own block numbers, not every bucket.
+    pub fn release(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64) void {
+        // A block below the one `read_offset` lies in was read to its end and went back, and flow
+        // control keeps the rest inside the window, which spans fewer numbers than the pool has
+        // blocks (decision 61). So the walk probes the numbers from there up until none is held.
+        var number = read_offset / block_len;
+        for (0..storage.blocks.len) |_| {
+            if (incoming.held == 0) return;
+            if (storage.find(stream_id, number)) |index| incoming.give_back(storage, index);
+            number += 1;
+        }
         assert(incoming.held == 0);
     }
 
