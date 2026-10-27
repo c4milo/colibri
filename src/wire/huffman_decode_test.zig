@@ -5,6 +5,8 @@ const std = @import("std");
 const core = @import("core");
 const huffman = @import("huffman.zig");
 const huffman_decode = @import("huffman_decode.zig");
+const constants = @import("constants.zig");
+const table = @import("huffman_table.zig");
 
 const Writer = core.Writer;
 const testing = std.testing;
@@ -66,5 +68,38 @@ test "decision 11: the machine decodes longer inputs, and encoded strings, as th
         try huffman.encode(input[0..len], &writer);
         try expect_same(writer.written(), room_max);
         try expect_same(writer.written(), room_small);
+    }
+}
+
+/// The symbol whose code fills the bits before EOS: one of the shortest, five bits, so 0 to 7 of
+/// them start EOS at every bit of an octet. Test-only.
+const filler: u8 = '0';
+const fillers_max: usize = @bitSizeOf(u8) - 1;
+
+test "RFC 7541 §5.2: EOS inside the data is found at every bit it can start at" {
+    comptime std.debug.assert(table.codes[filler].bit_count == constants.huffman_code_bits_min);
+    for (0..fillers_max + 1) |fillers| {
+        // The fillers, then EOS, then ones to the end of the octet: the bits a peer could send.
+        var bits: u128 = 0;
+        var bit_count: u7 = 0;
+        for (0..fillers) |_| {
+            bits = (bits << constants.huffman_code_bits_min) | table.codes[filler].code;
+            bit_count += constants.huffman_code_bits_min;
+        }
+        const eos = table.codes[constants.huffman_eos_symbol];
+        bits = (bits << @intCast(eos.bit_count)) | eos.code;
+        bit_count += @intCast(eos.bit_count);
+        const padding: u7 = @intCast((@bitSizeOf(u8) - bit_count % @bitSizeOf(u8)) % @bitSizeOf(u8));
+        bits = (bits << padding) | ((@as(u128, 1) << padding) - 1);
+        bit_count += padding;
+        var encoded: [@bitSizeOf(u128) / @bitSizeOf(u8)]u8 = undefined;
+        const len = bit_count / @bitSizeOf(u8);
+        for (encoded[0..len], 0..) |*octet, index| {
+            octet.* = @truncate(bits >> @intCast(bit_count - @bitSizeOf(u8) * (index + 1)));
+        }
+        var output: [room_max]u8 = undefined;
+        var writer = Writer.init(&output);
+        try testing.expectError(error.HuffmanEosInData, huffman_decode.decode(encoded[0..len], &writer));
+        try expect_same(encoded[0..len], room_max);
     }
 }
