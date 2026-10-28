@@ -106,8 +106,18 @@ pub const Timeouts = struct {
 /// one at least.
 pub fn quota(rate: u32, window_ns: u64) u64 {
     assert(rate > 0 and window_ns > 0);
+    const round_up = constants.nanoseconds_per_second - 1;
+    // A connection asks for its quota as it reads and sends. A 128-bit division is a call to
+    // compiler-rt, and a 64-bit division by a constant is a multiply, so the 64-bit form goes
+    // first, for every product that fits it.
+    const narrow, const overflow = @mulWithOverflow(@as(u64, rate), window_ns);
+    if (overflow == 0 and narrow <= std.math.maxInt(u64) - round_up) {
+        const octets = (narrow + round_up) / constants.nanoseconds_per_second;
+        assert(octets > 0);
+        return octets;
+    }
     const product = @as(u128, rate) * window_ns;
-    const octets: u64 = @intCast((product + constants.nanoseconds_per_second - 1) / constants.nanoseconds_per_second);
+    const octets: u64 = @intCast((product + round_up) / constants.nanoseconds_per_second);
     assert(octets > 0);
     return octets;
 }
@@ -159,6 +169,13 @@ test "decision 110 as amended: where bodies arrive in units, a rate an honest pe
     try (Timeouts{}).validate_units();
     try (Timeouts{ .body_rate_min = null, .rate_window_ns = 1 }).validate_units();
     try testing.expectError(error.TimeoutInvalid, (Timeouts{ .body_rate_min = 819 }).validate_units());
+}
+
+test "a quota whose product fits 64 bits but not its rounding takes the 128-bit form" {
+    // 4,294,967,295 times 4,294,967,297 is 2^64 - 1, so adding the rounding would overflow.
+    try testing.expectEqual(18_446_744_074, quota(std.math.maxInt(u32), std.math.maxInt(u32) + 2));
+    // One octet a second over a window one nanosecond short of the bound still fits.
+    try testing.expectEqual(18_446_744_073, quota(1, std.math.maxInt(u64) - constants.nanoseconds_per_second + 1));
 }
 
 test "decision 77: every quota vector of spec/lean is this quota" {
