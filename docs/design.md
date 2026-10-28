@@ -9460,6 +9460,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     at 0.9799 and 0.9808, about 400 user instructions a connection. h11-many, with a noise of
     5.6% and 5.9%, stays inside it. No input loses.
 
+  **A rate's quota in 64 bits, 2026-10-28.** The owner asked for fewer calls on each h11 request.
+  A request takes about six calls to `receive`, because each call reports one event (decision
+  119), so fewer calls would change the API. What repeats is `deadline.quota`: about three times a
+  request, each a 128-bit division through compiler-rt. It now divides in 64 bits, a multiply,
+  when the product and its rounding fit. Judged against `a61f2d6` with `--h11`:
+  - 4 mutations, each **CAUGHT**. A fifth, a bound one short, is equivalent: the 128-bit form
+    gives the same quota.
+  - [Run 40782029564](https://github.com/c4milo/colibri/actions/runs/40782029564): h11-one wins
+    at 0.9931 and 0.9921, about 140 and 160 user instructions a connection. No input loses.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
