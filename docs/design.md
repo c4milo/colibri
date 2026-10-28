@@ -5038,6 +5038,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       the base's instructions per connection, from 2,362,218 to 1,473,728 in job 1, and h3-many
       to 0.9796 and 0.9766. No input lost. `head` adds 8 octets to each of a connection's three
       CRYPTO streams, so `quic.Connection` grew from 141,888 octets to 141,912.
+    - The owner then set the goal of no copy on a request's path, on 2026-10-27, and asked that
+      every change toward it be fuzzed. A laptop's uprobe on `memcpy` counted what was left: 189
+      octets a request on h2-many, 273 on h11-many and 567 on h3-many. Three copies went:
+      - the varint encoder's copy of its octets, about 36 calls a request on h3;
+      - h2's copy of a response's block into its frame, when the block fits one frame;
+      - the test-only server's copy of each octet it received.
+    - Each change has a fuzz property, and so do the bit scans and the CRYPTO window. Zig 0.16.0's
+      `--fuzz` does not build (https://github.com/c4milo/colibri/issues/53), so each property runs
+      over its corpus, every input of up to two octets, and a pass over edge values or long
+      scripts. With the unit tests off, the properties alone caught 14 of 15 mutations, and the
+      fifteenth was equivalent.
+    - The judge's run 40749185281 found no input lost, and h2-many's user instructions fell by 64
+      a request. The owner admitted it on 2026-10-28 (`docs/performance.md`, the admission rule).
+    - Two copies stay. The response body and the h11 head are written into the caller's output,
+      because colibri owns no I/O. Only vectored output, an API change, could remove them, and the
+      owner ruled it a later question.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,

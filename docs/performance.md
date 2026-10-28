@@ -105,6 +105,19 @@ for latency, which `bench/run.sh --latency` measures (design §8 step 13f).
   without it and [40374461009](https://github.com/c4milo/colibri/actions/runs/40374461009) with
   it. A small write had waited for the peer to acknowledge the one before it (Nagle's algorithm).
 
+The owner admitted a second batch on 2026-10-28, for the goal of no copy on a request's path,
+which the owner set on 2026-10-27 (design §8 step 13h). Its changes:
+
+- the varint encoder writes its octets in place;
+- h2 encodes a response's block in its frame;
+- the test-only server swaps its receive buffers.
+
+- **The rule's verdict.** In [40749185281](https://github.com/c4milo/colibri/actions/runs/40749185281),
+  h2-many lost 0.47% of its instructions per request in both jobs, inside the floor of 0.5%. No
+  input lost past the noise in either job.
+- **The gain.** h2-many's user instructions fell from 11,485 to 11,421 per request in both jobs,
+  with spreads of 0.04% or less.
+
 ## The baselines
 
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a
