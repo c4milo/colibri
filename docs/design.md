@@ -9450,6 +9450,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The schedules add 480 octets to a TLS session over TCP and 2,464 to one inside QUIC.
     `server.Endpoint` grows from 40,940,448 to 40,987,552 octets, as docs/performance.md lists.
 
+  **An h11 head scanned in runs, 2026-10-28.** The judge's profile of h11 on e8987edb has no
+  function that stands out. `message_scan` read a head one octet at a time, though past a
+  request's method only CR and LF need a check. It now compares `scan_vector_len` octets at once
+  to find the next CR or LF, and counts the octets before it. It was judged against `e8987ed`
+  with `--h11`, by user instructions (docs/performance.md).
+  - 6 mutations, each **CAUGHT**.
+  - [Run 40769901627](https://github.com/c4milo/colibri/actions/runs/40769901627): h11-one wins
+    at 0.9799 and 0.9808, about 400 user instructions a connection. h11-many, with a noise of
+    5.6% and 5.9%, stays inside it. No input loses.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
