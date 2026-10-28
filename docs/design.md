@@ -5070,6 +5070,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The input also priced routing in the server: 17,430 instructions a request against h2-many's
       14,000, so the router costs about 3,430 a request over the GitHub API's routes. The probe
       of one route had shown 521.
+    - The owner then asked whether the match needs a better algorithm, after papers and the
+      fastest routers. On a laptop, colibri's `match` took 181 ns over the 203 routes, http.zig's
+      34 and matchit's 56. Callgrind split its 2,056 instructions a match: about 480 finding each
+      "/", 500 in the checks of each octet, 470 in the binary search of a node's edges, and 300 in
+      the walk. The owner chose two changes on 2026-10-28, and kept the generated matcher and the
+      tagged DFA for later:
+      - One pass (`router_path.zig`) decides each octet through a table of classes and records
+        where each segment ends and whether it holds a "%". The walk searches for no "/" and no
+        "%". A fuzz property and every target of up to 5 octets of 14 octets hold it to the checks
+        it replaced.
+      - Each edge carries its first 8 octets as one integer, and the build sorts the edges in the
+        order the search compares in: length, that integer, then the octets after it.
+    - Callgrind then counted 1,310 instructions a match, 36% fewer.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,

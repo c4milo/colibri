@@ -39,10 +39,10 @@ const PathParameters = @import("../path_parameters.zig").PathParameters;
 const router_method = @import("router_method.zig");
 const router_pattern = @import("router_pattern.zig");
 const router_trie = @import("router_trie.zig");
+const router_trie_layout = @import("router_trie_layout.zig");
+const router_path = @import("router_path.zig");
 const percent = @import("http").uri_percent;
 
-/// The octet that ends a path and starts its query (RFC 3986 §3.3, §3.4).
-const query_start = '?';
 /// The octet that starts a percent-encoded octet (RFC 3986 §2.1).
 const percent_sign = '%';
 
@@ -91,8 +91,19 @@ pub fn match(
 /// route. `match` and the check of hidden routes (`router_hidden.zig`) both call it, so the check
 /// reads the walk that a request gets.
 pub fn stop(comptime layout: anytype, target: []const u8, parameters: *PathParameters) ?Walked {
-    const path = path_of(target) orelse return null;
-    return walk(layout, path, parameters);
+    var segments: SegmentsOf(layout) = undefined;
+    if (!router_path.read(capacity_of(layout), target, &segments)) return null;
+    return walk(layout, &segments, parameters);
+}
+
+/// The segments a walk on `layout` reads at most: one for each level, and the one a wildcard
+/// starts at.
+fn capacity_of(comptime layout: anytype) usize {
+    return @TypeOf(layout).depth_max + 1;
+}
+
+fn SegmentsOf(comptime layout: anytype) type {
+    return router_path.Segments(capacity_of(layout));
 }
 
 /// Whether a route of `layout` names `method`. A table that names GET names HEAD too. The loop
@@ -108,96 +119,6 @@ fn implemented(comptime layout: anytype, method: []const u8) bool {
     }
     return false;
 }
-
-/// The path of `target` before its query, or null when the path matches no route. It reads each
-/// octet of the path once (INV-32).
-fn path_of(target: []const u8) ?[]const u8 {
-    // INV-8: `path_len_max` bounds the octets that one match reads.
-    if (target.len > constants.path_len_max) return null;
-    // RFC 9110 §4.2.3: an empty path is "/". An h11 absolute-form target with an empty path
-    // and a query gives the query alone (`Request.path`), so its path is the root.
-    if (target.len > 0 and target[0] == query_start) return router_pattern.root;
-    // RFC 9110 §4.1: absolute-path = 1*( "/" segment ). So "*" (RFC 9112 §3.2.4) and the "" of
-    // a CONNECT request match nothing.
-    if (target.len == 0 or target[0] != router_pattern.separator) return null;
-    var segment_first: usize = 1;
-    for (target[1..], 1..) |octet, index| {
-        // RFC 3986 §3.3: the first "?" ends the path, and RFC 9112 §3.2.1, RFC 9113 §8.3.1 and
-        // RFC 9114 §4.3.1 put the query after it.
-        if (octet == query_start) return path_end(target[0..index], segment_first);
-        if (octet == router_pattern.separator) {
-            if (!segment_matches(target[segment_first..index])) return null;
-            segment_first = index + 1;
-            continue;
-        }
-        // RFC 3986 §3.3: segment = *pchar, and a pchar may be pct-encoded (§2.1), which the walk
-        // decodes (decision 127).
-        if (!path_octet(octet)) return null;
-    }
-    return path_end(target, segment_first);
-}
-
-/// Whether `octet` may stand in a path that a route matches: a pchar, or the "%" of a pct-encoded
-/// octet (RFC 3986 §2.1, §3.3).
-fn path_octet(octet: u8) bool {
-    return router_pattern.path_octets[octet] or octet == percent_sign;
-}
-
-/// `path`, or null when its last segment matches no route.
-fn path_end(path: []const u8, segment_first: usize) ?[]const u8 {
-    assert(segment_first > 0 and segment_first <= path.len);
-    // Decision 122: the path "/" is the root, with no segment.
-    if (path.len == 1) return path;
-    if (!segment_matches(path[segment_first..])) return null;
-    return path;
-}
-
-/// Whether a route can match `segment`, which is not the root's.
-fn segment_matches(segment: []const u8) bool {
-    // Decision 122: an empty segment matches no route, though RFC 3986 §3.3 allows one.
-    if (segment.len == 0) return false;
-    // RFC 3986 §3.3, §6.2.2.3: "." and ".." are dot-segments, which match no route. §6.2.2.2:
-    // "%2E" is ".", so an encoded dot-segment matches none either.
-    if (is_dot_segment(segment)) return false;
-    // RFC 3986 §7.3: a decoded "/" or "\\" would let a parameter carry a path of its own, such
-    // as "../x", past the check of dot-segments, and a NUL ends a C string early. So a segment
-    // that encodes one matches no route (the owner's ruling of 2026-10-25).
-    return !encodes_refused_octet(segment);
-}
-
-/// Whether `segment` holds a "%" whose two hex digits name "/", "\\" or NUL.
-fn encodes_refused_octet(segment: []const u8) bool {
-    var index: usize = 0;
-    // Bounded: each pass takes one octet of the segment, or three for an encoded one.
-    while (index < segment.len) {
-        const octet = percent.decoded_at(segment, index) orelse {
-            index += 1;
-            continue;
-        };
-        if (octet == '/' or octet == '\\' or octet == 0) return true;
-        index += percent.encoded_len;
-    }
-    return false;
-}
-
-/// Whether `segment` decodes to "." or "..".
-fn is_dot_segment(segment: []const u8) bool {
-    var dots: usize = 0;
-    var index: usize = 0;
-    // Bounded: each pass takes one octet of the segment, or three for an encoded dot.
-    while (index < segment.len) {
-        if (segment[index] == '.') {
-            index += 1;
-        } else if (std.ascii.startsWithIgnoreCase(segment[index..], "%2e")) {
-            index += percent.encoded_len;
-        } else return false;
-        dots += 1;
-    }
-    return dots > 0 and dots <= dot_segment_len_max;
-}
-
-/// The dots of the longer dot-segment, ".." (RFC 3986 §3.3).
-const dot_segment_len_max = 2;
 
 /// The node of a walk, and the count of parameters that it wrote.
 const Walked = struct { node: usize, count: usize };
@@ -226,7 +147,8 @@ pub fn walk_steps_max(comptime nodes: usize) usize {
 /// The node after the last segment of `path` that holds a leaf, or null when no such node
 /// exists. The walk writes each parameter's name and value into `parameters` and counts them in
 /// `Walked`.
-fn walk(comptime layout: anytype, path: []const u8, parameters: *PathParameters) ?Walked {
+fn walk(comptime layout: anytype, segments: *const SegmentsOf(layout), parameters: *PathParameters) ?Walked {
+    const path = segments.path;
     assert(path.len > 0 and path[0] == router_pattern.separator);
     const depth_max = @TypeOf(layout).depth_max;
     var frames: [depth_max + 1]Frame = undefined;
@@ -235,7 +157,7 @@ fn walk(comptime layout: anytype, path: []const u8, parameters: *PathParameters)
     frames[0] = .{ .node = router_trie.root, .tried = .none, .segment_first = segment_first, .count = 0 };
     var depth: usize = 0;
     for (0..walk_steps_max(layout.nodes.len)) |_| {
-        switch (step(layout, path, &frames[depth], parameters)) {
+        switch (step(layout, segments, depth, &frames[depth], parameters)) {
             .push => |frame| {
                 // A node at the depth of the deepest pattern has no child.
                 assert(depth < depth_max);
@@ -256,15 +178,19 @@ fn walk(comptime layout: anytype, path: []const u8, parameters: *PathParameters)
 
 /// One pass of the walk at `frame`. It tries the child kinds that `frame` has not tried, in
 /// order. It pushes the first literal or parameter child that matches the segment, or it gives
-/// the node of the wildcard.
-fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *PathParameters) Step {
+/// the node of the wildcard. The frame at `depth` reads segment `depth` of `segments`.
+fn step(comptime layout: anytype, segments: *const SegmentsOf(layout), depth: usize, frame: *Frame, parameters: *PathParameters) Step {
+    const path = segments.path;
     if (frame.segment_first > path.len) {
         // RFC 9110 §15.5.5: a node with no leaf names no resource, so the walk backs up.
         if (layout.nodes[frame.node].leaf == null) return .back;
         return .{ .found = .{ .node = frame.node, .count = frame.count } };
     }
-    const segment_end = std.mem.indexOfScalarPos(u8, path, frame.segment_first, router_pattern.separator) orelse path.len;
-    const segment = decoded(parameters, path, frame.segment_first, segment_end);
+    // The pass recorded each segment a frame reads: a walk is never deeper than `depth_max`.
+    assert(depth < capacity_of(layout) and depth < segments.count);
+    const segment_end: usize = segments.ends[depth];
+    const plain = (segments.encoded >> @intCast(depth)) & 1 == 0;
+    const segment = decoded(parameters, path, frame.segment_first, segment_end, plain);
     const at = layout.nodes[frame.node];
     const next_first = segment_end + 1;
     // Decision 122: the literal edge first, then the parameter child, then the wildcard. INV-32:
@@ -286,7 +212,7 @@ fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *
         frame.tried = .wildcard;
         // Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path.
         if (at.wildcard) |wildcard| {
-            bind(parameters, frame.count, router_pattern.wildcard, decoded(parameters, path, frame.segment_first, path.len));
+            bind(parameters, frame.count, router_pattern.wildcard, decoded(parameters, path, frame.segment_first, path.len, false));
             return .{ .found = .{ .node = wildcard, .count = frame.count + 1 } };
         }
     }
@@ -296,11 +222,12 @@ fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *
 /// `path[first..end]` percent-decoded (RFC 3986 §2.1): the path's own octets when they hold no
 /// "%", or else the decoded octets, written into `parameters.storage` at the same offset. A
 /// decoded run is never longer than its encoded one, so it stays inside its own place. A "%" that
-/// two hex digits do not follow stays as written (decision 127).
-fn decoded(parameters: *PathParameters, path: []const u8, first: usize, end: usize) []const u8 {
+/// two hex digits do not follow stays as written (decision 127). `plain` says the pass found no
+/// "%" there, so no octet is searched.
+fn decoded(parameters: *PathParameters, path: []const u8, first: usize, end: usize, plain: bool) []const u8 {
     assert(first <= end and end <= path.len and path.len <= parameters.storage.len);
     const encoded = path[first..end];
-    if (std.mem.indexOfScalar(u8, encoded, percent_sign) == null) return encoded;
+    if (plain or std.mem.indexOfScalar(u8, encoded, percent_sign) == null) return encoded;
     const out = parameters.storage[first..end];
     var written: usize = 0;
     var index: usize = 0;
@@ -333,13 +260,14 @@ fn bind(parameters: *PathParameters, index: usize, name: []const u8, value: []co
 pub fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?usize {
     const at = layout.nodes[node];
     const edges = layout.edges[at.edges_first..][0..at.edges_count];
+    const head = router_trie_layout.head_of(segment);
     var low: usize = 0;
     var high: usize = edges.len;
     for (0..search_passes_max(layout.edges.len)) |_| {
         if (low >= high) return null;
         const middle = low + ((high - low) >> 1);
         // RFC 9110 §4.2.3: a path compares case-sensitively, octet for octet.
-        switch (segment_order(text_of(layout, edges[middle].segment), segment)) {
+        switch (edge_order(layout, edges[middle], segment, head)) {
             .eq => return edges[middle].child,
             .lt => low = middle + 1,
             .gt => high = middle,
@@ -359,10 +287,13 @@ pub fn search_passes_max(comptime edges: usize) usize {
 const search_passes_past_log = 2;
 
 /// The order of `edge` and `segment` in the order of `router_trie_layout.segment_less`: the
-/// shorter first, then by octets.
-fn segment_order(edge: []const u8, segment: []const u8) std.math.Order {
-    if (edge.len != segment.len) return std.math.order(edge.len, segment.len);
-    return std.mem.order(u8, edge, segment);
+/// shorter first, then by octets. The first octets compare as one integer, `head`, which the
+/// build wrote for each edge, so a segment of `head_len` octets or fewer compares no octet.
+fn edge_order(comptime layout: anytype, edge: anytype, segment: []const u8, head: u64) std.math.Order {
+    if (edge.segment.len != segment.len) return std.math.order(edge.segment.len, segment.len);
+    if (edge.head != head) return std.math.order(edge.head, head);
+    if (segment.len <= router_trie_layout.head_len) return .eq;
+    return std.mem.order(u8, text_of(layout, edge.segment)[router_trie_layout.head_len..], segment[router_trie_layout.head_len..]);
 }
 
 /// The result of `method` at `leaf`: `found` or `method_not_allowed`. The check of hidden routes
@@ -391,7 +322,6 @@ fn text_of(comptime layout: anytype, range: anytype) []const u8 {
 }
 
 const testing = std.testing;
-const router_trie_layout = @import("router_trie_layout.zig");
 
 /// The search of `literal_child` before the binary search: it reads each edge of the node in turn.
 /// The test compares the two searches.
@@ -424,6 +354,13 @@ const search_tables = .{
         .{ .get, "/t02", 0 }, .{ .get, "/t03", 0 }, .{ .get, "/t04", 0 }, .{ .get, "/u", 0 },
         .{ .get, "/v", 0 },   .{ .get, "/zz", 0 },  .{ .get, "/Z", 0 },   .{ .get, "/0", 0 },
         .{ .get, "/:p", 0 },
+    },
+    // Literals of 8 octets and more, of one length: they differ in their first 8 octets, past
+    // them, or in both, so the order of their heads and of their octets decides the search.
+    .{
+        .{ .get, "/subscriptions", 0 }, .{ .get, "/notifications", 0 }, .{ .get, "/subscriptionz", 0 },
+        .{ .get, "/aaaaaaaabbbbb", 0 }, .{ .get, "/aaaaaaabbbbbb", 0 }, .{ .get, "/zaaaaaaaaaaaa", 0 },
+        .{ .get, "/abcdefgh", 0 },      .{ .get, "/abcdefgi", 0 },      .{ .get, "/bbcdefgh", 0 },
     },
 };
 
