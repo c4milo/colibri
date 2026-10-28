@@ -1,0 +1,13 @@
+GET /people/:userId
+GET /people
+GET /activities/:activityId/people/:collection
+GET /people/:userId/people/:collection
+GET /people/:userId/openIdConnect
+GET /people/:userId/activities/:collection
+GET /activities/:activityId
+GET /activities
+GET /activities/:activityId/comments
+GET /comments/:commentId
+POST /people/:userId/moments/:collection
+GET /people/:userId/moments/:collection
+DELETE /moments/:id

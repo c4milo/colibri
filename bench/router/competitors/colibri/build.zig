@@ -16,7 +16,8 @@ pub fn build(b: *std.Build) void {
     });
     module.addImport("server", colibri.module("server"));
     module.addImport("http", colibri.module("http"));
-    module.addAnonymousImport("github_routes.txt", .{ .root_source_file = b.path("github_routes.txt") });
+    // run.sh copies the table it measures here as routes.txt.
+    module.addAnonymousImport("routes.txt", .{ .root_source_file = b.path("routes.txt") });
     const bench = b.addExecutable(.{ .name = "router-bench", .root_module = module });
     b.installArtifact(bench);
 }

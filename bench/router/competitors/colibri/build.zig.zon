@@ -7,5 +7,5 @@
     .dependencies = .{
         .colibri = .{ .path = "../../.." },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "hook.zig", "github_routes.txt" },
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "hook.zig", "routes.txt" },
 }

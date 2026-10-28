@@ -5108,6 +5108,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         stopping the walk, the wildcard ignoring the method, HEAD not served by GET, no HEAD
         after GET in Allow, methods left in table order, every route reachable, and one method
         past the limit.
+    - With decision 128 each table builds, and each route's pattern, sent as a path, finds that
+      route. Callgrind on a laptop counted the instructions of one match: 844 on the static
+      table, 961 on Parse, 1,008 on Google+, 1,256 on GitHub, 1,345 on OpenAI, 1,486 on Stripe and
+      2,157 on Kubernetes, whose paths hold up to 8 segments. On Stripe's table httprouter does not
+      start: it refuses `/v1/charges/:charge` beside `/v1/charges/search`. `run.sh`'s numbers are
+      a laptop's and are never published (decision 32).
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,

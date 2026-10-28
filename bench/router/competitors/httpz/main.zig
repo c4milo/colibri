@@ -1,5 +1,5 @@
 //! http.zig's router in colibri's router benchmark, with Zig 0.17. It registers the routes of
-//! github_routes.txt, then matches every route's path, the given number of rounds, and prints
+//! the table file it is given, then matches every route's path, the given number of rounds, and prints
 //! the nanoseconds of one match. Its parameters are reset before each match, as its server does.
 //!   router-bench <routes file> <rounds>
 const std = @import("std");

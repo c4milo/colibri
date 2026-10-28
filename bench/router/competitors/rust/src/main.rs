@@ -1,5 +1,5 @@
 //! The Rust routers of colibri's router benchmark: matchit, under axum, and actix-router. Each
-//! registers the routes of ../github_routes.txt, then matches every route's path, the given number
+//! registers the routes of the table file it is given, then matches every route's path, the given number
 //! of rounds, and prints the nanoseconds of one match.
 //!
 //!     router-bench <matchit|actix> <routes file> <rounds>
