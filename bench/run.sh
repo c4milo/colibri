@@ -74,7 +74,7 @@ readonly warm_requests=2000
 # h2load waits out a QUIC handshake nothing answers.
 readonly ready_tries=100
 readonly ready_seconds=1
-inputs=(h2-many h2-tls-many h2-one h2-tls-one)
+inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
 if [ -n "$h3" ]; then inputs+=(h3-many h3-one); fi
 readonly inputs
@@ -122,6 +122,8 @@ url() {  # url <variant> <input>
   case "$2" in
     h3-*) echo "https://127.0.0.1:${at}/${h3_file}" ;;
     *-tls-*) echo "https://127.0.0.1:${at}/" ;;
+    # A route of the GitHub API's, since `/` names none of them.
+    *-routes-*) echo "http://127.0.0.1:${at}$(head -1 "$scratch/paths.txt")" ;;
     *) echo "http://127.0.0.1:${at}/" ;;
   esac
 }
@@ -138,7 +140,7 @@ offer_of() {  # offer_of <input>
 serves() {  # serves <variant> <input>
   case "$1" in
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
-    nginx | h2o | hyper) [[ "$2" != h3-* ]] ;;
+    nginx | h2o | hyper) [[ "$2" != h3-* && "$2" != *-routes-* ]] ;;
     quic-go) [[ "$2" == h3-* ]] ;;
     *) true ;;
   esac
@@ -184,6 +186,9 @@ h3_target=https://127.0.0.1:\$2/${h3_file}
 case "\$1" in
   h3-many) ${h3_shell[*]} "\$h3 -n ${many_requests} -c ${many_clients} -m ${many_streams} \$h3_target" ;;
   h3-one) ${h3_shell[*]} "for run in \\\$(seq 1 ${one_h3_runs}); do \$h3 -n ${one_h3_clients} -c ${one_h3_clients} \$h3_target; done" ;;
+  # The GitHub API's GET routes in turn, each parameter given a value (design §8 step 13h).
+  *-routes-many) sed "s#^#\$target#;s#//#/#2" ${scratch}/paths.txt >${scratch}/urls.txt
+    h2load -i ${scratch}/urls.txt -n ${many_requests} -c ${many_clients} -m ${many_streams} ;;
   *-many) h2load "\${options[@]}" -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
   *-one) for _ in \$(seq 1 ${one_runs}); do h2load "\${options[@]}" -n ${one_clients} -c ${one_clients} "\$target"; done ;;
 esac
@@ -295,6 +300,7 @@ server_command() {  # server_command <variant> <input>
       if [ "$1" = base ]; then command=("$base_server"); else command=("$change_server"); fi
       command+=(--port "$port")
       if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
+      if [[ "$2" == *-routes-* ]]; then command+=(--routes github); fi
       ;;
   esac
 }
@@ -457,6 +463,10 @@ if [ -z "$identity" ]; then
   identity="$scratch/identity"
 fi
 prepare_h3
+# The GET routes of the routed input, each parameter given a value, as bench/run_latency.sh writes
+# them.
+awk '$1 == "GET" { print $2 }' "$repository_root/bench/router/competitors/github_routes.txt" |
+  sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths.txt"
 machine >"$scratch/machine.txt"
 
 variants=(change)

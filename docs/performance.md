@@ -13,10 +13,13 @@ Performance section states the rules, and design §11 holds the method's numbers
   2026-09-30, design §8 step 13a). macOS publishes no number (decision 32). The script builds the
   test-only h2 server in ReleaseSafe, pins it to one core and h2load to two others, and counts the
   server's instructions, cycles, CPU time and system calls with `perf stat`, run as root. It has
-  four inputs, four more with `--h11`, and two more with `--h3`:
+  five inputs, four more with `--h11`, and two more with `--h3`:
   - `h2-many` and `h2-tls-many`: many requests on each of a few connections, counted per request,
     in cleartext and over TLS.
   - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
+  - `h2-routes-many`: h2-many against the server with `--routes github`, whose router answers
+    the GitHub API's 131 GET routes, which h2load sends in turn. It is the one input that counts
+    `server.router`'s cost, which the owner asked for on 2026-10-28 (design §8 step 13h).
   - `h11-many`, `h11-tls-many`, `h11-one` and `h11-tls-one`: the same four loads over h11, which
     wrk sends, as the baselines below describe (design §8 step 13g).
   - `h3-many` and `h3-one`: the same two loads over h3, against the test-only UDP server in its

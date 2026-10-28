@@ -5059,6 +5059,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       evict that entry while the request is in use, so the section must hold its own copy.
       Decoding in place would save the copy of a literal string alone, mostly on a connection's
       first request, and it needs a public name, `http.FieldSection.tail`.
+    - The owner then turned to the router's cost. A callgrind probe of `handle` on one route
+      counted 2,201 instructions a request, 521 more than a dispatch by hand. `std.fmt.bufPrint`
+      wrote each Content-Length, and h3 each `:status`, and a writer of digits took their place:
+      2,092 instructions, 412 more than by hand.
+    - No input of `bench/run.sh` routed a request, so the judge could not count the router. On
+      2026-10-28 the owner asked for an input that does: `h2-routes-many`.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
