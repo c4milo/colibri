@@ -358,10 +358,10 @@ fn to_endpoint(octets: []u8) void {
     if (routes_only) {
         // The connection takes the datagram, as the endpoint's `receive` has it do, and the
         // endpoint reads none of its events.
-        const slot = endpoint.held.connections.receive(octets, .not_ect, client_address(), now_ns, true) orelse return;
-        endpoint.held.room[slot] +%= 1;
-        endpoint.held.ready.touch(slot);
-        endpoint.held.heap.mark_stale(slot);
+        const slot = endpoint.state.connections.receive(octets, .not_ect, client_address(), now_ns, true) orelse return;
+        endpoint.state.room[slot] +%= 1;
+        endpoint.state.ready.touch(slot);
+        endpoint.state.heap.mark_stale(slot);
         return;
     }
     const taken = endpoint.receive(.{ .datagram = .{ .bytes = octets, .from = client_address() } }, now_ns);

@@ -9892,7 +9892,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     ones, since a paced client seals a head into a record that arrives late, and a peer resets a
     request only once the endpoint read it.
   - Readings of the properties:
-    - P5's oracle is `endpoint.held.deadline_of(slot)`, called through the field `held`, as the
+    - P5's oracle is `endpoint.state.deadline_of(slot)`, called through the field `state`, as the
       server's fixtures call it.
     - P8 is read once a pass moves nothing, before P6's probes, which fire TCP deadlines
       themselves. A QUIC connection's acknowledgment and pacing deadlines stay due until

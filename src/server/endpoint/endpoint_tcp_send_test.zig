@@ -1,4 +1,4 @@
-//! The tests of what a TCP slot owes its socket and how it ends (`endpoint_held_tcp.zig`, decision
+//! The tests of what a TCP slot owes its socket and how it ends (`endpoint_state_tcp.zig`, decision
 //! 119): one `send` for each debt, again only after a `send_stream` that left room; a `close` once
 //! the connection has finished; and every request's one ending before the connection's `ended`,
 //! whoever closed the socket (INV-30).

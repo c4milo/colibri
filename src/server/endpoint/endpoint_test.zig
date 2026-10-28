@@ -143,7 +143,7 @@ test "RFC 9368 §2: a client's first Initial in version 2 starts a connection th
     });
     _ = give(&probe, support.client_address());
     var output: [quic.constants.datagram_len_max]u8 = undefined;
-    try testing.expectEqual(null, endpoint.held.connections.replies.take(&output));
+    try testing.expectEqual(null, endpoint.state.connections.replies.take(&output));
 }
 
 test "RFC 9000 §5.2.2: with every slot in use, a client's Initial starts no connection" {
@@ -151,15 +151,15 @@ test "RFC 9000 §5.2.2: with every slot in use, a client's Initial starts no con
     // Every slot is taken, and no datagram addresses the connections the test leaves in them.
     var taken: [endpoint.quic.len]server_event.ConnectionHandle = undefined;
     for (&taken, &endpoint.quic) |*handle, *connection| {
-        handle.* = endpoint.held.slots.take(.quic).?;
+        handle.* = endpoint.state.slots.take(.quic).?;
         connection.closed = true;
     }
     try support.pump(support.rounds_default);
     // The client's Initials started nothing: every slot holds what the test put there, and no
     // request came.
-    try testing.expectEqual(endpoint.quic.len, endpoint.held.slots.holding());
+    try testing.expectEqual(endpoint.quic.len, endpoint.state.slots.holding());
     try testing.expectEqual(0, support.seen_support.seen_len);
-    for (taken) |handle| endpoint.held.slots.release(handle);
+    for (taken) |handle| endpoint.state.slots.release(handle);
 }
 
 test "decision 103: a connection that is over is handed back once, and its slot takes the next client" {
@@ -186,10 +186,10 @@ test "the Unix seconds a connection's tickets carry count on from the endpoint's
     try support.start_endpoint(null);
     const later_ns = support.now_ns + elapsed_seconds * constants.nanoseconds_per_second;
     try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), start_seconds, support.now_ns);
-    try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.held.connections.seconds_at(later_ns));
+    try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.state.connections.seconds_at(later_ns));
     // An endpoint started at 0 issues no ticket, however late.
     try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
-    try testing.expectEqual(0, endpoint.held.connections.seconds_at(later_ns));
+    try testing.expectEqual(0, endpoint.state.connections.seconds_at(later_ns));
 }
 const start_seconds: u64 = 1_790_000_000;
 const elapsed_seconds: u64 = 2;
@@ -266,7 +266,7 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
             try testing.expectEqual(null, endpoint_support.live_connection());
             // With Retry set, no Retry is owed for it either.
             var output: [quic.constants.datagram_len_max]u8 = undefined;
-            try testing.expectEqual(null, endpoint.held.connections.replies.take(&output));
+            try testing.expectEqual(null, endpoint.state.connections.replies.take(&output));
         }
     }
 }
@@ -296,7 +296,7 @@ fn answers_with_retry() !bool {
     defer support.client_port_now = support.client_port;
     _ = give(padded_initial[0..len], support.client_address());
     var output: [quic.constants.datagram_len_max]u8 = undefined;
-    const sent = endpoint.held.connections.replies.take(&output) orelse return false;
+    const sent = endpoint.state.connections.replies.take(&output) orelse return false;
     return (try quic.packet.header.read(sent.bytes, constants.quic_id_len)) == .retry;
 }
 

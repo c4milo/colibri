@@ -1,4 +1,4 @@
-//! The tests of `writable` over h11 and h2 (`endpoint_held_tcp.zig`, decision 119): content a
+//! The tests of `writable` over h11 and h2 (`endpoint_state_tcp.zig`, decision 119): content a
 //! response's connection had no room for is writable once a `send_stream` empties its output, or
 //! once the peer's WINDOW_UPDATE opens its stream's window.
 const std = @import("std");

@@ -1,4 +1,4 @@
-//! The tests of the endpoint's TCP slots (`endpoint_held_tcp.zig`, decision 119): a connection the
+//! The tests of the endpoint's TCP slots (`endpoint_state_tcp.zig`, decision 119): a connection the
 //! program accepted speaks h11 or h2, in cleartext as its first octets choose and over TLS as ALPN
 //! does, every request ends once before its connection's `ended`, and a handle of a connection
 //! that ended names nothing.
@@ -106,7 +106,7 @@ test "decision 110: a read with no octets at a later instant asks the connection
     // at this instant is not made.
     const half = get_h11[0.."GET / HT".len];
     try testing.expectEqual(half.len, support.give(handle, half));
-    try testing.expectEqual(@as(?u64, support.now_ns), endpoint.held.empty_read_ns[handle.slot]);
+    try testing.expectEqual(@as(?u64, support.now_ns), endpoint.state.empty_read_ns[handle.slot]);
     // The head deadline passes, and the program passes no octets and calls no `on_instant`. The
     // read at the new instant fires the deadline, and the connection answers 408.
     support.instant_ns = support.now_ns + server_constants.head_timeout_ns;
@@ -305,7 +305,7 @@ fn answers_with_retry(id: *const [server_constants.quic_id_len]u8) !bool {
     const from = quic.PeerAddress.of(&loopback, client_port);
     _ = endpoint.receive(.{ .datagram = .{ .bytes = initial[0..len], .from = from } }, support.now_ns);
     var output: [quic.constants.datagram_len_max]u8 = undefined;
-    const sent = endpoint.held.connections.replies.take(&output) orelse return false;
+    const sent = endpoint.state.connections.replies.take(&output) orelse return false;
     return (try quic.packet.header.read(sent.bytes, server_constants.quic_id_len)) == .retry;
 }
 

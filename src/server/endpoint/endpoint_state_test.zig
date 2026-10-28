@@ -1,4 +1,4 @@
-//! The tests of what the endpoint owes its program (`endpoint_held.zig`, decision 119): each
+//! The tests of what the endpoint owes its program (`endpoint_state.zig`, decision 119): each
 //! request's word on its later events, the program's own cancel, the one ending of every request
 //! even when its connection stops first (INV-30), and the connection's `ended` after them.
 const std = @import("std");

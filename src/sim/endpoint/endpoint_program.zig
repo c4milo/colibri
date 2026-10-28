@@ -5,8 +5,8 @@
 //! When a pass of the run moves nothing, `quiescence` checks P6, that the endpoint owes the
 //! program nothing it has not reported, and then P8, that no deadline it reports has come.
 //!
-//! The oracle of P5 is `Held.deadline_of`, which the check calls through the endpoint's field
-//! `held`: a program reads no slot's deadline, and this check reads it as the server's own
+//! The oracle of P5 is `State.deadline_of`, which the check calls through the endpoint's field
+//! `state`: a program reads no slot's deadline, and this check reads it as the server's own
 //! fixtures do.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -100,7 +100,7 @@ pub const Program = struct {
     pub fn check_deadline(program: *Program, call: []const u8) Violation!void {
         var soonest: ?u64 = null;
         for (0..program.endpoint.live.len) |slot| {
-            const at_ns = program.endpoint.held.deadline_of(@intCast(slot)) orelse continue;
+            const at_ns = program.endpoint.state.deadline_of(@intCast(slot)) orelse continue;
             soonest = @min(soonest orelse at_ns, at_ns);
         }
         if (!std.meta.eql(soonest, program.endpoint.deadline_ns())) return program.fail(error.DeadlineWrong, call, nothing, 0);
@@ -303,7 +303,7 @@ test "P5: a deadline heap whose top differs from the soonest slot's deadline is 
     const handle = (try test_program.accept(.cleartext, test_start_ns)).?;
     // The connection's first-request deadline (decision 110), which the heap holds for its slot.
     const at_ns = (try test_program.deadline_ns()).?;
-    try testing.expectEqual(at_ns, test_endpoint.held.deadline_of(handle.slot).?);
+    try testing.expectEqual(at_ns, test_endpoint.state.deadline_of(handle.slot).?);
     // The heap's copy moves without the connection's deadline moving: the oracle reads the slot.
     test_endpoint.cached[handle.slot] = at_ns + 1;
     try testing.expectError(error.DeadlineWrong, test_program.check_deadline("test"));

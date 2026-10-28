@@ -538,11 +538,11 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   endings, so a response the peer acknowledged before the stop still ends `sent`.
   `ended` comes once the table is empty, and the slot's generation then advances, so every id of
   the connection names nothing ([decision 119](decisions.md)).
-- **Check.** Runtime assertion: `end` in `src/server/endpoint/endpoint_held_quic.zig` and in
-  `endpoint_held_tcp.zig` asserts that the connection stopped and its table is empty when it
+- **Check.** Runtime assertion: `end` in `src/server/endpoint/endpoint_state_quic.zig` and in
+  `endpoint_state_tcp.zig` asserts that the connection stopped and its table is empty when it
   reports `ended`. Simulator invariant: the h3
   deadline check requires every request its application read to have a `finished` when its run
-  ends. The tests in `endpoint_held_test.zig` cover a word carried to the ending,
+  ends. The tests in `endpoint_state_test.zig` cover a word carried to the ending,
   the program's own cancel, a failure, a failed send and an acknowledged response that outlives a
   stop. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's check over seeds.
 - **Violation.** A stop that drops the endings its connection owed, so a program that frees a

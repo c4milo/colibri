@@ -1,4 +1,4 @@
-//! What the tests of the endpoint's TCP slots share (`endpoint_held_tcp.zig`, decision 119): an
+//! What the tests of the endpoint's TCP slots share (`endpoint_state_tcp.zig`, decision 119): an
 //! endpoint with two TCP slots and one QUIC slot, the events it reported, and what each TCP
 //! connection sent, which a program writes to its socket. The fixture answers each `send` with
 //! `send_stream` and notes each `close`, as a program's loop does. Over TLS, `connection_test_support`'s
@@ -123,7 +123,7 @@ pub fn collect() void {
 pub fn check_deadline() void {
     var soonest: ?u64 = null;
     for (0..endpoint.live.len) |slot| {
-        const at_ns = endpoint.held.deadline_of(@intCast(slot)) orelse continue;
+        const at_ns = endpoint.state.deadline_of(@intCast(slot)) orelse continue;
         soonest = @min(soonest orelse at_ns, at_ns);
     }
     assert(std.meta.eql(soonest, endpoint.deadline_ns()));

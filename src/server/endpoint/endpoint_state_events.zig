@@ -3,11 +3,11 @@
 //! request's word, an ending takes the request out of the table, and a request waiting for room is
 //! reported `writable` once its connection takes the write. Each function takes the kind of slot
 //! as `Side`, whose `refuse` and `takes` ask that kind's connection. Split out of
-//! `endpoint_held.zig` for length; `server.zig` does not export this file.
+//! `endpoint_state.zig` for length; `server.zig` does not export this file.
 const event = @import("../event.zig");
-const endpoint_held = @import("endpoint_held.zig");
+const endpoint_state = @import("endpoint_state.zig");
 
-const Held = endpoint_held.Held;
+const State = endpoint_state.State;
 const Event = event.Event;
 const ConnectionEvent = event.ConnectionEvent;
 const RequestId = event.RequestId;
@@ -15,8 +15,8 @@ const ConnectionHandle = event.ConnectionHandle;
 
 /// `reported`, as the program reads it, or null for an event of no request `table` holds. A
 /// connection's `done` and `cancelled` each become the request's one `finished` (decision 126).
-pub fn pass(held: *Held, slot: u32, table: anytype, reported: ConnectionEvent, comptime Side: type) ?Event {
-    const handle = held.slots.handle_of(slot);
+pub fn pass(state: *State, slot: u32, table: anytype, reported: ConnectionEvent, comptime Side: type) ?Event {
+    const handle = state.slots.handle_of(slot);
     switch (reported) {
         .request => |request| {
             var head = request;
@@ -25,7 +25,7 @@ pub fn pass(held: *Held, slot: u32, table: anytype, reported: ConnectionEvent, c
             _ = table.add(request.id.number) orelse {
                 // The table holds as many requests as the connection, so this fails closed for a
                 // connection that held more: the request is refused, and never reported.
-                Side.refuse(held, slot, request.id.number);
+                Side.refuse(state, slot, request.id.number);
                 return null;
             };
             return .{ .request = head };
@@ -54,21 +54,21 @@ pub fn pass(held: *Held, slot: u32, table: anytype, reported: ConnectionEvent, c
 /// The `writable` of the first request of `slot` whose wait the connection now takes, which waits
 /// no more. A request whose room counter moved and which the connection still cannot take waits for
 /// the next move, so `writable` comes once for each move of room at most.
-pub fn writable_of(held: *Held, slot: u32, table: anytype, comptime Side: type) ?Event {
+pub fn writable_of(state: *State, slot: u32, table: anytype, comptime Side: type) ?Event {
     if (table.waiting == 0) return null;
-    const room = held.room[slot];
+    const room = state.room[slot];
     var open = table.in_use.iterator(.{});
     // Bounded by the table's capacity.
     while (open.next()) |index| {
         const entry = &table.entries[index];
         const since = entry.waiting_since orelse continue;
         if (since == room) continue;
-        if (!Side.takes(held, slot, entry)) {
+        if (!Side.takes(state, slot, entry)) {
             entry.waiting_since = room;
             continue;
         }
         table.stop_waiting(entry);
-        const id: RequestId = .{ .connection = held.slots.handle_of(slot), .number = entry.number };
+        const id: RequestId = .{ .connection = state.slots.handle_of(slot), .number = entry.number };
         return .{ .writable = .{ .id = id, .user_data = entry.user_data } };
     }
     return null;

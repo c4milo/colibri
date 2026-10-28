@@ -32,7 +32,7 @@ const connection_errors = @import("../connection/connection_errors.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const endpoint_connections = @import("endpoint_connections.zig");
 const endpoint_config = @import("endpoint_config.zig");
-const endpoint_held = @import("endpoint_held.zig");
+const endpoint_state = @import("endpoint_state.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Connection = @import("../connection/connection.zig").Connection;
@@ -45,10 +45,10 @@ const StartError = connection_errors.StartError;
 
 pub const Config = endpoint_config.Config;
 pub const LogProvider = endpoint_connections.LogProvider;
-pub const Input = endpoint_held.Input;
-pub const Datagram = endpoint_held.Datagram;
-pub const Accepted = endpoint_held.Accepted;
-pub const StreamBytes = endpoint_held.StreamBytes;
+pub const Input = endpoint_state.Input;
+pub const Datagram = endpoint_state.Datagram;
+pub const Accepted = endpoint_state.Accepted;
+pub const StreamBytes = endpoint_state.StreamBytes;
 
 /// How many connections an endpoint holds, fixed at build time (decision 35): its TCP and its
 /// QUIC connections, either of which may be 0, and the octets each QUIC connection holds that it
@@ -71,7 +71,7 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         const Self = @This();
         const Pool = quic.stream.stream_incoming.Pool(capacity.receive_pool_len);
 
-        held: endpoint_held.Held,
+        state: endpoint_state.State,
         /// The TLS configuration of each transport, and what each connection borrows, which
         /// `init` builds from `Config`.
         quic_tls: tls.quic.ServerConfig,
@@ -79,14 +79,14 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         tcp_tls: tls.record.ServerConfig,
         tcp_configs: endpoint_config.TcpConfigs,
         tcp: [capacity.tcp_connections]Connection,
-        tcp_tables: [capacity.tcp_connections]endpoint_held.TcpTable,
-        transports: [capacity.tcp_connections]endpoint_held.Transport,
+        tcp_tables: [capacity.tcp_connections]endpoint_state.TcpTable,
+        transports: [capacity.tcp_connections]endpoint_state.Transport,
         send_outstanding: [capacity.tcp_connections]bool,
         empty_read_ns: [capacity.tcp_connections]?u64,
         quic: [capacity.quic_connections]QuicConnection,
         pools: [capacity.quic_connections]Pool,
         storages: [capacity.quic_connections]ReceiveStorage,
-        quic_tables: [capacity.quic_connections]endpoint_held.QuicTable,
+        quic_tables: [capacity.quic_connections]endpoint_state.QuicTable,
         generations: [slots_max]u32,
         live: [slots_max]bool,
         free: [slots_max]u32,
@@ -122,8 +122,8 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
             }, random);
             for (&endpoint.pools, &endpoint.storages) |*pool, *storage| storage.* = pool.storage();
             for (&endpoint.quic_tables) |*table| table.init();
-            const built: endpoint_held.Built = .{ .quic = &endpoint.quic_config, .tcp = &endpoint.tcp_configs, .served = served };
-            endpoint.held.init(config, built, .{
+            const built: endpoint_state.Built = .{ .quic = &endpoint.quic_config, .tcp = &endpoint.tcp_configs, .served = served };
+            endpoint.state.init(config, built, .{
                 .tcp = &endpoint.tcp,
                 .tcp_tables = &endpoint.tcp_tables,
                 .transports = &endpoint.transports,
@@ -154,7 +154,7 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// free, after `shutdown`, when `protocols` allows no TCP protocol, or when chapulin
         /// refuses to start its session: the program closes the socket then.
         pub fn accept(endpoint: *Self, socket: Accepted, now_ns: u64) ?ConnectionHandle {
-            return endpoint.held.accept(socket, now_ns);
+            return endpoint.state.accept(socket, now_ns);
         }
 
         /// Takes what `input` brings, then reports the next event any connection owes. The
@@ -169,20 +169,20 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// valid until the next `receive`, `on_instant`, `send_stream`, `send_datagram`, `accept`,
         /// `transport_closed` or `shutdown`.
         pub fn receive(endpoint: *Self, input: Input, now_ns: u64) event.ReceiveResult {
-            return endpoint.held.receive(input, now_ns);
+            return endpoint.state.receive(input, now_ns);
         }
 
         /// Sets the word each later event of request `id` carries: its `body`, `trailers`,
         /// `writable` and its one `done` or `cancelled` (decision 119).
         pub fn set_user_data(endpoint: *Self, id: RequestId, user_data: usize) error{RequestUnknown}!void {
-            return endpoint.held.set_user_data(id, user_data);
+            return endpoint.state.set_user_data(id, user_data);
         }
 
         /// Writes the head of the response to request `id`: an interim one (1xx) or the final
         /// one. With `end`, the final response carries no content. `error.NoSpaceLeft` says the
         /// response has no room for it: its `writable` comes once it has.
         pub fn respond(endpoint: *Self, id: RequestId, response: event.Response) SendError!void {
-            return endpoint.held.respond(id, response);
+            return endpoint.state.respond(id, response);
         }
 
         /// Takes content of the response to request `id`, and returns the octets taken. Nothing is
@@ -190,26 +190,26 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// `cancelled` (decision 103). A take of less than `content`, or `error.Blocked`, says the
         /// response has no room for more: its `writable` comes once it has.
         pub fn write_body(endpoint: *Self, id: RequestId, content: event.ResponseBody) SendError!usize {
-            return endpoint.held.write_body(id, content);
+            return endpoint.state.write_body(id, content);
         }
 
         /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
         /// `error.NoSpaceLeft`, or `error.Blocked` while a coded response's last octets wait, says
         /// the response has no room for it: its `writable` comes once it has.
         pub fn write_trailers(endpoint: *Self, id: RequestId, fields: []const http.Field) SendError!void {
-            return endpoint.held.write_trailers(id, fields);
+            return endpoint.state.write_trailers(id, fields);
         }
 
         /// Ends request `id` before its response is whole: its `cancelled` follows, with the
         /// reason `program`, and nothing more of it.
         pub fn cancel(endpoint: *Self, id: RequestId) void {
-            endpoint.held.cancel(id);
+            endpoint.state.cancel(id);
         }
 
         /// Ends every connection once the requests it holds are answered, and starts no new one.
         /// `closed` follows once every connection has ended.
         pub fn shutdown(endpoint: *Self, now_ns: u64) void {
-            endpoint.held.shutdown(now_ns);
+            endpoint.state.shutdown(now_ns);
         }
 
         /// Writes into `output` what the TCP connection `connection` owes its socket, and returns
@@ -221,7 +221,7 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// reports another once the connection owes more, at once when a record's overhead did
         /// not fit the room left.
         pub fn send_stream(endpoint: *Self, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
-            return endpoint.held.send_stream(connection, output, now_ns);
+            return endpoint.state.send_stream(connection, output, now_ns);
         }
 
         /// The socket of the TCP connection `connection` closed before the endpoint reported its
@@ -230,34 +230,34 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// `close` the program closes the socket and owes no call: `ended` follows by itself, and
         /// this call changes nothing.
         pub fn transport_closed(endpoint: *Self, connection: ConnectionHandle) void {
-            endpoint.held.transport_closed(connection);
+            endpoint.state.transport_closed(connection);
         }
 
         /// Writes into `output` the next datagram the endpoint owes, and names where it goes. Null
         /// when it owes none.
         pub fn send_datagram(endpoint: *Self, output: []u8, now_ns: u64) ?Sent {
-            return endpoint.held.send_datagram(output, now_ns);
+            return endpoint.state.send_datagram(output, now_ns);
         }
 
         /// The soonest instant any connection wants `on_instant` at (design §4.2), or null.
         pub fn deadline_ns(endpoint: *Self) ?u64 {
-            return endpoint.held.deadline_ns();
+            return endpoint.state.deadline_ns();
         }
 
         /// Fires whichever deadlines `now_ns` has reached.
         pub fn on_instant(endpoint: *Self, now_ns: u64) void {
-            endpoint.held.on_instant(now_ns);
+            endpoint.state.on_instant(now_ns);
         }
 
         /// Replaces one connection's limits (decision 110), for a caller short of connections that
         /// shortens its deadlines.
         pub fn set_timeouts(endpoint: *Self, connection: ConnectionHandle, deadlines: deadline.Timeouts) error{ TimeoutInvalid, ConnectionUnknown }!void {
-            return endpoint.held.set_timeouts(connection, deadlines);
+            return endpoint.state.set_timeouts(connection, deadlines);
         }
 
         /// The server_name the connection's client sent (RFC 9846 §9.2), or null.
         pub fn server_name(endpoint: *Self, connection: ConnectionHandle) ?[]const u8 {
-            return endpoint.held.server_name(connection);
+            return endpoint.state.server_name(connection);
         }
     };
 }

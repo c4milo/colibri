@@ -1,4 +1,4 @@
-//! The tests of `writable` over h3 (`endpoint_held.zig`, decision 119): a response that found no
+//! The tests of `writable` over h3 (`endpoint_state.zig`, decision 119): a response that found no
 //! room for its head, its content or its trailer section is reported `writable` once the peer's
 //! acknowledgments free room for it, once for each time it found none.
 const std = @import("std");

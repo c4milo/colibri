@@ -45,7 +45,7 @@ pub fn restart() !void {
 /// fields, as a test reads what a program does not.
 pub fn live_connection() ?*QuicConnection {
     for (endpoint.live, 0..) |live, slot| {
-        if (live) return endpoint.held.connections.at(@intCast(slot));
+        if (live) return endpoint.state.connections.at(@intCast(slot));
     }
     return null;
 }
@@ -56,9 +56,9 @@ pub fn fail_live() void {
     for (endpoint.live, 0..) |live, index| {
         if (!live) continue;
         const slot: u32 = @intCast(index);
-        internal.fail(endpoint.held.connections.at(slot));
-        endpoint.held.ready.touch(slot);
-        endpoint.held.heap.mark_stale(slot);
+        internal.fail(endpoint.state.connections.at(slot));
+        endpoint.state.ready.touch(slot);
+        endpoint.state.heap.mark_stale(slot);
         return;
     }
     unreachable;
@@ -69,7 +69,7 @@ pub fn fail_live() void {
 pub fn check_deadline() void {
     var soonest: ?u64 = null;
     for (0..endpoint.live.len) |slot| {
-        const at_ns = endpoint.held.deadline_of(@intCast(slot)) orelse continue;
+        const at_ns = endpoint.state.deadline_of(@intCast(slot)) orelse continue;
         soonest = @min(soonest orelse at_ns, at_ns);
     }
     std.debug.assert(std.meta.eql(soonest, endpoint.deadline_ns()));
