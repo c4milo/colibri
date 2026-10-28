@@ -418,7 +418,8 @@ fn build_section(connection: *QuicConnection, status: u16, fields: []const Field
     const section = &connection.section;
     section.init();
     var digits: [status_digits_len]u8 = undefined;
-    const written = std.fmt.bufPrint(&digits, "{d}", .{status}) catch unreachable;
+    // `respond` refused a status outside RFC 9110 §15's range, so the code is one.
+    const written = (http.Status.from_code(status) catch unreachable).write_digits(&digits);
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
     section.append(":status", written) catch return error.SectionTooLarge;
     // RFC 9110 §5.4: the same limit covers the caller's lines.

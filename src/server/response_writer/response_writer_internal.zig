@@ -194,10 +194,28 @@ pub fn add_content_length(response: *ResponseWriter) void {
     }
     var length: u64 = 0;
     for (response.pieces[0..response.piece_count]) |piece| length += piece.len;
-    const digits = std.fmt.bufPrint(&response.length_digits, "{d}", .{length}) catch unreachable;
+    const digits = write_decimal(length, &response.length_digits);
     response.lines[response.header_count] = .{ .name = "content-length", .value = digits };
     response.header_count += 1;
 }
+
+/// Writes `value` in decimal at the end of `digits`, and returns the digits it wrote. It replaces
+/// `std.fmt.bufPrint`, whose formatting cost more than the response's other bookkeeping.
+fn write_decimal(value: u64, digits: *[length_digits_max]u8) []const u8 {
+    var rest = value;
+    var at: usize = digits.len;
+    // Bounded by the digits of a u64, which `length_digits_max` counts.
+    while (at > 0) {
+        at -= 1;
+        digits[at] = '0' + @as(u8, @intCast(rest % decimal_radix));
+        rest /= decimal_radix;
+        if (rest == 0) break;
+    }
+    assert(rest == 0);
+    return digits[at..];
+}
+
+const decimal_radix = 10;
 
 /// Sends what waits, in order: the head, each run of the body, and the end or the trailers. It
 /// stops where the endpoint takes no more, and the request's `writable` calls it again.
@@ -305,4 +323,35 @@ fn data_len(data: []const []const u8, splat: usize) usize {
     var len: usize = 0;
     for (data, 0..) |slice, index| len += slice.len * (if (index + 1 == data.len) splat else 1);
     return len;
+}
+
+const testing = std.testing;
+
+/// Requires `write_decimal` to write what `std.fmt` writes for `value`. Test-only.
+fn expect_decimal(value: u64) !void {
+    var digits: [length_digits_max]u8 = undefined;
+    var expected: [length_digits_max]u8 = undefined;
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&expected, "{d}", .{value}), write_decimal(value, &digits));
+}
+
+fn fuzz_decimal(_: void, smith: *std.testing.Smith) anyerror!void {
+    var input: [@sizeOf(u64)]u8 = @splat(0);
+    _ = smith.slice(&input);
+    try expect_decimal(std.mem.readInt(u64, &input, .little));
+}
+
+test "fuzz: a Content-Length's digits are the ones std.fmt writes" {
+    try testing.fuzz({}, fuzz_decimal, .{ .corpus = &.{
+        @import("core").fuzz.input("\x00"),
+        @import("core").fuzz.input("\xff\xff\xff\xff\xff\xff\xff\xff"),
+    } });
+    try @import("core").fuzz.sweep(fuzz_decimal, null);
+    // The sweep reaches two octets alone, so this pass takes each power of ten, one less and one
+    // more, up to the largest u64.
+    var power: u64 = 1;
+    for (0..length_digits_max) |_| {
+        for ([_]u64{ power -% 1, power, power +% 1 }) |value| try expect_decimal(value);
+        power = std.math.mul(u64, power, decimal_radix) catch break;
+    }
+    try expect_decimal(std.math.maxInt(u64));
 }
