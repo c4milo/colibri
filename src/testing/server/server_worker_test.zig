@@ -49,7 +49,7 @@ fn accept(worker: *Worker, now_ns: u64) usize {
 
 /// Hands the socket at `index` `octets` as what its receive read. Test-only.
 fn deliver(worker: *Worker, index: usize, octets: []const u8, now_ns: u64) void {
-    @memcpy(worker.sockets[index].received[0..octets.len], octets);
+    @memcpy(worker.sockets[index].receive_buffer()[0..octets.len], octets);
     handle(worker, &.{event_of(index, .receive, @intCast(octets.len))}, null, now_ns);
 }
 
