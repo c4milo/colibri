@@ -5054,6 +5054,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - Two copies stay. The response body and the h11 head are written into the caller's output,
       because colibri owns no I/O. Only vectored output, an API change, could remove them, and the
       owner ruled it a later question.
+    - The copies of a request's field lines into its section stay too (decision 15), as the owner
+      ruled on 2026-10-28. On h2-many each one copies a line from the HPACK table. The table may
+      evict that entry while the request is in use, so the section must hold its own copy.
+      Decoding in place would save the copy of a literal string alone, mostly on a connection's
+      first request, and it needs a public name, `http.FieldSection.tail`.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
