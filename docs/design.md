@@ -5065,6 +5065,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       2,092 instructions, 412 more than by hand.
     - No input of `bench/run.sh` routed a request, so the judge could not count the router. On
       2026-10-28 the owner asked for an input that does: `h2-routes-many`.
+    - The judge's run 40766024191 admitted the writer of digits on `h2-routes-many`: 0.9910 and
+      0.9911 of the base's instructions, from 17,426 to 17,268 a request in job 1. No input lost.
+    - The input also priced routing in the server: 17,430 instructions a request against h2-many's
+      14,000, so the router costs about 3,430 a request over the GitHub API's routes. The probe
+      of one route had shown 521.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
