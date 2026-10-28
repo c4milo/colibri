@@ -25,10 +25,15 @@ const ok: u16 = 200;
 /// Feeds the peer's SETTINGS frame setting HEADER_TABLE_SIZE to `size`, after which colibri's
 /// encoder owes a size update (RFC 7541 §4.2). Test-only.
 fn feed_table_size(size: u32) !void {
+    return feed_setting(constants.setting_header_table_size, size);
+}
+
+/// Feeds the peer's SETTINGS frame with one setting. Test-only.
+fn feed_setting(identifier: u16, value: u32) !void {
     var payload: [constants.setting_len]u8 = undefined;
     var writer = core.Writer.init(&payload);
-    try writer.write_int(u16, constants.setting_header_table_size);
-    try writer.write_int(u32, size);
+    try writer.write_int(u16, identifier);
+    try writer.write_int(u32, value);
     const settings = try support.frame_bytes(&support.test_input, constants.frame_type_settings, 0, 0, writer.written());
     _ = try support.feed(settings);
 }
@@ -71,4 +76,41 @@ test "RFC 7541 §4.2: a response or a trailer section refused for room leaves it
     try testing.expectError(error.OutputTooSmall, test_connection.write_trailers(short, 1, &trailers));
     _ = try test_connection.write_trailers(test_output, 1, &trailers);
     try testing.expect(opens_with_size_update(test_output));
+}
+
+/// What `send_block` holds before a response that must not write it. Test-only.
+const sentinel: u8 = 0xa5;
+
+test "a response whose block fits one frame is encoded in place, and send_block is not written" {
+    try support.start_server();
+    _ = try support.feed_request(1, "/", true);
+    @memset(&test_connection.send_block, sentinel);
+    const written = try test_connection.write_response(test_output, 1, ok, &.{.{ .name = "x-a", .value = "b" }}, true);
+    try testing.expect(std.mem.allEqual(u8, &test_connection.send_block, sentinel));
+    // One HEADERS frame that ends the block and the stream, and holds the whole block.
+    const block_len = std.mem.readInt(u24, test_output[0..frame_length_len], .big);
+    try testing.expectEqual(written - constants.frame_header_len, block_len);
+    try testing.expectEqual(constants.frame_type_headers, test_output[3]);
+    try testing.expectEqual(constants.flag_end_stream | constants.flag_end_headers, test_output[4]);
+}
+
+/// Room for a block longer than `send_block_len_max` in one frame: twice that. Test-only.
+const huge_output_len: usize = constants.send_block_len_max + constants.send_block_len_max;
+var test_huge_output: [huge_output_len]u8 = undefined;
+/// Values Huffman coding would not shorten, longer together than `send_block_len_max`. Test-only.
+const huge_value_len = 4000;
+const huge_values_count = 9;
+
+test "design §7: a block longer than send_block_len_max is refused, though the peer's frames allow it" {
+    try support.start_server();
+    try feed_setting(constants.setting_max_frame_size, constants.max_frame_size_max);
+    _ = try support.feed_request(1, "/", true);
+    var values: [huge_values_count][huge_value_len]u8 = undefined;
+    var fields: [huge_values_count]@import("hpack").Field = undefined;
+    for (&values, &fields, 0..) |*value, *field_line, index| {
+        value.* = @splat(@intCast(0x80 + index));
+        field_line.* = .{ .name = "x-a", .value = value };
+    }
+    comptime std.debug.assert(huge_value_len * huge_values_count > constants.send_block_len_max);
+    try testing.expectError(error.OutputTooSmall, test_connection.write_response(&test_huge_output, 1, ok, &fields, false));
 }
