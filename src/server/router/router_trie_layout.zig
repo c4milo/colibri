@@ -106,7 +106,8 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
         /// and its leaf, an index of `leaves`.
         pub const Node = struct { edges_first: Index, edges_count: Index, parameter: ?Parameter, wildcard: ?Index, leaf: ?Index };
         /// A literal segment, and the node after it.
-        pub const Edge = struct { segment: Range, child: Index };
+        /// A literal edge: its segment, its first octets as `head_of` gives them, and its child.
+        pub const Edge = struct { segment: Range, head: u64, child: Index };
         /// A parameter's name, and the node after it.
         pub const Parameter = struct { name: Range, child: Index };
         /// The leaf's entries, a run of `entries`, and its Allow value.
@@ -212,7 +213,11 @@ fn add_edges(builder: anytype, trie: anytype, node: usize) void {
     for (children[0..count]) |index| {
         const segment = trie.segment[index];
         const offset = add_text(builder, segment);
-        builder.layout.edges[builder.edges_count] = .{ .segment = .{ .offset = @intCast(offset), .len = @intCast(segment.len) }, .child = @intCast(index) };
+        builder.layout.edges[builder.edges_count] = .{
+            .segment = .{ .offset = @intCast(offset), .len = @intCast(segment.len) },
+            .head = head_of(segment),
+            .child = @intCast(index),
+        };
         builder.edges_count += 1;
     }
     builder.layout.nodes[node].edges_count = @intCast(count);
@@ -237,11 +242,34 @@ fn add_wildcard(builder: anytype, trie: anytype, node: usize, child: usize) void
 
 /// Orders two nodes by their segments: the shorter first, then by octets. A lookup then compares
 /// lengths first. The order reads octets, never a pointer (non-negotiable 5).
+/// The octets of a segment that `head_of` reads.
+pub const head_len = @sizeOf(u64);
+
+/// The first `head_len` octets of `segment` as one integer, the first octet highest, and 0 for
+/// each octet past its end. Two segments of one length order as their heads order, and then as
+/// their octets past `head_len` order (`segment_less`), so `router_match.literal_child` compares
+/// one integer where it compared octets.
+pub fn head_of(segment: []const u8) u64 {
+    if (segment.len >= head_len) return std.mem.readInt(u64, segment[0..head_len], .big);
+    if (segment.len == 0) return 0;
+    var head: u64 = 0;
+    for (segment) |octet| head = (head << @bitSizeOf(u8)) | octet;
+    // The octets past the end are 0, below the last one.
+    return head << @intCast((head_len - segment.len) * @bitSizeOf(u8));
+}
+
+/// The order of the edges of a node, which `router_match.literal_child` searches in: the shorter
+/// first, then the lower `head_of`, then by the octets past `head_len`. The search compares in
+/// this one order, so the two agree whatever `head_of` maps a segment to.
 fn segment_less(trie: anytype, left: usize, right: usize) bool {
     const left_segment = trie.segment[left];
     const right_segment = trie.segment[right];
     if (left_segment.len != right_segment.len) return left_segment.len < right_segment.len;
-    return std.mem.lessThan(u8, left_segment, right_segment);
+    const left_head = head_of(left_segment);
+    const right_head = head_of(right_segment);
+    if (left_head != right_head) return left_head < right_head;
+    if (left_segment.len <= head_len) return false;
+    return std.mem.lessThan(u8, left_segment[head_len..], right_segment[head_len..]);
 }
 
 /// Whether the leaf at `node` names GET and no HEAD. A HEAD request then finds the GET route
