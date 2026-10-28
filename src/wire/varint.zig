@@ -69,15 +69,16 @@ pub fn encode(writer: *Writer, value: u64) core.writer.Error!void {
 pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.writer.Error!void {
     assert(is_length(encoded_len));
     assert(encoded_len >= encoded_len_minimal(value));
-    var octets: [constants.varint_len_max]u8 = @splat(0);
-    var rest = value;
+    // All of the octets or none. Each goes to the writer as it is made, so no octet is copied:
+    // a memcpy of 1 to 8 octets cost a call, and an h3 request wrote about 36 of them.
+    if (writer.remaining_len() < encoded_len) return error.NoSpaceLeft;
+    const prefix = @as(u8, std.math.log2_int(u8, encoded_len)) << length_shift;
+    // Network byte order (RFC 9000 §16): the most significant octet first, with the length bits.
     for (0..encoded_len) |index| {
-        octets[encoded_len - 1 - index] = @truncate(rest);
-        rest >>= @bitSizeOf(u8);
+        const shift: u6 = @intCast((encoded_len - 1 - index) * @bitSizeOf(u8));
+        const octet: u8 = @truncate(value >> shift);
+        writer.write_byte(if (index == 0) octet | prefix else octet) catch unreachable;
     }
-    assert(rest == 0);
-    octets[0] |= @as(u8, std.math.log2_int(u8, encoded_len)) << length_shift;
-    try writer.write_bytes(octets[0..encoded_len]);
 }
 
 const testing = std.testing;
