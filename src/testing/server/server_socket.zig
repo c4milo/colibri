@@ -151,12 +151,12 @@ pub const Socket = struct {
         return socket.buffers[socket.input_at][socket.input_start..][0..socket.input_len];
     }
 
-    /// Drops the `consumed` octets the connection took. No octet moves.
+    /// Drops the `consumed` octets the connection took. No octet moves. When none is left, the
+    /// next receive's buffer becomes the input, which starts `input_start` again.
     pub fn consume(socket: *Socket, consumed: usize) void {
         assert(consumed <= socket.input_len);
         socket.input_start += consumed;
         socket.input_len -= consumed;
-        if (socket.input_len == 0) socket.input_start = 0;
     }
 
     /// Where the connection writes what the socket sends next.
@@ -228,7 +228,7 @@ test "a receive read into the empty side becomes the input, and the next one wri
     test_socket.consume(4);
     try testing.expectEqualStrings("/ HTTP/1.1\r\n", test_socket.unread());
     test_socket.consume(test_socket.unread().len);
-    try testing.expectEqual(0, test_socket.input_start);
+    try testing.expectEqual(0, test_socket.unread().len);
 }
 
 test "octets left unread take the next receive after them, moved to the front when they must" {
@@ -246,3 +246,73 @@ test "octets left unread take the next receive after them, moved to the front wh
     try testing.expectEqualStrings("efghz", test_socket.unread()[0..5]);
     try testing.expectEqual('z', test_socket.unread()[input_capacity - 1]);
 }
+
+/// One step of the fuzz script: a kind octet and two octets of a count. Test-only.
+const step_octets = 3;
+const steps_max = 32;
+const fuzz_input_len = step_octets * steps_max;
+
+/// The script runs receives and consumes on a socket, and on a model that counts the octets
+/// received and the octets consumed: the octet at each place of the flow is its place, cut to 8
+/// bits. After each step the socket's unread octets must be the model's. Test-only.
+fn fuzz_input(_: void, smith: *std.testing.Smith) anyerror!void {
+    var input: [fuzz_input_len]u8 = @splat(0);
+    const len = smith.slice(&input);
+    test_socket.open(0);
+    var received: usize = 0;
+    var consumed: usize = 0;
+    var index: usize = 0;
+    // Bounded by the input, which holds at most `steps_max` steps.
+    while (index + step_octets <= len) : (index += step_octets) {
+        const amount: usize = std.mem.readInt(u16, input[index + 1 ..][0 .. step_octets - 1], .little);
+        if (input[index] & 1 == 0) {
+            const read = amount % (input_capacity - test_socket.input_len + 1);
+            if (read == 0) continue;
+            const was_empty = test_socket.input_len == 0;
+            const target = test_socket.receive_buffer();
+            for (target[0..read], 0..) |*octet, at| octet.* = @truncate(received + at);
+            test_socket.on_received(rotor.Event.success(user_data(0, .receive), @intCast(read)));
+            received += read;
+            // Nothing was left unread, so the octets stay where the receive wrote them.
+            if (was_empty) try testing.expectEqual(@intFromPtr(target), @intFromPtr(test_socket.unread().ptr));
+        } else {
+            const taken = amount % (test_socket.input_len + 1);
+            test_socket.consume(taken);
+            consumed += taken;
+        }
+        const unread = test_socket.unread();
+        try testing.expectEqual(received - consumed, unread.len);
+        for (unread, 0..) |octet, at| try testing.expectEqual(@as(u8, @truncate(consumed + at)), octet);
+    }
+}
+
+test "fuzz: a socket's unread octets are the flow's, whatever the receives and the consumes" {
+    try testing.fuzz({}, fuzz_input, .{
+        .corpus = &.{
+            // Half a message left, the rest appended, then all of it read.
+            @import("core").fuzz.input("\x00\x10\x00" ++ "\x01\x0c\x00" ++ "\x00\x08\x00" ++ "\x01\xff\xff"),
+            // A receive that fills the input behind octets left unread, which moves them first.
+            @import("core").fuzz.input("\x00\x20\x00" ++ "\x01\x1c\x00" ++ "\x00\xff\xff" ++ "\x01\x03\x00"),
+        },
+    });
+    try @import("core").fuzz.sweep(fuzz_input, null);
+}
+
+test "the socket property holds over scripts that a counter builds" {
+    var input: [fuzz_input_len]u8 = undefined;
+    var entry: [@sizeOf(u32) + fuzz_input_len]u8 = undefined;
+    for (0..script_count) |script| {
+        for (&input, 0..) |*octet, index| octet.* = @truncate((index + 1) *% (script + 1) *% mix >> mix_shift);
+        // `Smith` reads a slice's length as 4 octets, little-endian (`core.fuzz`).
+        std.mem.writeInt(u32, entry[0..@sizeOf(u32)], fuzz_input_len, .little);
+        @memcpy(entry[@sizeOf(u32)..], &input);
+        var smith: std.testing.Smith = .{ .in = &entry };
+        try fuzz_input({}, &smith);
+    }
+}
+
+/// The scripts the counter pass runs, and the constants that spread a counter over the octets.
+/// Test-only.
+const script_count = 512;
+const mix: usize = 2654435761;
+const mix_shift = 7;
