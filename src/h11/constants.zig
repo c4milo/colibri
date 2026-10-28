@@ -15,6 +15,10 @@ pub const start_line_len_max: u32 = 8192;
 /// answer 4xx, so this is policy. It bounds how far `message_scan` looks for the end of a head.
 pub const head_len_max: u32 = 32768;
 
+/// Octets `message_scan` compares at once when it looks for a line's CR or LF. 16 octets fill one
+/// NEON or SSE2 register, which every arm64 and x86-64 core has.
+pub const scan_vector_len: u32 = 16;
+
 /// Longest line colibri reads before a chunk's data, in octets, not counting its CRLF: the
 /// chunk-size and its chunk extensions (RFC 9112 §7.1). RFC 9112 §7.1.1 says a server ought to
 /// limit the total length of chunk extensions it accepts and answer 4xx past it, so this is policy.

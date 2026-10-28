@@ -92,8 +92,14 @@ pub const Scanner = struct {
         const limit = @min(input.len, constants.head_len_max);
         var reader = Reader.init(input[0..limit]);
         _ = reader.take(state.scanned) catch unreachable;
-        // At most `head_len_max` octets, because `limit` never exceeds it.
-        for (reader.peek_rest()) |octet| {
+        // At most `head_len_max` passes, because `limit` never exceeds it and each pass scans at
+        // least one octet.
+        while (reader.remaining_len() > 0) {
+            const run = state.content_len(role, reader.peek_rest());
+            _ = reader.take(run) catch unreachable;
+            state.line_len += run;
+            state.scanned += run;
+            const octet = reader.read_byte() catch break;
             state.scanned += 1;
             if (try state.step(role, octet)) return state.span();
         }
@@ -101,6 +107,17 @@ pub const Scanner = struct {
         if (state.scanned == constants.head_len_max) return error.HeadTooLarge;
         assert(state.scanned == input.len);
         return null;
+    }
+
+    /// How many octets at the front of `octets` `step` would only count: those before the next CR
+    /// or LF, where no other check applies. A field line and the rest of a start line after its
+    /// method qualify; a start line's run stops where `start_line_len_max` would refuse an octet.
+    fn content_len(scanner: *const Scanner, role: Role, octets: []const u8) u32 {
+        if (scanner.after_carriage_return) return 0;
+        if (scanner.lines > 0) return line_content_len(octets, octets.len);
+        if (role == .request and !scanner.method_ended) return 0;
+        assert(scanner.line_len <= constants.start_line_len_max);
+        return line_content_len(octets, constants.start_line_len_max - scanner.line_len);
     }
 
     /// One octet. Returns true when it is the LF of the empty line that ends the head.
@@ -164,6 +181,30 @@ pub const Scanner = struct {
         return .{ .start = scanner.skipped_len, .end = scanner.scanned };
     }
 };
+
+const Chunk = @Vector(constants.scan_vector_len, u8);
+
+/// Octets at the front of `octets` before the first CR or LF, at most `cap`. Compares
+/// `scan_vector_len` octets at once while that many remain, then one at a time.
+fn line_content_len(octets: []const u8, cap: usize) u32 {
+    const len = @min(octets.len, cap);
+    assert(len <= constants.head_len_max);
+    const carriage_returns: Chunk = @splat('\r');
+    const line_feeds: Chunk = @splat('\n');
+    var at: usize = 0;
+    // At most `head_len_max / scan_vector_len` passes.
+    while (at + constants.scan_vector_len <= len) : (at += constants.scan_vector_len) {
+        const chunk: Chunk = octets[at..][0..constants.scan_vector_len].*;
+        const ends = (chunk == carriage_returns) | (chunk == line_feeds);
+        if (std.simd.firstTrue(ends)) |first| return @intCast(at + first);
+    }
+    // Fewer than `scan_vector_len` octets.
+    for (octets[at..len]) |octet| {
+        if (octet == '\r' or octet == '\n') break;
+        at += 1;
+    }
+    return @intCast(at);
+}
 
 const testing = std.testing;
 
@@ -254,6 +295,41 @@ test "a start line of start_line_len_max octets is read, and one octet more is r
     var scanner: Scanner = .{};
     try testing.expectEqual(null, try scanner.scan(.request, test_octets[0..constants.start_line_len_max]));
     try testing.expectError(error.StartLineTooLong, scanner.scan(.request, test_octets[0 .. constants.start_line_len_max + 1]));
+}
+
+test "a start line past its method is held to start_line_len_max too" {
+    // The octets after the method are counted in runs, and the run stops at the limit.
+    var line: [constants.start_line_len_max + 1]u8 = @splat('a');
+    @memcpy(line[0..4], "GET ");
+    var scanner: Scanner = .{};
+    try testing.expectEqual(null, try scanner.scan(.request, line[0..constants.start_line_len_max]));
+    try testing.expectError(error.StartLineTooLong, scanner.scan(.request, &line));
+    scanner.reset();
+    try testing.expectError(error.StartLineTooLong, scanner.scan(.response, &line));
+}
+
+test "a CR or LF is found at every place in a run, and the octets before it are counted" {
+    // Each place of a line end in and around one vector of octets, in a field line and in a start
+    // line past its method.
+    const prefixes = [_][]const u8{ "GET / HTTP/1.1\r\nHost: ", "GET /" };
+    for (prefixes) |prefix| {
+        for (0..2 * constants.scan_vector_len + 1) |value_len| {
+            var input: [64]u8 = @splat('v');
+            @memcpy(input[0..prefix.len], prefix);
+            const end = prefix.len + value_len;
+            @memcpy(input[end..][0..2], "\r\r");
+            var scanner: Scanner = .{};
+            try testing.expectError(error.BareCarriageReturn, scanner.scan(.request, input[0 .. end + 2]));
+            @memcpy(input[end..][0..4], "\r\n\r\n");
+            scanner.reset();
+            const found = (try scanner.scan(.request, input[0 .. end + 4])) orelse
+                return error.TestUnexpectedResult;
+            try testing.expectEqual(end + 4, found.end);
+            input[end] = '\n';
+            scanner.reset();
+            try testing.expectError(error.BareLineFeed, scanner.scan(.request, input[0 .. end + 1]));
+        }
+    }
 }
 
 test "a head with no end within head_len_max octets is refused, and one that ends at the limit is not" {
