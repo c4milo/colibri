@@ -5221,6 +5221,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     nginx's. h11-many takes 1.28 to 1.36 times nginx's and hyper's.
   - h2: each verdict is the one 13g recorded.
 
+  **The competitors again, 2026-10-27.** The owner asked where colibri stands after the changes
+  since 13d. [Run 40615818807](https://github.com/c4milo/colibri/actions/runs/40615818807), on
+  1681310f, ran `--competitors --h11 --h3` in 22 minutes, with the competitors 13d ran. Its two
+  jobs give the same verdict on each of the 28 ratios, and agree within 2% on each. The medians
+  are the first job's, counted as 13d counts them:
+
+  | Input | colibri | nginx | h2o | hyper | http.zig | quic-go |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+  | h11-many | 32,625 | 28,500 | 52,489 | 27,366 | 75,717 | — |
+  | h11-tls-many | 41,097 | 51,527 | 75,025 | 32,977 | — | — |
+  | h11-one | 97,191 | 71,872 | 101,986 | 89,806 | 103,348 | — |
+  | h11-tls-one | 942,030 | 2,141,186 | 2,128,927 | 787,913 | — | — |
+  | h2-many | 13,679 | 45,961 | 34,363 | 27,474 | — | — |
+  | h2-tls-many | 16,121 | 41,682 | 37,715 | 29,055 | — | — |
+  | h2-one | 136,238 | 140,831 | 143,881 | 205,899 | — | — |
+  | h2-tls-one | 1,030,725 | 2,589,097 | 2,354,043 | 1,033,421 | — | — |
+  | h3-many | 146,740 | — | — | — | — | 212,547 |
+  | h3-one | 1,474,466 | — | — | — | — | 3,295,962 |
+
+  What the run shows, against 13d:
+  - A TLS handshake costs about half of what it cost. h11-tls-one, h2-tls-one and h3-one fall 48%,
+    47% and 59%. colibri now takes 0.40 to 0.44 of nginx's and h2o's instructions. It matches
+    hyper on h2-tls-one and takes 1.20 times hyper's on h11-tls-one. The run does not show which
+    changes made the fall.
+  - h3-one now takes 0.45 of quic-go's instructions, where 13d measured 1.09 to 1.10 times. It
+    completes 3,578 connections a second of one core, against quic-go's 1,463. h3-many stays at
+    0.69 of quic-go's.
+  - h2-one now takes 0.97 of nginx's instructions and 0.95 of h2o's, where 13d measured 1.02 to
+    1.03 times. The other h2 verdicts are 13d's.
+  - h11 is still where colibri loses. h11-many fell 11%, to 1.14 times nginx's instructions and
+    1.19 times hyper's. h11-tls-many fell 20%, and now
+    takes 0.80 of nginx's, and 1.25 times hyper's. h11-one stays at 1.35 times nginx's and 1.08
+    times hyper's.
+
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
