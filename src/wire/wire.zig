@@ -13,6 +13,7 @@ pub const constants = @import("constants.zig");
 /// Every file of the module. None of these is exported: the names below are.
 const files = struct {
     pub const varint = @import("varint.zig");
+    pub const varint_fuzz = @import("varint_fuzz.zig");
     pub const prefixed_integer = @import("prefixed_integer.zig");
     pub const huffman = @import("huffman.zig");
     pub const huffman_decode = @import("huffman_decode.zig");
