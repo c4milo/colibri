@@ -13,7 +13,8 @@
 //!
 //! `router.zig` then builds the layout and checks it in this order: each Allow value fits
 //! `core.constants.field_value_len_max`, or `allow_too_long` (`router_trie_layout.zig`), and no
-//! route is hidden, or `route_hidden` or `route_unreachable` (`router_hidden.zig`).
+//! route is unreachable, or `route_unreachable` (`router_hidden.zig`). A table names
+//! `route_methods_max` methods at most, or `methods_too_many` (decision 128).
 //!
 //! `merge` writes the trie of a table's patterns. It gives each segment of a pattern a node, and
 //! two patterns with the same first segments share their nodes.
@@ -96,7 +97,7 @@ pub const Reason = union(enum) {
     parameter_names_differ,
     route_repeated,
     allow_too_long,
-    route_hidden: Hidden,
+    methods_too_many,
     route_unreachable: Unreachable,
 
     /// The name that the compile error writes, which `zig build router-check` reads.
@@ -119,30 +120,9 @@ pub const Reason = union(enum) {
             .route_repeated => "two routes name one method and one path",
             .allow_too_long => "the Allow value of the routes of one pattern holds " ++
                 "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
-            .route_hidden => |hidden| hidden.sentence(),
+            .methods_too_many => "the routes of a table name server.constants.route_methods_max methods at most (decision 128)",
             .route_unreachable => |never| never.sentence(),
         };
-    }
-};
-
-/// A request that a route matches, which gets 405 from the routes of another pattern (decision
-/// 122 ruling 12).
-pub const Hidden = struct {
-    /// The route's method token.
-    method: []const u8,
-    /// A path that the route matches.
-    path: []const u8,
-    /// The pattern of the leaf that the walk on the path stops at.
-    pattern: []const u8,
-
-    fn sentence(comptime hidden: Hidden) []const u8 {
-        // RFC 9110 §9.3.2: a HEAD request finds a GET route too.
-        const methods = if (std.mem.eql(u8, hidden.method, router_method.head_token)) "HEAD or GET" else hidden.method;
-        return std.fmt.comptimePrint(
-            "a request that this route matches gets 405 from another pattern: {s} \"{s}\" matches " ++
-                "\"{s}\" first, and no route of that pattern names {s}",
-            .{ hidden.method, hidden.path, hidden.pattern, methods },
-        );
     }
 };
 

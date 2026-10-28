@@ -1,15 +1,13 @@
-//! The check of a route that other routes hide (decision 122 ruling 12, design §8 step 21e). It
-//! runs at compile time on the layout of a table that `router_trie.refusal_of` passed. It adds
-//! nothing at run time.
+//! The check of a route that other routes hide (decision 122 ruling 12, as decision 128 amends it,
+//! design §8 step 21e). It runs at compile time on the layout of a table that
+//! `router_trie.refusal_of` passed. It adds nothing at run time.
 //!
-//! A route R names a method m, and its pattern ends at the leaf T. R does not compile in two
-//! cases, and the check reads them in this order (invariant 7):
-//!   1. `route_hidden`: a path that T's pattern matches gets 405 from another leaf. The walk on
-//!      the path stops at a leaf F other than T, and F does not serve m. F serves m when it names
-//!      m, or when m is HEAD and F names GET (RFC 9110 §9.3.2). `router_match.choose` decides it.
-//!   2. `route_unreachable`: the walk on each path that T's pattern matches stops at a leaf
-//!      other than T.
-//! The check refuses the first route of the table, in table order, that falls in a case.
+//! A route R names a method m, and its pattern ends at the leaf T. Since decision 128 the walk of
+//! a request of m backs up past each leaf that does not serve m, so no route is hidden by a 405.
+//! R does not compile in one case, `route_unreachable`: the walk of m on each path that T's
+//! pattern matches stops at a leaf other than T, which serves m. A leaf serves m when it names m,
+//! or when m is HEAD and the leaf names GET (RFC 9110 §9.3.2). The check refuses the first route
+//! of the table, in table order, that falls in the case.
 //!
 //! The check does not read each path. For each leaf it reads a few canonical paths, and it runs
 //! the walk of `router_match.zig` on each one. The claims below show that these paths are enough.
@@ -44,13 +42,18 @@
 //!      before position `depth_max`. For n > `depth_max` + 1, x(T, L, n) holds "other" at each
 //!      position from `depth_max`, so the same leaves match it as match x(T, L, `depth_max` + 1).
 //!      The check reads each n from k to `depth_max` + 1 only.
-//!   4. Reachable. T is reachable if and only if the walk on x(T, n) stops at T for some n.
+//!   4. Reachable. R is reachable if and only if the walk of m on x(T, n) stops at T for some n.
+//!      The proof below holds for the walk of m, which passes each leaf that does not serve m: a
+//!      leaf L that serves m and stops the walk before T on x(T, n) matches each path of T and
+//!      comes before T in the order of claim 1, which reads no method.
 //!      Proof: let the walk on x(T, n) stop at a leaf L other than T. L comes before T in the
 //!      order, and L matches x(T, n). By claim 2, L holds a parameter or the wildcard where
 //!      x(T, n) holds "other", and T's literal, a parameter or the wildcard elsewhere. So L
 //!      matches each path of n segments that T matches, and the walk on that path never stops
 //!      at T.
-//!   5. Hidden. Let the walk on a path x of n segments that T matches stop at a leaf F. Then the
+//!   5. Hidden. (Decision 122 ruling 12 read claims 5 and 6 for `route_hidden`, which decision 128
+//!      removed. They stay true, and the check no longer reads them.) Let the walk on a path x of
+//!      n segments that T matches stop at a leaf F. Then the
 //!      walk on x(T, F, n) stops at F too. Proof: T and F match x, so where both hold a literal,
 //!      both equal the segment of x, and x(T, F, n) is a path that both match. Let a leaf L
 //!      before F match x(T, F, n). Where x(T, F, n) holds "other", L holds a parameter or the
@@ -176,8 +179,8 @@ const octet_reads = 2;
 /// octets.
 const other_len_bound = 2;
 
-/// The checks of each entry of leaf `leaf`. Each walk on a canonical path writes the verdict of
-/// each entry that it refuses first.
+/// The checks of each entry of leaf `leaf`: the walk of the entry's method on each canonical path
+/// x(T, n) of the leaf (claim 4). An entry that no walk reaches is `route_unreachable`.
 fn leaf_verdicts(
     comptime Value: type,
     comptime layout: anytype,
@@ -187,9 +190,10 @@ fn leaf_verdicts(
     canonicals: []const Canonical,
     verdicts: []?router_trie.Reason,
 ) void {
+    _ = Value;
     const at = layout.leaves[leaf];
     const entries = verdicts[at.entries_first..][0..at.entries_count];
-    var reached = false;
+    var reached: [constants.route_methods_max]bool = @splat(false);
     var too_long = false;
     var first_patterns: []const u8 = "";
     // Claim 7: when no leaf before T matches a path of T, the walk on each path of T stops at T,
@@ -198,58 +202,53 @@ fn leaf_verdicts(
         if (canonical.leaf != leaf) break false;
     } else true;
     for (canonicals) |canonical| {
-        const path = router_hidden_canonical.canonical_path(shapes[leaf], shapes[canonical.leaf], canonical.segments, other);
-        switch (walk_of(layout, shapes[leaf], path, alone)) {
-            .too_long => too_long = too_long or canonical.leaf == leaf,
-            .reached => reached = true,
-            .stopped => |stop_leaf| {
-                const pattern = shapes[stop_leaf].pattern;
-                if (canonical.leaf == leaf) first_patterns = add_first_pattern(first_patterns, pattern);
-                hidden_verdicts(Value, layout, at, stop_leaf, path, pattern, entries);
-            },
+        // Claim 4: the paths x(T, n) decide.
+        if (canonical.leaf != leaf) continue;
+        const path = router_hidden_canonical.canonical_path(shapes[leaf], shapes[leaf], canonical.segments, other);
+        // Claim 8: `match` gives `not_found` for a longer path.
+        if (path.len > constants.path_len_max) {
+            too_long = true;
+            continue;
         }
+        walk_entries(layout, shapes, leaf, path, alone, &reached, &first_patterns);
     }
-    if (reached) return;
-    for (entries) |*verdict| {
-        // Decision 122 ruling 12: the walk on each path of the route stops at another leaf.
-        if (verdict.* == null) verdict.* = .{ .route_unreachable = .{ .patterns = first_patterns, .too_long = too_long } };
+    for (entries, 0..) |*verdict, index| {
+        // Decision 122 ruling 12: the walk of the method on each path of the route stops at
+        // another leaf.
+        if (!reached[index] and verdict.* == null) verdict.* = .{ .route_unreachable = .{ .patterns = first_patterns, .too_long = too_long } };
     }
 }
 
-/// What the walk on a canonical path of a leaf gives: no walk for a path that is too long, the
-/// leaf itself, or the index of another leaf where the walk stops.
-const Walk = union(enum) { too_long, reached, stopped: usize };
-
-fn walk_of(comptime layout: anytype, shape: Shape, path: []const u8, alone: bool) Walk {
-    // Claim 8: `match` gives `not_found` for a longer path.
-    if (path.len > constants.path_len_max) return .too_long;
-    if (alone) return .reached;
-    var parameters: PathParameters = .{};
-    // T matches the path, so the walk stops at T or at a leaf before it.
-    const stop = (router_match.stop(layout, path, &parameters) orelse unreachable).node;
-    if (stop == shape.node) return .reached;
-    return .{ .stopped = layout.nodes[stop].leaf.? };
-}
-
-/// Writes `route_hidden` for each entry of `at` whose method the leaf `stop_leaf` does not serve.
-fn hidden_verdicts(
-    comptime Value: type,
+/// The walk of each entry's method of `leaf` on the canonical path `path`. An entry whose walk
+/// stops at the leaf is reached, and the pattern of each other leaf where a walk stops is noted.
+fn walk_entries(
     comptime layout: anytype,
-    at: anytype,
-    stop_leaf: usize,
+    shapes: []const Shape,
+    leaf: usize,
     path: []const u8,
-    pattern: []const u8,
-    entries: []?router_trie.Reason,
+    alone: bool,
+    reached: *[constants.route_methods_max]bool,
+    first_patterns: *[]const u8,
 ) void {
-    for (layout.entries[at.entries_first..][0..at.entries_count], entries) |entry, *verdict| {
-        if (verdict.* != null) continue;
-        const method = text_of(layout, entry.method);
-        // Decision 122 ruling 12: a path of the route gets 405 from another leaf. `choose` decides
-        // whether a leaf serves a method, as it does for a request (RFC 9110 §9.3.2).
-        if (router_match.choose(Value, layout, stop_leaf, method) != .found) {
-            verdict.* = .{ .route_hidden = .{ .method = method, .path = path, .pattern = pattern } };
+    const at = layout.leaves[leaf];
+    for (layout.entries[at.entries_first..][0..at.entries_count], 0..) |entry, index| {
+        // Claim 7: a leaf alone is reached on each of its paths.
+        if (alone) {
+            reached[index] = true;
+            continue;
         }
+        const stop_leaf = stop_of(layout, path, text_of(layout, entry.method));
+        if (stop_leaf == leaf) reached[index] = true else first_patterns.* = add_first_pattern(first_patterns.*, shapes[stop_leaf].pattern);
     }
+}
+
+/// The leaf where the walk of `method` on `path` stops. The leaf of the path's own pattern serves
+/// the method, so the walk stops at it or at a leaf before it.
+fn stop_of(comptime layout: anytype, path: []const u8, method: []const u8) usize {
+    var parameters: PathParameters = .{};
+    var server: router_match.MethodServer = .{ .method = method };
+    const stop = (router_match.stop_for(layout, path, &parameters, &server) orelse unreachable).node;
+    return layout.nodes[stop].leaf.?;
 }
 
 /// The refusal of the first route, in table order, whose entry has a verdict, or null.

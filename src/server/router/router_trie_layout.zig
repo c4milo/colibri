@@ -31,7 +31,7 @@ pub const Sizes = struct {
     depth_max: usize,
 };
 
-fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
+pub fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
     @setEvalBranchQuota(router_trie.quota_of(table));
     // The calls in the loops get pointers to copies in vars (`router_trie.zig`).
     var routes = router_trie.routes_of(table);

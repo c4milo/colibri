@@ -23,12 +23,14 @@
 //!   9. The walk backs up one level when a node has no child left to try for its segment, or when
 //!      the walk read every segment and the node holds no leaf. It tries each child kind of a node
 //!      once at most (INV-32). A walk that backs up from the root matches nothing.
-//!  10. The first node that holds a leaf after the last segment decides. The walk does not back
-//!      up for a method.
-//!  11. The method equals the token of one entry of the leaf, octet for octet, and the result is
-//!      `found` with the entry's value. A HEAD request finds the GET entry of a leaf with no HEAD
-//!      entry. Otherwise the result is `method_not_allowed` with the leaf's Allow value, which
-//!      lists HEAD after GET.
+//!  10. The first node after the last segment whose leaf serves the method decides. A leaf serves
+//!      a method that one of its entries names, octet for octet, and a HEAD request when it names
+//!      GET (RFC 9110 §9.3.2). The walk backs up past a leaf that does not serve the method, as it
+//!      backs up past a node with no leaf (decision 128).
+//!  11. The result is `found` with the value of the leaf's entry for the method, or of its GET entry
+//!      for a HEAD request with no HEAD entry. When no leaf that the path reaches serves the method,
+//!      the result is `method_not_allowed` with the Allow value of their methods joined, which
+//!      lists HEAD after GET (`router_allow.zig`).
 //!  12. `found` writes the name and the decoded segment of each parameter of the walk into
 //!      `parameters`, and for the wildcard the name "*" and the decoded rest of the path, without
 //!      its first "/". Each other result leaves `parameters.count` at 0.
@@ -41,6 +43,7 @@ const router_pattern = @import("router_pattern.zig");
 const router_trie = @import("router_trie.zig");
 const router_trie_layout = @import("router_trie_layout.zig");
 const router_path = @import("router_path.zig");
+const router_allow = @import("router_allow.zig");
 const percent = @import("http").uri_percent;
 
 /// The octet that starts a percent-encoded octet (RFC 3986 §2.1).
@@ -77,23 +80,84 @@ pub fn match(
     // Decision 122: no value of an earlier match is read.
     parameters.count = 0;
     // RFC 9110 §9.1, §15.6.2: a method that no route names gives 501, before the path is read.
-    if (!implemented(layout, method)) return .not_implemented;
-    const walked = stop(layout, target, parameters) orelse return .not_found;
-    // RFC 9110 §15.5.5: a path whose node holds no leaf names no resource.
-    const leaf = layout.nodes[walked.node].leaf orelse return .not_found;
+    const wanted = router_allow.wanted_of(layout, method);
+    if (wanted == 0) return .not_implemented;
+    var server: MaskServer = .{ .wanted = wanted };
+    const walked = stop_for(layout, target, parameters, &server) orelse {
+        const reached = server.reached;
+        // RFC 9110 §15.5.5: a path that no leaf matches names no resource.
+        if (reached == 0) return .not_found;
+        // Decision 128: no leaf that the path reaches serves the method, and RFC 9110 §15.5.6's
+        // Allow lists the methods of each of them.
+        return .{ .method_not_allowed = router_allow.Allows(layout).values[reached] };
+    };
+    const leaf = layout.nodes[walked.node].leaf.?;
     const result = choose(Value, layout, leaf, method);
+    // The walk stopped at a leaf that serves the method.
+    assert(result == .found);
     // Decision 122: only `found` gives the program the values of the parameters.
-    if (result == .found) parameters.count = @intCast(walked.count);
+    parameters.count = @intCast(walked.count);
     return result;
+}
+
+/// What decides whether a leaf serves a request, for `match`: the bits of the methods that serve
+/// it, and the methods of each leaf the walk passed.
+const MaskServer = struct {
+    wanted: router_allow.Mask,
+    reached: router_allow.Mask = 0,
+
+    pub fn serves(server: *MaskServer, comptime layout: anytype, leaf: usize) bool {
+        const mask = router_allow.Allows(layout).leaf_masks[leaf];
+        if (mask & server.wanted != 0) return true;
+        server.reached |= mask;
+        return false;
+    }
+};
+
+/// A leaf serves any method: the walk stops at the first leaf it reaches.
+const AnyServer = struct {
+    pub fn serves(_: *AnyServer, comptime _: anytype, _: usize) bool {
+        return true;
+    }
+};
+
+/// What decides whether a leaf serves a request of `method`, for the check of unreachable routes,
+/// which runs at compile time on a view of the layout.
+pub const MethodServer = struct {
+    method: []const u8,
+
+    pub fn serves(server: *MethodServer, comptime layout: anytype, leaf: usize) bool {
+        return leaf_serves(layout, leaf, server.method);
+    }
+};
+
+/// Whether `leaf` names `method`, or names GET when `method` is HEAD (RFC 9110 §9.1, §9.3.2).
+pub fn leaf_serves(comptime layout: anytype, leaf: usize, method: []const u8) bool {
+    const at = layout.leaves[leaf];
+    const head = std.mem.eql(u8, method, router_method.head_token);
+    for (layout.entries[at.entries_first..][0..at.entries_count]) |entry| {
+        const token = text_of(layout, entry.method);
+        if (std.mem.eql(u8, token, method)) return true;
+        if (head and std.mem.eql(u8, token, router_method.get_token)) return true;
+    }
+    return false;
 }
 
 /// The node where the walk on the path of `target` stops, or null when the path matches no
 /// route. `match` and the check of hidden routes (`router_hidden.zig`) both call it, so the check
 /// reads the walk that a request gets.
 pub fn stop(comptime layout: anytype, target: []const u8, parameters: *PathParameters) ?Walked {
+    var server: AnyServer = .{};
+    return stop_for(layout, target, parameters, &server);
+}
+
+/// The node where the walk on the path of `target` stops at a leaf that `server` says serves the
+/// request, or null (decision 128). `server` is a pointer to a `MaskServer`, an `AnyServer` or a
+/// `MethodServer`.
+pub fn stop_for(comptime layout: anytype, target: []const u8, parameters: *PathParameters, server: anytype) ?Walked {
     var segments: SegmentsOf(layout) = undefined;
     if (!router_path.read(capacity_of(layout), target, &segments)) return null;
-    return walk(layout, &segments, parameters);
+    return walk(layout, &segments, parameters, server);
 }
 
 /// The segments a walk on `layout` reads at most: one for each level, and the one a wildcard
@@ -104,20 +168,6 @@ fn capacity_of(comptime layout: anytype) usize {
 
 fn SegmentsOf(comptime layout: anytype) type {
     return router_path.Segments(capacity_of(layout));
-}
-
-/// Whether a route of `layout` names `method`. A table that names GET names HEAD too. The loop
-/// reads each method of the table's set once.
-fn implemented(comptime layout: anytype, method: []const u8) bool {
-    const head = std.mem.eql(u8, method, router_method.head_token);
-    for (layout.methods) |range| {
-        const token = text_of(layout, range);
-        // RFC 9110 §9.1: the method token is case-sensitive.
-        if (std.mem.eql(u8, token, method)) return true;
-        // RFC 9110 §9.1, §9.3.2: a HEAD request finds a GET route, so GET implements HEAD.
-        if (head and std.mem.eql(u8, token, router_method.get_token)) return true;
-    }
-    return false;
 }
 
 /// The node of a walk, and the count of parameters that it wrote.
@@ -147,7 +197,7 @@ pub fn walk_steps_max(comptime nodes: usize) usize {
 /// The node after the last segment of `path` that holds a leaf, or null when no such node
 /// exists. The walk writes each parameter's name and value into `parameters` and counts them in
 /// `Walked`.
-fn walk(comptime layout: anytype, segments: *const SegmentsOf(layout), parameters: *PathParameters) ?Walked {
+fn walk(comptime layout: anytype, segments: *const SegmentsOf(layout), parameters: *PathParameters, server: anytype) ?Walked {
     const path = segments.path;
     assert(path.len > 0 and path[0] == router_pattern.separator);
     const depth_max = @TypeOf(layout).depth_max;
@@ -157,7 +207,7 @@ fn walk(comptime layout: anytype, segments: *const SegmentsOf(layout), parameter
     frames[0] = .{ .node = router_trie.root, .tried = .none, .segment_first = segment_first, .count = 0 };
     var depth: usize = 0;
     for (0..walk_steps_max(layout.nodes.len)) |_| {
-        switch (step(layout, segments, depth, &frames[depth], parameters)) {
+        switch (step(layout, segments, depth, &frames[depth], parameters, server)) {
             .push => |frame| {
                 // A node at the depth of the deepest pattern has no child.
                 assert(depth < depth_max);
@@ -179,13 +229,9 @@ fn walk(comptime layout: anytype, segments: *const SegmentsOf(layout), parameter
 /// One pass of the walk at `frame`. It tries the child kinds that `frame` has not tried, in
 /// order. It pushes the first literal or parameter child that matches the segment, or it gives
 /// the node of the wildcard. The frame at `depth` reads segment `depth` of `segments`.
-fn step(comptime layout: anytype, segments: *const SegmentsOf(layout), depth: usize, frame: *Frame, parameters: *PathParameters) Step {
+fn step(comptime layout: anytype, segments: *const SegmentsOf(layout), depth: usize, frame: *Frame, parameters: *PathParameters, server: anytype) Step {
     const path = segments.path;
-    if (frame.segment_first > path.len) {
-        // RFC 9110 §15.5.5: a node with no leaf names no resource, so the walk backs up.
-        if (layout.nodes[frame.node].leaf == null) return .back;
-        return .{ .found = .{ .node = frame.node, .count = frame.count } };
-    }
+    if (frame.segment_first > path.len) return at_end(layout, frame, server);
     // The pass recorded each segment a frame reads: a walk is never deeper than `depth_max`.
     assert(depth < capacity_of(layout) and depth < segments.count);
     const segment_end: usize = segments.ends[depth];
@@ -210,13 +256,26 @@ fn step(comptime layout: anytype, segments: *const SegmentsOf(layout), depth: us
     }
     if (frame.tried == .parameter) {
         frame.tried = .wildcard;
-        // Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path.
-        if (at.wildcard) |wildcard| {
-            bind(parameters, frame.count, router_pattern.wildcard, decoded(parameters, path, frame.segment_first, path.len, false));
-            return .{ .found = .{ .node = wildcard, .count = frame.count + 1 } };
-        }
+        if (at.wildcard) |wildcard| return wildcard_step(layout, path, frame, wildcard, parameters, server);
     }
     return .back;
+}
+
+/// The frame after the last segment: its node decides when its leaf serves the request.
+fn at_end(comptime layout: anytype, frame: *const Frame, server: anytype) Step {
+    // RFC 9110 §15.5.5: a node with no leaf names no resource, so the walk backs up.
+    const leaf = layout.nodes[frame.node].leaf orelse return .back;
+    // Decision 128: a leaf that does not serve the method lets the walk back up too.
+    if (!server.serves(layout, leaf)) return .back;
+    return .{ .found = .{ .node = frame.node, .count = frame.count } };
+}
+
+/// Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path. Its
+/// leaf decides when it serves the request (decision 128).
+fn wildcard_step(comptime layout: anytype, path: []const u8, frame: *const Frame, wildcard: usize, parameters: *PathParameters, server: anytype) Step {
+    if (!server.serves(layout, layout.nodes[wildcard].leaf.?)) return .back;
+    bind(parameters, frame.count, router_pattern.wildcard, decoded(parameters, path, frame.segment_first, path.len, false));
+    return .{ .found = .{ .node = wildcard, .count = frame.count + 1 } };
 }
 
 /// `path[first..end]` percent-decoded (RFC 3986 §2.1): the path's own octets when they hold no

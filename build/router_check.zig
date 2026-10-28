@@ -127,10 +127,9 @@ const cases = [_]Case{
             "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
     },
     .{
-        .name = "route_hidden",
-        .message = "server.router: route 1, \"/users/:id\": route_hidden: " ++
-            "a request that this route matches gets 405 from another pattern: " ++
-            "PUT \"/users/me\" matches \"/users/me\" first, and no route of that pattern names PUT",
+        .name = "methods_too_many",
+        .message = "server.router: route 10, \"/a\": methods_too_many: " ++
+            "the routes of a table name server.constants.route_methods_max methods at most (decision 128)",
     },
     .{
         .name = "route_unreachable",

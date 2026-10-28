@@ -5083,6 +5083,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Each edge carries its first 8 octets as one integer, and the build sorts the edges in the
         order the search compares in: length, that integer, then the octets after it.
     - Callgrind then counted 1,310 instructions a match, 36% fewer.
+    - The judge's run 40774628573 admitted it on `h2-routes-many`: 0.9598 and 0.9599 of the base's
+      instructions, from 17,278 to 16,584 a request in job 1. No input lost.
+    - The owner then asked for route tables of well-known APIs to test the router, and for a fix
+      of each pattern that real APIs use and colibri refuses. Tables of Stripe's, OpenAI's and
+      Kubernetes' published descriptions, and of Parse, Google+ and the static routes of
+      go-http-routing-benchmark, showed one: 25 routes of Stripe and OpenAI, a literal action
+      such as `/v1/charges/search` beside a parameter route with other methods, which ruling 12
+      refused as `route_hidden`. The owner ruled decision 128 on 2026-10-28, and it is built:
+      - The walk takes what decides that a leaf serves the request: the mask of the methods that
+        serve it for `match`, the method's text for the check, and any leaf for `stop`. It backs
+        up past each other leaf, and a 405 lists the methods of each leaf it passed
+        (`router_allow.zig`).
+      - `route_hidden` is gone. The check of unreachable routes walks each route's method on the
+        canonical paths of its own pattern. `methods_too_many` refuses a table that names more
+        than `route_methods_max` methods, 10.
+      - `zig build router-hidden-check` agreed with its brute force on every table of its four
+        families. 816 tables that ruling 12 refused now compile, and the unreachable ones stay
+        refused.
+      - A fuzz property and every path of up to four segments of nine pieces, with six methods,
+        hold the walk to a reference that reads no trie, over a table of Stripe's shape and one
+        where three patterns match one path.
+      - Mutations, 8 of 8 CAUGHT: a passed leaf's methods lost, a leaf that does not serve
+        stopping the walk, the wildcard ignoring the method, HEAD not served by GET, no HEAD
+        after GET in Allow, methods left in table order, every route reachable, and one method
+        past the limit.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,

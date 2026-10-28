@@ -243,6 +243,11 @@ pub const bodies_max: usize = h2.constants.concurrent_streams_max;
 /// never fails at run time.
 pub const path_parameters_max: usize = 8;
 
+/// The most methods that the routes of one table name (decision 128 ruling 3, which the owner set
+/// on 2026-10-28): RFC 9110's eight, PATCH and one more token. Each method has a bit, and the
+/// build writes the Allow value of each mask, so a table needs 2^10 = 1,024 values at most.
+pub const route_methods_max: usize = 10;
+
 /// The most octets of a path that a route table matches, its query included (decision 122 ruling
 /// 13). It is the endpoint's own bound on a path: an h11 request line, or an h2 or h3 `:path`
 /// field value. `match` gives `not_found` for a longer path, so the octets that one match reads
@@ -284,6 +289,8 @@ comptime {
     assert(response_headers_max > 0 and response_pieces_max > 0);
     // A pattern can hold one parameter at least.
     assert(path_parameters_max > 0);
+    // A leaf's mask of methods fits a u16.
+    assert(route_methods_max > 0 and route_methods_max <= @bitSizeOf(u16));
     // Each path that the endpoint gives the program fits, in each version.
     assert(path_len_max >= h11.constants.start_line_len_max and path_len_max >= core.constants.field_value_len_max);
 }

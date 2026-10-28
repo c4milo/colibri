@@ -619,11 +619,14 @@ a request itself calls `match`, with the request's method and path. Its `found` 
 - **A parameter matches one segment.** The wildcard matches one segment or more, and
   `get("*")` gives the rest of the path, without its first "/". So `/files/*` does not match
   `/files`.
-- **The first pattern that matches the whole path decides.** When no route of that pattern names
-  the method, the result is `method_not_allowed` with the Allow value of the pattern, and the
-  router writes a 405 with an "allow" field (RFC 9110 §15.5.6). `match` does not try another
-  pattern for the method. The field name is in lowercase, because h2 and h3 refuse an uppercase
-  field name.
+- **The first pattern that matches the whole path and names the method decides.** When a
+  pattern that matches the path names other methods, `match` backs up and tries the next kind, as
+  it does for a segment that fails (decision 128). So with `GET /v1/charges/search` beside
+  `POST /v1/charges/:charge`, a POST of `/v1/charges/search` finds `/v1/charges/:charge`. When no
+  pattern that matches the path names the method, the result is `method_not_allowed`, and the
+  Allow value lists the methods of each of those patterns. The router writes a 405 with an
+  "allow" field (RFC 9110 §15.5.6). The field name is in lowercase, because h2 and h3 refuse an
+  uppercase field name.
 - **HEAD finds GET.** A HEAD request finds the GET route of a pattern that names no HEAD route,
   and the Allow value lists HEAD after GET. The endpoint writes no content in a response to HEAD,
   in h11, h2 and h3 (RFC 9110 §9.3.2). So a program writes one answer for GET and HEAD. It reads
@@ -729,19 +732,16 @@ returns the first value of a name. The router reads a route's query this way bef
 route's struct, and a route that names `http.QueryParameters` gets the pairs to read by name.
 
 A malformed route table, or a route table with a conflict, does not compile, and the compile error names the
-entry and the rule. A route that other routes hide is a conflict, in two cases:
+entry and the rule. Two conflicts concern routes that other routes hide:
 
-- **`route_hidden`:** a request that the route matches gets 405 from another pattern. With
-  `GET /users/:id` and `PUT /users/me`, a GET of `/users/me` matches `/users/me` first, which
-  names no GET.
 - **`route_unreachable`:** no request reaches the route. With `GET /a/*`, `GET /a/:x` and
   `GET /a/:x/*`, each path of two segments matches `/a/:x` first, and each longer path matches
   `/a/:x/*` first.
+- **`methods_too_many`:** the routes of a route table name more than
+  `server.constants.route_methods_max` methods, 10. A 405's Allow value is written at compile time
+  for each set of the table's methods, and 10 methods need 1,024 of them.
 
-The cost of this rule: a literal names each method that the parameter beside it names. A route table
-with `GET /users/me`, `GET /users/:id` and `PUT /users/:id` does not compile, because a PUT of
-`/users/me` gets 405. Add `PUT /users/me` to make it compile. The check runs at compile time and
-adds no cost to `match`. The largest route table that the tests build holds 256 routes, each a pattern
+The check runs at compile time and adds no cost to `match`. The largest route table that the tests build holds 256 routes, each a pattern
 of four segments and 64 octets.
 
 ### Over QUIC

@@ -7,8 +7,9 @@
 //! refusal. The brute force builds the layout with `router_trie_layout.build`, because a refused
 //! table cannot go through `server.router`. It decides whether a route's pattern matches a path
 //! with a matcher of its own, and it calls the real `match` for the result of each request:
-//!   - a route is hidden when a path that its pattern matches gets `method_not_allowed` for its
-//!     method;
+//!   - since decision 128 no route is hidden: on a path that a route's pattern matches, the walk
+//!     of the route's method backs up to the route's leaf at the latest, so `match` never gives
+//!     `method_not_allowed` there;
 //!   - a route is reachable when a path gives `found` with the route's value. Each route of a
 //!     table has its index as its value.
 const std = @import("std");
@@ -82,7 +83,6 @@ const Verdict = struct { route: ?usize, tag: ?std.meta.Tag(router_trie.Reason) }
 /// check and the brute force differ.
 const Census = struct {
     tables: usize = 0,
-    hidden: usize = 0,
     unreached: usize = 0,
     compiled: usize = 0,
     differ: ?[]const u8 = null,
@@ -135,18 +135,16 @@ fn brute_verdict(comptime table: []const Entry, comptime paths: []const Path) Ve
     const trie = router_trie.trie_of(array);
     const layout = router_trie_layout.build(u8, array, &trie);
     for (table, 0..) |entry, route| {
-        var hidden = false;
         var reached = false;
         for (paths) |path| {
             if (!pattern_matches(entry[1], path.segments)) continue;
             var parameters: PathParameters = .{};
             switch (router_match.match(u8, layout, token(entry[0]), path.text, &parameters)) {
                 .found => |value| reached = reached or value == route,
-                .method_not_allowed => hidden = true,
-                .not_found, .not_implemented => unreachable,
+                // Decision 128: the route's own leaf serves its method.
+                .method_not_allowed, .not_found, .not_implemented => unreachable,
             }
         }
-        if (hidden) return .{ .route = route, .tag = .route_hidden };
         if (!reached) return .{ .route = route, .tag = .route_unreachable };
     }
     return .{ .route = null, .tag = null };
@@ -167,7 +165,6 @@ fn cross_check(census: *Census, comptime table: []const Entry, comptime paths: [
     const check = check_verdict(table);
     census.tables += 1;
     if (brute.tag == null) census.compiled += 1;
-    if (brute.tag == .route_hidden) census.hidden += 1;
     if (brute.tag == .route_unreachable) census.unreached += 1;
     if (census.differ != null) return;
     if (brute.route != check.route or brute.tag != check.tag) census.differ = describe(table);
@@ -235,21 +232,21 @@ test "decision 122 ruling 12: the check gives the brute force's verdict on every
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
     // In each table of two routes of the family, a request reaches each route.
-    try testing.expectEqual(Census{ .tables = 1122, .hidden = 240, .unreached = 0, .compiled = 882 }, census);
+    try testing.expectEqual(Census{ .tables = 1122, .unreached = 0, .compiled = 1122 }, census);
 }
 
 test "decision 122 ruling 12: the check gives the brute force's verdict on each table of two routes with HEAD" {
     const census = comptime pair_census(&head_methods, true);
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
-    try testing.expectEqual(Census{ .tables = 1428, .hidden = 360, .unreached = 0, .compiled = 1068 }, census);
+    try testing.expectEqual(Census{ .tables = 1428, .unreached = 0, .compiled = 1428 }, census);
 }
 
 test "decision 122 ruling 12: the check gives the brute force's verdict on each triple of example 8" {
     const census = comptime triple_census(triple_orders[0..1]);
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
-    try testing.expectEqual(Census{ .tables = 48, .hidden = 36, .unreached = 6, .compiled = 6 }, census);
+    try testing.expectEqual(Census{ .tables = 48, .unreached = 6, .compiled = 42 }, census);
 }
 
 test "decision 122 ruling 12: the check gives the brute force's verdict on each other order of example 8" {
@@ -257,5 +254,5 @@ test "decision 122 ruling 12: the check gives the brute force's verdict on each 
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
     // Example 8's order gives 6 tables of `route_unreachable`, and the five other orders 30.
-    try testing.expectEqual(Census{ .tables = 240, .hidden = 180, .unreached = 30, .compiled = 30 }, census);
+    try testing.expectEqual(Census{ .tables = 240, .unreached = 30, .compiled = 210 }, census);
 }

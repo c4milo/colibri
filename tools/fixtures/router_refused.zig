@@ -47,9 +47,13 @@ const tables = struct {
     pub const route_repeated = .{ .{ .get, "/a", route }, .{ .get, "/a", route } };
     /// A token one octet longer than `core.constants.field_value_len_max`.
     pub const allow_too_long = .{ valid, .{ "A" ** (http.core.constants.field_value_len_max + 1), "/a", route } };
-    /// The table of the cost of decision 122 ruling 12: a PUT of `/users/me` gets 405 from the
-    /// GET route.
-    pub const route_hidden = .{ .{ .get, "/users/me", route }, .{ .put, "/users/:id", route } };
+    /// Eleven methods: RFC 9110's seven that a route may name, and four tokens. The eleventh is one
+    /// past `route_methods_max` (decision 128 ruling 3).
+    pub const methods_too_many = .{
+        .{ .get, "/a", route },    .{ .head, "/a", route },    .{ .post, "/a", route },  .{ .put, "/a", route },
+        .{ .delete, "/a", route }, .{ .options, "/a", route }, .{ .trace, "/a", route }, .{ "PATCH", "/a", route },
+        .{ "A", "/a", route },     .{ "B", "/a", route },      .{ "C", "/a", route },
+    };
     /// The owner's example 8 of decision 122 ruling 12.
     pub const route_unreachable = .{ .{ .get, "/a/:x", route }, .{ .get, "/a/*", route }, .{ .get, "/a/:x/*", route } };
     // The refusals of a route's handler (decision 127 ruling 3, design §8 step 25.4).

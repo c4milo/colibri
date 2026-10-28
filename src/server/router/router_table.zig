@@ -2,6 +2,8 @@
 //! against it (decision 122, design §8 step 21e). Each route carries a value, which `match` gives.
 //! `server.router` builds one, with the route's `Route` tag as its value (decision 127, design §8
 //! step 25.3). The tests of matching build one with values of their own.
+const std = @import("std");
+const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const router_trie = @import("router_trie.zig");
 const router_trie_layout = @import("router_trie_layout.zig");
@@ -28,11 +30,10 @@ const router_hidden = @import("router_hidden.zig");
 /// for GET and HEAD.
 ///
 /// A malformed table, or a table with a conflict, does not compile. The compile error names the
-/// entry, the refusal and its reason. A route that other routes hide is a conflict (decision 122
-/// ruling 12): a request that the route matches gets 405 from another pattern, or no request
-/// reaches the route. So a literal names each method that a parameter beside it names: with
-/// `GET /users/me`, `GET /users/:id` and `PUT /users/:id`, a PUT of `/users/me` gets 405, and the
-/// table does not compile.
+/// entry, the refusal and its reason. A route that no request reaches is a conflict (decision 122
+/// ruling 12). A literal beside a parameter does not hide the parameter for the methods that the
+/// literal lacks: with `GET /users/me` and `PUT /users/:id`, a PUT of `/users/me` finds
+/// `/users/:id` (decision 128).
 ///
 /// Each call returns a value of a type of its own, with no field. Its one call is `match`, which
 /// returns a `Match`. A program names that type as `@TypeOf(table).Match`.
@@ -70,9 +71,10 @@ fn Table(comptime Value: type, comptime table: anytype) type {
 }
 
 /// The first refusal of `table` that reads its layout, or null: `allow_too_long`, then
-/// `route_hidden` and `route_unreachable`. Comptime-only.
+/// `methods_too_many` and `route_unreachable`. Comptime-only.
 fn layout_refusal_of(comptime Value: type, comptime layout: anytype, comptime table: anytype, comptime trie: anytype) ?router_trie.Refusal {
     if (router_trie_layout.allow_refusal(layout, table, trie)) |refusal| return refusal;
+    if (methods_refusal(table)) |refusal| return refusal;
     return router_hidden.refusal_of(Value, layout, table);
 }
 
@@ -84,4 +86,23 @@ fn refuse(comptime refusal: router_trie.Refusal) noreturn {
 test "decision 122: a table's type exports Match and match alone" {
     const sample = table_of(u8, .{.{ .get, "/", 0 }});
     try @import("core").public_names.expect(@TypeOf(sample), &.{ "Match", "match" });
+}
+
+/// The first route, in table order, whose method is past the table's first
+/// `route_methods_max` methods, or null (decision 128 ruling 3). Comptime-only.
+fn methods_refusal(comptime table: anytype) ?router_trie.Refusal {
+    @setEvalBranchQuota(router_trie.quota_of(table));
+    const routes = router_trie.routes_of(table);
+    var seen: [constants.route_methods_max][]const u8 = undefined;
+    var count: usize = 0;
+    for (routes.tokens, routes.patterns, 0..) |token, pattern, route| {
+        const held = for (seen[0..count]) |method| {
+            if (std.mem.eql(u8, method, token)) break true;
+        } else false;
+        if (held) continue;
+        if (count == constants.route_methods_max) return .{ .route = route, .pattern = pattern, .reason = .methods_too_many };
+        seen[count] = token;
+        count += 1;
+    }
+    return null;
 }

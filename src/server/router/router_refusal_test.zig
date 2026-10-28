@@ -13,6 +13,7 @@ const constants = @import("../constants.zig");
 const core = @import("core");
 const router = @import("router_table.zig").table_of;
 const support = @import("router_test_support.zig");
+const PathParameters = @import("../path_parameters.zig").PathParameters;
 
 const testing = std.testing;
 
@@ -319,30 +320,38 @@ fn expect_layout(comptime expected: ?Tag, comptime route: usize, comptime table:
     try testing.expectEqual(route, refused.route);
 }
 
-/// Requires `table` to refuse route `route` with `route_hidden`, for the request `method` and
-/// `path`, which gets 405 from the routes of `pattern`.
-fn expect_hidden(comptime route: usize, comptime method: []const u8, comptime path: []const u8, comptime pattern: []const u8, comptime table: anytype) !void {
-    const refusal = comptime layout_refusal(table).?;
-    try testing.expectEqual(route, refusal.route);
-    try testing.expectEqualStrings(method, refusal.reason.route_hidden.method);
-    try testing.expectEqualStrings(path, refusal.reason.route_hidden.path);
-    try testing.expectEqualStrings(pattern, refusal.reason.route_hidden.pattern);
+/// The place of an entry's value in its tuple.
+const value_part = 2;
+
+/// Requires `table` to compile, and the request `method` and `path` to find route `route`.
+/// Decision 122 ruling 12 refused each of these tables as `route_hidden`, because the walk on
+/// `path` stopped first at the routes of `pattern`, which name no `method`. Since decision 128
+/// the walk backs up past that leaf, to the route.
+fn expect_backs_up(comptime route: usize, comptime method: []const u8, comptime path: []const u8, comptime pattern: []const u8, comptime table: anytype) !void {
+    try testing.expectEqual(null, comptime layout_refusal(table));
+    // The walk passes the leaf of `pattern`, which names other methods.
+    try testing.expect(!std.mem.eql(u8, pattern, table[route][1]));
+    var parameters: PathParameters = .{};
+    switch (router(u8, table).match(method, path, &parameters)) {
+        .found => |value| try testing.expectEqual(@as(u8, table[route][value_part]), value),
+        else => return error.TestExpectedFound,
+    }
 }
 
-test "refusal 20, route_hidden: decision 122 ruling 12, a request that a route matches gets no 405" {
+test "decision 128: a table that decision 122 ruling 12 refused as route_hidden compiles, and the walk backs up" {
     // The owner's examples 2, 3, 5 and 7.
-    try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
-    try expect_hidden(2, "PUT", "/users/me", "/users/me", .{
+    try expect_backs_up(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
+    try expect_backs_up(2, "PUT", "/users/me", "/users/me", .{
         .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 }, .{ .delete, "/users/:id", 3 },
     });
-    try expect_hidden(0, "GET", "/files/a", "/files/:name", .{ .{ .get, "/files/*", 0 }, .{ .post, "/files/:name", 1 } });
-    try expect_hidden(0, "GET", "/a/b/c", "/a/b/:y", .{ .{ .get, "/a/:x/c", 0 }, .{ .put, "/a/b/:y", 1 } });
+    try expect_backs_up(0, "GET", "/files/a", "/files/:name", .{ .{ .get, "/files/*", 0 }, .{ .post, "/files/:name", 1 } });
+    try expect_backs_up(0, "GET", "/a/b/c", "/a/b/:y", .{ .{ .get, "/a/:x/c", 0 }, .{ .put, "/a/b/:y", 1 } });
     // The table of the cost of decision 122 ruling 12, and a leaf that names HEAD and no GET.
-    try expect_hidden(1, "PUT", "/users/me", "/users/me", .{ .{ .get, "/users/me", 0 }, .{ .put, "/users/:id", 1 } });
-    try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .head, "/users/me", 1 } });
+    try expect_backs_up(1, "PUT", "/users/me", "/users/me", .{ .{ .get, "/users/me", 0 }, .{ .put, "/users/:id", 1 } });
+    try expect_backs_up(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .head, "/users/me", 1 } });
     // Two patterns give 405 on a path of the route. The refusal names the pattern that comes
     // first in the table. The walk of the trie in `router_hidden_canonical.zig` finds "/b" first.
-    try expect_hidden(2, "GET", "/a", "/a", .{ .{ .put, "/a", 0 }, .{ .put, "/b", 1 }, .{ .get, "/:x", 2 } });
+    try expect_backs_up(2, "GET", "/a", "/a", .{ .{ .put, "/a", 0 }, .{ .put, "/b", 1 }, .{ .get, "/:x", 2 } });
     // The owner's examples 1, 4 and 6, and each refused table with the routes that it lacks.
     try expect_layout(null, 0, .{ .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 } });
     try expect_layout(null, 0, .{ .{ .get, "/files/*", 0 }, .{ .get, "/files/:name", 1 } });
@@ -371,16 +380,17 @@ test "refusal 21, route_unreachable: decision 122 ruling 12, a request reaches e
 }
 
 test "docs/usage.md: each table of the Router section compiles or is refused as the guide says" {
-    // `route_hidden`: a GET of `/users/me` matches `/users/me` first, which names no GET.
-    try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
+    // Decision 128: a GET of `/users/me` passes `/users/me`, which names no GET, and finds
+    // `/users/:id`.
+    try expect_backs_up(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
     // `route_unreachable`: each path of two segments matches `/a/:x` first, and each longer path
     // matches `/a/:x/*` first.
     try expect_layout(.route_unreachable, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } });
-    // The cost of the rule: a PUT of `/users/me` gets 405 from `/users/me`.
-    try expect_hidden(2, "PUT", "/users/me", "/users/me", .{
+    // A PUT of `/users/me` passes `/users/me`, which names GET alone, and finds `/users/:id`.
+    try expect_backs_up(2, "PUT", "/users/me", "/users/me", .{
         .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 },
     });
-    // The guide adds `PUT /users/me`, and the table compiles.
+    // With `PUT /users/me` too, the literal serves each method it names.
     const added = router(u8, .{
         .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 }, .{ .put, "/users/me", 3 },
     });
@@ -417,7 +427,7 @@ test "decision 122 ruling 12: \"other\" counts a literal that repeats once, at p
     // below has `path_len_max` octets and a walk reads it.
     inline for (.{ 61, 62 }) |count| {
         try expect_layout(null, 0, .{ .{ .get, repeated_pattern(count), 0 }, .{ .get, "/" ++ filler(3) ++ "/:x", 1 } });
-        try expect_hidden(1, "GET", "/bbb/" ++ filler(7) ++ "/b", "/bbb/:y/:w", .{
+        try expect_backs_up(1, "GET", "/bbb/" ++ filler(7) ++ "/b", "/bbb/:y/:w", .{
             .{ .get, repeated_pattern(count), 0 }, .{ .get, "/:x/" ++ filler(7) ++ "/:z", 1 }, .{ .put, "/bbb/:y/:w", 2 },
         });
     }
@@ -439,8 +449,8 @@ fn one_octet_table(comptime octets: []const u8) [octets.len + one_octet_tail.len
 test "decision 122 ruling 12: \"other\" has two octets when the table holds each one-octet literal" {
     const alpha_digit = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     // Claim 9: each segment of one octet is a literal of the table, so "other" has two octets.
-    try expect_hidden(alpha_digit.len, "GET", "/aa/b", "/:x/b", comptime one_octet_table(alpha_digit));
-    try expect_hidden(alpha_digit.len - 1, "GET", "/9/b", "/:x/b", comptime one_octet_table(alpha_digit[0 .. alpha_digit.len - 1]));
+    try expect_backs_up(alpha_digit.len, "GET", "/aa/b", "/:x/b", comptime one_octet_table(alpha_digit));
+    try expect_backs_up(alpha_digit.len - 1, "GET", "/9/b", "/:x/b", comptime one_octet_table(alpha_digit[0 .. alpha_digit.len - 1]));
 }
 
 test "refusal 22, allow_too_long: an Allow value fits core.constants.field_value_len_max" {
@@ -456,13 +466,7 @@ test "refusal 22, allow_too_long: an Allow value fits core.constants.field_value
 /// A valid entry, which a refused table holds first.
 const valid_entry = .{ .get, "/", 0 };
 
-test "decision 122: the compile error of a hidden route names the request and the pattern" {
-    try testing.expectEqualStrings(
-        "server.router: route 0, \"/users/:id\": route_hidden: a request that this route matches gets 405 " ++
-            "from another pattern: GET \"/users/me\" matches \"/users/me\" first, and no route of that " ++
-            "pattern names GET",
-        comptime router_trie.message(layout_refusal(.{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } }).?),
-    );
+test "decision 122: the compile error of an unreachable route names the patterns that match first" {
     try testing.expectEqualStrings(
         "server.router: route 0, \"/a/*\": route_unreachable: no request reaches this route, because " ++
             "another pattern matches each of its paths first: \"/a/:x\", \"/a/:x/*\"",
