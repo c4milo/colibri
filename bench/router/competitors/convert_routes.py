@@ -24,10 +24,12 @@ def from_go(path, var):
 def convert(routes):
     """Returns (lines, notes). Keeps colibri's rules: whole-segment parameters, one parameter
     name at each trie node, pchar literals."""
-    notes = {"mixed_segment": 0, "renamed": 0, "duplicate": 0, "not_pchar": 0, "trailing_slash": 0}
-    names = {}   # trie node (tuple of segments before the parameter, with params as ':') -> name
+    notes = {"mixed_segment": 0, "duplicate": 0, "not_pchar": 0, "trailing_slash": 0}
     seen, lines = set(), []
     for method, route in routes:
+        # A path that holds a query, such as OpenAI's "?beta=true" variants, is no route.
+        if "?" in route:
+            notes["query"] = notes.get("query", 0) + 1; continue
         route = re.sub(r"\{([^}/]+)\}", r":\1", route)
         if route == "/":
             line = f"{method} /"
@@ -42,11 +44,11 @@ def convert(routes):
                 name = re.sub(r"[^A-Za-z0-9_]", "_", seg[1:])
                 if ":" in seg[1:] or not name:
                     ok = False; notes["mixed_segment"] += 1; break
-                held = names.setdefault(prefix, name)
-                if held != name: notes["renamed"] += 1
-                # A name a pattern repeats, such as Stripe's {id} twice, takes a suffix there.
+                # Decision 129: each route keeps its own names. A name a pattern repeats, such as
+                # Stripe's {id} twice, takes a suffix there (parameter_repeated).
+                held = name
                 while held in used:
-                    held = held + "_2"; names[prefix] = held; notes["repeated"] = notes.get("repeated", 0) + 1
+                    held = held + "_2"; notes["repeated"] = notes.get("repeated", 0) + 1
                 used.add(held)
                 out.append(":" + held); prefix += (":",)
             else:
