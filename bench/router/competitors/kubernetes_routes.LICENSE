@@ -1,4 +1,4 @@
-kubernetes_routes.txt holds the routes of api/openapi-spec/swagger.json of https://github.com/kubernetes/kubernetes at commit d0d1a17193d42dab5e893d21266bc5f8de16735f, less the 64 that end in "/", which no colibri route matches.
+kubernetes_routes.txt holds the routes of api/openapi-spec/swagger.json of https://github.com/kubernetes/kubernetes at commit d0d1a17193d42dab5e893d21266bc5f8de16735f.
 convert_routes.py wrote it, one "METHOD /path" on each line, with each {name} as :name. Its license:
 
 

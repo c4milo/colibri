@@ -1,3 +1,6 @@
+GET /.well-known/openid-configuration/
+GET /api/
+GET /api/v1/
 GET /api/v1/componentstatuses
 GET /api/v1/componentstatuses/:name
 GET /api/v1/configmaps
@@ -245,6 +248,9 @@ GET /api/v1/watch/resourcequotas
 GET /api/v1/watch/secrets
 GET /api/v1/watch/serviceaccounts
 GET /api/v1/watch/services
+GET /apis/
+GET /apis/admissionregistration.k8s.io/
+GET /apis/admissionregistration.k8s.io/v1/
 GET /apis/admissionregistration.k8s.io/v1/mutatingadmissionpolicies
 POST /apis/admissionregistration.k8s.io/v1/mutatingadmissionpolicies
 DELETE /apis/admissionregistration.k8s.io/v1/mutatingadmissionpolicies
@@ -302,6 +308,7 @@ GET /apis/admissionregistration.k8s.io/v1/watch/validatingadmissionpolicybinding
 GET /apis/admissionregistration.k8s.io/v1/watch/validatingadmissionpolicybindings/:name
 GET /apis/admissionregistration.k8s.io/v1/watch/validatingwebhookconfigurations
 GET /apis/admissionregistration.k8s.io/v1/watch/validatingwebhookconfigurations/:name
+GET /apis/admissionregistration.k8s.io/v1alpha1/
 GET /apis/admissionregistration.k8s.io/v1alpha1/mutatingadmissionpolicies
 POST /apis/admissionregistration.k8s.io/v1alpha1/mutatingadmissionpolicies
 DELETE /apis/admissionregistration.k8s.io/v1alpha1/mutatingadmissionpolicies
@@ -320,6 +327,7 @@ GET /apis/admissionregistration.k8s.io/v1alpha1/watch/mutatingadmissionpolicies
 GET /apis/admissionregistration.k8s.io/v1alpha1/watch/mutatingadmissionpolicies/:name
 GET /apis/admissionregistration.k8s.io/v1alpha1/watch/mutatingadmissionpolicybindings
 GET /apis/admissionregistration.k8s.io/v1alpha1/watch/mutatingadmissionpolicybindings/:name
+GET /apis/admissionregistration.k8s.io/v1beta1/
 GET /apis/admissionregistration.k8s.io/v1beta1/mutatingadmissionpolicies
 POST /apis/admissionregistration.k8s.io/v1beta1/mutatingadmissionpolicies
 DELETE /apis/admissionregistration.k8s.io/v1beta1/mutatingadmissionpolicies
@@ -338,6 +346,8 @@ GET /apis/admissionregistration.k8s.io/v1beta1/watch/mutatingadmissionpolicies
 GET /apis/admissionregistration.k8s.io/v1beta1/watch/mutatingadmissionpolicies/:name
 GET /apis/admissionregistration.k8s.io/v1beta1/watch/mutatingadmissionpolicybindings
 GET /apis/admissionregistration.k8s.io/v1beta1/watch/mutatingadmissionpolicybindings/:name
+GET /apis/apiextensions.k8s.io/
+GET /apis/apiextensions.k8s.io/v1/
 GET /apis/apiextensions.k8s.io/v1/customresourcedefinitions
 POST /apis/apiextensions.k8s.io/v1/customresourcedefinitions
 DELETE /apis/apiextensions.k8s.io/v1/customresourcedefinitions
@@ -350,6 +360,8 @@ PUT /apis/apiextensions.k8s.io/v1/customresourcedefinitions/:name/status
 PATCH /apis/apiextensions.k8s.io/v1/customresourcedefinitions/:name/status
 GET /apis/apiextensions.k8s.io/v1/watch/customresourcedefinitions
 GET /apis/apiextensions.k8s.io/v1/watch/customresourcedefinitions/:name
+GET /apis/apiregistration.k8s.io/
+GET /apis/apiregistration.k8s.io/v1/
 GET /apis/apiregistration.k8s.io/v1/apiservices
 POST /apis/apiregistration.k8s.io/v1/apiservices
 DELETE /apis/apiregistration.k8s.io/v1/apiservices
@@ -362,6 +374,8 @@ PUT /apis/apiregistration.k8s.io/v1/apiservices/:name/status
 PATCH /apis/apiregistration.k8s.io/v1/apiservices/:name/status
 GET /apis/apiregistration.k8s.io/v1/watch/apiservices
 GET /apis/apiregistration.k8s.io/v1/watch/apiservices/:name
+GET /apis/apps/
+GET /apis/apps/v1/
 GET /apis/apps/v1/controllerrevisions
 GET /apis/apps/v1/daemonsets
 GET /apis/apps/v1/deployments
@@ -438,12 +452,18 @@ GET /apis/apps/v1/watch/namespaces/:namespace/statefulsets
 GET /apis/apps/v1/watch/namespaces/:namespace/statefulsets/:name
 GET /apis/apps/v1/watch/replicasets
 GET /apis/apps/v1/watch/statefulsets
+GET /apis/authentication.k8s.io/
+GET /apis/authentication.k8s.io/v1/
 POST /apis/authentication.k8s.io/v1/selfsubjectreviews
 POST /apis/authentication.k8s.io/v1/tokenreviews
+GET /apis/authorization.k8s.io/
+GET /apis/authorization.k8s.io/v1/
 POST /apis/authorization.k8s.io/v1/namespaces/:namespace/localsubjectaccessreviews
 POST /apis/authorization.k8s.io/v1/selfsubjectaccessreviews
 POST /apis/authorization.k8s.io/v1/selfsubjectrulesreviews
 POST /apis/authorization.k8s.io/v1/subjectaccessreviews
+GET /apis/autoscaling/
+GET /apis/autoscaling/v1/
 GET /apis/autoscaling/v1/horizontalpodautoscalers
 GET /apis/autoscaling/v1/namespaces/:namespace/horizontalpodautoscalers
 POST /apis/autoscaling/v1/namespaces/:namespace/horizontalpodautoscalers
@@ -458,6 +478,7 @@ PATCH /apis/autoscaling/v1/namespaces/:namespace/horizontalpodautoscalers/:name/
 GET /apis/autoscaling/v1/watch/horizontalpodautoscalers
 GET /apis/autoscaling/v1/watch/namespaces/:namespace/horizontalpodautoscalers
 GET /apis/autoscaling/v1/watch/namespaces/:namespace/horizontalpodautoscalers/:name
+GET /apis/autoscaling/v2/
 GET /apis/autoscaling/v2/horizontalpodautoscalers
 GET /apis/autoscaling/v2/namespaces/:namespace/horizontalpodautoscalers
 POST /apis/autoscaling/v2/namespaces/:namespace/horizontalpodautoscalers
@@ -472,6 +493,8 @@ PATCH /apis/autoscaling/v2/namespaces/:namespace/horizontalpodautoscalers/:name/
 GET /apis/autoscaling/v2/watch/horizontalpodautoscalers
 GET /apis/autoscaling/v2/watch/namespaces/:namespace/horizontalpodautoscalers
 GET /apis/autoscaling/v2/watch/namespaces/:namespace/horizontalpodautoscalers/:name
+GET /apis/batch/
+GET /apis/batch/v1/
 GET /apis/batch/v1/cronjobs
 GET /apis/batch/v1/jobs
 GET /apis/batch/v1/namespaces/:namespace/cronjobs
@@ -500,6 +523,8 @@ GET /apis/batch/v1/watch/namespaces/:namespace/cronjobs
 GET /apis/batch/v1/watch/namespaces/:namespace/cronjobs/:name
 GET /apis/batch/v1/watch/namespaces/:namespace/jobs
 GET /apis/batch/v1/watch/namespaces/:namespace/jobs/:name
+GET /apis/certificates.k8s.io/
+GET /apis/certificates.k8s.io/v1/
 GET /apis/certificates.k8s.io/v1/certificatesigningrequests
 POST /apis/certificates.k8s.io/v1/certificatesigningrequests
 DELETE /apis/certificates.k8s.io/v1/certificatesigningrequests
@@ -538,6 +563,7 @@ GET /apis/certificates.k8s.io/v1/watch/clustertrustbundles/:name
 GET /apis/certificates.k8s.io/v1/watch/namespaces/:namespace/podcertificaterequests
 GET /apis/certificates.k8s.io/v1/watch/namespaces/:namespace/podcertificaterequests/:name
 GET /apis/certificates.k8s.io/v1/watch/podcertificaterequests
+GET /apis/certificates.k8s.io/v1beta1/
 GET /apis/certificates.k8s.io/v1beta1/clustertrustbundles
 POST /apis/certificates.k8s.io/v1beta1/clustertrustbundles
 DELETE /apis/certificates.k8s.io/v1beta1/clustertrustbundles
@@ -561,6 +587,8 @@ GET /apis/certificates.k8s.io/v1beta1/watch/clustertrustbundles/:name
 GET /apis/certificates.k8s.io/v1beta1/watch/namespaces/:namespace/podcertificaterequests
 GET /apis/certificates.k8s.io/v1beta1/watch/namespaces/:namespace/podcertificaterequests/:name
 GET /apis/certificates.k8s.io/v1beta1/watch/podcertificaterequests
+GET /apis/coordination.k8s.io/
+GET /apis/coordination.k8s.io/v1/
 GET /apis/coordination.k8s.io/v1/leases
 GET /apis/coordination.k8s.io/v1/namespaces/:namespace/leases
 POST /apis/coordination.k8s.io/v1/namespaces/:namespace/leases
@@ -572,6 +600,7 @@ PATCH /apis/coordination.k8s.io/v1/namespaces/:namespace/leases/:name
 GET /apis/coordination.k8s.io/v1/watch/leases
 GET /apis/coordination.k8s.io/v1/watch/namespaces/:namespace/leases
 GET /apis/coordination.k8s.io/v1/watch/namespaces/:namespace/leases/:name
+GET /apis/coordination.k8s.io/v1alpha2/
 GET /apis/coordination.k8s.io/v1alpha2/leasecandidates
 GET /apis/coordination.k8s.io/v1alpha2/namespaces/:namespace/leasecandidates
 POST /apis/coordination.k8s.io/v1alpha2/namespaces/:namespace/leasecandidates
@@ -583,6 +612,7 @@ PATCH /apis/coordination.k8s.io/v1alpha2/namespaces/:namespace/leasecandidates/:
 GET /apis/coordination.k8s.io/v1alpha2/watch/leasecandidates
 GET /apis/coordination.k8s.io/v1alpha2/watch/namespaces/:namespace/leasecandidates
 GET /apis/coordination.k8s.io/v1alpha2/watch/namespaces/:namespace/leasecandidates/:name
+GET /apis/coordination.k8s.io/v1beta1/
 GET /apis/coordination.k8s.io/v1beta1/leasecandidates
 GET /apis/coordination.k8s.io/v1beta1/namespaces/:namespace/leasecandidates
 POST /apis/coordination.k8s.io/v1beta1/namespaces/:namespace/leasecandidates
@@ -594,6 +624,8 @@ PATCH /apis/coordination.k8s.io/v1beta1/namespaces/:namespace/leasecandidates/:n
 GET /apis/coordination.k8s.io/v1beta1/watch/leasecandidates
 GET /apis/coordination.k8s.io/v1beta1/watch/namespaces/:namespace/leasecandidates
 GET /apis/coordination.k8s.io/v1beta1/watch/namespaces/:namespace/leasecandidates/:name
+GET /apis/discovery.k8s.io/
+GET /apis/discovery.k8s.io/v1/
 GET /apis/discovery.k8s.io/v1/endpointslices
 GET /apis/discovery.k8s.io/v1/namespaces/:namespace/endpointslices
 POST /apis/discovery.k8s.io/v1/namespaces/:namespace/endpointslices
@@ -605,6 +637,8 @@ PATCH /apis/discovery.k8s.io/v1/namespaces/:namespace/endpointslices/:name
 GET /apis/discovery.k8s.io/v1/watch/endpointslices
 GET /apis/discovery.k8s.io/v1/watch/namespaces/:namespace/endpointslices
 GET /apis/discovery.k8s.io/v1/watch/namespaces/:namespace/endpointslices/:name
+GET /apis/events.k8s.io/
+GET /apis/events.k8s.io/v1/
 GET /apis/events.k8s.io/v1/events
 GET /apis/events.k8s.io/v1/namespaces/:namespace/events
 POST /apis/events.k8s.io/v1/namespaces/:namespace/events
@@ -616,6 +650,8 @@ PATCH /apis/events.k8s.io/v1/namespaces/:namespace/events/:name
 GET /apis/events.k8s.io/v1/watch/events
 GET /apis/events.k8s.io/v1/watch/namespaces/:namespace/events
 GET /apis/events.k8s.io/v1/watch/namespaces/:namespace/events/:name
+GET /apis/flowcontrol.apiserver.k8s.io/
+GET /apis/flowcontrol.apiserver.k8s.io/v1/
 GET /apis/flowcontrol.apiserver.k8s.io/v1/flowschemas
 POST /apis/flowcontrol.apiserver.k8s.io/v1/flowschemas
 DELETE /apis/flowcontrol.apiserver.k8s.io/v1/flowschemas
@@ -640,6 +676,8 @@ GET /apis/flowcontrol.apiserver.k8s.io/v1/watch/flowschemas
 GET /apis/flowcontrol.apiserver.k8s.io/v1/watch/flowschemas/:name
 GET /apis/flowcontrol.apiserver.k8s.io/v1/watch/prioritylevelconfigurations
 GET /apis/flowcontrol.apiserver.k8s.io/v1/watch/prioritylevelconfigurations/:name
+GET /apis/internal.apiserver.k8s.io/
+GET /apis/internal.apiserver.k8s.io/v1alpha1/
 GET /apis/internal.apiserver.k8s.io/v1alpha1/storageversions
 POST /apis/internal.apiserver.k8s.io/v1alpha1/storageversions
 DELETE /apis/internal.apiserver.k8s.io/v1alpha1/storageversions
@@ -652,6 +690,8 @@ PUT /apis/internal.apiserver.k8s.io/v1alpha1/storageversions/:name/status
 PATCH /apis/internal.apiserver.k8s.io/v1alpha1/storageversions/:name/status
 GET /apis/internal.apiserver.k8s.io/v1alpha1/watch/storageversions
 GET /apis/internal.apiserver.k8s.io/v1alpha1/watch/storageversions/:name
+GET /apis/lifecycle.k8s.io/
+GET /apis/lifecycle.k8s.io/v1alpha1/
 GET /apis/lifecycle.k8s.io/v1alpha1/evictionrequests
 GET /apis/lifecycle.k8s.io/v1alpha1/evictions
 GET /apis/lifecycle.k8s.io/v1alpha1/namespaces/:namespace/evictionrequests
@@ -680,6 +720,8 @@ GET /apis/lifecycle.k8s.io/v1alpha1/watch/namespaces/:namespace/evictionrequests
 GET /apis/lifecycle.k8s.io/v1alpha1/watch/namespaces/:namespace/evictionrequests/:name
 GET /apis/lifecycle.k8s.io/v1alpha1/watch/namespaces/:namespace/evictions
 GET /apis/lifecycle.k8s.io/v1alpha1/watch/namespaces/:namespace/evictions/:name
+GET /apis/networking.k8s.io/
+GET /apis/networking.k8s.io/v1/
 GET /apis/networking.k8s.io/v1/ingressclasses
 POST /apis/networking.k8s.io/v1/ingressclasses
 DELETE /apis/networking.k8s.io/v1/ingressclasses
@@ -735,6 +777,8 @@ GET /apis/networking.k8s.io/v1/watch/namespaces/:namespace/networkpolicies/:name
 GET /apis/networking.k8s.io/v1/watch/networkpolicies
 GET /apis/networking.k8s.io/v1/watch/servicecidrs
 GET /apis/networking.k8s.io/v1/watch/servicecidrs/:name
+GET /apis/node.k8s.io/
+GET /apis/node.k8s.io/v1/
 GET /apis/node.k8s.io/v1/runtimeclasses
 POST /apis/node.k8s.io/v1/runtimeclasses
 DELETE /apis/node.k8s.io/v1/runtimeclasses
@@ -744,6 +788,8 @@ DELETE /apis/node.k8s.io/v1/runtimeclasses/:name
 PATCH /apis/node.k8s.io/v1/runtimeclasses/:name
 GET /apis/node.k8s.io/v1/watch/runtimeclasses
 GET /apis/node.k8s.io/v1/watch/runtimeclasses/:name
+GET /apis/policy/
+GET /apis/policy/v1/
 GET /apis/policy/v1/namespaces/:namespace/poddisruptionbudgets
 POST /apis/policy/v1/namespaces/:namespace/poddisruptionbudgets
 DELETE /apis/policy/v1/namespaces/:namespace/poddisruptionbudgets
@@ -758,6 +804,8 @@ GET /apis/policy/v1/poddisruptionbudgets
 GET /apis/policy/v1/watch/namespaces/:namespace/poddisruptionbudgets
 GET /apis/policy/v1/watch/namespaces/:namespace/poddisruptionbudgets/:name
 GET /apis/policy/v1/watch/poddisruptionbudgets
+GET /apis/rbac.authorization.k8s.io/
+GET /apis/rbac.authorization.k8s.io/v1/
 GET /apis/rbac.authorization.k8s.io/v1/clusterrolebindings
 POST /apis/rbac.authorization.k8s.io/v1/clusterrolebindings
 DELETE /apis/rbac.authorization.k8s.io/v1/clusterrolebindings
@@ -798,6 +846,8 @@ GET /apis/rbac.authorization.k8s.io/v1/watch/namespaces/:namespace/roles
 GET /apis/rbac.authorization.k8s.io/v1/watch/namespaces/:namespace/roles/:name
 GET /apis/rbac.authorization.k8s.io/v1/watch/rolebindings
 GET /apis/rbac.authorization.k8s.io/v1/watch/roles
+GET /apis/resource.k8s.io/
+GET /apis/resource.k8s.io/v1/
 GET /apis/resource.k8s.io/v1/deviceclasses
 POST /apis/resource.k8s.io/v1/deviceclasses
 DELETE /apis/resource.k8s.io/v1/deviceclasses
@@ -853,6 +903,7 @@ GET /apis/resource.k8s.io/v1/watch/resourceclaims
 GET /apis/resource.k8s.io/v1/watch/resourceclaimtemplates
 GET /apis/resource.k8s.io/v1/watch/resourceslices
 GET /apis/resource.k8s.io/v1/watch/resourceslices/:name
+GET /apis/resource.k8s.io/v1alpha3/
 GET /apis/resource.k8s.io/v1alpha3/devicetaintrules
 POST /apis/resource.k8s.io/v1alpha3/devicetaintrules
 DELETE /apis/resource.k8s.io/v1alpha3/devicetaintrules
@@ -877,6 +928,7 @@ GET /apis/resource.k8s.io/v1alpha3/watch/devicetaintrules
 GET /apis/resource.k8s.io/v1alpha3/watch/devicetaintrules/:name
 GET /apis/resource.k8s.io/v1alpha3/watch/resourcepoolstatusrequests
 GET /apis/resource.k8s.io/v1alpha3/watch/resourcepoolstatusrequests/:name
+GET /apis/resource.k8s.io/v1beta2/
 GET /apis/resource.k8s.io/v1beta2/deviceclasses
 POST /apis/resource.k8s.io/v1beta2/deviceclasses
 DELETE /apis/resource.k8s.io/v1beta2/deviceclasses
@@ -932,6 +984,8 @@ GET /apis/resource.k8s.io/v1beta2/watch/resourceclaims
 GET /apis/resource.k8s.io/v1beta2/watch/resourceclaimtemplates
 GET /apis/resource.k8s.io/v1beta2/watch/resourceslices
 GET /apis/resource.k8s.io/v1beta2/watch/resourceslices/:name
+GET /apis/scheduling.k8s.io/
+GET /apis/scheduling.k8s.io/v1/
 GET /apis/scheduling.k8s.io/v1/priorityclasses
 POST /apis/scheduling.k8s.io/v1/priorityclasses
 DELETE /apis/scheduling.k8s.io/v1/priorityclasses
@@ -941,6 +995,7 @@ DELETE /apis/scheduling.k8s.io/v1/priorityclasses/:name
 PATCH /apis/scheduling.k8s.io/v1/priorityclasses/:name
 GET /apis/scheduling.k8s.io/v1/watch/priorityclasses
 GET /apis/scheduling.k8s.io/v1/watch/priorityclasses/:name
+GET /apis/scheduling.k8s.io/v1alpha3/
 GET /apis/scheduling.k8s.io/v1alpha3/compositepodgroups
 GET /apis/scheduling.k8s.io/v1alpha3/namespaces/:namespace/compositepodgroups
 POST /apis/scheduling.k8s.io/v1alpha3/namespaces/:namespace/compositepodgroups
@@ -980,6 +1035,7 @@ GET /apis/scheduling.k8s.io/v1alpha3/watch/namespaces/:namespace/workloads/:name
 GET /apis/scheduling.k8s.io/v1alpha3/watch/podgroups
 GET /apis/scheduling.k8s.io/v1alpha3/watch/workloads
 GET /apis/scheduling.k8s.io/v1alpha3/workloads
+GET /apis/scheduling.k8s.io/v1beta1/
 GET /apis/scheduling.k8s.io/v1beta1/compositepodgroups
 GET /apis/scheduling.k8s.io/v1beta1/namespaces/:namespace/compositepodgroups
 POST /apis/scheduling.k8s.io/v1beta1/namespaces/:namespace/compositepodgroups
@@ -1019,6 +1075,8 @@ GET /apis/scheduling.k8s.io/v1beta1/watch/namespaces/:namespace/workloads/:name
 GET /apis/scheduling.k8s.io/v1beta1/watch/podgroups
 GET /apis/scheduling.k8s.io/v1beta1/watch/workloads
 GET /apis/scheduling.k8s.io/v1beta1/workloads
+GET /apis/storage.k8s.io/
+GET /apis/storage.k8s.io/v1/
 GET /apis/storage.k8s.io/v1/csidrivers
 POST /apis/storage.k8s.io/v1/csidrivers
 DELETE /apis/storage.k8s.io/v1/csidrivers
@@ -1081,6 +1139,8 @@ GET /apis/storage.k8s.io/v1/watch/volumeattachments
 GET /apis/storage.k8s.io/v1/watch/volumeattachments/:name
 GET /apis/storage.k8s.io/v1/watch/volumeattributesclasses
 GET /apis/storage.k8s.io/v1/watch/volumeattributesclasses/:name
+GET /apis/storagemigration.k8s.io/
+GET /apis/storagemigration.k8s.io/v1/
 GET /apis/storagemigration.k8s.io/v1/storageversionmigrations
 POST /apis/storagemigration.k8s.io/v1/storageversionmigrations
 DELETE /apis/storagemigration.k8s.io/v1/storageversionmigrations
@@ -1093,6 +1153,7 @@ PUT /apis/storagemigration.k8s.io/v1/storageversionmigrations/:name/status
 PATCH /apis/storagemigration.k8s.io/v1/storageversionmigrations/:name/status
 GET /apis/storagemigration.k8s.io/v1/watch/storageversionmigrations
 GET /apis/storagemigration.k8s.io/v1/watch/storageversionmigrations/:name
+GET /apis/storagemigration.k8s.io/v1beta1/
 GET /apis/storagemigration.k8s.io/v1beta1/storageversionmigrations
 POST /apis/storagemigration.k8s.io/v1beta1/storageversionmigrations
 DELETE /apis/storagemigration.k8s.io/v1beta1/storageversionmigrations
@@ -1105,4 +1166,7 @@ PUT /apis/storagemigration.k8s.io/v1beta1/storageversionmigrations/:name/status
 PATCH /apis/storagemigration.k8s.io/v1beta1/storageversionmigrations/:name/status
 GET /apis/storagemigration.k8s.io/v1beta1/watch/storageversionmigrations
 GET /apis/storagemigration.k8s.io/v1beta1/watch/storageversionmigrations/:name
+GET /logs/
 GET /logs/:logpath
+GET /openid/v1/jwks/
+GET /version/

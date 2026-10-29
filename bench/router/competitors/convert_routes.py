@@ -35,11 +35,12 @@ def convert(routes):
             line = f"{method} /"
             if line not in seen: seen.add(line); lines.append(line)
             continue
-        if route != "/" and route.endswith("/"):
-            notes["trailing_slash"] += 1; continue
+        # Decision 122 as amended on 2026-10-29: a route may end in "/", as Kubernetes' "/api/".
+        if route.endswith("/"):
+            notes["trailing_slash"] += 1
         segments = route.split("/")[1:]
         out, prefix, ok, used = [], (), True, set()
-        for seg in segments:
+        for index, seg in enumerate(segments):
             if seg.startswith(":"):
                 name = re.sub(r"[^A-Za-z0-9_]", "_", seg[1:])
                 if ":" in seg[1:] or not name:
@@ -54,7 +55,7 @@ def convert(routes):
             else:
                 if ":" in seg or "{" in seg:
                     ok = False; notes["mixed_segment"] += 1; break
-                if not PCHAR.match(seg) or seg == "":
+                if not PCHAR.match(seg) or (seg == "" and index < len(segments) - 1):
                     ok = False; notes["not_pchar"] += 1; break
                 out.append(seg); prefix += (seg,)
         if not ok: continue
