@@ -6404,6 +6404,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 5 mutations **CAUGHT**: each refusal's error, the output's check, the count written, and the
     server's alert. 1 **NOT CAUGHT**: `KeyExhausted`, which no test can reach. chapulin keeps the
     write key's last sequence number for this alert (its `tls_write.c`).
+  - [Run 40799721045](https://github.com/c4milo/colibri/actions/runs/40799721045), against
+    `b8cdbda` with `--h11` and `--h3`: no input loses in either job. The bump's handshakes win:
+    h11-tls-one at 0.9833 and 0.9847, h2-tls-one at 0.9873 and 0.9880, and h3-one at 0.9905 and
+    0.9879.
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
