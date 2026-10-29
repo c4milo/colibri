@@ -5138,6 +5138,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Mutations, 6 of 6 CAUGHT: the path's empty last segment refused, any empty segment
         allowed, a parameter that matches it, the wildcard that matches a path that ends in "/",
         the pattern's empty last segment refused, and any empty segment of a pattern allowed.
+    - The owner then chose three cuts of `match` on 2026-10-29. Callgrind on a laptop counted
+      each one over the GitHub, Stripe, Kubernetes and static tables, against 1,314, 1,523, 2,179
+      and 878 instructions a match. None of them saved instructions, so none landed:
+      - Frames of 8 octets in place of 32: 1,275, 1,532 and 2,193 on the first three. ReleaseSafe
+        checks each narrowed field, and the checks cost about what the smaller frames save.
+      - A hash of each node's literal edges, with open addressing in place of the binary search.
+        Its best form compared two words of each segment, and it counted 1,409, 1,537, 2,224 and
+        848. Most nodes hold a few edges, and the search compares one integer for each.
+      - A pass that decides 16 octets at a time with vector compares: 1,342, 1,535, 2,176 and
+        880. A GitHub path holds 26 octets on average, so it fills one block and reads the rest one
+        octet at a time.
+    - The owner then stopped the router's work. A generated matcher, which writes one function for
+      each node, is the one change left that this record does not price.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
