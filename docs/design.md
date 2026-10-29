@@ -5250,6 +5250,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       or the owed update noted, response lines and `:status` not indexed, and the abandoned block
       not seen by h2's refused response. A line in `begin_block` that cleared the insert was
       equivalent, and is gone.
+    - Judge run [40968892441](https://github.com/c4milo/colibri/actions/runs/40968892441), on
+      `bed33792` against `2610f685`, admitted decision 132 in both jobs. h2-many ran at 0.9710
+      and 0.9705 of the base's instructions, from 13,881 to 13,479 a request in job 1. h2-tls-many
+      ran at 0.9715 and 0.9692, and h2-routes-many at 0.9801 in both. h2-one and h2-tls-one stayed
+      within the noise, and no input lost.
     - Judge run [40943109670](https://github.com/c4milo/colibri/actions/runs/40943109670), on
       `2afba28b`, recorded the four loads. colibri's server never ran longer than 0.26 ms, and
       never waited for its core. At 40,000 req/s over h2-tls it ran about 4,400 times a second
