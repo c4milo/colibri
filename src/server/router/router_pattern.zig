@@ -85,6 +85,9 @@ pub const root = "/";
 
 /// The octet that starts a parameter's segment. The name follows it.
 pub const parameter_prefix = ':';
+/// The segment that keys every parameter child in the trie, whatever its name: two routes may
+/// name one position differently (decision 129).
+pub const parameter_key: []const u8 = &.{parameter_prefix};
 
 /// The segment of the wildcard, and the name that `match` binds the rest of the path to.
 pub const wildcard = "*";
@@ -114,7 +117,7 @@ pub fn is_wildcard(segment: []const u8) bool {
 
 /// The name that `match` writes for `segment`: the parameter's name, `wildcard` for the
 /// wildcard, or null for a literal.
-fn binding_name(segment: []const u8) ?[]const u8 {
+pub fn binding_name(segment: []const u8) ?[]const u8 {
     if (is_parameter(segment)) return parameter_name(segment);
     if (is_wildcard(segment)) return wildcard;
     return null;

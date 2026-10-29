@@ -8,8 +8,8 @@
 //!   2. Each entry, from the first, is a tuple of three parts whose pattern is text, or
 //!      `entry_shape`. Then its method passes `router_method.refusal_of`, and its pattern passes
 //!      `router_pattern.refusal_of`.
-//!   3. No two routes give two names to one parameter node, or `parameter_names_differ`.
-//!   4. No two routes name one method at one leaf, or `route_repeated`.
+//!   3. No two routes name one method at one leaf, or `route_repeated`. Two routes may name one
+//!      parameter position differently (decision 129), so a pattern's names do not decide a leaf.
 //!
 //! `router.zig` then builds the layout and checks it in this order: each Allow value fits
 //! `core.constants.field_value_len_max`, or `allow_too_long` (`router_trie_layout.zig`), and no
@@ -94,7 +94,6 @@ pub const Reason = union(enum) {
     method: router_method.Refusal,
     table_empty,
     entry_shape,
-    parameter_names_differ,
     route_repeated,
     allow_too_long,
     methods_too_many,
@@ -116,7 +115,6 @@ pub const Reason = union(enum) {
             .method => |refusal| refusal.reason(),
             .table_empty => "a table holds one route at least",
             .entry_shape => "an entry is a tuple of a method, a pattern and a value",
-            .parameter_names_differ => "two routes with the same segments before a parameter give the parameter one name",
             .route_repeated => "two routes name one method and one path",
             .allow_too_long => "the Allow value of the routes of one pattern holds " ++
                 "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
@@ -182,14 +180,13 @@ pub fn entries_refusal(comptime table: anytype) ?Refusal {
     return null;
 }
 
-/// The first refusal of checks 3 and 4, or null. `trie` is a pointer to the value of
+/// The first refusal of check 3, or null. `trie` is a pointer to the value of
 /// `trie_of(table)`, and `entries_refusal` passed `table`. Comptime-only.
 pub fn trie_refusal(comptime table: anytype, trie: anytype) ?Refusal {
     @setEvalBranchQuota(quota_of(table));
     // The calls in the loop get pointers to copies in vars (see the top of this file).
     var routes = routes_of(table);
     var trie_copy = trie.*;
-    if (trie_copy.names_route) |route| return .{ .route = route, .pattern = routes.patterns[route], .reason = .parameter_names_differ };
     return repeated_refusal(&routes, &trie_copy);
 }
 
@@ -272,7 +269,6 @@ pub fn routes_of(comptime table: anytype) Routes(table.len) {
 ///   - `slots` finds the child of a node by its segment. A slot holds a node, or null.
 ///   - `route_order` holds the routes of each node, each node's run in table order. The run of
 ///     node n starts at `route_first[n]` and ends at `route_first[n + 1]`.
-/// `names_route` is the first route, in table order, that gives a parameter node a second name.
 fn Merged(comptime nodes_max: usize, comptime routes_count: usize) type {
     return struct {
         segment: [nodes_max][]const u8 = undefined,
@@ -286,7 +282,6 @@ fn Merged(comptime nodes_max: usize, comptime routes_count: usize) type {
         route_node: [routes_count]usize = undefined,
         route_first: [nodes_max + 1]usize = @splat(0),
         route_order: [routes_count]usize = undefined,
-        names_route: ?usize = null,
     };
 }
 
@@ -321,19 +316,21 @@ fn merge(comptime patterns: []const []const u8) Merged(nodes_bound(patterns), pa
     merged.next_sibling[root] = null;
     merged.parameter_child[root] = null;
     merged.node_count = 1;
-    for (patterns, 0..) |pattern, index| merged.route_node[index] = insert(&merged, pattern, index);
+    for (patterns, 0..) |pattern, index| merged.route_node[index] = insert(&merged, pattern);
     index_routes(&merged);
     return merged;
 }
 
-fn insert(merged: anytype, comptime pattern: []const u8, route: usize) usize {
+fn insert(merged: anytype, comptime pattern: []const u8) usize {
     if (std.mem.eql(u8, pattern, router_pattern.root)) return root;
     var node: usize = root;
     var segments = std.mem.splitScalar(u8, pattern[1..], router_pattern.separator);
     for (0..router_pattern.segments_count(pattern) + 1) |_| {
-        const segment = segments.next() orelse return node;
+        const written = segments.next() orelse return node;
+        // Decision 129: one parameter child at a node, whatever each route names it.
+        const segment = if (router_pattern.is_parameter(written)) router_pattern.parameter_key else written;
         const slot = slot_of(merged, node, segment);
-        node = merged.slots[slot] orelse add_child(merged, node, segment, slot, route);
+        node = merged.slots[slot] orelse add_child(merged, node, segment, slot);
     }
     unreachable;
 }
@@ -352,7 +349,7 @@ fn slot_of(merged: anytype, node: usize, segment: []const u8) usize {
     unreachable;
 }
 
-fn add_child(merged: anytype, node: usize, segment: []const u8, slot: usize, route: usize) usize {
+fn add_child(merged: anytype, node: usize, segment: []const u8, slot: usize) usize {
     const added = merged.node_count;
     assert(added < merged.segment.len);
     assert(merged.slots[slot] == null);
@@ -366,9 +363,8 @@ fn add_child(merged: anytype, node: usize, segment: []const u8, slot: usize, rou
     merged.slots[slot] = added;
     merged.node_count += 1;
     if (router_pattern.is_parameter(segment)) {
-        // Decision 122 ruling 5: one parameter node has one name. A node that already holds a
-        // parameter child with another name gets a second one from this route.
-        if (merged.parameter_child[node] != null and merged.names_route == null) merged.names_route = route;
+        // Decision 129: the key of every parameter child is one segment, so a node has one.
+        assert(merged.parameter_child[node] == null);
         merged.parameter_child[node] = added;
     }
     return added;

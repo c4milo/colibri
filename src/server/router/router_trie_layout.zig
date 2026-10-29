@@ -29,6 +29,8 @@ pub const Sizes = struct {
     methods: usize,
     text: usize,
     depth_max: usize,
+    /// The parameter names of every route's pattern, the wildcard's "*" included.
+    names: usize,
 };
 
 pub fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
@@ -45,7 +47,10 @@ pub fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
         .methods = methods_count(&routes.tokens),
         .text = 0,
         .depth_max = 0,
+        .names = 0,
     };
+    // Decision 129: each route keeps the names of its own pattern, in the text.
+    for (routes.patterns) |pattern| count_names(pattern, &sizes);
     for (1..trie_copy.node_count) |node| {
         const segment = trie_copy.segment[node];
         sizes.depth_max = @max(sizes.depth_max, trie_copy.depth[node]);
@@ -69,6 +74,16 @@ pub fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
     return sizes;
 }
 
+/// Counts the parameter names of `pattern`, the wildcard's included, and their octets.
+fn count_names(pattern: []const u8, sizes: *Sizes) void {
+    var segments = std.mem.splitScalar(u8, pattern[1..], router_pattern.separator);
+    while (segments.next()) |segment| {
+        const name = router_pattern.binding_name(segment) orelse continue;
+        sizes.names += 1;
+        sizes.text += name.len;
+    }
+}
+
 /// The count of distinct tokens in `tokens`. Comptime-only.
 fn methods_count(comptime tokens: []const []const u8) usize {
     var count: usize = 0;
@@ -87,7 +102,7 @@ fn holds_token(tokens: []const []const u8, token: []const u8) bool {
 
 /// The arrays of one table, sized by `sizes`. Every index is of the smallest type that holds it.
 pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
-    const Index = std.math.IntFittingRange(0, @max(sizes.nodes, sizes.routes, sizes.text));
+    const Index = std.math.IntFittingRange(0, @max(sizes.nodes, sizes.routes, sizes.text, sizes.names));
     return struct {
         nodes: [sizes.nodes]Node,
         edges: [sizes.nodes - 1 - sizes.parameters - sizes.wildcards]Edge,
@@ -95,6 +110,8 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
         entries: [sizes.routes]Entry,
         /// The table's set of methods: one run of `text` for each distinct method token.
         methods: [sizes.methods]Range,
+        /// Each route's parameter names, a run for each entry (decision 129).
+        names: [sizes.names]Range,
         text: [sizes.text]u8,
 
         /// The most segments of a pattern of the table.
@@ -112,8 +129,9 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
         pub const Parameter = struct { name: Range, child: Index };
         /// The leaf's entries, a run of `entries`, and its Allow value.
         pub const Leaf = struct { entries_first: Index, entries_count: Index, allow: Range };
-        /// A route's method token, a run of its leaf's Allow value, and its value.
-        pub const Entry = struct { method: Range, value: Value };
+        /// A route's method token, a run of its leaf's Allow value, its value, and the run of
+        /// `names` that holds its pattern's parameter names in order (decision 129).
+        pub const Entry = struct { method: Range, value: Value, names_first: Index, names_count: Index };
     };
 }
 
@@ -137,6 +155,7 @@ pub fn build(comptime Value: type, comptime table: anytype, comptime trie: anyty
     assert(builder.leaves_count == sizes.leaves);
     assert(builder.entries_count == sizes.routes and builder.text_len == sizes.text);
     assert(builder.methods_count == sizes.methods);
+    assert(builder.names_count == sizes.names);
     return builder.layout;
 }
 
@@ -174,6 +193,7 @@ fn Builder(comptime Value: type, comptime sizes: Sizes) type {
         leaves_count: usize = 0,
         entries_count: usize = 0,
         methods_count: usize = 0,
+        names_count: usize = 0,
         text_len: usize = 0,
     };
 }
@@ -302,7 +322,14 @@ fn add_leaf(builder: anytype, trie: anytype, routes: anytype, node: usize) void 
         if (position > 0) _ = add_text(builder, allow_separator);
         const token = routes.tokens[route];
         const offset = add_text(builder, token);
-        builder.layout.entries[builder.entries_count] = .{ .method = .{ .offset = @intCast(offset), .len = @intCast(token.len) }, .value = builder.values[route] };
+        const names_first = builder.names_count;
+        add_names(builder, routes.patterns[route]);
+        builder.layout.entries[builder.entries_count] = .{
+            .method = .{ .offset = @intCast(offset), .len = @intCast(token.len) },
+            .value = builder.values[route],
+            .names_first = @intCast(names_first),
+            .names_count = @intCast(builder.names_count - names_first),
+        };
         builder.entries_count += 1;
         if (head and position == 0) _ = add_text(builder, allow_separator ++ router_method.head_token);
     }
@@ -313,6 +340,17 @@ fn add_leaf(builder: anytype, trie: anytype, routes: anytype, node: usize) void 
         .allow = .{ .offset = @intCast(allow_first), .len = @intCast(builder.text_len - allow_first) },
     };
     builder.leaves_count += 1;
+}
+
+/// Writes the names of `pattern`'s parameters, and "*" for its wildcard, in order (decision 129).
+fn add_names(builder: anytype, pattern: []const u8) void {
+    var segments = std.mem.splitScalar(u8, pattern[1..], router_pattern.separator);
+    while (segments.next()) |segment| {
+        const name = router_pattern.binding_name(segment) orelse continue;
+        const offset = add_text(builder, name);
+        builder.layout.names[builder.names_count] = .{ .offset = @intCast(offset), .len = @intCast(name.len) };
+        builder.names_count += 1;
+    }
 }
 
 /// Writes the table's set of methods: the method token of the first entry for each distinct
