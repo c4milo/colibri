@@ -11550,6 +11550,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       packets, the same in Debug and ReleaseSafe: the h3 check's qlog holds 31,894 events where
       it held 50,487. `quic.Connection` grew by 34,824 octets, and a server's QUIC slot by 38,920.
 
+    **The judge, 2026-10-29.** [Run 40950828136](https://github.com/c4milo/colibri/actions/runs/40950828136)
+    measured `b5f74c3d` against main `2afba28b` with `h3`. h3-many takes 0.684 and 0.686 of main's
+    instructions a request, and h3-one 0.969 and 0.969: fewer packets, so fewer seals and sends.
+    Every h2 input is within the noise. [Run 40950751199](https://github.com/c4milo/colibri/actions/runs/40950751199),
+    the `network` input on `b5f74c3d`, gives colibri's p99 over h3 divided by its p99 over h2-tls,
+    job 1 and then job 2:
+    - `lossy`: 0.69 and 0.73 at 2,000 req/s, and 0.78 and 0.78 at 4,000, where they were 1.34 and
+      1.32. At 4,000 colibri's p99 over h3 is 116 ms, chi's 107 ms and axum's 108 ms.
+    - `mobile`: 0.75 and 0.80 at 2,000 req/s, where they were 5.02 and 4.46. At 4,000 no server
+      reaches the rate: colibri reaches 3,082 req/s, chi 3,273 and axum 3,014.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
