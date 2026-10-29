@@ -42,6 +42,7 @@ pub const record = struct {
     pub const Server = files.record.Server;
     pub const ServerConfig = files.record.ServerConfig;
     pub const alert_record_len = files.record.alert_record_len;
+    pub const FailError = files.record.FailError;
 };
 
 pub const quic = struct {
@@ -61,6 +62,9 @@ test "decision 115: the root exports the names code outside the module uses" {
         "Anchor",         "Pin",    "Trust",      "Client",
         "Server",         "Ticket", "Resumption", "EcdsaP256Identity",
         "RsaPssIdentity", "record", "quic",
+    });
+    try @import("crypto").core.public_names.expect(record, &.{
+        "Client", "ClientConfig", "Server", "ServerConfig", "alert_record_len", "FailError",
     });
 }
 

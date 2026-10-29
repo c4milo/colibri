@@ -6376,6 +6376,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - h2-tls-many at 0.9759 and 0.9767, and h3-many at 0.9936 in the first job, within the noise in
     the second.
 
+  **A fatal alert the program names, 2026-10-28.** cocuyo's DNS over TLS client must send
+  record_overflow before it closes on a record longer than RFC 9846 §5.2 allows
+  ([#114](https://github.com/c4milo/colibri/issues/114)). colibri had no call that writes an alert
+  other than close_notify. chapulin a51898de adds `fail` (chapulin#208), and colibri pins it. The
+  owner ruled where the call goes on 2026-10-28: on the session types, not in
+  `tls_provider.VTable`, which no provider then changes for.
+  - Public names: `tls.record.Client.fail`, `tls.record.Server.fail` and `tls.record.FailError`.
+    A test beside the two types lists their calls, and the root's test lists `tls.record`.
+  - `fail(description, output)` takes the 26 error alerts of RFC 9846 §6.2 on a connected
+    session. It writes at most `alert_record_len` octets and fails the session. A refused call
+    writes nothing and leaves the session as it was.
+  - tools/consumer and docs/usage.md show the call. No program of `examples/` drives a record
+    session itself, so none shows it.
+  - 5 mutations **CAUGHT**: each refusal's error, the output's check, the count written, and the
+    server's alert. 1 **NOT CAUGHT**: `KeyExhausted`, which no test can reach. chapulin keeps the
+    write key's last sequence number for this alert (its `tls_write.c`).
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27

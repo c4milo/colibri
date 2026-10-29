@@ -96,19 +96,7 @@ pub fn main() !void {
     const preface_len = h2_client.write_pending(&output, 0);
     if (!std.mem.startsWith(u8, output[0..preface_len], "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")) return error.PrefaceWrong;
 
-    // tls converts the client's values once, and a session's first call writes its ClientHello. The
-    // program probes its CPU once, through stdx's `platform`, and passes the result on.
-    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
-    try tls_config.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
-        .alpn = &.{ "h2", "http/1.1" },
-        .cpu = cpu,
-    });
-    try tls_client.start(&tls_config, entropy, now_seconds, null);
-    const hello = try tls_client.handshake(&.{}, &output);
-    if (hello.written == 0 or output[0] != handshake_record) return error.HelloWrong;
-    tls_client.close();
+    try check_tls();
 
     // stdx's gzip, which colibri's package exports (decision 101), codes content and decodes it.
     gzip_encoder.init(.target());
@@ -143,6 +131,28 @@ pub fn main() !void {
     }
     if (get_response.result != .response or get_response.status != 204) return error.ExchangeWrong;
     std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
+}
+
+/// tls converts the client's values once, and a session's first call writes its ClientHello. The
+/// program probes its CPU once, through stdx's `platform`, and passes the result on.
+fn check_tls() !void {
+    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+    const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
+    try tls_config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
+        .alpn = &.{ "h2", "http/1.1" },
+        .cpu = cpu,
+    });
+    try tls_client.start(&tls_config, entropy, now_seconds, null);
+    const hello = try tls_client.handshake(&.{}, &output);
+    if (hello.written == 0 or output[0] != handshake_record) return error.HelloWrong;
+    // A program that finds an error in what it read, such as a record longer than RFC 9846 §5.2
+    // allows, sends the alert that names it, then closes. A session whose handshake has not
+    // completed sends none.
+    if (tls_client.fail(.record_overflow, &output)) |_| return error.FailWrong else |failure| {
+        if (failure != error.NotConnected) return error.FailWrong;
+    }
+    tls_client.close();
 }
 
 /// The server reads the first `len` octets of `wire`, which the socket of `accepted` read. It

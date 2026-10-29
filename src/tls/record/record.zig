@@ -27,6 +27,9 @@ pub const State = record_provider.State;
 /// alert a refused flight owes fits the call that fails.
 pub const alert_record_len: usize = chapulin.record.alert_record_len;
 
+/// Why `Client.fail` or `Server.fail` sent no alert.
+pub const FailError = record_provider.FailError;
+
 pub const Error = error{
     /// chapulin refused the values: a configuration it does not accept, a ticket past its
     /// lifetime or seven days old (RFC 9846 §4.7.1), or a ticket a QUIC connection issued, which
@@ -171,6 +174,14 @@ pub const Client = struct {
         return client.session.alertSent();
     }
 
+    /// Sends the fatal alert `description` names into `output`, at most `alert_record_len` octets, and
+    /// fails the session, for an error the caller found itself, such as a record longer than RFC
+    /// 9846 §5.2 allows. The caller sends the octets, then closes the connection. Only the error
+    /// alerts of RFC 9846 §6.2 are taken, on a connected session.
+    pub fn fail(client: *Client, description: tls_provider.Alert, output: []u8) FailError!usize {
+        return record_provider.fail(client, description, output);
+    }
+
     /// Wipes every secret the session holds, the offered ticket's copy included, and ends it.
     /// A connected caller sends its close_notify through the provider first.
     pub fn close(client: *Client) void {
@@ -248,16 +259,34 @@ pub const Server = struct {
         return server.session.alertSent();
     }
 
+    /// Sends the fatal alert `description` names into `output` and fails the session, as `Client.fail`
+    /// does.
+    pub fn fail(server: *Server, description: tls_provider.Alert, output: []u8) FailError!usize {
+        return record_provider.fail(server, description, output);
+    }
+
     /// Wipes every secret the session holds and ends it.
     pub fn close(server: *Server) void {
         server.session.recordClose();
     }
 };
 
+test "decision 115: a client's and a server's public calls are these" {
+    const public_names = @import("crypto").core.public_names;
+    try public_names.expect(Client, &.{
+        "handshake_output_len_min", "start",   "handshake", "failure_written", "provider",
+        "take_ticket",              "resumed", "alert",     "fail",            "close",
+    });
+    try public_names.expect(Server, &.{
+        "start", "handshake", "failure_written", "provider", "sni", "resumed", "alert", "fail", "close",
+    });
+}
+
 test {
     _ = @import("record_test.zig");
     _ = @import("record_aes_test.zig");
     _ = @import("record_failure_test.zig");
+    _ = @import("record_fail_test.zig");
     _ = @import("record_ticket_test.zig");
     // Sealing a peer's KeyUpdate needs the traffic secrets, which only a `KEYLOG=on` object logs.
     if (@hasDecl(chapulin.c, "ch_keylog")) _ = @import("record_keylog_test.zig");

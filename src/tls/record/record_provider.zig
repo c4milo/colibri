@@ -229,6 +229,40 @@ fn close_notify(role: anytype, output: []u8) provider_module.CloseError!usize {
     return written;
 }
 
+/// Why `fail` sent no alert.
+pub const FailError = error{
+    /// The alert is not one of RFC 9846 §6.2's error alerts: close_notify and user_canceled end a
+    /// connection in order (§6.1), and no other value names an alert. The session is as it was.
+    NotErrorAlert,
+    /// The handshake has not completed, or the session already closed or failed, and chapulin
+    /// sends an alert on a connected session alone. The session is as it was.
+    NotConnected,
+    /// `output` holds fewer than `alert_record_len` octets. The session is as it was.
+    NoSpaceLeft,
+    /// The write key seals no more records (RFC 9846 §5.5), so no alert went out. The session
+    /// failed all the same.
+    KeyExhausted,
+};
+
+/// RFC 9846 §6.2's fatal alert `description` names, for an error the caller found itself, and then the
+/// session fails. chapulin wipes the keys once it is called, so an output too short for the alert
+/// is refused before chapulin is called, as `close_notify` refuses one.
+pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailError!usize {
+    if (output.len < chapulin.record.alert_record_len) return error.NoSpaceLeft;
+    const written = role.session.fail(@intFromEnum(description), output) catch |failure| return switch (failure) {
+        // RFC 9846 §6.2: chapulin takes the error alerts alone, and the session stays as it was.
+        error.Invalid => error.NotErrorAlert,
+        // RFC 9846 §6: no alert is sent on a session that is not connected.
+        error.Proto => error.NotConnected,
+        // RFC 9846 §5.5: a key past its limit seals nothing more.
+        error.Cap => error.KeyExhausted,
+        // The output holds a whole alert record, which the check above made sure of.
+        error.Io => unreachable,
+    };
+    assert(written > 0 and written <= chapulin.record.alert_record_len);
+    return written;
+}
+
 /// RFC 9846 §7.5's exporter, which the TCP object offers (`EXPORTER=on`).
 fn export_material(role: anytype, label: []const u8, context_value: ?[]const u8, output: []u8) provider_module.ExportError!void {
     // RFC 9846 §7.5: the exporter secret exists once the handshake completes.

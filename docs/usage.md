@@ -1453,6 +1453,20 @@ try tls_client.start(&tls_config, entropy, now_seconds, null);
 const hello = try tls_client.handshake(&.{}, &output);
 ```
 
+A program that finds an error in what it read, after the handshake, sends the fatal alert that
+names it with `fail`, then closes the connection. An example is a record longer than RFC 9846 §5.2
+allows, which record_overflow names. `fail` writes at most `tls.record.alert_record_len` octets
+into the output and fails the session. It takes the error alerts of RFC 9846 §6.2 alone, on a
+connected session: a refused call returns a `tls.record.FailError`, writes nothing and leaves the
+session as it was. `tls.record.Server` has the same call. In the excerpt below, the handshake has
+not completed, so the call must return `error.NotConnected` and send nothing.
+
+```zig
+if (tls_client.fail(.record_overflow, &output)) |_| return error.FailWrong else |failure| {
+    if (failure != error.NotConnected) return error.FailWrong;
+}
+```
+
 For QUIC, a `tls.quic.Client` or `tls.quic.Server` hands `provider()` and `suite()` to the
 `quic.Connection`, which starts chapulin's session when it sets its transport parameters. A server
 that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.
