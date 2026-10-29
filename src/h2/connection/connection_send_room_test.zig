@@ -114,3 +114,83 @@ test "design §7: a block longer than send_block_len_max is refused, though the 
     comptime std.debug.assert(huge_value_len * huge_values_count > constants.send_block_len_max);
     try testing.expectError(error.OutputTooSmall, test_connection.write_response(&test_huge_output, 1, ok, &fields, false));
 }
+
+/// The lines of the responses of decision 132's tests. Test-only.
+const indexed_lines = [_]@import("hpack").Field{
+    .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
+    .{ .name = "x-a", .value = "b" },
+};
+/// The block of a response whose `:status` is 200 and whose lines both tables hold: one octet
+/// each (RFC 7541 §6.1). Test-only.
+const indexed_block_len: usize = 1 + indexed_lines.len;
+
+/// The field block of the HEADERS frame at the front of `frames`. Test-only.
+fn block_of(frames: []const u8) []const u8 {
+    const block_len = std.mem.readInt(u24, frames[0..frame_length_len], .big);
+    return frames[constants.frame_header_len..][0..block_len];
+}
+
+/// Requires the peer's decoder, which reads every block colibri sent, to read `:status` 200 and
+/// `lines` from the response at the front of `frames`. Test-only.
+fn expect_decoded(frames: []const u8, lines: []const @import("hpack").Field) !void {
+    var expected: [indexed_lines.len + 1]@import("hpack").Field = undefined;
+    expected[0] = .{ .name = ":status", .value = "200" };
+    @memcpy(expected[1..][0..lines.len], lines);
+    try @import("hpack").decoder.expect_lines(block_of(frames), expected[0 .. lines.len + 1]);
+}
+
+test "decision 132: a response's lines go into the table, so the next response sends each as one octet" {
+    try support.start_server();
+    @import("hpack").decoder.test_decoder().init(constants.header_table_size_initial);
+    _ = try support.feed_request(1, "/", true);
+    _ = try support.feed_request(3, "/", true);
+    _ = try test_connection.write_response(test_output, 1, ok, &indexed_lines, true);
+    try expect_decoded(test_output, &indexed_lines);
+    _ = try test_connection.write_response(test_output, 3, ok, &indexed_lines, true);
+    try expect_decoded(test_output, &indexed_lines);
+    try testing.expectEqual(indexed_block_len, block_of(test_output).len);
+}
+
+/// Room for a frame header and a block that holds `:status` and the first line, but not the
+/// second: `:status` 200 is one octet, and "x-new: 1" with its name and value as literals nine.
+/// Test-only.
+const block_one_line_len: usize = 12;
+const room_one_line: usize = constants.frame_header_len + block_one_line_len;
+const long_value_len = 100;
+
+test "decision 132: a response refused after its block inserted makes the next block empty both tables" {
+    try support.start_server();
+    @import("hpack").decoder.test_decoder().init(constants.header_table_size_initial);
+    _ = try support.feed_request(1, "/", true);
+    _ = try support.feed_request(3, "/", true);
+    _ = try test_connection.write_response(test_output, 1, ok, indexed_lines[1..2], true);
+    try expect_decoded(test_output, indexed_lines[1..2]);
+    // The block inserts "x-new" and then finds no room for the long line, so it is refused and
+    // the peer never reads it.
+    const long_value: [long_value_len]u8 = @splat('v');
+    const refused = [_]@import("hpack").Field{ .{ .name = "x-new", .value = "1" }, .{ .name = "x-long", .value = &long_value } };
+    try testing.expectError(error.OutputTooSmall, test_connection.write_response(test_output[0..room_one_line], 3, ok, &refused, true));
+    // RFC 7541 §6.3: the next block opens with the update to 0, and the peer reads its lines over
+    // the emptied table.
+    _ = try test_connection.write_response(test_output, 3, ok, indexed_lines[1..2], true);
+    try testing.expect(opens_with_size_update(test_output));
+    try testing.expectEqual(size_update_pattern, block_of(test_output)[0]);
+    try expect_decoded(test_output, indexed_lines[1..2]);
+}
+
+/// A status the static table does not hold (RFC 7541 Appendix A), so only the dynamic table can
+/// index it. Test-only.
+const created: u16 = 201;
+
+test "decision 132: a status the static table lacks goes into the table too" {
+    try support.start_server();
+    @import("hpack").decoder.test_decoder().init(constants.header_table_size_initial);
+    const status = [_]@import("hpack").Field{.{ .name = ":status", .value = "201" }};
+    for ([_]u32{ 1, 3 }) |stream_id| {
+        _ = try support.feed_request(stream_id, "/", true);
+        _ = try test_connection.write_response(test_output, stream_id, created, &.{}, true);
+        try @import("hpack").decoder.expect_lines(block_of(test_output), &status);
+    }
+    // RFC 7541 §6.1: the second response's status is one octet, an index into the dynamic table.
+    try testing.expectEqual(1, block_of(test_output).len);
+}

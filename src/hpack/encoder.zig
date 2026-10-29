@@ -17,6 +17,11 @@
 //! - a string is Huffman-coded as `huffman` says: always, as the RFC's examples do; never; or only
 //!   when that is strictly shorter, as nghttp2 does.
 //!
+//! A block's inserts change the mirror as the block is written, and the peer's table only when
+//! the peer decodes it. So a block the caller abandons after an insert leaves the mirror ahead of
+//! the peer (decision 132). The next block then opens with a size update to 0, which empties the
+//! peer's table, and one to the capacity, and the mirror empties with it (RFC 7541 §4.2, §6.3).
+//!
 //! The capacity the encoder declares is the smaller of the peer's limit and
 //! `dynamic_table_capacity_max` (§4.2 lets an encoder use less than the limit). A change is
 //! signalled at the start of the next block, with the smallest capacity of the interval first and
@@ -59,6 +64,10 @@ pub const Encoder = struct {
     /// The smallest capacity chosen since the last declaration (RFC 7541 §4.2).
     chosen_min: u64,
     huffman: HuffmanUse,
+    /// The block since the last `commit_block` inserted into the mirror.
+    inserted_uncommitted: bool,
+    /// A block was abandoned after an insert, so the next block empties both tables first.
+    empty_owed: bool,
 
     /// An encoder whose table's capacity and limit are both `capacity`: the protocol's initial
     /// value, 4,096 in h2 (RFC 9113 §6.5.2).
@@ -70,6 +79,8 @@ pub const Encoder = struct {
         encoder.declared = capacity;
         encoder.chosen_min = capacity;
         encoder.huffman = huffman;
+        encoder.inserted_uncommitted = false;
+        encoder.empty_owed = false;
     }
 
     /// The peer changed its limit and this endpoint has acknowledged it.
@@ -82,15 +93,26 @@ pub const Encoder = struct {
 
     /// Opens a block: writes the size updates a capacity change owes (RFC 7541 §4.2), or nothing.
     /// The capacity is not declared until `commit_block`, because a block the caller abandons
-    /// never reaches the peer and owes its updates again.
+    /// never reaches the peer and owes its updates again. After a block abandoned with an insert,
+    /// it writes the two updates that empty both tables (decision 132).
     pub fn begin_block(encoder: *Encoder, output: *Writer) Error!void {
+        // Decision 132: the block before this one was abandoned after an insert.
+        if (encoder.inserted_uncommitted) encoder.empty_owed = true;
         var cursor = output.*;
-        // RFC 7541 §4.2: the smallest maximum of the interval first, then the final one.
-        if (encoder.chosen_min < encoder.declared and encoder.chosen_min < encoder.chosen) {
-            try write_size_update(&cursor, encoder.chosen_min);
+        if (encoder.empty_owed) {
+            // RFC 7541 §6.3: a size update to 0 evicts every entry of the peer's table, and the
+            // second one sets the capacity. §4.2 allows two updates at a block's start.
+            try write_size_update(&cursor, 0);
+            try write_size_update(&cursor, encoder.chosen);
+        } else {
+            // RFC 7541 §4.2: the smallest maximum of the interval first, then the final one.
+            if (encoder.chosen_min < encoder.declared and encoder.chosen_min < encoder.chosen) {
+                try write_size_update(&cursor, encoder.chosen_min);
+            }
+            if (encoder.chosen != encoder.declared) try write_size_update(&cursor, encoder.chosen);
         }
-        if (encoder.chosen != encoder.declared) try write_size_update(&cursor, encoder.chosen);
         output.* = cursor;
+        if (encoder.empty_owed) encoder.table.resize(0);
         encoder.table.resize(encoder.chosen_min);
         encoder.table.resize(encoder.chosen);
     }
@@ -102,6 +124,8 @@ pub const Encoder = struct {
     pub fn commit_block(encoder: *Encoder) void {
         encoder.declared = encoder.chosen;
         encoder.chosen_min = encoder.chosen;
+        encoder.inserted_uncommitted = false;
+        encoder.empty_owed = false;
         assert(encoder.table.capacity == encoder.declared);
     }
 
@@ -151,7 +175,10 @@ pub const Encoder = struct {
         if (name_index == 0) try encoder.write_string(&cursor, name);
         try encoder.write_string(&cursor, value);
         output.* = cursor;
-        if (kind == .incremental) encoder.table.insert(name, value);
+        if (kind == .incremental) {
+            encoder.table.insert(name, value);
+            encoder.inserted_uncommitted = true;
+        }
     }
 
     /// The indices of the fused address space (RFC 7541 §2.3.3) holding the line and its name.
@@ -188,7 +215,7 @@ fn write_size_update(output: *Writer, capacity: u64) Error!void {
 /// The lowest static indices holding the line and its name (RFC 7541 Appendix A). The name finds
 /// its run of entries through `static_names`, which compares it only with names of its length, and
 /// the value is compared within the run alone.
-fn find_static(name: []const u8, value: []const u8) Match {
+pub fn find_static(name: []const u8, value: []const u8) Match {
     const run = static_names.get(name) orelse return .{};
     const match: Match = .{ .name = run.first };
     // Bounded by the run, at most the table's 61 entries.
@@ -242,252 +269,6 @@ const static_names_len: usize = count: {
 /// The evaluation the build spends comparing the table's names with one another.
 const static_quota: u32 = 100_000;
 
-const testing = std.testing;
-const Field = dynamic_table.Field;
-
-/// The encoder the tests run in, placed outside any stack frame.
-threadlocal var test_encoder: Encoder align(@alignOf(Encoder)) = undefined;
-
-/// Octets of block the tests write. Test-only.
-const test_block_len_max = 256;
-
-fn expect_block(lines: []const Field, expected: []const u8) !void {
-    var buffer: [test_block_len_max]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    for (lines) |line| try test_encoder.write_field(&output, line.name, line.value, .incremental);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, expected, output.written());
-}
-
-const example_request_lines = [_]Field{
-    .{ .name = ":method", .value = "GET" },
-    .{ .name = ":scheme", .value = "http" },
-    .{ .name = ":path", .value = "/" },
-    .{ .name = ":authority", .value = "www.example.com" },
-};
-
-const second_request_lines = example_request_lines ++ [_]Field{
-    .{ .name = "cache-control", .value = "no-cache" },
-};
-
-const third_request_lines = [_]Field{
-    .{ .name = ":method", .value = "GET" },
-    .{ .name = ":scheme", .value = "https" },
-    .{ .name = ":path", .value = "/index.html" },
-    .{ .name = ":authority", .value = "www.example.com" },
-    .{ .name = "custom-key", .value = "custom-value" },
-};
-
-test "RFC 7541 Appendix C.3: the encoder writes the three requests byte for byte, no Huffman" {
-    test_encoder.init(4096, .never);
-    try expect_block(&example_request_lines, "\x82\x86\x84\x41\x0fwww.example.com");
-    try expect_block(&second_request_lines, "\x82\x86\x84\xbe\x58\x08no-cache");
-    try expect_block(&third_request_lines, "\x82\x87\x85\xbf\x40\x0acustom-key\x0ccustom-value");
-    try testing.expectEqual(164, test_encoder.table.size);
-}
-
-test "RFC 7541 Appendix C.4: with Huffman coding the encoder writes the same requests" {
-    test_encoder.init(4096, .always);
-    try expect_block(&example_request_lines, "\x82\x86\x84\x41\x8c\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff");
-    try expect_block(&second_request_lines, "\x82\x86\x84\xbe\x58\x86\xa8\xeb\x10\x64\x9c\xbf");
-    try expect_block(&third_request_lines, "\x82\x87\x85\xbf\x40\x88\x25\xa8\x49\xe9\x5b\xa9\x7d\x7f\x89\x25\xa8\x49\xe9\x5b\xb8\xe8\xb4\xbf");
-}
-
-const first_response_lines = [_]Field{
-    .{ .name = ":status", .value = "302" },
-    .{ .name = "cache-control", .value = "private" },
-    .{ .name = "date", .value = "Mon, 21 Oct 2013 20:13:21 GMT" },
-    .{ .name = "location", .value = "https://www.example.com" },
-};
-
-const second_response_lines = [_]Field{
-    .{ .name = ":status", .value = "307" },
-    .{ .name = "cache-control", .value = "private" },
-    .{ .name = "date", .value = "Mon, 21 Oct 2013 20:13:21 GMT" },
-    .{ .name = "location", .value = "https://www.example.com" },
-};
-
-const third_response_lines = [_]Field{
-    .{ .name = ":status", .value = "200" },
-    .{ .name = "cache-control", .value = "private" },
-    .{ .name = "date", .value = "Mon, 21 Oct 2013 20:13:22 GMT" },
-    .{ .name = "location", .value = "https://www.example.com" },
-    .{ .name = "content-encoding", .value = "gzip" },
-    .{ .name = "set-cookie", .value = "foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1" },
-};
-
-test "RFC 7541 Appendix C.5: the responses at capacity 256, evictions included, no Huffman" {
-    test_encoder.init(256, .never);
-    try expect_block(&first_response_lines, "\x48\x03" ++ "302" ++ "\x58\x07private\x61\x1dMon, 21 Oct 2013 20:13:21 GMT\x6e\x17https://www.example.com");
-    try expect_block(&second_response_lines, "\x48\x03" ++ "307" ++ "\xc1\xc0\xbf");
-    try expect_block(&third_response_lines, "\x88\xc1\x61\x1dMon, 21 Oct 2013 20:13:22 GMT\xc0\x5a\x04gzip\x77\x38foo=ASDJKHQKBZXOQWEOPIUAXQWEOIU; max-age=3600; version=1");
-    try testing.expectEqual(215, test_encoder.table.size);
-}
-
-test "RFC 7541 Appendix C.6: the same responses with Huffman coding" {
-    test_encoder.init(256, .always);
-    try expect_block(&first_response_lines, "\x48\x82\x64\x02\x58\x85\xae\xc3\x77\x1a\x4b\x61\x96\xd0\x7a\xbe\x94\x10\x54\xd4\x44\xa8\x20\x05\x95\x04\x0b\x81\x66\xe0\x82\xa6\x2d\x1b\xff\x6e\x91\x9d\x29\xad\x17\x18\x63\xc7\x8f\x0b\x97\xc8\xe9\xae\x82\xae\x43\xd3");
-    try expect_block(&second_response_lines, "\x48\x83\x64\x0e\xff\xc1\xc0\xbf");
-    try expect_block(&third_response_lines, "\x88\xc1\x61\x96\xd0\x7a\xbe\x94\x10\x54\xd4\x44\xa8\x20\x05\x95\x04\x0b\x81\x66\xe0\x84\xa6\x2d\x1b\xff\xc0\x5a\x83\x9b\xd9\xab\x77\xad\x94\xe7\x82\x1d\xd7\xf2\xe6\xc7\xb3\x35\xdf\xdf\xcd\x5b\x39\x60\xd5\xaf\x27\x08\x7f\x36\x72\xc1\xab\x27\x0f\xb5\x29\x1f\x95\x87\x31\x60\x65\xc0\x03\xed\x4e\xe5\xb1\x06\x3d\x50\x07");
-}
-
-test "when_shorter codes 302 with Huffman, which saves an octet, and not 307, which saves none" {
-    test_encoder.init(256, .when_shorter);
-    var buffer: [test_block_len_max]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    try test_encoder.write_field(&output, ":status", "302", .without_indexing);
-    try test_encoder.write_field(&output, ":status", "307", .without_indexing);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x08\x82\x64\x02\x08\x03" ++ "307", output.written());
-}
-
-test "never-indexed and without-indexing lines leave the table alone, and keep a name index" {
-    test_encoder.init(4096, .never);
-    var buffer: [test_block_len_max]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    try test_encoder.write_field(&output, "authorization", "secret", .never_indexed);
-    try test_encoder.write_field(&output, "x-trace", "1", .without_indexing);
-    try test_encoder.write_field(&output, ":method", "GET", .never_indexed);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x1f\x08\x06secret\x00\x07x-trace\x011\x12\x03GET", output.written());
-    try testing.expectEqual(0, test_encoder.table.len());
-}
-
-test "a line too large for the table is sent without indexing rather than emptying it" {
-    test_encoder.init(40, .never);
-    var buffer: [test_block_len_max]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    try test_encoder.write_field(&output, "a", "b", .incremental);
-    try test_encoder.write_field(&output, "c", "dddddddd", .incremental);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x40\x01a\x01b\x00\x01c\x08dddddddd", output.written());
-    try testing.expectEqual(1, test_encoder.table.len());
-}
-
-test "a line that exactly fills the table is indexed" {
-    test_encoder.init(34, .never);
-    var buffer: [test_block_len_max]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    try test_encoder.write_field(&output, "a", "b", .incremental);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x40\x01a\x01b", output.written());
-    try testing.expectEqual(1, test_encoder.table.len());
-}
-
-test "a lowered then raised limit opens the next block with the smallest size, then the final" {
-    test_encoder.init(4096, .never);
-    var buffer: [test_block_len_max]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    try test_encoder.write_field(&output, "a", "b", .incremental);
-    try test_encoder.write_field(&output, "c", "d", .incremental);
-    test_encoder.commit_block();
-    test_encoder.set_capacity_limit(40);
-    test_encoder.set_capacity_limit(100);
-    output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x3f\x09\x3f\x45", output.written());
-    try testing.expectEqual(100, test_encoder.table.capacity);
-    try testing.expectEqual(1, test_encoder.table.len());
-    output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    test_encoder.commit_block();
-    try testing.expectEqual(0, output.offset);
-    test_encoder.set_capacity_limit(constants.dynamic_table_capacity_max * 2);
-    output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x3f\xe1\x7f", output.written());
-    try testing.expectEqual(constants.dynamic_table_capacity_max, test_encoder.table.capacity);
-}
-
-test "a field that does not fit the output is not written at all, and not inserted" {
-    test_encoder.init(4096, .never);
-    var buffer: [4]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    try testing.expectError(error.NoSpaceLeft, test_encoder.write_field(&output, "a", "bcdef", .incremental));
-    test_encoder.commit_block();
-    try testing.expectEqual(0, output.offset);
-    try testing.expectEqual(0, test_encoder.table.len());
-}
-
-test "a block the caller abandons owes its size update again" {
-    test_encoder.init(4096, .never);
-    test_encoder.set_capacity_limit(100);
-    var buffer: [test_block_len_max]u8 = @splat(0);
-    var output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    try testing.expectEqualSlices(u8, "\x3f\x45", output.written());
-    // The caller found no room for a field line and threw the block away, so the peer never read
-    // the update. RFC 7541 §4.2: the decoder's table holds the capacity last declared to it, so
-    // the next block owes the same update.
-    output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    test_encoder.commit_block();
-    try testing.expectEqualSlices(u8, "\x3f\x45", output.written());
-    // A block that was committed does not repeat it.
-    output = Writer.init(&buffer);
-    try test_encoder.begin_block(&output);
-    test_encoder.commit_block();
-    try testing.expectEqual(0, output.offset);
-}
-
-/// The scan `find_static` replaced, kept as the reference its index must agree with. Test-only.
-fn find_static_scan(name: []const u8, value: []const u8) Match {
-    var match: Match = .{};
-    for (static_table.entries, 1..) |entry, index| {
-        if (!std.mem.eql(u8, entry.name, name)) continue;
-        if (match.name == null) match.name = @intCast(index);
-        if (std.mem.eql(u8, entry.value, value)) {
-            match.exact = @intCast(index);
-            return match;
-        }
-    }
-    return match;
-}
-
-/// Fails, naming the line, when the index and the scan differ on it. Test-only.
-fn expect_same_match(name: []const u8, value: []const u8) !void {
-    const indexed = find_static(name, value);
-    const scanned = find_static_scan(name, value);
-    if (std.meta.eql(indexed, scanned)) return;
-    std.debug.print("first difference: name \"{s}\" value \"{s}\": index {any}, scan {any}\n", .{ name, value, indexed, scanned });
-    return error.TestUnexpectedResult;
-}
-
-/// The longest name or value a test varies. Test-only.
-const varied_len_max: usize = 64;
-
-test "RFC 7541 Appendix A: the static index finds what the scan finds, for every name and value the table holds" {
-    // Every name of the table with every value of the table, the empty value among them.
-    for (static_table.entries) |named| {
-        for (static_table.entries) |valued| try expect_same_match(named.name, valued.value);
-        try expect_same_match(named.name, "not in the table");
-    }
-}
-
-test "RFC 7541 Appendix A: the static index finds nothing for a name one octet away from the table's" {
-    try expect_same_match("", "");
-    try expect_same_match("x-forwarded-for", "");
-    var varied: [varied_len_max + 1]u8 = undefined;
-    for (static_table.entries) |entry| {
-        const name = entry.name;
-        // The name one octet shorter, one octet longer, and with each octet changed.
-        if (name.len > 0) try expect_same_match(name[0 .. name.len - 1], entry.value);
-        @memcpy(varied[0..name.len], name);
-        varied[name.len] = 'x';
-        try expect_same_match(varied[0 .. name.len + 1], entry.value);
-        for (0..name.len) |position| {
-            @memcpy(varied[0..name.len], name);
-            varied[position] ^= 0x20;
-            try expect_same_match(varied[0..name.len], entry.value);
-        }
-    }
+test {
+    _ = @import("encoder_test.zig");
 }

@@ -5238,6 +5238,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - On a laptop's Linux VM it parsed the records of both servers. There both slept for
       milliseconds at p99, because oha's own pauses on the VM left gaps in the load. So only the
       judge's cores can tell the two servers apart.
+    - A capture on the same VM found that colibri's h2 responses took 26 octets of field block and
+      axum's 7, because colibri wrote no response line into HPACK's dynamic table. Decision 132
+      indexes them, and empties both tables after a block the encoder abandoned. Callgrind on the
+      VM counted 12,544 instructions a request in cleartext before and 12,215 after.
+      Mutations, 9 of 9 CAUGHT once the equivalent one was removed: the abandoned block not seen,
+      no update to 0, the mirror not emptied, an insert not noted, a commit that keeps the insert
+      or the owed update noted, response lines and `:status` not indexed, and the abandoned block
+      not seen by h2's refused response. A line in `begin_block` that cleared the insert was
+      equivalent, and is gone.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

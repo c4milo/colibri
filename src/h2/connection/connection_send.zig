@@ -201,9 +201,12 @@ fn encode_response(target: *Connection, buffer: []u8, code: http.Status, fields:
     var digits: [http.constants.status_digits_len]u8 = undefined;
     const status_text = code.write_digits(&digits);
     // RFC 9113 §8.3.2: a response carries the `:status` pseudo-header field, and it comes first.
-    target.encoder.write_field(&writer, ":status", status_text, .without_indexing) catch return error.OutputTooSmall;
+    // Decision 132: a response's lines go into the dynamic table, so a line the next response
+    // repeats is an index of one octet. The encoder empties both tables after a block it inserted
+    // into and the caller abandoned, as `write_in_place` does when the block does not fit.
+    target.encoder.write_field(&writer, ":status", status_text, .incremental) catch return error.OutputTooSmall;
     for (fields) |field_line| {
-        target.encoder.write_field(&writer, field_line.name, field_line.value, .without_indexing) catch {
+        target.encoder.write_field(&writer, field_line.name, field_line.value, .incremental) catch {
             // RFC 9113 §4.3: a field block is one sequence, so a section past the buffer is
             // refused whole rather than cut.
             return error.OutputTooSmall;
@@ -215,8 +218,9 @@ fn encode_response(target: *Connection, buffer: []u8, code: http.Status, fields:
 /// Writes a response whose block fits one HEADERS frame and the caller's room, which is the common
 /// case. The block is encoded in its place in `output`, after the frame header, so no octet of it
 /// is copied. Null when it does not fit: the caller then encodes it into `send_block` and cuts it
-/// into frames (RFC 9113 §4.3). Encoding twice is safe, because the encoder declares nothing
-/// before `commit_block`.
+/// into frames (RFC 9113 §4.3). Encoding twice is safe: the encoder declares nothing before
+/// `commit_block`, and after a block that inserted and was abandoned, the next block empties both
+/// tables (decision 132).
 fn write_in_place(target: *Connection, output: []u8, stream_id: u32, code: http.Status, fields: []const hpack.Field, end_stream: bool) ?usize {
     if (output.len <= constants.frame_header_len) return null;
     const room = output[constants.frame_header_len..];
