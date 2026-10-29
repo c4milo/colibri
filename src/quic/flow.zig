@@ -172,6 +172,25 @@ pub const Receiver = struct {
     pub fn credit_frame_limit(receiver: *Receiver, now_ns: u64, round_trip_ns: u64) ?u64 {
         if (!receiver.owes_credit()) return null;
         receiver.tune(now_ns, round_trip_ns);
+        return receiver.advance(now_ns);
+    }
+
+    /// The limit to advertise in a MAX_STREAMS frame, or null when no stream closed since the
+    /// last one. A stream count never grows, and it owes credit as each stream the peer opened
+    /// closes. §4.6: "Implementations might choose to increase limits as streams are closed, to
+    /// keep the number of streams available to peers roughly consistent." A peer whose streams
+    /// all wait for credit then waits one round trip, not for half the count (decision 130).
+    pub fn count_frame_limit(receiver: *Receiver, now_ns: u64) ?u64 {
+        if (!receiver.owes_count_credit()) return null;
+        return receiver.advance(now_ns);
+    }
+
+    /// Whether a stream the peer opened closed since the limit last rose (decision 130).
+    pub fn owes_count_credit(receiver: *const Receiver) bool {
+        return receiver.consumed + receiver.window > receiver.limit;
+    }
+
+    fn advance(receiver: *Receiver, now_ns: u64) u64 {
         receiver.credited_at_ns = now_ns;
         receiver.limit = receiver.consumed + receiver.window;
         return receiver.limit;
@@ -291,6 +310,22 @@ test "§4.1, §4.2: credit follows what the application took, not what arrived" 
     try testing.expect(!receiver.owes_credit());
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     try testing.expectEqual(half_window, receiver.available());
+}
+
+test "§4.6, decision 130: a stream count owes credit as each stream closes" {
+    const count = 32;
+    var streams = Receiver.init(count, count);
+    try streams.use(count, error.StreamLimitExceeded);
+    try testing.expect(!streams.owes_count_credit());
+    try testing.expectEqual(null, streams.count_frame_limit(0));
+    streams.consume(1);
+    try testing.expect(streams.owes_count_credit());
+    try testing.expectEqual(count + 1, streams.count_frame_limit(0).?);
+    try testing.expect(!streams.owes_count_credit());
+    try testing.expectEqual(null, streams.count_frame_limit(0));
+    // Data of the same window still waits for half of it.
+    streams.consume(1);
+    try testing.expect(!streams.owes_credit());
 }
 
 test "§4.1: a limit that would not rise is never offered, whatever the window" {

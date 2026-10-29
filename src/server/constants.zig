@@ -72,8 +72,10 @@ pub const last_chunk_len: usize = 5;
 
 /// Request streams a QUIC connection's client may have open at once, which the server grants as
 /// `initial_max_streams_bidi` (RFC 9000 §4.6, §18.2) and which sizes each connection's table of
-/// responses. h3 tracks more (`h3.constants.request_streams_max`).
-pub const quic_requests_max: u32 = 32;
+/// responses. It is h3's own count (`h3.constants.request_streams_max`), as quinn and quic-go
+/// grant: at 32, a client on a path of 50 ms reached about 2,100 requests a second over 8
+/// connections (decision 130).
+pub const quic_requests_max: u32 = 100;
 
 /// How far apart a QUIC connection's request numbers are: a stream ID's two low bits name its
 /// type (RFC 9000 §2.1), so a client's request streams are 4 apart.

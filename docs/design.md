@@ -5198,6 +5198,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     divided by its median p99 over h2-tls, for each profile and rate. A new connection for each
     request, which would show h3's handshake of one round trip, is not measured yet.
 
+    The first run, [40899079463](https://github.com/c4milo/colibri/actions/runs/40899079463) on
+    `6c6d38b1`, took one round in each job. On every profile with delay, chi's and axum's p99 over
+    h3 was 0.4 to 0.7 of their p99 over h2-tls, which is what h3 is for. colibri's h3 reached
+    about 2,100 req/s at 50 ms and 890 at 100 ms, and its queue then pushed its p99 to seconds.
+    Each connection granted 32 request streams and gave them back 16 at a time, which decision
+    130 changes. Under loss, axum's h3 answered some requests with a status other than 200.
+
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
     serves, from a run with `competitors` and `h11` set. `report.py --test` holds the report to

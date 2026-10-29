@@ -161,7 +161,8 @@ pub const Streams = struct {
             streams.local_limit[index] = flow.Sender.init(local_limits[index]);
             const capped = @min(peer_limits[index], constants.streams_per_connection_max);
             // A stream count is not data, so it never grows: decision 49 tunes a data window
-            // against a round trip, and §4.6's limit is bounded by the table instead.
+            // against a round trip, and §4.6's limit is bounded by the table instead. Each
+            // closed stream is worth a MAX_STREAMS frame (`count_frame_limit`, decision 130).
             const count = @max(capped, 1);
             streams.peer_limit[index] = flow.Receiver.init(count, count);
         }
@@ -316,8 +317,7 @@ pub const Streams = struct {
 
     /// The limit to advertise in a MAX_STREAMS frame, or null when none is owed (§4.6).
     pub fn peer_limit_frame(streams: *Streams, directionality: Directionality, now_ns: u64) ?u64 {
-        // A stream count never grows, so the round trip it would tune against is not read.
-        return streams.peer_limit[@intFromEnum(directionality)].credit_frame_limit(now_ns, 0);
+        return streams.peer_limit[@intFromEnum(directionality)].count_frame_limit(now_ns);
     }
 
     /// The limit to name in a STREAMS_BLOCKED frame, or null when none is owed (§4.6, §19.14).

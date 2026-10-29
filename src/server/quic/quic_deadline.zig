@@ -89,12 +89,14 @@ pub fn observe_sent(connection: *QuicConnection, now_ns: u64) void {
     observe_credit(connection, now_ns);
 }
 
-/// Notes at `now_ns` whether colibri holds credit its client needs, which stops the body meters.
-/// Once the credit is out, the idle and head deadlines move by the time it was held.
+/// Notes at `now_ns` whether colibri holds credit its client needs. Data credit stops the body
+/// meters, and no other credit does: a stream the client may open sends no octet of a body
+/// (decision 130). Once any credit is out, the idle and head deadlines move by the time it was
+/// held.
 fn observe_credit(connection: *QuicConnection, now_ns: u64) void {
     const clock = &connection.clock;
+    quic_body.observe(connection, quic.connection_flow.data_credit_owed(&connection.transport), now_ns);
     const held = quic.connection_flow.credit_owed(&connection.transport);
-    quic_body.observe(connection, held, now_ns);
     if (held) {
         if (clock.credit_held_since_ns == null) clock.credit_held_since_ns = now_ns;
         return;

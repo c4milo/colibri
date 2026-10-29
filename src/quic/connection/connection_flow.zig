@@ -82,11 +82,20 @@ pub fn write_limits(connection: *Connection, level: Level, writer: *Writer, numb
 /// congestion window is full, and a peer that needs the credit waits on this endpoint then
 /// (decision 110 as amended).
 pub fn credit_owed(connection: *Connection) bool {
-    if (connection.receive_flow.owes_credit() or connection.max_data.owed) return true;
     const streams = &connection.streams;
     for (streams.peer_limit, streams.max_streams) |count, frame| {
-        if (count.owes_credit() or frame.owed) return true;
+        if (count.owes_count_credit() or frame.owed) return true;
     }
+    return data_credit_owed(connection);
+}
+
+/// Whether this endpoint owes its peer credit for data: a MAX_DATA or MAX_STREAM_DATA frame, as
+/// `credit_owed` judges one. A request body waits on this credit alone. MAX_STREAMS lets the
+/// peer open streams and sends no octet of an open one, and it is owed as each stream closes
+/// (decision 130).
+pub fn data_credit_owed(connection: *Connection) bool {
+    if (connection.receive_flow.owes_credit() or connection.max_data.owed) return true;
+    const streams = &connection.streams;
     var walk = streams.pool.iterator();
     // Bounded by the table's capacity, `streams_per_connection_max`.
     while (walk.next()) |stream| {
