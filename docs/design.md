@@ -5123,6 +5123,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       differently. Mutations, 6 of 6 CAUGHT: parameters keyed by their names, no names written,
       the leaf's first route naming each entry, the wildcard's name lost, `same_leaf` comparing
       names, and a leaf's pattern left unnamed.
+    - The judge's run 40798495858 found no input past the noise. `h2-routes-many` rose to 1.0021
+      and 1.0025 of the base's instructions, from 16,557 to 16,592 a request in job 1: the copy
+      of the names on `found` that decision 129 ruling 4 priced.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,
