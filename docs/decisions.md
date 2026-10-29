@@ -4703,6 +4703,34 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A `query` field beside `path`, with `path` holding "/" alone. Each program that reads
        `path` then reads the query apart, and the `:path` of h2 and h3 holds both.
 
+     **Amended by the owner on 2026-10-29: a pattern and a path may end in "/".** The route table
+     of Kubernetes holds 64 routes that end in "/", such as `GET /api/`. The rule on empty
+     segments refused each of them. RFC 3986 §6.2.4 counts "/a/" equal to "/a" only when the
+     server says so, as with a redirect. So "/a" and "/a/" are two resources, and a table may
+     name both. The owner ruled the two routes, and the empty segment as the last one alone.
+     - Only the last segment of a pattern may be empty. `segment_empty` refuses an empty segment
+       elsewhere, as in "/a//b" and "//".
+     - Only the last segment of a path may be empty. A path with an empty segment elsewhere
+       matches nothing.
+     - Only a pattern that ends in "/" matches a path that ends in "/". A parameter does not
+       match an empty segment, and the wildcard does not match a path that ends in "/". This
+       rule came with the amendment, and it is the narrower of the two that it could take.
+     - The pattern "/" is still the root, with no segment.
+     - The check of unreachable routes (ruling 12, as decision 128 amends it) stays sound. A path
+       holds an empty segment only where its pattern holds one, so the empty segment acts as one
+       more literal (claim 2 of `router_hidden.zig`).
+
+     The alternatives refused:
+     - Keep the rule. The Kubernetes table then loses its 64 routes, and no program serves
+       "/api/".
+     - Refuse a table that names "/a" beside "/a/". The two are two resources, and a program may
+       serve both.
+     - A 308 redirect from one form to the other, as httprouter does. colibri would then write a
+       response that the program did not ask for.
+     - A wildcard that matches a path that ends in "/", so that "/files/*" matches "/files/a/".
+       The wildcard would then match an empty segment, which no parameter matches. The check of
+       unreachable routes would need a new claim. A later ruling can widen the rule.
+
 123. **QUIC skips packet numbers in its 1-RTT space to catch an optimistic ACK.** Ruled by the
      owner on 2026-10-17, after the review of design §8 step 20e.
 
