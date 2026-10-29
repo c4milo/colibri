@@ -11,8 +11,15 @@ The report then gives no sustained rate, since a round trip of 100 ms passes any
 path sets. In its place it gives, for each profile, server and rate, the median p99 over h3
 divided by the median p99 over h2-tls.
 
+With --waits each run also has a <rate>.waits beside its JSON: the lines of `perf sched timehist`
+for the server's process (design §8 step 13j). The report gives, for each protocol, server and
+rate, the median over the counted rounds of: the times the server ran in a second, how long a run
+took at p50, p99 and its longest, how long the server waited for its core once woken, at p99 and
+its longest, and how long it slept before a run, at p50 and p99.
+
     python3 bench/report_latency.py <scratch> <report.md> --p99-bound-ms <ms>
     python3 bench/report_latency.py <scratch> <report.md> --network
+    python3 bench/report_latency.py <scratch> <report.md> --waits
     python3 bench/report_latency.py --test
 """
 
@@ -132,6 +139,87 @@ def network_report(scratch):
     return "\n".join(lines + details(runs, labels, servers)) + "\n"
 
 
+# The columns of a `perf sched timehist` line after the task: the time the task slept before it
+# ran, the time it waited for the core once woken, and the time it ran, in milliseconds.
+TIMEHIST_COLUMNS = 3
+# The figures of each run's record that --waits reports, by name.
+WAIT_FIGURES = ("runs a second", "run p50", "run p99", "run longest", "delay p99", "delay longest",
+                "sleep p50", "sleep p99")
+
+
+def percentile(values, share):
+    """The value that `share` of `values` do not pass: the nearest rank."""
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(share * len(ordered)))]
+
+
+def read_timehist(text):
+    """The figures of one record, from the lines of `perf sched timehist`, or None for no line."""
+    times, sleeps, delays, runs = [], [], [], []
+    for line in text.splitlines():
+        words = line.split()
+        # A line of an event holds the time, the core, the task and the three columns. The head's
+        # lines fail the parse of a number.
+        if len(words) < 2 + TIMEHIST_COLUMNS:
+            continue
+        try:
+            at = float(words[0])
+            sleep, delay, run = (float(word) for word in words[-TIMEHIST_COLUMNS:])
+        except ValueError:
+            continue
+        times.append(at)
+        sleeps.append(sleep)
+        delays.append(delay)
+        runs.append(run)
+    if len(runs) < 2:
+        return None
+    span = times[-1] - times[0]
+    return {
+        # The span from the first run to the last holds one run fewer than the record.
+        "runs a second": (len(runs) - 1) / span if span > 0 else float(len(runs)),
+        "run p50": percentile(runs, 0.5), "run p99": percentile(runs, 0.99), "run longest": max(runs),
+        "delay p99": percentile(delays, 0.99), "delay longest": max(delays),
+        "sleep p50": percentile(sleeps, 0.5), "sleep p99": percentile(sleeps, 0.99),
+    }
+
+
+def read_waits(scratch):
+    """{(protocol, server, rate): [figures of each counted round]}."""
+    waits = {}
+    for path in sorted(pathlib.Path(scratch, "runs").glob("*/*/*/*.waits")):
+        round_, protocol, server = path.parts[-4], path.parts[-3], path.parts[-2]
+        if round_ == "0":
+            continue
+        figures = read_timehist(path.read_text())
+        if figures is not None:
+            waits.setdefault((protocol, server, int(path.stem)), []).append(figures)
+    return waits
+
+
+def waits_report(scratch):
+    """The report of --waits: where each server spent the time between its requests."""
+    runs = read_runs(scratch)
+    waits = read_waits(scratch)
+    protocols = sorted({key[0] for key in runs})
+    servers = sorted({key[1] for key in runs})
+    lines = header(scratch, "Where the server waits under load (design §8 step 13j)")
+    lines += ["## Runs of the server", "",
+              "Medians over the counted rounds of `perf sched timehist` on the server's core. A run is "
+              "one stretch on the core between two sleeps. Times in milliseconds: \"delay\" is the wait "
+              "for the core once woken, and \"sleep\" is the time before a run. A dash marks a load "
+              "with no record.", ""]
+    lines += ["| Protocol | Server | Rate | " + " | ".join(WAIT_FIGURES) + " |",
+              "|---|---|---|" + "---|" * len(WAIT_FIGURES)]
+    for protocol in protocols:
+        for server in servers:
+            for rate in sorted(rate for (p, s, rate) in runs if p == protocol and s == server):
+                rounds = waits.get((protocol, server, rate))
+                cells = [f"{statistics.median(r[name] for r in rounds):.3f}" if rounds else "—"
+                         for name in WAIT_FIGURES]
+                lines.append(f"| {protocol} | {server} | {rate} | " + " | ".join(cells) + " |")
+    return "\n".join(lines + details(runs, protocols, servers)) + "\n"
+
+
 def write_run(scratch, round_, protocol, server, rate, rps, p99, codes):
     path = pathlib.Path(scratch, "runs", str(round_), protocol, server, f"{rate}.json")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -162,6 +250,9 @@ def test():
     with tempfile.TemporaryDirectory() as scratch:
         pathlib.Path(scratch, "machine.txt").write_text("rounds=2\n")
         test_network(scratch)
+    with tempfile.TemporaryDirectory() as scratch:
+        pathlib.Path(scratch, "machine.txt").write_text("rounds=2\n")
+        test_waits(scratch)
     print("report_latency.py: the report reads the runs as the tests require")
 
 
@@ -178,12 +269,49 @@ def test_network(scratch):
     assert "## h3@lossy" in text and "Highest sustained rate" not in text, text
 
 
+# The head of `perf sched timehist`, which the parse skips.
+TIMEHIST_HEAD = """           time    cpu  task name                       wait time  sch delay   run time
+                        [tid/pid]                          (msec)     (msec)     (msec)
+--------------- ------  ------------------------------  ---------  ---------  ---------
+"""
+
+
+def timehist_lines(sleeps, delays, runs, start=100.0, step=0.01):
+    """Lines of `perf sched timehist` for one task, `step` seconds apart."""
+    rows = [f"{start + index * step:15.6f} [0001]  http-server[42]  {sleep:9.3f}  {delay:9.3f}  {run:9.3f}"
+            for index, (sleep, delay, run) in enumerate(zip(sleeps, delays, runs))]
+    return TIMEHIST_HEAD + "\n".join(rows) + "\n"
+
+
+def test_waits(scratch):
+    # One counted round, so a warm-up the report does not discard changes each median.
+    for round_ in (0, 1):
+        warm = round_ == 0
+        write_run(scratch, round_, "h2-tls", "a", 1000, 1000, 5, {"200": 10})
+        write_run(scratch, round_, "h2-tls", "b", 1000, 1000, 4, {"200": 10})
+        # 101 runs 0.01 s apart: 100 runs a second. Run i takes i/100 ms, so p50 is 0.50 and p99
+        # 0.99, and the warm-up's runs are ten times longer, which the report must discard.
+        scale = 10 if warm else 1
+        runs = [scale * index / 100 for index in range(101)]
+        delays = [0.0] * 100 + [0.5 * round_]
+        path = pathlib.Path(scratch, "runs", str(round_), "h2-tls", "a", "1000.waits")
+        path.write_text(timehist_lines([0.2] * 101, delays, runs))
+    text = waits_report(scratch)
+    assert "| h2-tls | a | 1000 | 100.000 | 0.500 | 0.990 | 1.000 | 0.000 | 0.500 | 0.200 | 0.200 |" in text, text
+    # b has no record, and its latency still has its table.
+    assert "| h2-tls | b | 1000 | — |" in text and "## h2-tls" in text, text
+    assert read_timehist(TIMEHIST_HEAD) is None
+
+
 def main(argv):
     if argv[1:] == ["--test"]:
         test()
         return
     if len(argv) == 4 and argv[3] == "--network":
         pathlib.Path(argv[2]).write_text(network_report(argv[1]))
+        return
+    if len(argv) == 4 and argv[3] == "--waits":
+        pathlib.Path(argv[2]).write_text(waits_report(argv[1]))
         return
     if len(argv) != 5 or argv[3] != "--p99-bound-ms":
         sys.exit(__doc__)

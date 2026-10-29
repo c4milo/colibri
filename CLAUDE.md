@@ -443,6 +443,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   over h2-tls and h3 on the loopback device under four tc netem profiles of delay and loss. The
   report gives each server's p99 over h3 divided by its p99 over h2-tls (design §8 step 13i). It
   needs sudo -n, tc, ethtool and sch_netem, and the workflow's `network` input runs it on the judge.
+  `bench/run.sh --latency --waits [--rounds <n>] [report.md]` loads colibri and axum over h2 and
+  h2-tls at 40,000 and 80,000 req/s, and records the server's core with `perf sched record` during
+  each load. The report gives how often the server ran, how long each run took, how long it waited
+  for its core, and how long it slept between runs (design §8 step 13j). It needs sudo -n and
+  perf, and the workflow's `waits` input runs it on the judge.
   `bench/run.sh --profile [--h11] [--h3] [report.md]` runs each input once after the warm-up,
   under `perf record` with the call stacks, in place of the counts (design §8 step 13h). The
   report gives the functions that took the most samples, and `<report>-profile/` holds each

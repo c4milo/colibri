@@ -12,7 +12,8 @@
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
 # (design §8 step 13d). With --latency, bench/run_latency.sh runs instead: the throughput and the
-# latency of servers that route, at fixed request rates, under oha (design §8 step 13f). With
+# latency of servers that route, at fixed request rates, under oha (design §8 step 13f), or with
+# --network or --waits after --latency, the inputs of steps 13i and 13j. With
 # --profile, perf record samples the server's call stacks under each input (bench/run_profile.sh).
 #
 #   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--latency] [--profile] [--rounds <n>] [report.md]

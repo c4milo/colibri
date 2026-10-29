@@ -5220,6 +5220,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     So colibri's h3 keeps up with quinn and quic-go on a path with delay, and falls behind them
     under loss at the higher rates. colibri runs RFC 9002's NewReno, and quic-go and quinn run
     CUBIC, but no run has shown that the congestion controller is the cause.
+  - **13j**, where a server's time goes between its requests, which the owner ruled on 2026-10-29
+    for https://github.com/c4milo/colibri/issues/113. Judge run
+    [40896472412](https://github.com/c4milo/colibri/actions/runs/40896472412), on `cd91ecf4`, gave
+    colibri a p99 over h2-tls at 40,000 req/s of 5.89 ms and 5.34 ms, against axum's 4.75 ms and
+    4.32 ms. In cleartext colibri's p99 is the lower one. colibri takes fewer instructions per
+    request than hyper, on which axum runs, so the loss is in when the server runs and not in how
+    much it does.
+    - `bench/run.sh --latency --waits`, which the workflow's `waits` input runs, loads colibri and
+      axum over h2 and h2-tls at 40,000 and 80,000 req/s. One second into each load,
+      `perf sched record` records the server's core for 3 s. `perf sched timehist` then gives each
+      run of the server: how long it ran, how long it waited for the core once woken, and how
+      long it slept before.
+    - The report gives the median over the rounds of the runs a second, the p50, p99 and longest
+      run, the p99 and longest wait for the core, and the p50 and p99 sleep, beside the latency
+      of the same loads.
+    - On a laptop's Linux VM it parsed the records of both servers. There both slept for
+      milliseconds at p99, because oha's own pauses on the VM left gaps in the load. So only the
+      judge's cores can tell the two servers apart.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it

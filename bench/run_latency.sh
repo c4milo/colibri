@@ -13,7 +13,7 @@
 # `routes=github`, to chi on quic-go's http3.Server and to axum on quinn and the h3 crate, the
 # three that speak it. oha's release builds have no h3, so the script builds oha from its tag.
 #
-#   bench/run_latency.sh [--rounds <n>] [--network] [report.md]
+#   bench/run_latency.sh [--rounds <n>] [--network | --waits] [report.md]
 #
 # With --network it measures what h3 changes on a path with delay and loss (design §8 step 13i),
 # in place of the inputs above. tc netem adds each profile of `profiles` to the loopback device,
@@ -22,21 +22,30 @@
 # whole. colibri, chi and axum serve h2-tls and h3 with 512 requests in flight, and the script
 # puts the device back as it was when it exits. It needs sudo -n, tc, ethtool and sch_netem.
 #
+# With --waits it records where a server spends the time between its requests (design §8 step
+# 13j, https://github.com/c4milo/colibri/issues/113), in place of the inputs above. colibri and
+# axum serve h2 and h2-tls at `waits_rates`, and 1 s into each load `perf sched record` records the
+# server's core for 3 s. `perf sched timehist` then gives each time the server ran: how long it ran,
+# how long it waited for the core once woken, and how long it slept before. It needs sudo -n and
+# perf.
+#
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset, as the judge
 # runs bench/run.sh (decision 33 as amended). Round 0 is a warm-up that the report discards. A time
 # is compared only inside one job (design §11.4). It needs Zig, Go, cargo, Node and npm, curl and
-# python3, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. --network needs no Node
-# and no BENCH_ZIG_HTTPZ. BENCH_OHA names an oha with h3 built already.
+# python3, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. --network and --waits
+# need no Node and no BENCH_ZIG_HTTPZ. BENCH_OHA names an oha with h3 built already.
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rounds=5
 network=false
+waits=false
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
   case "$1" in
     --rounds) rounds="$2"; shift 2 ;;
     --network) network=true; shift ;;
+    --waits) waits=true; shift ;;
     *) report="$1"; shift ;;
   esac
 done
@@ -102,6 +111,25 @@ if [ "$network" = true ]; then
   seconds="$network_seconds"
 fi
 
+# --waits: the rate where colibri's p99 over h2-tls lost to axum's, and the one past it where
+# colibri's rounds spread (https://github.com/c4milo/colibri/issues/113). The record starts once
+# the load has run a second, and it ends a second before the load does.
+readonly waits_rates=(40000 80000)
+readonly waits_delay_seconds=1
+readonly waits_record_seconds=3
+if [ "$waits" = true ]; then
+  if [ "$network" = true ]; then
+    echo "run_latency.sh: --network and --waits are two runs" >&2
+    exit 1
+  fi
+  servers=(colibri axum)
+  protocols=(h2 h2-tls)
+  rates=("${waits_rates[@]}")
+fi
+# Whether the run builds and names http.zig and Fastify, which --network and --waits leave out.
+every_server=true
+if [ "$network" = true ] || [ "$waits" = true ]; then every_server=false; fi
+
 scratch="$(mktemp -d)"
 server_pid=""
 lo_mtu=""
@@ -131,8 +159,8 @@ build_servers() {
   # The identity h3's servers present, and the empty files directory colibri's UDP server takes.
   (cd "$repository_root" && go run tools/h2_interop/tls_identity.go "$scratch/identity")
   mkdir -p "$scratch/www"
-  # --network measures colibri, chi and axum alone.
-  if [ "$network" = true ]; then return 0; fi
+  # --network and --waits measure fewer servers.
+  if [ "$every_server" = false ]; then return 0; fi
   # From a copy, so the packages that Zig fetches beside build.zig.zon stay out of bench/.
   cp -R "$repository_root/bench/competitors/httpz" "$scratch/httpz-source"
   (cd "$scratch/httpz-source" &&
@@ -248,7 +276,7 @@ machine() {
   echo "colibri=$(git -C "$repository_root" rev-parse --short HEAD), zig $(zig version)"
   echo "chi=$(sed -n 's|.*go-chi/chi/v5 \(v[0-9.]*\).*|\1|p' "$repository_root/bench/competitors/chi/go.mod" | head -1), $(go version | cut -d' ' -f3)"
   echo "axum=$(awk '$0 == "name = \"axum\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock"), $(cd "$repository_root/bench/competitors/axum" && rustc --version)"
-  if [ "$network" = false ]; then
+  if [ "$every_server" = true ]; then
     echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("$BENCH_ZIG_HTTPZ" version)"
     echo "fastify=$(sed -n 's/.*"fastify": "\(.*\)".*/\1/p' "$repository_root/bench/competitors/fastify/package.json"), node $(node --version)"
   fi
@@ -268,6 +296,21 @@ machine() {
   else
     echo "path=loopback, 127.0.0.1"
   fi
+  if [ "$waits" = true ]; then
+    echo "waits=perf sched record of core ${server_core} for ${waits_record_seconds} s, ${waits_delay_seconds} s into each load, $(sudo -n perf --version)"
+  fi
+}
+
+# oha's load at <rate> for <protocol>, into <out>.json, with the server's runs on its core recorded
+# into <out>.waits: the lines of `perf sched timehist` for the server's process.
+load_with_waits() {  # load_with_waits <protocol> <rate> <out>
+  load "$1" "$2" "$3.json" &
+  local load_pid=$!
+  sleep "$waits_delay_seconds"
+  sudo -n perf sched record -C "$server_core" -o "$3.data" -- sleep "$waits_record_seconds" >/dev/null 2>&1
+  wait "$load_pid"
+  sudo -n perf sched timehist -i "$3.data" --pid "$server_pid" >"$3.waits" 2>/dev/null
+  sudo -n rm -f "$3.data"
 }
 
 # Makes the loopback device a path netem drops single packets on: an MTU of 1500, and no TCP
@@ -322,6 +365,10 @@ build_servers
 awk '$1 == "GET" { print $2 }' "$routes" | sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths.txt"
 machine >"$scratch/machine.txt"
 if [ "$network" = true ]; then prepare_lo; fi
+if [ "$waits" = true ] && ! sudo -n perf --version >/dev/null 2>&1; then
+  echo "run_latency.sh: --waits needs perf through sudo -n" >&2
+  exit 1
+fi
 
 # In each round the servers take turns, each through every rate of a protocol. Their list starts
 # one place later each round, so in n rounds that follow one another, each of n servers goes
@@ -341,7 +388,8 @@ measure_round() {  # measure_round <round> <label suffix>
       start_server "$server" "$protocol"
       mkdir -p "$scratch/runs/$round/$protocol$suffix/$server"
       for rate in "${rates[@]}"; do
-        load "$protocol" "$rate" "$scratch/runs/$round/$protocol$suffix/$server/$rate.json"
+        local out="$scratch/runs/$round/$protocol$suffix/$server/$rate"
+        if [ "$waits" = true ]; then load_with_waits "$protocol" "$rate" "$out"; else load "$protocol" "$rate" "$out.json"; fi
       done
       stop_server
     done
@@ -361,4 +409,5 @@ done
 
 report_arguments=(--p99-bound-ms "$p99_bound_ms")
 if [ "$network" = true ]; then report_arguments=(--network); fi
+if [ "$waits" = true ]; then report_arguments=(--waits); fi
 python3 "$repository_root/bench/report_latency.py" "$scratch" "$report" "${report_arguments[@]}"

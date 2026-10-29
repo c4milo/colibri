@@ -10,7 +10,9 @@
 # throughput and the latency of servers that route, colibri's and chi's, axum's, http.zig's and
 # Fastify's, at fixed rates under oha, over h11, h2, h2 over TLS and h3 (design §8 step 13f). With
 # `network`, bench/run.sh --latency --network measures colibri, chi and axum over h2 over TLS and
-# h3 on a loopback path that tc netem gives delay and loss (design §8 step 13i). With
+# h3 on a loopback path that tc netem gives delay and loss (design §8 step 13i). With `waits`,
+# bench/run.sh --latency --waits records how colibri's and axum's servers run and sleep on their
+# core under the latency load, with perf sched (design §8 step 13j). With
 # `profile`, perf record samples colibri's server and its call stacks under each input, and the
 # artifact holds the folded stacks (design §8 step 13h). The work is bench/run.sh, which a person on
 # Linux with perf runs for the same answer; this file only installs what it needs.
@@ -46,6 +48,10 @@ on:
         description: "Measure the latency of h2 over TLS and h3 on paths with delay and loss, in place of the other inputs"
         type: boolean
         default: false
+      waits:
+        description: "Record how colibri's and axum's servers run and sleep under the latency load, in place of the other inputs"
+        type: boolean
+        default: false
       profile:
         description: "Sample colibri's server and its call stacks under each input, in place of the counts"
         type: boolean
@@ -77,6 +83,7 @@ jobs:
       H3: ${{ inputs.h3 }}
       LATENCY: ${{ inputs.latency }}
       NETWORK: ${{ inputs.network }}
+      WAITS: ${{ inputs.waits }}
       PROFILE: ${{ inputs.profile }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -161,8 +168,9 @@ jobs:
           if [ "${H11}" = true ]; then arguments+=(--h11); fi
           if [ "${H3}" = true ]; then arguments+=(--h3); fi
           # --latency runs bench/run_latency.sh in place of the other inputs.
-          if [ "${LATENCY}" = true ] || [ "${NETWORK}" = true ]; then arguments+=(--latency); fi
+          if [ "${LATENCY}" = true ] || [ "${NETWORK}" = true ] || [ "${WAITS}" = true ]; then arguments+=(--latency); fi
           if [ "${NETWORK}" = true ]; then arguments+=(--network); fi
+          if [ "${WAITS}" = true ]; then arguments+=(--waits); fi
           if [ "${PROFILE}" = true ]; then arguments+=(--profile); fi
           bench/run.sh "${arguments[@]}" bench-report.md
       - name: Publish the report
