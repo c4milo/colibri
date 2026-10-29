@@ -112,6 +112,9 @@ pub const Built = struct {
     data_offset: u64 = 0,
     data_len: u16 = 0,
     stream_id: u64 = 0,
+    /// Where the STREAM frames after the first sit in the ring, and how many (decision 131).
+    ranges_from: u32 = 0,
+    ranges_len: u8 = 0,
 };
 
 /// One packet framed but not yet protected. RFC 9000 §14.1's expansion has to be decided before
@@ -146,6 +149,9 @@ pub const Planned = struct {
     data_offset: u64 = 0,
     data_len: u16 = 0,
     stream_id: u64 = 0,
+    /// Where the STREAM frames after the first sit in the ring, and how many (decision 131).
+    ranges_from: u32 = 0,
+    ranges_len: u8 = 0,
 };
 
 /// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
@@ -172,6 +178,9 @@ pub fn plan(
     const shape = try shape_of(connection, level, truncated.len, room.len);
     var framed_room = room;
     framed_room.len = shape.room;
+    // Every application-level record names the head its ranges would start at, ranges or none,
+    // so the oldest one is the ring's tail (INV-33).
+    const ranges_from = connection.stream_ranges.head;
     const framed = try packet_build_frames.write(connection, provider, stream_provider, space, level, number, payload, framed_room, now_ns);
     if (framed.len == 0) return null;
     // The number is spent only once the packet exists, so a level with nothing to send leaves
@@ -195,6 +204,8 @@ pub fn plan(
         .data_offset = framed.data_offset,
         .data_len = framed.data_len,
         .stream_id = framed.stream_id,
+        .ranges_from = ranges_from,
+        .ranges_len = framed.ranges_len,
     };
 }
 
@@ -349,6 +360,8 @@ pub fn seal_planned(
         .data_offset = planned.data_offset,
         .data_len = planned.data_len,
         .stream_id = planned.stream_id,
+        .ranges_from = planned.ranges_from,
+        .ranges_len = planned.ranges_len,
     };
 }
 

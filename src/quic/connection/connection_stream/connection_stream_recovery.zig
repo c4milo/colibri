@@ -4,8 +4,9 @@
 //!
 //! The connection drives RFC 9002's loss recovery (decision 59), and `connection_recovery` hands
 //! this file the records a packet number space took out: the acknowledged ones and the lost ones,
-//! in slices the caller placed. Each record names the one stream range its packet
-//! carried (decision 57), so this file reads nothing but those records. It runs for the
+//! in slices the caller placed. Each record names the stream ranges its packet carried, its first
+//! in place and the others in the ring (decisions 57 and 131), so this file reads nothing but
+//! those records and the ring. It runs for the
 //! application space alone, because only 1-RTT packets carry STREAM frames (RFC 9000 §12.4,
 //! Table 3), and a record from another space names no stream and is passed over.
 const std = @import("std");
@@ -16,6 +17,7 @@ const recovery_sent = @import("../../recovery/recovery_sent.zig");
 const stream_module = @import("../../stream/stream.zig");
 const connection_module = @import("../connection.zig");
 const stream_close = @import("connection_stream_close.zig");
+const stream_ranges = @import("connection_stream_ranges.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -60,18 +62,25 @@ pub fn on_packets_acknowledged(
     // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
     for (acknowledged) |record| {
         acknowledge_reset(connection, record.number);
-        const range = range_of(record) orelse continue;
-        if (!connection.streams.on_range_acknowledged(range)) continue;
-        if (held.written < completed.len) {
-            completed[held.written] = .{ .value = range.stream_id };
-            held.written += 1;
-        } else {
-            held.unwritten += 1;
+        // Bounded by `stream_frames_per_packet_max`.
+        for (0..stream_ranges.count(record)) |index| {
+            acknowledge_range(connection, stream_ranges.at(connection, record, index), completed, &held);
         }
-        // RFC 9000 §3.1: the sending part is in "Data Recvd", which may finish the stream.
-        _ = stream_close.close_if_finished(connection, connection.streams.lookup(.{ .value = range.stream_id }).live);
     }
     return held;
+}
+
+/// Counts one acknowledged range, and reports its stream when every octet and the FIN are in.
+fn acknowledge_range(connection: *Connection, range: Range, completed: []StreamId, held: *Acknowledged) void {
+    if (!connection.streams.on_range_acknowledged(range)) return;
+    if (held.written < completed.len) {
+        completed[held.written] = .{ .value = range.stream_id };
+        held.written += 1;
+    } else {
+        held.unwritten += 1;
+    }
+    // RFC 9000 §3.1: the sending part is in "Data Recvd", which may finish the stream.
+    _ = stream_close.close_if_finished(connection, connection.streams.lookup(.{ .value = range.stream_id }).live);
 }
 
 /// Keeps the stream octets the lost records carried, so `send` frames them again (RFC 9000
@@ -85,8 +94,10 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
     // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
     for (lost) |record| {
         owe_endings(connection, record.number);
-        const range = range_of(record) orelse continue;
-        try connection.streams.on_range_lost(range);
+        // Bounded by `stream_frames_per_packet_max`.
+        for (0..stream_ranges.count(record)) |index| {
+            try connection.streams.on_range_lost(stream_ranges.at(connection, record, index));
+        }
     }
 }
 
@@ -114,19 +125,6 @@ fn owe_endings(connection: *Connection, number: u64) void {
         stream.reset_stream.on_lost(number);
         stream.stop_sending.on_lost(number);
     }
-}
-
-/// The stream range a record's packet carried, or null when it carried none.
-fn range_of(record: Record) ?Range {
-    const fin = switch (record.carries) {
-        .stream => false,
-        .stream_fin => true,
-        .none, .crypto => return null,
-    };
-    // A range carries octets or the FIN (RFC 9000 §19.8); a STREAM frame with neither is not
-    // one colibri writes.
-    assert(record.data_len > 0 or fin);
-    return .{ .stream_id = record.stream_id, .offset = record.data_offset, .len = record.data_len, .fin = fin };
 }
 
 test {

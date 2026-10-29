@@ -260,19 +260,19 @@ test "client trace run: every seed closes the pool with each exchange reported o
     // timeout, and PINGs kept others from it. A seed replays in every build mode (invariant 5), so
     // the census is pinned, as Debug and `-Drelease` both give it.
     try testing.expectEqual(Result{
-        .states = 2589,
+        .states = 2581,
         .requests = 534,
-        .responses = 348,
-        .refused = 85,
+        .responses = 347,
+        .refused = 86,
         .failed = 52,
         .cancelled = 49,
-        .moved = 12,
-        .resent = 9,
+        .moved = 11,
+        .resent = 8,
         .quic_connections = 119,
-        .tcp_connections = 279,
+        .tcp_connections = 278,
         .goaways = 50,
         .learned = 61,
         .retired = 1,
-        .keep_alives = 4,
+        .keep_alives = 5,
     }, census.result);
 }

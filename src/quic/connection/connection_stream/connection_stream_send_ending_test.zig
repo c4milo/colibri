@@ -86,6 +86,8 @@ fn record_of(sent: send.Sent) Record {
         .data_offset = packet.data_offset,
         .data_len = packet.data_len,
         .stream_id = packet.stream_id,
+        .ranges_from = packet.ranges_from,
+        .ranges_len = packet.ranges_len,
     };
 }
 

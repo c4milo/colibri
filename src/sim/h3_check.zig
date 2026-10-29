@@ -28,13 +28,13 @@ const Side = sim.network.Endpoint;
 const constants = sim.constants;
 
 /// The digest of every seed's run, committed after both build modes agree on it.
-pub const census_crc32_expected: u32 = 0xdaf22831;
-pub const long_census_crc32_expected: u32 = 0xd895fcc6;
+pub const census_crc32_expected: u32 = 0xe0405543;
+pub const long_census_crc32_expected: u32 = 0x989cfa4a;
 /// The logs of `h3_qlog_check_seeds` seeds with a qlog on each endpoint: their octets, the digest
 /// of every record and the events read back. They change when an event or its fields change.
-pub const qlog_census_len_expected: u64 = 11_590_730;
-pub const qlog_census_crc32_expected: u32 = 0x9c128702;
-pub const qlog_census_events_expected: u64 = 50_487;
+pub const qlog_census_len_expected: u64 = 7_854_343;
+pub const qlog_census_crc32_expected: u32 = 0x4acfc036;
+pub const qlog_census_events_expected: u64 = 31_894;
 
 pub const Violation = h3_endpoint.Error || qlog_records.Error || error{
     /// The network was asked to carry a datagram and had no slot, which is a harness defect.

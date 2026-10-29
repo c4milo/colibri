@@ -6,6 +6,8 @@ const stream_module = @import("../../stream/stream.zig");
 const send = @import("../connection_send.zig");
 const stream_send = @import("connection_stream_send.zig");
 const send_test = @import("connection_stream_send_test.zig");
+const stream_ranges = @import("connection_stream_ranges.zig");
+const recovery_sent = @import("../../recovery/recovery_sent.zig");
 
 const StreamId = stream_module.StreamId;
 const Body = send_test.Body;
@@ -21,14 +23,33 @@ fn next_stream_id(body: *Body) !u64 {
     return sent.packets[0].stream_id;
 }
 
+/// The stream of each STREAM frame sent, in the order the frames went out, across packets: a
+/// packet carries several (decision 131). Test-only.
+const Order = struct {
+    body: *Body,
+    record: ?recovery_sent.Record = null,
+    index: usize = 0,
+
+    fn next(order: *Order) !u64 {
+        if (order.record == null or order.index == stream_ranges.count(order.record.?)) {
+            const sent = (try send_test.send_from(order.body, send_test.datagram.len)).?;
+            order.record = try send_test.record_kept(sent);
+            order.index = 0;
+        }
+        defer order.index += 1;
+        return stream_ranges.at(&send_test.client, order.record.?, order.index).stream_id;
+    }
+};
+
 test "RFC 9000 §2.3: a stream with a lower priority value sends first" {
     send_test.open_pair(.{});
     var body: Body = .{ .len = send_test.short_body_len };
     const later = try send_test.open_supplied(send_test.short_body_len, true);
     const sooner = try send_test.open_supplied(send_test.short_body_len, true);
     try stream_send.set_priority(&send_test.client, sooner, urgent);
-    try testing.expectEqual(sooner.value, try next_stream_id(&body));
-    try testing.expectEqual(later.value, try next_stream_id(&body));
+    var order: Order = .{ .body = &body };
+    try testing.expectEqual(sooner.value, try order.next());
+    try testing.expectEqual(later.value, try order.next());
 }
 
 test "RFC 9000 §2.3: streams of one priority take turns" {
@@ -36,13 +57,21 @@ test "RFC 9000 §2.3: streams of one priority take turns" {
     var body: Body = .{ .len = send_test.long_body_len };
     var ids: [turn_streams]StreamId = undefined;
     for (&ids) |*id| id.* = try send_test.open_supplied(send_test.long_body_len, true);
-    // Each body needs several packets, and no stream sends twice before every other sent once.
-    for (ids) |id| try testing.expectEqual(id.value, try next_stream_id(&body));
-    // A stream set before the others goes first even mid-turn, until it has nothing left.
-    try stream_send.set_priority(&send_test.client, ids[turn_streams - 1], urgent);
-    try testing.expectEqual(ids[turn_streams - 1].value, try next_stream_id(&body));
-    try testing.expectEqual(ids[turn_streams - 1].value, try next_stream_id(&body));
-    try testing.expectEqual(ids[0].value, try next_stream_id(&body));
+    // Each body needs several frames, and no stream sends twice before every other sent once.
+    var order: Order = .{ .body = &body };
+    for (ids) |id| try testing.expectEqual(id.value, try order.next());
+    // A stream set before the others goes first in the next packet, until it has nothing left.
+    const urgent_id = ids[turn_streams - 1];
+    try stream_send.set_priority(&send_test.client, urgent_id, urgent);
+    order = .{ .body = &body };
+    try testing.expectEqual(urgent_id.value, try order.next());
+    // Bounded by the frames one long body takes.
+    const after = for (0..send_test.long_body_len) |_| {
+        const id = try order.next();
+        if (id != urgent_id.value) break id;
+    } else return error.TestExpectedAnotherStream;
+    try testing.expectEqual(0, send_test.stream_of(urgent_id).outgoing.unframed_len());
+    try testing.expectEqual(ids[0].value, after);
 }
 
 test "RFC 9000 §2.1: a priority is set only on a stream this endpoint may send on" {

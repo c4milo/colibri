@@ -36,6 +36,7 @@ const path_module = @import("../path.zig");
 const stateless_reset = @import("../stateless_reset.zig");
 const termination_module = @import("../termination.zig");
 const recovery_module = @import("../recovery/recovery.zig");
+const recovery_ranges = @import("../recovery/recovery_ranges.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const frame_control = @import("../frame/frame_control.zig");
 const frame_latest = @import("../frame/frame_latest.zig");
@@ -130,6 +131,8 @@ pub const Connection = struct {
     termination: termination_module.Termination,
     /// RFC 9002's loss recovery and congestion control.
     recovery: recovery_module.Recovery,
+    /// The stream ranges of each application-level packet after its first (decision 131).
+    stream_ranges: recovery_ranges.Ring,
     /// The connection IDs RFC 9000 §7.3 authenticates, which are the handshake's and not the
     /// §5.1 set `local_ids` and `remote_ids` hold.
     identity: identity_module.Identity,
@@ -265,6 +268,7 @@ pub const Connection = struct {
         granted[@intFromEnum(stream_id.Directionality.bidirectional)] = parameters.initial_max_streams_bidi;
         granted[@intFromEnum(stream_id.Directionality.unidirectional)] = parameters.initial_max_streams_uni;
         connection.streams.init(initiator_of(connection.role), none, granted);
+        connection.stream_ranges.init();
     }
 
     /// Both levels of §4.1. The send side starts at zero for the same reason the stream limits do.

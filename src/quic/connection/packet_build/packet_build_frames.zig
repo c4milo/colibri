@@ -15,9 +15,10 @@
 //! 5. The limits this endpoint gives, then the BLOCKED frames, then RESET_STREAM and
 //!    STOP_SENDING, then NEW_CONNECTION_ID and RETIRE_CONNECTION_ID: small frames a peer may be
 //!    waiting on, ahead of any octets.
-//! 6. One frame of octets: the handshake's CRYPTO octets, or a stream's. Lost stream octets go
-//!    before new ones (§13.3), and new ones go in the order RFC 9000 §2.3 sets. A second probe at
-//!    a handshake level repeats the first one's CRYPTO octets (decision 64 as amended).
+//! 6. The octets: one CRYPTO frame of the handshake's, or up to `stream_frames_per_packet_max`
+//!    STREAM frames (decision 131). Lost stream octets go before new ones (§13.3), and new ones go
+//!    in the order RFC 9000 §2.3 sets. A second probe at a handshake level repeats the first one's
+//!    CRYPTO octets (decision 64 as amended).
 //! 7. A PING, when a probe is owed and nothing above elicits an acknowledgment (RFC 9002 §6.2.4).
 //!
 //! A packet the congestion window holds back carries the first two alone (`Room.in_flight_allowed`).
@@ -29,6 +30,7 @@ const frame_module = @import("../../frame/frame.zig");
 const connection_module = @import("../connection.zig");
 const connection_crypto = @import("../connection_crypto.zig");
 const connection_stream_send = @import("../connection_stream/connection_stream_send.zig");
+const connection_stream_ranges = @import("../connection_stream/connection_stream_ranges.zig");
 const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const connection_close = @import("../connection_close.zig");
 const connection_handshake = @import("../connection_handshake.zig");
@@ -75,6 +77,9 @@ pub const Framed = struct {
     data_offset: u64 = 0,
     data_len: u16 = 0,
     stream_id: u64 = 0,
+    /// The STREAM frames after the first, whose ranges went into the ring at the head the packet
+    /// started at (decision 131).
+    ranges_len: u8 = 0,
 };
 
 /// Writes the frames this packet carries, in the order this file's header gives. `number` is the
@@ -150,6 +155,7 @@ pub fn write(
         .data_offset = data.offset,
         .data_len = data.data_len,
         .stream_id = data.stream_id,
+        .ranges_len = data.ranges_len,
         .ack_eliciting = ack_eliciting,
         .carries_handshake_done = carries_handshake_done,
         .carries_ack = written_ack > 0,
@@ -237,17 +243,19 @@ fn count_probe(connection: *Connection, level: Level, ack_eliciting: bool) void 
     if (owed.* > 0 and ack_eliciting) owed.* -= 1;
 }
 
-/// The one CRYPTO or STREAM frame a packet carries, and the range its record keeps.
+/// The CRYPTO frame or the STREAM frames a packet carries: the first range, which its record
+/// keeps, and how many STREAM frames after it went into the ring.
 const DataFrame = struct {
     len: usize = 0,
     carries: Carries = .none,
     offset: u64 = 0,
     data_len: u16 = 0,
     stream_id: u64 = 0,
+    ranges_len: u8 = 0,
 };
 
-/// Writes the handshake's octets when the provider owes some at this level, and a stream's
-/// otherwise. Never both: a packet's record holds one range (decisions 56 and 57).
+/// Writes the handshake's octets when the provider owes some at this level, and streams'
+/// otherwise. Never both: CRYPTO octets are one range in the record (decisions 56 and 57).
 fn write_data(
     connection: *Connection,
     provider: tls_provider.QuicProvider,
@@ -266,13 +274,41 @@ fn write_data(
     if (level != .application) return .{};
     const stream = connection_stream_send.write(connection, stream_provider, output);
     if (stream.len == 0) return .{};
+    const extra = write_extra_streams(connection, stream_provider, output[stream.len..]);
     return .{
-        .len = stream.len,
+        .len = stream.len + extra.len,
         .carries = if (stream.fin) .stream_fin else .stream,
         .offset = stream.offset,
         .data_len = stream.data_len,
         .stream_id = stream.stream_id,
+        .ranges_len = extra.count,
     };
+}
+
+/// What the STREAM frames after a packet's first took.
+const Extras = struct {
+    len: usize = 0,
+    count: u8 = 0,
+};
+
+/// Writes more STREAM frames after a packet's first while the packet has room, the ring has room
+/// for their ranges, and `stream_frames_per_packet_max` allows (decision 131). Each range goes
+/// into the ring at its head, so the packet's record names them by the head it started at.
+fn write_extra_streams(connection: *Connection, stream_provider: StreamProvider, output: []u8) Extras {
+    const ring = &connection.stream_ranges;
+    const tail = connection_stream_ranges.tail(connection);
+    const allowed = @min(constants.stream_frames_per_packet_max - 1, ring.room(tail));
+    var extras: Extras = .{};
+    // Bounded by `stream_frames_per_packet_max`.
+    for (0..allowed) |_| {
+        if (output.len - extras.len < constants.stream_frame_room_min) break;
+        const stream = connection_stream_send.write(connection, stream_provider, output[extras.len..]);
+        if (stream.len == 0) break;
+        ring.push(tail, .{ .stream_id = stream.stream_id, .offset = stream.offset, .len = stream.data_len, .fin = stream.fin });
+        extras.len += stream.len;
+        extras.count += 1;
+    }
+    return extras;
 }
 
 /// Whether this packet repeats the latest ACK although nothing new asks for one: a packet to a

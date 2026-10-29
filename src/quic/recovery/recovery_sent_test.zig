@@ -215,6 +215,7 @@ test "RFC 9002 Appendix A.1.1: a record stays small, because 256 of them sit in 
     // octet here is paid for 768 times. The number is pinned so a field added without measuring
     // shows up as a failing test rather than as memory nobody looked at.
     // Decision 57's stream range costs one identifier: the offset and length are the ones CRYPTO
-    // already used, because a packet carries one or the other.
-    try testing.expectEqual(40, @sizeOf(Record));
+    // already used, because a packet carries one or the other. Decision 131's ring position and
+    // count take 5 octets, which round the record up by 8.
+    try testing.expectEqual(48, @sizeOf(Record));
 }

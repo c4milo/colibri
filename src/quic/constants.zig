@@ -404,11 +404,29 @@ pub const ecn_testing_probe_timeouts: u64 = 3;
 /// giving them a smaller table of their own is a change design §11 would have to measure first.
 pub const sent_packets_max: usize = 256;
 
-/// Lost stream ranges a connection keeps until they are framed again (RFC 9000 §13.3). A lost
-/// range comes from one lost packet, and new octets wait while any range is owed (decision 57),
-/// so the sent table's bound is this one's too. Merging adjacent ranges absorbs the pieces that a
-/// smaller packet splits one into.
-pub const stream_lost_ranges_max: usize = sent_packets_max;
+/// STREAM frames one application-level packet carries at most (decision 131).
+pub const stream_frames_per_packet_max: usize = 16;
+
+/// Stream ranges the ring holds: each application-level packet's ranges after its first, in send
+/// order (decision 131, INV-33). A packet whose ranges would not fit carries one STREAM frame.
+pub const stream_ranges_max: usize = 512;
+
+/// The fewest octets of room for which a packet tries one more STREAM frame (RFC 9000 §19.8).
+pub const stream_frame_room_min: usize = 8;
+
+/// Lost stream ranges a connection keeps until they are framed again (RFC 9000 §13.3). Every
+/// range in flight may be lost at once: each packet's first range in its record, and the others
+/// in the ring (decision 131). New octets wait while any range is owed (decision 57). Merging
+/// adjacent ranges absorbs the pieces that a smaller packet splits one into.
+pub const stream_lost_ranges_max: usize = sent_packets_max + stream_ranges_max;
+
+comptime {
+    // A record counts its extra ranges in a `u8`, the ring wraps in a `u32`, and every range in
+    // flight may be lost at once.
+    assert(stream_frames_per_packet_max > 1 and stream_frames_per_packet_max - 1 <= std.math.maxInt(u8));
+    assert(stream_ranges_max >= stream_frames_per_packet_max and stream_ranges_max < std.math.maxInt(u32) / 2);
+    assert(stream_lost_ranges_max >= sent_packets_max + stream_ranges_max);
+}
 
 /// The fewest 1-RTT packets colibri sends between two packet numbers it skips (RFC 9000 §21.4).
 /// Each interval adds one octet the caller drew at start, so a skip comes 128 to 383 packets

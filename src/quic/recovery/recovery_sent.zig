@@ -85,6 +85,11 @@ pub const Record = struct {
     /// is a stream. A table slot would not do: a slot is reused, and a late acknowledgment would
     /// count toward the next stream in it (decision 57).
     stream_id: u64 = 0,
+    /// The ring position where this packet's stream ranges after its first start, and how many
+    /// it has (decision 131). Every application-level record names the position, so the oldest
+    /// one is the ring's tail (INV-33).
+    ranges_from: u32 = 0,
+    ranges_len: u8 = 0,
 };
 
 /// Whether a packet the sender just framed counts toward the bytes in flight. RFC 9002 §2:

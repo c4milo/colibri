@@ -11525,6 +11525,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       adapters to stdx#21, once stdx builds those encoders
       (https://github.com/c4milo/stdx/issues/8, https://github.com/c4milo/stdx/issues/7).
 
+- **Step 26 — several STREAM frames in a packet.** [Decision 131](decisions.md) amends decision
+  56: an application-level packet carries up to 16 STREAM frames, and a ring holds each record's
+  ranges after its first (INV-33). It adds no public name.
+  - **Check.** In the Linux container of step 13i's lossy run, colibri sends at most half the
+    packets it sent before for the same requests, and its p99 at 4,000 requests a second falls.
+    The judge's `network` run then compares colibri's h3 against h2-tls again. Every stream range
+    a record names reads back after the ring wraps, a lost packet resends each of its ranges,
+    and an acknowledged one counts each of them once (INV-29).
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

@@ -5,6 +5,7 @@ const std = @import("std");
 const constants = @import("../../constants.zig");
 const stream_module = @import("../../stream/stream.zig");
 const recovery_sent = @import("../../recovery/recovery_sent.zig");
+const stream_ranges = @import("connection_stream_ranges.zig");
 const send = @import("../connection_send.zig");
 const stream_send = @import("connection_stream_send.zig");
 const stream_recovery = @import("connection_stream_recovery.zig");
@@ -31,6 +32,8 @@ fn record_of(packet: send.Packet) Record {
         .data_offset = packet.data_offset,
         .data_len = packet.data_len,
         .stream_id = packet.stream_id,
+        .ranges_from = packet.ranges_from,
+        .ranges_len = packet.ranges_len,
     };
 }
 
@@ -82,7 +85,9 @@ test "§3.1: a slice too short for the completed streams is told how many did no
     var body: Body = .{ .len = send_test.short_body_len };
     const first_id = try send_test.open_supplied(send_test.short_body_len, true);
     _ = try send_test.open_supplied(send_test.short_body_len, true);
-    const records = [_]Record{ try sent_record(&body), try sent_record(&body) };
+    // One packet carries both streams (decision 131), and its acknowledgment completes both.
+    const records = [_]Record{try sent_record(&body)};
+    try testing.expectEqual(1, records[0].ranges_len);
     var completed: [1]StreamId = undefined;
     const held = stream_recovery.on_packets_acknowledged(&send_test.client, .application, &records, &completed);
     try testing.expectEqual(1, held.written);
@@ -105,6 +110,28 @@ test "§13.3: lost records' ranges are kept, joined where they meet, and sent ag
     const rest = try sent_record(&body);
     try testing.expectEqual(second.data_offset, rest.data_offset);
     try testing.expectEqual(second.data_len, rest.data_len);
+}
+
+test "decision 131: a lost packet's every range is kept, and each goes out again" {
+    send_test.open_pair(.{});
+    var body: Body = .{ .len = send_test.short_body_len };
+    const first_id = try send_test.open_supplied(send_test.short_body_len, true);
+    const second_id = try send_test.open_supplied(send_test.short_body_len, true);
+    const lost = try sent_record(&body);
+    try testing.expectEqual(1, lost.ranges_len);
+    try stream_recovery.on_packets_lost(&send_test.client, .application, &.{lost});
+    // Two streams' ranges, which do not meet, so the table holds both.
+    try testing.expectEqual(2, send_test.client.streams.lost.count);
+    const again = try sent_record(&body);
+    try testing.expectEqual(0, send_test.client.streams.lost.count);
+    try testing.expectEqual(first_id.value, again.stream_id);
+    const second = stream_ranges.at(&send_test.client, again, 1);
+    try testing.expectEqual(second_id.value, second.stream_id);
+    try testing.expectEqual(send_test.short_body_len, second.len);
+    // Acknowledged, the packet sent again completes both streams.
+    var completed: [2]StreamId = undefined;
+    const held = stream_recovery.on_packets_acknowledged(&send_test.client, .application, &.{again}, &completed);
+    try testing.expectEqual(2, held.written);
 }
 
 test "§20.1: a lost range the full table cannot hold closes the connection with INTERNAL_ERROR" {

@@ -97,6 +97,8 @@ pub const Packet = struct {
     data_offset: u64 = 0,
     data_len: u16 = 0,
     stream_id: u64 = 0,
+    ranges_from: u32 = 0,
+    ranges_len: u8 = 0,
 };
 
 /// What was assembled.
@@ -362,8 +364,7 @@ fn codepoint_of(connection: *Connection, now_ns: u64) Ecn {
     return connection.recovery.ecn_codepoint(now_ns);
 }
 
-/// The record RFC 9002 Appendix A.1.1 keeps of `packet`, which went out in a datagram marked
-/// `ecn`. RFC 9000 §13.4.2.1 judges the peer's counts against these marks.
+/// RFC 9002 Appendix A.1.1's record of `packet`, in a datagram marked `ecn` (RFC 9000 §13.4.2.1).
 fn record_of(packet: Packet, ecn: Ecn, now_ns: u64) recovery_sent.Record {
     return .{
         .number = packet.packet_number,
@@ -375,6 +376,8 @@ fn record_of(packet: Packet, ecn: Ecn, now_ns: u64) recovery_sent.Record {
         .data_offset = packet.data_offset,
         .data_len = packet.data_len,
         .stream_id = packet.stream_id,
+        .ranges_from = packet.ranges_from,
+        .ranges_len = packet.ranges_len,
         .ecn = ecn,
     };
 }
@@ -476,6 +479,8 @@ fn seal_all(
             .data_offset = built.data_offset,
             .data_len = built.data_len,
             .stream_id = built.stream_id,
+            .ranges_from = built.ranges_from,
+            .ranges_len = built.ranges_len,
         };
         sent.count += 1;
         sent.len += built.len;

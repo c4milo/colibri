@@ -16,6 +16,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const stream_module = @import("../../stream/stream.zig");
 const connection_module = @import("../connection.zig");
+const stream_ranges = @import("connection_stream_ranges.zig");
 
 const Connection = connection_module.Connection;
 const StreamId = stream_module.StreamId;
@@ -40,8 +41,11 @@ pub fn acknowledged_end(connection: *Connection, id: StreamId) ?u64 {
     var walk = connection.recovery.table_of(.application).iterator();
     // Bounded by the table's capacity, `sent_packets_max`.
     while (walk.next()) |record| {
-        if (record.carries != .stream and record.carries != .stream_fin) continue;
-        if (record.stream_id == id.value) lowest = @min(lowest, record.data_offset);
+        // Bounded by `stream_frames_per_packet_max`.
+        for (0..stream_ranges.count(record)) |index| {
+            const range = stream_ranges.at(connection, record, index);
+            if (range.stream_id == id.value) lowest = @min(lowest, range.offset);
+        }
     }
     if (connection.streams.lost.lowest_offset(id.value)) |offset| lowest = @min(lowest, offset);
     // Invariant 29: every octet below it was acknowledged, and counted once.
@@ -131,9 +135,10 @@ test "decision 78: the acknowledged end stops at the lowest octet in flight or l
 test "decision 78: another stream's octets in flight do not hold the end back" {
     send_test.open_pair(.{});
     var body: Body = .{ .len = send_test.short_body_len };
+    // Each stream is supplied once the packet before has gone, so each has a packet of its own.
     const first = try send_test.open_supplied(send_test.short_body_len, false);
-    const second = try send_test.open_supplied(send_test.short_body_len, false);
     const first_record = try sent_record(&body);
+    const second = try send_test.open_supplied(send_test.short_body_len, false);
     const second_record = try sent_record(&body);
     try testing.expectEqual(first.value, first_record.stream_id);
     acknowledge(first_record);
@@ -143,6 +148,18 @@ test "decision 78: another stream's octets in flight do not hold the end back" {
     try lose(second_record);
     try testing.expectEqual(send_test.short_body_len, end_of(first).?);
     try testing.expectEqual(0, end_of(second).?);
+}
+
+test "decision 131: a stream whose range is a packet's second is held back by it" {
+    send_test.open_pair(.{});
+    var body: Body = .{ .len = send_test.short_body_len };
+    _ = try send_test.open_supplied(send_test.short_body_len, true);
+    const second = try send_test.open_supplied(send_test.short_body_len, false);
+    const record = try sent_record(&body);
+    try testing.expectEqual(1, record.ranges_len);
+    try testing.expectEqual(0, end_of(second).?);
+    acknowledge(record);
+    try testing.expectEqual(send_test.short_body_len, end_of(second).?);
 }
 
 test "decision 78: a reset stream, and one this endpoint does not send on, have no end" {

@@ -421,6 +421,24 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** A probe that resends octets still in flight, or a rewind to the lowest lost
   offset: either puts one octet in two packets, and acknowledging both counts it twice.
 
+### INV-33 — the sent table says which stream ranges in the ring are live
+
+- **Claim.** Every extra stream range of a live application-level record lies in the ring between
+  its tail and its head, and the tail is the start position of the oldest record the sent table
+  holds. No range a live record names is ever written over, and a range no record names is
+  reused only once every older record has left.
+- **Mechanism.** A packet writes its extra ranges at the head, in the order packets are sent, and
+  its record holds the head's position before them and their count, which may be none
+  ([decision 131](decisions.md)). A record
+  leaves its slot only when the oldest end of the sent table reaches it, so the tail moves in the
+  same order. A packet whose ranges would pass the tail carries one STREAM frame.
+- **Check.** Runtime assertion: the ring asserts, when it takes ranges, that the new head does
+  not pass the tail, and that each record's ranges lie between the tail and the head when they
+  are read. Tests in `src/quic/recovery/` fill the ring, acknowledge and lose
+  records out of order, and read each record's ranges back. Step 26.
+- **Violation.** A tail that moves past a record still held. A later packet then writes over that
+  record's ranges, and its loss resends another stream's octets.
+
 ## What the caller supplies
 
 ### INV-23 — colibri holds no secret

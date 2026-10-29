@@ -19,6 +19,7 @@ const frames = @import("../connection_frames.zig");
 const send = @import("../connection_send.zig");
 const stream_send = @import("connection_stream_send.zig");
 const build_test = @import("../packet_build/packet_build_test.zig");
+const stream_ranges = @import("connection_stream_ranges.zig");
 
 const Level = core.Level;
 const Reader = core.Reader;
@@ -93,6 +94,7 @@ fn read_body(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usi
 const Windows = struct {
     stream: u64 = test_max_data,
     connection: u64 = test_max_data,
+    streams: u64 = test_max_streams,
 };
 
 fn parameters(windows: Windows) Parameters {
@@ -101,8 +103,8 @@ fn parameters(windows: Windows) Parameters {
     held.initial_max_stream_data_bidi_local = windows.stream;
     held.initial_max_stream_data_bidi_remote = windows.stream;
     held.initial_max_stream_data_uni = windows.stream;
-    held.initial_max_streams_bidi = test_max_streams;
-    held.initial_max_streams_uni = test_max_streams;
+    held.initial_max_streams_bidi = windows.streams;
+    held.initial_max_streams_uni = windows.streams;
     return held;
 }
 
@@ -198,15 +200,71 @@ test "§19.8: a stream's octets go out in a STREAM frame, read from the provider
     try testing.expectEqual(null, try send_from(&body, datagram.len));
 }
 
-test "decision 56: one STREAM frame per packet, whatever the streams" {
+/// The record loss recovery keeps for the one packet `sent` holds. Test-only.
+pub fn record_kept(sent: send.Sent) !recovery_sent.Record {
+    var walk = client.recovery.table_of(.application).iterator();
+    // Bounded by the table.
+    while (walk.next()) |record| {
+        if (record.number == sent.packets[0].packet_number) return record;
+    }
+    return error.TestExpectedRecord;
+}
+
+/// Octets of each stream in the tests of decision 131, so that many frames fit in one packet.
+const tiny_body_len: u64 = 10;
+
+test "decision 131: a packet carries several streams' STREAM frames, and its record names each" {
     open_pair(.{});
     var body: Body = .{ .len = short_body_len };
     const first_id = try open_supplied(short_body_len, true);
     const second_id = try open_supplied(short_body_len, true);
+    const sent = (try send_from(&body, datagram.len)).?;
+    try testing.expectEqual(first_id.value, (try stream_frame_of(sent)).stream_id);
+    const record = try record_kept(sent);
+    try testing.expectEqual(2, stream_ranges.count(record));
+    const second = stream_ranges.at(&client, record, 1);
+    try testing.expectEqual(second_id.value, second.stream_id);
+    try testing.expectEqual(short_body_len, second.len);
+    try testing.expect(second.fin);
+    // Both streams went out whole, so nothing is left to send.
+    try testing.expectEqual(null, try send_from(&body, datagram.len));
+}
+
+test "INV-33: each record names the ring position its own ranges start at" {
+    open_pair(.{});
+    var body: Body = .{ .len = tiny_body_len };
+    _ = try open_supplied(tiny_body_len, true);
+    _ = try open_supplied(tiny_body_len, true);
+    const first = try record_kept((try send_from(&body, datagram.len)).?);
+    _ = try open_supplied(tiny_body_len, true);
+    const fourth = try open_supplied(tiny_body_len, true);
+    const second = try record_kept((try send_from(&body, datagram.len)).?);
+    try testing.expectEqual(first.ranges_from +% 1, second.ranges_from);
+    try testing.expectEqual(fourth.value, stream_ranges.at(&client, second, 1).stream_id);
+}
+
+test "decision 131: a packet carries at most stream_frames_per_packet_max STREAM frames" {
+    const streams = constants.stream_frames_per_packet_max + 1;
+    open_pair(.{ .streams = streams });
+    var body: Body = .{ .len = tiny_body_len };
+    for (0..streams) |_| _ = try open_supplied(tiny_body_len, true);
     const first = (try send_from(&body, datagram.len)).?;
-    try testing.expectEqual(first_id.value, (try stream_frame_of(first)).stream_id);
+    try testing.expectEqual(constants.stream_frames_per_packet_max, stream_ranges.count(try record_kept(first)));
     const second = (try send_from(&body, datagram.len)).?;
-    try testing.expectEqual(second_id.value, (try stream_frame_of(second)).stream_id);
+    try testing.expectEqual(1, stream_ranges.count(try record_kept(second)));
+}
+
+test "INV-33: a ring with no room left sends one STREAM frame a packet" {
+    open_pair(.{});
+    var body: Body = .{ .len = tiny_body_len };
+    _ = try open_supplied(tiny_body_len, true);
+    const held = try record_kept((try send_from(&body, datagram.len)).?);
+    // The held record is the ring's tail, and the head stands a whole ring past it.
+    client.stream_ranges.head = held.ranges_from +% @as(u32, constants.stream_ranges_max);
+    _ = try open_supplied(tiny_body_len, true);
+    _ = try open_supplied(tiny_body_len, true);
+    const sent = (try send_from(&body, datagram.len)).?;
+    try testing.expectEqual(1, stream_ranges.count(try record_kept(sent)));
 }
 
 test "§13.3: a lost range goes out again first, with the same octets at the same offset" {
