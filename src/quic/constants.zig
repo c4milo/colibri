@@ -386,9 +386,9 @@ pub const congestion_window_initial_len_max: u64 = 14_720;
 /// ECN-CE count, or on persistent congestion, which §7.2 recommends at two maximum datagrams.
 pub const congestion_window_minimum_datagrams: u64 = 2;
 
-/// `kLossReductionFactor`: what the window is scaled by on a congestion event, which §7
-/// recommends at one half.
-pub const congestion_loss_reduction_divisor: u64 = 2;
+/// CUBIC's constants (RFC 9438), which replace §7's NewReno and its `kLossReductionFactor`
+/// (decision 133).
+pub const cubic = @import("constants_cubic.zig");
 
 /// RFC 9000 §13.4.2: an endpoint "could set an ECT codepoint for only the first ten outgoing
 /// packets on a path, or for a period of three PTOs". Decision 69 ends a path's ECN test at

@@ -30,11 +30,11 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0xd227b7dd;
-pub const census_datagrams_expected: u64 = 13_257;
-pub const census_packets_expected: u64 = 13_326;
-pub const census_dropped_expected: u64 = 662;
-pub const census_marked_expected: u64 = 529;
+pub const census_crc32_expected: u32 = 0x172f3941;
+pub const census_datagrams_expected: u64 = 14_391;
+pub const census_packets_expected: u64 = 14_460;
+pub const census_dropped_expected: u64 = 745;
+pub const census_marked_expected: u64 = 539;
 
 /// How a seed failed.
 pub const Violation = quic_invariants.Violation || qlog_records.Error || error{
@@ -390,12 +390,12 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
 
 /// The rebinding checks' censuses, pinned as the lossy check's is. The server moved once for each
 /// rebind: 276 of each in the port check and 275 in the address check.
-pub const rebind_port_census_crc32_expected: u32 = 0x064ee9f0;
-pub const rebind_port_census_datagrams_expected: u64 = 13_927;
-pub const rebind_port_census_migrations_expected: u64 = 276;
-pub const rebind_address_census_crc32_expected: u32 = 0xd25bf00d;
-pub const rebind_address_census_datagrams_expected: u64 = 13_730;
-pub const rebind_address_census_migrations_expected: u64 = 277;
+pub const rebind_port_census_crc32_expected: u32 = 0xec6814e4;
+pub const rebind_port_census_datagrams_expected: u64 = 14_691;
+pub const rebind_port_census_migrations_expected: u64 = 255;
+pub const rebind_address_census_crc32_expected: u32 = 0xa50d24a2;
+pub const rebind_address_census_datagrams_expected: u64 = 14_548;
+pub const rebind_address_census_migrations_expected: u64 = 255;
 
 /// Runs the check under `adversary` and returns its census.
 fn run_rebinding(adversary: Adversary) !Census {
@@ -430,11 +430,11 @@ test "decision 102: every check gives the same census when both endpoints write 
     // digest of every record and the events read back. The logs change when an event or its
     // fields change, and are committed with the new values after both build modes agree.
     const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32, qlog_events: u64 }{
-        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_543_393, .qlog_crc32 = 0x0c8298d3, .qlog_events = 48_938 },
-        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_684_376, .qlog_crc32 = 0xdb2f27ac, .qlog_events = 18_885 },
-        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_804_934, .qlog_crc32 = 0x1611979e, .qlog_events = 19_072 },
-        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 9_986_124, .qlog_crc32 = 0x8e6b3426, .qlog_events = 50_445 },
-        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 9_780_426, .qlog_crc32 = 0xc582c9cf, .qlog_events = 49_413 },
+        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 10_112_253, .qlog_crc32 = 0xc60dfbf2, .qlog_events = 51_950 },
+        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_684_376, .qlog_crc32 = 0xd4a712fb, .qlog_events = 18_885 },
+        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_804_934, .qlog_crc32 = 0x6a65cccf, .qlog_events = 19_072 },
+        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_287_514, .qlog_crc32 = 0xa4169237, .qlog_events = 52_204 },
+        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 10_150_193, .qlog_crc32 = 0x83ff306e, .qlog_events = 51_486 },
     };
     // Bounded by the checks above.
     for (checks) |logged| {

@@ -91,7 +91,7 @@ pub fn on_ack_received(
     outcome.rtt_sampled = sample(held, ack, removed, now_ns);
     process_ecn(held, kind, ack, removed, largest_is_new, now_ns);
     outcome.lost = held.detect(kind, now_ns, lost);
-    grow(held, removed, used);
+    grow(held, removed, used, now_ns);
 
     // RFC 9002 Appendix A.7: the backoff starts again once the peer has validated the address,
     // because a probe that was answered is no longer evidence of a path that will not answer.
@@ -182,7 +182,7 @@ fn process_ecn(
 }
 
 /// RFC 9002 Appendix B.5's `OnPacketsAcked`, over what this frame took out of flight.
-fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization) void {
+fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization, now_ns: u64) void {
     // Appendix B.5 walks the packets one at a time and each one asks the same two questions of
     // the same instant, so the octets are added once. The record kept is the largest, which is
     // the one whose send instant decides whether the recovery period still holds, and the caller
@@ -190,7 +190,9 @@ fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization) void
     // needs no test of its own here: octets that were not in flight sum to nothing, and adding
     // nothing to the window is what skipping them does.
     const largest = removed.record.?;
-    held.congestion.on_ack(largest.sent_at_ns, removed.in_flight_len, used);
+    // RFC 9438 §4.2 reads the smoothed round trip, which is 0 until the first sample.
+    const smoothed_rtt_ns = if (held.rtt.has_sample()) held.rtt.smoothed_ns else 0;
+    held.congestion.on_ack(largest.sent_at_ns, removed.in_flight_len, used, now_ns, smoothed_rtt_ns);
 }
 
 const testing = std.testing;

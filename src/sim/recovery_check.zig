@@ -32,10 +32,10 @@ const Record = quic.recovery_sent.Record;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// recovery code or the ACK writer changes, and are committed with the new values after both
 /// build modes agree.
-pub const census_crc32_expected: u32 = 0x2c3cc41a;
-pub const census_sent_expected: u64 = 16_420;
-pub const census_acknowledged_expected: u64 = 11_743;
-pub const census_lost_expected: u64 = 4_677;
+pub const census_crc32_expected: u32 = 0x300dd1c4;
+pub const census_sent_expected: u64 = 16_418;
+pub const census_acknowledged_expected: u64 = 10_952;
+pub const census_lost_expected: u64 = 5_466;
 
 /// How a seed failed.
 pub const Violation = error{

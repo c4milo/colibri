@@ -11585,6 +11585,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `mobile`: 0.75 and 0.80 at 2,000 req/s, where they were 5.02 and 4.46. At 4,000 no server
       reaches the rate: colibri reaches 3,082 req/s, chi 3,273 and axum 3,014.
 
+- **Step 27 — CUBIC.** [Decision 133](decisions.md) replaces RFC 9002 §7's NewReno with CUBIC (RFC
+  9438) in `recovery_congestion.zig`, with RFC 9438's arithmetic in integers in
+  `recovery_cubic.zig`. `Congestion.on_ack` takes the instant and the smoothed round trip.
+  `quic.constants.congestion_loss_reduction_divisor` goes, and `quic.constants.cubic` holds the
+  new constants; no other public name changes.
+  - **Check.** Tests drive each region of RFC 9438 §4: the Reno-friendly estimate after a
+    decrease, the climb back to W_max by K, the decrease to 0.7, fast convergence, the time the
+    sender was limited left out of `t`, and K = 0 after persistent congestion. In the Linux
+    container of step 13i, colibri's p99 under `lossy` and `mobile` comes no worse than with
+    NewReno, and nearer quinn's with CUBIC. The judge's `network` run then measures it.
+  - **Next.** HyStart++ (RFC 9406), which RFC 9438 §4.10 says CUBIC SHOULD use, and BBRv3
+    beside CUBIC ([decision 134](decisions.md)).
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

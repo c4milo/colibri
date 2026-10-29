@@ -177,7 +177,7 @@ test "§5.1: a sample needs the largest named and an ack-eliciting packet" {
     try testing.expect(!silent.rtt_sampled);
 }
 
-test "A.7: an acknowledgment that reveals loss halves the window" {
+test "A.7, RFC 9438 §4.6: an acknowledgment that reveals loss reduces the window to 0.7" {
     test_recovery.init(test_datagram_len);
     try send_spaced(.application, 5);
     const window = test_recovery.congestion.window;
@@ -191,8 +191,8 @@ test "A.7: an acknowledgment that reveals loss halves the window" {
     try testing.expectEqual(0, test_recovery.in_flight_len());
     // RFC 9002 Appendix B.8: losing packets in flight is a congestion event, and B.6 halves the
     // window. The acknowledged packet does not grow it, because it went out before the period.
-    try testing.expectEqual(window / 2, test_recovery.congestion.window);
-    try testing.expectEqual(window / 2, test_recovery.congestion.slow_start_threshold);
+    try testing.expectEqual(window / 10 * 7, test_recovery.congestion.window);
+    try testing.expectEqual(window / 10 * 7, test_recovery.congestion.slow_start_threshold);
     try testing.expectEqual(at_ns, test_recovery.congestion.recovery_started_at_ns);
 }
 
@@ -208,7 +208,7 @@ test "B.7: a rise in the peer's ECN-CE count is a congestion event" {
     _ = recovery_ack.on_ack_received(&test_recovery, .application, marked, .full, at_ns, &test_acknowledged, &test_lost);
     // RFC 9002 Appendix B.7: the path reported congestion without dropping anything, and the
     // window halves for it just as it would for loss.
-    try testing.expectEqual(window / 2, test_recovery.congestion.window);
+    try testing.expectEqual(window / 10 * 7, test_recovery.congestion.window);
     try testing.expectEqual(1, test_recovery.ecn[@intFromEnum(Kind.application)].reported.ecn_ce);
     // A count that has not risen is not a second event.
     try send_marked(.application, 2, 2, at_ns);
