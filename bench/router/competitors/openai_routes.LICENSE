@@ -1,4 +1,4 @@
-openai_routes.txt holds the routes of openapi.json of https://github.com/openai/openai-openapi at commit aa880040fa7b23c8a7e3618b5ca757ecec71de95, less the 5 whose path holds a query.
+openai_routes.txt holds the routes of openapi.json of https://github.com/openai/openai-openapi at commit aa880040fa7b23c8a7e3618b5ca757ecec71de95, less the 7 whose path holds a query.
 convert_routes.py wrote it, one "METHOD /path" on each line, with each {name} as :name. Its license:
 
 The MIT License
