@@ -80,7 +80,8 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
     std.debug.print("quic-udp: served {d} files, {d} connection errors\n", .{ served, connection_errors });
 }
 
-/// Starts the endpoint, the files of `<www>` and, with `routes=github`, the router's pool.
+/// Starts the endpoint, the files of `<www>`, with `routes=github` the router's pool, and the
+/// batches, which hold one datagram each with `no-gso`.
 fn start(asked: udp_arguments.Server, started_ns: u64) void {
     qlog_directory = asked.qlogdir;
     endpoint_config = .{
@@ -94,6 +95,7 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
     endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns) catch |failure| fail("the endpoint did not start: {t}", .{failure});
     for (&files) |*held| held.init(asked.www);
     if (asked.routes) route_pool = .{};
+    batches = .of(asked.segments);
 }
 
 /// How long the next tick may wait: until the endpoint's next deadline, and never longer than

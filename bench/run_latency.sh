@@ -13,21 +13,30 @@
 # `routes=github`, to chi on quic-go's http3.Server and to axum on quinn and the h3 crate, the
 # three that speak it. oha's release builds have no h3, so the script builds oha from its tag.
 #
-#   bench/run_latency.sh [--rounds <n>] [report.md]
+#   bench/run_latency.sh [--rounds <n>] [--network] [report.md]
+#
+# With --network it measures what h3 changes on a path with delay and loss (design §8 step 13i),
+# in place of the inputs above. tc netem adds each profile of `profiles` to the loopback device,
+# whose MTU becomes 1500 and whose TCP offloads turn off, so netem drops one packet at a time. Each
+# h3 server sends each datagram in a send of its own, because netem drops a send of segments
+# whole. colibri, chi and axum serve h2-tls and h3 with 512 requests in flight, and the script
+# puts the device back as it was when it exits. It needs sudo -n, tc, ethtool and sch_netem.
 #
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset, as the judge
 # runs bench/run.sh (decision 33 as amended). Round 0 is a warm-up that the report discards. A time
 # is compared only inside one job (design §11.4). It needs Zig, Go, cargo, Node and npm, curl and
-# python3, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. BENCH_OHA names an oha
-# with h3 built already.
+# python3, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. --network needs no Node
+# and no BENCH_ZIG_HTTPZ. BENCH_OHA names an oha with h3 built already.
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rounds=5
+network=false
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
   case "$1" in
     --rounds) rounds="$2"; shift 2 ;;
+    --network) network=true; shift ;;
     *) report="$1"; shift ;;
   esac
 done
@@ -52,8 +61,8 @@ readonly h3_streams=4
 # The rates oha sends at, in requests per second, the seconds of each measurement, and the p99 in
 # milliseconds that a server holds at the rates the report counts as sustained. The first judge
 # run found colibri and axum sustained at 80,000, so the rates go past it.
-readonly rates=(2000 5000 10000 20000 40000 80000 160000 320000)
-readonly seconds=5
+rates=(2000 5000 10000 20000 40000 80000 160000 320000)
+seconds=5
 readonly p99_bound_ms=10
 # The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
 readonly ready_tries=100
@@ -61,13 +70,45 @@ readonly ready_tries=100
 readonly oha_version=v1.16.0
 readonly oha_commit=c156bf3d442f5150fb1ad73e8c5144bd882ac4cd
 readonly routes="${repository_root}/bench/router/competitors/github_routes.txt"
-readonly servers=(colibri chi axum httpz fastify)
-readonly protocols=(h11 h2 h2-tls h3)
+servers=(colibri chi axum httpz fastify)
+protocols=(h11 h2 h2-tls h3)
+
+# The network profiles of --network, as netem arguments, each applied to every packet on the
+# loopback device. A packet passes the device once in each direction, so the round trip is twice
+# the delay. `rate 10gbit` keeps the packets in order under jitter, as a real link does: without
+# it, netem reordered about half of them. `limit` holds every packet in flight.
+readonly profiles=(clean far lossy mobile)
+profile_arguments() {  # profile_arguments <profile>
+  case "$1" in
+    clean) echo "" ;;
+    far) echo "delay 25ms" ;;
+    lossy) echo "delay 25ms loss 1%" ;;
+    mobile) echo "delay 50ms 5ms loss 2%" ;;
+  esac
+}
+readonly netem_limit=100000
+readonly netem_rate=10gbit
+readonly network_mtu=1500
+# With a round trip of 100 ms, 32 requests in flight cap a server at 320 req/s, so --network
+# keeps 512 in flight: 8 connections of 64 streams, under the 100 streams each server allows.
+readonly network_streams=64
+readonly network_rates=(1000 2000 4000)
+# At 1,000 req/s, 10 s gives p99.9 ten requests to stand on.
+readonly network_seconds=10
+if [ "$network" = true ]; then
+  servers=(colibri chi axum)
+  protocols=(h2-tls h3)
+  rates=("${network_rates[@]}")
+  seconds="$network_seconds"
+fi
 
 scratch="$(mktemp -d)"
 server_pid=""
+lo_mtu=""
+lo_offloads=()
 cleanup() {
   if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; fi
+  if [ -n "$lo_mtu" ]; then restore_lo; fi
   rm -rf "$scratch"
 }
 trap cleanup EXIT
@@ -87,14 +128,16 @@ build_servers() {
   (cd "$repository_root/bench/competitors/chi" && go build -o "$scratch/chi" .)
   (cd "$repository_root/bench/competitors/axum" &&
     cargo build --release --locked --quiet --target-dir "$scratch/axum-target")
+  # The identity h3's servers present, and the empty files directory colibri's UDP server takes.
+  (cd "$repository_root" && go run tools/h2_interop/tls_identity.go "$scratch/identity")
+  mkdir -p "$scratch/www"
+  # --network measures colibri, chi and axum alone.
+  if [ "$network" = true ]; then return 0; fi
   # From a copy, so the packages that Zig fetches beside build.zig.zon stay out of bench/.
   cp -R "$repository_root/bench/competitors/httpz" "$scratch/httpz-source"
   (cd "$scratch/httpz-source" &&
     "${BENCH_ZIG_HTTPZ:?BENCH_ZIG_HTTPZ names the Zig 0.17.0 that builds http.zig}" build \
       --prefix "$scratch/httpz" --cache-dir "$scratch/httpz-cache" >/dev/null)
-  # The identity h3's servers present, and the empty files directory colibri's UDP server takes.
-  (cd "$repository_root" && go run tools/h2_interop/tls_identity.go "$scratch/identity")
-  mkdir -p "$scratch/www"
   cp -R "$repository_root/bench/competitors/fastify" "$scratch/fastify"
   (cd "$scratch/fastify" && npm ci --silent --no-audit --no-fund >/dev/null)
 }
@@ -121,12 +164,16 @@ server_command() {  # server_command <server> <protocol>
     colibri)
       if [ "$2" = h3 ]; then
         command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 routes=github)
+        if [ "$network" = true ]; then command+=(no-gso); fi
       else
         command=("$scratch/colibri/bin/http-server" --port "$port" --routes github "${tls[@]}")
       fi
       ;;
-    chi) command=(env GOMAXPROCS=1 "$scratch/chi" --port "$port" --routes "$routes" "${tls[@]}") ;;
-    axum) command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --routes "$routes" "${tls[@]}") ;;
+    chi) command=(env GOMAXPROCS=1 QUIC_GO_DISABLE_GSO="$network" "$scratch/chi" --port "$port" --routes "$routes" "${tls[@]}") ;;
+    axum)
+      command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --routes "$routes" "${tls[@]}")
+      if [ "$network" = true ] && [ "$2" = h3 ]; then command+=(--no-gso); fi
+      ;;
     httpz) command=("$scratch/httpz/bin/colibri-bench-httpz" --port "$port" --routes "$routes") ;;
     fastify)
       command=(node "$scratch/fastify/main.js" --port "$port" --routes "$routes")
@@ -182,11 +229,13 @@ stop_server() {
 # oha's load at <rate> for <protocol>, into <out>, as JSON.
 load() {  # load <protocol> <rate> <out>
   local shape=(-c "$h11_connections")
+  local h2_parallel="$h2_streams" h3_parallel="$h3_streams"
+  if [ "$network" = true ]; then h2_parallel="$network_streams" h3_parallel="$network_streams"; fi
   case "$1" in
-    h2) shape=(--http2 -c "$h2_connections" -p "$h2_streams") ;;
-    h2-tls) shape=(--http2 --insecure -c "$h2_connections" -p "$h2_streams") ;;
+    h2) shape=(--http2 -c "$h2_connections" -p "$h2_parallel") ;;
+    h2-tls) shape=(--http2 --insecure -c "$h2_connections" -p "$h2_parallel") ;;
     # The servers present a test identity, which oha does not verify.
-    h3) shape=(--http-version 3 --insecure -c "$h3_connections" -p "$h3_streams") ;;
+    h3) shape=(--http-version 3 --insecure -c "$h3_connections" -p "$h3_parallel") ;;
   esac
   taskset -c "$load_cores" "$oha" --no-tui --urls-from-file "$scratch/urls.txt" -z "${seconds}s" \
     -q "$2" --latency-correction "${shape[@]}" --output-format json >"$3"
@@ -199,14 +248,66 @@ machine() {
   echo "colibri=$(git -C "$repository_root" rev-parse --short HEAD), zig $(zig version)"
   echo "chi=$(sed -n 's|.*go-chi/chi/v5 \(v[0-9.]*\).*|\1|p' "$repository_root/bench/competitors/chi/go.mod" | head -1), $(go version | cut -d' ' -f3)"
   echo "axum=$(awk '$0 == "name = \"axum\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock"), $(cd "$repository_root/bench/competitors/axum" && rustc --version)"
-  echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("$BENCH_ZIG_HTTPZ" version)"
-  echo "fastify=$(sed -n 's/.*"fastify": "\(.*\)".*/\1/p' "$repository_root/bench/competitors/fastify/package.json"), node $(node --version)"
+  if [ "$network" = false ]; then
+    echo "http.zig=$(sed -n 's|.*karlseguin/http.zig#\([0-9a-f]*\).*|\1|p' "$repository_root/bench/competitors/httpz/build.zig.zon" | head -1), zig $("$BENCH_ZIG_HTTPZ" version)"
+    echo "fastify=$(sed -n 's/.*"fastify": "\(.*\)".*/\1/p' "$repository_root/bench/competitors/fastify/package.json"), node $(node --version)"
+  fi
   echo "quic-go=$(sed -n 's|.*quic-go/quic-go \(v[0-9.]*\).*|\1|p' "$repository_root/bench/competitors/chi/go.mod" | head -1)"
   echo "h3=$(awk '$0 == "name = \"h3\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock"), quinn $(awk '$0 == "name = \"quinn\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock")"
   echo "oha=${oha_version} ${oha_commit}, with h3"
   echo "rounds=$rounds seconds=$seconds p99_bound_ms=$p99_bound_ms"
-  echo "load=h11 ${h11_connections} connections, h2 and h2-tls ${h2_connections} connections of ${h2_streams} streams, h3 ${h3_connections} connections of ${h3_streams} streams"
-  echo "path=loopback, 127.0.0.1"
+  if [ "$network" = false ]; then
+    echo "load=h11 ${h11_connections} connections, h2 and h2-tls ${h2_connections} connections of ${h2_streams} streams, h3 ${h3_connections} connections of ${h3_streams} streams"
+  fi
+  if [ "$network" = true ]; then
+    echo "load=h2-tls and h3 ${h2_connections} connections of ${network_streams} streams"
+    echo "path=loopback, 127.0.0.1, MTU ${network_mtu}, TSO, GSO and GRO off, no GSO in the h3 servers"
+    for profile in "${profiles[@]}"; do
+      echo "profile ${profile}=netem limit ${netem_limit} $(profile_arguments "$profile") rate ${netem_rate}"
+    done
+  else
+    echo "path=loopback, 127.0.0.1"
+  fi
+}
+
+# Makes the loopback device a path netem drops single packets on: an MTU of 1500, and no TCP
+# segmentation or receive coalescing, so that each packet is one unit netem keeps or drops.
+prepare_lo() {
+  for tool in tc ethtool; do
+    if ! command -v "$tool" >/dev/null; then
+      echo "run_latency.sh: --network needs $tool" >&2
+      exit 1
+    fi
+  done
+  sudo -n modprobe sch_netem 2>/dev/null || true
+  lo_mtu="$(cat /sys/class/net/lo/mtu)"
+  # The state of each offload before, as the words `ethtool -K` takes back.
+  local feature
+  for feature in tcp-segmentation-offload generic-segmentation-offload generic-receive-offload; do
+    lo_offloads+=("$(ethtool -k lo | sed -n "s/^${feature}: \(on\|off\).*/\1/p")")
+  done
+  sudo -n ip link set dev lo mtu "$network_mtu"
+  sudo -n ethtool -K lo tso off gso off gro off >/dev/null
+}
+
+restore_lo() {
+  sudo -n tc qdisc del dev lo root 2>/dev/null || true
+  sudo -n ethtool -K lo tso "${lo_offloads[0]}" gso "${lo_offloads[1]}" gro "${lo_offloads[2]}" >/dev/null 2>&1 || true
+  sudo -n ip link set dev lo mtu "$lo_mtu" || true
+  lo_mtu=""
+}
+
+# Puts <profile>'s netem on the loopback device, in place of the one before it.
+apply_profile() {  # apply_profile <profile>
+  sudo -n tc qdisc del dev lo root 2>/dev/null || true
+  local arguments
+  arguments="$(profile_arguments "$1")"
+  if [ -z "$arguments" ]; then return 0; fi
+  # shellcheck disable=SC2086 # The profile's arguments are words for tc.
+  if ! sudo -n tc qdisc add dev lo root netem limit "$netem_limit" $arguments rate "$netem_rate"; then
+    echo "run_latency.sh: netem did not start; --network needs sch_netem" >&2
+    exit 1
+  fi
 }
 
 oha="${BENCH_OHA:-}"
@@ -220,11 +321,15 @@ build_servers
 # The GET routes, with each parameter given a value, as the paths oha sends to each server's port.
 awk '$1 == "GET" { print $2 }' "$routes" | sed -E "s#:[a-z_]+#v1#g" >"$scratch/paths.txt"
 machine >"$scratch/machine.txt"
+if [ "$network" = true ]; then prepare_lo; fi
 
 # In each round the servers take turns, each through every rate of a protocol. Their list starts
 # one place later each round, so in n rounds that follow one another, each of n servers goes
 # first once.
-for round in $(seq 0 "$rounds"); do
+# One round of every protocol, its servers in turns, into runs/<round>/<label>/: the protocol, or
+# under --network the protocol and the profile, as h3@lossy.
+measure_round() {  # measure_round <round> <label suffix>
+  local round="$1" suffix="$2"
   for protocol in "${protocols[@]}"; do
     serving=()
     for server in "${servers[@]}"; do
@@ -232,15 +337,28 @@ for round in $(seq 0 "$rounds"); do
     done
     for ((place = 0; place < ${#serving[@]}; place++)); do
       server="${serving[(round + place) % ${#serving[@]}]}"
-      echo "run_latency.sh: round $round, $protocol, $server" >&2
+      echo "run_latency.sh: round $round, $protocol$suffix, $server" >&2
       start_server "$server" "$protocol"
-      mkdir -p "$scratch/runs/$round/$protocol/$server"
+      mkdir -p "$scratch/runs/$round/$protocol$suffix/$server"
       for rate in "${rates[@]}"; do
-        load "$protocol" "$rate" "$scratch/runs/$round/$protocol/$server/$rate.json"
+        load "$protocol" "$rate" "$scratch/runs/$round/$protocol$suffix/$server/$rate.json"
       done
       stop_server
     done
   done
+}
+
+for round in $(seq 0 "$rounds"); do
+  if [ "$network" = false ]; then
+    measure_round "$round" ""
+    continue
+  fi
+  for profile in "${profiles[@]}"; do
+    apply_profile "$profile"
+    measure_round "$round" "@$profile"
+  done
 done
 
-python3 "$repository_root/bench/report_latency.py" "$scratch" "$report" --p99-bound-ms "$p99_bound_ms"
+report_arguments=(--p99-bound-ms "$p99_bound_ms")
+if [ "$network" = true ]; then report_arguments=(--network); fi
+python3 "$repository_root/bench/report_latency.py" "$scratch" "$report" "${report_arguments[@]}"

@@ -8,11 +8,15 @@ use axum::Router;
 use bytes::Bytes;
 use tower::ServiceExt;
 
-/// Serves `router` over h3 on UDP port `port`, until the process is stopped.
-pub async fn serve(port: u16, prefix: &str, router: Router) {
+/// Serves `router` over h3 on UDP port `port`, until the process is stopped. Without `segments`,
+/// quinn sends each datagram in a send of its own, where with it quinn uses UDP_SEGMENT.
+pub async fn serve(port: u16, prefix: &str, segments: bool, router: Router) {
     let tls = crate::tls_server::identity(prefix, &[b"h3"]);
     let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(tls).expect("the TLS configuration suits QUIC");
-    let config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
+    let mut transport = quinn::TransportConfig::default();
+    transport.enable_segmentation_offload(segments);
+    let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
+    config.transport_config(Arc::new(transport));
     let endpoint = quinn::Endpoint::server(config, SocketAddr::from((Ipv4Addr::LOCALHOST, port))).expect("the port binds");
     println!("listening on port {}", endpoint.local_addr().expect("the socket has an address").port());
     while let Some(incoming) = endpoint.accept().await {

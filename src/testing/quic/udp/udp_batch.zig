@@ -6,7 +6,8 @@
 //!
 //! The kernel requires each segment but the last to have one length, so a datagram longer than
 //! the first one starts a new batch, and a shorter one closes its batch. On macOS, which has no
-//! UDP_SEGMENT, each batch holds one datagram.
+//! UDP_SEGMENT, each batch holds one datagram, and so does each batch of a server given `no-gso`
+//! (design §8 step 13i).
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -46,17 +47,27 @@ pub const Batch = struct {
         return batch.ecn == sent.ecn and batch.to.eql(&sent.to);
     }
 
-    fn append(batch: *Batch, sent: server.Sent) void {
+    fn append(batch: *Batch, sent: server.Sent, segments: bool) void {
         assert(batch.state == .open and sent.bytes.len > 0);
+        assert(segmented or !segments);
         @memcpy(batch.bytes[batch.len..][0..sent.bytes.len], sent.bytes);
         batch.len += sent.bytes.len;
         batch.count += 1;
-        batch.closed = !segmented or sent.bytes.len < batch.segment_len;
+        batch.closed = !segments or sent.bytes.len < batch.segment_len;
     }
 };
 
 pub const Batches = struct {
     batches: [constants.udp_batches]Batch = @splat(.{}),
+    /// Whether a batch takes a second datagram: false where the kernel has no UDP_SEGMENT, or for
+    /// a server given `no-gso`.
+    segments: bool = segmented,
+
+    /// Empty batches, which take a second datagram when the kernel has UDP_SEGMENT and the server
+    /// was not given `no-gso`.
+    pub fn of(segments: bool) Batches {
+        return .{ .segments = segmented and segments };
+    }
 
     /// Whether a batch is free, so that a datagram the endpoint gives now has a place.
     pub fn has_free(batches: *const Batches) bool {
@@ -70,12 +81,12 @@ pub const Batches = struct {
     /// batch must exist (`has_free`).
     pub fn add(batches: *Batches, sent: server.Sent) void {
         for (&batches.batches) |*batch| {
-            if (batch.takes(sent)) return batch.append(sent);
+            if (batch.takes(sent)) return batch.append(sent, batches.segments);
         }
         for (&batches.batches) |*batch| {
             if (batch.state != .free) continue;
             batch.* = .{ .segment_len = sent.bytes.len, .to = sent.to, .ecn = sent.ecn, .state = .open };
-            return batch.append(sent);
+            return batch.append(sent, batches.segments);
         }
         unreachable;
     }
@@ -181,6 +192,16 @@ test "design §8 step 13f.6: a sending batch takes nothing, and is free once rel
     batches.release(0);
     try testing.expect(batches.has_free());
     try testing.expectEqual(Batch.State.free, batches.batches[0].state);
+}
+
+test "design §8 step 13i: without segments, each datagram of one peer is a batch of its own" {
+    try testing.expectEqual(segmented, Batches.of(true).segments);
+    var batches = Batches.of(false);
+    batches.add(sent_of(&full, peer_a));
+    batches.add(sent_of(&full, peer_a));
+    try testing.expectEqual(2, open_count(&batches));
+    try testing.expectEqual(1, batches.batches[0].count);
+    try testing.expectEqual(0, batches.batches[0].segment_bytes());
 }
 
 /// The segment length of the coalesced delivery the test splits. Test-only.

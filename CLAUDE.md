@@ -439,6 +439,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   rate and each server's highest rate whose p99 stays under 10 ms (design §8 step 13f). It needs
   Go, cargo, Node and BENCH_ZIG_HTTPZ, and the workflow's `latency` input runs it on the judge.
   `python3 bench/report_latency.py --test` checks its report, and `tools/ci.sh` runs it.
+  `bench/run.sh --latency --network [--rounds <n>] [report.md]` measures colibri, chi and axum
+  over h2-tls and h3 on the loopback device under four tc netem profiles of delay and loss. The
+  report gives each server's p99 over h3 divided by its p99 over h2-tls (design §8 step 13i). It
+  needs sudo -n, tc, ethtool and sch_netem, and the workflow's `network` input runs it on the judge.
   `bench/run.sh --profile [--h11] [--h3] [report.md]` runs each input once after the warm-up,
   under `perf record` with the call stacks, in place of the counts (design §8 step 13h). The
   report gives the functions that took the most samples, and `<report>-profile/` holds each
@@ -514,7 +518,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
-  [retry] [errors] [no-ecn] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
+  [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
   [qlogdir=<directory>]`
   and `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
   [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...` run design §9's servers and
@@ -529,7 +533,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   it. With `routes=github` too, `server.router` answers every request over the GitHub API's routes
   in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). On Linux the `h3`
   mode receives with UDP_GRO and sends each peer's datagrams of a turn as one send of segments
-  (UDP_SEGMENT, design §8 step 13f.6). An address is IPv4
+  (UDP_SEGMENT, design §8 step 13f.6), and with `no-gso` it sends each datagram in a send of its
+  own (design §8 step 13i). An address is IPv4
   or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh`
   runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
   checks each file arrives octet for octet, that a missing one is refused, that a client with

@@ -1,7 +1,7 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [no-switch] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
+//!         [no-switch] [no-gso] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
 //!         [qlogdir=<directory>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
@@ -18,6 +18,10 @@
 //! - `no-switch` keeps every client in the version of its first Initial, where without it the
 //!   server switches a client that lists version 2 to it (decision 111). The QUIC Interop Runner
 //!   requires one version in every case but its `v2`.
+//! - `no-gso` makes the `h3` mode send each datagram in a send of its own, where without it the
+//!   mode sends a peer's datagrams of a turn as one send of segments (UDP_SEGMENT, design §8 step
+//!   13f.6). netem drops such a send whole, so a run with loss on the path takes this word (design
+//!   §8 step 13i).
 //! - `h3` serves h3 alone, through colibri's `server` module and its `Endpoint` (design §8 step
 //!   17b), where without it the server serves h3 or hq-interop by ALPN on its own connections. It
 //!   holds `quic_connections_max` connections, and writes no qlog.
@@ -72,6 +76,8 @@ pub const Server = struct {
     /// The version the server switches a client to when the client lists it (decision 111), or
     /// null to keep every client in its original version.
     switch_to: ?quic.crypto.suite.Version = .v2,
+    /// Whether the `h3` mode sends a peer's datagrams of a turn as one send of segments.
+    segments: bool = true,
     /// Whether the server serves h3 alone, through `server` (design §8 step 17b).
     h3: bool = false,
     /// Whether the h3 server routes the GitHub API's routes (`routes=github`, design §8 step 13f).
@@ -187,6 +193,8 @@ fn parse_server_word(server: *Server, word: []const u8) bool {
         server.ecn = false;
     } else if (std.mem.eql(u8, word, "no-switch")) {
         server.switch_to = null;
+    } else if (std.mem.eql(u8, word, "no-gso")) {
+        server.segments = false;
     } else if (std.mem.eql(u8, word, h3_word)) {
         server.h3 = true;
     } else if (std.mem.eql(u8, word, routes_word)) {
@@ -208,9 +216,9 @@ const client_options_count: usize = 7;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `h3`, `routes=github`, `connections=<n>`,
-/// `seconds=<unix-seconds>` and `qlogdir=<directory>`.
-const server_options_count: usize = 10;
+/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `no-gso`, `h3`, `routes=github`,
+/// `connections=<n>`, `seconds=<unix-seconds>` and `qlogdir=<directory>`.
+const server_options_count: usize = 11;
 /// The one route table the h3 server routes.
 const routes_word = "routes=github";
 
@@ -316,7 +324,7 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [no-switch] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
+        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [no-switch] [no-gso] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
             "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...\n",
         .{},
     );
@@ -382,15 +390,18 @@ test "main schema §12.1: a qlog directory is one word, and an empty one is none
     try testing.expectEqual(null, parse_qlogdir("/index.html"));
 }
 
+/// The words of a command line after the address and the port, which `server_of` takes in turn.
+/// Test-only.
+const Words = struct {
+    words: []const []const u8,
+    fn next(words: *Words) ?[]const u8 {
+        if (words.words.len == 0) return null;
+        defer words.words = words.words[1..];
+        return words.words[0];
+    }
+};
+
 test "routes=github is one word, and a server routes over h3 alone" {
-    const Words = struct {
-        words: []const []const u8,
-        fn next(words: *@This()) ?[]const u8 {
-            if (words.words.len == 0) return null;
-            defer words.words = words.words[1..];
-            return words.words[0];
-        }
-    };
     const address = udp.Address.ipv4(.{ 127, 0, 0, 1 }, 443);
     var routed: Words = .{ .words = &.{ "identity", "www", "h3", "routes=github" } };
     const server = server_of(&routed, address).?;
@@ -398,5 +409,15 @@ test "routes=github is one word, and a server routes over h3 alone" {
     var alone: Words = .{ .words = &.{ "identity", "www", "routes=github" } };
     try testing.expectEqual(null, server_of(&alone, address));
     var other: Words = .{ .words = &.{ "identity", "www", "h3", "routes=gitlab" } };
+    try testing.expectEqual(null, server_of(&other, address));
+}
+
+test "no-gso is one word, and a server sends segments without it" {
+    const address = udp.Address.ipv4(.{ 127, 0, 0, 1 }, 443);
+    var plain: Words = .{ .words = &.{ "identity", "www", "h3" } };
+    try testing.expect(server_of(&plain, address).?.segments);
+    var single: Words = .{ .words = &.{ "identity", "www", "h3", "no-gso" } };
+    try testing.expect(!server_of(&single, address).?.segments);
+    var other: Words = .{ .words = &.{ "identity", "www", "h3", "no-gro" } };
     try testing.expectEqual(null, server_of(&other, address));
 }

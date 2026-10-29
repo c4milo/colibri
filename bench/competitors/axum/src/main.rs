@@ -4,9 +4,10 @@
 //! knowledge, on one port. With --h3 it serves h3 instead, on UDP, through quinn and the h3 crate,
 //! over the TLS identity whose <prefix>.chain.pem and <prefix>.key.pem --tls names; each request
 //! goes to the same axum router. With --tls alone it serves h2 over TLS on TCP, and h11 to a
-//! client that offers no h2 in ALPN, through hyper and tokio-rustls.
+//! client that offers no h2 in ALPN, through hyper and tokio-rustls. With --no-gso, quinn sends
+//! each datagram in a send of its own, for a path with loss under netem (design §8 step 13i).
 //!
-//!   colibri-bench-axum --port <port> --routes <routes file> [--h3] [--tls <prefix>]
+//!   colibri-bench-axum --port <port> --routes <routes file> [--h3] [--no-gso] [--tls <prefix>]
 
 mod h3_server;
 mod tls_server;
@@ -41,7 +42,7 @@ fn filter(method: &str) -> MethodFilter {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: colibri-bench-axum --port <port> --routes <routes file> [--h3] [--tls <prefix>]");
+    eprintln!("usage: colibri-bench-axum --port <port> --routes <routes file> [--h3] [--no-gso] [--tls <prefix>]");
     std::process::exit(2);
 }
 
@@ -49,6 +50,7 @@ fn main() {
     let mut port = None;
     let mut routes = None;
     let mut h3 = false;
+    let mut segments = true;
     let mut tls = None;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -56,6 +58,7 @@ fn main() {
             "--port" => port = arguments.next().and_then(|value| value.parse::<u16>().ok()),
             "--routes" => routes = arguments.next(),
             "--h3" => h3 = true,
+            "--no-gso" => segments = false,
             "--tls" => tls = arguments.next(),
             _ => usage(),
         }
@@ -75,7 +78,7 @@ fn main() {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("the runtime starts");
     if h3 {
         let prefix = tls.unwrap_or_else(|| usage());
-        runtime.block_on(h3_server::serve(port, &prefix, router));
+        runtime.block_on(h3_server::serve(port, &prefix, segments, router));
         return;
     }
     if let Some(prefix) = tls {

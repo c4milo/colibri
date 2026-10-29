@@ -5172,6 +5172,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       for a time, one request at a time on each connection, and with `Connection: close` on the
       `-one` inputs. An OpenSSL configuration offers it TLS_AES_256_GCM_SHA384 alone, as h2load's
       option does.
+  - **13i**, latency on a path with delay and loss, which the owner ruled on 2026-10-29. It
+    measures what h3 is for. On TCP a lost packet stalls every h2 stream of its connection, and on
+    QUIC only the streams the packet carried. `bench/run.sh --latency --network`, which the
+    workflow's `network` input runs, measures four profiles:
+    - `clean`: no netem.
+    - `far`: 25 ms each way, so a round trip of 50 ms.
+    - `lossy`: the delay of `far`, and 1% of packets lost each way.
+    - `mobile`: 50 ms each way with 5 ms of jitter, and 2% of packets lost each way.
+
+    Three facts about netem set the path. Each was measured in an Ubuntu container on OrbStack's
+    Linux 7.2 kernel:
+    - netem reordered 1,439 of 3,000 datagrams under 5 ms of jitter. With `rate 10gbit` it
+      reordered none, so each profile carries that rate, as a real link keeps its order.
+    - netem keeps or drops a send of UDP segments whole. At 10% loss, 79 of 1,000 sends of 10
+      datagrams arrived empty and none arrived in part, with the device's offloads on or off.
+      So each h3 server sends one datagram in each send. colibri's UDP server takes the new word
+      `no-gso`, quinn `enable_segmentation_offload(false)`, and quic-go `QUIC_GO_DISABLE_GSO`.
+    - For TCP the device takes an MTU of 1500, and TSO, GSO and GRO turn off, so each TCP
+      packet is a unit of its own too. The script puts the device back when it exits.
+
+    colibri, chi and axum serve h2-tls and h3 at 1,000, 2,000 and 4,000 req/s, for 10 s at each
+    rate. Each keeps 512 requests in flight, 8 connections of 64 streams, because 32 in flight
+    cap a round trip of 100 ms at 320 req/s. The report gives each server's median p99 over h3
+    divided by its median p99 over h2-tls, for each profile and rate. A new connection for each
+    request, which would show h3's handshake of one round trip, is not measured yet.
+
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
     serves, from a run with `competitors` and `h11` set. `report.py --test` holds the report to
