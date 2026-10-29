@@ -445,9 +445,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   needs sudo -n, tc, ethtool and sch_netem, and the workflow's `network` input runs it on the judge.
   `bench/run.sh --latency --waits [--rounds <n>] [report.md]` loads colibri and axum over h2 and
   h2-tls at 40,000 and 80,000 req/s, and records the server's core with `perf sched record` during
-  each load. The report gives how often the server ran, how long each run took, how long it waited
-  for its core, and how long it slept between runs (design §8 step 13j). It needs sudo -n and
-  perf, and the workflow's `waits` input runs it on the judge.
+  each load, then captures the heads of the packets the server sends with tcpdump. The report
+  gives how often the server ran, how long each run took, how long it waited for its core, how long
+  it slept between runs, and its TCP segments a response (design §8 step 13j). It needs sudo -n,
+  perf and tcpdump, and the workflow's `waits` input runs it on the judge.
   `bench/run.sh --profile [--h11] [--h3] [report.md]` runs each input once after the warm-up,
   under `perf record` with the call stacks, in place of the counts (design §8 step 13h). The
   report gives the functions that took the most samples, and `<report>-profile/` holds each

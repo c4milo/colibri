@@ -26,8 +26,10 @@
 # 13j, https://github.com/c4milo/colibri/issues/113), in place of the inputs above. colibri and
 # axum serve h2 and h2-tls at `waits_rates`, and 1 s into each load `perf sched record` records the
 # server's core for 3 s. `perf sched timehist` then gives each time the server ran: how long it ran,
-# how long it waited for the core once woken, and how long it slept before. It needs sudo -n and
-# perf.
+# how long it waited for the core once woken, and how long it slept before. After the record,
+# tcpdump captures the head of each packet the server sends for 0.7 s, so the report gives the
+# server's segments for each response and its octets in each segment. It needs sudo -n, perf and
+# tcpdump.
 #
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset, as the judge
 # runs bench/run.sh (decision 33 as amended). Round 0 is a warm-up that the report discards. A time
@@ -117,6 +119,11 @@ fi
 readonly waits_rates=(40000 80000)
 readonly waits_delay_seconds=1
 readonly waits_record_seconds=3
+# The capture after the record: 0.7 s, of each packet's Ethernet, IP and TCP headers, on a core
+# apart from the server's and oha's, before the load ends a second after the record.
+readonly capture_seconds=0.7
+readonly capture_snap_len=96
+readonly capture_core=0
 if [ "$waits" = true ]; then
   if [ "$network" = true ]; then
     echo "run_latency.sh: --network and --waits are two runs" >&2
@@ -308,7 +315,10 @@ load_with_waits() {  # load_with_waits <protocol> <rate> <out>
   local load_pid=$!
   sleep "$waits_delay_seconds"
   sudo -n perf sched record -C "$server_core" -o "$3.data" -- sleep "$waits_record_seconds" >/dev/null 2>&1
+  sudo -n taskset -c "$capture_core" timeout "$capture_seconds" tcpdump -i lo -s "$capture_snap_len" \
+    -w "$3.pcap" "tcp src port $port" >/dev/null 2>&1 || true
   wait "$load_pid"
+  sudo -n chmod a+r "$3.pcap" 2>/dev/null || true
   sudo -n perf sched timehist -i "$3.data" --pid "$server_pid" >"$3.waits" 2>/dev/null
   sudo -n rm -f "$3.data"
 }
@@ -367,6 +377,10 @@ machine >"$scratch/machine.txt"
 if [ "$network" = true ]; then prepare_lo; fi
 if [ "$waits" = true ] && ! sudo -n perf --version >/dev/null 2>&1; then
   echo "run_latency.sh: --waits needs perf through sudo -n" >&2
+  exit 1
+fi
+if [ "$waits" = true ] && ! command -v tcpdump >/dev/null; then
+  echo "run_latency.sh: --waits needs tcpdump" >&2
   exit 1
 fi
 

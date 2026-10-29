@@ -105,10 +105,10 @@ jobs:
       # perf comes in the tools built for the running kernel. bench/run.sh runs it as root, which
       # lets it count the kernel's instructions and read the system call tracepoint, so no kernel
       # setting changes.
-      - name: Install h2load and perf
+      - name: Install h2load, perf and tcpdump
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends nghttp2-client wrk linux-tools-common "linux-tools-$(uname -r)"
+          sudo apt-get install -y --no-install-recommends nghttp2-client wrk tcpdump linux-tools-common "linux-tools-$(uname -r)"
           echo "PERF=/usr/lib/linux-tools/$(uname -r)/perf" >>"${GITHUB_ENV}"
       # Each package starts its own service, which run.sh never measures and which would hold a
       # core, so the step stops both. bench/run.sh starts each from bench/competitors/.

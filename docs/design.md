@@ -5232,6 +5232,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `perf sched record` records the server's core for 3 s. `perf sched timehist` then gives each
       run of the server: how long it ran, how long it waited for the core once woken, and how
       long it slept before.
+    - After the record, tcpdump captures the heads of the packets the server sends for 0.7 s, on
+      core 0. The report divides the segments with data by the rate oha reached, and gives their
+      octets of data each.
     - The report gives the median over the rounds of the runs a second, the p50, p99 and longest
       run, the p99 and longest wait for the core, and the p50 and p99 sleep, beside the latency
       of the same loads.
@@ -5247,6 +5250,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       or the owed update noted, response lines and `:status` not indexed, and the abandoned block
       not seen by h2's refused response. A line in `begin_block` that cleared the insert was
       equivalent, and is gone.
+    - Judge run [40943109670](https://github.com/c4milo/colibri/actions/runs/40943109670), on
+      `2afba28b`, recorded the four loads. colibri's server never ran longer than 0.26 ms, and
+      never waited for its core. At 40,000 req/s over h2-tls it ran about 4,400 times a second
+      and axum's about 1,500, so colibri answers fewer requests each time it wakes. At 80,000,
+      axum's rounds spread as colibri's had: in job 2 over h2 its p50 reached 186 ms. So the loss
+      is not a stall in colibri. One reading is that colibri's smaller writes cost oha more
+      records to read, and the capture of segments a response tests it.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
