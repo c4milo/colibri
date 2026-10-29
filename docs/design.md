@@ -5368,6 +5368,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     takes 0.80 of nginx's, and 1.25 times hyper's. h11-one stays at 1.35 times nginx's and 1.08
     times hyper's.
 
+  **The competitors on 0.9.0, 2026-10-29.** The owner asked where 0.9.0 stands. [Run
+  40889497528](https://github.com/c4milo/colibri/actions/runs/40889497528), on the tag v0.9.0
+  (`bf4fe21f`), ran `--competitors --h11 --h3` in 21 minutes. Its two jobs give the same verdict
+  on 27 of the 28 ratios. On h11-one against h2o, job 1 wins and job 2 stays within the noise.
+  Each run measures on its own machine, so only the ratios compare across runs. The ratios that
+  moved, job 1 and then job 2, against the run of 2026-10-27:
+  - h11-many takes 1.16 times hyper's instructions in both jobs, where it took 1.19. It takes
+    1.12 times nginx's, where it took 1.14.
+  - h11-one takes 1.28 and 1.32 times nginx's, where it took 1.35.
+  - h11-tls-many takes 1.21 times hyper's in both jobs, where it took 1.25.
+  - h2-tls-one takes 0.98 of hyper's, a win, where it was within the noise.
+  - h3-many takes 0.66 and 0.65 of quic-go's, where it took 0.69.
+
+  h11 is still where colibri loses, to nginx and hyper alone. The h11 head scan and the 64-bit
+  quota came after the run of 2026-10-27.
+
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
