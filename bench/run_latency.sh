@@ -315,10 +315,11 @@ load_with_waits() {  # load_with_waits <protocol> <rate> <out>
   local load_pid=$!
   sleep "$waits_delay_seconds"
   sudo -n perf sched record -C "$server_core" -o "$3.data" -- sleep "$waits_record_seconds" >/dev/null 2>&1
-  sudo -n taskset -c "$capture_core" timeout "$capture_seconds" tcpdump -i lo -s "$capture_snap_len" \
-    -w "$3.pcap" "tcp src port $port" >/dev/null 2>&1 || true
+  # tcpdump drops root for its own user before it opens a file, and that user cannot write into
+  # this script's scratch directory, so tcpdump writes to its output and this shell writes the file.
+  sudo -n taskset -c "$capture_core" timeout "$capture_seconds" tcpdump -U -i lo -s "$capture_snap_len" \
+    -w - "tcp src port $port" >"$3.pcap" 2>/dev/null || true
   wait "$load_pid"
-  sudo -n chmod a+r "$3.pcap" 2>/dev/null || true
   sudo -n perf sched timehist -i "$3.data" --pid "$server_pid" >"$3.waits" 2>/dev/null
   sudo -n rm -f "$3.data"
 }
