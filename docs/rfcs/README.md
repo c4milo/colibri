@@ -47,6 +47,7 @@ rule or none at all.
 | [9002](rfc9002.txt) | QUIC Loss Detection and Congestion Control | Loss recovery, design §8 step 10 |
 | [9369](rfc9369.txt) | QUIC Version 2 | Version 2 beside version 1, for [#54](https://github.com/c4milo/colibri/issues/54), copied on 2026-09-29 |
 | [9368](rfc9368.txt) | Compatible Version Negotiation for QUIC | The version_information transport parameter RFC 9369 §4 requires, copied on 2026-09-29 |
+| [9438](rfc9438.txt) | CUBIC for Fast and Long-Distance Networks | The congestion controller, in place of RFC 9002 §7's NewReno (decision 133), copied on 2026-10-29; it obsoletes RFC 8312, which colibri never reads |
 
 ## TLS
 
@@ -72,6 +73,16 @@ through stdx's decoders too (decision 101 as amended, https://github.com/c4milo/
 | [7932](compression/rfc7932.txt) | Brotli Compressed Data Format | The `br` content coding (§13) and its window (§9.1) |
 | [8878](compression/rfc8878.txt) | Zstandard Compression and the 'application/zstd' Media Type | The `zstd` content coding (§7.2) |
 | [9659](compression/rfc9659.txt) | Window Sizing for Zstandard Content Encoding | The `zstd` coding's window of 8 MB (§3); updates RFC 8878 |
+
+## BBR
+
+This Internet-Draft is in `bbr/`, copied unmodified on 2026-10-29 from
+`https://www.ietf.org/archive/id/draft-ietf-ccwg-bbr-06.txt`. The owner ruled it in for BBRv3 until
+an RFC publishes it ([decision 134](../decisions.md)). colibri cites it by revision and section.
+
+| Draft | Title | What colibri uses it for |
+|---|---|---|
+| [bbr-06](bbr/draft-ietf-ccwg-bbr-06.txt) | BBR Congestion Control | BBRv3 and its delivery rate sampling, beside CUBIC (decision 134) |
 
 ## qlog
 
