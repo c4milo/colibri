@@ -5205,6 +5205,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Each connection granted 32 request streams and gave them back 16 at a time, which decision
     130 changes. Under loss, axum's h3 answered some requests with a status other than 200.
 
+    Decision 130 adds `quic.connection_flow.data_credit_owed`, which the server's body meters
+    call. [Run 40913541815](https://github.com/c4milo/colibri/actions/runs/40913541815), on
+    `90968a4e` with decision 130, took 5 rounds in each job, and the two jobs agree. colibri's
+    p99 over h3 divided by its p99 over h2-tls, job 1 and then job 2:
+    - `far`: 0.56 and 0.56 at 1,000 req/s, and 0.65 and 0.64 at 4,000. axum's is 0.55 and 0.59,
+      and chi's 0.37 and 0.40.
+    - `lossy`: 0.78 and 0.77 at 2,000 req/s, and 1.34 and 1.32 at 4,000. At 4,000 colibri's p99
+      over h3 is 199 ms, and chi's and axum's 107 ms.
+    - `mobile`: 0.65 and 0.56 at 1,000 req/s, and 5.02 and 4.46 at 2,000, where colibri reaches
+      1,666 req/s and chi 1,995. At 4,000 no server reaches the rate: chi reaches 3,277, axum
+      3,084 and colibri 1,736.
+
+    So colibri's h3 keeps up with quinn and quic-go on a path with delay, and falls behind them
+    under loss at the higher rates. colibri runs RFC 9002's NewReno, and quic-go and quinn run
+    CUBIC, but no run has shown that the congestion controller is the cause.
+
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
     serves, from a run with `competitors` and `h11` set. `report.py --test` holds the report to
