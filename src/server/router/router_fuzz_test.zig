@@ -6,20 +6,23 @@ const PathParameters = @import("../path_parameters.zig").PathParameters;
 
 const testing = std.testing;
 
-/// The tables that the sweep reads. Each pattern is of one, two or three octets, so the sweep's
-/// paths of up to two octets find each route. The parameter child of `swept` matches each path of
-/// one segment before the wildcard can, so the wildcard has a table of its own.
-const swept_patterns = [_][]const u8{ "/", "/a", "/:x" };
+/// The tables that the sweep reads. The sweep's paths of up to two octets find each route but
+/// "/a/", which the fuzz inputs find. The parameter child of `swept` matches each path of one
+/// segment before the wildcard can, so the wildcard has a table of its own.
+const swept_patterns = [_][]const u8{ "/", "/a", "/:x", "/a/" };
 const swept_binding = 2;
+const swept_slash = 3;
 const swept = router(u8, .{
     .{ .get, swept_patterns[0], 0 },
     .{ .get, swept_patterns[1], 1 },
     .{ .get, swept_patterns[swept_binding], swept_binding },
+    .{ .get, swept_patterns[swept_slash], swept_slash },
 });
 const swept_wildcard = router(u8, .{
     .{ .get, swept_patterns[0], 0 },
     .{ .get, swept_patterns[1], 1 },
     .{ .get, "/*", swept_binding },
+    .{ .get, swept_patterns[swept_slash], swept_slash },
 });
 
 /// Most octets a fuzz input carries. Test-only.
@@ -68,7 +71,8 @@ fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parame
     if (std.mem.indexOfScalar(u8, path, '%') == null) try testing.expectEqual(path.ptr + 1, value.ptr);
     if (comptime !std.mem.eql(u8, name, "*")) try testing.expectEqual(null, std.mem.indexOfScalar(u8, path[1..], '/'));
     // Each encoded segment of the value is not empty, and decodes to no dot segment and to no
-    // "/", "\\" or NUL (RFC 3986 §7.3).
+    // "/", "\\" or NUL (RFC 3986 §7.3). Decision 122 as amended on 2026-10-29: only "/a/" of the
+    // patterns matches a path that ends in "/".
     var segments = std.mem.splitScalar(u8, path[1..], '/');
     for (0..path.len + 1) |_| {
         const segment = segments.next() orelse break;
@@ -114,6 +118,10 @@ test "fuzz: a found path equals a pattern before its query, or binds segments th
         core.fuzz.input("/b?c"),
         core.fuzz.input("/..."),
         core.fuzz.input("/a/"),
+        core.fuzz.input("/b/c/"),
+        core.fuzz.input("/a//"),
+        core.fuzz.input("/a/?x"),
+        core.fuzz.input("/b/"),
         core.fuzz.input("/."),
         core.fuzz.input("/%"),
         core.fuzz.input("/%61"),

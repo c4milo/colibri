@@ -647,9 +647,15 @@ a request itself calls `match`, with the request's method and path. Its `found` 
   valid until the next endpoint call that the comment on `Endpoint.receive` lists. A decoded one
   is a slice of the router's `PathParameters`, valid until the next request. A route that keeps a
   value longer copies it into its `State`.
+- **A path that ends in "/" is a resource of its own** (RFC 3986 §6.2.4, decision 122 as
+  amended on 2026-10-29). Only a pattern that ends in "/" matches it: `/a/` matches `/a/` and not
+  `/a`, and `/a` matches `/a` and not `/a/`. A parameter does not match the empty last segment,
+  so `/a/:id` does not match `/a/`. The wildcard does not match a path that ends in "/", so
+  `/files/*` does not match `/files/a/`.
 - **Paths that match nothing:** a path with an octet outside `pchar` and "%", a path with an empty
-  segment, such as `/a//b` or `/a/`, a path with a "." or ".." segment, encoded or not, such as
-  `/a/%2E%2E`, and a path longer than `server.constants.path_len_max` bytes, its query included.
+  segment that is not its last, such as `/a//b`, a path with a "." or ".." segment, encoded or
+  not, such as `/a/%2E%2E`, and a path longer than `server.constants.path_len_max` bytes, its
+  query included.
 
 ### Middleware
 

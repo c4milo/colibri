@@ -226,6 +226,7 @@ test {
     _ = @import("router/router_parameter_test.zig");
     _ = @import("router/router_fuzz_test.zig");
     _ = @import("router/router_refusal_test.zig");
+    _ = @import("router/router_slash_test.zig");
     _ = @import("response_writer/response_writer_internal.zig");
     // `zig build router-hidden-check` runs `router/router_hidden_test.zig` and
     // `router/router_quota_test.zig`, each in a binary of its own, because each compile takes

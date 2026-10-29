@@ -5126,6 +5126,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The judge's run 40798495858 found no input past the noise. `h2-routes-many` rose to 1.0021
       and 1.0025 of the base's instructions, from 16,557 to 16,592 a request in job 1: the copy
       of the names on `found` that decision 129 ruling 4 priced.
+    - The tables showed a third pattern: 64 routes of Kubernetes end in "/", such as `GET /api/`,
+      which the rule on empty segments refused. The owner ruled on 2026-10-29 that "/a" and "/a/"
+      are two routes, and amended decision 122 for the last segment alone. It is built:
+      - A pattern and a path may end in one empty segment, and only a literal edge matches it.
+        A parameter does not match it, and the wildcard does not match a path that ends in "/".
+      - `zig build router-hidden-check` agreed with its brute force on the two families of two
+        routes with "/a/" and "/:x/" added, 1,406 and 1,786 tables, and on paths that end in "/".
+      - `convert_routes.py` keeps the 64 routes. Each of Kubernetes' 1,172 routes, sent as a
+        path, finds that route.
+      - Mutations, 6 of 6 CAUGHT: the path's empty last segment refused, any empty segment
+        allowed, a parameter that matches it, the wildcard that matches a path that ends in "/",
+        the pattern's empty last segment refused, and any empty segment of a pattern allowed.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,

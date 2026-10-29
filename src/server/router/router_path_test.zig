@@ -84,7 +84,8 @@ test "every target of up to five octets of the alphabet reads as the replaced ch
     }
 }
 
-// The checks that the one pass replaced, as router_match.zig held them at 6f9ddaf6.
+// The checks that the one pass replaced, as router_match.zig held them at 6f9ddaf6, with decision
+// 122's amendment of 2026-10-29.
 
 fn old_path_of(target: []const u8) ?[]const u8 {
     // INV-8: `path_len_max` bounds the octets that one match reads.
@@ -123,6 +124,8 @@ fn old_path_end(path: []const u8, segment_first: usize) ?[]const u8 {
     assert(segment_first > 0 and segment_first <= path.len);
     // Decision 122: the path "/" is the root, with no segment.
     if (path.len == 1) return path;
+    // Decision 122 as amended on 2026-10-29: the last segment may be empty, as in "/a/".
+    if (segment_first == path.len) return path;
     if (!old_segment_matches(path[segment_first..])) return null;
     return path;
 }

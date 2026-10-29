@@ -33,7 +33,7 @@ const cases = [_]Case{
     .{
         .name = "segment_empty",
         .message = "server.router: route 1, \"/a//b\": segment_empty: " ++
-            "a segment of a pattern is not empty, and only the pattern \"/\" ends in \"/\"",
+            "only the last segment of a pattern may be empty, as in \"/a/\"",
     },
     .{
         .name = "segment_dot",

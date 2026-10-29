@@ -2,7 +2,7 @@
 //! step 13h). It reads each octet of the path once (INV-32), decides each one through a table of
 //! classes that the compiler builds, and records where the first segments end and which of them
 //! hold a "%". The walk then reads each segment's end from the record, so it searches for no "/"
-//! and no "%". The pass refuses what `router_match.zig`'s header, rules 3 to 7, refuses.
+//! and no "%". A path that ends in "/" has an empty last segment, which the record holds too. The pass refuses what `router_match.zig`'s header, rules 3 to 7, refuses.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -73,7 +73,7 @@ pub fn read(comptime capacity: usize, target: []const u8, segments: *Segments(ca
         // RFC 3986 §2.1: a pchar may be pct-encoded, which the walk decodes (decision 127).
         .percent => encoded = true,
         .separator => {
-            if (!take(capacity, segments, target[first..index], index, encoded)) return false;
+            if (!take(capacity, segments, target[first..index], index, encoded, false)) return false;
             first = index + 1;
             encoded = false;
         },
@@ -88,14 +88,15 @@ pub fn read(comptime capacity: usize, target: []const u8, segments: *Segments(ca
     };
     // Decision 122: the path "/" is the root, with no segment.
     if (end == 1) return true;
-    if (!take(capacity, segments, target[first..end], end, encoded)) return false;
+    if (!take(capacity, segments, target[first..end], end, encoded, true)) return false;
     segments.path = target[0..end];
     return true;
 }
 
-/// Records `segment`, which ends at `end` in the target, or refuses it.
-fn take(comptime capacity: usize, segments: *Segments(capacity), segment: []const u8, end: usize, encoded: bool) bool {
-    if (!segment_matches(segment, encoded)) return false;
+/// Records `segment`, which ends at `end` in the target, or refuses it. `last` says it is the
+/// path's last segment.
+fn take(comptime capacity: usize, segments: *Segments(capacity), segment: []const u8, end: usize, encoded: bool, last: bool) bool {
+    if (!segment_matches(segment, encoded, last)) return false;
     if (segments.count < capacity) {
         segments.ends[segments.count] = @intCast(end);
         if (encoded) segments.encoded |= @as(u64, 1) << @intCast(segments.count);
@@ -104,10 +105,12 @@ fn take(comptime capacity: usize, segments: *Segments(capacity), segment: []cons
     return true;
 }
 
-/// Whether a route can match `segment`, which is not the root's. `encoded` says it holds a "%".
-fn segment_matches(segment: []const u8, encoded: bool) bool {
-    // Decision 122: an empty segment matches no route, though RFC 3986 §3.3 allows one.
-    if (segment.len == 0) return false;
+/// Whether a route can match `segment`, which is not the root's. `encoded` says it holds a "%",
+/// and `last` says it is the path's last segment.
+fn segment_matches(segment: []const u8, encoded: bool, last: bool) bool {
+    // Decision 122 as amended on 2026-10-29: only the last segment may be empty, as in "/a/".
+    // RFC 3986 §3.3 allows an empty segment anywhere.
+    if (segment.len == 0) return last;
     // RFC 3986 §3.3: "." and ".." are dot-segments, which match no route.
     if (!encoded) return !all_dots(segment);
     // RFC 3986 §6.2.2.2: "%2E" is ".", so an encoded dot-segment matches none either.

@@ -11,7 +11,8 @@
 //!   - the parameter child.
 //! At each node that it reads, it adds the node's leaf and the leaf of its wildcard child to its
 //! list. A path that L and T both match holds T's literal where T holds one, so the walk reads
-//! each node on the paths of each such L. Each node has one parent, so the walk reads each node
+//! each node on the paths of each such L. It may list a leaf that matches no path of T, which
+//! costs walks and changes no verdict. Each node has one parent, so the walk reads each node
 //! once at most.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -253,7 +254,9 @@ fn push_children(comptime layout: anytype, shape: Shape, visit: Visit, stack: []
             pushed += 1;
         }
     } else {
-        // Where T holds a parameter or the wildcard, each literal edge matches some path of T.
+        // Where T holds a parameter or the wildcard, each literal edge but the empty one matches
+        // some path of T. The empty edge matches none (decision 122 as amended on 2026-10-29),
+        // and its leaves only cost the check walks that claim 7 would save.
         for (layout.edges[at.edges_first..][0..at.edges_count]) |edge| {
             stack[pushed] = .{ .node = edge.child, .depth = visit.depth + 1 };
             pushed += 1;

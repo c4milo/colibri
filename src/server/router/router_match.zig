@@ -12,7 +12,8 @@
 //!      start with "/" matches nothing: "*" and "".
 //!   6. One pass reads each octet of the path once, before the walk. A path matches nothing when
 //!      a segment holds an octet outside `path_octets` and "%", when a segment other than the
-//!      root's is empty, or when a segment is "." or "..", encoded or not (RFC 3986 §6.2.2.2).
+//!      root's and the last is empty, or when a segment is "." or "..", encoded or not (RFC 3986
+//!      §6.2.2.2).
 //!   6a. A segment that encodes "/", "\\" or NUL matches nothing (RFC 3986 §7.3). The walk splits
 //!      the path on "/", then percent-decodes each segment it reads (RFC 3986 §2.1, decision 127).
 //!      A "%" that two hex digits do not follow stays as written.
@@ -20,6 +21,8 @@
 //!   8. The walk starts at the root. At each node it tries the literal edge that equals the
 //!      segment, octet for octet, then the parameter child, then the wildcard child. The wildcard
 //!      matches the segment and each segment after it.
+//!   8a. Only a literal edge matches an empty last segment, as of a path that ends in "/". A
+//!      parameter does not match it, and the wildcard does not match a path that ends in "/".
 //!   9. The walk backs up one level when a node has no child left to try for its segment, or when
 //!      the walk read every segment and the node holds no leaf. It tries each child kind of a node
 //!      once at most (INV-32). A walk that backs up from the root matches nothing.
@@ -273,10 +276,11 @@ fn step(comptime layout: anytype, segments: *const SegmentsOf(layout), depth: us
     }
     if (frame.tried == .literal) {
         frame.tried = .parameter;
-        if (at.parameter) |parameter| {
+        // Decision 122 as amended on 2026-10-29: only a literal edge matches an empty segment.
+        if (segment.len > 0) if (at.parameter) |parameter| {
             bind(parameters, frame.count, text_of(layout, parameter.name), segment);
             return .{ .push = .{ .node = parameter.child, .tried = .none, .segment_first = next_first, .count = frame.count + 1 } };
-        }
+        };
     }
     if (frame.tried == .parameter) {
         frame.tried = .wildcard;
@@ -294,9 +298,13 @@ fn at_end(comptime layout: anytype, frame: *const Frame, server: anytype) Step {
     return .{ .found = .{ .node = frame.node, .count = frame.count } };
 }
 
-/// Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path. Its
-/// leaf decides when it serves the request (decision 128).
+/// Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path, when
+/// the path does not end in "/". Its leaf decides when it serves the request (decision 128).
 fn wildcard_step(comptime layout: anytype, path: []const u8, frame: *const Frame, wildcard: usize, parameters: *PathParameters, server: anytype) Step {
+    // Decision 122 as amended on 2026-10-29: only a pattern that ends in "/" matches a path that
+    // ends in "/". The walk never reads the root's path here.
+    assert(path.len > 1);
+    if (path[path.len - 1] == router_pattern.separator) return .back;
     if (!server.serves(layout, layout.nodes[wildcard].leaf.?)) return .back;
     bind(parameters, frame.count, router_pattern.wildcard, decoded(parameters, path, frame.segment_first, path.len, false));
     return .{ .found = .{ .node = wildcard, .count = frame.count + 1 } };

@@ -36,7 +36,11 @@
 //!      with a leaf after the last segment decides (rule 10). Where two patterns that match x
 //!      both hold a literal, both literals equal the segment of x, so the kinds decide.
 //!   2. Other. No literal edge matches "other". So at each position where x holds "other", a
-//!      pattern that matches x holds a parameter or the wildcard.
+//!      pattern that matches x holds a parameter or the wildcard. A path holds an empty segment
+//!      only as its last, and only a pattern with an empty last segment matches it: a parameter
+//!      does not match it, and the wildcard does not match a path that ends in "/" (rule 8a of
+//!      `router_match.zig`). So a pattern that matches x(T, n) holds an empty last segment where
+//!      T does, and the proof of claim 4 reads it as one more literal of T.
 //!   3. Lengths. No pattern holds more than `depth_max` segments. So only a pattern that ends in
 //!      the wildcard matches a path of more than `depth_max` segments, and its literals all come
 //!      before position `depth_max`. For n > `depth_max` + 1, x(T, L, n) holds "other" at each

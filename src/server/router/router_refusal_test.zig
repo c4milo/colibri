@@ -43,12 +43,15 @@ test "refusal 1, pattern_not_absolute: RFC 9110 §4.1, a pattern starts with \"/
     try expect_pattern(null, "/");
 }
 
-test "refusal 2, segment_empty: a pattern holds no empty segment but the root's" {
+test "refusal 2, segment_empty: only the last segment of a pattern may be empty" {
     try expect_pattern(.segment_empty, "/a//b");
     try expect_pattern(.segment_empty, "//a");
-    try expect_pattern(.segment_empty, "/a/");
     try expect_pattern(.segment_empty, "//");
+    try expect_pattern(.segment_empty, "/a//");
     try expect_pattern(null, "/a/b");
+    // Decision 122 as amended on 2026-10-29: RFC 3986 §6.2.4 keeps "/a/" apart from "/a".
+    try expect_pattern(null, "/a/");
+    try expect_pattern(null, "/:x/");
 }
 
 test "refusal 3, segment_dot: RFC 3986 §3.3, a pattern holds no dot-segment" {
@@ -302,8 +305,8 @@ test "decision 122: a table's checks run in order, and the first refusal names i
 
 test "decision 122: the compile error names the entry, the refusal and its reason" {
     try testing.expectEqualStrings(
-        "server.router: route 1, \"/a//b\": segment_empty: a segment of a pattern is not empty, " ++
-            "and only the pattern \"/\" ends in \"/\"",
+        "server.router: route 1, \"/a//b\": segment_empty: only the last segment of a pattern " ++
+            "may be empty, as in \"/a/\"",
         comptime router_trie.message(.{ .route = 1, .pattern = "/a//b", .reason = .{ .pattern = .segment_empty } }),
     );
     try testing.expectEqualStrings(

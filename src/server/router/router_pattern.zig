@@ -11,7 +11,7 @@
 //!   1. It starts with "/", or `pattern_not_absolute`. The pattern "/" alone is the root, with no
 //!      segment.
 //!   2. Each segment, from the first, is checked in this order:
-//!      1. not empty, or `segment_empty`;
+//!      1. not empty, but for the last segment, or `segment_empty`;
 //!      2. not "." or "..", or `segment_dot`;
 //!      3. for the wildcard: it is the last segment, or `wildcard_not_last`;
 //!      4. for a parameter: a name follows the ":", or `parameter_unnamed`, and each octet of the
@@ -42,7 +42,7 @@ pub const Refusal = enum {
     pub fn reason(refusal: Refusal) []const u8 {
         return switch (refusal) {
             .pattern_not_absolute => "a pattern starts with \"/\" (RFC 9110 §4.1)",
-            .segment_empty => "a segment of a pattern is not empty, and only the pattern \"/\" ends in \"/\"",
+            .segment_empty => "only the last segment of a pattern may be empty, as in \"/a/\"",
             .segment_dot => "a segment of a pattern is not \".\" or \"..\" (RFC 3986 §3.3)",
             .segment_encoded => "a pattern holds no \"%\", because a path with one matches no route (RFC 3986 §2.1)",
             .octet_outside_path => "each octet of a segment is a pchar other than \"%\" (RFC 3986 §3.3)",
@@ -145,14 +145,19 @@ pub fn refusal_of(comptime pattern: []const u8) ?Refusal {
 }
 
 fn segment_refusal(comptime segment: []const u8, comptime last: bool) ?Refusal {
-    // Decision 122: a path with an empty segment other than the root's matches no route, though
-    // RFC 3986 §3.3 allows one.
-    if (segment.len == 0) return .segment_empty;
+    // Decision 122 as amended on 2026-10-29: only the last segment may be empty. A path with an
+    // empty segment elsewhere matches no route, though RFC 3986 §3.3 allows one. RFC 3986 §6.2.4
+    // counts "/a/" equal to "/a" only when the server says so, so a pattern may end in "/".
+    if (segment.len == 0) return if (last) null else .segment_empty;
     // RFC 3986 §3.3: "." and ".." are dot-segments, and a path with one matches no route.
     if (std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return .segment_dot;
     // Decision 122 ruling 6: the wildcard matches the rest of the path, so no segment follows it.
     if (is_wildcard(segment)) return if (last) null else .wildcard_not_last;
     if (is_parameter(segment)) return name_refusal(parameter_name(segment));
+    return literal_refusal(segment);
+}
+
+fn literal_refusal(comptime segment: []const u8) ?Refusal {
     for (segment) |octet| {
         // RFC 3986 §2.1: "%" starts a pct-encoded octet, and a path with one matches no route.
         if (octet == '%') return .segment_encoded;

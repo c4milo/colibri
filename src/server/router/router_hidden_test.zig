@@ -32,17 +32,16 @@ const methods = [_]Standard{ .get, .put };
 const head_methods = [_]Standard{ .get, .head, .put };
 
 /// The segments of a path that the brute force reads: the two literals of the family, and two
-/// segments that equal no literal.
+/// segments that equal no literal. A path may also end in an empty segment (`paths_of`).
 const path_segments = [_][]const u8{ "a", "b", "c", "d" };
 
-/// The patterns of at most two segments over the literals "a" and "b", a parameter and the
-/// wildcard. The parameter at each position has a name of its own, so no two names meet at one
-/// node (refusal 19).
+/// The patterns of at most two segments over the literals "a" and "b", a parameter, the
+/// wildcard and an empty last segment.
 const pair_patterns = [_][]const u8{
     "/",      "/a",    "/b",    "/:x",   "/*",
     "/a/a",   "/a/b",  "/a/:y", "/a/*",  "/b/a",
     "/b/b",   "/b/:y", "/b/*",  "/:x/a", "/:x/b",
-    "/:x/:y", "/:x/*",
+    "/:x/:y", "/:x/*", "/a/",   "/:x/",
 };
 
 /// The triples of the owner's example 8: a wildcard, a segment in its place, and a wildcard
@@ -93,9 +92,13 @@ fn pattern_matches(pattern: []const u8, path: []const []const u8) bool {
     var segments = std.mem.splitScalar(u8, pattern[1..], '/');
     for (0..path.len + 1) |position| {
         const segment = segments.next() orelse return position == path.len;
-        if (std.mem.eql(u8, segment, "*")) return position < path.len;
+        // Decision 122 as amended on 2026-10-29: the wildcard does not match a path that ends in
+        // "/", and a parameter does not match an empty segment.
+        if (std.mem.eql(u8, segment, "*")) return position < path.len and path[path.len - 1].len > 0;
         if (position == path.len) return false;
-        if (segment[0] != ':' and !std.mem.eql(u8, segment, path[position])) return false;
+        const parameter = segment.len > 0 and segment[0] == ':';
+        if (parameter and path[position].len == 0) return false;
+        if (!parameter and !std.mem.eql(u8, segment, path[position])) return false;
     }
     return segments.next() == null;
 }
@@ -114,6 +117,11 @@ fn paths_of(comptime count: usize) []const Path {
         }
         paths = paths ++ next;
         last = next;
+    }
+    // Decision 122 as amended on 2026-10-29: a path may end in "/", an empty last segment.
+    for (paths) |path| {
+        if (path.segments.len == 0 or path.segments.len == count) continue;
+        paths = paths ++ [_]Path{.{ .segments = path.segments ++ [_][]const u8{""}, .text = path.text ++ "/" }};
     }
     return paths;
 }
@@ -232,14 +240,14 @@ test "decision 122 ruling 12: the check gives the brute force's verdict on every
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
     // In each table of two routes of the family, a request reaches each route.
-    try testing.expectEqual(Census{ .tables = 1122, .unreached = 0, .compiled = 1122 }, census);
+    try testing.expectEqual(Census{ .tables = 1406, .unreached = 0, .compiled = 1406 }, census);
 }
 
 test "decision 122 ruling 12: the check gives the brute force's verdict on each table of two routes with HEAD" {
     const census = comptime pair_census(&head_methods, true);
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
-    try testing.expectEqual(Census{ .tables = 1428, .unreached = 0, .compiled = 1428 }, census);
+    try testing.expectEqual(Census{ .tables = 1786, .unreached = 0, .compiled = 1786 }, census);
 }
 
 test "decision 122 ruling 12: the check gives the brute force's verdict on each triple of example 8" {
