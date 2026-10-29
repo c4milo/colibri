@@ -96,17 +96,18 @@ test "decision 128: 405 when no leaf the path reaches serves the method, with ea
 const Route = struct { method: []const u8, pattern: []const u8 };
 
 /// Three patterns that one path can match together, each with methods of its own: a path
-/// `/a/c` reaches the leaves of `/a/:q`, `/:p/c` and `/:p/:r`, in that order.
+/// `/a/c` reaches the leaves of `/a/:q`, `/:p/c` and `/:p/:r`, in that order. Two routes name the
+/// positions of the last leaf differently (decision 129).
 const overlap_routes = [_]Route{
     .{ .method = "GET", .pattern = "/a/:q" },   .{ .method = "PUT", .pattern = "/:p/c" },
-    .{ .method = "POST", .pattern = "/:p/:r" }, .{ .method = "DELETE", .pattern = "/:p/:r" },
+    .{ .method = "POST", .pattern = "/:p/:r" }, .{ .method = "DELETE", .pattern = "/:s/:t" },
     .{ .method = "GET", .pattern = "/a/c/*" },  .{ .method = "PUT", .pattern = "/:p/*" },
     .{ .method = "HEAD", .pattern = "/a/:q" },
 };
 /// Each route's value, in the order of `overlap_routes`.
 const OverlapRoute = enum(u8) { a_q, p_c, p_r_post, p_r_delete, a_c_rest, p_rest, a_q_head };
 const overlap = router(OverlapRoute, .{
-    .{ .get, "/a/:q", .a_q },       .{ .put, "/:p/c", .p_c },    .{ .post, "/:p/:r", .p_r_post }, .{ .delete, "/:p/:r", .p_r_delete },
+    .{ .get, "/a/:q", .a_q },       .{ .put, "/:p/c", .p_c },    .{ .post, "/:p/:r", .p_r_post }, .{ .delete, "/:s/:t", .p_r_delete },
     .{ .get, "/a/c/*", .a_c_rest }, .{ .put, "/:p/*", .p_rest }, .{ .head, "/a/:q", .a_q_head },
 });
 const stripe_routes = [_]Route{
@@ -257,6 +258,7 @@ fn expect_reference(table: anytype, routes: []const Route, method: []const u8, p
             try testing.expect(result == .found);
             // Each table's values are the routes' indexes.
             try testing.expectEqual(index, @intFromEnum(result.found));
+            try expect_names(routes[index].pattern, path, &parameters);
         },
         .allow => |allow| {
             try testing.expect(result == .method_not_allowed);
@@ -264,6 +266,15 @@ fn expect_reference(table: anytype, routes: []const Route, method: []const u8, p
         },
         .none => try testing.expect(result == .not_found),
         .not_implemented => try testing.expect(result == .not_implemented),
+    }
+}
+
+/// Decision 129: each parameter of the found route's own pattern reads the segment at its place.
+fn expect_names(pattern: []const u8, path: []const u8, parameters: *const PathParameters) !void {
+    for (0..segments_of(pattern)) |index| {
+        const segment = segment_at(pattern, index).?;
+        if (kind_of(segment) != .parameter) continue;
+        try testing.expectEqualStrings(segment_at(path, index).?, parameters.get(segment[1..]).?);
     }
 }
 

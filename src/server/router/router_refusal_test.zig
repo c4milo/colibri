@@ -228,24 +228,51 @@ test "refusal 18, route_repeated: two routes name one method and one path" {
     try expect_table(null, .{ .{ "PATCH", "/", .one }, .{ "patch", "/", .two } });
 }
 
-test "refusal 19, parameter_names_differ: decision 122 ruling 5, one parameter node has one name" {
-    try expect_table(.parameter_names_differ, .{ .{ .get, "/users/:id", .one }, .{ .put, "/users/:user", .two } });
-    try expect_table(.parameter_names_differ, .{ .{ .get, "/:a/x", .one }, .{ .get, "/:b/y", .two } });
-    try expect_table(.parameter_names_differ, .{ .{ .get, "/:a", .one }, .{ .get, "/:ab", .two } });
-    try expect_table(.parameter_names_differ, .{ .{ .get, "/:ab", .one }, .{ .get, "/:a/c", .two } });
-    try expect_table(.parameter_names_differ, .{ .{ .get, "/u/:id/p/:x", .one }, .{ .get, "/u/:id/p/:y", .two } });
-    // The same name at one node, names at two nodes, and a literal beside a parameter.
+test "decision 129: two routes may name one parameter position differently" {
+    try expect_table(null, .{ .{ .get, "/users/:id", .one }, .{ .put, "/users/:user", .two } });
+    try expect_table(null, .{ .{ .get, "/:a/x", .one }, .{ .get, "/:b/y", .two } });
+    try expect_table(null, .{ .{ .get, "/:ab", .one }, .{ .get, "/:a/c", .two } });
     try expect_table(null, .{ .{ .get, "/users/:id", .one }, .{ .put, "/users/:id", .two } });
-    try expect_table(null, .{ .{ .get, "/users/:id", .one }, .{ .get, "/posts/:id2", .two } });
-    try expect_table(null, .{ .{ .get, "/users/:id", .one }, .{ .get, "/users/:id/:part", .two } });
     try expect_table(null, .{ .{ .get, "/users/me", .one }, .{ .get, "/users/:id", .two } });
-    try expect_table(null, .{ .{ .get, "/:a/x", .one }, .{ .get, "/:a/:b", .two } });
-    try expect_table(null, .{ .{ .get, "/", .one }, .{ .get, "/:a", .two } });
-    try expect_table(null, .{ .{ .get, "/:a", .one }, .{ .get, "/:a/b", .two } });
     try expect_table(null, .{ .{ .get, "/a:b", .one }, .{ .get, "/a:c", .two } });
+    // Two patterns that differ only in a parameter's name stand at one leaf, so one method there
+    // is named twice.
+    try expect_table(.route_repeated, .{ .{ .get, "/:a", .one }, .{ .get, "/:ab", .two } });
+    try expect_table(.route_repeated, .{ .{ .get, "/u/:id/p/:x", .one }, .{ .get, "/u/:id/p/:y", .two } });
 }
 
-test "decision 122: two names at one node refuse the later route, before a repeated route" {
+test "decision 129: each route reads its values by the names of its own pattern" {
+    const table = router(Route, .{ .{ .get, "/users/:id/posts", .one }, .{ .put, "/users/:user/posts/:post", .two } });
+    var parameters: PathParameters = .{};
+    try testing.expectEqual(Route.one, table.match("GET", "/users/7/posts", &parameters).found);
+    try testing.expectEqualStrings("7", parameters.get("id").?);
+    try testing.expectEqual(null, parameters.get("user"));
+    try testing.expectEqual(Route.two, table.match("PUT", "/users/8/posts/9", &parameters).found);
+    try testing.expectEqualStrings("8", parameters.get("user").?);
+    try testing.expectEqualStrings("9", parameters.get("post").?);
+    try testing.expectEqual(null, parameters.get("id"));
+    // One leaf, two methods, two names.
+    const shared = router(Route, .{ .{ .get, "/c/:customer", .one }, .{ .delete, "/c/:id", .two } });
+    try testing.expectEqual(Route.one, shared.match("GET", "/c/cus_1", &parameters).found);
+    try testing.expectEqualStrings("cus_1", parameters.get("customer").?);
+    try testing.expectEqual(Route.two, shared.match("DELETE", "/c/cus_1", &parameters).found);
+    try testing.expectEqualStrings("cus_1", parameters.get("id").?);
+    try testing.expectEqual(null, parameters.get("customer"));
+}
+
+test "decision 129: an unreachable route is named when the routes of its leaf name a parameter differently" {
+    // Each path of `/a/:x/*` matches `/a/:k/:l` or `/a/:k/:l/*` first, which serve both methods.
+    const table = .{
+        .{ .get, "/a/:k/:l", 0 }, .{ .put, "/a/:k/:l", 1 }, .{ .get, "/a/:k/:l/*", 2 }, .{ .put, "/a/:k/:l/*", 3 },
+        .{ .get, "/a/:x/*", 4 },  .{ .put, "/a/:y/*", 5 },
+    };
+    const refusal = comptime layout_refusal(table).?;
+    try testing.expectEqual(4, refusal.route);
+    try testing.expectEqualStrings("/a/:x/*", refusal.pattern);
+    try testing.expectEqual(Tag.route_unreachable, std.meta.activeTag(refusal.reason));
+}
+
+test "decision 122: a repeated route is refused at the later route of its leaf" {
     const refusal = comptime router_trie.refusal_of(.{
         .{ .get, "/a", .one },
         .{ .get, "/users/:id", .one },
@@ -254,20 +281,10 @@ test "decision 122: two names at one node refuse the later route, before a repea
     }).?;
     try testing.expectEqual(2, refusal.route);
     try testing.expectEqualStrings("/users/:name", refusal.pattern);
-    try testing.expectEqual(router_trie.Reason.parameter_names_differ, refusal.reason);
+    try testing.expectEqual(router_trie.Reason.route_repeated, refusal.reason);
     try expect_table(.route_repeated, .{ .{ .get, "/users/:id", .one }, .{ .get, "/users/:id", .two } });
     // The repeated route is not the first route of its pattern.
     try expect_table(.route_repeated, .{ .{ .get, "/a", .one }, .{ .put, "/a", .two }, .{ .put, "/a", .one } });
-    // A third name, and a second name at another node, come after the first second name.
-    const first = comptime router_trie.refusal_of(.{
-        .{ .get, "/a/:x", .one },
-        .{ .get, "/b/:y", .one },
-        .{ .get, "/a/:z", .two },
-        .{ .get, "/b/:w", .two },
-        .{ .get, "/a/:v", .one },
-    }).?;
-    try testing.expectEqual(2, first.route);
-    try testing.expectEqualStrings("/a/:z", first.pattern);
 }
 
 test "decision 122: a table's checks run in order, and the first refusal names its entry" {

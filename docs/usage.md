@@ -619,6 +619,9 @@ a request itself calls `match`, with the request's method and path. Its `found` 
 - **A parameter matches one segment.** The wildcard matches one segment or more, and
   `get("*")` gives the rest of the path, without its first "/". So `/files/*` does not match
   `/files`.
+- **Each route names its own parameters.** Two routes may give one position two names, as
+  `GET /users/:id` and `PUT /users/:user` do, and each reads its value by its own name
+  (decision 129).
 - **The first pattern that matches the whole path and names the method decides.** When a
   pattern that matches the path names other methods, `match` backs up and tries the next kind, as
   it does for a segment that fails (decision 128). So with `GET /v1/charges/search` beside

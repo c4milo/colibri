@@ -5114,6 +5114,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       2,157 on Kubernetes, whose paths hold up to 8 segments. On Stripe's table httprouter does not
       start: it refuses `/v1/charges/:charge` beside `/v1/charges/search`. `run.sh`'s numbers are
       a laptop's and are never published (decision 32).
+    - The tables showed a second pattern: 32 routes of Stripe, Kubernetes and OpenAI give one
+      parameter position two names, which ruling 5 refused. The owner ruled decision 129 on
+      2026-10-28, and it is built. The trie keys every parameter child with one segment, each
+      entry holds the names of its own pattern, and `found` writes the names of the entry it
+      chose. `parameter_names_differ` is gone. The fuzz property of decision 128 reads each found
+      route's values by its own names, over a table whose routes name one leaf's positions
+      differently. Mutations, 6 of 6 CAUGHT: parameters keyed by their names, no names written,
+      the leaf's first route naming each entry, the wildcard's name lost, `same_leaf` comparing
+      names, and a leaf's pattern left unnamed.
     - The owner also asked whether profile-guided optimization helps. Zig 0.16 has no flag for
       it. `zig cc` reads a profile with `-fprofile-instr-use` and puts its branch weights in the IR.
       With `-fprofile-instr-generate` it instruments the code, but it links no profile runtime,

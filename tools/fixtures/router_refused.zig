@@ -43,7 +43,6 @@ const tables = struct {
     pub const method_type = .{ valid, .{ 42, "/a", route } };
     pub const table_empty = .{};
     pub const entry_shape = .{ valid, .{ .get, "/a" } };
-    pub const parameter_names_differ = .{ .{ .get, "/users/:id", route }, .{ .put, "/users/:user", route } };
     pub const route_repeated = .{ .{ .get, "/a", route }, .{ .get, "/a", route } };
     /// A token one octet longer than `core.constants.field_value_len_max`.
     pub const allow_too_long = .{ valid, .{ "A" ** (http.core.constants.field_value_len_max + 1), "/a", route } };

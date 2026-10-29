@@ -262,7 +262,7 @@ fn first_refusal(comptime layout: anytype, shapes: []const Shape, comptime table
         for (layout.entries[at.entries_first..][0..at.entries_count], verdicts[at.entries_first..][0..at.entries_count]) |entry, verdict| {
             const reason = verdict orelse continue;
             const route = route_of(&routes.patterns, &routes.tokens, shape.pattern, text_of(layout, entry.method));
-            if (first == null or route < first.?.route) first = .{ .route = route, .pattern = shape.pattern, .reason = reason };
+            if (first == null or route < first.?.route) first = .{ .route = route, .pattern = routes.patterns[route], .reason = reason };
         }
     }
     return first;
@@ -271,7 +271,8 @@ fn first_refusal(comptime layout: anytype, shapes: []const Shape, comptime table
 /// The index of the route of `pattern` and `token` in the table.
 fn route_of(patterns: []const []const u8, tokens: []const []const u8, pattern: []const u8, token: []const u8) usize {
     for (patterns, tokens, 0..) |held_pattern, held_token, route| {
-        if (std.mem.eql(u8, held_pattern, pattern) and std.mem.eql(u8, held_token, token)) return route;
+        // Decision 129: the routes of one leaf may name a parameter differently.
+        if (router_hidden_canonical.same_leaf(held_pattern, pattern) and std.mem.eql(u8, held_token, token)) return route;
     }
     unreachable;
 }

@@ -111,11 +111,6 @@ const cases = [_]Case{
             "an entry is a tuple of a method, a pattern and a value",
     },
     .{
-        .name = "parameter_names_differ",
-        .message = "server.router: route 1, \"/users/:user\": parameter_names_differ: " ++
-            "two routes with the same segments before a parameter give the parameter one name",
-    },
-    .{
         .name = "route_repeated",
         .message = "server.router: route 1, \"/a\": route_repeated: " ++
             "two routes name one method and one path",

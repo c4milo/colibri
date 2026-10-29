@@ -46,6 +46,7 @@ pub fn View(comptime Layout: type) type {
         leaves: *const @FieldType(Layout, "leaves"),
         entries: *const @FieldType(Layout, "entries"),
         methods: *const @FieldType(Layout, "methods"),
+        names: *const @FieldType(Layout, "names"),
         text: *const @FieldType(Layout, "text"),
 
         pub const depth_max = Layout.depth_max;
@@ -60,6 +61,7 @@ pub fn view_of(copy: anytype) View(@TypeOf(copy.*)) {
         .leaves = &copy.leaves,
         .entries = &copy.entries,
         .methods = &copy.methods,
+        .names = &copy.names,
         .text = &copy.text,
     };
 }
@@ -88,10 +90,45 @@ pub fn leaf_shapes(comptime layout: anytype) [layout.leaves.len]Shape {
         }
         const leaf = at.leaf orelse continue;
         leaves[leaf] = shape;
+        // Decision 129: a parameter node has no name, so the leaf's pattern takes the names of
+        // its first route.
+        leaves[leaf].pattern = named_pattern(layout, shape.pattern, layout.entries[layout.leaves[leaf].entries_first]);
         // Decision 122: the pattern "/" is the root, with no segment.
         if (node == router_trie.root) leaves[leaf].pattern = router_pattern.root;
     }
     return leaves;
+}
+
+/// `pattern` with the name of `entry`'s parameter at each parameter segment, in order.
+fn named_pattern(comptime layout: anytype, pattern: []const u8, entry: anytype) []const u8 {
+    var named: []const u8 = "";
+    var index: usize = 0;
+    var segments = std.mem.splitScalar(u8, pattern, router_pattern.separator);
+    _ = segments.next();
+    while (segments.next()) |segment| {
+        named = named ++ [_]u8{router_pattern.separator};
+        if (!router_pattern.is_parameter(segment)) {
+            named = named ++ segment;
+            if (router_pattern.is_wildcard(segment)) index += 1;
+            continue;
+        }
+        named = named ++ [_]u8{router_pattern.parameter_prefix} ++ text_of(layout, layout.names[entry.names_first + index]);
+        index += 1;
+    }
+    return named;
+}
+
+/// Whether `left` and `right` hold the same segments, a parameter of any name equal to another
+/// (decision 129): the two patterns end at one leaf.
+pub fn same_leaf(left: []const u8, right: []const u8) bool {
+    var left_segments = std.mem.splitScalar(u8, left, router_pattern.separator);
+    var right_segments = std.mem.splitScalar(u8, right, router_pattern.separator);
+    while (left_segments.next()) |segment| {
+        const other = right_segments.next() orelse return false;
+        if (router_pattern.is_parameter(segment) and router_pattern.is_parameter(other)) continue;
+        if (!std.mem.eql(u8, segment, other)) return false;
+    }
+    return right_segments.next() == null;
 }
 
 fn child_shape(parent: Shape, child: usize, segment: []const u8, literal: ?[]const u8) Shape {
