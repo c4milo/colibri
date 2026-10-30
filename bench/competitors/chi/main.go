@@ -3,9 +3,11 @@
 // and every route answered with 200 and "ok\n". It serves h11, and h2 in cleartext with prior
 // knowledge, on one port. With --h3 it serves h3 instead, on UDP, through quic-go's http3.Server,
 // over the TLS identity whose <prefix>.chain.pem and <prefix>.key.pem --tls names. With --tls
-// alone it serves h2 over TLS on TCP, and h11 to a client that offers no h2 in ALPN.
+// alone it serves h2 over TLS on TCP, and h11 to a client that offers no h2 in ALPN. With --www in
+// place of --routes it serves the files of a directory instead, for the bulk downloads of
+// bench/run_bulk.sh (design §8 step 13k).
 //
-//	colibri-bench-chi --port <port> --routes <routes file> [--h3] [--tls <prefix>]
+//	colibri-bench-chi --port <port> (--routes <routes file> | --www <directory>) [--h3] [--tls <prefix>]
 package main
 
 import (
@@ -41,24 +43,34 @@ func braces(path string) string {
 	return strings.Join(segments, "/")
 }
 
-func main() {
-	port := flag.Int("port", 0, "the port to listen on")
-	routes := flag.String("routes", "", "the routes file, one \"METHOD /path\" on each line")
-	h3 := flag.Bool("h3", false, "serve h3 on UDP instead of h11 and h2 on TCP")
-	tls := flag.String("tls", "", "the prefix of the TLS identity to serve over")
-	flag.Parse()
-	runtime.GOMAXPROCS(1)
-	file, err := os.Open(*routes)
+// register registers each route of the routes file with `mux`, answered by ok.
+func register(mux *chi.Mux, routes string) {
+	file, err := os.Open(routes)
 	if err != nil {
 		panic(err)
 	}
-	mux := chi.NewRouter()
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		parts := strings.Fields(scanner.Text())
 		mux.MethodFunc(parts[0], braces(parts[1]), ok)
 	}
 	file.Close()
+}
+
+func main() {
+	port := flag.Int("port", 0, "the port to listen on")
+	routes := flag.String("routes", "", "the routes file, one \"METHOD /path\" on each line")
+	h3 := flag.Bool("h3", false, "serve h3 on UDP instead of h11 and h2 on TCP")
+	tls := flag.String("tls", "", "the prefix of the TLS identity to serve over")
+	www := flag.String("www", "", "the directory to serve files from, in place of the routes")
+	flag.Parse()
+	runtime.GOMAXPROCS(1)
+	mux := chi.NewRouter()
+	if *www != "" {
+		mux.Handle("/*", http.FileServer(http.Dir(*www)))
+	} else {
+		register(mux, *routes)
+	}
 	if *h3 {
 		serveH3(*port, *tls, mux)
 		return

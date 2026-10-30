@@ -450,6 +450,14 @@ Everything below exists. Change this section when a step adds or renames a comma
   gives how often the server ran, how long each run took, how long it waited for its core, how long
   it slept between runs, and its TCP segments a response (design §8 step 13j). It needs sudo -n,
   perf and tcpdump, and the workflow's `waits` input runs it on the judge.
+  `bench/run.sh --latency --bulk [--rounds <n>] [report.md]` runs `bench/run_bulk.sh` instead:
+  oha downloads a file of 2 MiB again and again for 30 s, from 1 and 4 connections, over a
+  loopback path where tc holds the server's packets at 20 Mbit/s and 25 ms with a queue of 1,000
+  packets, with no loss and with 1% loss. It downloads over h3 from colibri's UDP server, chi and
+  axum, and over h2-tls from chi and axum, while a second oha sends a small GET each 100 ms. The
+  report gives the download time at p50 and p90, the goodput and the GETs' p50 and p99 (design §8
+  step 13k). It needs sudo -n, tc, ethtool and sch_netem, and the workflow's `bulk` input runs it
+  on the judge. `python3 bench/report_bulk.py --test` checks its report, and `tools/ci.sh` runs it.
   `bench/run.sh --profile [--h11] [--h3] [report.md]` runs each input once after the warm-up,
   under `perf record` with the call stacks, in place of the counts (design §8 step 13h). The
   report gives the functions that took the most samples, and `<report>-profile/` holds each

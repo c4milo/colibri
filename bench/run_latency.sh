@@ -13,7 +13,9 @@
 # `routes=github`, to chi on quic-go's http3.Server and to axum on quinn and the h3 crate, the
 # three that speak it. oha's release builds have no h3, so the script builds oha from its tag.
 #
-#   bench/run_latency.sh [--rounds <n>] [--network | --waits] [report.md]
+#   bench/run_latency.sh [--rounds <n>] [--network | --waits | --bulk] [report.md]
+#
+# With --bulk it runs bench/run_bulk.sh instead: downloads at a bottleneck (design §8 step 13k).
 #
 # With --network it measures what h3 changes on a path with delay and loss (design §8 step 13i),
 # in place of the inputs above. tc netem adds each profile of `profiles` to the loopback device,
@@ -41,15 +43,18 @@ readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 rounds=5
 network=false
 waits=false
+bulk=false
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
   case "$1" in
     --rounds) rounds="$2"; shift 2 ;;
     --network) network=true; shift ;;
     --waits) waits=true; shift ;;
+    --bulk) bulk=true; shift ;;
     *) report="$1"; shift ;;
   esac
 done
+if [ "$bulk" = true ]; then exec "$repository_root/bench/run_bulk.sh" --rounds "$rounds" "$report"; fi
 
 # The first port a server listens on. Each start takes the next one: a server that stopped a moment
 # before leaves its connections on its port, and a server that binds without SO_REUSEADDR is
