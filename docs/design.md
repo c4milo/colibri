@@ -5017,6 +5017,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
             divided by axum's at 80,000 offered was 1.03 and 1.01, where the baseline gave 1.10
             and 1.09. Steps 27 and 28 changed how colibri's QUIC connections send, and the owner
             asked to find whether they moved that rate.
+          - Four judge runs measured the commits between: `aa61022f`, before decision 130 and
+            after Rotor's clock fix, `e85d58fa` (decision 130), `3114731d` (decision 131) and
+            `cd131e39` (step 27). The ratio at 80,000 offered was 1.03 and 1.07, 0.99 and 1.02,
+            1.01 and 1.07, and 1.09 and 1.07. Its two jobs differ by up to 0.04, and it moves in
+            no one direction from commit to commit. So no change moved the rate past the noise of
+            this ratio, which is about 5% from one run to the next.
   - **13h**, a profile of the server on the judge, which the owner ruled on 2026-10-27, to find
     where colibri spends its time. `bench/run.sh --profile` runs each input once after the
     warm-up, under `perf record` at 1,999 Hz with the call stacks, in place of `perf stat`. Each
