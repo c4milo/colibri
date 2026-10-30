@@ -44,6 +44,8 @@ pub fn plan(pool: anytype, now_ns: u64) void {
         pool_links.open_link(pool, slot, now_ns);
     } else if (choice.give_up(&view)) {
         give_up(pool);
+    } else if (choice.attempt_over(&view)) {
+        pool_links.end_attempt(pool);
     }
 }
 

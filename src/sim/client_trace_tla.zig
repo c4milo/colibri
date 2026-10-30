@@ -60,7 +60,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     try writer.write_bytes("    CancelReleases = TRUE\n    SentFailsClosed = TRUE\n    MoveRefused = TRUE\n");
     try writer.write_bytes("    RetireStale = TRUE\n    KeepAlive = TRUE\n    TakeAtHandshake = TRUE\n");
     try writer.write_bytes("    TcpWhenAllowed = TRUE\n    ResendIdempotent = TRUE\n    OneBudget = TRUE\n");
-    try writer.write_bytes("    TakeWithinRoom = TRUE\n    TryOncePerWait = TRUE\n");
+    try writer.write_bytes("    TakeWithinRoom = TRUE\n    TryOncePerWait = TRUE\n    EndWhenIdle = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{steps_max});
 }

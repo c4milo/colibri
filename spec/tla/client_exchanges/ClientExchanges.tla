@@ -21,7 +21,8 @@
 (* §3.1). The first connection whose handshake completes takes the         *)
 (* waiting exchanges, and the other closes. An attempt ends when a         *)
 (* connection takes the waiting exchanges, or when every transport it may  *)
-(* open failed, which ends each waiting exchange refused.                  *)
+(* open failed, which ends each waiting exchange refused. It also ends     *)
+(* when no exchange waits and no connection runs.                          *)
 (*                                                                         *)
 (* A QUIC connection holding no exchange can sit idle until near its idle  *)
 (* timeout, after which the client gives it no new exchange and it drains  *)
@@ -108,6 +109,12 @@
 (*                      a slot that fails is not opened again until an     *)
 (*                      exchange leaves the wait (decision 125). A mutant  *)
 (*                      in mutants/ turns each of the two off.             *)
+(*   EndWhenIdle        an attempt ends when no exchange waits and no      *)
+(*                      connection runs, so the next exchange opens a      *)
+(*                      connection again. Until #100 was fixed, a cancel   *)
+(*                      during a handshake that then failed left the       *)
+(*                      attempt open, and the next exchange ended refused  *)
+(*                      with no connection opened.                         *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -129,7 +136,7 @@ CONSTANTS
     TcpDrops,       \* whether a TCP connection reads a cancelled response to its end, as h11 does
     ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases, SentFailsClosed,
     MoveRefused, RetireStale, KeepAlive, TakeAtHandshake, TcpWhenAllowed, ResendIdempotent,
-    OneBudget, TakeWithinRoom, TryOncePerWait
+    OneBudget, TakeWithinRoom, TryOncePerWait, EndWhenIdle
 
 \* The connections a pool holds: its QUIC connection and one in each TCP slot. Each is named
 \* after its slot, as a transport is: "quic", and each TCP slot's name.
@@ -143,7 +150,7 @@ ASSUME \A set \in {HandshakeFails, Breaks, Goaways, Refusals, Resets} : set \sub
 ASSUME \A rule \in {ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases,
                     SentFailsClosed, MoveRefused, RetireStale, KeepAlive,
                     TakeAtHandshake, TcpWhenAllowed, ResendIdempotent,
-                    OneBudget, TakeWithinRoom, TryOncePerWait} : rule \in BOOLEAN
+                    OneBudget, TakeWithinRoom, TryOncePerWait, EndWhenIdle} : rule \in BOOLEAN
 
 Exchanges == 1..N
 ASSUME Idempotent \subseteq Exchanges
@@ -598,6 +605,18 @@ GiveUp ==
     /\ UNCHANGED <<phase, opens, goaways, learned, shut>>
     /\ UNCHANGED idleVars
 
+(* No exchange waits and no connection runs: the caller cancelled each     *)
+(* exchange the attempt was for, and each connection it opened is over.    *)
+(* The attempt ends, so the next exchange starts another one.              *)
+EndAttempt ==
+    /\ EndWhenIdle
+    /\ Waiting = {} /\ \A t \in Transports : Idle(t)
+    /\ tried # {} \/ fallback
+    /\ tried' = {} /\ fallback' = FALSE
+    /\ UNCHANGED <<phase, opens, goaways, learned, shut>>
+    /\ UNCHANGED idleVars
+    /\ UNCHANGED exchangeVars
+
 -----------------------------------------------------------------------------
 
 Next ==
@@ -609,7 +628,7 @@ Next ==
         \/ Open(t) \/ Handshake(t) \/ Abandon(t) \/ FailHandshake(t) \/ Break(t)
         \/ Drain(t) \/ Close(t)
         \/ \E unprocessed \in SUBSET Exchanges : Goaway(t, unprocessed)
-    \/ Fallback \/ Learn \/ Shutdown \/ GiveUp \/ Age \/ Silence \/ TimeOut
+    \/ Fallback \/ Learn \/ Shutdown \/ GiveUp \/ EndAttempt \/ Age \/ Silence \/ TimeOut
 
 Spec == Init /\ [][Next]_vars
 
@@ -624,7 +643,7 @@ Fairness ==
         /\ WF_vars(Process(e)) /\ WF_vars(Respond(e)) /\ WF_vars(Drop(e))
     /\ \A t \in Transports :
         /\ WF_vars(Open(t)) /\ WF_vars(Handshake(t)) /\ WF_vars(Drain(t)) /\ WF_vars(Close(t))
-    /\ WF_vars(GiveUp)
+    /\ WF_vars(GiveUp) /\ WF_vars(EndAttempt)
 
 FairSpec == Spec /\ Fairness
 
@@ -655,9 +674,9 @@ Safe ==
 (* Bounded: each connection's slot opens at most once for each wait of an  *)
 (* exchange. `tried` is cleared only when an exchange leaves the wait: by  *)
 (* Handshake, which with TakeAtHandshake takes waiting exchanges, by       *)
-(* Assign, and by GiveUp, which reports every one. So two opens of one     *)
-(* slot never serve the same wait, and an exchange waits once when made    *)
-(* and once for each move.                                                 *)
+(* Assign, by GiveUp, which reports every one, and by EndAttempt, after    *)
+(* the cancel of the last one. So two opens of one slot never serve the    *)
+(* same wait, and an exchange waits once when made and once for each move. *)
 Bounded == \A t \in Transports : opens[t] <= N * (MovesMax + 1)
 
 (* NoTcp: a client that speaks no version TCP carries opens no TCP         *)
@@ -666,6 +685,13 @@ NoTcp == ~TcpAllowed => \A t \in TcpSlots : opens[t] = 0
 
 (* Every exchange made ends: the caller gets its event, or cancelled it.   *)
 Ends == \A e \in Exchanges : stage[e] = "waiting" ~> stage[e] \in {"reported", "cancelled"}
+
+(* Fresh: once no exchange waits and no connection runs, the attempt ends  *)
+(* before an exchange waits again, so that exchange opens a connection     *)
+(* before it can end refused.                                              *)
+Fresh ==
+    (Waiting = {} /\ \A t \in Transports : Idle(t))
+        ~> (tried = {} /\ ~fallback) \/ Waiting # {}
 
 (* Once the caller shuts the client down, every connection closes.         *)
 Closes == shut ~> \A t \in Transports : Idle(t)

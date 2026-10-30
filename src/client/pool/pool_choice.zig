@@ -74,6 +74,13 @@ pub fn give_up(view: *const View) bool {
     return next_open(view) == null;
 }
 
+/// Whether the attempt is over with no exchange left in it, the model's EndAttempt: no exchange
+/// waits and no slot has a connection. The caller cancelled each exchange the attempt was for, so
+/// the next exchange starts another attempt (https://github.com/c4milo/colibri/issues/100).
+pub fn attempt_over(view: *const View) bool {
+    return view.waiting == 0 and view.all_idle;
+}
+
 /// An exchange waits, and no open connection has room for it.
 fn wanted(view: *const View) bool {
     return view.waiting > 0 and !view.room;
@@ -237,6 +244,22 @@ test "the client gives up once no connection is left and the attempt may open no
     view.tcp_free = null;
     view.waiting = 0;
     try testing.expect(!give_up(&view));
+}
+
+test "an attempt is over once no exchange waits and no connection runs" {
+    var view = fresh();
+    view.quic_tried = true;
+    view.quic = .closed;
+    view.waiting = 0;
+    try testing.expect(attempt_over(&view));
+    // Not while an exchange waits, which the attempt still serves or gives up on.
+    view.waiting = 1;
+    try testing.expect(!attempt_over(&view));
+    // Not while a connection runs, whose handshake may still carry the next exchange.
+    view.waiting = 0;
+    view.quic = .handshake;
+    view.all_idle = false;
+    try testing.expect(!attempt_over(&view));
 }
 
 test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP, and gives up once QUIC failed" {

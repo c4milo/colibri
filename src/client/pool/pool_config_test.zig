@@ -176,3 +176,35 @@ test "decision 120: init converts no TLS value for a transport the pool does not
     try testing.expect(!unwritten(&pool.quic_tls) and !unwritten(&pool.quic_config));
     try testing.expect(unwritten(&pool.tcp_tls) and unwritten(&pool.tcp_config));
 }
+
+/// Rounds in which a QUIC connection that failed is over: its closing or draining period runs
+/// first (RFC 9000 §10.2). They are four times `rounds_past_probe`, as the tests that give up
+/// pump. Test-only.
+const rounds_to_close: usize = 192;
+
+/// Cancels the only exchange of an attempt during its QUIC handshake, which then fails, and
+/// requires the next exchange to open QUIC again: the attempt ended once no exchange waited and
+/// no connection ran (https://github.com/c4milo/colibri/issues/100).
+fn expect_quic_after_cancel(protocols: protocols_module.Protocols) !void {
+    var given = fixture.configured(true);
+    given.protocols = protocols;
+    // The server speaks no h3, so the QUIC handshake fails once its datagrams cross.
+    try fixture.start_configured(&quic_support.alpn_other, values_at(https_port), given, fixture.receive_storage());
+    var exchanges = [_]support.Exchange{ get(&bodies[0]), get(&bodies[1]) };
+    const id = try pool.request(&exchanges[0].request, &exchanges[0].response);
+    try collect();
+    try testing.expectEqual(Transport.quic, opened(0).?.transport);
+    pool.cancel(id);
+    try pump(rounds_to_close);
+    try testing.expectEqual(pool_module.Phase.closed, pool.phase(pool_support.slot_of(pool, .quic)));
+    // With no exchange waiting, the failed handshake opened no TCP.
+    try testing.expectEqual(null, opened(1));
+    _ = try pool.request(&exchanges[1].request, &exchanges[1].response);
+    try collect();
+    try testing.expectEqual(Transport.quic, opened(1).?.transport);
+}
+
+test "an attempt ends when no exchange waits and no connection runs, so the next one opens QUIC" {
+    try expect_quic_after_cancel(h3_alone);
+    try expect_quic_after_cancel(.{});
+}
