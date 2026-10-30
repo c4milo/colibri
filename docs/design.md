@@ -5284,6 +5284,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       40,000 req/s as 3.20 ms and 3.28 ms, against axum's 2.72 ms and 2.97 ms. The owner closed
       https://github.com/c4milo/colibri/issues/113 on 2026-10-29 with that gap of about 0.4 ms
       left, since neither the server's runs nor its segments explain it.
+  - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
+    [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
+    12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
+    path, so the controller sets the rate.
+    - `bench/run.sh --latency --bulk`, which the workflow's `bulk` input runs, holds the path
+      with netem on the loopback device in two profiles:
+      - `bottleneck`: 25 ms each way and a rate of 20 Mbit/s, with a queue of 1,000 packets. The
+        path holds about 125,000 octets, and the queue about 12 times that.
+      - `bottleneck-lossy`: the same, and 1% of packets lost each way.
+    - The server serves one file of 8 MiB. oha downloads it over h3 and over h2-tls, from 1 and
+      then 4 connections, each one download after the other, for 30 s.
+    - A second oha sends one small GET each 100 ms on a connection of its own. Its p50 and p99
+      give the delay the queue adds.
+    - colibri, chi and axum serve it. The report gives, for each server, profile and protocol, the
+      p50 and p99 download time, the goodput, and the p50 and p99 delay of the small GETs.
+    - Step 29 adds a run where a colibri server with CUBIC and one with BBRv3 share the
+      bottleneck, each with 2 connections. The report gives each one's goodput and Jain's index
+      of the two.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
@@ -11686,6 +11704,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
     The loads above are application-limited, so the window rarely grows and HyStart++ has little
     to act on. It costs nothing measurable there.
+
+- **Step 29 — BBRv3.** [Decision 134](decisions.md) builds BBRv3 from draft-ietf-ccwg-bbr-06
+  beside CUBIC, and [decision 136](decisions.md) rules its random draws, its configuration and its
+  measurement. It adds one public name, `quic.CongestionController`. Each part brings its Lean
+  proofs and its TLA+ model, and the owner rules each part before it starts.
+  - **29a, delivery rate samples.** §4.1: each sent packet records the octets delivered and the
+    instant of the last delivery when it went out, and each ACK frame gives one rate sample, held
+    at the send rate (§4.1.1.2.4), and marked when the application limited it (§4.1.2.4). CUBIC
+    reads none of it, so the step changes no census except the endpoint check's.
+    - **Check.** Tests drive each rule of §4.1.2: a sample from the newest acknowledged packet, a
+      sample held at the send rate, no sample for an interval shorter than min_rtt, and the mark of
+      an application limit. Lean proves the sample never above the send rate or the ACK rate.
+  - **29b, the model and the states.** §5: BBR.max_bw over a window of 2 bandwidth probe cycles,
+    BBR.min_rtt over 10 s, and Startup, Drain, ProbeBW's four phases and ProbeRTT, with their
+    pacing and window gains. `recovery_bbr.zig` holds them, and `recovery_congestion` calls BBRv3
+    or CUBIC by the connection's `congestion_controller`.
+    - **Check.** Tests drive each move of §5.3. Lean proves the filters' bounds, each probe wait
+      between 2 and 3 s, and each round bound 62 or 63. `spec/tla/bbr` checks the moves in every
+      order: ProbeRTT comes at most each 5 s and ends, and the state never stops in Drain.
+  - **29c, the configuration and the measurement.** `quic.CongestionController`,
+    `congestion_controller` in `quic.Connection`'s options, `server.Config` and `client.Config`,
+    and `bandwidth_probe_waits`, which the server and the client draw. `examples/` and
+    docs/usage.md show the option.
+    - **Check.** The simulator runs its QUIC checks with each controller. The judge's `bulk` and
+      `network` inputs measure BBRv3 against CUBIC, chi and axum, and the fairness run of 13k.
+      The owner then rules on the default.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
