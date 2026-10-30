@@ -63,6 +63,8 @@ pub const RoundTrip = struct {
     /// Which key set `open` reports at the application level (RFC 9001 §6.5). A test sets it to
     /// drive §6.2's answer and §6.4's refusal; a real suite decides it from the Key Phase bit.
     opens_with: crypto.suite.KeySet = .current,
+    /// The `current_phase_lowest` the last application-level `open` was given (RFC 9001 §6.5).
+    phase_lowest_given: ?u64 = null,
     /// RFC 9001 §6.6: packets these keys may still protect, or null for no limit.
     seals_left: ?usize = null,
     /// What a key update restores `seals_left` to, because §6.1 installs a new set of keys and
@@ -120,6 +122,7 @@ pub const RoundTrip = struct {
         if (held.reached_integrity_limit) return error.IntegrityLimitReached;
         // RFC 9369 §3.3: a version whose keys this suite did not derive.
         if (opening.version != held.version) return error.KeysUnavailable;
+        if (opening.level == .application) held.phase_lowest_given = opening.current_phase_lowest;
         // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. A real
         // suite reads them after removing header protection (RFC 9001 §5.4); this one has none.
         const number_len: u8 = (opening.packet[0] & constants.packet_number_len_mask) + 1;

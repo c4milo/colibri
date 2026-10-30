@@ -235,6 +235,18 @@ pub fn on_packet_opened(
     on_instant(connection, suite, now_ns);
 }
 
+/// The lowest packet number the suite compares a packet of the other key phase against (RFC 9001
+/// §6.5), or null when such a packet is of the phase before. Before any key update and before
+/// any 1-RTT packet opened, there is no phase before. A peer may start its first update once it
+/// confirms the handshake (§6.1), so its packets may all be of the next phase, and 0 says so.
+pub fn current_phase_lowest(connection: *const Connection) ?u64 {
+    const phase = &connection.key_phase;
+    if (phase.current_lowest) |lowest| return lowest;
+    // §6.2: "To process this packet, the endpoint uses the next packet protection key and IV."
+    if (!phase.previous_held) return 0;
+    return null;
+}
+
 /// RFC 9001 §6.5: "A recovered packet number that is lower than any packet number from the
 /// current key phase uses the previous packet protection keys", so what the suite is given is the
 /// lowest number that opened under the current keys and not the first one to arrive.

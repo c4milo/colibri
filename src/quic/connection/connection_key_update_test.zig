@@ -240,6 +240,21 @@ test "RFC 9001 §6.2: a packet under the next keys moves this endpoint's keys to
     try testing.expectEqual(null, test_connection.key_phase.lowest_sent);
 }
 
+test "RFC 9001 §6.2: a peer's first update may arrive before any packet of phase 0 opened" {
+    open_connection();
+    // No phase before the first, so a packet of the other phase can only start the next.
+    _ = try walk_short(4);
+    try testing.expectEqual(0, suite_holder.phase_lowest_given.?);
+
+    // Once a phase was left, a packet of the other phase before any of the current one is of
+    // the phase before (§6.5).
+    open_connection();
+    send_and_acknowledge();
+    try key_update.initiate(&test_connection, suite(), settled_ns());
+    _ = try walk_short(5);
+    try testing.expectEqual(null, suite_holder.phase_lowest_given);
+}
+
 test "RFC 9001 §6.2: a second update before the answer is acknowledged closes the connection" {
     open_connection();
     suite_holder.opens_with = .next;
