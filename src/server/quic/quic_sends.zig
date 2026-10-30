@@ -53,7 +53,7 @@ pub const Sends = struct {
     /// Whether any meter may run, so a connection with none skips its entries.
     metered: bool,
     /// One entry for each request record, at the record's index.
-    entries: [constants.quic_requests_max]Sending,
+    entries: [constants.limits.quic_requests_max]Sending,
 
     pub fn init(sends: *Sends) void {
         sends.meter = .{};
@@ -160,7 +160,7 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) ?Timeout {
 fn cancel_stream(connection: *QuicConnection, index: usize) void {
     const record = &connection.requests.records[index];
     assert(record.in_use);
-    connection.h3.cancel(&connection.transport, record.stream_id, h3.constants.error_request_cancelled);
+    connection.h3.cancel(&connection.transport, record.stream_id, h3.constants.protocol.error_request_cancelled);
     quic_body.remove(connection, record);
     if (record.over) return;
     quic_connection_h3.end(connection, record, .{ .cancelled = .{ .timeout = .send_rate } });

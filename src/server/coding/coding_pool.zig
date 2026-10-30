@@ -188,7 +188,7 @@ pub fn EncoderPool(comptime count: usize, comptime level: u4) type {
 }
 
 /// The pool a caller gets by asking for no size or level in particular.
-pub const DefaultEncoderPool = EncoderPool(constants.encoders_default, constants.encoder_level_default);
+pub const DefaultEncoderPool = EncoderPool(constants.limits.encoders_default, constants.policy.encoder_level_default);
 
 const testing = std.testing;
 

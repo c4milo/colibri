@@ -184,7 +184,7 @@ pub fn describe(identity: *const Identity, parameters: *transport_parameters.Par
 
 comptime {
     // A connection ID fits the octets `ConnectionId` reserves, which §17.2 bounds at 20.
-    assert(constants.connection_id_len_max <= std.math.maxInt(u8));
+    assert(constants.protocol.connection_id_len_max <= std.math.maxInt(u8));
 }
 
 test {

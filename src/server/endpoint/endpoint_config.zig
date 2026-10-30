@@ -55,7 +55,7 @@ pub const Config = struct {
     ecn: bool = false,
     /// QUIC connections alone: the idle timeout the server advertises (RFC 9000 §10.1), in
     /// milliseconds.
-    idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
+    idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
     /// QUIC connections alone: the QUIC version the server switches a client to when the client
     /// lists it (RFC 9368 §2.3, decision 111), or null to keep every client in its first one.
     switch_to: ?quic.packet.header.Version = .v2,
@@ -97,10 +97,10 @@ pub const Built = struct {
 pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Random) StartError!Served {
     assert((config.codings.len == 0) == (config.encoders == null));
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
-    assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.concurrent_streams_max);
-    assert(config.limits.data_frame_len_min <= h2.constants.max_frame_size_initial);
+    assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.limits.concurrent_streams_max);
+    assert(config.limits.data_frame_len_min <= h2.constants.protocol.max_frame_size_initial);
     assert(config.limits.peer_resets_max > 0 and config.limits.resets_sent_max > 0);
-    assert(config.retry_from_percent <= constants.retry_from_percent_max);
+    assert(config.retry_from_percent <= constants.limits.retry_from_percent_max);
     if (config.tls) |identity| assert(identity.alpn.len == 0);
     // RFC 9114 §3.1: a TCP connection speaks h11 or h2, and `versions` may turn both off (decision
     // 117).
@@ -144,7 +144,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
         .encoders = config.encoders,
         .switch_to = config.switch_to,
         .timeouts = config.timeouts,
-        .requests_max = @min(config.limits.requests_max, constants.quic_requests_max),
+        .requests_max = @min(config.limits.requests_max, constants.limits.quic_requests_max),
         .peer_resets_max = config.limits.peer_resets_max,
         .resets_sent_max = config.limits.resets_sent_max,
     };
@@ -152,9 +152,9 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
 
 /// The protocols a TCP connection's handshake offers, in the server's order (RFC 7301 §3.2): h2
 /// first (RFC 9113 §3.2), then h11 (decision 88), as `versions` allows them.
-const alpn_both = [_][]const u8{ &tls_provider.constants.alpn_h2, tls_provider.constants.alpn_http_1_1 };
-const alpn_h2 = [_][]const u8{&tls_provider.constants.alpn_h2};
-const alpn_h11 = [_][]const u8{tls_provider.constants.alpn_http_1_1};
+const alpn_both = [_][]const u8{ &tls_provider.constants.protocol.alpn_h2, tls_provider.constants.protocol.alpn_http_1_1 };
+const alpn_h2 = [_][]const u8{&tls_provider.constants.protocol.alpn_h2};
+const alpn_h11 = [_][]const u8{tls_provider.constants.protocol.alpn_http_1_1};
 
 fn build_tcp(config: *const Config, built: Built, random: tls.Random) StartError!void {
     built.tcp.cleartext = .{
@@ -200,12 +200,12 @@ test "RFC 9846 §4.5.2: an endpoint whose key's signature does not verify refuse
     try support.start_endpoint(null);
     const config = &endpoint_support.endpoint_config;
     // Another point than the private key's, so its CertificateVerify fails.
-    var other: [tls.constants.p256_public_key_len]u8 = tcp_support.public_key.*;
+    var other: [tls.constants.protocol.p256_public_key_len]u8 = tcp_support.public_key.*;
     other[other.len - 1] ^= 1;
     config.tls.?.ecdsa_p256.?.public_key = &other;
     try testing.expectError(error.IdentityRefused, endpoint_support.restart());
     // A chain longer than the configuration holds is the TLS configuration's own refusal.
-    const long_chain: [tls.constants.certificate_chain_len_max + 1][]const u8 = @splat(tcp_support.chain[0]);
+    const long_chain: [tls.constants.limits.certificate_chain_len_max + 1][]const u8 = @splat(tcp_support.chain[0]);
     config.tls = support.server_values();
     config.tls.?.ecdsa_p256.?.chain = &long_chain;
     try testing.expectError(error.TooManyCertificates, endpoint_support.restart());
@@ -215,7 +215,7 @@ test "RFC 9000 §4.6: requests_max bounds the request streams a client opens, up
     try support.start_endpoint(null);
     try support.connect();
     // The default of 100 holds more requests than a QUIC connection's records.
-    try testing.expectEqual(constants.quic_requests_max, support.client.peer_parameters.?.initial_max_streams_bidi);
+    try testing.expectEqual(constants.limits.quic_requests_max, support.client.peer_parameters.?.initial_max_streams_bidi);
     try support.start_endpoint(null);
     endpoint_support.endpoint_config.limits.requests_max = requests_few;
     try endpoint_support.restart();
@@ -232,7 +232,7 @@ test "decision 110 as amended: each QUIC connection takes the endpoint's two res
     try endpoint_support.restart();
     try support.connect();
     try testing.expectEqual(peer_resets_few, support.served.config.peer_resets_max);
-    try testing.expectEqual(constants.resets_sent_max, support.served.config.resets_sent_max);
+    try testing.expectEqual(constants.policy.resets_sent_max, support.served.config.resets_sent_max);
     try support.start_endpoint(null);
     endpoint_support.endpoint_config.limits.resets_sent_max = peer_resets_few;
     try endpoint_support.restart();
@@ -263,7 +263,7 @@ test "decision 110 as amended: units are judged only where a body may arrive in 
 
 test "RFC 9846 §4.5.2: an endpoint of TCP slots alone refuses a key whose signature does not verify" {
     var identity = support.server_values();
-    var other: [tls.constants.p256_public_key_len]u8 = tcp_support.public_key.*;
+    var other: [tls.constants.protocol.p256_public_key_len]u8 = tcp_support.public_key.*;
     other[other.len - 1] ^= 1;
     identity.ecdsa_p256.?.public_key = &other;
     try testing.expectError(error.IdentityRefused, start_tcp_only(identity, .{}));

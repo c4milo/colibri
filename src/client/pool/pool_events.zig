@@ -247,7 +247,7 @@ fn on_finished(pool: anytype, slot: u32, ended: event.Ended) ?Event {
 /// idempotent (decision 124).
 fn movable(pool: anytype, entry: *const Entry, slot: u32, response_began: bool) bool {
     // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
-    if (entry.moves >= constants.moves_max) return false;
+    if (entry.moves >= constants.limits.moves_max) return false;
     if (pool.phase(slot) == .open) return false;
     return switch (entry.response.result) {
         // RFC 9113 §8.7: a client "MAY automatically retry" a request no server processed.

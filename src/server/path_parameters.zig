@@ -15,18 +15,18 @@ const constants = @import("constants.zig");
 /// pattern's segments. `match` sets `count` to 0 first, so a value of an earlier match is never
 /// read.
 pub const PathParameters = struct {
-    names: [constants.path_parameters_max][]const u8 = @splat(""),
-    values: [constants.path_parameters_max][]const u8 = @splat(""),
+    names: [constants.limits.path_parameters_max][]const u8 = @splat(""),
+    values: [constants.limits.path_parameters_max][]const u8 = @splat(""),
     /// How many entries of `names` and `values` the last `match` wrote.
-    count: std.math.IntFittingRange(0, constants.path_parameters_max) = 0,
+    count: std.math.IntFittingRange(0, constants.limits.path_parameters_max) = 0,
     /// Where `match` decodes the segments that hold a "%", each at its own offset in the path,
     /// so a decoded segment never writes over another.
-    storage: [constants.path_len_max]u8 = undefined,
+    storage: [constants.limits.path_len_max]u8 = undefined,
 
     /// The value of the parameter `name`, or null when the route that matched has no parameter of
     /// that name. The names compare octet for octet.
     pub fn get(parameters: *const PathParameters, name: []const u8) ?[]const u8 {
-        assert(parameters.count <= constants.path_parameters_max);
+        assert(parameters.count <= constants.limits.path_parameters_max);
         const count = parameters.count;
         for (parameters.names[0..count], parameters.values[0..count]) |held, value| {
             if (std.mem.eql(u8, held, name)) return value;

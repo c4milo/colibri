@@ -72,20 +72,20 @@ fn expect_rules(frame_type: u64, payload: []const u8, read: frame.Payload) !void
 /// The frame type a payload holds, which must be the type its header named.
 fn type_of(read: frame.Payload) u64 {
     return switch (read) {
-        .cancel_push => constants.frame_cancel_push,
-        .settings => constants.frame_settings,
-        .goaway => constants.frame_goaway,
-        .max_push_id => constants.frame_max_push_id,
-        .push_promise => constants.frame_push_promise,
+        .cancel_push => constants.protocol.frame_cancel_push,
+        .settings => constants.protocol.frame_settings,
+        .goaway => constants.protocol.frame_goaway,
+        .max_push_id => constants.protocol.frame_max_push_id,
+        .push_promise => constants.protocol.frame_push_promise,
         .unknown => |unknown| unknown,
     };
 }
 
 /// The frame types RFC 9114 §7.2 defines.
 const defined_types = [_]u64{
-    constants.frame_data,        constants.frame_headers,      constants.frame_cancel_push,
-    constants.frame_settings,    constants.frame_push_promise, constants.frame_goaway,
-    constants.frame_max_push_id,
+    constants.protocol.frame_data,        constants.protocol.frame_headers,      constants.protocol.frame_cancel_push,
+    constants.protocol.frame_settings,    constants.protocol.frame_push_promise, constants.protocol.frame_goaway,
+    constants.protocol.frame_max_push_id,
 };
 
 fn expect_single(payload: []const u8, value: u64) !void {
@@ -105,7 +105,7 @@ fn expect_settings(payload: []const u8, settings: frame.Settings) !void {
         if (pairs.remaining_len() == 0) break;
         const identifier = (try varint.decode(&pairs)).value;
         const value = (try varint.decode(&pairs)).value;
-        for (constants.setting_reserved_http2) |held| try testing.expect(identifier != held);
+        for (constants.protocol.setting_reserved_http2) |held| try testing.expect(identifier != held);
         for (known_settings, 0..) |known, index| {
             if (identifier != known) continue;
             known_count[index] += 1;
@@ -122,16 +122,16 @@ const pair_len_min = 2;
 
 /// The settings RFC 9114 §7.2.4.1 and RFC 9204 §5 define, which colibri keeps.
 const known_settings = [_]u64{
-    constants.setting_max_field_section_size,
-    constants.setting_qpack_max_table_capacity,
-    constants.setting_qpack_blocked_streams,
+    constants.protocol.setting_max_field_section_size,
+    constants.protocol.setting_qpack_max_table_capacity,
+    constants.protocol.setting_qpack_blocked_streams,
 };
 
 fn value_of(settings: frame.Settings, identifier: u64) ?u64 {
     return switch (identifier) {
-        constants.setting_max_field_section_size => settings.max_field_section_size,
-        constants.setting_qpack_max_table_capacity => settings.qpack_max_table_capacity,
-        constants.setting_qpack_blocked_streams => settings.qpack_blocked_streams,
+        constants.protocol.setting_max_field_section_size => settings.max_field_section_size,
+        constants.protocol.setting_qpack_max_table_capacity => settings.qpack_max_table_capacity,
+        constants.protocol.setting_qpack_blocked_streams => settings.qpack_blocked_streams,
         else => unreachable,
     };
 }

@@ -90,15 +90,15 @@ pub const Link = struct {
 /// What a pool holds, set at run time (decision 125, decision 35 as amended). `memory_bytes`
 /// gives the octets the counts need, and `init` takes them from the caller.
 pub const Counts = struct {
-    /// TCP connections the pool holds at most: from 1 to `constants.pool_tcp_connections_max`.
+    /// TCP connections the pool holds at most: from 1 to `constants.limits.pool_tcp_connections_max`.
     tcp_connections: u16 = 1,
-    /// Requests the pool holds at once, each until its `finished` event: from 1 to `constants.pool_requests_max`.
-    requests: u16 = constants.requests_max,
+    /// Requests the pool holds at once, each until its `finished` event: from 1 to `constants.limits.pool_requests_max`.
+    requests: u16 = constants.limits.requests_max,
 
     /// Whether each count is inside its limits. A count outside them is a programmer error.
     pub fn valid(counts: Counts) bool {
-        if (counts.tcp_connections == 0 or counts.tcp_connections > constants.pool_tcp_connections_max) return false;
-        return counts.requests > 0 and counts.requests <= constants.pool_requests_max;
+        if (counts.tcp_connections == 0 or counts.tcp_connections > constants.limits.pool_tcp_connections_max) return false;
+        return counts.requests > 0 and counts.requests <= constants.limits.pool_requests_max;
     }
 };
 
@@ -130,9 +130,9 @@ pub const Layout = struct {
 
 /// The most `receive` calls in a row that report an event and take no octet, for a pool of
 /// `counts` that holds QUIC or not: one `finished` for each exchange, one `closed`, and
-/// `constants.transport_events_max` for each transport.
+/// `constants.limits.transport_events_max` for each transport.
 pub fn events_without_input_max(counts: Counts, holds_quic: bool) usize {
     assert(counts.valid());
     const transports = @as(usize, counts.tcp_connections) + @intFromBool(holds_quic);
-    return @as(usize, counts.requests) + transports * constants.transport_events_max + 1;
+    return @as(usize, counts.requests) + transports * constants.limits.transport_events_max + 1;
 }

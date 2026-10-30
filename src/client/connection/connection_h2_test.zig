@@ -77,7 +77,7 @@ test "RFC 9113 §6.9: content past the stream's window goes out as the peer gran
     try start();
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window, so this content goes out
     // whole only if the client reads the peer's WINDOW_UPDATE frames.
-    const content_len = 3 * h2.constants.initial_window_size_initial;
+    const content_len = 3 * h2.constants.protocol.initial_window_size_initial;
     const content = bodies[1][0..content_len];
     @memset(content, 'x');
     var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/upload", .body = content }, .response = .{ .body = &bodies[0] } };
@@ -128,7 +128,7 @@ test "RFC 9113 §6.4: content past the caller's memory ends the exchange, and CA
     const reset = for (support.peer_events[0..support.peer_events_len]) |peer_event| {
         if (peer_event == .stream_reset) break peer_event.stream_reset;
     } else return error.TestUnexpectedResult;
-    try testing.expectEqual(h2.constants.error_cancel, reset.error_code);
+    try testing.expectEqual(h2.constants.protocol.error_cancel, reset.error_code);
 }
 
 test "RFC 9113 §8.7: REFUSED_STREAM ends an exchange refused, and another code ends it reset" {
@@ -138,13 +138,13 @@ test "RFC 9113 §8.7: REFUSED_STREAM ends an exchange refused, and another code 
     _ = try connection.request(&first.request, &first.response);
     _ = try connection.request(&second.request, &second.response);
     try support.pump_h2();
-    try support.peer_h2.reset_stream(1, h2.constants.error_refused_stream);
-    try support.peer_h2.reset_stream(3, h2.constants.error_internal_error);
+    try support.peer_h2.reset_stream(1, h2.constants.protocol.error_refused_stream);
+    try support.peer_h2.reset_stream(3, h2.constants.protocol.error_internal_error);
     support.peer_h2_owe();
     try support.client_receive();
     try testing.expectEqual(.refused, first.response.result);
     try testing.expectEqual(.reset, second.response.result);
-    try testing.expectEqual(h2.constants.error_internal_error, second.response.error_code);
+    try testing.expectEqual(h2.constants.protocol.error_internal_error, second.response.error_code);
 }
 
 test "RFC 9113 §6.8: a GOAWAY refuses the exchanges past its last stream, and the connection drains" {
@@ -156,7 +156,7 @@ test "RFC 9113 §6.8: a GOAWAY refuses the exchanges past its last stream, and t
     try support.pump_h2();
     // The peer took stream 1 and says so; stream 3 it never processed.
     var writer = h2.core.Writer.init(support.to_client[support.to_client_len..]);
-    try h2.frame.write_goaway(&writer, 1, h2.constants.error_no_error, "");
+    try h2.frame.write_goaway(&writer, 1, h2.constants.protocol.error_no_error, "");
     support.to_client_len += writer.written().len;
     try support.client_receive();
     try testing.expectEqual(.refused, second.response.result);
@@ -180,7 +180,7 @@ test "RFC 9113 §6.4: a cancelled exchange's stream is reset with CANCEL, and no
     connection.cancel(id);
     support.peer_events_len = 0;
     try support.pump_h2();
-    try testing.expectEqual(h2.constants.error_cancel, support.peer_events[0].stream_reset.error_code);
+    try testing.expectEqual(h2.constants.protocol.error_cancel, support.peer_events[0].stream_reset.error_code);
     try testing.expectEqual(0, support.count(.finished));
     try testing.expectEqual(.pending, exchange.response.result);
 }
@@ -213,7 +213,7 @@ test "RFC 9113 §5.4.1: a peer that breaks the protocol ends every exchange, and
     // The GOAWAY colibri owes goes out before the caller closes.
     support.to_peer_len = 0;
     support.client_send();
-    try testing.expectEqual(h2.constants.frame_type_goaway, support.to_peer[3]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_goaway, support.to_peer[3]);
     try testing.expect(connection.should_close());
 }
 
@@ -248,7 +248,7 @@ test "RFC 9113 §6.8: a connection shut down with no exchange closes once send w
     try testing.expect(!connection.should_close());
     support.to_peer_len = 0;
     support.client_send();
-    try testing.expectEqual(h2.constants.frame_type_goaway, support.to_peer[frame_type_at]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_goaway, support.to_peer[frame_type_at]);
     try testing.expect(connection.should_close());
 }
 

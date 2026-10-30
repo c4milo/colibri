@@ -44,7 +44,7 @@ const levels = 8;
 /// set.
 const branch_routes = (1 << levels) - 1;
 
-/// The octets of the long segment X. Each pattern through it holds `constants.path_len_max`
+/// The octets of the long segment X. Each pattern through it holds `constants.limits.path_len_max`
 /// octets at most, so a path can match it.
 const long_segment_len = 8150;
 
@@ -82,9 +82,9 @@ const table: [branch_routes + long_routes]Entry = build: {
 comptime {
     // The route with each bit set would hold `levels` + 1 parameters, one more than a pattern
     // holds.
-    std.debug.assert(levels + 1 > constants.path_parameters_max);
-    std.debug.assert(levels <= constants.path_parameters_max);
-    std.debug.assert(long_prefix.len + "/:s".len <= constants.path_len_max);
+    std.debug.assert(levels + 1 > constants.limits.path_parameters_max);
+    std.debug.assert(levels <= constants.limits.path_parameters_max);
+    std.debug.assert(long_prefix.len + "/:s".len <= constants.limits.path_len_max);
 }
 
 test "decision 122: the quota of the check of hidden routes counts the longest segment" {

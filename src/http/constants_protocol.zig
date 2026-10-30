@@ -1,0 +1,32 @@
+//! The values the RFCs fix for http, which no one may change.
+//! Decision 137 groups them, and `constants.zig` exports this file as `protocol`.
+const std = @import("std");
+const assert = std.debug.assert;
+
+/// The lowest and highest valid status codes. RFC 9110 §15 states that all valid status codes are
+/// within 100 to 599 inclusive, and that values outside that range are invalid.
+pub const status_code_min: u16 = 100;
+pub const status_code_max: u16 = 599;
+
+/// Octets in a status code written as text: RFC 9110 §15 makes it a three-digit integer.
+pub const status_digits_len: u8 = 3;
+
+/// The base the status digits are written in: DIGIT is a decimal digit (RFC 5234 Appendix B.1).
+pub const status_digit_radix: u16 = 10;
+
+/// The base a Content-Length value is written in: `Content-Length = 1*DIGIT` (RFC 9110 §8.6), and
+/// DIGIT is a decimal digit (RFC 5234 Appendix B.1). It is the base of the status digits too.
+pub const content_length_radix: u64 = status_digit_radix;
+
+/// The step between status classes: the first digit is the class (RFC 9110 §15).
+pub const status_class_size: u16 = 100;
+
+comptime {
+    assert(status_code_min / status_class_size == 1);
+    assert(status_code_max / status_class_size == 5);
+    assert(std.math.pow(u16, status_digit_radix, status_digits_len - 1) == status_code_min);
+}
+
+test "the status range spans exactly five classes" {
+    try std.testing.expectEqual(5, (status_code_max + 1 - status_code_min) / status_class_size);
+}

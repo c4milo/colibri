@@ -66,7 +66,7 @@ pub const Config = struct {
     /// names.
     ecn: bool = false,
     /// The idle timeout the client advertises (RFC 9000 §10.1), in milliseconds.
-    idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
+    idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
     /// The content codings the client offers in each request's Accept-Encoding, in its order of
     /// preference, and the pools of decoders it removes them with, which connections may share
     /// (decision 101 as amended): `decoders` for `gzip` and `deflate`, `zstd_decoders` and
@@ -83,8 +83,8 @@ pub const Config = struct {
 pub const Start = struct {
     /// The client's Source Connection ID, and the Destination Connection ID of its first Initial,
     /// which the Initial keys derive from (RFC 9000 §7.2, RFC 9001 §5.2).
-    source_id: [constants.quic_id_len]u8,
-    original_destination_id: [constants.quic_id_len]u8,
+    source_id: [constants.policy.quic_id_len]u8,
+    original_destination_id: [constants.policy.quic_id_len]u8,
     /// The value h3's reserved setting and error codes are drawn from (RFC 9114 §7.2.4.1, §8.1).
     grease: u64,
 };
@@ -112,9 +112,9 @@ pub const QuicConnection = struct {
     h3: h3.Connection,
     /// Where a request's field section is built, and where h3 copies a response's content.
     section: h3.http.FieldSection,
-    body: [constants.quic_read_len]u8,
+    body: [constants.limits.quic_read_len]u8,
     /// Each slot's request stream frames, at the slot's index.
-    streams: [constants.requests_max]quic_h3.RequestStream,
+    streams: [constants.limits.requests_max]quic_h3.RequestStream,
     slots: slots_module.Slots,
     owed: owed_module.Owed,
     start_values: Start,
@@ -189,7 +189,7 @@ pub const QuicConnection = struct {
     /// RFC 9001 §8.2: the transport parameters travel in the handshake. `transport.init` wrote the
     /// connection IDs into them (RFC 9000 §7.3).
     fn hand_over_parameters(connection: *QuicConnection) StartError!void {
-        var body: [constants.transport_parameters_len_max]u8 = undefined;
+        var body: [constants.limits.transport_parameters_len_max]u8 = undefined;
         var writer = quic.core.Writer.init(&body);
         // RFC 9000 §18: the parameters are encoded before the handshake carries them.
         quic.transport_parameters.write(&writer, &connection.transport.local_parameters, .client) catch return error.TlsRefused;
@@ -376,7 +376,7 @@ pub const QuicConnection = struct {
         const selected = connection.session.provider().negotiated_alpn() orelse "";
         // RFC 9114 §3.1: an h3 connection is one whose handshake selected the "h3" token.
         if (!std.mem.eql(u8, selected, h3_alpn)) {
-            internal.close_quic(connection, h3.constants.error_version_fallback);
+            internal.close_quic(connection, h3.constants.protocol.error_version_fallback);
             internal.fail(connection);
             return;
         }
@@ -426,8 +426,8 @@ const h3_alpn = "h3";
 /// and at least `quic_idle_margin_ns_min`, as the owner ruled on 2026-09-28, and at most the
 /// effective idle timeout `timeout_ns` over `quic_idle_margin_timeout_divisor`.
 fn idle_margin_ns(transport: *const quic.Connection, timeout_ns: u64) u64 {
-    const margin = @max(constants.quic_idle_margin_ns_min, quic.connection_idle.probe_timeout_ns(transport));
-    return @min(margin, timeout_ns / constants.quic_idle_margin_timeout_divisor);
+    const margin = @max(constants.policy.quic_idle_margin_ns_min, quic.connection_idle.probe_timeout_ns(transport));
+    return @min(margin, timeout_ns / constants.policy.quic_idle_margin_timeout_divisor);
 }
 
 /// What the client grants the server (RFC 9000 §18.2): its receive pool of `capacity` octets for
@@ -438,8 +438,8 @@ fn parameters(config: *const Config, capacity: u64) Parameters {
     // pool is all the client holds (decision 61), so no window grants more than it.
     held.initial_max_data = capacity;
     held.initial_max_stream_data_bidi_local = capacity;
-    held.initial_max_stream_data_uni = @min(constants.quic_stream_window, capacity);
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_stream_data_uni = @min(constants.policy.quic_stream_window, capacity);
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = config.idle_timeout_ms;
     return held;
 }

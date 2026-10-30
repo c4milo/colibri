@@ -28,15 +28,15 @@ var retry_source_id: [id_len]u8 = undefined;
 /// The deployment's Retry token key and its lifetime (decision 55).
 var retry_key: [tls.quic.token_key_len]u8 = undefined;
 var retry: tls.quic.Retry align(@alignOf(tls.quic.Retry)) = undefined;
-var cookie_storage: [tls.constants.server_key_len]u8 = undefined;
+var cookie_storage: [tls.constants.protocol.server_key_len]u8 = undefined;
 /// The key the server seals its session tickets under (chapulin's decision 51).
-var ticket_key_storage: [tls.constants.server_key_len]u8 = undefined;
+var ticket_key_storage: [tls.constants.protocol.server_key_len]u8 = undefined;
 var chain_storage: [constants.quic_chain_len_max][constants.tls_der_len_max]u8 = undefined;
 var chain: [constants.quic_chain_len_max][]const u8 = undefined;
 /// The server's chain, read once into `chain`.
 var server_chain: []const []const u8 = &.{};
-var private_storage: [tls.constants.p256_private_key_len]u8 = undefined;
-var public_storage: [tls.constants.p256_public_key_len]u8 = undefined;
+var private_storage: [tls.constants.protocol.p256_private_key_len]u8 = undefined;
+var public_storage: [tls.constants.protocol.p256_public_key_len]u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
 var pin_storage: [1]tls.Pin align(@alignOf(tls.Pin)) = undefined;
@@ -89,13 +89,13 @@ pub fn grease() u64 {
 
 /// The ALPN protocols a server offers: h3 first, then hq-interop, and it serves whichever its
 /// client asks for (RFC 9001 §8.1).
-const server_alpn = [_][]const u8{ &h2.tls_provider.constants.alpn_h3, hq.alpn };
-const client_alpn_h3 = [_][]const u8{&h2.tls_provider.constants.alpn_h3};
+const server_alpn = [_][]const u8{ &h2.tls_provider.constants.protocol.alpn_h3, hq.alpn };
+const client_alpn_h3 = [_][]const u8{&h2.tls_provider.constants.protocol.alpn_h3};
 const client_alpn_hq = [_][]const u8{hq.alpn};
 
 /// A spare connection ID and its stateless reset token (RFC 9000 §5.1.1, §10.3), drawn at random:
 /// §5.1 wants a connection ID unlinkable to the others, and §10.3 a token no one else can guess.
-pub fn spare_id(id: *[id_len]u8, token: *[quic.constants.stateless_reset_token_len]u8) void {
+pub fn spare_id(id: *[id_len]u8, token: *[quic.constants.protocol.stateless_reset_token_len]u8) void {
     entropy.fill(id);
     entropy.fill(token);
 }
@@ -211,7 +211,7 @@ fn configure_server(asked: udp_arguments.Server) !void {
 
 /// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
 fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
-    var read_storage: [tls.constants.p256_public_key_len + 1]u8 = undefined;
+    var read_storage: [tls.constants.protocol.p256_public_key_len + 1]u8 = undefined;
     const read = try check_file.read_part(prefix, suffix, &read_storage);
     if (read.len != into.len) return error.KeyLengthWrong;
     @memcpy(into, read);

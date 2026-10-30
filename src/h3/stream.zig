@@ -64,10 +64,10 @@ pub fn read_header(reader: *Reader) Error!Kind {
     var cursor = reader.*;
     const stream_type = (try varint.decode(&cursor)).value;
     const kind: Kind = switch (stream_type) {
-        constants.stream_control => .control,
-        constants.stream_qpack_encoder => .qpack_encoder,
-        constants.stream_qpack_decoder => .qpack_decoder,
-        constants.stream_push => .{ .push = (try varint.decode(&cursor)).value },
+        constants.protocol.stream_control => .control,
+        constants.protocol.stream_qpack_encoder => .qpack_encoder,
+        constants.protocol.stream_qpack_decoder => .qpack_decoder,
+        constants.protocol.stream_push => .{ .push = (try varint.decode(&cursor)).value },
         else => .{ .unknown = stream_type },
     };
     reader.* = cursor;
@@ -78,11 +78,11 @@ pub fn read_header(reader: *Reader) Error!Kind {
 pub fn write_header(writer: *Writer, kind: Kind) core.writer.Error!void {
     var cursor = writer.*;
     switch (kind) {
-        .control => try varint.encode(&cursor, constants.stream_control),
-        .qpack_encoder => try varint.encode(&cursor, constants.stream_qpack_encoder),
-        .qpack_decoder => try varint.encode(&cursor, constants.stream_qpack_decoder),
+        .control => try varint.encode(&cursor, constants.protocol.stream_control),
+        .qpack_encoder => try varint.encode(&cursor, constants.protocol.stream_qpack_encoder),
+        .qpack_decoder => try varint.encode(&cursor, constants.protocol.stream_qpack_decoder),
         .push => |push_id| {
-            try varint.encode(&cursor, constants.stream_push);
+            try varint.encode(&cursor, constants.protocol.stream_push);
             try varint.encode(&cursor, push_id);
         },
         .unknown => |stream_type| try varint.encode(&cursor, stream_type),
@@ -135,11 +135,11 @@ pub const Opened = struct {
 /// The error code RFC 9114 §8.1 gives each of those.
 pub fn error_code(failure: Error) u64 {
     return switch (failure) {
-        error.StreamCreationError => constants.error_stream_creation,
+        error.StreamCreationError => constants.protocol.error_stream_creation,
         // §6.2: a stream header that never arrives leaves the stream unusable. §6.2.1 makes a
         // closed control stream H3_CLOSED_CRITICAL_STREAM, which is what a truncated header on
         // a stream that ended amounts to.
-        error.Truncated => constants.error_closed_critical_stream,
+        error.Truncated => constants.protocol.error_closed_critical_stream,
     };
 }
 
@@ -178,9 +178,9 @@ test "§6.2: a unidirectional stream begins with its type" {
 test "§9: a type this endpoint does not know is carried, not refused" {
     // §6.2.3's reserved types exist to exercise exactly this, and §9 requires an endpoint to
     // discard the data or abort reading rather than treat the stream as meaning anything.
-    const reserved = try round_trip(.{ .unknown = constants.reserved_base });
-    try testing.expectEqual(constants.reserved_base, reserved.unknown);
-    try testing.expect(constants.is_reserved(reserved.unknown));
+    const reserved = try round_trip(.{ .unknown = constants.protocol.reserved_base });
+    try testing.expectEqual(constants.protocol.reserved_base, reserved.unknown);
+    try testing.expect(constants.protocol.is_reserved(reserved.unknown));
     const extension = try round_trip(.{ .unknown = 0x5555 });
     try testing.expectEqual(0x5555, extension.unknown);
     // Nothing unknown is critical: §6.2.1's rule is about the streams HTTP/3 defines.
@@ -249,8 +249,8 @@ test "§6.2: a header whose octets have not all arrived consumes nothing" {
 }
 
 test "§8.1: every error names the code the connection closes with" {
-    try testing.expectEqual(constants.error_stream_creation, error_code(Error.StreamCreationError));
-    try testing.expectEqual(constants.error_closed_critical_stream, error_code(Error.Truncated));
+    try testing.expectEqual(constants.protocol.error_stream_creation, error_code(Error.StreamCreationError));
+    try testing.expectEqual(constants.protocol.error_closed_critical_stream, error_code(Error.Truncated));
 }
 
 test "a header that does not fit writes nothing" {

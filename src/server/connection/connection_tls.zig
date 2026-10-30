@@ -31,7 +31,7 @@ const RecordError = h2.connection_tls.RecordError || h11.connection_tls.RecordEr
 pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!ConnectionResult {
     assert(connection.phase == .handshake);
     // chapulin writes a flight whole or fails the handshake, so it runs only with room for one.
-    if (internal.room(connection).len < constants.flight_len_max) return .{ .consumed = 0, .event = null };
+    if (internal.room(connection).len < constants.limits.flight_len_max) return .{ .consumed = 0, .event = null };
     const progress = connection.tls_server.handshake(input, internal.room(connection)) catch {
         // RFC 9846 §6.2: what the refused handshake wrote ends with the alert that says why, and
         // the connection closes once `send` has written it.
@@ -71,7 +71,7 @@ pub fn attach(connection: *Connection, provider: tls_provider.Provider) Error!vo
 /// TLS "use protocol negotiation in TLS" (decision 117).
 pub fn protocol_of(selected: ?[]const u8, versions: Protocols) Protocol {
     const name = selected orelse return if (versions.h11) .h11 else .h2;
-    return if (std.mem.eql(u8, name, &tls_provider.constants.alpn_h2)) .h2 else .h11;
+    return if (std.mem.eql(u8, name, &tls_provider.constants.protocol.alpn_h2)) .h2 else .h11;
 }
 
 /// Opens the records of `input` that fit, then reads at most one event from what they held.
@@ -139,7 +139,7 @@ pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
 fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
     var written: usize = 0;
     // Bounded: a pass seals a record at least, or ends the loop.
-    for (0..constants.seals_per_send_max) |_| {
+    for (0..constants.limits.seals_per_send_max) |_| {
         const plaintext = connection.output[0..connection.output_len];
         const sealed = encrypt(connection, plaintext, output[written..], now_ns) catch |failure| switch (failure) {
             // The output holds no whole record: the rest waits for the next call.

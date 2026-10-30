@@ -77,16 +77,16 @@ const filler: u8 = '0';
 const fillers_max: usize = @bitSizeOf(u8) - 1;
 
 test "RFC 7541 §5.2: EOS inside the data is found at every bit it can start at" {
-    comptime std.debug.assert(table.codes[filler].bit_count == constants.huffman_code_bits_min);
+    comptime std.debug.assert(table.codes[filler].bit_count == constants.protocol.huffman_code_bits_min);
     for (0..fillers_max + 1) |fillers| {
         // The fillers, then EOS, then ones to the end of the octet: the bits a peer could send.
         var bits: u128 = 0;
         var bit_count: u7 = 0;
         for (0..fillers) |_| {
-            bits = (bits << constants.huffman_code_bits_min) | table.codes[filler].code;
-            bit_count += constants.huffman_code_bits_min;
+            bits = (bits << constants.protocol.huffman_code_bits_min) | table.codes[filler].code;
+            bit_count += constants.protocol.huffman_code_bits_min;
         }
-        const eos = table.codes[constants.huffman_eos_symbol];
+        const eos = table.codes[constants.protocol.huffman_eos_symbol];
         bits = (bits << @intCast(eos.bit_count)) | eos.code;
         bit_count += @intCast(eos.bit_count);
         const padding: u7 = @intCast((@bitSizeOf(u8) - bit_count % @bitSizeOf(u8)) % @bitSizeOf(u8));

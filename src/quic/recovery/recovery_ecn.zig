@@ -146,9 +146,9 @@ pub const Path = struct {
     /// RFC 9000 §13.4.2: "the first ten outgoing packets on a path, or ... a period of three
     /// PTOs", whichever is spent first (decision 69).
     fn testing_spent(path: *const Path, now_ns: u64, probe_timeout_ns: u64) bool {
-        if (path.tested_packets >= constants.ecn_testing_packets) return true;
+        if (path.tested_packets >= constants.policy.ecn_testing_packets) return true;
         const since_ns = path.testing_since_ns orelse return false;
-        return now_ns -| since_ns >= constants.ecn_testing_probe_timeouts *| probe_timeout_ns;
+        return now_ns -| since_ns >= constants.policy.ecn_testing_probe_timeouts *| probe_timeout_ns;
     }
 
     /// Counts one packet sent marked ECT at `now_ns`.

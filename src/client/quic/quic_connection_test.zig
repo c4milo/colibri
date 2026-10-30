@@ -95,12 +95,12 @@ test "RFC 9114 §4.1.1: H3_REQUEST_REJECTED ends an exchange refused, and anothe
     _ = try connection.request(&first.request, &first.response);
     _ = try connection.request(&second.request, &second.response);
     try support.pump(support.rounds_default);
-    support.server_h3.cancel(&support.server, 0, h3.constants.error_request_rejected);
-    support.server_h3.cancel(&support.server, 4, h3.constants.error_internal);
+    support.server_h3.cancel(&support.server, 0, h3.constants.protocol.error_request_rejected);
+    support.server_h3.cancel(&support.server, 4, h3.constants.protocol.error_internal);
     try support.pump(support.rounds_default);
     try testing.expectEqual(.refused, first.response.result);
     try testing.expectEqual(.reset, second.response.result);
-    try testing.expectEqual(h3.constants.error_internal, second.response.error_code);
+    try testing.expectEqual(h3.constants.protocol.error_internal, second.response.error_code);
 }
 
 test "RFC 9114 §5.2: a GOAWAY refuses the exchanges at or past its stream, and the connection drains" {
@@ -175,7 +175,7 @@ test "RFC 9000 §4.1: every window the client advertises fits the receive pool i
     var granted = connection.transport.local_parameters;
     try testing.expectEqual(answer_pool_len, granted.initial_max_data);
     try testing.expectEqual(answer_pool_len, granted.initial_max_stream_data_bidi_local);
-    try testing.expectEqual(constants.quic_stream_window, granted.initial_max_stream_data_uni);
+    try testing.expectEqual(constants.policy.quic_stream_window, granted.initial_max_stream_data_uni);
     connection.transport_closed();
     try support.start_with_pool(small_pool.storage(), &support.alpn_h3, &support.alpn_h3, false);
     granted = connection.transport.local_parameters;

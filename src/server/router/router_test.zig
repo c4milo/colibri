@@ -259,14 +259,14 @@ test "decision 122: each match sets the count of parameters to 0 first" {
 
 test "INV-8: a path of more than path_len_max octets matches nothing, its query included" {
     const any = router(u8, .{.{ .get, "/:segment", 1 }});
-    var target: [constants.path_len_max + 1]u8 = @splat('a');
+    var target: [constants.limits.path_len_max + 1]u8 = @splat('a');
     target[0] = '/';
     var parameters: PathParameters = .{};
-    try testing.expectEqual(1, any.match("GET", target[0..constants.path_len_max], &parameters).found);
-    try testing.expectEqual(constants.path_len_max - 1, parameters.get("segment").?.len);
+    try testing.expectEqual(1, any.match("GET", target[0..constants.limits.path_len_max], &parameters).found);
+    try testing.expectEqual(constants.limits.path_len_max - 1, parameters.get("segment").?.len);
     try testing.expect(any.match("GET", &target, &parameters) == .not_found);
     target[2] = '?';
-    try testing.expectEqual(1, any.match("GET", target[0..constants.path_len_max], &parameters).found);
+    try testing.expectEqual(1, any.match("GET", target[0..constants.limits.path_len_max], &parameters).found);
     try testing.expect(any.match("GET", &target, &parameters) == .not_found);
 }
 

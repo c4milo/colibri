@@ -139,7 +139,7 @@ fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []cons
     if (!close_after or checked.close) {
         return message.write_response_head_checked(output, status, reason, fields, checked);
     }
-    var with_close: [core.constants.field_count_max]Field = unfilled_lines();
+    var with_close: [core.constants.limits.field_count_max]Field = unfilled_lines();
     return write_head_with_close(output, status, reason, fields, checked, &with_close);
 }
 
@@ -147,14 +147,14 @@ fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []cons
 /// ReleaseSafe would fill all 4,096 octets with 0xAA on each response that adds `close_field`.
 /// `write_head_with_close` writes each line it gives the head writer, and code reads no other
 /// line. The owner ruled for this method on 2026-10-18 and for this array on 2026-10-20.
-fn unfilled_lines() [core.constants.field_count_max]Field {
+fn unfilled_lines() [core.constants.limits.field_count_max]Field {
     @setRuntimeSafety(false);
     return undefined;
 }
 
 /// Writes the final head with `close_field` after the caller's fields, which it copies into
 /// `with_close` first. `checked` is the pass over `fields`.
-pub fn write_head_with_close(output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const message.Checked, with_close: *[core.constants.field_count_max]Field) connection.SendError!usize {
+pub fn write_head_with_close(output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const message.Checked, with_close: *[core.constants.limits.field_count_max]Field) connection.SendError!usize {
     // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
     if (fields.len >= with_close.len) return error.TooManyFields;
     @memcpy(with_close[0..fields.len], fields);

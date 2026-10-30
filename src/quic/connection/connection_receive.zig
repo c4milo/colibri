@@ -129,7 +129,7 @@ pub const Walk = struct {
     packets: usize,
 
     pub fn init(walk: *Walk, datagram: Datagram) void {
-        assert(datagram.octets.len <= constants.datagram_len_max);
+        assert(datagram.octets.len <= constants.protocol.datagram_len_max);
         walk.* = .{
             .datagram = datagram,
             .consumed = 0,
@@ -141,7 +141,7 @@ pub const Walk = struct {
     /// Whether any octets are left to walk.
     pub fn finished(walk: *const Walk) bool {
         return walk.consumed >= walk.datagram.octets.len or
-            walk.packets >= constants.coalesced_packets_max;
+            walk.packets >= constants.limits.coalesced_packets_max;
     }
 };
 

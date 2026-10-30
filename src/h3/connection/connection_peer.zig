@@ -36,7 +36,7 @@ pub const Peer = struct {
     control_id: ?u64,
     encoder_id: ?u64,
     decoder_id: ?u64,
-    slots: [constants.uni_streams_max]?Slot,
+    slots: [constants.limits.uni_streams_max]?Slot,
     /// The index of the next of the peer's unidirectional streams no slot has seen (RFC 9000
     /// §2.1). The peer opens them in order, so every one below it was seen.
     next_index: u64,
@@ -66,10 +66,10 @@ pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
     // connection error of type H3_STREAM_CREATION_ERROR". Streams open in order, so the first
     // tells.
     if (connection.options.role == .client and transport.streams.lookup(StreamId.of(.server, .bidirectional, 0)) != .unopened) {
-        return connection.fail(transport, constants.error_stream_creation);
+        return connection.fail(transport, constants.protocol.error_stream_creation);
     }
     // Bounded by the slots: a peer inside colibri's limit never has more open.
-    for (0..constants.uni_streams_max) |_| {
+    for (0..constants.limits.uni_streams_max) |_| {
         const id = StreamId.of(initiator, .unidirectional, peer.next_index);
         switch (transport.streams.lookup(id)) {
             .unopened => break,
@@ -101,7 +101,7 @@ fn free_slot(peer: *Peer) ?*?Slot {
 fn read_type(connection: *Connection, transport: *QuicConnection, slot: *?Slot) Error!void {
     const held = slot.*.?;
     const id: StreamId = .{ .value = held.id };
-    const scratch = connection.scratch[0..constants.frame_header_len_max];
+    const scratch = connection.scratch[0..constants.protocol.frame_header_len_max];
     const peeked = stream_read.peek(transport, id, scratch) catch {
         // Reset or closed before its header arrived, which §6.2 tolerates.
         slot.* = null;
@@ -133,7 +133,7 @@ fn take(connection: *Connection, transport: *QuicConnection, id: StreamId, kind:
     switch (kind) {
         // RFC 9114 §4.6: "A client MUST treat receipt of a push stream as a connection error of
         // type H3_ID_ERROR when no MAX_PUSH_ID frame has been sent", and colibri sends none.
-        .push => if (connection.options.role == .client) return connection.fail(transport, constants.error_id_error),
+        .push => if (connection.options.role == .client) return connection.fail(transport, constants.protocol.error_id_error),
         // §6.2: "Recipients of unknown stream types MUST either abort reading of the stream or
         // discard incoming data", and "SHOULD use the H3_STREAM_CREATION_ERROR error code".
         .unknown => return stop_reading(connection, transport, id),
@@ -152,7 +152,7 @@ fn take(connection: *Connection, transport: *QuicConnection, id: StreamId, kind:
 
 /// Asks the peer to stop sending on `id`, and discards what arrives until it does.
 fn stop_reading(connection: *Connection, transport: *QuicConnection, id: StreamId) Error!void {
-    quic.connection_stream_send.stop_sending(transport, id, constants.error_stream_creation) catch {};
+    quic.connection_stream_send.stop_sending(transport, id, constants.protocol.error_stream_creation) catch {};
     // The slot the stream had was freed a moment ago, so one is free.
     const slot = free_slot(&connection.peer).?;
     slot.* = .{ .id = id.value, .discarding = true };
@@ -171,8 +171,8 @@ pub fn step(connection: *Connection, transport: *QuicConnection) Error!?Event {
 /// stream H3_CLOSED_CRITICAL_STREAM.
 fn peek_critical(connection: *Connection, transport: *QuicConnection, id: u64, window: []u8) Error![]const u8 {
     const peeked = stream_read.peek(transport, .{ .value = id }, window) catch
-        return connection.fail(transport, constants.error_closed_critical_stream);
-    if (peeked.fin) return connection.fail(transport, constants.error_closed_critical_stream);
+        return connection.fail(transport, constants.protocol.error_closed_critical_stream);
+    if (peeked.fin) return connection.fail(transport, constants.protocol.error_closed_critical_stream);
     return window[0..peeked.len];
 }
 
@@ -181,7 +181,7 @@ fn read_encoder_stream(connection: *Connection, transport: *QuicConnection) Erro
     const id = connection.peer.encoder_id orelse return;
     // The window holds the longest instruction the decoder accepts, so one longer is refused
     // rather than waited for (RFC 9204 §7.4, decision 74).
-    const octets = try peek_critical(connection, transport, id, connection.scratch[0..qpack.constants.encoder_instruction_len_max]);
+    const octets = try peek_critical(connection, transport, id, connection.scratch[0..qpack.constants.limits.encoder_instruction_len_max]);
     var reader = Reader.init(octets);
     connection.decoder.read_encoder_stream(&reader) catch |failure|
         return connection.fail(transport, qpack.decoder.error_code(failure));
@@ -195,7 +195,7 @@ fn read_decoder_stream(connection: *Connection, transport: *QuicConnection) Erro
     var reader = Reader.init(octets);
     // RFC 9204 §6: an instruction the encoder cannot interpret is QPACK_DECODER_STREAM_ERROR.
     connection.encoder.read_decoder_stream(&reader) catch
-        return connection.fail(transport, qpack.constants.error_decoder_stream);
+        return connection.fail(transport, qpack.constants.protocol.error_decoder_stream);
     _ = stream_read.consume(transport, .{ .value = id }, octets.len - reader.remaining_len()) catch unreachable;
 }
 
@@ -212,7 +212,7 @@ const Step = union(enum) {
 fn read_control(connection: *Connection, transport: *QuicConnection) Error!?Event {
     const id = connection.peer.control_id orelse return null;
     // Bounded: each pass takes a whole frame, or part of an unknown one's payload, or returns.
-    for (0..constants.control_frames_per_call_max) |_| {
+    for (0..constants.limits.control_frames_per_call_max) |_| {
         switch (try control_step(connection, transport, id)) {
             .event => |event| return event,
             .wait => return null,
@@ -239,7 +239,7 @@ fn control_step(connection: *Connection, transport: *QuicConnection, id: u64) Er
         return .again;
     }
     // A frame colibri reads whole and cannot hold is suspicious; §10.5 permits H3_EXCESSIVE_LOAD.
-    if (header.length > connection.scratch.len - header_len) return connection.fail(transport, constants.error_excessive_load);
+    if (header.length > connection.scratch.len - header_len) return connection.fail(transport, constants.protocol.error_excessive_load);
     const payload = reader.take(@intCast(header.length)) catch return .wait;
     _ = stream_read.consume(transport, .{ .value = id }, header_len + payload.len) catch unreachable;
     const found = frame.read_payload(header.frame_type, payload) catch |failure|
@@ -265,27 +265,27 @@ fn check_control_frame(connection: *Connection, transport: *QuicConnection, head
     const peer = &connection.peer;
     // §6.2.1: "If the first frame of the control stream is any other frame type, this MUST be
     // treated as a connection error of type H3_MISSING_SETTINGS."
-    if (!peer.settings_received and header.frame_type != constants.frame_settings) {
-        return connection.fail(transport, constants.error_missing_settings);
+    if (!peer.settings_received and header.frame_type != constants.protocol.frame_settings) {
+        return connection.fail(transport, constants.protocol.error_missing_settings);
     }
     // §7.2.1, §7.2.2, §7.2.5 and §7.2.8: DATA, HEADERS, PUSH_PROMISE and the HTTP/2 types are
     // not permitted on the control stream, which is H3_FRAME_UNEXPECTED.
-    if (!frame.permitted(header.frame_type, .control)) return connection.fail(transport, constants.error_frame_unexpected);
+    if (!frame.permitted(header.frame_type, .control)) return connection.fail(transport, constants.protocol.error_frame_unexpected);
     // §7.2.4: "If an endpoint receives a second SETTINGS frame on the control stream, the
     // endpoint MUST respond with a connection error of type H3_FRAME_UNEXPECTED."
-    if (peer.settings_received and header.frame_type == constants.frame_settings) {
-        return connection.fail(transport, constants.error_frame_unexpected);
+    if (peer.settings_received and header.frame_type == constants.protocol.frame_settings) {
+        return connection.fail(transport, constants.protocol.error_frame_unexpected);
     }
     // §7.2.7: "A client MUST treat the receipt of a MAX_PUSH_ID frame as a connection error of
     // type H3_FRAME_UNEXPECTED."
-    if (connection.options.role == .client and header.frame_type == constants.frame_max_push_id) {
-        return connection.fail(transport, constants.error_frame_unexpected);
+    if (connection.options.role == .client and header.frame_type == constants.protocol.frame_max_push_id) {
+        return connection.fail(transport, constants.protocol.error_frame_unexpected);
     }
 }
 
 fn is_known_control(frame_type: u64) bool {
     return switch (frame_type) {
-        constants.frame_settings, constants.frame_goaway, constants.frame_max_push_id, constants.frame_cancel_push => true,
+        constants.protocol.frame_settings, constants.protocol.frame_goaway, constants.protocol.frame_max_push_id, constants.protocol.frame_cancel_push => true,
         else => false,
     };
 }
@@ -298,7 +298,7 @@ fn on_control_frame(connection: *Connection, transport: *QuicConnection, found: 
             // §7.2.7: "receipt of a MAX_PUSH_ID frame that contains a smaller value than
             // previously received MUST be treated as a connection error of type H3_ID_ERROR".
             if (connection.max_push_id) |previous| {
-                if (value < previous) return connection.fail(transport, constants.error_id_error);
+                if (value < previous) return connection.fail(transport, constants.protocol.error_id_error);
             }
             connection.max_push_id = value;
             return null;
@@ -306,7 +306,7 @@ fn on_control_frame(connection: *Connection, transport: *QuicConnection, found: 
         // §7.2.3: at a server, a push ID no PUSH_PROMISE mentioned, and colibri sends none; at a
         // client, one "greater than currently allowed", and colibri allows none. Both are
         // H3_ID_ERROR.
-        .cancel_push => return connection.fail(transport, constants.error_id_error),
+        .cancel_push => return connection.fail(transport, constants.protocol.error_id_error),
         .push_promise, .unknown => unreachable,
     }
 }
@@ -331,13 +331,13 @@ fn on_goaway(connection: *Connection, transport: *QuicConnection, value: u64) Er
     if (connection.options.role == .client) {
         const id: StreamId = .{ .value = value };
         if (id.initiator() != .client or id.directionality() != .bidirectional) {
-            return connection.fail(transport, constants.error_id_error);
+            return connection.fail(transport, constants.protocol.error_id_error);
         }
     }
     // §5.2: "Receiving a GOAWAY containing a larger identifier than previously received MUST be
     // treated as a connection error of type H3_ID_ERROR."
     if (connection.goaway_received) |previous| {
-        if (value > previous) return connection.fail(transport, constants.error_id_error);
+        if (value > previous) return connection.fail(transport, constants.protocol.error_id_error);
     }
     connection.goaway_received = value;
     return .{ .goaway = value };

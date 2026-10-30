@@ -27,7 +27,7 @@ pub fn read(decoder: *Decoder, reader: *Reader) Error!void {
             error.Truncated => {
                 // RFC 9204 §7.4: an implementation sets a limit on what it accepts, and one
                 // encoder instruction this long never completes within colibri's.
-                if (reader.remaining_len() >= constants.encoder_instruction_len_max) return Error.EncoderStreamError;
+                if (reader.remaining_len() >= constants.limits.encoder_instruction_len_max) return Error.EncoderStreamError;
                 return;
             },
             // A string that does not decode, or decodes past the scratch, which is as large as
@@ -67,7 +67,7 @@ fn referenced_name(decoder: *Decoder, insert: instruction.Encoder.InsertNameRefe
     if (insert.table == .static) {
         // RFC 9204 §3.1: an invalid static table index received on the encoder stream is
         // QPACK_ENCODER_STREAM_ERROR.
-        if (insert.name_index >= constants.static_table_entries) return Error.EncoderStreamError;
+        if (insert.name_index >= constants.protocol.static_table_entries) return Error.EncoderStreamError;
         return static_table.entries[@intCast(insert.name_index)].name;
     }
     // RFC 9204 §2.2.3: a reference to an entry already evicted is QPACK_ENCODER_STREAM_ERROR.
@@ -95,7 +95,7 @@ const testing = std.testing;
 /// 32-octet overhead and two octets. Test-only.
 const small_entries: u64 = 2;
 const small_line_len: u64 = 2;
-const small_capacity: u64 = small_entries * (constants.entry_overhead_len + small_line_len);
+const small_capacity: u64 = small_entries * (constants.protocol.entry_overhead_len + small_line_len);
 
 /// The decoder the tests drive, placed outside any stack frame. Test-only.
 threadlocal var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
@@ -175,7 +175,7 @@ test "§3.2.2: an insert that evicts the entry it names still copies its name" {
 
 test "§3.2.2: copying the only entry of a full table evicts it first and still copies it" {
     // A table that holds one entry of a one-octet name and value.
-    try use_capacity(constants.entry_overhead_len + small_line_len);
+    try use_capacity(constants.protocol.entry_overhead_len + small_line_len);
     try testing.expectEqual(0, try feed(&.{ 0x41, 'a', 0x01, 'x' }));
     // A Duplicate of relative 0, then a name reference to it: each evicts the entry it copies.
     try testing.expectEqual(0, try feed(&.{0x00}));
@@ -201,14 +201,14 @@ test "decision 74: a partial instruction stays unread, and one too long to wait 
     try testing.expectEqual(0, test_decoder.table.insert_count());
     // RFC 9204 §7.4: an instruction the limit cannot hold is refused once the limit's worth of
     // octets has arrived without it completing.
-    var octets: [constants.encoder_instruction_len_max]u8 = @splat('x');
+    var octets: [constants.limits.encoder_instruction_len_max]u8 = @splat('x');
     // A literal name of 16,385 octets: 0x5f fills the 5-bit prefix with 31, and 0xe2 0x7f add
     // 98 and 127 * 128.
     octets[0] = 0x5f;
     octets[1] = 0xe2;
     octets[2] = 0x7f;
     try testing.expectError(Error.EncoderStreamError, feed(&octets));
-    try testing.expectEqual(constants.encoder_instruction_len_max - 1, try feed(octets[0 .. octets.len - 1]));
+    try testing.expectEqual(constants.limits.encoder_instruction_len_max - 1, try feed(octets[0 .. octets.len - 1]));
 }
 
 test "a string that is not valid Huffman is an encoder stream error" {
@@ -219,7 +219,7 @@ test "a string that is not valid Huffman is an encoder stream error" {
 }
 
 fn fuzz_encoder_stream(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [constants.fuzz_input_len_max]u8 = @splat(0);
+    var input: [constants.limits.fuzz_input_len_max]u8 = @splat(0);
     const octets = input[0..smith.slice(&input)];
     test_decoder.init(.{ .max_table_capacity = small_capacity });
     var reader = Reader.init(octets);

@@ -314,13 +314,13 @@ fn end(connection: *Connection, passed: Timeout) void {
             // for are excess use of the connection. RFC 9113 §9.1: a server that closes an idle
             // connection sends GOAWAY.
             if (passed == .settings) {
-                const failure = session.fail(h2.constants.error_settings_timeout);
+                const failure = session.fail(h2.constants.protocol.error_settings_timeout);
                 assert(failure == error.ConnectionFailed);
             } else if (wait == .head or body or send) {
-                const failure = session.fail(h2.constants.error_enhance_your_calm);
+                const failure = session.fail(h2.constants.protocol.error_enhance_your_calm);
                 assert(failure == error.ConnectionFailed);
             } else {
-                session.shutdown(h2.constants.error_no_error);
+                session.shutdown(h2.constants.protocol.error_no_error);
             }
         },
         .none => unreachable,

@@ -49,7 +49,7 @@ fn twice(id: u64, body: []const u8) ![]const u8 {
 
 /// One parameter whose value is a variable-length integer.
 fn integer(id: u64, value: u64) ![]const u8 {
-    var body: [wire.constants.varint_len_max]u8 = undefined;
+    var body: [wire.constants.protocol.varint_len_max]u8 = undefined;
     var body_writer = Writer.init(&body);
     try wire.varint.encode(&body_writer, value);
     var writer = Writer.init(&test_buffer);
@@ -153,8 +153,8 @@ test "RFC 9000 §18.2: each bound stated as invalid refuses the value one past i
         // "An endpoint that receives a value less than 2 MUST close the connection."
         .{ .id = .active_connection_id_limit, .value = transport_parameters.active_connection_id_limit_min - 1 },
         // RFC 9000 §4.6: a stream limit above 2^60 is invalid.
-        .{ .id = .initial_max_streams_bidi, .value = constants.max_streams_max + 1 },
-        .{ .id = .initial_max_streams_uni, .value = constants.max_streams_max + 1 },
+        .{ .id = .initial_max_streams_bidi, .value = constants.protocol.max_streams_max + 1 },
+        .{ .id = .initial_max_streams_uni, .value = constants.protocol.max_streams_max + 1 },
     };
     for (cases) |case| {
         var reader = Reader.init(try integer(@intFromEnum(case.id), case.value));
@@ -166,7 +166,7 @@ test "RFC 9000 §18.2: each bound stated as invalid refuses the value one past i
         .{ .id = .ack_delay_exponent, .value = transport_parameters.ack_delay_exponent_max },
         .{ .id = .max_ack_delay, .value = transport_parameters.max_ack_delay_ms_max - 1 },
         .{ .id = .active_connection_id_limit, .value = transport_parameters.active_connection_id_limit_min },
-        .{ .id = .initial_max_streams_bidi, .value = constants.max_streams_max },
+        .{ .id = .initial_max_streams_bidi, .value = constants.protocol.max_streams_max },
     };
     for (admitted) |case| {
         var reader = Reader.init(try integer(@intFromEnum(case.id), case.value));
@@ -220,7 +220,7 @@ test "a value that is not the shape its parameter defines is refused" {
     var carried = Reader.init(try one(@intFromEnum(Id.disable_active_migration), &.{1}));
     try testing.expectError(error.ParameterInvalid, read(&carried, .server));
     // RFC 9000 §17.2: a version 1 connection ID is at most 20 octets.
-    const too_long: [constants.connection_id_len_max + 1]u8 = @splat(7);
+    const too_long: [constants.protocol.connection_id_len_max + 1]u8 = @splat(7);
     var long = Reader.init(try one(@intFromEnum(Id.initial_source_connection_id), &too_long));
     try testing.expectError(error.ParameterInvalid, read(&long, .server));
     // RFC 9000 §18: the Length field is the length of the Value field, so an integer parameter
@@ -246,7 +246,7 @@ test "RFC 9368 §3: Version Information is written as §3 lays it out and reads 
     // Identifier 0x11 (§10.1), a length of 8, then the Chosen Version and one Available Version,
     // four octets each in network byte order.
     var sent = Parameters.initial();
-    sent.version_information = .of(constants.version_1, &.{version_2});
+    sent.version_information = .of(constants.protocol.version_1, &.{version_2});
     var writer = Writer.init(&test_buffer);
     try transport_parameters.write(&writer, &sent, .server);
     try testing.expectEqualSlices(u8, "\x11\x08\x00\x00\x00\x01\x6b\x33\x43\xcf", writer.written());
@@ -254,9 +254,9 @@ test "RFC 9368 §3: Version Information is written as §3 lays it out and reads 
     // and a server lists its Fully Deployed Versions, which need not include its Chosen Version
     // and may be none.
     const cases = [_]struct { sender: transport_parameters.Role, info: VersionInformation }{
-        .{ .sender = .client, .info = .of(version_2, &.{ reserved_version, version_2, constants.version_1 }) },
-        .{ .sender = .server, .info = .of(constants.version_1, &.{reserved_version}) },
-        .{ .sender = .server, .info = .of(constants.version_1, &.{}) },
+        .{ .sender = .client, .info = .of(version_2, &.{ reserved_version, version_2, constants.protocol.version_1 }) },
+        .{ .sender = .server, .info = .of(constants.protocol.version_1, &.{reserved_version}) },
+        .{ .sender = .server, .info = .of(constants.protocol.version_1, &.{}) },
     };
     for (cases) |case| {
         sent.version_information = case.info;
@@ -287,7 +287,7 @@ test "RFC 9368 §4: Version Information that fails to parse is refused" {
     // The last two from a server are read: §3 lets a server leave its Chosen Version out.
     for (refused[refused.len - 2 ..]) |case| {
         var reader = Reader.init(try one(@intFromEnum(Id.version_information), case.body));
-        try testing.expectEqual(constants.version_1, (try read(&reader, .server)).version_information.?.chosen_version);
+        try testing.expectEqual(constants.protocol.version_1, (try read(&reader, .server)).version_information.?.chosen_version);
     }
     // RFC 9000 §7.4: the parameter twice is a connection error, as any other known one is.
     var repeated = Reader.init(try twice(@intFromEnum(Id.version_information), "\x00\x00\x00\x01"));
@@ -296,7 +296,7 @@ test "RFC 9368 §4: Version Information that fails to parse is refused" {
 
 test "RFC 9368 §4: a list longer than colibri keeps is checked whole, and still names its Chosen Version" {
     // One more version than colibri keeps, the client's Chosen Version last among them.
-    const listed = constants.version_information_versions_max + 1;
+    const listed = constants.limits.version_information_versions_max + 1;
     var body: [(listed + 1) * @sizeOf(u32)]u8 = undefined;
     var writer = Writer.init(&body);
     try writer.write_int(u32, version_2);
@@ -306,7 +306,7 @@ test "RFC 9368 §4: a list longer than colibri keeps is checked whole, and still
     const info = (try read(&reader, .client)).version_information.?;
     // The first versions in order, and the Chosen Version in the last place kept.
     const kept = info.available_slice();
-    try testing.expectEqual(constants.version_information_versions_max, kept.len);
+    try testing.expectEqual(constants.limits.version_information_versions_max, kept.len);
     for (kept[0 .. kept.len - 1], 0..) |version, i| try testing.expectEqual(reserved_version + i, version);
     try testing.expectEqual(version_2, kept[kept.len - 1]);
     // The same list without the Chosen Version is refused, so the check read past what was kept.
@@ -375,7 +375,7 @@ fn expect_shape(id: u64, body: []const u8) !void {
         @intFromEnum(Id.original_destination_connection_id),
         @intFromEnum(Id.initial_source_connection_id),
         @intFromEnum(Id.retry_source_connection_id),
-        => try testing.expect(body.len <= constants.connection_id_len_max),
+        => try testing.expect(body.len <= constants.protocol.connection_id_len_max),
         @intFromEnum(Id.preferred_address) => {},
         @intFromEnum(Id.version_information) => try expect_versions(body),
         else => if (id <= known_id_max) {
@@ -401,8 +401,8 @@ fn expect_bounds(parameters: *const Parameters) !void {
     try testing.expect(parameters.ack_delay_exponent <= transport_parameters.ack_delay_exponent_max);
     try testing.expect(parameters.max_ack_delay_ms < transport_parameters.max_ack_delay_ms_max);
     try testing.expect(parameters.active_connection_id_limit >= transport_parameters.active_connection_id_limit_min);
-    try testing.expect(parameters.initial_max_streams_bidi <= constants.max_streams_max);
-    try testing.expect(parameters.initial_max_streams_uni <= constants.max_streams_max);
+    try testing.expect(parameters.initial_max_streams_bidi <= constants.protocol.max_streams_max);
+    try testing.expect(parameters.initial_max_streams_uni <= constants.protocol.max_streams_max);
 }
 
 test "fuzz: accepted transport parameters keep §18.2's bounds, and read back the same" {

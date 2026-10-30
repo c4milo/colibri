@@ -8,7 +8,7 @@ const event = @import("event.zig");
 const Number = event.Number;
 
 pub const Owed = struct {
-    ids: [constants.done_owed_max]Number = undefined,
+    ids: [constants.limits.done_owed_max]Number = undefined,
     first: usize = 0,
     len: usize = 0,
 
@@ -43,8 +43,8 @@ test "decision 103: done events come out in the order the responses were made wh
     var owed: Owed = .{};
     try testing.expectEqual(null, owed.take());
     // Past the ring's end and around it.
-    for (0..constants.done_owed_max) |index| owed.push(index + 1);
-    for (0..constants.done_owed_max) |index| try testing.expectEqual(index + 1, owed.take().?);
+    for (0..constants.limits.done_owed_max) |index| owed.push(index + 1);
+    for (0..constants.limits.done_owed_max) |index| try testing.expectEqual(index + 1, owed.take().?);
     owed.push(7);
     owed.push(9);
     try testing.expectEqual(7, owed.take().?);

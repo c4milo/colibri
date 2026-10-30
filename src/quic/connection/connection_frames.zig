@@ -146,7 +146,7 @@ pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64, scr
     var report: Report = .{ .ack_eliciting = false, .frames = 0, .close = null, .owed = .{} };
     // Bounded by the frames one packet can hold, which is its octets: §19.1 makes PADDING one
     // octet and no frame is shorter.
-    while (report.frames < constants.frames_per_packet_max) {
+    while (report.frames < constants.limits.frames_per_packet_max) {
         if (reader.remaining_len() == 0) break;
         const frame = frame_module.read(&reader) catch return Error.FrameEncoding;
         // RFC 9000 §12.4: a frame in a packet type that does not permit it is a connection error

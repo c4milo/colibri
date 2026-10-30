@@ -61,14 +61,14 @@ pub fn classify(name: []const u8) ?ConnectionSpecific {
 
 /// Most calls `te_is_trailers` makes to its splitter. n octets hold at most n + 1 members, and one
 /// more call finds the end, so the bound is never the reason the loop stops.
-const te_split_calls_max = core.constants.field_value_len_max + te_split_calls_past_len;
+const te_split_calls_max = core.constants.limits.field_value_len_max + te_split_calls_past_len;
 const te_split_calls_past_len = 2;
 
 /// True when every member of a TE value is "trailers", the one member RFC 9113 §8.2.2 and RFC 9114
 /// §4.2 permit. A value with no member at all holds nothing else, so it is true too. A value longer
 /// than `field_value_len_max` is false: field validation has already refused it.
 pub fn te_is_trailers(value: []const u8) bool {
-    if (value.len > core.constants.field_value_len_max) return false;
+    if (value.len > core.constants.limits.field_value_len_max) return false;
     var members = std.mem.splitScalar(u8, value, ',');
     for (0..te_split_calls_max) |_| {
         const member = members.next() orelse return true;
@@ -112,13 +112,13 @@ test "TE with any other member is not trailers" {
         "trai lers", "trailers\x0b",   "\"trailers\"",
     };
     for (refused) |value| try testing.expect(!te_is_trailers(value));
-    const too_long: [core.constants.field_value_len_max + 1]u8 = @splat(',');
+    const too_long: [core.constants.limits.field_value_len_max + 1]u8 = @splat(',');
     try testing.expect(!te_is_trailers(&too_long));
 }
 
 test "TE at the length limit, all empty members, ends the list rather than the loop" {
     // field_value_len_max commas are one more member than octets: the most members a value holds.
-    const commas: [core.constants.field_value_len_max]u8 = @splat(',');
+    const commas: [core.constants.limits.field_value_len_max]u8 = @splat(',');
     try testing.expect(te_is_trailers(&commas));
 }
 

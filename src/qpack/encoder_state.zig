@@ -52,7 +52,7 @@ pub const EncoderState = struct {
     /// The sections sent and not acknowledged, oldest first. One flat list rather than a list
     /// per stream: §2.2.2.1 acknowledges the earliest on a given stream, which a scan finds, and
     /// a table per stream would cost a bound per stream.
-    outstanding: [constants.outstanding_sections_max]Outstanding,
+    outstanding: [constants.limits.outstanding_sections_max]Outstanding,
     len: usize,
 
     pub fn init(state: *EncoderState, blocked_streams_max: u64) void {
@@ -93,7 +93,7 @@ pub const EncoderState = struct {
         if (required_insert_count == 0) return;
         // §2.1.2: the Required Insert Count is one more than the largest reference.
         assert(smallest_reference < required_insert_count);
-        if (state.len == constants.outstanding_sections_max) return Error.TooManyOutstanding;
+        if (state.len == constants.limits.outstanding_sections_max) return Error.TooManyOutstanding;
         state.outstanding[state.len] = .{
             .stream_id = stream_id,
             .required_insert_count = required_insert_count,
@@ -104,7 +104,7 @@ pub const EncoderState = struct {
 
     /// Whether another section with dynamic references can be recorded.
     pub fn has_room(state: *const EncoderState) bool {
-        return state.len < constants.outstanding_sections_max;
+        return state.len < constants.limits.outstanding_sections_max;
     }
 
     /// RFC 9204 §4.4.1's Section Acknowledgment, which §2.2.2.1 says acknowledges the earliest
@@ -346,14 +346,14 @@ test "§2.1.1: the smallest outstanding reference is the floor an eviction may n
 }
 
 test "colibri's own bound on outstanding sections fails closed" {
-    test_state.init(constants.outstanding_sections_max);
-    for (0..constants.outstanding_sections_max) |step| {
+    test_state.init(constants.limits.outstanding_sections_max);
+    for (0..constants.limits.outstanding_sections_max) |step| {
         try send(@intCast(step), 1);
     }
     // RFC 9204 bounds this at nothing, so the bound is colibri's: past it a section is refused
     // and the caller sends one that references no dynamic entry instead.
     try testing.expectError(Error.TooManyOutstanding, send(stream_a, 1));
-    try testing.expectEqual(constants.outstanding_sections_max, test_state.len);
+    try testing.expectEqual(constants.limits.outstanding_sections_max, test_state.len);
     // A section referencing nothing is still free, because it is not recorded at all.
     try send(stream_a, 0);
 }

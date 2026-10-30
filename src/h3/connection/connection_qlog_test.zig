@@ -60,9 +60,9 @@ test "a started connection logs its three streams, its SETTINGS frame and its se
     var expected: [256]u8 = undefined;
     try expect_record(&client_log, try std.fmt.bufPrint(&expected, "\"name\":\"http3:frame_created\",\"data\":{{\"stream_id\":2,\"frame\":" ++
         "{{\"frame_type\":\"settings\",\"settings\":[{{\"name\":\"settings_max_field_section_size\",\"value\":{d}}}," ++
-        "{{\"name\":\"reserved\",\"value\":0}}]", .{core.constants.field_section_size_max}));
+        "{{\"name\":\"reserved\",\"value\":0}}]", .{core.constants.limits.field_section_size_max}));
     try expect_record(&client_log, try std.fmt.bufPrint(&expected, "\"name\":\"http3:parameters_set\",\"data\":{{\"initiator\":\"local\"," ++
-        "\"max_field_section_size\":{d}}}}}", .{core.constants.field_section_size_max}));
+        "\"max_field_section_size\":{d}}}}}", .{core.constants.limits.field_section_size_max}));
     // The peer's three, its SETTINGS frame read, and its settings taken.
     try expect_record(&client_log, "\"data\":{\"initiator\":\"remote\",\"stream_id\":3,\"stream_type\":\"control\"}}");
     try expect_record(&client_log, "\"name\":\"http3:frame_parsed\",\"data\":{\"stream_id\":3,\"frame\":{\"frame_type\":\"settings\"");

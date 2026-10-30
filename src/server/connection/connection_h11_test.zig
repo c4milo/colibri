@@ -280,7 +280,7 @@ test "RFC 9112 §9.6: a cancel of another request leaves the connection open" {
 
 /// Field lines a response may carry, and one more. Test-only.
 var many_fields: [core_field_count_max]support.Field align(@alignOf(support.Field)) = @splat(.{ .name = "x-a", .value = "b" });
-const core_field_count_max = @import("core").constants.field_count_max;
+const core_field_count_max = @import("core").constants.limits.field_count_max;
 
 test "RFC 9110 §5.4: a response whose framing field makes one line too many is refused" {
     try support.start_cleartext(.h11);
@@ -290,7 +290,7 @@ test "RFC 9110 §5.4: a response whose framing field makes one line too many is 
 }
 
 /// Content that fills the output. Test-only.
-var filling: [support.server_constants.output_len]u8 = @splat('x');
+var filling: [support.server_constants.limits.output_len]u8 = @splat('x');
 
 test "RFC 9112 §7.1: content waits once the output holds no whole chunk, and ends once all is out" {
     try support.start_cleartext(.h11);
@@ -312,12 +312,12 @@ test "RFC 9112 §7.1: a response that ends with its head keeps room for its last
     const head = "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n";
     // Room for the head, but not for the head and the last chunk: nothing goes out.
     const short_room = head.len + 1;
-    connection.output_len = support.server_constants.output_len - short_room;
+    connection.output_len = support.server_constants.limits.output_len - short_room;
     const before = connection.output_len;
     try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .headers = &chunked, .end = true }));
     try testing.expectEqual(before, connection.output_len);
     // Room for less than the last chunk holds no response at all.
-    connection.output_len = support.server_constants.output_len - 1;
+    connection.output_len = support.server_constants.limits.output_len - 1;
     try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .headers = &chunked, .end = true }));
     connection.output_len = 0;
     try connection.respond(1, .{ .status = ok, .headers = &chunked, .end = true });
@@ -385,7 +385,7 @@ test "RFC 9110 §10.1.1: the 100 waits for room, and goes out once there is some
     try support.start_cleartext(.h11);
     _ = try expect_request(expecting_request, 1);
     const short_room: usize = 4;
-    connection.output_len = support.server_constants.output_len - short_room;
+    connection.output_len = support.server_constants.limits.output_len - short_room;
     try testing.expectEqual(0, (try connection.receive(&.{}, support.now_ns)).consumed);
     try testing.expectEqual(1, connection.continue_owed.?);
     connection.output_len = 0;
@@ -418,7 +418,7 @@ test "a response's section holds the lines complete wrote, whatever its array he
     };
     for ([_]bool{ false, true }, added) |end, line| {
         for (fills) |fill| {
-            var lines: [core.constants.field_count_max]support.Field = undefined;
+            var lines: [core.constants.limits.field_count_max]support.Field = undefined;
             @memset(std.mem.asBytes(&lines), fill);
             const section = try connection_h11.complete(connection, ok, &content_type, end, &lines);
             try testing.expectEqual(content_type.len + 1, section.len);

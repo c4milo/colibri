@@ -20,7 +20,7 @@ const Streams = table.Streams;
 /// Records the last stream identifier of a GOAWAY colibri sends: at least every peer stream it
 /// opened, and at most the one it sent before.
 pub fn record_goaway_sent(streams: *Streams, last_stream_id: u32) void {
-    assert(last_stream_id <= constants.stream_id_max);
+    assert(last_stream_id <= constants.protocol.stream_id_max);
     // RFC 9113 §8.7: a GOAWAY MUST include a stream identifier greater than or equal to that of
     // every stream whose frames reached the application, and colibri counts every stream it opened.
     assert(last_stream_id >= streams.highest_peer_opened_id);
@@ -37,7 +37,7 @@ pub fn record_goaway_sent(streams: *Streams, last_stream_id: u32) void {
 /// is the connection error of PROTOCOL_ERROR, and the value held stays as it was.
 pub fn record_goaway_received(streams: *Streams, last_stream_id: u32) error{LastStreamIdIncreased}!void {
     // The frame codec masks the reserved bit, so 31 bits hold the value.
-    assert(last_stream_id <= constants.stream_id_max);
+    assert(last_stream_id <= constants.protocol.stream_id_max);
     if (streams.goaway_received_last_id) |previous| {
         // RFC 9113 §6.8: endpoints MUST NOT increase the value they send in the last stream
         // identifier, so a larger one from the peer is a connection error of PROTOCOL_ERROR.
@@ -60,7 +60,7 @@ pub fn is_above_goaway_sent(streams: *const Streams, id: u32) bool {
 /// and never above the value of a GOAWAY colibri already sent.
 pub fn last_peer_stream_id(streams: *const Streams) u32 {
     const watermark = streams.pool.watermark[open.class_of(open.first_stream_id(streams.role.peer()))];
-    assert(watermark == null or watermark.? <= constants.stream_id_max);
+    assert(watermark == null or watermark.? <= constants.protocol.stream_id_max);
     const highest: u32 = @intCast(watermark orelse 0);
     assert(highest >= streams.highest_peer_opened_id);
     // RFC 9113 §6.8: endpoints MUST NOT increase the value they send in the last stream identifier.
@@ -82,8 +82,8 @@ const test_send_window: u32 = 1000;
 
 test "colibri's GOAWAY may repeat or lower its last stream identifier" {
     test_table.init(.server);
-    test_table.record_goaway_sent(constants.stream_id_max);
-    try testing.expectEqual(constants.stream_id_max, test_table.goaway_sent_last_id);
+    test_table.record_goaway_sent(constants.protocol.stream_id_max);
+    try testing.expectEqual(constants.protocol.stream_id_max, test_table.goaway_sent_last_id);
     test_table.record_goaway_sent(5);
     test_table.record_goaway_sent(5);
     try testing.expectEqual(5, test_table.goaway_sent_last_id);

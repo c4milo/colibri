@@ -49,7 +49,7 @@ pub const Refusal = enum {
             .parameter_unnamed => "a parameter has a name after its \":\"",
             .parameter_name_invalid => "a parameter name is 1*( ALPHA / DIGIT / \"_\" ), and a parameter is a whole segment",
             .parameter_repeated => "each parameter of a pattern has a name of its own",
-            .parameters_too_many => "a pattern holds server.constants.path_parameters_max parameters at most",
+            .parameters_too_many => "a pattern holds server.constants.limits.path_parameters_max parameters at most",
             .wildcard_not_last => "the wildcard \"*\" is the last segment of its pattern",
         };
     }
@@ -129,7 +129,7 @@ pub fn refusal_of(comptime pattern: []const u8) ?Refusal {
     // matches no route.
     if (pattern.len == 0 or pattern[0] != separator) return .pattern_not_absolute;
     if (std.mem.eql(u8, pattern, root)) return null;
-    var names: [constants.path_parameters_max][]const u8 = undefined;
+    var names: [constants.limits.path_parameters_max][]const u8 = undefined;
     var names_count: usize = 0;
     var segments = std.mem.splitScalar(u8, pattern[1..], separator);
     // Bounded: the pattern holds one segment for each "/", and the pass after the last one ends.
@@ -178,14 +178,14 @@ fn name_refusal(comptime name: []const u8) ?Refusal {
 }
 
 fn names_refusal(comptime names: []const []const u8, comptime name: []const u8) ?Refusal {
-    assert(names.len <= constants.path_parameters_max);
+    assert(names.len <= constants.limits.path_parameters_max);
     for (names) |held| {
         // Decision 122: `get` of the name would find two values.
         if (std.mem.eql(u8, held, name)) return .parameter_repeated;
     }
     // Decision 122 ruling 10: `path_parameters_max` sizes `PathParameters`, and the wildcard
     // fills one entry of it.
-    if (names.len == constants.path_parameters_max) return .parameters_too_many;
+    if (names.len == constants.limits.path_parameters_max) return .parameters_too_many;
     return null;
 }
 

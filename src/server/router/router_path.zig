@@ -34,7 +34,7 @@ comptime {
     assert(!router_pattern.path_octets[router_pattern.separator]);
     assert(!router_pattern.path_octets[query_start]);
     // A segment's end fits a u16.
-    assert(constants.path_len_max <= std.math.maxInt(u16));
+    assert(constants.limits.path_len_max <= std.math.maxInt(u16));
 }
 
 /// The path of a target and the segments that the walk reads: the end of each of the first
@@ -58,7 +58,7 @@ pub fn Segments(comptime capacity: usize) type {
 pub fn read(comptime capacity: usize, target: []const u8, segments: *Segments(capacity)) bool {
     segments.* = .{};
     // INV-8: `path_len_max` bounds the octets that one match reads.
-    if (target.len > constants.path_len_max) return false;
+    if (target.len > constants.limits.path_len_max) return false;
     // RFC 9110 §4.2.3: an empty path is "/". An h11 absolute-form target with an empty path
     // and a query gives the query alone (`Request.path`), so its path is the root.
     if (target.len > 0 and target[0] == query_start) return true;

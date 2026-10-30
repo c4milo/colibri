@@ -19,10 +19,10 @@ pub const Error = json.EncodeError || error{NoSpaceLeft};
 
 pub const Batch = struct {
     text: json.TextWriter,
-    items: [constants.batch_items_max]Item,
+    items: [constants.limits.batch_items_max]Item,
     len: usize,
     /// The copies of the gathered items' octets, `octets_len` of them.
-    octets: [constants.batch_octets_len]u8,
+    octets: [constants.limits.batch_octets_len]u8,
     octets_len: usize,
 
     pub fn init(output: []u8, framing: json.Framing, features: Features) Batch {
@@ -168,20 +168,20 @@ test "a batch writes what a call per token writes, across more items than one wr
     var output: [test_output_len]u8 = undefined;
     // Six tokens a member, and more copied octets than the buffer holds, so the batch writes in
     // several calls, when its items run out and when its buffer does.
-    const count = constants.batch_items_max;
-    comptime std.debug.assert(count * test_value.len > constants.batch_octets_len);
+    const count = constants.limits.batch_items_max;
+    comptime std.debug.assert(count * test_value.len > constants.limits.batch_octets_len);
     try testing.expectEqualStrings(try one_token_a_call(&expected_output, count), try batched(&output, count));
 }
 
 /// Adds a string this function formats on its own stack, which is gone once it returns.
 fn add_formatted(batch: *Batch, value: u32) !void {
-    var digits: [constants.tuple_id_len_max]u8 = undefined;
+    var digits: [constants.limits.tuple_id_len_max]u8 = undefined;
     try batch.string(std.fmt.bufPrint(&digits, "{d}", .{value}) catch unreachable);
 }
 
 /// Writes over the stack the last call left, so octets a batch pointed at would read wrong.
 fn scribble() u8 {
-    var junk: [constants.batch_octets_len]u8 = undefined;
+    var junk: [constants.limits.batch_octets_len]u8 = undefined;
     @memset(&junk, 'x');
     std.mem.doNotOptimizeAway(&junk);
     return junk[junk.len - 1];
@@ -200,7 +200,7 @@ test "octets that die when their writer returns are written as they were added" 
 test "octets longer than the buffer are written at once, after what came before" {
     var output: [test_output_len]u8 = undefined;
     var batch = Batch.init(&output, .sequence, Features.none());
-    const long: [constants.batch_octets_len + 1]u8 = @splat('a');
+    const long: [constants.limits.batch_octets_len + 1]u8 = @splat('a');
     try batch.begin_array();
     try batch.string("first");
     try batch.string(&long);

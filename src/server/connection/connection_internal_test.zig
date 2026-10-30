@@ -44,7 +44,7 @@ const Record = struct {
 /// kinds and then what it sends.
 fn feed(record: *Record, octets: []const u8) !void {
     var received = try support.receive_copy(octets);
-    for (0..h2.constants.concurrent_streams_max) |_| {
+    for (0..h2.constants.limits.concurrent_streams_max) |_| {
         const reported = received.event orelse break;
         try record.add(&.{@intFromEnum(reported)});
         received = try connection.receive(&.{}, support.now_ns);
@@ -64,7 +64,7 @@ fn ping(writer: *h2.core.Writer) anyerror!void {
 }
 
 fn reset_stream(writer: *h2.core.Writer) anyerror!void {
-    try h2.frame.write_rst_stream(writer, stream_reset, h2.constants.error_cancel);
+    try h2.frame.write_rst_stream(writer, stream_reset, h2.constants.protocol.error_cancel);
 }
 
 /// One h2 exchange over the connection: requests answered with a body and with a trailer

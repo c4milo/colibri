@@ -21,7 +21,7 @@ test "RFC 9000 §17.2: a long header whose Reserved Bits are set once opened is 
     fixture.start(writer.written().len);
     // A reserved bit of the long header that the short header does not reserve, so a check that
     // read the wrong form's mask would pass it.
-    fixture.opener.revealed_bits = constants.long_reserved_bits & ~constants.short_reserved_bits;
+    fixture.opener.revealed_bits = constants.protocol.long_reserved_bits & ~constants.protocol.short_reserved_bits;
     try testing.expectError(
         receive.Error.ReservedBitsSet,
         receive.next(&fixture.walk, &fixture.test_connection, fixture.opener.suite()),
@@ -44,7 +44,7 @@ test "RFC 9000 §17.3.1: a short header whose Reserved Bits are set once opened 
     try writer.write_bytes(&fixture.test_payload);
     fixture.start(writer.written().len);
     // A reserved bit of the short header that the long header does not reserve.
-    fixture.opener.revealed_bits = constants.short_reserved_bits & ~constants.long_reserved_bits;
+    fixture.opener.revealed_bits = constants.protocol.short_reserved_bits & ~constants.protocol.long_reserved_bits;
     try testing.expectError(
         receive.Error.ReservedBitsSet,
         receive.next(&fixture.walk, &fixture.test_connection, fixture.opener.suite()),

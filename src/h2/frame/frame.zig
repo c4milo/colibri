@@ -61,16 +61,16 @@ pub const write_altsvc = frame_altsvc.write_altsvc;
 /// The ten frame types RFC 9113 §6 defines. Non-exhaustive: any other Type octet is an unknown
 /// type, which a receiver ignores and discards (§4.1, §5.5) after consuming its octets.
 pub const Type = enum(u8) {
-    data = constants.frame_type_data,
-    headers = constants.frame_type_headers,
-    priority = constants.frame_type_priority,
-    rst_stream = constants.frame_type_rst_stream,
-    settings = constants.frame_type_settings,
-    push_promise = constants.frame_type_push_promise,
-    ping = constants.frame_type_ping,
-    goaway = constants.frame_type_goaway,
-    window_update = constants.frame_type_window_update,
-    continuation = constants.frame_type_continuation,
+    data = constants.protocol.frame_type_data,
+    headers = constants.protocol.frame_type_headers,
+    priority = constants.protocol.frame_type_priority,
+    rst_stream = constants.protocol.frame_type_rst_stream,
+    settings = constants.protocol.frame_type_settings,
+    push_promise = constants.protocol.frame_type_push_promise,
+    ping = constants.protocol.frame_type_ping,
+    goaway = constants.protocol.frame_type_goaway,
+    window_update = constants.protocol.frame_type_window_update,
+    continuation = constants.protocol.frame_type_continuation,
     _,
 };
 
@@ -102,8 +102,8 @@ pub const ParseError = frame_data.Error || frame_headers.Error || frame_control.
 /// exactly `header.length` octets, at most `frame_size_max` of them (§4.2).
 pub fn parse(header: Header, payload: []const u8) ParseError!Payload {
     assert(payload.len == header.length);
-    assert(header.length <= constants.frame_size_max);
-    assert(header.stream_id <= constants.stream_id_max);
+    assert(header.length <= constants.limits.frame_size_max);
+    assert(header.stream_id <= constants.protocol.stream_id_max);
     const frame_type: Type = @enumFromInt(header.type);
     return switch (frame_type) {
         .data => .{ .data = try frame_data.parse(header, payload) },
@@ -141,22 +141,22 @@ fn stream_error(code: u32) Verdict {
 /// `stream_id`. The only stream errors are a PRIORITY frame of the wrong length (§6.3) and a
 /// zero WINDOW_UPDATE increment on a stream (§6.9); every other parse error ends the connection.
 pub fn verdict(failure: ParseError, frame_type: Type, stream_id: u32) Verdict {
-    assert(stream_id <= constants.stream_id_max);
+    assert(stream_id <= constants.protocol.stream_id_max);
     return switch (failure) {
         // RFC 9113 §6.1, §6.2, §6.3, §6.4, §6.6, §6.10: a frame that must name a stream and
         // names 0 is a connection error of PROTOCOL_ERROR.
-        error.StreamIdZero => connection_error(constants.error_protocol_error),
+        error.StreamIdZero => connection_error(constants.protocol.error_protocol_error),
         // RFC 9113 §6.5, §6.7, §6.8: a frame that must be on stream 0 and is not is a connection
         // error of PROTOCOL_ERROR.
-        error.StreamIdNotZero => connection_error(constants.error_protocol_error),
+        error.StreamIdNotZero => connection_error(constants.protocol.error_protocol_error),
         // RFC 9113 §6.1, §6.2, §6.6: padding of the payload length or greater is a connection
         // error of PROTOCOL_ERROR.
-        error.PaddingTooLong => connection_error(constants.error_protocol_error),
+        error.PaddingTooLong => connection_error(constants.protocol.error_protocol_error),
         // RFC 9113 §6.6: a promise of an illegal stream identifier (§5.1.1) is a connection error
         // of PROTOCOL_ERROR.
-        error.PromisedStreamIdInvalid => connection_error(constants.error_protocol_error),
+        error.PromisedStreamIdInvalid => connection_error(constants.protocol.error_protocol_error),
         // RFC 9113 §6.5: a SETTINGS ACK with a payload is a connection error of FRAME_SIZE_ERROR.
-        error.AckNotEmpty => connection_error(constants.error_frame_size_error),
+        error.AckNotEmpty => connection_error(constants.protocol.error_frame_size_error),
         // RFC 9113 §6.3: a PRIORITY frame of a length other than 5 is a stream error of
         // FRAME_SIZE_ERROR, the one size error that is not a connection error. §4.2: a size
         // error in HEADERS, PUSH_PROMISE, CONTINUATION, SETTINGS or any frame on stream 0, and
@@ -172,16 +172,16 @@ pub fn verdict(failure: ParseError, frame_type: Type, stream_id: u32) Verdict {
 }
 
 fn length_verdict(frame_type: Type, stream_id: u32) Verdict {
-    if (frame_type != .priority) return connection_error(constants.error_frame_size_error);
+    if (frame_type != .priority) return connection_error(constants.protocol.error_frame_size_error);
     // parse_priority refuses stream 0 before it reads the length, so a stream error has a stream.
-    assert(stream_id != constants.connection_stream_id);
-    return stream_error(constants.error_frame_size_error);
+    assert(stream_id != constants.protocol.connection_stream_id);
+    return stream_error(constants.protocol.error_frame_size_error);
 }
 
 fn increment_verdict(frame_type: Type, stream_id: u32) Verdict {
     assert(frame_type == .window_update);
-    if (stream_id == constants.connection_stream_id) return connection_error(constants.error_protocol_error);
-    return stream_error(constants.error_protocol_error);
+    if (stream_id == constants.protocol.connection_stream_id) return connection_error(constants.protocol.error_protocol_error);
+    return stream_error(constants.protocol.error_protocol_error);
 }
 
 const testing = std.testing;
@@ -197,10 +197,10 @@ fn fuzz_frame(_: void, smith: *testing.Smith) anyerror!void {
     var reader = core.Reader.init(octets);
     const header = read_header(&reader) catch return;
     const rest = reader.take_rest();
-    if (rest.len != header.length or header.length > constants.frame_size_max) return;
+    if (rest.len != header.length or header.length > constants.limits.frame_size_max) return;
     const payload = parse(header, rest) catch |failure| {
         const outcome = verdict(failure, @enumFromInt(header.type), header.stream_id);
-        try testing.expect(outcome.code == constants.error_protocol_error or outcome.code == constants.error_frame_size_error);
+        try testing.expect(outcome.code == constants.protocol.error_protocol_error or outcome.code == constants.protocol.error_frame_size_error);
         return;
     };
     switch (payload) {
@@ -249,8 +249,8 @@ test "an unknown type is returned with its type octet and every payload octet (R
 
 test "parse returns each parser's error unchanged" {
     try testing.expectError(error.StreamIdZero, parse(header_of(0, 1, 0, 0), "a"));
-    try testing.expectError(error.LengthInvalid, parse(header_of(0, 0, constants.flag_padded, 1), ""));
-    try testing.expectError(error.PaddingTooLong, parse(header_of(1, 4, constants.flag_padded, 1), "\x04\xaa\xaa\xaa"));
+    try testing.expectError(error.LengthInvalid, parse(header_of(0, 0, constants.protocol.flag_padded, 1), ""));
+    try testing.expectError(error.PaddingTooLong, parse(header_of(1, 4, constants.protocol.flag_padded, 1), "\x04\xaa\xaa\xaa"));
     try testing.expectError(error.LengthInvalid, parse(header_of(2, 4, 0, 1), "\x00\x00\x00\x01"));
     try testing.expectError(error.StreamIdNotZero, parse(header_of(4, 0, 0, 1), ""));
     try testing.expectError(error.AckNotEmpty, parse(header_of(4, 6, 1, 0), "\x00\x01\x00\x00\x00\x01"));
@@ -259,7 +259,7 @@ test "parse returns each parser's error unchanged" {
 }
 
 test "verdict maps every PROTOCOL_ERROR rule to a connection error of PROTOCOL_ERROR" {
-    const protocol_error: Verdict = .{ .kind = .connection, .code = constants.error_protocol_error };
+    const protocol_error: Verdict = .{ .kind = .connection, .code = constants.protocol.error_protocol_error };
     try testing.expectEqual(protocol_error, verdict(error.StreamIdZero, .data, 0));
     try testing.expectEqual(protocol_error, verdict(error.StreamIdNotZero, .ping, 1));
     try testing.expectEqual(protocol_error, verdict(error.PaddingTooLong, .headers, 1));
@@ -268,8 +268,8 @@ test "verdict maps every PROTOCOL_ERROR rule to a connection error of PROTOCOL_E
 }
 
 test "verdict makes a PRIORITY length error the one stream-level FRAME_SIZE_ERROR (RFC 9113 §6.3)" {
-    const connection_size: Verdict = .{ .kind = .connection, .code = constants.error_frame_size_error };
-    try testing.expectEqual(Verdict{ .kind = .stream, .code = constants.error_frame_size_error }, verdict(error.LengthInvalid, .priority, 1));
+    const connection_size: Verdict = .{ .kind = .connection, .code = constants.protocol.error_frame_size_error };
+    try testing.expectEqual(Verdict{ .kind = .stream, .code = constants.protocol.error_frame_size_error }, verdict(error.LengthInvalid, .priority, 1));
     try testing.expectEqual(connection_size, verdict(error.LengthInvalid, .data, 1));
     try testing.expectEqual(connection_size, verdict(error.LengthInvalid, .rst_stream, 1));
     try testing.expectEqual(connection_size, verdict(error.LengthInvalid, .headers, 1));
@@ -280,8 +280,8 @@ test "verdict makes a PRIORITY length error the one stream-level FRAME_SIZE_ERRO
 }
 
 test "verdict makes a zero increment a stream error on a stream and a connection error on stream 0 (RFC 9113 §6.9)" {
-    try testing.expectEqual(Verdict{ .kind = .stream, .code = constants.error_protocol_error }, verdict(error.WindowIncrementZero, .window_update, 1));
-    try testing.expectEqual(Verdict{ .kind = .connection, .code = constants.error_protocol_error }, verdict(error.WindowIncrementZero, .window_update, 0));
+    try testing.expectEqual(Verdict{ .kind = .stream, .code = constants.protocol.error_protocol_error }, verdict(error.WindowIncrementZero, .window_update, 1));
+    try testing.expectEqual(Verdict{ .kind = .connection, .code = constants.protocol.error_protocol_error }, verdict(error.WindowIncrementZero, .window_update, 0));
 }
 
 test {

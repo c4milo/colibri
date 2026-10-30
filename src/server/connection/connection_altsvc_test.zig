@@ -17,7 +17,7 @@ const max_age_seconds: u32 = 60;
 const alternative: support.Alternative = .{ .port = h3_port, .max_age_seconds = max_age_seconds };
 
 /// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4).
-const client_preface = h2.constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
+const client_preface = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 /// HEADERS frames on streams 1 and 3, each ending its stream, whose block is the static table's
 /// `:method: GET` (2), `:scheme: https` (7) and `:path: /` (4), each an indexed field line (RFC
 /// 7541 §6.1, Appendix A).
@@ -39,13 +39,13 @@ fn walk(frames: []const u8, into: []Found) ![]const Found {
     // Bounded: each pass moves past a frame's header at least.
     for (0..frames.len) |_| {
         if (offset == frames.len) break;
-        if (frames.len - offset < h2.constants.frame_header_len or count == into.len) return error.TestUnexpectedResult;
+        if (frames.len - offset < h2.constants.protocol.frame_header_len or count == into.len) return error.TestUnexpectedResult;
         const rest = frames[offset..];
         const payload_len = std.mem.readInt(u24, rest[0..length_len], .big);
         const stream_id = std.mem.readInt(u32, rest[stream_index..][0..@sizeOf(u32)], .big);
         into[count] = .{ .offset = offset, .type = rest[type_index], .stream_id = stream_id };
         count += 1;
-        offset += h2.constants.frame_header_len + payload_len;
+        offset += h2.constants.protocol.frame_header_len + payload_len;
     }
     return into[0..count];
 }
@@ -102,21 +102,21 @@ test "RFC 7838 §3, §4: an h2 connection over TLS sends one ALTSVC frame, befor
     var found_storage: [frames_max]Found = undefined;
     const sent = try support.open_sent();
     const found = try walk(sent, &found_storage);
-    try testing.expectEqual(1, count_of(found, h2.constants.frame_type_altsvc));
+    try testing.expectEqual(1, count_of(found, h2.constants.protocol.frame_type_altsvc));
     // The interim HEADERS, the ALTSVC frame and the final HEADERS, in that order, on stream 1.
-    const at = index_of(found, h2.constants.frame_type_altsvc).?;
+    const at = index_of(found, h2.constants.protocol.frame_type_altsvc).?;
     try testing.expect(at > 0 and at + 1 < found.len);
-    try testing.expectEqual(h2.constants.frame_type_headers, found[at - 1].type);
-    try testing.expectEqual(h2.constants.frame_type_headers, found[at + 1].type);
+    try testing.expectEqual(h2.constants.protocol.frame_type_headers, found[at - 1].type);
+    try testing.expectEqual(h2.constants.protocol.frame_type_headers, found[at + 1].type);
     for (found[at - 1 .. at + 2]) |entry| try testing.expectEqual(1, entry.stream_id);
     // RFC 7838 §4: no Origin on a request's stream, then the field value.
-    const payload = sent[found[at].offset + h2.constants.frame_header_len .. found[at + 1].offset];
+    const payload = sent[found[at].offset + h2.constants.protocol.frame_header_len .. found[at + 1].offset];
     try testing.expectEqualStrings("\x00\x00h3=\":8443\"; ma=60", payload);
     // RFC 7838 §3: "A single ALTSVC frame can be sent for a connection".
     try support.expect_done(1);
     try testing.expectEqual(3, (try support.receive_sealed(get_stream_3)).event.?.request.id.number);
     try connection.respond(3, .{ .status = ok, .end = true });
-    try testing.expectEqual(0, count_of(try walk(try support.open_sent(), &found_storage), h2.constants.frame_type_altsvc));
+    try testing.expectEqual(0, count_of(try walk(try support.open_sent(), &found_storage), h2.constants.protocol.frame_type_altsvc));
 }
 
 test "RFC 9114 §3.1.2: an h2 connection in cleartext, or one naming no alternative, sends no ALTSVC" {
@@ -126,9 +126,9 @@ test "RFC 9114 §3.1.2: an h2 connection in cleartext, or one naming no alternat
     _ = try support.receive_copy(client_preface ++ get_stream_1);
     try connection.respond(1, .{ .status = ok, .end = true });
     var found_storage: [frames_max]Found = undefined;
-    try testing.expectEqual(0, count_of(try walk(support.drain(), &found_storage), h2.constants.frame_type_altsvc));
+    try testing.expectEqual(0, count_of(try walk(support.drain(), &found_storage), h2.constants.protocol.frame_type_altsvc));
     try support.start_tls(&support.protocols_both, &support.protocols_h2);
     _ = try support.receive_sealed(client_preface ++ get_stream_1);
     try connection.respond(1, .{ .status = ok, .end = true });
-    try testing.expectEqual(0, count_of(try walk(try support.open_sent(), &found_storage), h2.constants.frame_type_altsvc));
+    try testing.expectEqual(0, count_of(try walk(try support.open_sent(), &found_storage), h2.constants.protocol.frame_type_altsvc));
 }

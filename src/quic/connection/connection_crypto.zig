@@ -189,7 +189,7 @@ pub const Lost = struct {
 /// dropping the records before they can be reported here.
 pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Record) Lost {
     var held: Lost = .{};
-    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    // Bounded by the slice the caller placed, which `constants.limits.sent_packets_max` sizes.
     for (lost) |record| {
         if (record.carries != .crypto) continue;
         held.packets += 1;

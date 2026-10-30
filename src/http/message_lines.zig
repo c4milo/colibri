@@ -116,7 +116,7 @@ pub const Seen = struct {
 /// Checks every line of `section`, as a message of `kind`, and records what the rules of the kind
 /// read afterwards.
 pub fn walk(section: *const FieldSection, kind: Kind) Error!Seen {
-    assert(section.len() <= core.constants.field_count_max);
+    assert(section.len() <= core.constants.limits.field_count_max);
     var seen: Seen = .{};
     for (0..section.len()) |index| try check_pseudo_header(&seen, kind, section.get(@intCast(index)));
     for (0..section.len()) |index| try check_line(kind, section.get(@intCast(index)));
@@ -191,7 +191,7 @@ fn check_line(kind: Kind, line: Field) Error!void {
 /// A regular field name (RFC 9113 §8.2.1, RFC 9114 §4.2 and §10.3).
 pub fn check_name(name: []const u8) Error!void {
     assert(!is_pseudo_header(name));
-    assert(name.len <= core.constants.field_name_len_max);
+    assert(name.len <= core.constants.limits.field_name_len_max);
     // RFC 9113 §8.2.1 and RFC 9114 §10.3 refer a recipient to RFC 9110 §5.1, and a token holds at
     // least one tchar (RFC 9110 §5.6.2).
     if (name.len == 0) return error.FieldNameInvalid;
@@ -218,7 +218,7 @@ const lowercase_token_octets: [std.math.maxInt(u8) + 1]bool = build: {
 /// A field value on any line (RFC 9113 §8.2.1, RFC 9114 §10.3). The two reasons are separate
 /// because only the first is a rule RFC 9114 states; see this file's header.
 pub fn check_value(value: []const u8) Error!void {
-    assert(value.len <= core.constants.field_value_len_max);
+    assert(value.len <= core.constants.limits.field_value_len_max);
     field.validate_value(value) catch |reason| switch (reason) {
         // RFC 9113 §8.2.1: a field value must not contain NUL, LF or CR at any position.
         // RFC 9114 §10.3: a value holding a character RFC 9110 §5.5 does not permit is malformed.
@@ -383,7 +383,7 @@ test "check_name gives the reference's verdict with every octet at every positio
 }
 
 test "check_name gives the reference's verdict with every octet at every position of the longest name" {
-    var name: [core.constants.field_name_len_max]u8 = @splat('a');
+    var name: [core.constants.limits.field_name_len_max]u8 = @splat('a');
     for (0..name.len) |position| {
         for (0..octet_values) |octet| {
             name[position] = @intCast(octet);

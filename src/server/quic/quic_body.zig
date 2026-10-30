@@ -42,7 +42,7 @@ const Body = struct {
 
 pub const Bodies = struct {
     /// One entry for each request record, at the record's index.
-    entries: [constants.quic_requests_max]Body,
+    entries: [constants.limits.quic_requests_max]Body,
     /// The bodies the connection waits for, and the meter of their octets together.
     waiting: u32,
     together: rate.Meter,
@@ -179,7 +179,7 @@ fn end_request(connection: *QuicConnection, index: usize, passed: Timeout) void 
     } else {
         // RFC 9114 §4.1.1: a server that abandons a response it began "SHOULD abort its response
         // stream with the error code H3_REQUEST_CANCELLED".
-        connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
+        connection.h3.cancel(&connection.transport, stream_id, h3.constants.protocol.error_request_cancelled);
     }
     record.over = true;
     quic_coding.give_back(connection, record);

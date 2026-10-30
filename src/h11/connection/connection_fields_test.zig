@@ -71,7 +71,7 @@ const reference = struct {
         if (!close_after or fields_ask_close(fields)) {
             return message_reference.write_response_head(output, status, reason, fields);
         }
-        var with_close: [core.constants.field_count_max]Field = undefined;
+        var with_close: [core.constants.limits.field_count_max]Field = undefined;
         // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
         if (fields.len >= with_close.len) return error.TooManyFields;
         @memcpy(with_close[0..fields.len], fields);
@@ -92,7 +92,7 @@ const reference = struct {
         if (message_reference.find(fields, "Transfer-Encoding") != null) return .{ .kind = .chunked };
         const value = message_reference.find(fields, "Content-Length") orelse return .{ .kind = otherwise };
         // RFC 9110 §8.6: Content-Length = 1*DIGIT, and colibri counts a length a u64 holds.
-        const octets = std.fmt.parseUnsigned(u64, value, http.constants.content_length_radix) catch return error.FramingInvalid;
+        const octets = std.fmt.parseUnsigned(u64, value, http.constants.protocol.content_length_radix) catch return error.FramingInvalid;
         return .{ .kind = if (octets == 0) .none else .fixed, .remaining = octets };
     }
 
@@ -178,7 +178,7 @@ test "every final response of up to two lines, and of three from the connection'
 }
 
 /// A section as long as `with_close` holds, and one line shorter, each with a fault.
-var test_many: [core.constants.field_count_max]Field align(@alignOf(Field)) = undefined;
+var test_many: [core.constants.limits.field_count_max]Field align(@alignOf(Field)) = undefined;
 
 test "a section too long for the close option is refused as the scans refused it, whatever its faults" {
     for ([_]Field{ atom.plain, atom.content_length_letter, atom.name_invalid }) |fault| {

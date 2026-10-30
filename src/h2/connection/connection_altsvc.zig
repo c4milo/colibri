@@ -22,11 +22,11 @@ const Writer = core.Writer;
 pub fn on_unknown(target: *const Connection, header: frame.Header, payload: []const u8) ?connection.Event {
     assert(payload.len == header.length);
     // RFC 9113 §4.1 and §5.5: a frame of an unknown type is discarded, whatever it carries.
-    if (header.type != constants.frame_type_altsvc) return null;
+    if (header.type != constants.protocol.frame_type_altsvc) return null;
     // RFC 7838 §4: "A device acting as a server MUST ignore it."
     if (target.role == .server) return null;
     const read = frame.parse_altsvc(header, payload) orelse return null;
-    if (header.stream_id == constants.connection_stream_id) {
+    if (header.stream_id == constants.protocol.connection_stream_id) {
         // RFC 7838 §4: "An ALTSVC frame on stream 0 with empty (length 0) "Origin" information is
         // invalid and MUST be ignored."
         if (read.origin.len == 0) return null;
@@ -44,7 +44,7 @@ pub fn on_unknown(target: *const Connection, header: frame.Header, payload: []co
 /// `open_local` has passed it.
 fn opened_by_client(target: *const Connection, id: u32) bool {
     assert(target.role == .client);
-    const client_parity = id % constants.stream_id_step == constants.stream_id_client_first % constants.stream_id_step;
+    const client_parity = id % constants.protocol.stream_id_step == constants.protocol.stream_id_client_first % constants.protocol.stream_id_step;
     return client_parity and id < target.streams.next_local_id;
 }
 
@@ -53,9 +53,9 @@ fn opened_by_client(target: *const Connection, id: u32) bool {
 /// a stream it has not ended.
 pub fn write_alt_svc(target: *Connection, output: []u8, stream_id: u32, value: []const u8) connection_send.Error!usize {
     assert(target.role == .server);
-    assert(stream_id != constants.connection_stream_id);
+    assert(stream_id != constants.protocol.connection_stream_id);
     // RFC 9113 §4.2 and §6.5.2: no peer's SETTINGS_MAX_FRAME_SIZE is below `max_frame_size_min`.
-    assert(constants.altsvc_origin_len_len + value.len <= constants.max_frame_size_min);
+    assert(constants.protocol.altsvc_origin_len_len + value.len <= constants.protocol.max_frame_size_min);
     const found = target.streams.lookup(stream_id);
     // RFC 7838 §4 ties the frame to the origin of the stream's request, so it goes on a stream the
     // table holds, before colibri's END_STREAM: open or half-closed (remote) (RFC 9113 §5.1).
@@ -89,60 +89,60 @@ fn feed_altsvc(stream_id: u32, origin: []const u8) !?connection.Event {
 /// A client that has read the server's preface and opened its first `opened` streams. Test-only.
 fn start_client(opened: u32) !void {
     try support.start_client();
-    test_connection.streams.next_local_id = constants.stream_id_client_first + opened * constants.stream_id_step;
+    test_connection.streams.next_local_id = constants.protocol.stream_id_client_first + opened * constants.protocol.stream_id_step;
 }
 
 test "RFC 7838 §4: a client reports an ALTSVC frame with no Origin on a stream it opened" {
     try start_client(1);
-    const event = (try feed_altsvc(constants.stream_id_client_first, "")).?;
-    try testing.expectEqual(constants.stream_id_client_first, event.alt_svc.stream_id);
+    const event = (try feed_altsvc(constants.protocol.stream_id_client_first, "")).?;
+    try testing.expectEqual(constants.protocol.stream_id_client_first, event.alt_svc.stream_id);
     try testing.expectEqualStrings("", event.alt_svc.origin);
     try testing.expectEqualStrings(test_value, event.alt_svc.value);
 }
 
 test "RFC 7838 §4: a client reports one on stream 0 with an Origin, and ignores one without" {
     try start_client(0);
-    const named = (try feed_altsvc(constants.connection_stream_id, "https://example.org")).?;
+    const named = (try feed_altsvc(constants.protocol.connection_stream_id, "https://example.org")).?;
     try testing.expectEqualStrings("https://example.org", named.alt_svc.origin);
-    try testing.expectEqual(null, try feed_altsvc(constants.connection_stream_id, ""));
+    try testing.expectEqual(null, try feed_altsvc(constants.protocol.connection_stream_id, ""));
 }
 
 test "RFC 7838 §4: an Origin on a request stream, or a stream the client never opened, is ignored" {
     try start_client(1);
-    try testing.expectEqual(null, try feed_altsvc(constants.stream_id_client_first, "https://example.org"));
-    try testing.expectEqual(null, try feed_altsvc(constants.stream_id_client_first + constants.stream_id_step, ""));
+    try testing.expectEqual(null, try feed_altsvc(constants.protocol.stream_id_client_first, "https://example.org"));
+    try testing.expectEqual(null, try feed_altsvc(constants.protocol.stream_id_client_first + constants.protocol.stream_id_step, ""));
     // A server's parity: the client opened no such stream.
-    try testing.expectEqual(null, try feed_altsvc(constants.stream_id_server_first, ""));
+    try testing.expectEqual(null, try feed_altsvc(constants.protocol.stream_id_server_first, ""));
     try testing.expect(!test_connection.has_failed());
 }
 
 test "RFC 7838 §4: a server ignores an ALTSVC frame, and a client discards every other unknown type" {
     try support.start_server();
-    try testing.expectEqual(null, try feed_altsvc(constants.connection_stream_id, "https://example.org"));
+    try testing.expectEqual(null, try feed_altsvc(constants.protocol.connection_stream_id, "https://example.org"));
     try start_client(0);
-    const other = try support.frame_bytes(test_input, constants.frame_type_altsvc + 1, 0, 0, "\x00\x01a");
+    const other = try support.frame_bytes(test_input, constants.protocol.frame_type_altsvc + 1, 0, 0, "\x00\x01a");
     try testing.expectEqual(null, try support.feed(other));
     try testing.expect(!test_connection.has_failed());
 }
 
 test "RFC 7838 §4: a server writes ALTSVC with no Origin on a request's stream until it ends it" {
     try support.start_server();
-    _ = try support.feed_request(constants.stream_id_client_first, "/", true);
-    const written = try write_alt_svc(test_connection, test_output, constants.stream_id_client_first, test_value);
+    _ = try support.feed_request(constants.protocol.stream_id_client_first, "/", true);
+    const written = try write_alt_svc(test_connection, test_output, constants.protocol.stream_id_client_first, test_value);
     var reader = core.Reader.init(test_output[0..written]);
     const header = try frame.read_header(&reader);
-    try testing.expectEqual(constants.frame_type_altsvc, header.type);
-    try testing.expectEqual(constants.stream_id_client_first, header.stream_id);
+    try testing.expectEqual(constants.protocol.frame_type_altsvc, header.type);
+    try testing.expectEqual(constants.protocol.stream_id_client_first, header.stream_id);
     const read = frame.parse_altsvc(header, reader.take_rest()).?;
     try testing.expectEqualStrings("", read.origin);
     try testing.expectEqualStrings(test_value, read.value);
     // A stream the client has not opened, and one whose response ended, carry none.
-    const idle = constants.stream_id_client_first + constants.stream_id_step;
+    const idle = constants.protocol.stream_id_client_first + constants.protocol.stream_id_step;
     try testing.expectError(error.StreamNotSendable, write_alt_svc(test_connection, test_output, idle, test_value));
-    _ = try test_connection.write_response(test_output, constants.stream_id_client_first, 200, &.{}, true);
-    try testing.expectError(error.StreamNotSendable, write_alt_svc(test_connection, test_output, constants.stream_id_client_first, test_value));
+    _ = try test_connection.write_response(test_output, constants.protocol.stream_id_client_first, 200, &.{}, true);
+    try testing.expectError(error.StreamNotSendable, write_alt_svc(test_connection, test_output, constants.protocol.stream_id_client_first, test_value));
     // An output that cannot hold the frame is refused.
     _ = try support.feed_request(idle, "/", false);
-    var small: [constants.frame_header_len]u8 = undefined;
+    var small: [constants.protocol.frame_header_len]u8 = undefined;
     try testing.expectError(error.OutputTooSmall, write_alt_svc(test_connection, &small, idle, test_value));
 }

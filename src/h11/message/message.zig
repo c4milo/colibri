@@ -110,7 +110,7 @@ fn read_head(scanner: *Scanner, role: Role, input: []const u8) Error!?struct { [
     } orelse return null;
     scanner.reset();
     assert(span.start < span.end and span.end <= input.len);
-    assert(span.end <= constants.head_len_max);
+    assert(span.end <= constants.limits.head_len_max);
     var reader = Reader.init(input);
     _ = reader.take(span.start) catch unreachable;
     const head = reader.take(span.end - span.start) catch unreachable;

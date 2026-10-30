@@ -166,7 +166,7 @@ test "RFC 9114 §4.1: a server that stops reading a request asks the client to s
     var storage: [frame_len_max]u8 = undefined;
     const id = try open_short_of_head(try get_frame(&storage));
     try testing.expectEqual(null, try server_reads(first_ns));
-    stop_reading(&server.h3, &server.transport, id, constants.error_no_error);
+    stop_reading(&server.h3, &server.transport, id, constants.protocol.error_no_error);
     // The stream waits for no head any more.
     try testing.expectEqual(null, oldest_head_wait(&server.h3));
     try harness.respond(id, &harness.ok_lines, "");
@@ -179,5 +179,5 @@ test "RFC 9114 §4.1: a server that stops reading a request asks the client to s
     var read: [frame_len_max]u8 = undefined;
     const arrived = try quic.connection_stream_read.peek(&client.transport, stream_id, &read);
     try testing.expect(arrived.len > 0 and arrived.fin);
-    try testing.expectEqual(constants.frame_headers, read[0]);
+    try testing.expectEqual(constants.protocol.frame_headers, read[0]);
 }

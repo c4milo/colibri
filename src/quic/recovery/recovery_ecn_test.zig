@@ -134,7 +134,7 @@ fn send_marked(count: u64, now_ns: u64) !void {
 
 test "decision 69: the test ends after ten marked packets, and the path marks again once one is acknowledged" {
     test_path.init();
-    try send_marked(constants.ecn_testing_packets, test_start_ns);
+    try send_marked(constants.policy.ecn_testing_packets, test_start_ns);
     // RFC 9000 Appendix A.4: past the test the path is unknown, which sends unmarked packets.
     try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
     try testing.expectEqual(recovery_ecn.PathState.unknown, test_path.state);
@@ -152,7 +152,7 @@ test "decision 69: the test ends three PTOs after the first marked packet" {
     // No marked packet has gone out, so no period has started, however late the first one is.
     try testing.expect(test_path.marks(test_start_ns, test_probe_timeout_ns));
     try send_marked(1, test_start_ns);
-    const end_ns = test_start_ns + constants.ecn_testing_probe_timeouts * test_probe_timeout_ns;
+    const end_ns = test_start_ns + constants.policy.ecn_testing_probe_timeouts * test_probe_timeout_ns;
     try testing.expect(test_path.marks(end_ns - 1, test_probe_timeout_ns));
     try testing.expect(!test_path.marks(end_ns, test_probe_timeout_ns));
 }
@@ -163,7 +163,7 @@ test "decision 69: a marked packet acknowledged during the test makes the path c
     test_path.on_passed(1);
     // Still testing: Appendix A.4 makes a path capable from unknown, which comes after the test.
     try testing.expectEqual(recovery_ecn.PathState.testing, test_path.state);
-    try send_marked(constants.ecn_testing_packets - 1, test_start_ns);
+    try send_marked(constants.policy.ecn_testing_packets - 1, test_start_ns);
     try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
     test_path.on_passed(0);
     try testing.expect(test_path.marks(test_start_ns, test_probe_timeout_ns));
@@ -171,7 +171,7 @@ test "decision 69: a marked packet acknowledged during the test makes the path c
 
 test "RFC 9000 §13.4.2.2: a failed path never marks again" {
     test_path.init();
-    try send_marked(constants.ecn_testing_packets, test_start_ns);
+    try send_marked(constants.policy.ecn_testing_packets, test_start_ns);
     try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
     test_path.on_passed(1);
     try testing.expect(test_path.marks(test_start_ns, test_probe_timeout_ns));

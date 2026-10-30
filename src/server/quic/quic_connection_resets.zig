@@ -20,7 +20,7 @@ pub fn count_peer_reset(connection: *QuicConnection) bool {
     const now_ns = connection.last_ns;
     assert(now_ns >= connection.peer_reset_period_start_ns);
     assert(connection.config.peer_resets_max > 0);
-    if (now_ns - connection.peer_reset_period_start_ns >= constants.quic_peer_reset_rate_period_ns) {
+    if (now_ns - connection.peer_reset_period_start_ns >= constants.policy.quic_peer_reset_rate_period_ns) {
         connection.peer_reset_period_start_ns = now_ns;
         connection.peer_resets = 0;
     }
@@ -42,7 +42,7 @@ pub fn count_reset_sent(connection: *QuicConnection) bool {
     const now_ns = connection.last_ns;
     assert(now_ns >= connection.resets_sent_period_start_ns);
     assert(connection.config.resets_sent_max > 0);
-    if (now_ns - connection.resets_sent_period_start_ns >= constants.quic_resets_sent_period_ns) {
+    if (now_ns - connection.resets_sent_period_start_ns >= constants.policy.quic_resets_sent_period_ns) {
         connection.resets_sent_period_start_ns = now_ns;
         connection.resets_sent = 0;
     }
@@ -59,7 +59,7 @@ pub fn count_reset_sent(connection: *QuicConnection) bool {
 /// the use of features that cost it work and set limits on it, and "MAY treat activity that is
 /// suspicious as a connection error of type H3_EXCESSIVE_LOAD".
 fn close_for_load(connection: *QuicConnection) void {
-    const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
+    const failed = connection.h3.fail(&connection.transport, h3.constants.protocol.error_excessive_load);
     assert(failed == error.ConnectionFailed);
     internal.fail(connection);
 }

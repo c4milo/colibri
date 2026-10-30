@@ -502,8 +502,8 @@ Three more things a server sets:
   §3.1.2).
 - **Bounds.** The configuration's `limits` holds the bounds of each connection, named by what they
   bound: `requests_max`, the requests a connection holds at once, up to
-  `server.constants.quic_requests_max` request streams over QUIC, and `data_frame_len_min`, the
-  shortest DATA frame h2 sends when a window, not the content, decides its length
+  `server.constants.limits.quic_requests_max` request streams over QUIC, and `data_frame_len_min`,
+  the shortest DATA frame h2 sends when a window, not the content, decides its length
   ([decision 110](decisions.md)). Two more bound resets in one second, 100 each by default:
   `peer_resets_max`, the requests a client may cancel, and `resets_sent_max`, the streams the
   server may reset because the client broke them. One more ends the connection, and its
@@ -540,7 +540,7 @@ The method of a route is an enum literal, one of RFC 9110 §9.1's eight methods,
 another method, such as `"PATCH"`. CONNECT does not compile, because a CONNECT request has no path
 (RFC 9110 §9.3.6, decision 19). Each segment of a pattern is a literal, a parameter such as
 `:name`, or the wildcard `*` as the last segment. A pattern holds
-`server.constants.path_parameters_max` parameters at most, the wildcard included.
+`server.constants.limits.path_parameters_max` parameters at most, the wildcard included.
 
 A route's function takes five parameters, in this order: the program's context, the request, the
 path's parameters, the query, and the response's writer. The path's parameters are `void`, or a
@@ -563,8 +563,8 @@ fn greet_named(
 
 A field of the query's struct is `[]const u8`, `?[]const u8`, or a field with a default value. A
 query that lacks a `[]const u8` field with no default gets 400, and a query with more pairs than
-`http.constants.query_parameters_max` gets 414, with no call. A function runs at the request's
-head and reads no body. The router ends a response the function leaves open.
+`http.constants.limits.query_parameters_max` gets 414, with no call. A function runs at the
+request's head and reads no body. The router ends a response the function leaves open.
 
 A route can be a struct instead, with `on_request` and any of `on_body`, `on_writable` and
 `on_finished`, and a `State` that the request's pool entry holds. `on_request` takes a `*State`
@@ -656,7 +656,7 @@ a request itself calls `match`, with the request's method and path. Its `found` 
   `/files/*` does not match `/files/a/`.
 - **Paths that match nothing:** a path with an octet outside `pchar` and "%", a path with an empty
   segment that is not its last, such as `/a//b`, a path with a "." or ".." segment, encoded or
-  not, such as `/a/%2E%2E`, and a path longer than `server.constants.path_len_max` bytes, its
+  not, such as `/a/%2E%2E`, and a path longer than `server.constants.limits.path_len_max` bytes, its
   query included.
 
 ### Middleware
@@ -738,9 +738,9 @@ null (decision 127). `http.QueryParameters` reads its `name=value` pairs, as the
 Standard's `application/x-www-form-urlencoded` parser does: it splits on "&" and on the first "=",
 skips empty pieces, reads "+" as a space, and percent-decodes. `read` writes the decoded names and
 values into a buffer the program gives, and refuses a query of more than
-`http.constants.query_parameters_max` pairs, 32, or of more bytes than the buffer holds. `get`
-returns the first value of a name. The router reads a route's query this way before it fills the
-route's struct, and a route that names `http.QueryParameters` gets the pairs to read by name.
+`http.constants.limits.query_parameters_max` pairs, 32, or of more bytes than the buffer holds.
+`get` returns the first value of a name. The router reads a route's query this way before it fills
+the route's struct, and a route that names `http.QueryParameters` gets the pairs to read by name.
 
 A malformed route table, or a route table with a conflict, does not compile, and the compile error names the
 entry and the rule. Two conflicts concern routes that other routes hide:
@@ -749,8 +749,8 @@ entry and the rule. Two conflicts concern routes that other routes hide:
   `GET /a/:x/*`, each path of two segments matches `/a/:x` first, and each longer path matches
   `/a/:x/*` first.
 - **`methods_too_many`:** the routes of a route table name more than
-  `server.constants.route_methods_max` methods, 10. A 405's Allow value is written at compile time
-  for each set of the table's methods, and 10 methods need 1,024 of them.
+  `server.constants.limits.route_methods_max` methods, 10. A 405's Allow value is written at compile
+  time for each set of the table's methods, and 10 methods need 1,024 of them.
 
 The check runs at compile time and adds no cost to `match`. The largest route table that the tests build holds 256 routes, each a pattern
 of four segments and 64 octets.
@@ -880,7 +880,7 @@ The pool takes one `client.Config` ([decision 120](decisions.md)):
   h11. With h11 off, that connection closes, as one whose handshake failed does (RFC 9113 §3.3).
 - `authority`, the content codings and their decoder pools are given once, for both transports.
 - `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it. Its default
-  is `client.constants.fallback_delay_ns_default`, 250 ms.
+  is `client.constants.policy.fallback_delay_ns_default`, 250 ms.
 - `ecn` and `idle_timeout_ms` are for QUIC connections alone.
 
 `init` also takes the receive pool, where the pool's QUIC connection holds the server's unread octets:
@@ -1224,9 +1224,9 @@ and the exchange ends `refused`.
 
 A connection can also close before any of a response arrives. The pool then sends an
 idempotent request again on another connection (RFC 9110 §9.2.2): GET, HEAD, OPTIONS, TRACE, PUT
-and DELETE. A refusal and a close share one budget, `client.constants.moves_max`, so a request goes
-out twice at most. A request with any other method ends `closed`, and the program decides
-whether to send it again.
+and DELETE. A refusal and a close share one budget, `client.constants.limits.moves_max`, so a
+request goes out twice at most. A request with any other method ends `closed`, and the program
+decides whether to send it again.
 
 `deadline_ns` names the instant the pool next needs `on_instant`: the end of the fallback
 delay, or QUIC's next timer. Both sides sleep until the sooner of their deadlines when nothing

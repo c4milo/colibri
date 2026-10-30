@@ -140,7 +140,7 @@ test "decision 127: a header after the body, past the limit, or past the memory 
     try testing.expectError(error.SectionOutOfOrder, response.header("a", "b"));
     fixture = .{};
     response = fixture.start();
-    for (0..constants.response_headers_max) |_| try response.header("a", "b");
+    for (0..constants.limits.response_headers_max) |_| try response.header("a", "b");
     try testing.expectError(error.SectionTooLarge, response.header("a", "b"));
     fixture = .{};
     response = fixture.start();
@@ -254,6 +254,6 @@ test "decision 127: more runs than response_pieces_max wait refused" {
     var fixture: Fixture = .{};
     const response = fixture.start();
     fixture.recorder.room = 0;
-    for (0..constants.response_pieces_max) |_| try response.write_kept("a");
+    for (0..constants.limits.response_pieces_max) |_| try response.write_kept("a");
     try testing.expectError(error.Full, response.write_kept("a"));
 }

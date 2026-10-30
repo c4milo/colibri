@@ -142,9 +142,9 @@ pub const Connection = struct {
     caller_provider: StreamProvider,
     /// Where a frame is copied out of `quic` before it is read (decision 80), and where a field
     /// section is encoded before its frame header goes in front of it.
-    scratch: [constants.scratch_len]u8,
+    scratch: [constants.limits.scratch_len]u8,
     /// The strings a decoded field section's Huffman coded lines decode into.
-    strings: [core.constants.field_section_size_max]u8,
+    strings: [core.constants.limits.field_section_size_max]u8,
     /// The last field section `receive` decoded.
     section: FieldSection,
     /// The instant of the call in progress, which each call that writes or reads a frame takes
@@ -306,10 +306,10 @@ pub const Connection = struct {
     /// a reserved code instead (§8.1).
     pub fn no_error_code(connection: *Connection) u64 {
         connection.no_error_count += 1;
-        if (connection.no_error_count % constants.grease_error_one_in != 0) return constants.error_no_error;
-        const n = (connection.options.grease +% connection.no_error_count) % constants.grease_range;
-        const code = constants.reserved_base + constants.reserved_step * n;
-        assert(constants.is_reserved(code));
+        if (connection.no_error_count % constants.policy.grease_error_one_in != 0) return constants.protocol.error_no_error;
+        const n = (connection.options.grease +% connection.no_error_count) % constants.protocol.grease_range;
+        const code = constants.protocol.reserved_base + constants.protocol.reserved_step * n;
+        assert(constants.protocol.is_reserved(code));
         return code;
     }
 };

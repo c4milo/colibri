@@ -44,8 +44,8 @@ const tables = struct {
     pub const table_empty = .{};
     pub const entry_shape = .{ valid, .{ .get, "/a" } };
     pub const route_repeated = .{ .{ .get, "/a", route }, .{ .get, "/a", route } };
-    /// A token one octet longer than `core.constants.field_value_len_max`.
-    pub const allow_too_long = .{ valid, .{ "A" ** (http.core.constants.field_value_len_max + 1), "/a", route } };
+    /// A token one octet longer than `core.constants.limits.field_value_len_max`.
+    pub const allow_too_long = .{ valid, .{ "A" ** (http.core.constants.limits.field_value_len_max + 1), "/a", route } };
     /// Eleven methods: RFC 9110's seven that a route may name, and four tokens. The eleventh is one
     /// past `route_methods_max` (decision 128 ruling 3).
     pub const methods_too_many = .{

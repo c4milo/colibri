@@ -73,7 +73,7 @@ pub fn connection_error_code(connection: *const Connection, failure: Error) ?u64
 /// is protected. The caller places it (decision 35).
 pub fn Scratch(comptime capacity: usize) type {
     return struct {
-        header: [constants.packet_header_len_max]u8 = undefined,
+        header: [constants.limits.packet_header_len_max]u8 = undefined,
         payloads: [core.levels_count][capacity]u8 = undefined,
 
         pub const payload_len_max: usize = capacity;
@@ -82,7 +82,7 @@ pub fn Scratch(comptime capacity: usize) type {
 
 /// The scratch a caller gets by asking for no size in particular: RFC 9000 §14.1's smallest
 /// allowed maximum datagram size, which decision 54 makes the default.
-pub const DefaultScratch = Scratch(constants.datagram_len_min);
+pub const DefaultScratch = Scratch(constants.protocol.datagram_len_min);
 
 /// One packet of the datagram, as the caller reports it to RFC 9002's recovery.
 pub const Packet = struct {
@@ -128,7 +128,7 @@ pub const Sent = struct {
 /// send". A probe never repeats a stream range still in flight (invariant 29); at a handshake
 /// level the second probe repeats the first one's CRYPTO octets (decision 64 as amended).
 pub fn owe_probes(connection: *Connection, level: Level, count: u8) void {
-    assert(count > 0 and count <= constants.probe_packets);
+    assert(count > 0 and count <= constants.recovery.probe_packets);
     const owed = &connection.probes_owed[@intFromEnum(level)];
     owed.* = @max(owed.*, count);
 }
@@ -267,7 +267,7 @@ fn room_at(connection: *const Connection, level: Level, window_len: u64, room: u
     // limit on how often it answers is the caller's to keep.
     if (connection_close.owes(connection)) return .{ .len = room };
     const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
-    // `constants.sent_packets_max`: a space whose table is full waits for an acknowledgment, and
+    // `constants.limits.sent_packets_max`: a space whose table is full waits for an acknowledgment, and
     // RFC 9002 Appendix A.1 tracks every ack-eliciting packet, so none goes until one arrives.
     if (connection.recovery.tables[@intFromEnum(kind)].is_full()) return null;
     if (in_flight_len_allowed(connection, level, window_len, room)) |len| return .{ .len = len };
@@ -376,7 +376,7 @@ fn note_challenge_sent(connection: *Connection, plans: []const packet_build.Plan
 fn challenge_timeout_ns(connection: *const Connection) u64 {
     const rtt = &connection.recovery.rtt;
     const larger_ns = @max(rtt.probe_timeout_ns(true), rtt.new_path_probe_timeout_ns());
-    return constants.path_probe_timeouts *| larger_ns;
+    return constants.policy.path_probe_timeouts *| larger_ns;
 }
 
 /// RFC 9000 §10.2: "After sending a CONNECTION_CLOSE frame, an endpoint immediately enters the
@@ -399,7 +399,7 @@ fn note_close_sent(connection: *Connection, plans: []const packet_build.Planned,
 fn packet_len_of(connection: *Connection, planned: packet_build.Planned) usize {
     _ = connection;
     const header_len = planned.shape.header_len + packet_build.widening_len(planned);
-    return header_len + planned.payload_len + planned.padding_len + constants.aead_tag_len;
+    return header_len + planned.payload_len + planned.padding_len + constants.protocol.aead_tag_len;
 }
 
 /// What bounds a datagram besides the caller's buffer, in the order the file header names them.
@@ -419,7 +419,7 @@ fn packet_len_of(connection: *Connection, planned: packet_build.Planned) usize {
 fn datagram_ceiling(connection: *const Connection) usize {
     // RFC 9000 §14.2: no datagram above the maximum datagram size, which no discovery has raised.
     const maximum = connection.recovery.congestion.max_datagram_len;
-    assert(maximum == constants.datagram_len_min);
+    assert(maximum == constants.protocol.datagram_len_min);
     // §21.1.1.1 exempts a client, whose allowance `Path` answers as unlimited (invariant 18).
     return @intCast(@min(maximum, connection.path.send_allowance()));
 }

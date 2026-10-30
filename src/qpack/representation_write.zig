@@ -27,9 +27,9 @@ pub fn write(writer: *Writer, held: Representation) Error!void {
     switch (held) {
         .indexed => |line| try write_indexed(&cursor, line),
         .indexed_post_base => |line| try prefixed_integer.encode(
-            constants.indexed_post_base_prefix_bits,
+            constants.protocol.indexed_post_base_prefix_bits,
             &cursor,
-            constants.indexed_post_base_pattern,
+            constants.protocol.indexed_post_base_pattern,
             line.index,
         ),
         .literal_name_reference => |line| try write_literal_name_reference(&cursor, line),
@@ -41,34 +41,34 @@ pub fn write(writer: *Writer, held: Representation) Error!void {
 
 /// RFC 9204 §4.5.2: `1T` and the index.
 fn write_indexed(cursor: *Writer, line: Representation.Indexed) Error!void {
-    const high = constants.indexed_pattern | static_flag(line.table, constants.indexed_static_flag);
-    try prefixed_integer.encode(constants.indexed_prefix_bits, cursor, high, line.index);
+    const high = constants.protocol.indexed_pattern | static_flag(line.table, constants.protocol.indexed_static_flag);
+    try prefixed_integer.encode(constants.protocol.indexed_prefix_bits, cursor, high, line.index);
 }
 
 /// RFC 9204 §4.5.4: `01NT`, the name index, then the value as an 8-bit prefix string literal.
 fn write_literal_name_reference(cursor: *Writer, line: Representation.LiteralNameReference) Error!void {
-    var high = constants.literal_name_reference_pattern;
-    if (line.never_indexed) high |= constants.literal_name_reference_never_flag;
-    high |= static_flag(line.table, constants.literal_name_reference_static_flag);
-    try prefixed_integer.encode(constants.literal_name_reference_prefix_bits, cursor, high, line.name_index);
-    try string_literal.encode(constants.value_prefix_bits, cursor, 0, line.value, line.value_coding);
+    var high = constants.protocol.literal_name_reference_pattern;
+    if (line.never_indexed) high |= constants.protocol.literal_name_reference_never_flag;
+    high |= static_flag(line.table, constants.protocol.literal_name_reference_static_flag);
+    try prefixed_integer.encode(constants.protocol.literal_name_reference_prefix_bits, cursor, high, line.name_index);
+    try string_literal.encode(constants.protocol.value_prefix_bits, cursor, 0, line.value, line.value_coding);
 }
 
 /// RFC 9204 §4.5.5: `0000N`, the post-Base name index, then the value.
 fn write_literal_post_base(cursor: *Writer, line: Representation.LiteralPostBaseNameReference) Error!void {
-    var high = constants.literal_post_base_pattern;
-    if (line.never_indexed) high |= constants.literal_post_base_never_flag;
-    try prefixed_integer.encode(constants.literal_post_base_prefix_bits, cursor, high, line.name_index);
-    try string_literal.encode(constants.value_prefix_bits, cursor, 0, line.value, line.value_coding);
+    var high = constants.protocol.literal_post_base_pattern;
+    if (line.never_indexed) high |= constants.protocol.literal_post_base_never_flag;
+    try prefixed_integer.encode(constants.protocol.literal_post_base_prefix_bits, cursor, high, line.name_index);
+    try string_literal.encode(constants.protocol.value_prefix_bits, cursor, 0, line.value, line.value_coding);
 }
 
 /// RFC 9204 §4.5.6: `001N`, the name as a 4-bit prefix string literal, then the value as an
 /// 8-bit one.
 fn write_literal(cursor: *Writer, line: Representation.Literal) Error!void {
-    var high = constants.literal_pattern;
-    if (line.never_indexed) high |= constants.literal_never_flag;
-    try string_literal.encode(constants.literal_name_prefix_bits, cursor, high, line.name, line.name_coding);
-    try string_literal.encode(constants.value_prefix_bits, cursor, 0, line.value, line.value_coding);
+    var high = constants.protocol.literal_pattern;
+    if (line.never_indexed) high |= constants.protocol.literal_never_flag;
+    try string_literal.encode(constants.protocol.literal_name_prefix_bits, cursor, high, line.name, line.name_coding);
+    try string_literal.encode(constants.protocol.value_prefix_bits, cursor, 0, line.value, line.value_coding);
 }
 
 /// RFC 9204 §4.5.2's `T` bit, which is set for the static table.

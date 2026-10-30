@@ -37,33 +37,33 @@ pub const Crypto = struct {
 
 /// Reads a STREAM frame whose type has been consumed. `frame_type` carries the three flags.
 pub fn read_stream(reader: *Reader, frame_type: u64) frame.Error!Stream {
-    assert(frame_type >= constants.frame_stream_first and frame_type <= constants.frame_stream_last);
+    assert(frame_type >= constants.protocol.frame_stream_first and frame_type <= constants.protocol.frame_stream_last);
     const stream_id = try frame.read_varint(reader);
     // RFC 9000 §19.8: the OFF bit says an Offset field is present, and its absence means 0.
-    const offset = if (frame_type & constants.stream_flag_off != 0) try frame.read_varint(reader) else 0;
+    const offset = if (frame_type & constants.protocol.stream_flag_off != 0) try frame.read_varint(reader) else 0;
     // RFC 9000 §19.8: the LEN bit says a Length field is present; without one the data extends
     // to the end of the packet, so this frame is the packet's last.
-    const has_length = frame_type & constants.stream_flag_len != 0;
+    const has_length = frame_type & constants.protocol.stream_flag_len != 0;
     const data = if (has_length) try read_sized(reader) else reader.take_rest();
     // RFC 9000 §19.8: the largest offset delivered, the sum of the offset and the data length,
     // cannot exceed 2^62-1.
-    if (offset > constants.stream_offset_max - data.len) return error.StreamOffsetTooLarge;
+    if (offset > constants.protocol.stream_offset_max - data.len) return error.StreamOffsetTooLarge;
     return .{
         .stream_id = stream_id,
         .offset = offset,
         .data = data,
-        .fin = frame_type & constants.stream_flag_fin != 0,
+        .fin = frame_type & constants.protocol.stream_flag_fin != 0,
         .has_length = has_length,
     };
 }
 
 pub fn write_stream(writer: *Writer, stream: Stream) core.writer.Error!void {
-    assert(stream.offset <= constants.stream_offset_max - stream.data.len);
-    var frame_type = constants.frame_stream_first;
+    assert(stream.offset <= constants.protocol.stream_offset_max - stream.data.len);
+    var frame_type = constants.protocol.frame_stream_first;
     // RFC 9000 §19.8: an offset of 0 needs no Offset field, and the flags say what is present.
-    if (stream.offset != 0) frame_type |= constants.stream_flag_off;
-    if (stream.has_length) frame_type |= constants.stream_flag_len;
-    if (stream.fin) frame_type |= constants.stream_flag_fin;
+    if (stream.offset != 0) frame_type |= constants.protocol.stream_flag_off;
+    if (stream.has_length) frame_type |= constants.protocol.stream_flag_len;
+    if (stream.fin) frame_type |= constants.protocol.stream_flag_fin;
     try frame.write_type(writer, frame_type);
     try wire.varint.encode(writer, stream.stream_id);
     if (stream.offset != 0) try wire.varint.encode(writer, stream.offset);
@@ -95,12 +95,12 @@ const stream_type_len: usize = 1;
 
 /// Writes the header `stream_header_len` measured, with its Length field set.
 pub fn write_stream_header(writer: *Writer, header: StreamHeader) core.writer.Error!void {
-    assert(header.offset <= constants.stream_offset_max - header.data_len);
+    assert(header.offset <= constants.protocol.stream_offset_max - header.data_len);
     // RFC 9000 §19.8: an offset of 0 needs no Offset field, and a Length field is always present
     // here so that PADDING may follow the frame.
-    var frame_type = constants.frame_stream_first | constants.stream_flag_len;
-    if (header.offset != 0) frame_type |= constants.stream_flag_off;
-    if (header.fin) frame_type |= constants.stream_flag_fin;
+    var frame_type = constants.protocol.frame_stream_first | constants.protocol.stream_flag_len;
+    if (header.offset != 0) frame_type |= constants.protocol.stream_flag_off;
+    if (header.fin) frame_type |= constants.protocol.stream_flag_fin;
     try frame.write_type(writer, frame_type);
     try wire.varint.encode(writer, header.stream_id);
     if (header.offset != 0) try wire.varint.encode(writer, header.offset);
@@ -113,13 +113,13 @@ pub fn read_crypto(reader: *Reader) frame.Error!Crypto {
     const data = try read_sized(reader);
     // RFC 9000 §19.6: the sum of the offset and the length cannot exceed 2^62-1, which §19.8
     // states for a stream and which the crypto stream shares.
-    if (offset > constants.stream_offset_max - data.len) return error.StreamOffsetTooLarge;
+    if (offset > constants.protocol.stream_offset_max - data.len) return error.StreamOffsetTooLarge;
     return .{ .offset = offset, .data = data };
 }
 
 pub fn write_crypto(writer: *Writer, crypto: Crypto) core.writer.Error!void {
-    assert(crypto.offset <= constants.stream_offset_max - crypto.data.len);
-    try frame.write_type(writer, constants.frame_crypto);
+    assert(crypto.offset <= constants.protocol.stream_offset_max - crypto.data.len);
+    try frame.write_type(writer, constants.protocol.frame_crypto);
     try wire.varint.encode(writer, crypto.offset);
     try wire.varint.encode(writer, crypto.data.len);
     try writer.write_bytes(crypto.data);
@@ -136,7 +136,7 @@ pub fn read_token(reader: *Reader) frame.Error![]const u8 {
 
 pub fn write_token(writer: *Writer, token: []const u8) core.writer.Error!void {
     assert(token.len > 0);
-    try frame.write_type(writer, constants.frame_new_token);
+    try frame.write_type(writer, constants.protocol.frame_new_token);
     try wire.varint.encode(writer, token.len);
     try writer.write_bytes(token);
 }
@@ -156,7 +156,7 @@ pub fn read_padding(reader: *Reader) usize {
     // The octets present bound the run.
     for (0..reader.remaining_len()) |_| {
         const next = reader.peek_byte() catch return len;
-        if (next != constants.frame_padding) return len;
+        if (next != constants.protocol.frame_padding) return len;
         _ = reader.read_byte() catch unreachable;
         len += 1;
     }
@@ -166,5 +166,5 @@ pub fn read_padding(reader: *Reader) usize {
 pub fn write_padding(writer: *Writer, len: usize) core.writer.Error!void {
     assert(len > 0);
     if (len > writer.remaining_len()) return error.NoSpaceLeft;
-    for (0..len) |_| try writer.write_byte(@intCast(constants.frame_padding));
+    for (0..len) |_| try writer.write_byte(@intCast(constants.protocol.frame_padding));
 }

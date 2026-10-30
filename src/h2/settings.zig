@@ -46,22 +46,22 @@ pub const Values = struct {
 /// The initial values of RFC 9113 §6.5.2: what each endpoint holds for its peer before any
 /// SETTINGS frame arrives.
 pub const initial: Values = .{
-    .header_table_size = constants.header_table_size_initial,
-    .enable_push = constants.enable_push_initial,
+    .header_table_size = constants.protocol.header_table_size_initial,
+    .enable_push = constants.protocol.enable_push_initial,
     .max_concurrent_streams = null,
-    .initial_window_size = constants.initial_window_size_initial,
-    .max_frame_size = constants.max_frame_size_initial,
+    .initial_window_size = constants.protocol.initial_window_size_initial,
+    .max_frame_size = constants.protocol.max_frame_size_initial,
     .max_header_list_size = null,
 };
 
 /// True when every value is one `apply` would accept: the positive space of its checks, and the
 /// contract every `Values` colibri holds or sends must meet.
 fn is_well_formed(values: Values) bool {
-    const push_legal = values.enable_push == constants.enable_push_disabled or
-        values.enable_push == constants.enable_push_enabled;
-    return push_legal and values.initial_window_size <= constants.window_max and
-        values.max_frame_size >= constants.max_frame_size_min and
-        values.max_frame_size <= constants.max_frame_size_max;
+    const push_legal = values.enable_push == constants.protocol.enable_push_disabled or
+        values.enable_push == constants.protocol.enable_push_enabled;
+    return push_legal and values.initial_window_size <= constants.protocol.window_max and
+        values.max_frame_size >= constants.protocol.max_frame_size_min and
+        values.max_frame_size <= constants.protocol.max_frame_size_max;
 }
 
 /// The values colibri sends in its preface (RFC 9113 §3.4), the same for both roles: ENABLE_PUSH 0
@@ -69,18 +69,18 @@ fn is_well_formed(values: Values) bool {
 /// advertised, so both are bounded (design §6.1).
 pub fn advertised(role: Role) Values {
     const values: Values = .{
-        .header_table_size = constants.header_table_size_advertised,
-        .enable_push = constants.enable_push_disabled,
-        .max_concurrent_streams = constants.concurrent_streams_max,
-        .initial_window_size = constants.window_initial,
-        .max_frame_size = constants.frame_size_max,
-        .max_header_list_size = constants.header_list_size_max,
+        .header_table_size = constants.policy.header_table_size_advertised,
+        .enable_push = constants.protocol.enable_push_disabled,
+        .max_concurrent_streams = constants.limits.concurrent_streams_max,
+        .initial_window_size = constants.policy.window_initial,
+        .max_frame_size = constants.limits.frame_size_max,
+        .max_header_list_size = constants.limits.header_list_size_max,
     };
     // RFC 9113 §6.5.2: a server MUST NOT explicitly set ENABLE_PUSH to 1.
-    assert(role == .client or values.enable_push != constants.enable_push_enabled);
+    assert(role == .client or values.enable_push != constants.protocol.enable_push_enabled);
     // Decision 17: a client sends 0, because the initial value is 1 and sending nothing leaves
     // push enabled.
-    assert(role == .server or values.enable_push == constants.enable_push_disabled);
+    assert(role == .server or values.enable_push == constants.protocol.enable_push_disabled);
     assert(is_well_formed(values));
     return values;
 }
@@ -88,30 +88,30 @@ pub fn advertised(role: Role) Values {
 /// The (identifier, value) pairs `values` puts in a SETTINGS frame, in identifier order, written
 /// into `buffer`. A server omits ENABLE_PUSH (RFC 9113 §6.5.2 lets it; decision 17), and a value
 /// of null is omitted because the peer already holds the unlimited initial value (§6.5.2).
-pub fn entries(values: Values, role: Role, buffer: *[constants.settings_count]Setting) []Setting {
+pub fn entries(values: Values, role: Role, buffer: *[constants.protocol.settings_count]Setting) []Setting {
     // RFC 9113 §6.5.2: a server MUST NOT explicitly set ENABLE_PUSH to 1, and a client sends 0
     // (decision 17), so both roles list 0. A contract point: the values are colibri's own, never
     // the peer's.
-    assert(values.enable_push == constants.enable_push_disabled and is_well_formed(values));
+    assert(values.enable_push == constants.protocol.enable_push_disabled and is_well_formed(values));
     var count: u32 = 0;
-    append(buffer, &count, constants.setting_header_table_size, values.header_table_size);
+    append(buffer, &count, constants.protocol.setting_header_table_size, values.header_table_size);
     // RFC 9113 §6.5.2: a server MAY omit ENABLE_PUSH; colibri's server always does (decision 17).
-    if (role == .client) append(buffer, &count, constants.setting_enable_push, values.enable_push);
+    if (role == .client) append(buffer, &count, constants.protocol.setting_enable_push, values.enable_push);
     if (values.max_concurrent_streams) |value| {
-        append(buffer, &count, constants.setting_max_concurrent_streams, value);
+        append(buffer, &count, constants.protocol.setting_max_concurrent_streams, value);
     }
-    append(buffer, &count, constants.setting_initial_window_size, values.initial_window_size);
-    append(buffer, &count, constants.setting_max_frame_size, values.max_frame_size);
+    append(buffer, &count, constants.protocol.setting_initial_window_size, values.initial_window_size);
+    append(buffer, &count, constants.protocol.setting_max_frame_size, values.max_frame_size);
     if (values.max_header_list_size) |value| {
-        append(buffer, &count, constants.setting_max_header_list_size, value);
+        append(buffer, &count, constants.protocol.setting_max_header_list_size, value);
     }
-    assert(count <= constants.settings_count);
+    assert(count <= constants.protocol.settings_count);
     return buffer[0..count];
 }
 
 /// Writes one pair at `count` and advances it. Identifiers are written in ascending order.
-fn append(buffer: *[constants.settings_count]Setting, count: *u32, id: u16, value: u32) void {
-    assert(count.* < constants.settings_count);
+fn append(buffer: *[constants.protocol.settings_count]Setting, count: *u32, id: u16, value: u32) void {
+    assert(count.* < constants.protocol.settings_count);
     assert(count.* == 0 or buffer[count.* - 1].id < id);
     buffer[count.*] = .{ .id = id, .value = value };
     count.* += 1;
@@ -153,19 +153,19 @@ pub fn apply(values: *Values, id: u16, value: u32, role: Role) ApplyError!?Chang
     assert(is_well_formed(values.*));
     defer assert(is_well_formed(values.*));
     switch (id) {
-        constants.setting_header_table_size => {
+        constants.protocol.setting_header_table_size => {
             values.header_table_size = value;
             return .{ .header_table_size = value };
         },
-        constants.setting_enable_push => return apply_enable_push(values, value, role),
-        constants.setting_max_concurrent_streams => {
+        constants.protocol.setting_enable_push => return apply_enable_push(values, value, role),
+        constants.protocol.setting_max_concurrent_streams => {
             // RFC 9113 §6.5.2: 0 SHOULD NOT be treated as special, so it is held like any value.
             values.max_concurrent_streams = value;
             return .other;
         },
-        constants.setting_initial_window_size => return apply_initial_window_size(values, value),
-        constants.setting_max_frame_size => return apply_max_frame_size(values, value),
-        constants.setting_max_header_list_size => {
+        constants.protocol.setting_initial_window_size => return apply_initial_window_size(values, value),
+        constants.protocol.setting_max_frame_size => return apply_max_frame_size(values, value),
+        constants.protocol.setting_max_header_list_size => {
             // RFC 9113 §6.5.2: advisory, so no value is refused.
             values.max_header_list_size = value;
             return .other;
@@ -176,13 +176,13 @@ pub fn apply(values: *Values, id: u16, value: u32, role: Role) ApplyError!?Chang
 }
 
 fn apply_enable_push(values: *Values, value: u32, role: Role) ApplyError!?Change {
-    const legal = value == constants.enable_push_disabled or value == constants.enable_push_enabled;
+    const legal = value == constants.protocol.enable_push_disabled or value == constants.protocol.enable_push_enabled;
     // RFC 9113 §6.5.2: any value other than 0 or 1 MUST be treated as a connection error of
     // PROTOCOL_ERROR.
     if (!legal) return error.EnablePushInvalid;
     // RFC 9113 §6.5.2: a client MUST treat receipt of ENABLE_PUSH set to 1 as a connection error
     // of PROTOCOL_ERROR, because a server MUST NOT set it.
-    if (role == .client and value == constants.enable_push_enabled) return error.EnablePushByServer;
+    if (role == .client and value == constants.protocol.enable_push_enabled) return error.EnablePushByServer;
     values.enable_push = value;
     return .other;
 }
@@ -190,14 +190,14 @@ fn apply_enable_push(values: *Values, value: u32, role: Role) ApplyError!?Change
 fn apply_initial_window_size(values: *Values, value: u32) ApplyError!?Change {
     // RFC 9113 §6.5.2: values above the maximum flow-control window size of 2^31-1 MUST be
     // treated as a connection error of FLOW_CONTROL_ERROR.
-    if (value > constants.window_max) return error.InitialWindowSizeTooLarge;
+    if (value > constants.protocol.window_max) return error.InitialWindowSizeTooLarge;
     const old = values.initial_window_size;
     values.initial_window_size = value;
     return .{ .initial_window_size = .{ .old = old, .new = value } };
 }
 
 fn apply_max_frame_size(values: *Values, value: u32) ApplyError!?Change {
-    const in_range = value >= constants.max_frame_size_min and value <= constants.max_frame_size_max;
+    const in_range = value >= constants.protocol.max_frame_size_min and value <= constants.protocol.max_frame_size_max;
     // RFC 9113 §6.5.2: the value MUST be between the initial value (2^14) and the maximum allowed
     // frame size (2^24-1), inclusive; a value outside that range is a connection error of
     // PROTOCOL_ERROR.
@@ -216,7 +216,7 @@ pub const Sent = struct {
 /// acknowledges the oldest (RFC 9113 §6.5.3), so this is a queue, held in a ring of
 /// `settings_pending_max` slots inside a struct the caller owns (decision 35).
 pub const Pending = struct {
-    ring: [constants.settings_pending_max]Sent,
+    ring: [constants.limits.settings_pending_max]Sent,
     /// The oldest frame's slot; the newest is `count - 1` slots after it, wrapping.
     first: u32,
     count: u32,
@@ -231,21 +231,21 @@ pub const Pending = struct {
 
     /// Frames sent and not yet acknowledged.
     pub fn len(pending: *const Pending) u32 {
-        assert(pending.count <= constants.settings_pending_max);
+        assert(pending.count <= constants.limits.settings_pending_max);
         return pending.count;
     }
 
     /// Records a frame carrying `values`, sent at `now_ns`, as the newest. Instants do not go
     /// backwards, and stay far enough from the end of the range that the deadline is computable.
     pub fn push(pending: *Pending, values: Values, now_ns: u64) error{TooManyPending}!void {
-        assert(pending.count <= constants.settings_pending_max and is_well_formed(values));
-        assert(now_ns <= std.math.maxInt(u64) - constants.settings_timeout_ns);
+        assert(pending.count <= constants.limits.settings_pending_max and is_well_formed(values));
+        assert(now_ns <= std.math.maxInt(u64) - constants.policy.settings_timeout_ns);
         assert(pending.count == 0 or now_ns >= pending.newest().sent_at_ns);
         // RFC 9113 §6.5.3: on an ACK the sender "can rely on the values from the oldest
         // unacknowledged SETTINGS frame having been applied", so colibri holds each frame's values
         // until its ACK, and `settings_pending_max` bounds how many (design §7).
-        if (pending.count == constants.settings_pending_max) return error.TooManyPending;
-        const slot = (pending.first + pending.count) % constants.settings_pending_max;
+        if (pending.count == constants.limits.settings_pending_max) return error.TooManyPending;
+        const slot = (pending.first + pending.count) % constants.limits.settings_pending_max;
         pending.ring[slot] = .{ .values = values, .sent_at_ns = now_ns };
         pending.count += 1;
     }
@@ -253,10 +253,10 @@ pub const Pending = struct {
     /// Pops the oldest frame, whose values are in force from now on (RFC 9113 §6.5.3): the
     /// connection holds them in `local`. Null when nothing is pending.
     pub fn acknowledge(pending: *Pending) ?Values {
-        assert(pending.count <= constants.settings_pending_max);
+        assert(pending.count <= constants.limits.settings_pending_max);
         if (pending.count == 0) return null;
         const oldest = pending.ring[pending.first];
-        pending.first = (pending.first + 1) % constants.settings_pending_max;
+        pending.first = (pending.first + 1) % constants.limits.settings_pending_max;
         pending.count -= 1;
         assert(is_well_formed(oldest.values));
         return oldest.values;
@@ -265,9 +265,9 @@ pub const Pending = struct {
     /// The oldest frame's instant plus `settings_timeout_ns`: when its acknowledgment is overdue
     /// and the caller calls back (design §4.2). Null when nothing is pending.
     pub fn deadline_ns(pending: *const Pending) ?u64 {
-        assert(pending.count <= constants.settings_pending_max);
+        assert(pending.count <= constants.limits.settings_pending_max);
         if (pending.count == 0) return null;
-        return pending.ring[pending.first].sent_at_ns + constants.settings_timeout_ns;
+        return pending.ring[pending.first].sent_at_ns + constants.policy.settings_timeout_ns;
     }
 
     /// True from the deadline on. RFC 9113 §6.5.3 lets the sender issue a connection error of
@@ -279,7 +279,7 @@ pub const Pending = struct {
 
     fn newest(pending: *const Pending) *const Sent {
         assert(pending.count > 0);
-        return &pending.ring[(pending.first + pending.count - 1) % constants.settings_pending_max];
+        return &pending.ring[(pending.first + pending.count - 1) % constants.limits.settings_pending_max];
     }
 };
 
@@ -307,20 +307,20 @@ test "the initial values are the ones RFC 9113 §6.5.2 gives" {
 }
 
 test "a client advertises all six settings in identifier order, ENABLE_PUSH 0 among them" {
-    var buffer: [constants.settings_count]Setting = undefined;
+    var buffer: [constants.protocol.settings_count]Setting = undefined;
     const listed = entries(advertised(.client), .client, &buffer);
     try testing.expectEqual(6, listed.len);
     for (listed, 1..) |setting, id| try testing.expectEqual(id, setting.id);
-    try testing.expectEqual(constants.header_table_size_advertised, listed[0].value);
+    try testing.expectEqual(constants.policy.header_table_size_advertised, listed[0].value);
     try testing.expectEqual(0, listed[1].value);
-    try testing.expectEqual(constants.concurrent_streams_max, listed[2].value);
-    try testing.expectEqual(constants.window_initial, listed[3].value);
-    try testing.expectEqual(constants.frame_size_max, listed[4].value);
-    try testing.expectEqual(constants.header_list_size_max, listed[5].value);
+    try testing.expectEqual(constants.limits.concurrent_streams_max, listed[2].value);
+    try testing.expectEqual(constants.policy.window_initial, listed[3].value);
+    try testing.expectEqual(constants.limits.frame_size_max, listed[4].value);
+    try testing.expectEqual(constants.limits.header_list_size_max, listed[5].value);
 }
 
 test "a server advertises five settings and omits ENABLE_PUSH" {
-    var buffer: [constants.settings_count]Setting = undefined;
+    var buffer: [constants.protocol.settings_count]Setting = undefined;
     const listed = entries(advertised(.server), .server, &buffer);
     try testing.expectEqual(5, listed.len);
     const expected_ids = [_]u16{ 1, 3, 4, 5, 6 };
@@ -329,7 +329,7 @@ test "a server advertises five settings and omits ENABLE_PUSH" {
 }
 
 test "entries omits a setting whose value is unlimited" {
-    var buffer: [constants.settings_count]Setting = undefined;
+    var buffer: [constants.protocol.settings_count]Setting = undefined;
     var values = advertised(.client);
     values.max_concurrent_streams = null;
     values.max_header_list_size = null;
@@ -445,20 +445,20 @@ test "acknowledge pops the oldest pending frame first and null when none is pend
 test "push refuses a frame past settings_pending_max and accepts one once an ACK frees a slot" {
     var pending: Pending = undefined;
     pending.init();
-    for (0..constants.settings_pending_max) |index| {
+    for (0..constants.limits.settings_pending_max) |index| {
         try pending.push(test_values(@intCast(index)), test_sent_at_ns);
     }
-    try testing.expectEqual(constants.settings_pending_max, pending.len());
+    try testing.expectEqual(constants.limits.settings_pending_max, pending.len());
     try testing.expectError(error.TooManyPending, pending.push(test_values(99), test_sent_at_ns));
     try testing.expectEqual(0, pending.acknowledge().?.header_table_size);
     try pending.push(test_values(99), test_sent_at_ns);
-    try testing.expectEqual(constants.settings_pending_max, pending.len());
+    try testing.expectEqual(constants.limits.settings_pending_max, pending.len());
 }
 
 test "the ring wraps: frames pushed after acknowledgments still pop oldest first" {
     var pending: Pending = undefined;
     pending.init();
-    for (0..constants.settings_pending_max) |index| {
+    for (0..constants.limits.settings_pending_max) |index| {
         try pending.push(test_values(@intCast(index)), test_sent_at_ns);
     }
     _ = pending.acknowledge();
@@ -478,9 +478,9 @@ test "the deadline is the oldest frame's instant plus settings_timeout_ns, and n
     try testing.expectEqual(null, pending.deadline_ns());
     try pending.push(advertised(.client), test_sent_at_ns);
     try pending.push(advertised(.client), test_sent_at_ns + 5);
-    try testing.expectEqual(test_sent_at_ns + constants.settings_timeout_ns, pending.deadline_ns());
+    try testing.expectEqual(test_sent_at_ns + constants.policy.settings_timeout_ns, pending.deadline_ns());
     _ = pending.acknowledge();
-    try testing.expectEqual(test_sent_at_ns + 5 + constants.settings_timeout_ns, pending.deadline_ns());
+    try testing.expectEqual(test_sent_at_ns + 5 + constants.policy.settings_timeout_ns, pending.deadline_ns());
     _ = pending.acknowledge();
     try testing.expectEqual(null, pending.deadline_ns());
 }
@@ -488,7 +488,7 @@ test "the deadline is the oldest frame's instant plus settings_timeout_ns, and n
 test "is_timed_out turns true at the deadline instant and not one nanosecond before" {
     var pending: Pending = undefined;
     pending.init();
-    try testing.expect(!pending.is_timed_out(test_sent_at_ns + constants.settings_timeout_ns));
+    try testing.expect(!pending.is_timed_out(test_sent_at_ns + constants.policy.settings_timeout_ns));
     try pending.push(advertised(.server), test_sent_at_ns);
     const deadline = pending.deadline_ns().?;
     try testing.expect(!pending.is_timed_out(test_sent_at_ns));

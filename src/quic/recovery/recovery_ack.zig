@@ -209,8 +209,8 @@ const testing = std.testing;
 
 /// The recovery state these tests drive, and room for what one ACK takes out. Test-only.
 threadlocal var test_recovery: Recovery align(@alignOf(Recovery)) = undefined;
-threadlocal var test_acknowledged: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
-threadlocal var test_lost: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
+threadlocal var test_acknowledged: [constants.limits.sent_packets_max]Record align(@alignOf(Record)) = undefined;
+threadlocal var test_lost: [constants.limits.sent_packets_max]Record align(@alignOf(Record)) = undefined;
 const test_datagram_len: u16 = 1_200;
 const test_start_ns: u64 = 1_000_000_000;
 const test_interval_ns: u64 = 1_000_000;

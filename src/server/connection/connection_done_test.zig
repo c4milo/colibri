@@ -51,8 +51,8 @@ test "decision 103: content the output took in part owes no done until its last 
     try connection.respond(1, .{ .status = ok, .end = false });
     _ = support.drain();
     // Room for a DATA frame's header and three octets of its payload.
-    const room: usize = h2.constants.frame_header_len + 3;
-    connection.output_len = support.server_constants.output_len - room;
+    const room: usize = h2.constants.protocol.frame_header_len + 3;
+    connection.output_len = support.server_constants.limits.output_len - room;
     try testing.expectEqual(3, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     try expect_nothing();
     connection.output_len = 0;
@@ -78,7 +78,7 @@ test "decision 103: a request the caller or the peer cancelled is never done" {
     connection.cancel(1);
     try expect_nothing();
     var writer = h2.core.Writer.init(h2_support.frames[0..]);
-    try h2.frame.write_rst_stream(&writer, 3, h2.constants.error_cancel);
+    try h2.frame.write_rst_stream(&writer, 3, h2.constants.protocol.error_cancel);
     const cancelled = (try support.receive_copy(writer.written())).event.?.cancelled;
     try testing.expectEqual(3, cancelled.id.number);
     try testing.expect(cancelled.reason == .peer_reset);

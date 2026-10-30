@@ -212,7 +212,7 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
             .deadline = .idle,
             .end_ms = send_cut_ms(plan) + ms_of(plan.deadlines.idle_ns.?),
             .head = false,
-            .cut = .{ .deadline = .send_rate, .at_ms = send_cut_ms(plan), .status = answer_status, .reset_code = h2.constants.error_cancel },
+            .cut = .{ .deadline = .send_rate, .at_ms = send_cut_ms(plan), .status = answer_status, .reset_code = h2.constants.protocol.error_cancel },
         },
         .opens_no_connection_window => .{ .deadline = .send_rate, .end_ms = send_cut_ms(plan), .head = false },
         // Every stream's body is cut at the end of its first window, which brings nothing, and the
@@ -227,7 +227,7 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
 
 /// The streams the server accepts at once, decision 110's default, which the run leaves in its
 /// endpoint's configuration. It refuses those past it with REFUSED_STREAM (RFC 9113 §5.1.2).
-const streams_limit: u32 = server.constants.requests_max;
+const streams_limit: u32 = server.constants.limits.requests_max;
 
 /// A peer that opens many streams has those past the server's limit refused, and each of the
 /// rest ends with a 408 and RST_STREAM with NO_ERROR.
@@ -298,7 +298,7 @@ fn body_cut(plan: *const Plan) Cut {
 fn update_ms(plan: *const Plan, start_ms: u64, end_ms: u64) ?u64 {
     if (plan.protocol != .h2) return null;
     assert(plan.piece_len > 0 and plan.gap_ms > 0);
-    const pieces = std.math.divCeil(u64, h2.constants.window_update_threshold, plan.piece_len) catch unreachable;
+    const pieces = std.math.divCeil(u64, h2.constants.policy.window_update_threshold, plan.piece_len) catch unreachable;
     const every_ms = pieces * plan.gap_ms;
     const at_ms = @max(1, std.math.divCeil(u64, start_ms, every_ms) catch unreachable) * every_ms;
     // The body stops at its end, and a piece due then is never sent.
@@ -308,7 +308,7 @@ fn update_ms(plan: *const Plan, start_ms: u64, end_ms: u64) ?u64 {
 
 /// A body cut at `at_ms`: a 408, then RST_STREAM with NO_ERROR in h2.
 fn body_cut_at(passed: server.Timeout, at_ms: u64) Cut {
-    return .{ .deadline = passed, .at_ms = at_ms, .status = timeout_status, .reset_code = h2.constants.error_no_error };
+    return .{ .deadline = passed, .at_ms = at_ms, .status = timeout_status, .reset_code = h2.constants.protocol.error_no_error };
 }
 
 /// The octets of the body's pieces that arrive from `start_ms` to before `end_ms`: one piece a gap
@@ -343,8 +343,8 @@ fn goaway_of(plan: *const Plan, expected: Expected) ?u32 {
     return switch (plan.peer) {
         // The GOAWAY waits behind the octets the peer does not read.
         .reads_nothing, .reads_slowly => null,
-        .opens_no_connection_window => h2.constants.error_enhance_your_calm,
-        else => if (expected.head) h2.constants.error_enhance_your_calm else h2.constants.error_no_error,
+        .opens_no_connection_window => h2.constants.protocol.error_enhance_your_calm,
+        else => if (expected.head) h2.constants.protocol.error_enhance_your_calm else h2.constants.protocol.error_no_error,
     };
 }
 
@@ -356,7 +356,7 @@ fn cut_as_expected(plan: *const Plan, record: *const Record, cut: Cut) bool {
         .h11 => record.saw_timeout_response,
         .h2 => record.response_status == cut.status and
             record.reset_code == cut.reset_code and record.reset_at_ms == cut.at_ms and
-            record.app.cancelled == cut.deadline and record.goaway_code == h2.constants.error_no_error,
+            record.app.cancelled == cut.deadline and record.goaway_code == h2.constants.protocol.error_no_error,
     };
 }
 

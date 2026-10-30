@@ -35,16 +35,16 @@ pub fn write_header(writer: *Writer, frame_type: u64, length: u64) Error!void {
 pub fn write_push_promise_header(writer: *Writer, push_id: u64, field_section_len: u64) Error!void {
     var cursor = writer.*;
     const length = @as(u64, varint.encoded_len_minimal(push_id)) +| field_section_len;
-    try write_header(&cursor, constants.frame_push_promise, length);
+    try write_header(&cursor, constants.protocol.frame_push_promise, length);
     try varint.encode(&cursor, push_id);
     writer.* = cursor;
 }
 
 /// A frame whose payload is one variable-length integer (RFC 9114 §7.2.3, §7.2.6, §7.2.7).
 pub fn write_single(writer: *Writer, frame_type: u64, value: u64) Error!void {
-    assert(frame_type == constants.frame_cancel_push or
-        frame_type == constants.frame_goaway or
-        frame_type == constants.frame_max_push_id);
+    assert(frame_type == constants.protocol.frame_cancel_push or
+        frame_type == constants.protocol.frame_goaway or
+        frame_type == constants.protocol.frame_max_push_id);
     var cursor = writer.*;
     try write_header(&cursor, frame_type, varint.encoded_len_minimal(value));
     try varint.encode(&cursor, value);
@@ -55,10 +55,10 @@ pub fn write_single(writer: *Writer, frame_type: u64, value: u64) Error!void {
 /// peer is told to apply the default rather than a value.
 pub fn write_settings(writer: *Writer, settings: Settings) Error!void {
     var cursor = writer.*;
-    try write_header(&cursor, constants.frame_settings, settings_len(settings));
-    try write_setting(&cursor, constants.setting_qpack_max_table_capacity, settings.qpack_max_table_capacity);
-    try write_setting(&cursor, constants.setting_max_field_section_size, settings.max_field_section_size);
-    try write_setting(&cursor, constants.setting_qpack_blocked_streams, settings.qpack_blocked_streams);
+    try write_header(&cursor, constants.protocol.frame_settings, settings_len(settings));
+    try write_setting(&cursor, constants.protocol.setting_qpack_max_table_capacity, settings.qpack_max_table_capacity);
+    try write_setting(&cursor, constants.protocol.setting_max_field_section_size, settings.max_field_section_size);
+    try write_setting(&cursor, constants.protocol.setting_qpack_blocked_streams, settings.qpack_blocked_streams);
     if (settings.reserved) |reserved| try write_setting(&cursor, reserved.identifier(), reserved.value);
     writer.* = cursor;
 }
@@ -66,9 +66,9 @@ pub fn write_settings(writer: *Writer, settings: Settings) Error!void {
 /// The octets a SETTINGS payload will take, which §7.1's Length needs before any of it is written.
 fn settings_len(settings: Settings) u64 {
     var total: u64 = 0;
-    total +|= pair_len(constants.setting_qpack_max_table_capacity, settings.qpack_max_table_capacity);
-    total +|= pair_len(constants.setting_max_field_section_size, settings.max_field_section_size);
-    total +|= pair_len(constants.setting_qpack_blocked_streams, settings.qpack_blocked_streams);
+    total +|= pair_len(constants.protocol.setting_qpack_max_table_capacity, settings.qpack_max_table_capacity);
+    total +|= pair_len(constants.protocol.setting_max_field_section_size, settings.max_field_section_size);
+    total +|= pair_len(constants.protocol.setting_qpack_blocked_streams, settings.qpack_blocked_streams);
     if (settings.reserved) |reserved| total +|= pair_len(reserved.identifier(), reserved.value);
     return total;
 }
@@ -89,8 +89,8 @@ fn write_setting(cursor: *Writer, identifier: u64, value: ?u64) Error!void {
 /// proving a peer ignores what it does not know, and for application-layer padding.
 pub fn write_reserved(writer: *Writer, n: u64, payload: []const u8) Error!void {
     var cursor = writer.*;
-    const frame_type = constants.reserved_base +| (constants.reserved_step *| n);
-    assert(constants.is_reserved(frame_type));
+    const frame_type = constants.protocol.reserved_base +| (constants.protocol.reserved_step *| n);
+    assert(constants.protocol.is_reserved(frame_type));
     try write_header(&cursor, frame_type, payload.len);
     try cursor.write_bytes(payload);
     writer.* = cursor;
@@ -114,11 +114,11 @@ fn round_trip(written: []const u8) !struct { header: frame.Header, payload: []co
 
 test "§7.2.6: a one-integer frame is its type, its length and its value" {
     var writer = Writer.init(&test_octets);
-    try write_single(&writer, constants.frame_goaway, 4);
+    try write_single(&writer, constants.protocol.frame_goaway, 4);
     try testing.expectEqualSlices(u8, &.{ 0x07, 0x01, 0x04 }, writer.written());
     // The Length counts the octets the value takes, not the value.
     var wide = Writer.init(&test_octets);
-    try write_single(&wide, constants.frame_max_push_id, 0x100);
+    try write_single(&wide, constants.protocol.frame_max_push_id, 0x100);
     try testing.expectEqualSlices(u8, &.{ 0x0d, 0x02, 0x41, 0x00 }, wide.written());
     const back = try round_trip(wide.written());
     try testing.expectEqual(0x100, (try frame.read_payload(back.header.frame_type, back.payload)).max_push_id);
@@ -128,7 +128,7 @@ test "§7.2.4: SETTINGS carries the settings that are present and no others" {
     var writer = Writer.init(&test_octets);
     try write_settings(&writer, .{ .max_field_section_size = 0x100, .qpack_blocked_streams = 0x10 });
     const back = try round_trip(writer.written());
-    try testing.expectEqual(constants.frame_settings, back.header.frame_type);
+    try testing.expectEqual(constants.protocol.frame_settings, back.header.frame_type);
     const found = (try frame.read_payload(back.header.frame_type, back.payload)).settings;
     try testing.expectEqual(0x100, found.max_field_section_size);
     try testing.expectEqual(0x10, found.qpack_blocked_streams);
@@ -140,7 +140,7 @@ test "§7.2.4: SETTINGS carries the settings that are present and no others" {
     var empty = Writer.init(&test_octets);
     try write_settings(&empty, .{});
     try testing.expectEqualSlices(u8, &.{ 0x04, 0x00 }, empty.written());
-    const none = (try frame.read_payload(constants.frame_settings, &.{})).settings;
+    const none = (try frame.read_payload(constants.protocol.frame_settings, &.{})).settings;
     try testing.expectEqual(null, none.max_field_section_size);
 }
 
@@ -198,7 +198,7 @@ test "§7.2.8: a reserved frame is 0x1f * N + 0x21 and means nothing" {
     const expected = [_]u8{ 0x21, 0x03 } ++ "pad".*;
     try testing.expectEqualSlices(u8, &expected, writer.written());
     const back = try round_trip(writer.written());
-    try testing.expect(constants.is_reserved(back.header.frame_type));
+    try testing.expect(constants.protocol.is_reserved(back.header.frame_type));
     // §9: an endpoint MUST ignore it, so the payload is not read however it is filled.
     try testing.expectEqual(0x21, (try frame.read_payload(back.header.frame_type, back.payload)).unknown);
     // A larger N is a larger type, and still reserved.
@@ -206,7 +206,7 @@ test "§7.2.8: a reserved frame is 0x1f * N + 0x21 and means nothing" {
     try write_reserved(&third, 3, "");
     const wide = try round_trip(third.written());
     try testing.expectEqual(0x21 + 0x1f * 3, wide.header.frame_type);
-    try testing.expect(constants.is_reserved(wide.header.frame_type));
+    try testing.expect(constants.protocol.is_reserved(wide.header.frame_type));
     // §7: a reserved frame may be sent on any stream where frames are allowed.
     for ([_]frame.StreamKind{ .control, .request, .push }) |kind| {
         try testing.expect(frame.permitted(wide.header.frame_type, kind));
@@ -218,7 +218,7 @@ test "a frame that does not fit writes nothing" {
     // ran out must leave nothing half-written behind it.
     var room: [3]u8 = undefined;
     var tight = Writer.init(room[0..2]);
-    try testing.expectError(error.NoSpaceLeft, write_single(&tight, constants.frame_goaway, 4));
+    try testing.expectError(error.NoSpaceLeft, write_single(&tight, constants.protocol.frame_goaway, 4));
     try testing.expectEqual(0, tight.written().len);
     // The same for a SETTINGS frame whose header fits and whose payload does not.
     var partial = Writer.init(room[0..3]);

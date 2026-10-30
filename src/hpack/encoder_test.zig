@@ -171,12 +171,12 @@ test "a lowered then raised limit opens the next block with the smallest size, t
     try test_encoder.begin_block(&output);
     test_encoder.commit_block();
     try testing.expectEqual(0, output.offset);
-    test_encoder.set_capacity_limit(constants.dynamic_table_capacity_max * 2);
+    test_encoder.set_capacity_limit(constants.limits.dynamic_table_capacity_max * 2);
     output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
     test_encoder.commit_block();
     try testing.expectEqualSlices(u8, "\x3f\xe1\x7f", output.written());
-    try testing.expectEqual(constants.dynamic_table_capacity_max, test_encoder.table.capacity);
+    try testing.expectEqual(constants.limits.dynamic_table_capacity_max, test_encoder.table.capacity);
 }
 
 test "a field that does not fit the output is not written at all, and not inserted" {

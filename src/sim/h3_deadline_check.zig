@@ -241,12 +241,12 @@ fn drained_as(record: *const Record, close: h3_deadline_run.Close, at_ms: u64, p
     const goaway_ms = record.goaway_ms orelse return false;
     if (goaway_ms < at_ms or goaway_ms - at_ms > carry_ms) return false;
     if (close.at_ms < goaway_ms or close.at_ms - goaway_ms > limits.close_after_goaway_ms_max + carry_ms) return false;
-    return close.error_code == h3.constants.error_no_error or h3.constants.is_reserved(close.error_code);
+    return close.error_code == h3.constants.protocol.error_no_error or h3.constants.protocol.is_reserved(close.error_code);
 }
 
 /// RFC 9114 §10.5: H3_EXCESSIVE_LOAD, at `at_ms` when the plan fixes the instant.
 fn overloaded_as(close: h3_deadline_run.Close, at_ms: ?u64) bool {
-    if (close.error_code != h3.constants.error_excessive_load) return false;
+    if (close.error_code != h3.constants.protocol.error_excessive_load) return false;
     return at_ms == null or close.at_ms == at_ms.?;
 }
 
@@ -324,7 +324,7 @@ fn body_cut(first: ?*const Answer, after_ms: u64, passed: server.Timeout, idle_m
 fn stream_cut(first: ?*const Answer, first_window_ms: u64, idle_ms: u64) ?Expected {
     const cut_ms = ((first orelse return null).answered_ms orelse return null) + first_window_ms;
     var expected = drains(.idle, cut_ms + idle_ms);
-    expected.seen[0] = .{ .reset = h3.constants.error_request_cancelled, .reset_ms = cut_ms };
+    expected.seen[0] = .{ .reset = h3.constants.protocol.error_request_cancelled, .reset_ms = cut_ms };
     expected.cancelled = .send_rate;
     expected.cancelled_ms = cut_ms;
     return expected;
@@ -352,7 +352,7 @@ fn bodies_overload(first: ?*const Answer, first_window_ms: u64) ?Expected {
 /// A peer that floods is closed with the batch that carries the first cancelled request past the
 /// limit (decision 110 as amended): no batch sooner, and none later.
 fn flooded_as(plan: *const Plan, record: *const Record) bool {
-    const limit = server.constants.peer_resets_max;
+    const limit = server.constants.policy.peer_resets_max;
     return record.requests_opened > limit and record.requests_opened <= limit + plan.flood_batch_len;
 }
 
@@ -360,7 +360,7 @@ fn flooded_as(plan: *const Plan, record: *const Record) bool {
 /// begins to shut down, at `shut_down_ms`, is rejected then, and its client may send the request
 /// again (RFC 9114 §4.1.1). At one instant the head gets its 408.
 fn late_head(head_end_ms: u64, shut_down_ms: u64) Want {
-    if (head_end_ms > shut_down_ms) return .{ .reset = h3.constants.error_request_rejected, .reset_ms = shut_down_ms, .exact = true };
+    if (head_end_ms > shut_down_ms) return .{ .reset = h3.constants.protocol.error_request_rejected, .reset_ms = shut_down_ms, .exact = true };
     return .{ .status = timeout_status, .status_ms = head_end_ms, .exact = true };
 }
 

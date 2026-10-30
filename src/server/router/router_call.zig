@@ -86,7 +86,7 @@ pub const QueryMemory = struct {
 
 /// Octets of a query's decoded names and values. A query is part of a path that the endpoint
 /// bounds, and decoding only shortens it.
-const query_storage_len = @import("../constants.zig").path_len_max;
+const query_storage_len = @import("../constants.zig").limits.path_len_max;
 
 /// The options a route entry may carry after its function, other than its middleware.
 pub const RouteOptions = struct {

@@ -44,7 +44,7 @@ pub const Storage = struct {
 };
 
 /// The most settings a stream as long as an input holds in one frame.
-const settings_max = constants.h2_input_check_input_len_max / limits.setting_len;
+const settings_max = constants.h2_input_check_input_len_max / limits.protocol.setting_len;
 
 const draw: sim.input_draw.Draw = .{
     .one_in = constants.h2_input_check_one_in,
@@ -73,7 +73,7 @@ const Kind = enum {
 };
 
 /// The first Type octet RFC 9113 §6 does not define.
-const type_unknown_first: u8 = limits.frame_type_continuation + 1;
+const type_unknown_first: u8 = limits.protocol.frame_type_continuation + 1;
 
 /// Writes a stream of drawn frames and returns it.
 pub fn draw_stream(storage: *Storage, random: *Random, material: []const u8) []const u8 {
@@ -86,7 +86,7 @@ pub fn draw_stream(storage: *Storage, random: *Random, material: []const u8) []c
 }
 
 fn draw_frame(writer: *Writer, random: *Random, material: []const u8, kind: Kind) !void {
-    const stream_id: u32 = @intCast(draw.bounded(random, 1, limits.stream_id_max));
+    const stream_id: u32 = @intCast(draw.bounded(random, 1, limits.protocol.stream_id_max));
     const fragment = sim.input_draw.octets(random, material, 0, constants.h2_input_check_octets_len_max);
     const padding: u8 = @intCast(draw.bounded(random, 0, constants.h2_input_check_octets_len_max));
     switch (kind) {
@@ -98,12 +98,12 @@ fn draw_frame(writer: *Writer, random: *Random, material: []const u8, kind: Kind
         .settings_ack => try frame.write_settings_ack(writer),
         .push_promise => {
             // RFC 9113 §5.1.1: a server, which alone promises, initiates even-numbered streams.
-            const promised: u32 = @intCast(draw.bounded(random, 1, limits.stream_id_max / limits.stream_id_step) * limits.stream_id_step);
+            const promised: u32 = @intCast(draw.bounded(random, 1, limits.protocol.stream_id_max / limits.protocol.stream_id_step) * limits.protocol.stream_id_step);
             try frame.write_push_promise(writer, stream_id, promised, fragment, draw.chosen(random), padding);
         },
-        .ping => try frame.write_ping(writer, sim.input_draw.octets(random, material, limits.ping_len, limits.ping_len)[0..limits.ping_len].*, draw.chosen(random)),
-        .goaway => try frame.write_goaway(writer, @intCast(draw.bounded(random, 0, limits.stream_id_max)), @intCast(draw.by_bits(random)), fragment),
-        .window_update => try frame.write_window_update(writer, @intCast(draw.bounded(random, 0, limits.stream_id_max)), @intCast(draw.bounded(random, 1, limits.window_max))),
+        .ping => try frame.write_ping(writer, sim.input_draw.octets(random, material, limits.protocol.ping_len, limits.protocol.ping_len)[0..limits.protocol.ping_len].*, draw.chosen(random)),
+        .goaway => try frame.write_goaway(writer, @intCast(draw.bounded(random, 0, limits.protocol.stream_id_max)), @intCast(draw.by_bits(random)), fragment),
+        .window_update => try frame.write_window_update(writer, @intCast(draw.bounded(random, 0, limits.protocol.stream_id_max)), @intCast(draw.bounded(random, 1, limits.protocol.window_max))),
         .continuation => try frame.write_continuation(writer, stream_id, fragment, draw.chosen(random)),
         .unknown => try write_unknown(writer, random, fragment),
     }
@@ -112,7 +112,7 @@ fn draw_frame(writer: *Writer, random: *Random, material: []const u8, kind: Kind
 fn draw_priority(random: *Random) frame.Priority {
     return .{
         .exclusive = draw.chosen(random),
-        .dependency = @intCast(draw.bounded(random, 0, limits.stream_id_max)),
+        .dependency = @intCast(draw.bounded(random, 0, limits.protocol.stream_id_max)),
         .weight = @truncate(random.next()),
     };
 }
@@ -137,7 +137,7 @@ fn write_unknown(writer: *Writer, random: *Random, payload: []const u8) !void {
         .length = @intCast(payload.len),
         .type = @intCast(random.between(type_unknown_first, std.math.maxInt(u8))),
         .flags = @truncate(random.next()),
-        .stream_id = @intCast(draw.bounded(random, 0, limits.stream_id_max)),
+        .stream_id = @intCast(draw.bounded(random, 0, limits.protocol.stream_id_max)),
     });
     try copy.write_bytes(payload);
     writer.* = copy;
@@ -151,7 +151,7 @@ pub fn read_stream(storage: *Storage, stream: []const u8, frames_read: *u64) Vio
         if (reader.remaining_len() == 0) return .taken;
         const header = frame.read_header(&reader) catch return .incomplete;
         // RFC 9113 §4.2: a frame longer than SETTINGS_MAX_FRAME_SIZE is a FRAME_SIZE_ERROR.
-        if (header.length > limits.frame_size_max) return .refused;
+        if (header.length > limits.limits.frame_size_max) return .refused;
         const payload = reader.take(header.length) catch return .incomplete;
         const parsed = frame.parse(header, payload) catch |failure| {
             try check_verdict(failure, header);
@@ -169,28 +169,28 @@ pub fn read_stream(storage: *Storage, stream: []const u8, frames_read: *u64) Vio
 /// FRAME_SIZE_ERROR.
 fn check_verdict(failure: frame.ParseError, header: frame.Header) Violation!void {
     const verdict = frame.verdict(failure, @enumFromInt(header.type), header.stream_id);
-    const code_known = verdict.code == limits.error_protocol_error or verdict.code == limits.error_frame_size_error;
+    const code_known = verdict.code == limits.protocol.error_protocol_error or verdict.code == limits.protocol.error_frame_size_error;
     if (!code_known) return error.VerdictWrong;
-    if (verdict.kind == .stream and header.stream_id == limits.connection_stream_id) return error.VerdictWrong;
+    if (verdict.kind == .stream and header.stream_id == limits.protocol.connection_stream_id) return error.VerdictWrong;
 }
 
 /// The rules the writers assert, which the parser must have checked on the peer's behalf.
 fn check_writable(header: frame.Header, parsed: frame.Payload) Violation!void {
-    const on_stream = header.stream_id != limits.connection_stream_id;
+    const on_stream = header.stream_id != limits.protocol.connection_stream_id;
     const writable = switch (parsed) {
         .data => |data| on_stream and padded_fits(header, data.data.len, data.padding_len),
         .headers => |headers| on_stream and padded_fits(header, headers.fragment.len + priority_len(headers.priority), headers.padding_len),
         .priority, .rst_stream, .continuation => on_stream,
         // RFC 9113 §6.5: a SETTINGS frame is on stream 0, its payload is whole settings, and an
         // acknowledgment carries none.
-        .settings => |settings| !on_stream and header.length % limits.setting_len == 0 and
+        .settings => |settings| !on_stream and header.length % limits.protocol.setting_len == 0 and
             (!settings.ack or header.length == 0),
         // RFC 9113 §5.1.1, §6.6: a promised stream is even and not 0.
-        .push_promise => |promise| on_stream and promise.promised_stream_id != limits.connection_stream_id and
-            promise.promised_stream_id % limits.stream_id_step == 0,
+        .push_promise => |promise| on_stream and promise.promised_stream_id != limits.protocol.connection_stream_id and
+            promise.promised_stream_id % limits.protocol.stream_id_step == 0,
         .ping, .goaway => !on_stream,
         // RFC 9113 §6.9: an increment is 1 to 2^31-1.
-        .window_update => |update| update.increment >= 1 and update.increment <= limits.window_max,
+        .window_update => |update| update.increment >= 1 and update.increment <= limits.protocol.window_max,
         .unknown => |unknown| unknown.payload.len == header.length,
     };
     if (!writable) return error.FrameNotWritable;
@@ -199,22 +199,22 @@ fn check_writable(header: frame.Header, parsed: frame.Payload) Violation!void {
 /// Whether the fields, the Pad Length octet and the padding of a frame make up its payload
 /// (RFC 9113 §6.1, §6.2).
 fn padded_fits(header: frame.Header, fields_len: usize, padding_len: u8) bool {
-    if (!frame.has_flag(header, limits.flag_padded)) return padding_len == 0 and fields_len == header.length;
-    return fields_len + limits.pad_length_len + padding_len == header.length;
+    if (!frame.has_flag(header, limits.protocol.flag_padded)) return padding_len == 0 and fields_len == header.length;
+    return fields_len + limits.protocol.pad_length_len + padding_len == header.length;
 }
 
 fn priority_len(priority: ?frame.Priority) usize {
-    return if (priority == null) 0 else limits.priority_fields_len;
+    return if (priority == null) 0 else limits.protocol.priority_fields_len;
 }
 
 /// The flags RFC 9113 §6 defines for a type, less PADDED: a frame whose padding is empty is
 /// written again without it.
 fn kept_flags(frame_type: u8) u8 {
     return switch (frame_type) {
-        limits.frame_type_data => limits.flag_end_stream,
-        limits.frame_type_headers => limits.flag_end_stream | limits.flag_end_headers | limits.flag_priority,
-        limits.frame_type_settings, limits.frame_type_ping => limits.flag_ack,
-        limits.frame_type_push_promise, limits.frame_type_continuation => limits.flag_end_headers,
+        limits.protocol.frame_type_data => limits.protocol.flag_end_stream,
+        limits.protocol.frame_type_headers => limits.protocol.flag_end_stream | limits.protocol.flag_end_headers | limits.protocol.flag_priority,
+        limits.protocol.frame_type_settings, limits.protocol.frame_type_ping => limits.protocol.flag_ack,
+        limits.protocol.frame_type_push_promise, limits.protocol.frame_type_continuation => limits.protocol.flag_end_headers,
         else => 0,
     };
 }

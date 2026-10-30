@@ -130,7 +130,7 @@ var last_mismatch: Mismatch align(@alignOf(Mismatch)) = .{};
 /// The decoder and the buffers it fills, placed outside any stack frame.
 pub var decoder: Decoder align(@alignOf(Decoder)) = undefined;
 var section: FieldSection align(@alignOf(FieldSection)) = undefined;
-var strings: [qpack.core.constants.field_section_size_max]u8 = undefined;
+var strings: [qpack.core.constants.limits.field_section_size_max]u8 = undefined;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();

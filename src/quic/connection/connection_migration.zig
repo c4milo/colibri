@@ -35,7 +35,7 @@ pub const State = struct {
     port_only: bool,
     /// The data of the new path's PATH_CHALLENGE frames still to go, the next first. RFC 9000
     /// §13.3 sends one "periodically until a matching PATH_RESPONSE frame is received".
-    resends: [constants.path_challenge_resends][constants.path_challenge_len]u8,
+    resends: [constants.policy.path_challenge_resends][constants.protocol.path_challenge_len]u8,
     resends_len: u8,
 
     pub fn init(state: *State) void {
@@ -52,8 +52,8 @@ pub const State = struct {
 /// The data a move owes: one PATH_CHALLENGE for each PTO of the new path's attempt, and one for
 /// the previously active path.
 pub const ChallengeData = struct {
-    new_path: [constants.path_challenge_attempts][constants.path_challenge_len]u8,
-    previous_path: [constants.path_challenge_len]u8,
+    new_path: [constants.policy.path_challenge_attempts][constants.protocol.path_challenge_len]u8,
+    previous_path: [constants.protocol.path_challenge_len]u8,
 };
 
 /// Where a datagram came from, measured against the paths the connection holds.
@@ -143,7 +143,7 @@ pub fn challenge(connection: *Connection, data: ChallengeData) void {
     if (!connection.path.validated and connection.path.challenge == null) {
         connection.path.owe_challenge(data.new_path[0]);
         state.resends = data.new_path[1..].*;
-        state.resends_len = constants.path_challenge_resends;
+        state.resends_len = constants.policy.path_challenge_resends;
     }
     // RFC 9000 §9.3.3: "In response to an apparent migration, endpoints MUST validate the
     // previously active path using a PATH_CHALLENGE frame."
@@ -166,14 +166,14 @@ fn resend_if_due(connection: *Connection, now_ns: u64) bool {
     if (now_ns < due_ns) return false;
     const state = &connection.migration;
     connection.path.owe_challenge(state.resends[0]);
-    std.mem.copyForwards([constants.path_challenge_len]u8, state.resends[0 .. state.resends_len - 1], state.resends[1..state.resends_len]);
+    std.mem.copyForwards([constants.protocol.path_challenge_len]u8, state.resends[0 .. state.resends_len - 1], state.resends[1..state.resends_len]);
     state.resends_len -= 1;
     return true;
 }
 
 /// A PATH_RESPONSE, which validates the path its challenge went out on, whichever path it arrived
 /// on (RFC 9000 §8.2.3).
-pub fn on_response(connection: *Connection, data: [constants.path_challenge_len]u8) void {
+pub fn on_response(connection: *Connection, data: [constants.protocol.path_challenge_len]u8) void {
     if (connection.path.on_response(data)) {
         on_active_validated(connection);
         return;

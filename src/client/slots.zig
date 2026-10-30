@@ -76,14 +76,14 @@ pub const Slot = struct {
 };
 
 pub const Slots = struct {
-    slots: [constants.requests_max]Slot,
+    slots: [constants.limits.requests_max]Slot,
     /// The id the next exchange gets.
     next_id: RequestId,
 
     pub fn init(slots: *Slots) void {
         slots.slots = @splat(.{});
         slots.next_id = 1;
-        assert(slots.count(.free) == constants.requests_max);
+        assert(slots.count(.free) == constants.limits.requests_max);
     }
 
     /// Takes a free slot for `request` and its `response`, and returns its id, or null when every
@@ -250,13 +250,13 @@ const test_request: Request = .{ .method = "GET", .path = "/" };
 test "ids rise in the order exchanges are taken, and a released slot is taken again" {
     var slots: Slots = undefined;
     slots.init();
-    var responses: [constants.requests_max + 1]Response = @splat(.{});
-    for (responses[0..constants.requests_max], 1..) |*response, expected| {
+    var responses: [constants.limits.requests_max + 1]Response = @splat(.{});
+    for (responses[0..constants.limits.requests_max], 1..) |*response, expected| {
         try testing.expectEqual(expected, slots.take(&test_request, response).?);
     }
-    try testing.expectEqual(null, slots.take(&test_request, &responses[constants.requests_max]));
+    try testing.expectEqual(null, slots.take(&test_request, &responses[constants.limits.requests_max]));
     release(slots.of_id(3).?);
-    try testing.expectEqual(constants.requests_max + 1, slots.take(&test_request, &responses[constants.requests_max]).?);
+    try testing.expectEqual(constants.limits.requests_max + 1, slots.take(&test_request, &responses[constants.limits.requests_max]).?);
     try testing.expectEqual(1, slots.oldest(.queued).?.id);
 }
 

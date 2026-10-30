@@ -53,7 +53,7 @@ pub const Config = struct {
     /// names.
     ecn: bool = false,
     /// The idle timeout the server advertises (RFC 9000 §10.1), in milliseconds.
-    idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
+    idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
     /// The content codings the server applies to a response the caller marks `codable`, in its
     /// order of preference, and the pool their encoders come from, which connections may share
     /// (decision 101). Both or neither, and only `gzip` and `deflate`, which the server encodes.
@@ -68,13 +68,13 @@ pub const Config = struct {
     timeouts: deadline.Timeouts = .{},
     /// The request streams the client may open at once (RFC 9000 §4.6), up to the records a
     /// connection holds: the endpoint's `limits.requests_max` (decision 119).
-    requests_max: u32 = constants.quic_requests_max,
+    requests_max: u32 = constants.limits.quic_requests_max,
     /// The request streams the client may cancel in one second: the endpoint's
     /// `limits.peer_resets_max` (decision 110 as amended).
-    peer_resets_max: u32 = constants.peer_resets_max,
+    peer_resets_max: u32 = constants.policy.peer_resets_max,
     /// The request streams h3 may refuse in one second, each because the client broke it: the
     /// endpoint's `limits.resets_sent_max` (decision 110 as amended).
-    resets_sent_max: u32 = constants.resets_sent_max,
+    resets_sent_max: u32 = constants.policy.resets_sent_max,
 };
 
 /// What a connection starts from, which the endpoint read off the client's first Initial or drew
@@ -83,7 +83,7 @@ pub const Start = struct {
     /// The version of the client's first Initial, which the connection runs (RFC 9368 §2).
     version: quic.packet.header.Version = .v1,
     /// The connection ID the server chose (RFC 9000 §7.2).
-    local_id: [constants.quic_id_len]u8,
+    local_id: [constants.policy.quic_id_len]u8,
     /// The client's first Destination and Source Connection IDs (RFC 9000 §7.3), and a Retry's
     /// Source Connection ID when the Initial returned a Retry token (RFC 9000 §17.2.5.1).
     original_destination: []const u8,
@@ -119,7 +119,7 @@ pub const QuicConnection = struct {
     h3: h3.Connection,
     /// Where a response's field section is built, and where h3 copies a request's content.
     section: h3.http.FieldSection,
-    body: [constants.quic_read_len]u8,
+    body: [constants.limits.quic_read_len]u8,
     requests: quic_request.Requests,
     owed: quic_request.Owed,
     /// Whether h3 runs: the handshake completed.

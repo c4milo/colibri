@@ -82,7 +82,7 @@ test "§19: every frame type is written and read back as itself" {
         .{ .max_data = .{ .maximum = 1 << 30 } },
         .{ .max_stream_data = .{ .stream_id = 12, .maximum = 65_535 } },
         .{ .max_streams = .{ .directionality = .bidirectional, .maximum = 100 } },
-        .{ .max_streams = .{ .directionality = .unidirectional, .maximum = constants.max_streams_max } },
+        .{ .max_streams = .{ .directionality = .unidirectional, .maximum = constants.protocol.max_streams_max } },
         .{ .data_blocked = .{ .limit = 1 << 20 } },
         .{ .stream_data_blocked = .{ .stream_id = 16, .limit = 4096 } },
         .{ .streams_blocked = .{ .directionality = .unidirectional, .limit = 3 } },
@@ -98,7 +98,7 @@ test "§19: every frame type is written and read back as itself" {
         .{ .connection_close = .{
             .layer = .transport,
             .error_code = frame.frame_encoding_error,
-            .frame_type = constants.frame_stream_first,
+            .frame_type = constants.protocol.frame_stream_first,
             .reason = reason,
         } },
         .{ .connection_close = .{
@@ -138,7 +138,7 @@ test "§19.3: an ACK frame's ranges, delay and ECN counts survive the round trip
     try testing.expectEqual(null, plain.ecn);
     var writer = Writer.init(&buffer);
     try frame.write(&writer, ack_frame(null));
-    try testing.expectEqual(constants.frame_ack, writer.written()[0]);
+    try testing.expectEqual(constants.protocol.frame_ack, writer.written()[0]);
 }
 
 test "§19.3.1: a range that would put a packet number below zero is refused" {
@@ -170,8 +170,8 @@ test "§19.8: the three flags of a STREAM type say what the frame carries" {
     } };
     try frame.write(&writer, with_offset);
     // RFC 9000 §19.8: OFF, LEN and FIN are all set.
-    const flags = constants.stream_flag_off | constants.stream_flag_len | constants.stream_flag_fin;
-    try testing.expectEqual(constants.frame_stream_first | flags, writer.written()[0]);
+    const flags = constants.protocol.stream_flag_off | constants.protocol.stream_flag_len | constants.protocol.stream_flag_fin;
+    try testing.expectEqual(constants.protocol.frame_stream_first | flags, writer.written()[0]);
     const read_back = (try round_trip(with_offset)).stream;
     try testing.expectEqual(64, read_back.offset);
     try testing.expect(read_back.fin and read_back.has_length);
@@ -217,13 +217,13 @@ test "§19.7: a NEW_TOKEN frame with an empty token is refused" {
 
 test "§19.11, §19.14: a stream limit above 2^60 is refused" {
     var writer = Writer.init(&buffer);
-    try frame.write_type(&writer, constants.frame_max_streams_bidirectional);
-    try wire.varint.encode(&writer, constants.max_streams_max + 1);
+    try frame.write_type(&writer, constants.protocol.frame_max_streams_bidirectional);
+    try wire.varint.encode(&writer, constants.protocol.max_streams_max + 1);
     try testing.expectError(error.StreamLimitTooLarge, read_octets(writer.written()));
     // STREAMS_BLOCKED carries the same rule.
     var blocked = Writer.init(&buffer);
-    try frame.write_type(&blocked, constants.frame_streams_blocked_unidirectional);
-    try wire.varint.encode(&blocked, constants.max_streams_max + 1);
+    try frame.write_type(&blocked, constants.protocol.frame_streams_blocked_unidirectional);
+    try wire.varint.encode(&blocked, constants.protocol.max_streams_max + 1);
     try testing.expectError(error.StreamLimitTooLarge, read_octets(blocked.written()));
 }
 
@@ -251,11 +251,11 @@ test "§19.19: a transport close carries the frame type and an application close
     const transport: Frame = .{ .connection_close = .{
         .layer = .transport,
         .error_code = frame.frame_encoding_error,
-        .frame_type = constants.frame_stream_first,
+        .frame_type = constants.protocol.frame_stream_first,
         .reason = reason,
     } };
     const read_transport = (try round_trip(transport)).connection_close;
-    try testing.expectEqual(constants.frame_stream_first, read_transport.frame_type.?);
+    try testing.expectEqual(constants.protocol.frame_stream_first, read_transport.frame_type.?);
     try testing.expectEqualStrings(reason, read_transport.reason);
 
     const application: Frame = .{ .connection_close = .{
@@ -295,7 +295,7 @@ test "§19: a frame cut anywhere is a truncation and consumes nothing" {
         .{ .max_data = .{ .maximum = 1 << 30 } },
         .{ .max_stream_data = .{ .stream_id = 12, .maximum = 65_535 } },
         .{ .max_streams = .{ .directionality = .bidirectional, .maximum = 100 } },
-        .{ .max_streams = .{ .directionality = .unidirectional, .maximum = constants.max_streams_max } },
+        .{ .max_streams = .{ .directionality = .unidirectional, .maximum = constants.protocol.max_streams_max } },
         .{ .data_blocked = .{ .limit = 1 << 20 } },
         .{ .stream_data_blocked = .{ .stream_id = 16, .limit = 4096 } },
         .{ .streams_blocked = .{ .directionality = .unidirectional, .limit = 3 } },
@@ -311,7 +311,7 @@ test "§19: a frame cut anywhere is a truncation and consumes nothing" {
         .{ .connection_close = .{
             .layer = .transport,
             .error_code = frame.frame_encoding_error,
-            .frame_type = constants.frame_stream_first,
+            .frame_type = constants.protocol.frame_stream_first,
             .reason = reason,
         } },
         .{ .connection_close = .{
@@ -392,7 +392,7 @@ test "§19: a frame that does not fit the buffer writes nothing at all" {
         .{ .connection_close = .{
             .layer = .transport,
             .error_code = frame.frame_encoding_error,
-            .frame_type = constants.frame_stream_first,
+            .frame_type = constants.protocol.frame_stream_first,
             .reason = reason,
         } },
         .{ .max_stream_data = .{ .stream_id = 12, .maximum = 65_535 } },

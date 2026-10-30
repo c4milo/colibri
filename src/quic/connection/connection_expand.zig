@@ -13,17 +13,17 @@ const Connection = connection_module.Connection;
 pub fn expand_last(connection: *Connection, plans: []packet_build.Planned, planned_len: usize, ceiling: usize) void {
     const owed = owes_expansion(connection, plans);
     if (owed == .none) return;
-    if (planned_len >= constants.datagram_len_min) return;
+    if (planned_len >= constants.protocol.datagram_len_min) return;
     // RFC 9000 §8.2.1 and §8.2.2 except a datagram §8's limit keeps below 1,200 octets, and one
     // padded part of the way validates no path MTU (§8.2.1). The octets are kept instead for the
     // PATH_CHALLENGE frames §13.3 sends after it, which the same limit bounds (decision 72).
-    if (owed == .path_frames and ceiling < constants.datagram_len_min) return;
+    if (owed == .path_frames and ceiling < constants.protocol.datagram_len_min) return;
     const last = &plans[plans.len - 1];
     // RFC 9001 §5.4.2's widening of a tiny packet's number is what PADDING replaces once there is
     // any: padding the widened octets back in lands the datagram on 1,200 exactly, and when the
     // ceiling allows less the widening shrinks by as much as the padding grows.
     const widened_len = packet_build.widening_len(last.*);
-    const wanted = constants.datagram_len_min - planned_len + widened_len;
+    const wanted = constants.protocol.datagram_len_min - planned_len + widened_len;
     // The padding goes in the last packet's payload, so it is bounded by what that payload's
     // buffer still holds as well as by what the datagram needs.
     last.padding_len = @min(wanted, room_for_padding(last, ceiling, planned_len - widened_len));

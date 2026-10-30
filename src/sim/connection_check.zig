@@ -143,8 +143,8 @@ pub const Subject = struct {
     /// the subject holds the octets until all of them are there and the run's records say the same
     /// thing however the stream was chunked (design §6.6).
     fn waits_for_preface(subject: *const Subject, held: []const u8) bool {
-        if (subject.connection.preface_read_len == h2_constants.client_preface_len) return false;
-        return held.len < h2_constants.client_preface_len;
+        if (subject.connection.preface_read_len == h2_constants.protocol.client_preface_len) return false;
+        return held.len < h2_constants.protocol.client_preface_len;
     }
 
     /// Reads invariants 13 to 16 off the connection, after every frame it read: one it accepted,
@@ -175,13 +175,13 @@ fn rises(seen: ?u32, reached: ?u32) bool {
 /// queues hold, the connection window update, every stream reply and the GOAWAY
 /// (`connection_reply.zig`). The subject asks for no reset, so no stream's record owes a
 /// RST_STREAM (decision 113).
-const output_len_needed: u32 = h2_constants.frame_header_len +
-    h2_constants.settings_count * h2_constants.setting_len +
-    h2_constants.settings_ack_pending_max * h2_constants.frame_header_len +
-    h2_constants.ping_ack_pending_max * (h2_constants.frame_header_len + h2_constants.ping_len) +
-    (h2_constants.stream_replies_max + 1) *
-        (h2_constants.frame_header_len + h2_constants.window_update_len) +
-    h2_constants.frame_header_len + h2_constants.goaway_len_min;
+const output_len_needed: u32 = h2_constants.protocol.frame_header_len +
+    h2_constants.protocol.settings_count * h2_constants.protocol.setting_len +
+    h2_constants.limits.settings_ack_pending_max * h2_constants.protocol.frame_header_len +
+    h2_constants.limits.ping_ack_pending_max * (h2_constants.protocol.frame_header_len + h2_constants.protocol.ping_len) +
+    (h2_constants.limits.stream_replies_max + 1) *
+        (h2_constants.protocol.frame_header_len + h2_constants.protocol.window_update_len) +
+    h2_constants.protocol.frame_header_len + h2_constants.protocol.goaway_len_min;
 
 comptime {
     assert(output_len_needed <= constants.connection_check_output_len_max);
@@ -371,9 +371,9 @@ fn code_of(refusal: connection_stream.Refusal) u32 {
     return switch (refusal) {
         // RFC 9113 §5.1.1 for the identifier, §4.3 for the interrupted field block, §6.8 for the
         // GOAWAY that names a higher stream.
-        .headers_below_watermark, .frame_inside_field_block, .goaway_last_id_rises => h2_constants.error_protocol_error,
+        .headers_below_watermark, .frame_inside_field_block, .goaway_last_id_rises => h2_constants.protocol.error_protocol_error,
         // RFC 9113 §6.9.1: a window taken above its maximum.
-        .connection_window_overflow => h2_constants.error_flow_control_error,
+        .connection_window_overflow => h2_constants.protocol.error_flow_control_error,
     };
 }
 

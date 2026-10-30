@@ -131,7 +131,7 @@ fn step(connection: *QuicConnection, record: *Request, input: []const u8) ?usize
     // for each line, and a coded head has three lines at least: `:status`, Content-Encoding and
     // Vary. Each line takes far less, so the room left holds every DATA frame's header the runs
     // allow.
-    assert(pieces.kept_room().len >= h3.constants.frame_header_len_max);
+    assert(pieces.kept_room().len >= h3.constants.protocol.frame_header_len_max);
     if (coded.room_len(encoders) == 0) return null;
     const stepped = coded.step(encoders, input);
     if (stepped.written.len > 0) frame(connection, record, stepped.written);
@@ -146,15 +146,15 @@ const coded_head_lines: usize = 3;
 
 /// Octets of a DATA frame's header at most: its type, one octet, and its length's variable-length
 /// integer (RFC 9114 §7.1, RFC 9000 §16).
-const data_header_len_max: usize = 1 + h3.wire.constants.varint_len_max;
+const data_header_len_max: usize = 1 + h3.wire.constants.protocol.varint_len_max;
 
 comptime {
     // What `step` asserts: after a coded head, the kept frames hold every DATA frame's header the
     // runs allow. h3 writes a head only with room for `field_line_overhead` more than each line's
     // name and value, and a line takes `line_representation_len_max` more at most.
-    const head_room = coded_head_lines * (h3.core.constants.field_line_overhead - h3.constants.line_representation_len_max);
-    const data_frames = (constants.quic_response_pieces_max - 1) / data_runs;
-    assert(head_room >= (data_frames - 1) * data_header_len_max + h3.constants.frame_header_len_max);
+    const head_room = coded_head_lines * (h3.core.constants.protocol.field_line_overhead - h3.constants.protocol.line_representation_len_max);
+    const data_frames = (constants.limits.quic_response_pieces_max - 1) / data_runs;
+    assert(head_room >= (data_frames - 1) * data_header_len_max + h3.constants.protocol.frame_header_len_max);
 }
 
 /// Frames `octets`, the ring's newest, as one DATA frame of the response (RFC 9114 §7.2.1).

@@ -418,6 +418,6 @@ comptime {
     // Every answer to every exchange of a peer, with the TLS handshake and h2's own frames, fits
     // the socket toward it, with room for one more call of `send_stream` (P7).
     assert(limits.to_client_len >= requests_max * (limits.answer_long_len_max + limits.answer_slack_len) +
-        limits.server_output_slack_len + server.constants.output_len);
-    assert(limits.to_client_len / server.constants.output_len + 1 <= limits.sends_per_event_max);
+        limits.server_output_slack_len + server.constants.limits.output_len);
+    assert(limits.to_client_len / server.constants.limits.output_len + 1 <= limits.sends_per_event_max);
 }

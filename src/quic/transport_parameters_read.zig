@@ -136,7 +136,7 @@ fn apply_connection_id(parameters: *Parameters, id: Id, body: []const u8) Error!
     };
     // RFC 9000 §17.2: a connection ID in version 1 is at most 20 octets, so a longer one is a
     // value this parameter cannot carry.
-    if (body.len > constants.connection_id_len_max) return Error.ParameterInvalid;
+    if (body.len > constants.protocol.connection_id_len_max) return Error.ParameterInvalid;
     slot.* = ConnectionId.of(body);
     return true;
 }

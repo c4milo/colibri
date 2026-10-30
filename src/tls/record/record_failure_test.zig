@@ -14,7 +14,7 @@ const server = &support.server;
 const to_server = &support.to_server;
 const to_client = &support.to_client;
 
-const record_header_len = tls_provider.constants.record_header_len;
+const record_header_len = tls_provider.constants.protocol.record_header_len;
 /// RFC 9846 §5.1: the content type of an alert record.
 const content_type_alert: u8 = 21;
 /// RFC 9846 §6: an alert is its level and its description, and every error alert is fatal.

@@ -125,7 +125,7 @@ pub fn send_stream(pool: anytype, connection: ConnectionHandle, output: []u8, no
     // Decision 125: a call that leaves room in `output` wrote everything the connection could, and
     // one that writes nothing into the least output finds the connection blocked.
     if (written < output.len) link.send_outstanding = false;
-    if (written == 0 and output.len >= constants.stream_output_len_min) link.send_blocked = true;
+    if (written == 0 and output.len >= constants.limits.stream_output_len_min) link.send_blocked = true;
     return written;
 }
 
@@ -239,7 +239,7 @@ fn report(pool: anytype, now_ns: u64, sends: bool) ?Event {
     check_fallback(pool, now_ns);
     // Bounded: each pass reads a connection's event, or plans and stops. Each connection reports
     // at most `pool_events_per_poll_max / 2` events in one call.
-    const passes = @as(usize, pool_handle.slots_count(pool)) * constants.pool_events_per_poll_max + 1;
+    const passes = @as(usize, pool_handle.slots_count(pool)) * constants.limits.pool_events_per_poll_max + 1;
     for (0..passes) |_| {
         pool_events.plan(pool, now_ns);
         if (pool_events.owed(pool)) |owed| return owed;

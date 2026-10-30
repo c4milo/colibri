@@ -35,11 +35,11 @@ pub const Error = core.reader.Error || error{
 /// The error code RFC 9114 §8.1 gives each of those, for the connection to close with.
 pub fn error_code(failure: Error) u64 {
     return switch (failure) {
-        error.FrameUnexpected => constants.error_frame_unexpected,
-        error.SettingsError => constants.error_settings_error,
+        error.FrameUnexpected => constants.protocol.error_frame_unexpected,
+        error.SettingsError => constants.protocol.error_settings_error,
         // §7.1: a frame truncated by a stream that ended cleanly is H3_FRAME_ERROR too. The
         // caller knows whether the stream ended; here both reach the same code.
-        error.FrameError, error.Truncated => constants.error_frame_error,
+        error.FrameError, error.Truncated => constants.protocol.error_frame_error,
     };
 }
 
@@ -57,7 +57,7 @@ pub const Header = struct {
     /// Whether this type carries a payload colibri reads whole (RFC 9114 §7.2). DATA and
     /// HEADERS do not: their payloads are as long as the content and the field section.
     pub fn is_streamed(header: Header) bool {
-        return header.frame_type == constants.frame_data or header.frame_type == constants.frame_headers;
+        return header.frame_type == constants.protocol.frame_data or header.frame_type == constants.protocol.frame_headers;
     }
 };
 
@@ -75,17 +75,17 @@ pub fn read_header(reader: *Reader) Error!Header {
 /// permitted everywhere, because §9 requires an endpoint to ignore one it does not know; §11.2.1's
 /// reserved HTTP/2 types are the exception and are permitted nowhere.
 pub fn permitted(frame_type: u64, kind: StreamKind) bool {
-    for (constants.frame_reserved_http2) |held| {
+    for (constants.protocol.frame_reserved_http2) |held| {
         if (frame_type == held) return false;
     }
     return switch (frame_type) {
-        constants.frame_data, constants.frame_headers => kind != .control,
-        constants.frame_cancel_push,
-        constants.frame_settings,
-        constants.frame_goaway,
-        constants.frame_max_push_id,
+        constants.protocol.frame_data, constants.protocol.frame_headers => kind != .control,
+        constants.protocol.frame_cancel_push,
+        constants.protocol.frame_settings,
+        constants.protocol.frame_goaway,
+        constants.protocol.frame_max_push_id,
         => kind == .control,
-        constants.frame_push_promise => kind == .request,
+        constants.protocol.frame_push_promise => kind == .request,
         else => true,
     };
 }
@@ -126,14 +126,14 @@ pub fn read_payload(frame_type: u64, payload: []const u8) Error!Payload {
 
 fn read_payload_at(frame_type: u64, reader: *Reader) Error!Payload {
     return switch (frame_type) {
-        constants.frame_cancel_push => .{ .cancel_push = try read_single(reader) },
-        constants.frame_goaway => .{ .goaway = try read_single(reader) },
-        constants.frame_max_push_id => .{ .max_push_id = try read_single(reader) },
-        constants.frame_settings => .{ .settings = try read_settings(reader) },
-        constants.frame_push_promise => .{ .push_promise = try read_push_promise(reader) },
+        constants.protocol.frame_cancel_push => .{ .cancel_push = try read_single(reader) },
+        constants.protocol.frame_goaway => .{ .goaway = try read_single(reader) },
+        constants.protocol.frame_max_push_id => .{ .max_push_id = try read_single(reader) },
+        constants.protocol.frame_settings => .{ .settings = try read_settings(reader) },
+        constants.protocol.frame_push_promise => .{ .push_promise = try read_push_promise(reader) },
         // §7.2.1, §7.2.2: these two are streamed, so asking for their payload whole is the
         // caller's own error and not a peer's.
-        constants.frame_data, constants.frame_headers => unreachable,
+        constants.protocol.frame_data, constants.protocol.frame_headers => unreachable,
         else => .{ .unknown = frame_type },
     };
 }
@@ -174,8 +174,8 @@ pub const Reserved = struct {
     value: u64,
 
     pub fn identifier(reserved: Reserved) u64 {
-        const found = constants.reserved_base +| (constants.reserved_step *| reserved.n);
-        assert(constants.is_reserved(found));
+        const found = constants.protocol.reserved_base +| (constants.protocol.reserved_step *| reserved.n);
+        assert(constants.protocol.is_reserved(found));
         return found;
     }
 };
@@ -196,13 +196,13 @@ fn read_settings(reader: *Reader) Error!Settings {
 fn apply(found: *Settings, identifier: u64, value: u64) Error!void {
     // §7.2.4.1: the HTTP/2 setting identifiers are reserved, and receiving one MUST be treated
     // as a connection error of type H3_SETTINGS_ERROR.
-    for (constants.setting_reserved_http2) |held| {
+    for (constants.protocol.setting_reserved_http2) |held| {
         if (identifier == held) return Error.SettingsError;
     }
     const slot = switch (identifier) {
-        constants.setting_max_field_section_size => &found.max_field_section_size,
-        constants.setting_qpack_max_table_capacity => &found.qpack_max_table_capacity,
-        constants.setting_qpack_blocked_streams => &found.qpack_blocked_streams,
+        constants.protocol.setting_max_field_section_size => &found.max_field_section_size,
+        constants.protocol.setting_qpack_max_table_capacity => &found.qpack_max_table_capacity,
+        constants.protocol.setting_qpack_blocked_streams => &found.qpack_blocked_streams,
         // §7.2.4.1: an identifier this endpoint does not understand MUST be ignored. A duplicate
         // of one is ignored with it: noticing would mean remembering every identifier a peer
         // sent, which is memory a peer chooses the size of.
@@ -220,14 +220,14 @@ test "§7.1: a header is two varints, and a short one consumes nothing" {
     // Type 0x01 (HEADERS) and length 0x0a, both in one octet each.
     var reader = Reader.init(&.{ 0x01, 0x0a });
     const header = try read_header(&reader);
-    try testing.expectEqual(constants.frame_headers, header.frame_type);
+    try testing.expectEqual(constants.protocol.frame_headers, header.frame_type);
     try testing.expectEqual(10, header.length);
     try testing.expectEqual(0, reader.remaining_len());
     try testing.expect(header.is_streamed());
     // A two-octet varint length: 0x4100 is 0x100.
     var wide = Reader.init(&.{ 0x00, 0x41, 0x00 });
     const long = try read_header(&wide);
-    try testing.expectEqual(constants.frame_data, long.frame_type);
+    try testing.expectEqual(constants.protocol.frame_data, long.frame_type);
     try testing.expectEqual(0x100, long.length);
     // §7.1: a header whose octets have not all arrived is not a protocol error. Nothing is
     // consumed, so the caller reads more and asks again.
@@ -238,45 +238,45 @@ test "§7.1: a header is two varints, and a short one consumes nothing" {
     try testing.expectError(error.Truncated, read_header(&half));
     try testing.expectEqual(2, half.remaining_len());
     // Only DATA and HEADERS are streamed; every other payload is read whole.
-    try testing.expect(!(Header{ .frame_type = constants.frame_settings, .length = 0 }).is_streamed());
+    try testing.expect(!(Header{ .frame_type = constants.protocol.frame_settings, .length = 0 }).is_streamed());
 }
 
 test "§7: Table 1 says which frames a stream may carry" {
     // DATA and HEADERS travel on request and push streams and never on the control stream.
-    try testing.expect(permitted(constants.frame_data, .request));
-    try testing.expect(permitted(constants.frame_data, .push));
-    try testing.expect(!permitted(constants.frame_data, .control));
-    try testing.expect(permitted(constants.frame_headers, .push));
-    try testing.expect(!permitted(constants.frame_headers, .control));
+    try testing.expect(permitted(constants.protocol.frame_data, .request));
+    try testing.expect(permitted(constants.protocol.frame_data, .push));
+    try testing.expect(!permitted(constants.protocol.frame_data, .control));
+    try testing.expect(permitted(constants.protocol.frame_headers, .push));
+    try testing.expect(!permitted(constants.protocol.frame_headers, .control));
     // The four control frames travel only on the control stream.
     for ([_]u64{
-        constants.frame_cancel_push,
-        constants.frame_settings,
-        constants.frame_goaway,
-        constants.frame_max_push_id,
+        constants.protocol.frame_cancel_push,
+        constants.protocol.frame_settings,
+        constants.protocol.frame_goaway,
+        constants.protocol.frame_max_push_id,
     }) |held| {
         try testing.expect(permitted(held, .control));
         try testing.expect(!permitted(held, .request));
         try testing.expect(!permitted(held, .push));
     }
     // PUSH_PROMISE is the one frame that travels on a request stream alone.
-    try testing.expect(permitted(constants.frame_push_promise, .request));
-    try testing.expect(!permitted(constants.frame_push_promise, .control));
-    try testing.expect(!permitted(constants.frame_push_promise, .push));
+    try testing.expect(permitted(constants.protocol.frame_push_promise, .request));
+    try testing.expect(!permitted(constants.protocol.frame_push_promise, .control));
+    try testing.expect(!permitted(constants.protocol.frame_push_promise, .push));
 }
 
 test "§9 and §11.2.1: an unknown type is permitted everywhere and an HTTP/2 one nowhere" {
     // §9: an endpoint MUST ignore a frame type it does not know, wherever it arrives, and
     // §7.2.8's reserved types exist to exercise exactly that.
-    const reserved = constants.reserved_base;
-    try testing.expect(constants.is_reserved(reserved));
+    const reserved = constants.protocol.reserved_base;
+    try testing.expect(constants.protocol.is_reserved(reserved));
     for ([_]StreamKind{ .control, .request, .push }) |kind| {
         try testing.expect(permitted(reserved, kind));
         try testing.expect(permitted(0x5555, kind));
     }
     // §11.2.1: the HTTP/2 types are reserved the other way — they MUST NOT be sent and their
     // receipt is H3_FRAME_UNEXPECTED, so no stream accepts one.
-    for (constants.frame_reserved_http2) |held| {
+    for (constants.protocol.frame_reserved_http2) |held| {
         for ([_]StreamKind{ .control, .request, .push }) |kind| {
             try testing.expect(!permitted(held, kind));
         }
@@ -284,75 +284,75 @@ test "§9 and §11.2.1: an unknown type is permitted everywhere and an HTTP/2 on
 }
 
 test "§7.2.3, §7.2.6, §7.2.7: a one-integer payload must be exactly that" {
-    try testing.expectEqual(7, (try read_payload(constants.frame_cancel_push, &.{0x07})).cancel_push);
-    try testing.expectEqual(7, (try read_payload(constants.frame_goaway, &.{0x07})).goaway);
-    try testing.expectEqual(0x100, (try read_payload(constants.frame_max_push_id, &.{ 0x41, 0x00 })).max_push_id);
+    try testing.expectEqual(7, (try read_payload(constants.protocol.frame_cancel_push, &.{0x07})).cancel_push);
+    try testing.expectEqual(7, (try read_payload(constants.protocol.frame_goaway, &.{0x07})).goaway);
+    try testing.expectEqual(0x100, (try read_payload(constants.protocol.frame_max_push_id, &.{ 0x41, 0x00 })).max_push_id);
     // §7.1: octets after the fields the type defines are H3_FRAME_ERROR.
-    try testing.expectError(Error.FrameError, read_payload(constants.frame_goaway, &.{ 0x07, 0x00 }));
+    try testing.expectError(Error.FrameError, read_payload(constants.protocol.frame_goaway, &.{ 0x07, 0x00 }));
     // And a payload that ends before them is the same error, not a short read: the caller
     // already holds the whole frame, so there is nothing more to wait for.
-    try testing.expectError(Error.FrameError, read_payload(constants.frame_goaway, &.{0x41}));
-    try testing.expectError(Error.FrameError, read_payload(constants.frame_goaway, &.{}));
+    try testing.expectError(Error.FrameError, read_payload(constants.protocol.frame_goaway, &.{0x41}));
+    try testing.expectError(Error.FrameError, read_payload(constants.protocol.frame_goaway, &.{}));
 }
 
 test "§7.2.4: SETTINGS is identifier and value pairs" {
     const payload = [_]u8{
-        constants.setting_max_field_section_size, 0x41, 0x00,
-        constants.setting_qpack_blocked_streams,  0x10,
+        constants.protocol.setting_max_field_section_size, 0x41, 0x00,
+        constants.protocol.setting_qpack_blocked_streams,  0x10,
     };
-    const found = (try read_payload(constants.frame_settings, &payload)).settings;
+    const found = (try read_payload(constants.protocol.frame_settings, &payload)).settings;
     try testing.expectEqual(0x100, found.max_field_section_size);
     try testing.expectEqual(0x10, found.qpack_blocked_streams);
     // §7.2.4.1: an absent setting is not the same as one a peer sent with its default value, so
     // it is null and the caller applies the default.
     try testing.expectEqual(null, found.qpack_max_table_capacity);
     // An empty payload is a SETTINGS frame with nothing in it, which §7.2.4 permits.
-    const empty = (try read_payload(constants.frame_settings, &.{})).settings;
+    const empty = (try read_payload(constants.protocol.frame_settings, &.{})).settings;
     try testing.expectEqual(null, empty.max_field_section_size);
     // §7.1: a pair cut in half is H3_FRAME_ERROR.
-    try testing.expectError(Error.FrameError, read_payload(constants.frame_settings, &.{0x06}));
+    try testing.expectError(Error.FrameError, read_payload(constants.protocol.frame_settings, &.{0x06}));
 }
 
 test "§7.2.4.1: a duplicate or an HTTP/2 identifier is refused, and an unknown one ignored" {
     // The same identifier twice, which §7.2.4.1 lets a receiver treat as H3_SETTINGS_ERROR.
-    const twice = [_]u8{ constants.setting_max_field_section_size, 0x01, constants.setting_max_field_section_size, 0x02 };
-    try testing.expectError(Error.SettingsError, read_payload(constants.frame_settings, &twice));
+    const twice = [_]u8{ constants.protocol.setting_max_field_section_size, 0x01, constants.protocol.setting_max_field_section_size, 0x02 };
+    try testing.expectError(Error.SettingsError, read_payload(constants.protocol.frame_settings, &twice));
     // §7.2.4.1: the HTTP/2 identifiers are reserved and receiving one MUST be an error.
-    for (constants.setting_reserved_http2) |held| {
+    for (constants.protocol.setting_reserved_http2) |held| {
         const payload = [_]u8{ @intCast(held), 0x01 };
-        try testing.expectError(Error.SettingsError, read_payload(constants.frame_settings, &payload));
+        try testing.expectError(Error.SettingsError, read_payload(constants.protocol.frame_settings, &payload));
     }
     // An identifier this endpoint does not know is ignored, and so is a second copy of it:
     // noticing that duplicate would mean remembering every identifier a peer chose to send.
-    const unknown = [_]u8{ 0x40, 0x99, 0x01, 0x40, 0x99, 0x02, constants.setting_qpack_max_table_capacity, 0x05 };
-    const found = (try read_payload(constants.frame_settings, &unknown)).settings;
+    const unknown = [_]u8{ 0x40, 0x99, 0x01, 0x40, 0x99, 0x02, constants.protocol.setting_qpack_max_table_capacity, 0x05 };
+    const found = (try read_payload(constants.protocol.frame_settings, &unknown)).settings;
     try testing.expectEqual(5, found.qpack_max_table_capacity);
 }
 
 test "§7.2.5: PUSH_PROMISE splits into a push ID and the field section after it" {
     const payload = [_]u8{ 0x04, 0x00, 0x00, 0xd1 };
-    const found = (try read_payload(constants.frame_push_promise, &payload)).push_promise;
+    const found = (try read_payload(constants.protocol.frame_push_promise, &payload)).push_promise;
     try testing.expectEqual(4, found.push_id);
     // Everything after the push ID is the encoded field section, which QPACK decodes: here the
     // zero-zero prefix and one indexed line.
     try testing.expectEqualSlices(u8, &.{ 0x00, 0x00, 0xd1 }, found.field_section);
     // A promise with no field section at all leaves an empty one rather than failing here; what
     // an empty field section means is QPACK's answer and not the framing layer's.
-    const bare = (try read_payload(constants.frame_push_promise, &.{0x04})).push_promise;
+    const bare = (try read_payload(constants.protocol.frame_push_promise, &.{0x04})).push_promise;
     try testing.expectEqual(0, bare.field_section.len);
 }
 
 test "§9: an unknown frame type's payload is skipped whole" {
-    const found = try read_payload(constants.reserved_base, &.{ 0xde, 0xad, 0xbe, 0xef });
-    try testing.expectEqual(constants.reserved_base, found.unknown);
+    const found = try read_payload(constants.protocol.reserved_base, &.{ 0xde, 0xad, 0xbe, 0xef });
+    try testing.expectEqual(constants.protocol.reserved_base, found.unknown);
     // Whatever the payload holds, and however long it is, nothing in it is read.
     try testing.expectEqual(0x5555, (try read_payload(0x5555, &.{})).unknown);
 }
 
 test "§8.1: every error names the code the connection closes with" {
-    try testing.expectEqual(constants.error_frame_unexpected, error_code(Error.FrameUnexpected));
-    try testing.expectEqual(constants.error_settings_error, error_code(Error.SettingsError));
-    try testing.expectEqual(constants.error_frame_error, error_code(Error.FrameError));
+    try testing.expectEqual(constants.protocol.error_frame_unexpected, error_code(Error.FrameUnexpected));
+    try testing.expectEqual(constants.protocol.error_settings_error, error_code(Error.SettingsError));
+    try testing.expectEqual(constants.protocol.error_frame_error, error_code(Error.FrameError));
     // §7.1: a frame left truncated by a stream that ended cleanly is H3_FRAME_ERROR too.
-    try testing.expectEqual(constants.error_frame_error, error_code(Error.Truncated));
+    try testing.expectEqual(constants.protocol.error_frame_error, error_code(Error.Truncated));
 }

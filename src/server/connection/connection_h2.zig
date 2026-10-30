@@ -32,7 +32,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Erro
     // into the output before any frame is read that could bring a request the caller answers.
     if (!session.preface_done() and !internal.write_owed(connection, now_ns)) return .{ .consumed = 0, .event = null };
     var consumed: usize = 0;
-    for (0..constants.frames_per_receive_max) |_| {
+    for (0..constants.limits.frames_per_receive_max) |_| {
         const received = session.receive(plaintext[consumed..], now_ns) catch return internal.fail(connection);
         consumed += received.consumed;
         if (received.consumed == 0) {
@@ -116,7 +116,7 @@ pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const
     write_owed_first(connection);
     // RFC 9113 §8.1: only the final response ends the stream, so an interim one carries no
     // END_STREAM whatever the caller asked.
-    const interim = status >= http.constants.status_code_min and status < @intFromEnum(http.status.Code.ok);
+    const interim = status >= http.constants.protocol.status_code_min and status < @intFromEnum(http.status.Code.ok);
     if (!interim) try advertise(connection, stream_id);
     const written = connection.session.h2.write_response(internal.room(connection), stream_id, status, fields, end and !interim) catch |failure| {
         return send_error(connection, failure);
@@ -145,7 +145,7 @@ pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: 
     write_owed_first(connection);
     var consumed: usize = 0;
     var written: usize = 0;
-    for (0..constants.data_frames_per_write_max) |_| {
+    for (0..constants.limits.data_frames_per_write_max) |_| {
         const sent = connection.session.h2.write_data(internal.room(connection), stream_id, octets[consumed..], end) catch |failure| {
             // A frame cut at the frame size leaves the stream open, so only the first call fails.
             assert(written == 0);
@@ -183,7 +183,7 @@ pub fn cancel(connection: *Connection, id: Number) void {
     const stream_id = stream_of(id) catch return;
     // RFC 9113 §6.4: CANCEL says the stream is no longer needed. A stream h2 no longer holds needs
     // no reset.
-    connection.session.h2.reset_stream(stream_id, h2.constants.error_cancel) catch |failure| {
+    connection.session.h2.reset_stream(stream_id, h2.constants.protocol.error_cancel) catch |failure| {
         assert(failure == error.StreamNotSendable);
     };
 }
@@ -197,7 +197,7 @@ pub fn idle(connection: *const Connection) bool {
 /// the client did not open.
 pub fn stream_of(id: Number) SendError!u32 {
     // RFC 9113 §5.1.1: a stream identifier is 31 bits, and 0 names the connection.
-    if (id == 0 or id > h2.constants.stream_id_max) return error.RequestUnknown;
+    if (id == 0 or id > h2.constants.protocol.stream_id_max) return error.RequestUnknown;
     return @intCast(id);
 }
 
@@ -205,7 +205,7 @@ pub fn stream_of(id: Number) SendError!u32 {
 /// `h2.hpack.Field` is `http.Field`, so nothing is copied.
 fn check_count(fields: []const Field) SendError!void {
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
-    if (fields.len > core.constants.field_count_max) return error.SectionTooLarge;
+    if (fields.len > core.constants.limits.field_count_max) return error.SectionTooLarge;
 }
 
 fn send_error(connection: *const Connection, failure: h2.connection.SendError) SendError {

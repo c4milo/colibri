@@ -71,7 +71,7 @@ pub const Decoded = struct {
 const line_end = "\r\n";
 
 /// Most octets of a chunk-size line with its CRLF.
-const size_line_octets_max = constants.chunk_line_len_max + line_end.len;
+const size_line_octets_max = constants.limits.chunk_line_len_max + line_end.len;
 
 /// What a search for the end of a line looks for: the end of one line, or the empty line that ends
 /// a section of lines, which may be the first.
@@ -203,9 +203,9 @@ pub const Decoder = struct {
 
     /// Reads the whole trailer section into `trailers`, or returns false when it is not whole.
     fn read_trailer(decoder: *Decoder, role: Role, reader: *Reader, trailers: *FieldSection) Error!bool {
-        const end = try decoder.search.find(.empty_line, reader.peek_rest(), constants.trailer_len_max) orelse {
+        const end = try decoder.search.find(.empty_line, reader.peek_rest(), constants.limits.trailer_len_max) orelse {
             // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies.
-            if (reader.remaining_len() >= constants.trailer_len_max) return error.TrailerTooLarge;
+            if (reader.remaining_len() >= constants.limits.trailer_len_max) return error.TrailerTooLarge;
             return false;
         };
         const section = reader.take(end) catch unreachable;
@@ -308,7 +308,7 @@ test "RFC 9112 §2.2 and §7.1: a bare CR, a lone LF, or data without its CRLF i
 }
 
 /// Octets the limit tests fill a line with.
-threadlocal var test_octets: [constants.trailer_len_max + 1]u8 = @splat('a');
+threadlocal var test_octets: [constants.limits.trailer_len_max + 1]u8 = @splat('a');
 
 test "a chunk-size line or trailer section past its limit is refused, and one at it is read" {
     var decoder: Decoder = .{};
@@ -321,7 +321,7 @@ test "a chunk-size line or trailer section past its limit is refused, and one at
     try testing.expectError(error.ChunkLineTooLong, decoder.decode(.request, &line, &test_trailers));
     decoder = .{ .state = .trailer };
     @memcpy(test_octets[0..3], "X: ");
-    try testing.expectError(error.TrailerTooLarge, decoder.decode(.request, test_octets[0..constants.trailer_len_max], &test_trailers));
+    try testing.expectError(error.TrailerTooLarge, decoder.decode(.request, test_octets[0..constants.limits.trailer_len_max], &test_trailers));
 }
 
 test "a call on a body that is not whole consumes what it can and waits" {

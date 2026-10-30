@@ -93,7 +93,7 @@ pub fn takes_content(connection: *Connection, id: Number, waiting_len: usize) bo
         // RFC 9112 §7.1: a chunk is its size line, its data and a CRLF, and the last chunk may
         // follow it.
         .h11 => |*session| if (session.writer.kind == .chunked)
-            room_len > constants.chunk_framing_len_max + constants.last_chunk_len
+            room_len > constants.limits.chunk_framing_len_max + constants.protocol.last_chunk_len
         else
             room_len > 0,
         .h2 => |*session| session.sendable_len(connection_h2.stream_of(id) catch return false, room_len, waiting_len) > 0,

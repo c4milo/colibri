@@ -192,15 +192,15 @@ fn requests_of(peer: Peer, random: *Random) u8 {
 fn draw_deadlines(random: *Random) server.Timeouts {
     if (random.below(short_limits_one_in) != 0) return .{};
     const defaults = server.constants;
-    const body_rate: u32 = @intCast(random.between(defaults.body_rate_min, limits.short_rate_max));
-    const send_rate: u32 = @intCast(random.between(defaults.send_rate_min, limits.short_rate_max));
+    const body_rate: u32 = @intCast(random.between(defaults.policy.body_rate_min, limits.short_rate_max));
+    const send_rate: u32 = @intCast(random.between(defaults.policy.send_rate_min, limits.short_rate_max));
     return .{
-        .first_request_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.first_request_timeout_ns),
-        .idle_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.idle_timeout_ns),
-        .head_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.head_timeout_ns),
+        .first_request_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.policy.first_request_timeout_ns),
+        .idle_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.policy.idle_timeout_ns),
+        .head_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.policy.head_timeout_ns),
         .body_rate_min = body_rate,
-        .rate_grace_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.rate_grace_ns),
-        .rate_window_ns = shorter_ns(random, window_ms_min(@min(body_rate, send_rate)), defaults.rate_window_ns),
+        .rate_grace_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.policy.rate_grace_ns),
+        .rate_window_ns = shorter_ns(random, window_ms_min(@min(body_rate, send_rate)), defaults.policy.rate_window_ns),
         .send_rate_min = send_rate,
     };
 }

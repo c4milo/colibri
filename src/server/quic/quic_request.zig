@@ -39,7 +39,7 @@ pub const Request = struct {
 };
 
 pub const Requests = struct {
-    records: [constants.quic_requests_max]Request,
+    records: [constants.limits.quic_requests_max]Request,
 
     pub fn init(requests: *Requests) void {
         for (&requests.records) |*record| record.in_use = false;
@@ -122,7 +122,7 @@ pub const Ending = struct {
 /// The events owed, oldest first. Each request owes one at most, so the ring has room for every
 /// request the connection holds.
 pub const Owed = struct {
-    endings: [constants.quic_requests_max]Ending = undefined,
+    endings: [constants.limits.quic_requests_max]Ending = undefined,
     first: usize = 0,
     len: usize = 0,
 
@@ -159,11 +159,11 @@ test "a record is taken for each request stream, found by its stream, and freed 
     const requests = &test_requests;
     requests.init();
     try testing.expect(requests.idle());
-    for (0..constants.quic_requests_max) |index| {
+    for (0..constants.limits.quic_requests_max) |index| {
         const stream_id: u64 = index * 4;
         try testing.expectEqual(stream_id, requests.take(stream_id).?.stream_id);
     }
-    try testing.expectEqual(null, requests.take(constants.quic_requests_max * 4));
+    try testing.expectEqual(null, requests.take(constants.limits.quic_requests_max * 4));
     const second = requests.of(4).?;
     second.in_use = false;
     try testing.expectEqual(null, requests.of(4));
@@ -183,6 +183,6 @@ test "decision 103: the endings owed come out in order, as the events the caller
     try testing.expectEqual(deadline.Timeout.body, cancelled.reason.timeout);
     try testing.expectEqual(null, owed.take());
     // A ring that starts partway round wraps past its end.
-    for (0..constants.quic_requests_max) |index| owed.push(.{ .kind = .done, .id = index });
-    for (0..constants.quic_requests_max) |index| try testing.expectEqual(index, owed.take().?.done.id.number);
+    for (0..constants.limits.quic_requests_max) |index| owed.push(.{ .kind = .done, .id = index });
+    for (0..constants.limits.quic_requests_max) |index| try testing.expectEqual(index, owed.take().?.done.id.number);
 }

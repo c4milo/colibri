@@ -74,7 +74,7 @@ test "decision 97: a description without the AES instructions refuses a suite or
     // An object that takes no description fixes its suites when it is built, and `config.zig`
     // refuses an order for one that holds ChaCha20 alone.
     if (!support.takes_cpu or !support.aes_gcm) return;
-    const order = [_]u16{tls_provider.constants.cipher_suite_aes_128_gcm_sha256};
+    const order = [_]u16{tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256};
     // `not_known` gives no more ground to run the instructions than `no` does, and a mode not
     // stated none at all.
     for ([_]values.Cpu{ support.cpu_without_aes, support.cpu_unknown, support.cpu_not_stated }) |described| {

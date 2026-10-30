@@ -204,7 +204,7 @@ pub const Receiver = struct {
         // RFC 9000 §4.1: a limit that does not rise "has no effect", so it is never worth a frame.
         // A window of 0 or 1 makes the fraction below 0, which alone would offer one every call.
         if (gain == 0) return false;
-        return gain >= receiver.window / constants.flow_credit_fraction;
+        return gain >= receiver.window / constants.policy.flow_credit_fraction;
     }
 
     /// Grows the window when this endpoint is crediting faster than the peer can learn of it,
@@ -214,8 +214,8 @@ pub const Receiver = struct {
         assert(now_ns >= previous_ns);
         // The peer learns of new credit a round trip after it goes out, so crediting again
         // inside a few of them says the application is draining faster than that.
-        if (now_ns - previous_ns >= round_trip_ns *| constants.flow_tune_round_trips) return;
-        receiver.window = @min(receiver.window *| constants.flow_window_growth, receiver.window_max);
+        if (now_ns - previous_ns >= round_trip_ns *| constants.policy.flow_tune_round_trips) return;
+        receiver.window = @min(receiver.window *| constants.policy.flow_window_growth, receiver.window_max);
     }
 
     /// What the peer may still send before it is blocked.
@@ -229,7 +229,7 @@ const testing = std.testing;
 
 /// A window the tests measure credit against, and a fraction of it. Test-only.
 const test_window = 1000;
-const half_window = test_window / constants.flow_credit_fraction;
+const half_window = test_window / constants.policy.flow_credit_fraction;
 /// The cap a tuned window grows to, and a round trip to measure against. Test-only.
 const test_window_doublings = 3;
 const test_window_max = (1 << test_window_doublings) * test_window;
@@ -374,7 +374,7 @@ test "decision 49: a window that took longer than the test does not grow" {
     receiver.consume(test_window);
     _ = receiver.credit_frame_limit(0, test_round_trip_ns).?;
     // Exactly the interval the rule tests against is not inside it.
-    const outside = constants.flow_tune_round_trips * test_round_trip_ns;
+    const outside = constants.policy.flow_tune_round_trips * test_round_trip_ns;
     try receiver.use(2 * test_window, error.FlowControlExceeded);
     receiver.consume(test_window);
     _ = receiver.credit_frame_limit(outside, test_round_trip_ns).?;
@@ -418,7 +418,7 @@ test "§4.1: a grown window never advertises a smaller limit than before" {
     var previous: u64 = receiver.limit;
     for (0..8) |_| {
         try receiver.use(receiver.limit, error.FlowControlExceeded);
-        receiver.consume(receiver.window / constants.flow_credit_fraction);
+        receiver.consume(receiver.window / constants.policy.flow_credit_fraction);
         const limit = receiver.credit_frame_limit(now_ns, test_round_trip_ns) orelse continue;
         // RFC 9000 §4.1: a smaller limit has no effect, and a growing window produces none.
         try testing.expect(limit > previous);

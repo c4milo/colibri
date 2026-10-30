@@ -38,7 +38,7 @@ const Answer = struct {
 
 pub const Files = struct {
     www: []const u8,
-    answers: [server.constants.quic_requests_max]Answer,
+    answers: [server.constants.limits.quic_requests_max]Answer,
     /// Responses answered with a file or the root body, which the endpoint reports.
     served: u64,
 

@@ -23,7 +23,7 @@ const hex_digits_per_octet: usize = 2;
 
 /// Octets of the longest file name: a slash, the longest connection ID in hex, an underscore, the
 /// longer vantage point and the extension.
-const file_name_len_max = "/".len + hex_digits_per_octet * quic.constants.connection_id_len_max + "_server.sqlog".len;
+const file_name_len_max = "/".len + hex_digits_per_octet * quic.constants.protocol.connection_id_len_max + "_server.sqlog".len;
 
 pub const Qlog = struct {
     log: Log,
@@ -85,7 +85,7 @@ pub const Qlog = struct {
 
 /// `/<ODCID>_<vantage point>.sqlog`, the ID in hex, as main schema §12.1 recommends.
 fn file_name(into: *[file_name_len_max]u8, role: Role, original_destination: []const u8) []const u8 {
-    std.debug.assert(original_destination.len <= quic.constants.connection_id_len_max);
+    std.debug.assert(original_destination.len <= quic.constants.protocol.connection_id_len_max);
     return std.fmt.bufPrint(into, "/{x}_{t}.sqlog", .{ original_destination, vantage_point_of(role) }) catch unreachable;
 }
 
@@ -103,6 +103,6 @@ test "main schema §12.1: a connection's qlog is named for its original destinat
     try testing.expectEqualStrings("/0dab01_server.sqlog", file_name(&name, .server, &.{ 0x0d, 0xab, 0x01 }));
     try testing.expectEqualStrings("/ff_client.sqlog", file_name(&name, .client, &.{0xff}));
     // RFC 9000 §17.2: the longest connection ID fits.
-    const longest: [quic.constants.connection_id_len_max]u8 = @splat(0xee);
+    const longest: [quic.constants.protocol.connection_id_len_max]u8 = @splat(0xee);
     try testing.expectEqual(file_name_len_max, file_name(&name, .server, &longest).len);
 }

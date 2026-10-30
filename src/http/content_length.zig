@@ -55,13 +55,13 @@ const optional_whitespace = " \t";
 
 /// Most calls `check_line` makes to its splitter. n octets hold at most n + 1 members, and one
 /// more call finds the end, so the bound is never the reason the loop stops.
-const member_split_calls_max = core.constants.field_value_len_max + member_split_calls_past_len;
+const member_split_calls_max = core.constants.limits.field_value_len_max + member_split_calls_past_len;
 const member_split_calls_past_len = 2;
 
 /// The content length every content-length line of `section` declares, or null when the section
 /// has no such line.
 pub fn from_section(section: *const FieldSection) Error!?u64 {
-    assert(section.len() <= core.constants.field_count_max);
+    assert(section.len() <= core.constants.limits.field_count_max);
     var first: ?[]const u8 = null;
     for (section.lines[0..section.len()], 0..) |*record, index| {
         // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case one octet
@@ -80,7 +80,7 @@ pub fn from_section(section: *const FieldSection) Error!?u64 {
 /// Steps 1 and 2 for every member of one line. `first` holds the first member of the section, once
 /// one has been read.
 fn check_line(value: []const u8, first: *?[]const u8) Error!void {
-    assert(value.len <= core.constants.field_value_len_max);
+    assert(value.len <= core.constants.limits.field_value_len_max);
     var members = std.mem.splitScalar(u8, value, ',');
     for (0..member_split_calls_max) |_| {
         const member = members.next() orelse return;
@@ -112,11 +112,11 @@ fn is_digits(member: []const u8) bool {
 /// Step 3: `digits`, which `is_digits` accepted, as a u64.
 fn parse_digits(digits: []const u8) Error!u64 {
     assert(digits.len > 0);
-    assert(digits.len <= core.constants.field_value_len_max);
+    assert(digits.len <= core.constants.limits.field_value_len_max);
     var total: u64 = 0;
     for (digits) |octet| {
         // RFC 9110 §8.6: a recipient prevents parsing errors due to integer conversion overflows.
-        const shifted = std.math.mul(u64, total, constants.content_length_radix) catch
+        const shifted = std.math.mul(u64, total, constants.protocol.content_length_radix) catch
             return error.ContentLengthTooLarge;
         // RFC 9110 §8.6: the same rule, on the digit added.
         total = std.math.add(u64, shifted, octet - '0') catch return error.ContentLengthTooLarge;
@@ -202,7 +202,7 @@ test "members are checked in arrival order, each for digits and then against the
 }
 
 test "a value of field_value_len_max members ends the list rather than the loop" {
-    var digits: [core.constants.field_value_len_max]u8 = @splat(',');
+    var digits: [core.constants.limits.field_value_len_max]u8 = @splat(',');
     for (0..digits.len) |index| {
         if (index % 2 == 0) digits[index] = '1';
     }

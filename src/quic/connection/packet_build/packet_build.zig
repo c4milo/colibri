@@ -53,9 +53,9 @@ pub const Room = packet_build_frames.Room;
 /// datagram. The caller places this (decision 35) and `capacity` is how large a packet it admits;
 /// decision 54 makes RFC 9000 §14.1's smallest allowed maximum datagram the default.
 pub fn Scratch(comptime capacity: usize) type {
-    comptime assert(capacity >= constants.protected_len_min);
+    comptime assert(capacity >= constants.protocol.protected_len_min);
     return struct {
-        header: [constants.packet_header_len_max]u8 = undefined,
+        header: [constants.limits.packet_header_len_max]u8 = undefined,
         payload: [capacity]u8 = undefined,
 
         /// How many octets of frames a packet built with this scratch can hold.
@@ -64,7 +64,7 @@ pub fn Scratch(comptime capacity: usize) type {
 }
 
 /// The scratch a caller gets by asking for no size in particular.
-pub const DefaultScratch = Scratch(constants.datagram_len_min);
+pub const DefaultScratch = Scratch(constants.protocol.datagram_len_min);
 
 /// Why a packet was not built. Neither is the peer's doing.
 pub const Error = error{
@@ -139,7 +139,7 @@ pub const Planned = struct {
     /// The PATH_CHALLENGE this packet carries, or null when it carries none (RFC 9000 §8.2.1).
     /// The datagram's length decides whether the path MTU is validated, so the octets travel this
     /// far and `Path.on_challenge_sent` takes them once the datagram exists.
-    path_challenge: ?[constants.path_challenge_len]u8 = null,
+    path_challenge: ?[constants.protocol.path_challenge_len]u8 = null,
     /// Whether this packet carries a PATH_RESPONSE (RFC 9000 §8.2.2), which §8.2.2 expands the
     /// datagram for just as §8.2.1 does for a challenge.
     carries_path_response: bool = false,
@@ -252,19 +252,19 @@ fn shape_of(connection: *Connection, level: Level, packet_number_len: u8, output
     const fixed = fixed_header_len(connection, level, packet_number_len);
     // RFC 9001 §5.3: the tag follows the payload and the Length counts it, so a packet needs room
     // for a header, the shortest legal payload and the tag before it is worth building.
-    const overhead = fixed + constants.aead_tag_len;
+    const overhead = fixed + constants.protocol.aead_tag_len;
     if (output_len <= overhead + 1) return Error.NoSpaceLeft;
     // RFC 9000 §16: the Length may be written wider than minimal, so its width is chosen from the
     // largest value this packet could carry and never has to change once the payload is framed.
     const largest_length = output_len - overhead;
     const length_len = if (level == .application) 0 else wire.varint.encoded_len_minimal(largest_length);
     const header = fixed + length_len;
-    if (output_len <= header + constants.aead_tag_len) return Error.NoSpaceLeft;
+    if (output_len <= header + constants.protocol.aead_tag_len) return Error.NoSpaceLeft;
     // RFC 9001 §5.4.2: the number and payload reach four octets, which a tiny packet meets by
     // widening its number (decision 54), so the room holds that much whatever is framed.
-    const sampled_len = header - packet_number_len + constants.protected_len_min + constants.aead_tag_len;
+    const sampled_len = header - packet_number_len + constants.protocol.protected_len_min + constants.protocol.aead_tag_len;
     if (output_len < sampled_len) return Error.NoSpaceLeft;
-    return .{ .length_len = length_len, .header_len = header, .room = output_len - header - constants.aead_tag_len };
+    return .{ .length_len = length_len, .header_len = header, .room = output_len - header - constants.protocol.aead_tag_len };
 }
 
 /// The header's octets other than its Length field (RFC 9000 §17.2, §17.3).
@@ -292,10 +292,10 @@ fn fixed_header_len(connection: *Connection, level: Level, packet_number_len: u8
 /// payload under four octets, because the shortest CRYPTO frame is four and an ACK is longer, so
 /// nothing reaches it through `build` until the send path writes a bare PING.
 pub fn widen_for_sample(number: u64, truncated: packet_number.Truncated, payload_len: usize) packet_number.Truncated {
-    if (payload_len >= constants.protected_len_min) return truncated;
-    const needed: u8 = @intCast(constants.protected_len_min - payload_len);
+    if (payload_len >= constants.protocol.protected_len_min) return truncated;
+    const needed: u8 = @intCast(constants.protocol.protected_len_min - payload_len);
     if (needed <= truncated.len) return truncated;
-    assert(needed <= constants.packet_number_len_max);
+    assert(needed <= constants.protocol.packet_number_len_max);
     // RFC 9000 §17.1 permits any width that represents the range, so a wider one is always
     // legal: the peer reads the width from byte 0 and recovers the same number. The value is the
     // number's low octets, which is what `Truncated` holds and `needed` never exceeds.
@@ -468,7 +468,7 @@ fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, p
         // field to an Initial alone, and `write_long` asserts that.
         .token = if (pending.level == .initial) connection.retry_token.slice() else &.{},
         .packet_number = pending.truncated,
-        .protected_payload_len = pending.payload.len + constants.aead_tag_len,
+        .protected_payload_len = pending.payload.len + constants.protocol.aead_tag_len,
         .length_len = pending.shape.length_len,
     });
 }

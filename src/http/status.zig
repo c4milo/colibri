@@ -85,7 +85,7 @@ pub const Status = struct {
 
     /// The status whose code is `code`.
     pub fn from_code(code: u16) Error!Status {
-        const in_range = code >= constants.status_code_min and code <= constants.status_code_max;
+        const in_range = code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max;
         // RFC 9110 §15: all valid status codes are within the range of 100 to 599, inclusive.
         if (!in_range) return error.StatusOutOfRange;
         return .{ .code = code };
@@ -94,12 +94,12 @@ pub const Status = struct {
     /// The status written as three ASCII digits.
     pub fn from_digits(digits: []const u8) Error!Status {
         // RFC 9110 §15: the status code is a three-digit integer code.
-        if (digits.len != constants.status_digits_len) return error.StatusNotThreeDigits;
+        if (digits.len != constants.protocol.status_digits_len) return error.StatusNotThreeDigits;
         var code: u16 = 0;
         for (digits) |digit| {
             // RFC 9110 §15: three digits; DIGIT is 0x30 to 0x39 (RFC 5234 Appendix B.1).
             if (!std.ascii.isDigit(digit)) return error.StatusNotThreeDigits;
-            code = code * constants.status_digit_radix + (digit - '0');
+            code = code * constants.protocol.status_digit_radix + (digit - '0');
         }
         return from_code(code);
     }
@@ -107,14 +107,14 @@ pub const Status = struct {
     /// Writes the three digits of the status code into `digits`, the mirror of `from_digits`:
     /// RFC 9113 §8.3.2 and RFC 9114 §4.3.2 carry them as the `:status` value, and RFC 9110 §15
     /// makes them three, leading zeros included.
-    pub fn write_digits(self: Status, digits: *[constants.status_digits_len]u8) []const u8 {
-        assert(self.code >= constants.status_code_min and self.code <= constants.status_code_max);
+    pub fn write_digits(self: Status, digits: *[constants.protocol.status_digits_len]u8) []const u8 {
+        assert(self.code >= constants.protocol.status_code_min and self.code <= constants.protocol.status_code_max);
         var rest = self.code;
-        var index = constants.status_digits_len;
+        var index = constants.protocol.status_digits_len;
         while (index > 0) {
             index -= 1;
-            digits[index] = '0' + @as(u8, @intCast(rest % constants.status_digit_radix));
-            rest /= constants.status_digit_radix;
+            digits[index] = '0' + @as(u8, @intCast(rest % constants.protocol.status_digit_radix));
+            rest /= constants.protocol.status_digit_radix;
         }
         assert(rest == 0);
         return digits;
@@ -122,8 +122,8 @@ pub const Status = struct {
 
     /// The class the first digit names (RFC 9110 §15).
     pub fn class(self: Status) Class {
-        assert(self.code >= constants.status_code_min and self.code <= constants.status_code_max);
-        return @enumFromInt(self.code / constants.status_class_size);
+        assert(self.code >= constants.protocol.status_code_min and self.code <= constants.protocol.status_code_max);
+        return @enumFromInt(self.code / constants.protocol.status_class_size);
     }
 
     /// True when RFC 9110 §15.2 to §15.6 define this code.
@@ -136,7 +136,7 @@ pub const Status = struct {
     pub fn understood(self: Status) Status {
         // RFC 9110 §15: treat an unrecognized status code as the x00 status code of its class.
         if (self.is_recognized()) return self;
-        const understood_code = @as(u16, @intFromEnum(self.class())) * constants.status_class_size;
+        const understood_code = @as(u16, @intFromEnum(self.class())) * constants.protocol.status_class_size;
         assert(std.enums.fromInt(Code, understood_code) != null);
         return .{ .code = understood_code };
     }
@@ -151,12 +151,12 @@ pub const Status = struct {
 const testing = std.testing;
 
 test "write_digits is the mirror of from_digits over every status code" {
-    var digits: [constants.status_digits_len]u8 = undefined;
-    var code: u16 = constants.status_code_min;
-    while (code <= constants.status_code_max) : (code += 1) {
+    var digits: [constants.protocol.status_digits_len]u8 = undefined;
+    var code: u16 = constants.protocol.status_code_min;
+    while (code <= constants.protocol.status_code_max) : (code += 1) {
         const status = try Status.from_code(code);
         const written = status.write_digits(&digits);
-        try std.testing.expectEqual(constants.status_digits_len, written.len);
+        try std.testing.expectEqual(constants.protocol.status_digits_len, written.len);
         try std.testing.expectEqual(code, (try Status.from_digits(written)).code);
     }
     const found = try Status.from_code(200);
@@ -203,14 +203,14 @@ test "an unrecognised code is understood as the x00 of its class" {
     try testing.expectEqual(100, (try Status.from_code(199)).understood().code);
     // Every class's x00 is itself recognised, so `understood` never needs a second call.
     for (1..6) |digit| {
-        const code: u16 = @intCast(digit * constants.status_class_size);
+        const code: u16 = @intCast(digit * constants.protocol.status_class_size);
         try testing.expect((try Status.from_code(code)).is_recognized());
     }
 }
 
 test "the recognised codes are exactly those RFC 9110 §15.2 to §15.6 define" {
     // The same set written as ranges, as the RFC's section headings run: 306 and 418 unused.
-    for (constants.status_code_min..constants.status_code_max + 1) |number| {
+    for (constants.protocol.status_code_min..constants.protocol.status_code_max + 1) |number| {
         const code: u16 = @intCast(number);
         const defined = switch (code) {
             100...101, 200...206, 300...305, 307...308, 400...417, 421, 422, 426, 500...505 => true,
@@ -221,14 +221,14 @@ test "the recognised codes are exactly those RFC 9110 §15.2 to §15.6 define" {
 }
 
 /// Most octets a fuzz input carries: one more than a status, so a fourth digit is reachable.
-const fuzz_input_len_max = constants.status_digits_len + 1;
+const fuzz_input_len_max = constants.protocol.status_digits_len + 1;
 
 fn fuzz_from_digits(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const digits = input[0..smith.slice(&input)];
     const status = Status.from_digits(digits) catch return;
-    try testing.expect(status.code >= constants.status_code_min);
-    try testing.expect(status.code <= constants.status_code_max);
+    try testing.expect(status.code >= constants.protocol.status_code_min);
+    try testing.expect(status.code <= constants.protocol.status_code_max);
     try testing.expect(status.understood().is_recognized());
 }
 
@@ -243,9 +243,9 @@ test "fuzz: a status that parses is in range and understood as a recognised code
 
 test "every three-digit string parses exactly when it is 100 to 599" {
     for (0..1000) |number| {
-        var digits: [constants.status_digits_len]u8 = @splat('0');
+        var digits: [constants.protocol.status_digits_len]u8 = @splat('0');
         _ = std.fmt.bufPrint(&digits, "{d:0>3}", .{number}) catch unreachable;
-        const in_range = number >= constants.status_code_min and number <= constants.status_code_max;
+        const in_range = number >= constants.protocol.status_code_min and number <= constants.protocol.status_code_max;
         if (Status.from_digits(&digits)) |status| {
             try testing.expect(in_range);
             try testing.expectEqual(number, status.code);

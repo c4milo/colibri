@@ -29,7 +29,7 @@ comptime {
 /// Whether `value`, of `word_len` octets or more, holds a control octet, HTAB included.
 pub fn has_control(value: []const u8) bool {
     assert(value.len >= word_len);
-    assert(value.len <= core.constants.field_value_len_max);
+    assert(value.len <= core.constants.limits.field_value_len_max);
     var lanes: u64 = 0;
     var rest = value;
     for (0..value.len / word_len) |_| {

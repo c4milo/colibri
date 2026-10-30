@@ -12,9 +12,9 @@ const reason = "because the peer said so";
 const token = "a token the server issued";
 const stream_data = "stream octets";
 const connection_id = "\xaa\xbb\xcc\xdd";
-const path_data: [constants.path_challenge_len]u8 = "\x01\x02\x03\x04\x05\x06\x07\x08".*;
+const path_data: [constants.protocol.path_challenge_len]u8 = "\x01\x02\x03\x04\x05\x06\x07\x08".*;
 const reset_token_octet: u8 = 0x10;
-const reset_token: [constants.stateless_reset_token_len]u8 = @splat(reset_token_octet);
+const reset_token: [constants.protocol.stateless_reset_token_len]u8 = @splat(reset_token_octet);
 
 const ack_largest: u64 = 100;
 

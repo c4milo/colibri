@@ -38,7 +38,7 @@ pub const DiscardError = error{
 
 pub const Error = DiscardError || receive.Error;
 
-const tag_len = crypto.constants.aead_tag_len;
+const tag_len = crypto.constants.protocol.aead_tag_len;
 const marker_current = cases.marker_current;
 const marker_next = cases.marker_next;
 const marker_previous = cases.marker_previous;
@@ -67,7 +67,7 @@ pub fn decode(state: ReceiveState, octets: []const u8) Error!void {
     const suite = suite_state.suite();
     // Bounded: every outcome advances the walk or ends it, and a datagram holds at most
     // `coalesced_packets_max` packets.
-    for (0..quic.constants.coalesced_packets_max + 1) |_| {
+    for (0..quic.constants.limits.coalesced_packets_max + 1) |_| {
         const outcome = try receive.next(&walk, &connection, suite) orelse return;
         const opened = switch (outcome) {
             .opened => |held| held,
@@ -182,10 +182,10 @@ const GoldenSuite = struct {
     fn seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {
         unreachable;
     }
-    fn retry_tag_valid(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+    fn retry_tag_valid(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.protocol.retry_integrity_tag_len]u8) bool {
         unreachable;
     }
-    fn retry_tag_write(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *[crypto.constants.retry_integrity_tag_len]u8) crypto.suite.RetryTagError!void {
+    fn retry_tag_write(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *[crypto.constants.protocol.retry_integrity_tag_len]u8) crypto.suite.RetryTagError!void {
         unreachable;
     }
     fn retry_token_write(_: *anyopaque, _: crypto.suite.Version, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {

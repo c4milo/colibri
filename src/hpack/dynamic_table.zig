@@ -40,8 +40,8 @@ pub const Match = struct {
 };
 
 pub const DynamicTable = struct {
-    octets: [constants.dynamic_table_capacity_max]u8,
-    entries: [constants.dynamic_table_entries_max]Entry,
+    octets: [constants.limits.dynamic_table_capacity_max]u8,
+    entries: [constants.limits.dynamic_table_entries_max]Entry,
     /// The oldest entry's slot in `entries`; the newest is `count - 1` slots after it, wrapping.
     first: u32,
     count: u32,
@@ -54,7 +54,7 @@ pub const DynamicTable = struct {
     capacity: u64,
 
     pub fn init(table: *DynamicTable, capacity: u64) void {
-        assert(capacity <= constants.dynamic_table_capacity_max);
+        assert(capacity <= constants.limits.dynamic_table_capacity_max);
         table.first = 0;
         table.count = 0;
         table.octets_start = 0;
@@ -73,7 +73,7 @@ pub const DynamicTable = struct {
     /// null past the oldest. The slices are valid until the next insert or resize.
     pub fn get(table: *const DynamicTable, index: u64) ?Field {
         if (index == 0 or index > table.count) return null;
-        const slot = (table.first + table.count - @as(u32, @intCast(index))) % constants.dynamic_table_entries_max;
+        const slot = (table.first + table.count - @as(u32, @intCast(index))) % constants.limits.dynamic_table_entries_max;
         return table.field(&table.entries[slot]);
     }
 
@@ -95,7 +95,7 @@ pub const DynamicTable = struct {
     /// Changes the maximum size, evicting from the oldest end until the table fits (RFC 7541
     /// §4.3).
     pub fn resize(table: *DynamicTable, capacity: u64) void {
-        assert(capacity <= constants.dynamic_table_capacity_max);
+        assert(capacity <= constants.limits.dynamic_table_capacity_max);
         table.capacity = capacity;
         table.evict_until_fits(0);
         assert(table.size <= table.capacity);
@@ -104,7 +104,7 @@ pub const DynamicTable = struct {
     /// Adds a field as the newest entry, evicting from the oldest end first (RFC 7541 §4.4). An
     /// entry larger than the capacity is not added, and the table is left empty.
     pub fn insert(table: *DynamicTable, name: []const u8, value: []const u8) void {
-        assert(name.len <= constants.name_len_max and value.len <= constants.value_len_max);
+        assert(name.len <= constants.limits.name_len_max and value.len <= constants.limits.value_len_max);
         const size = entry_size(name.len, value.len);
         // RFC 7541 §4.4: evict until the table is at or below (maximum size - new entry size), or
         // it is empty.
@@ -115,7 +115,7 @@ pub const DynamicTable = struct {
             return;
         }
         table.make_room(@intCast(name.len + value.len));
-        const slot = (table.first + table.count) % constants.dynamic_table_entries_max;
+        const slot = (table.first + table.count) % constants.limits.dynamic_table_entries_max;
         table.entries[slot] = .{
             .offset = table.octets_end,
             .name_len = @intCast(name.len),
@@ -126,7 +126,7 @@ pub const DynamicTable = struct {
         table.octets_end += @intCast(name.len + value.len);
         table.count += 1;
         table.size += size;
-        assert(table.count <= constants.dynamic_table_entries_max);
+        assert(table.count <= constants.limits.dynamic_table_entries_max);
         table.check_accounting();
     }
 
@@ -141,7 +141,7 @@ pub const DynamicTable = struct {
     /// Evicts oldest entries until `size` more octets fit under the capacity, or none are left.
     fn evict_until_fits(table: *DynamicTable, size: u64) void {
         // Each pass evicts one entry, so the table's own count bounds the loop.
-        for (0..constants.dynamic_table_entries_max) |_| {
+        for (0..constants.limits.dynamic_table_entries_max) |_| {
             if (table.count == 0 or table.size + size <= table.capacity) break;
             table.evict_oldest();
         }
@@ -154,7 +154,7 @@ pub const DynamicTable = struct {
         assert(entry.offset == table.octets_start);
         table.octets_start += entry.name_len + entry.value_len;
         table.size -= entry_size(entry.name_len, entry.value_len);
-        table.first = (table.first + 1) % constants.dynamic_table_entries_max;
+        table.first = (table.first + 1) % constants.limits.dynamic_table_entries_max;
         table.count -= 1;
         if (table.count == 0) {
             table.octets_start = 0;
@@ -165,18 +165,18 @@ pub const DynamicTable = struct {
 
     /// Moves the live octets to the buffer's start when `needed` more would run past its end.
     fn make_room(table: *DynamicTable, needed: u32) void {
-        if (table.octets_end + needed <= constants.dynamic_table_capacity_max) return;
+        if (table.octets_end + needed <= constants.limits.dynamic_table_capacity_max) return;
         const live = table.octets_end - table.octets_start;
         std.mem.copyForwards(u8, table.octets[0..live], table.octets[table.octets_start..table.octets_end]);
         for (0..table.count) |offset| {
-            const slot = (table.first + offset) % constants.dynamic_table_entries_max;
+            const slot = (table.first + offset) % constants.limits.dynamic_table_entries_max;
             table.entries[slot].offset -= table.octets_start;
         }
         table.octets_start = 0;
         table.octets_end = live;
         // The accounted size bounds the live octets: every entry that fits under the capacity
         // fits in the buffer once the dead octets before the oldest entry are gone.
-        assert(table.octets_end + needed <= constants.dynamic_table_capacity_max);
+        assert(table.octets_end + needed <= constants.limits.dynamic_table_capacity_max);
     }
 
     /// Invariant 11: the accounted size is the sum over the entries. The bound against the
@@ -185,7 +185,7 @@ pub const DynamicTable = struct {
     fn check_accounting(table: *const DynamicTable) void {
         var sum: u64 = 0;
         for (0..table.count) |offset| {
-            const slot = (table.first + offset) % constants.dynamic_table_entries_max;
+            const slot = (table.first + offset) % constants.limits.dynamic_table_entries_max;
             const entry = &table.entries[slot];
             sum += entry_size(entry.name_len, entry.value_len);
         }
@@ -286,14 +286,14 @@ test "find reports the newest exact match and the newest name match" {
 }
 
 test "the octet buffer wraps: many inserts past its end keep every live entry readable" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     const value: [1000]u8 = @splat('v');
     var expected_count: u32 = 0;
     for (0..64) |round| {
         var name: [4]u8 = @splat('n');
         name[3] = @intCast('a' + round % 26);
         test_table.insert(&name, &value);
-        expected_count = @min(expected_count + 1, constants.dynamic_table_capacity_max / (4 + 1000 + 32));
+        expected_count = @min(expected_count + 1, constants.limits.dynamic_table_capacity_max / (4 + 1000 + 32));
         try testing.expectEqual(expected_count, test_table.len());
         try expect_entry(1, &name, &value);
     }

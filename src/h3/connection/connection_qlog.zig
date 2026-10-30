@@ -81,7 +81,7 @@ pub fn stream_type_set(connection: *const Connection, initiator: Initiator, stre
             event.associated_push_id = push_id;
         },
         // RFC 9114 §6.2.3: a reserved type is one the grease formula gives.
-        .unknown => |value| if (constants.is_reserved(value)) {
+        .unknown => |value| if (constants.protocol.is_reserved(value)) {
             event.stream_type = .reserved;
         } else {
             event.stream_type_bytes = value;
@@ -148,7 +148,7 @@ fn write_identified(
 fn write_other(text: *TextWriter, stream_id: u64, other: Frame.Other) qlog.Error!void {
     // RFC 9114 §7.2.8: a reserved type is one the grease formula gives, and h3-events §4.2.8
     // names it apart from an unknown one.
-    try h3_event.begin_frame(text, stream_id, if (constants.is_reserved(other.frame_type)) "reserved" else "unknown");
+    try h3_event.begin_frame(text, stream_id, if (constants.protocol.is_reserved(other.frame_type)) "reserved" else "unknown");
     try h3_event.frame_type_bytes(text, other.frame_type);
     try h3_event.end_frame(text, other.payload_len);
 }
@@ -184,10 +184,10 @@ fn write_settings(text: *TextWriter, stream_id: u64, payload: []const u8) qlog.E
 /// (RFC 9114 §7.2.4.1), or unknown.
 fn setting_name(identifier: u64) h3_event.SettingName {
     return switch (identifier) {
-        constants.setting_qpack_max_table_capacity => .settings_qpack_max_table_capacity,
-        constants.setting_max_field_section_size => .settings_max_field_section_size,
-        constants.setting_qpack_blocked_streams => .settings_qpack_blocked_streams,
-        else => if (constants.is_reserved(identifier)) .reserved else .unknown,
+        constants.protocol.setting_qpack_max_table_capacity => .settings_qpack_max_table_capacity,
+        constants.protocol.setting_max_field_section_size => .settings_max_field_section_size,
+        constants.protocol.setting_qpack_blocked_streams => .settings_qpack_blocked_streams,
+        else => if (constants.protocol.is_reserved(identifier)) .reserved else .unknown,
     };
 }
 

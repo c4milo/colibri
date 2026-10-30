@@ -19,8 +19,8 @@ pub const Error = error{
 
 /// Where `rewrite` writes the lines, and the weak ETag's value.
 pub const Rewritten = struct {
-    lines: [core.constants.field_count_max]Field,
-    etag: [core.constants.field_value_len_max]u8,
+    lines: [core.constants.limits.field_count_max]Field,
+    etag: [core.constants.limits.field_value_len_max]u8,
 };
 
 /// The lines `fields` become under `plan`, in `into`, or `fields` itself when the plan changes
@@ -137,9 +137,9 @@ test "decision 101: an uncoded response keeps its lines, and one Accept-Encoding
 test "decision 101: a second ETag, an ETag past the limit and a section past it are refused" {
     const two = [_]Field{ .{ .name = "etag", .value = "\"1\"" }, .{ .name = "etag", .value = "\"2\"" } };
     try testing.expectError(error.FieldLineInvalid, rewrite(&two, test_coded, &test_rewritten));
-    const long_value: [core.constants.field_value_len_max - 1]u8 = @splat('a');
+    const long_value: [core.constants.limits.field_value_len_max - 1]u8 = @splat('a');
     const long = [_]Field{.{ .name = "etag", .value = &long_value }};
     try testing.expectError(error.SectionTooLarge, rewrite(&long, test_coded, &test_rewritten));
-    const full: [core.constants.field_count_max]Field = @splat(.{ .name = "x", .value = "y" });
+    const full: [core.constants.limits.field_count_max]Field = @splat(.{ .name = "x", .value = "y" });
     try testing.expectError(error.SectionTooLarge, rewrite(&full, .{ .vary = true }, &test_rewritten));
 }

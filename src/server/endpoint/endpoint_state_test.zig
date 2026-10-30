@@ -147,7 +147,7 @@ test "INV-30: a connection whose send fails ends its open requests at the next e
     try endpoint.set_user_data(id, first_word);
     // RFC 9000 §12.3: a sender whose packet number reaches 2^62-1 "MUST close the connection", so
     // the answer's send fails it.
-    quic.connection.space_at(&support.served.transport, .application).next_packet_number = quic.constants.packet_number_max + 1;
+    quic.connection.space_at(&support.served.transport, .application).next_packet_number = quic.constants.protocol.packet_number_max + 1;
     try endpoint.respond(id, .{ .status = ok, .end = true });
     try support.pump(1);
     const cancelled = support.nth(.cancelled, 0).?;

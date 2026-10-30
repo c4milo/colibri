@@ -24,8 +24,8 @@ pub const leaf = testdata.leaf;
 pub const root = testdata.root;
 pub const root_name = testdata.root_name;
 pub const root_spki = testdata.root_spki;
-pub const private_key: *const [tls.constants.p256_private_key_len]u8 = testdata.private_key;
-pub const public_key: *const [tls.constants.p256_public_key_len]u8 = testdata.public_key;
+pub const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = testdata.private_key;
+pub const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = testdata.public_key;
 
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
@@ -49,8 +49,8 @@ pub const Exchange = struct {
 
 pub const chain = [_][]const u8{ leaf, root };
 pub const anchors = [_]tls.Anchor{.{ .subject = root_name, .spki = root_spki }};
-pub const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_key_octet);
-pub const ticket_key: [tls.constants.server_key_len]u8 = @splat(ticket_key_octet);
+pub const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_key_octet);
+pub const ticket_key: [tls.constants.protocol.server_key_len]u8 = @splat(ticket_key_octet);
 const cookie_key_octet: u8 = 0x07;
 const ticket_key_octet: u8 = 0x0b;
 
@@ -226,12 +226,12 @@ pub fn peer_h2_owe() void {
 
 /// Writes the peer's SETTINGS frame setting `id` to `value`. Test-only.
 pub fn peer_setting(id: u16, value: u32) !void {
-    var payload: [h2.constants.setting_len]u8 = undefined;
+    var payload: [h2.constants.protocol.setting_len]u8 = undefined;
     var writer = h2.core.Writer.init(&payload);
     try writer.write_int(u16, id);
     try writer.write_int(u32, value);
     var frame = h2.core.Writer.init(to_client[to_client_len..]);
-    try h2.frame.write_header(&frame, .{ .length = @intCast(writer.written().len), .type = h2.constants.frame_type_settings, .flags = 0, .stream_id = 0 });
+    try h2.frame.write_header(&frame, .{ .length = @intCast(writer.written().len), .type = h2.constants.protocol.frame_type_settings, .flags = 0, .stream_id = 0 });
     try frame.write_bytes(writer.written());
     to_client_len += frame.written().len;
 }

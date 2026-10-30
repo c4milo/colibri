@@ -88,7 +88,7 @@ pub const History = struct {
 fn check_amplification(history: *const History, endpoint: *const Endpoint) Violation!void {
     const connection = &endpoint.connection;
     if (connection.role != .server or connection.path.validated) return;
-    const permitted = history.octets_received *| quic.constants.anti_amplification_factor;
+    const permitted = history.octets_received *| quic.constants.protocol.anti_amplification_factor;
     if (history.octets_sent > permitted) return Violation.AmplificationExceeded;
 }
 

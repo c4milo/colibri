@@ -137,7 +137,7 @@ test "RFC 9114 §4.1.1: a request an open connection rejects reaches the caller 
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    quic_support.server_h3.cancel(&quic_support.server, 0, h3.constants.error_request_rejected);
+    quic_support.server_h3.cancel(&quic_support.server, 0, h3.constants.protocol.error_request_rejected);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.refused, exchange.response.result);
     try testing.expectEqual(&exchange.response, nth(.finished, 0).?.finished.response);
@@ -271,7 +271,7 @@ test "decision 125 ruling 8: a QUIC open still owed when set_destination comes g
 /// The octets `start_quic` draws before the session's first draw: the grease value, then the two
 /// connection IDs.
 const grease_len: usize = @sizeOf(u64);
-const id_len: usize = constants.quic_id_len;
+const id_len: usize = constants.policy.quic_id_len;
 const start_draw_len: usize = grease_len + id_len + id_len;
 
 /// Requires `held` to be the next octets of `twin`, in the order decision 120 rules: the grease

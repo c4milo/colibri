@@ -119,7 +119,7 @@ pub const Termination = struct {
     /// times the current Probe Timeout (PTO)".
     fn floored(advertised_ns: ?u64, probe_timeout_ns: u64) ?u64 {
         const held = advertised_ns orelse return null;
-        return @max(held, probe_timeout_ns *| constants.close_probe_timeouts);
+        return @max(held, probe_timeout_ns *| constants.policy.close_probe_timeouts);
     }
 
     /// RFC 9000 §10.1: the timer restarts when a packet from the peer is received and processed.
@@ -231,7 +231,7 @@ pub const Termination = struct {
         termination.closing_since_ns = since_ns;
         // RFC 9000 §10.2: the states persist for at least three times the current PTO, so a
         // delayed or reordered packet meets a connection that still knows what it was.
-        termination.closing_period_ns = probe_timeout_ns *| constants.close_probe_timeouts;
+        termination.closing_period_ns = probe_timeout_ns *| constants.policy.close_probe_timeouts;
     }
 
     /// Ends the closing or draining period once it has run its course (RFC 9000 §10.2), after
@@ -257,7 +257,7 @@ pub const Termination = struct {
         if (termination.packets_received_closing < termination.answer_at_packet) return .send_nothing;
         // The next answer waits for twice as many packets, which is the "progressively
         // increasing number of received packets" §10.2.1 offers.
-        termination.answer_at_packet *|= constants.close_answer_backoff;
+        termination.answer_at_packet *|= constants.policy.close_answer_backoff;
         return .send_close;
     }
 };

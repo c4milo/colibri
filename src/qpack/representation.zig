@@ -116,10 +116,10 @@ pub const Prefix = struct {
 /// Reads the field section prefix (RFC 9204 §4.5.1).
 pub fn read_prefix(reader: *Reader) Error!Prefix {
     var cursor = reader.*;
-    const encoded_insert_count = try prefixed_integer.decode(constants.required_insert_count_prefix_bits, &cursor);
+    const encoded_insert_count = try prefixed_integer.decode(constants.protocol.required_insert_count_prefix_bits, &cursor);
     // §4.5.1: the Sign bit is the high bit of the octet the Delta Base starts in.
-    const sign = (try cursor.peek_byte()) & constants.delta_base_sign_flag != 0;
-    const delta_base = try prefixed_integer.decode(constants.delta_base_prefix_bits, &cursor);
+    const sign = (try cursor.peek_byte()) & constants.protocol.delta_base_sign_flag != 0;
+    const delta_base = try prefixed_integer.decode(constants.protocol.delta_base_prefix_bits, &cursor);
     reader.* = cursor;
     return .{ .encoded_insert_count = encoded_insert_count, .sign = sign, .delta_base = delta_base };
 }
@@ -127,9 +127,9 @@ pub fn read_prefix(reader: *Reader) Error!Prefix {
 /// Writes the field section prefix. All of the octets are written, or none.
 pub fn write_prefix(writer: *Writer, prefix: Prefix) core.writer.Error!void {
     var cursor = writer.*;
-    try prefixed_integer.encode(constants.required_insert_count_prefix_bits, &cursor, 0, prefix.encoded_insert_count);
-    const sign_bits: u8 = if (prefix.sign) constants.delta_base_sign_flag else 0;
-    try prefixed_integer.encode(constants.delta_base_prefix_bits, &cursor, sign_bits, prefix.delta_base);
+    try prefixed_integer.encode(constants.protocol.required_insert_count_prefix_bits, &cursor, 0, prefix.encoded_insert_count);
+    const sign_bits: u8 = if (prefix.sign) constants.protocol.delta_base_sign_flag else 0;
+    try prefixed_integer.encode(constants.protocol.delta_base_prefix_bits, &cursor, sign_bits, prefix.delta_base);
     writer.* = cursor;
 }
 
@@ -145,36 +145,36 @@ pub fn read(reader: *Reader, strings: *Writer) Error!Representation {
 
 /// Picks the representation from the high bits of the first octet (RFC 9204 §4.5).
 fn read_by_pattern(first: u8, cursor: *Reader, strings: *Writer) Error!Representation {
-    if (first & constants.indexed_pattern_mask == constants.indexed_pattern) {
+    if (first & constants.protocol.indexed_pattern_mask == constants.protocol.indexed_pattern) {
         return .{ .indexed = try read_indexed(first, cursor) };
     }
-    if (first & constants.literal_name_reference_mask == constants.literal_name_reference_pattern) {
+    if (first & constants.protocol.literal_name_reference_mask == constants.protocol.literal_name_reference_pattern) {
         return .{ .literal_name_reference = try read_literal_name_reference(first, cursor, strings) };
     }
-    if (first & constants.literal_mask == constants.literal_pattern) {
+    if (first & constants.protocol.literal_mask == constants.protocol.literal_pattern) {
         return .{ .literal = try read_literal(first, cursor, strings) };
     }
-    if (first & constants.indexed_post_base_mask == constants.indexed_post_base_pattern) {
-        const index = try prefixed_integer.decode(constants.indexed_post_base_prefix_bits, cursor);
+    if (first & constants.protocol.indexed_post_base_mask == constants.protocol.indexed_post_base_pattern) {
+        const index = try prefixed_integer.decode(constants.protocol.indexed_post_base_prefix_bits, cursor);
         return .{ .indexed_post_base = .{ .index = index } };
     }
-    assert(first & constants.literal_post_base_mask == constants.literal_post_base_pattern);
+    assert(first & constants.protocol.literal_post_base_mask == constants.protocol.literal_post_base_pattern);
     return .{ .literal_post_base_name_reference = try read_literal_post_base(first, cursor, strings) };
 }
 
 /// RFC 9204 §4.5.2.
 fn read_indexed(first: u8, cursor: *Reader) Error!Representation.Indexed {
-    const table = table_of(first, constants.indexed_static_flag);
-    const index = try prefixed_integer.decode(constants.indexed_prefix_bits, cursor);
+    const table = table_of(first, constants.protocol.indexed_static_flag);
+    const index = try prefixed_integer.decode(constants.protocol.indexed_prefix_bits, cursor);
     return .{ .table = table, .index = index };
 }
 
 /// RFC 9204 §4.5.4.
 fn read_literal_name_reference(first: u8, cursor: *Reader, strings: *Writer) Error!Representation.LiteralNameReference {
-    const never_indexed = first & constants.literal_name_reference_never_flag != 0;
-    const table = table_of(first, constants.literal_name_reference_static_flag);
-    const name_index = try prefixed_integer.decode(constants.literal_name_reference_prefix_bits, cursor);
-    const value = try read_string(cursor, strings, constants.value_prefix_bits);
+    const never_indexed = first & constants.protocol.literal_name_reference_never_flag != 0;
+    const table = table_of(first, constants.protocol.literal_name_reference_static_flag);
+    const name_index = try prefixed_integer.decode(constants.protocol.literal_name_reference_prefix_bits, cursor);
+    const value = try read_string(cursor, strings, constants.protocol.value_prefix_bits);
     return .{
         .never_indexed = never_indexed,
         .table = table,
@@ -186,9 +186,9 @@ fn read_literal_name_reference(first: u8, cursor: *Reader, strings: *Writer) Err
 
 /// RFC 9204 §4.5.5.
 fn read_literal_post_base(first: u8, cursor: *Reader, strings: *Writer) Error!Representation.LiteralPostBaseNameReference {
-    const never_indexed = first & constants.literal_post_base_never_flag != 0;
-    const name_index = try prefixed_integer.decode(constants.literal_post_base_prefix_bits, cursor);
-    const value = try read_string(cursor, strings, constants.value_prefix_bits);
+    const never_indexed = first & constants.protocol.literal_post_base_never_flag != 0;
+    const name_index = try prefixed_integer.decode(constants.protocol.literal_post_base_prefix_bits, cursor);
+    const value = try read_string(cursor, strings, constants.protocol.value_prefix_bits);
     return .{
         .never_indexed = never_indexed,
         .name_index = name_index,
@@ -199,9 +199,9 @@ fn read_literal_post_base(first: u8, cursor: *Reader, strings: *Writer) Error!Re
 
 /// RFC 9204 §4.5.6.
 fn read_literal(first: u8, cursor: *Reader, strings: *Writer) Error!Representation.Literal {
-    const never_indexed = first & constants.literal_never_flag != 0;
-    const name = try read_string(cursor, strings, constants.literal_name_prefix_bits);
-    const value = try read_string(cursor, strings, constants.value_prefix_bits);
+    const never_indexed = first & constants.protocol.literal_never_flag != 0;
+    const name = try read_string(cursor, strings, constants.protocol.literal_name_prefix_bits);
+    const value = try read_string(cursor, strings, constants.protocol.value_prefix_bits);
     return .{
         .never_indexed = never_indexed,
         .name = name.bytes,

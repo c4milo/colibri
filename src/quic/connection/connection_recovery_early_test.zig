@@ -71,7 +71,7 @@ fn record_sent_at(level: Level, carries: recovery_sent.Carries, sent_at_ns: u64)
     try endpoint.recovery.on_packet_sent(kind, .{
         .number = number,
         .sent_at_ns = sent_at_ns,
-        .sent_len = constants.datagram_len_min,
+        .sent_len = constants.protocol.datagram_len_min,
         .ack_eliciting = true,
         .in_flight = true,
         .carries = carries,
@@ -148,7 +148,7 @@ test "decision 65: RFC 9002 §6.2.3's limited number of times per connection" {
     // Decision 71 spaces the resends a PTO apart, so each repeat comes a PTO after the last.
     const spacing_ns = endpoint.recovery.rtt.probe_timeout_ns(false);
     var now_ns = test_now_ns;
-    for (0..constants.early_crypto_resends_max) |_| {
+    for (0..constants.policy.early_crypto_resends_max) |_| {
         try take_repeat_at(now_ns);
         try testing.expectEqual(0, initial_in_flight());
         try send_flight_again();
@@ -156,7 +156,7 @@ test "decision 65: RFC 9002 §6.2.3's limited number of times per connection" {
     }
     try take_repeat_at(now_ns);
     try testing.expectEqual(1, initial_in_flight());
-    try testing.expectEqual(constants.early_crypto_resends_max, endpoint.early_crypto_resends);
+    try testing.expectEqual(constants.policy.early_crypto_resends_max, endpoint.early_crypto_resends);
 }
 
 /// How far behind the first a client's second probe arrives: the two go out together when its
@@ -189,10 +189,10 @@ test "decision 70: a PTO probes every other space with ack-eliciting packets in 
     // Sent after the Initial packet, so the Initial space's timer expires first.
     try record_sent_at(.handshake, .crypto, test_now_ns + probe_gap_ns);
     // RFC 9000 §8.1: the client's datagram lets the server send.
-    endpoint.path.on_datagram_received(constants.datagram_len_min);
+    endpoint.path.on_datagram_received(constants.protocol.datagram_len_min);
     const at_ns = recovery.loss_deadline_ns(&endpoint) orelse return error.NoTimer;
     try testing.expect(try recovery.on_loss_timer(&endpoint, at_ns, &scratch));
-    try testing.expectEqual(constants.probe_packets, endpoint.probes_owed[@intFromEnum(Level.initial)]);
+    try testing.expectEqual(constants.recovery.probe_packets, endpoint.probes_owed[@intFromEnum(Level.initial)]);
     // RFC 9002 §6.2.4: the Handshake space has data in flight, so it sends a probe too, and
     // decision 64 has that probe carry its CRYPTO octets.
     try testing.expectEqual(1, endpoint.probes_owed[@intFromEnum(Level.handshake)]);

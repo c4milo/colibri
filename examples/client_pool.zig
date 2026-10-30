@@ -89,7 +89,7 @@ var client_config: client.Config align(@alignOf(client.Config)) = .{
 // The link holds every queue, so it lives outside the stack.
 var link: StreamsLink align(@alignOf(StreamsLink)) = undefined;
 /// What `send_stream` writes, which the link then sends.
-var output: [client.constants.stream_output_len_min]u8 = undefined;
+var output: [client.constants.limits.stream_output_len_min]u8 = undefined;
 
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop.

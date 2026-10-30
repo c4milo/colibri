@@ -89,7 +89,7 @@ test "every target of up to five octets of the alphabet reads as the replaced ch
 
 fn old_path_of(target: []const u8) ?[]const u8 {
     // INV-8: `path_len_max` bounds the octets that one match reads.
-    if (target.len > constants.path_len_max) return null;
+    if (target.len > constants.limits.path_len_max) return null;
     // RFC 9110 §4.2.3: an empty path is "/". An h11 absolute-form target with an empty path
     // and a query gives the query alone (`Request.path`), so its path is the root.
     if (target.len > 0 and target[0] == query_start) return router_pattern.root;

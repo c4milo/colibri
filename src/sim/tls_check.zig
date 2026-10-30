@@ -93,11 +93,11 @@ pub const Storage = struct {
 /// request that ends its stream (RFC 9113 §3.4, §6.5, §8.3.1).
 fn build_stream(buffer: []u8) []const u8 {
     var writer = sim.core.Writer.init(buffer);
-    writer.write_bytes(h2_constants.client_preface) catch unreachable;
-    write_frame(&writer, h2_constants.frame_type_settings, 0, 0, &.{});
+    writer.write_bytes(h2_constants.protocol.client_preface) catch unreachable;
+    write_frame(&writer, h2_constants.protocol.frame_type_settings, 0, 0, &.{});
     var block: [constants.tls_check_stream_len_max]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(h2_constants.header_table_size_initial, .never);
+    encoder.init(h2_constants.protocol.header_table_size_initial, .never);
     var block_writer = sim.core.Writer.init(&block);
     encoder.begin_block(&block_writer) catch unreachable;
     encoder.write_field(&block_writer, ":method", "GET", .without_indexing) catch unreachable;
@@ -105,8 +105,8 @@ fn build_stream(buffer: []u8) []const u8 {
     encoder.write_field(&block_writer, ":path", "/", .without_indexing) catch unreachable;
     encoder.write_field(&block_writer, ":authority", "example.com", .without_indexing) catch unreachable;
     encoder.commit_block();
-    const flags = h2_constants.flag_end_headers | h2_constants.flag_end_stream;
-    write_frame(&writer, h2_constants.frame_type_headers, flags, 1, block_writer.written());
+    const flags = h2_constants.protocol.flag_end_headers | h2_constants.protocol.flag_end_stream;
+    write_frame(&writer, h2_constants.protocol.frame_type_headers, flags, 1, block_writer.written());
     return writer.written();
 }
 
@@ -207,8 +207,8 @@ fn drain(storage: *Storage, held_len_in: usize) Violation!usize {
     // The loop is bounded by the frames one fixed stream carries (non-negotiable 4).
     for (0..constants.tls_check_events_max) |_| {
         // RFC 9113 §3.4: a connection reads the whole client preface before any frame.
-        if (storage.connection.preface_read_len != h2_constants.client_preface_len and
-            held_len < h2_constants.client_preface_len) return held_len;
+        if (storage.connection.preface_read_len != h2_constants.protocol.client_preface_len and
+            held_len < h2_constants.protocol.client_preface_len) return held_len;
         _ = storage.connection.write_pending(&storage.output, 0);
         const received = storage.connection.receive(storage.held[0..held_len], 0) catch
             return error.OutcomeUnexpected;

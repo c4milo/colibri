@@ -53,7 +53,7 @@ test "clearing a response makes it pending again, and keeps where the response g
 }
 
 test "RFC 9110 §8.6: a request names its content's length, and a POST or PUT names it when empty" {
-    var digits: [constants.content_length_digits_max]u8 = undefined;
+    var digits: [constants.limits.content_length_digits_max]u8 = undefined;
     const get: Request = .{ .method = "GET", .path = "/" };
     try testing.expectEqual(null, content_length(&get, &digits));
     const empty_post: Request = .{ .method = "POST", .path = "/" };

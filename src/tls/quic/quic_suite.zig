@@ -25,7 +25,7 @@ comptime {
     for ([_]suite_module.Direction{ .read, .write }) |direction| {
         assert(@intFromEnum(direction) == @intFromEnum(@field(chapulin.quic.Direction, @tagName(direction))));
     }
-    assert(crypto.constants.retry_integrity_tag_len == c.GCM_TAG);
+    assert(crypto.constants.protocol.retry_integrity_tag_len == c.GCM_TAG);
     // colibri's versions are chapulin's, value for value (RFC 9000 §15, RFC 9369 §3.1).
     for (std.enums.values(suite_module.Version)) |named| {
         assert(@intFromEnum(named) == @intFromEnum(@field(chapulin.quic.Version, @tagName(named))));
@@ -93,7 +93,7 @@ pub fn Suite(comptime Held: type) type {
 
         /// RFC 9001 §5.8, which chapulin computes and compares in constant time, under the Retry
         /// key and nonce of `named` (RFC 9369 §3.3.3).
-        fn retry_tag_valid(context: *const anyopaque, named: suite_module.Version, pseudo_packet: []const u8, tag: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+        fn retry_tag_valid(context: *const anyopaque, named: suite_module.Version, pseudo_packet: []const u8, tag: *const [crypto.constants.protocol.retry_integrity_tag_len]u8) bool {
             const role = held_const(context);
             return role.state.started and role.session.retryOk(chapulin_version(named), pseudo_packet, tag);
         }
@@ -215,7 +215,7 @@ fn unprotect(role: anytype, opening: suite_module.Opening) suite_module.OpenErro
 }
 
 /// RFC 9001 §5.8: the tag is the same for every connection of a version, so any suite writes it.
-fn retry_tag_write(context: *const anyopaque, named: suite_module.Version, pseudo_packet: []const u8, tag: *[crypto.constants.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
+fn retry_tag_write(context: *const anyopaque, named: suite_module.Version, pseudo_packet: []const u8, tag: *[crypto.constants.protocol.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
     _ = context;
     // RFC 9369 §3.3.3: chapulin refuses only a version it derives no Retry key for, and a server
     // over it then sends no Retry.
@@ -317,7 +317,7 @@ fn no_session_seal(_: *anyopaque, _: suite_module.Sealing, _: []u8) suite_module
 fn no_session_open(_: *anyopaque, _: suite_module.Opening) suite_module.OpenError!suite_module.Opened {
     unreachable;
 }
-fn no_session_tag_valid(_: *const anyopaque, _: suite_module.Version, _: []const u8, _: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+fn no_session_tag_valid(_: *const anyopaque, _: suite_module.Version, _: []const u8, _: *const [crypto.constants.protocol.retry_integrity_tag_len]u8) bool {
     unreachable;
 }
 fn no_session_update(_: *anyopaque) suite_module.UpdateError!void {

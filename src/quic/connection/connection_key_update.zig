@@ -165,7 +165,7 @@ fn settled(connection: *const Connection, now_ns: u64) bool {
 /// max_ack_delay (RFC 9002 §6.2.1), which applies to the application level, and §6.1's Note
 /// leaves every other level's keys unupdated anyway.
 fn three_probe_timeouts_ns(connection: *const Connection) u64 {
-    return constants.key_update_probe_timeouts *| connection.recovery.rtt.probe_timeout_ns(true);
+    return constants.policy.key_update_probe_timeouts *| connection.recovery.rtt.probe_timeout_ns(true);
 }
 
 /// RFC 9001 §6.5's "acknowledgment that confirms that the previous key update was received",

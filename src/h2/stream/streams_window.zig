@@ -20,7 +20,7 @@ const Streams = table.Streams;
 /// for a half-closed (local) or closed stream (§5.1), so that window neither moves nor
 /// overflows. `error.Overflow` is the connection error FLOW_CONTROL_ERROR, and no window moves.
 pub fn adjust_send_windows(streams: *Streams, delta: i64) error{Overflow}!void {
-    assert(delta >= -@as(i64, constants.window_max) and delta <= constants.window_max);
+    assert(delta >= -@as(i64, constants.protocol.window_max) and delta <= constants.protocol.window_max);
     open.assert_counts(streams);
     var probes = streams.pool.iterator();
     while (probes.next()) |record| {
@@ -71,24 +71,24 @@ test "http2/6.9.2/1: a change to the initial window moves every send window coli
     table.test_streams.init(.client);
     const local = try table.test_streams.open_local(null, table.test_send_window);
     const finished = try table.test_streams.open_local(null, table.test_send_window);
-    try finished.send_window.add(constants.window_max - table.test_send_window);
+    try finished.send_window.add(constants.protocol.window_max - table.test_send_window);
     try table.apply_frame(finished, .send, .headers, true);
     try table.test_streams.adjust_send_windows(-1500);
     try table.test_streams.adjust_send_windows(2200);
     try testing.expectEqual(1700, local.send_window.available);
-    try testing.expectEqual(constants.window_max, finished.send_window.available);
+    try testing.expectEqual(constants.protocol.window_max, finished.send_window.available);
 }
 
 test "a change that takes one send window past window_max is Overflow and moves none, and a reset stream's window never overflows" {
     table.test_streams.init(.server);
     const first = try table.test_streams.open_peer(1, table.test_send_window);
     const second = try table.test_streams.open_peer(3, table.test_send_window);
-    try second.send_window.add(constants.window_max - table.test_send_window);
+    try second.send_window.add(constants.protocol.window_max - table.test_send_window);
     try testing.expectError(error.Overflow, table.test_streams.adjust_send_windows(1));
     try testing.expectEqual(table.test_send_window, first.send_window.available);
-    try testing.expectEqual(constants.window_max, second.send_window.available);
+    try testing.expectEqual(constants.protocol.window_max, second.send_window.available);
     try table.apply_frame(second, .send, .rst_stream, false);
     try table.test_streams.adjust_send_windows(1);
     try testing.expectEqual(table.test_send_window + 1, first.send_window.available);
-    try testing.expectEqual(constants.window_max, second.send_window.available);
+    try testing.expectEqual(constants.protocol.window_max, second.send_window.available);
 }

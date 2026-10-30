@@ -22,18 +22,18 @@ const line_end = "\r\n";
 /// The reference: `Scanner.scan` as it was, with each field read and written through `scanner`.
 fn scan_by_pointer(scanner: *Scanner, role: Role, input: []const u8) Error!?Span {
     assert(scanner.scanned <= input.len);
-    assert(scanner.scanned <= constants.head_len_max);
-    const limit = @min(input.len, constants.head_len_max);
+    assert(scanner.scanned <= constants.limits.head_len_max);
+    const limit = @min(input.len, constants.limits.head_len_max);
     var reader = Reader.init(input[0..limit]);
     _ = reader.take(scanner.scanned) catch unreachable;
     // Bounded by `head_len_max`, which `limit` never exceeds.
-    for (0..constants.head_len_max) |_| {
+    for (0..constants.limits.head_len_max) |_| {
         const octet = reader.read_byte() catch break;
         scanner.scanned += 1;
         if (try step_by_pointer(scanner, role, octet)) return span_by_pointer(scanner);
     }
     // RFC 9110 §5.4: no predefined limit, so colibri's applies and the head is refused.
-    if (scanner.scanned == constants.head_len_max) return error.HeadTooLarge;
+    if (scanner.scanned == constants.limits.head_len_max) return error.HeadTooLarge;
     assert(scanner.scanned == input.len);
     return null;
 }
@@ -55,7 +55,7 @@ fn step_by_pointer(scanner: *Scanner, role: Role, octet: u8) Error!bool {
     const in_start_line = scanner.lines == 0;
     // RFC 9112 §3: no predefined limit on a request line, so colibri's applies. The limit
     // holds for a status line too, which has none either (RFC 9112 §4).
-    if (in_start_line and scanner.line_len > constants.start_line_len_max) return error.StartLineTooLong;
+    if (in_start_line and scanner.line_len > constants.limits.start_line_len_max) return error.StartLineTooLong;
     if (role == .request and in_start_line and !scanner.method_ended) try check_method_by_pointer(scanner, octet);
     return false;
 }
@@ -229,12 +229,12 @@ fn expect_same_near(input: []const u8, offset: usize, seen: *Seen) !void {
 }
 
 test "scan does what the reference does at start_line_len_max and head_len_max, split near each" {
-    const limits = [_]usize{ 1, constants.start_line_len_max, constants.head_len_max };
+    const limits = [_]usize{ 1, constants.limits.start_line_len_max, constants.limits.head_len_max };
     var seen: Seen = .initEmpty();
-    var input: [constants.head_len_max + 2]u8 = @splat('a');
+    var input: [constants.limits.head_len_max + 2]u8 = @splat('a');
     // A start line of start_line_len_max octets, then of one octet more.
     for (0..2) |extra| {
-        const line_len = constants.start_line_len_max + extra;
+        const line_len = constants.limits.start_line_len_max + extra;
         @memcpy(input[line_len..][0..4], "\r\n\r\n");
         for (limits) |limit| try expect_same_near(input[0 .. line_len + 4], limit, &seen);
         @memset(input[line_len..][0..4], 'a');
@@ -243,7 +243,7 @@ test "scan does what the reference does at start_line_len_max and head_len_max, 
     const start = "GET / HTTP/1.1\r\nX: ";
     @memcpy(input[0..start.len], start);
     for (0..2) |extra| {
-        const end = constants.head_len_max + extra;
+        const end = constants.limits.head_len_max + extra;
         @memcpy(input[end - 4 .. end], "\r\n\r\n");
         for (limits) |limit| try expect_same_near(input[0..end], limit, &seen);
         @memset(input[end - 4 .. end], 'a');

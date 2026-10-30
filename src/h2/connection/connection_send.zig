@@ -198,7 +198,7 @@ fn encode_response(target: *Connection, buffer: []u8, code: http.Status, fields:
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes, and a buffer that
     // cannot hold them holds no block.
     target.encoder.begin_block(&writer) catch return error.OutputTooSmall;
-    var digits: [http.constants.status_digits_len]u8 = undefined;
+    var digits: [http.constants.protocol.status_digits_len]u8 = undefined;
     const status_text = code.write_digits(&digits);
     // RFC 9113 §8.3.2: a response carries the `:status` pseudo-header field, and it comes first.
     // Decision 132: a response's lines go into the dynamic table, so a line the next response
@@ -222,23 +222,23 @@ fn encode_response(target: *Connection, buffer: []u8, code: http.Status, fields:
 /// `commit_block`, and after a block that inserted and was abandoned, the next block empties both
 /// tables (decision 132).
 fn write_in_place(target: *Connection, output: []u8, stream_id: u32, code: http.Status, fields: []const hpack.Field, end_stream: bool) ?usize {
-    if (output.len <= constants.frame_header_len) return null;
-    const room = output[constants.frame_header_len..];
+    if (output.len <= constants.protocol.frame_header_len) return null;
+    const room = output[constants.protocol.frame_header_len..];
     // RFC 9113 §4.2: a frame carries at most the peer's SETTINGS_MAX_FRAME_SIZE. A block holds at
     // most `send_block_len_max` on either path (design §7).
     const limit = @min(room.len, target.peer.max_frame_size, target.send_block.len);
     const block = encode_response(target, room[0..limit], code, fields) catch return null;
-    var flags: u8 = constants.flag_end_headers;
-    if (end_stream) flags |= constants.flag_end_stream;
-    var writer = Writer.init(output[0..constants.frame_header_len]);
+    var flags: u8 = constants.protocol.flag_end_headers;
+    if (end_stream) flags |= constants.protocol.flag_end_stream;
+    var writer = Writer.init(output[0..constants.protocol.frame_header_len]);
     frame.write_header(&writer, .{
         .length = @intCast(block.len),
-        .type = constants.frame_type_headers,
+        .type = constants.protocol.frame_type_headers,
         .flags = flags,
         .stream_id = stream_id,
     }) catch unreachable;
     assert(writer.remaining_len() == 0);
-    return constants.frame_header_len + block.len;
+    return constants.protocol.frame_header_len + block.len;
 }
 
 /// Encodes a trailer section into the connection's block buffer: field lines alone (RFC 9113 §8.1).
@@ -262,7 +262,7 @@ pub fn block_frames_len(target: *const Connection, block_len: usize) usize {
     assert(limit > 0);
     // RFC 9113 §6.2: even an empty block opens in one HEADERS frame.
     const frames = @max(1, std.math.divCeil(usize, block_len, @as(usize, limit)) catch unreachable);
-    return block_len + frames * constants.frame_header_len;
+    return block_len + frames * constants.protocol.frame_header_len;
 }
 
 /// Cuts `block` into a HEADERS frame and the CONTINUATION frames it needs, each at most the peer's
@@ -271,7 +271,7 @@ pub fn write_block(target: *Connection, output: []u8, stream_id: u32, block: []c
     var writer = Writer.init(output);
     var offset: usize = 0;
     const limit = target.peer.max_frame_size;
-    for (0..constants.continuation_count_max + 1) |index| {
+    for (0..constants.limits.continuation_count_max + 1) |index| {
         const end = @min(offset + limit, block.len);
         const last = end == block.len;
         const fragment = block[offset..end];
@@ -318,26 +318,26 @@ const test_body = "hello";
 
 /// Where the tests that send more than one frame write: the largest block and the frame headers
 /// that cut it. Test-only.
-threadlocal var test_large_output: [constants.send_block_len_max + constants.frame_size_max]u8 = @splat(0);
+threadlocal var test_large_output: [constants.limits.send_block_len_max + constants.limits.frame_size_max]u8 = @splat(0);
 
 test "a response ends the stream, and a HEADERS frame on it afterwards is STREAM_CLOSED (http2/5.1/12)" {
     try start_server();
     _ = try feed_request(1, "/", true);
     const written = try write_response(test_connection, test_output, 1, 200, &.{}, true);
-    try testing.expectEqual(constants.frame_type_headers, test_output[3]);
-    try testing.expectEqual(constants.flag_end_stream | constants.flag_end_headers, test_output[4]);
-    try testing.expect(written > constants.frame_header_len);
+    try testing.expectEqual(constants.protocol.frame_type_headers, test_output[3]);
+    try testing.expectEqual(constants.protocol.flag_end_stream | constants.protocol.flag_end_headers, test_output[4]);
+    try testing.expect(written > constants.protocol.frame_header_len);
     const record = test_connection.streams.lookup(1).live;
     try testing.expectEqual(stream.State.closed, record.state);
     try testing.expectEqual(stream.Closed.end_stream, record.closed.?);
     try testing.expectEqual(0, test_connection.streams.peer_active);
     // The table still holds the record, so the frame the peer sends late is judged by §5.1.
-    var block: [constants.frame_size_max]u8 = undefined;
+    var block: [constants.limits.frame_size_max]u8 = undefined;
     const fragment = try support.request_block(&block, "/");
-    const flags = constants.flag_end_headers | constants.flag_end_stream;
-    const late = try frame_bytes(test_input, constants.frame_type_headers, flags, 1, fragment);
+    const flags = constants.protocol.flag_end_headers | constants.protocol.flag_end_stream;
+    const late = try frame_bytes(test_input, constants.protocol.frame_type_headers, flags, 1, fragment);
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(late, 0));
-    try testing.expectEqual(constants.error_stream_closed, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_stream_closed, test_connection.failure.?);
 }
 
 test "a response and its body: the DATA frame carries END_STREAM and spends both windows" {
@@ -348,12 +348,12 @@ test "a response and its body: the DATA frame carries END_STREAM and spends both
     }, false);
     const sent = try write_data(test_connection, test_output[head_len..], 1, test_body, true);
     try testing.expectEqual(test_body.len, sent.consumed);
-    try testing.expectEqual(constants.frame_header_len + test_body.len, sent.written);
+    try testing.expectEqual(constants.protocol.frame_header_len + test_body.len, sent.written);
     const data = test_output[head_len..][0..sent.written];
-    try testing.expectEqual(constants.frame_type_data, data[3]);
-    try testing.expectEqual(constants.flag_end_stream, data[4]);
-    try testing.expectEqualStrings(test_body, data[constants.frame_header_len..]);
-    const spent: i64 = constants.initial_window_size_initial - test_body.len;
+    try testing.expectEqual(constants.protocol.frame_type_data, data[3]);
+    try testing.expectEqual(constants.protocol.flag_end_stream, data[4]);
+    try testing.expectEqualStrings(test_body, data[constants.protocol.frame_header_len..]);
+    const spent: i64 = constants.protocol.initial_window_size_initial - test_body.len;
     try testing.expectEqual(spent, test_connection.send_window.available);
     const record = test_connection.streams.lookup(1).live;
     try testing.expectEqual(stream.State.closed, record.state);
@@ -374,11 +374,11 @@ test "write_data sends what the windows allow and no more, and says how much tha
     try testing.expectEqual(0, stalled.written);
     try testing.expectEqual(stream.State.half_closed_remote, record.state);
     // A WINDOW_UPDATE from the peer lets the rest be sent, with END_STREAM on the last frame.
-    const update = try frame_bytes(test_input, constants.frame_type_window_update, 0, 1, "\x00\x00\x00\x06");
+    const update = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 1, "\x00\x00\x00\x06");
     _ = try feed(update);
     const rest = try write_data(test_connection, test_output, 1, body[2..], true);
     try testing.expectEqual(6, rest.consumed);
-    try testing.expectEqual(constants.flag_end_stream, test_output[4]);
+    try testing.expectEqual(constants.protocol.flag_end_stream, test_output[4]);
     try testing.expectEqual(stream.State.closed, record.state);
 }
 
@@ -393,7 +393,7 @@ test "the connection's window bounds a send as the stream's does (§6.9.1)" {
     try testing.expectEqual(3, sent.consumed);
     try testing.expectEqual(0, test_connection.send_window.available);
     const record = test_connection.streams.lookup(1).live;
-    try testing.expectEqual(constants.initial_window_size_initial - 3, record.send_window.available);
+    try testing.expectEqual(constants.protocol.initial_window_size_initial - 3, record.send_window.available);
     const stalled = try write_data(test_connection, test_output, 1, body[3..], true);
     try testing.expectEqual(0, stalled.consumed);
 }
@@ -410,13 +410,13 @@ test "a field block longer than one frame is cut into a HEADERS frame and a CONT
         field_line.* = .{ .name = name, .value = value };
     }
     const written = try write_response(test_connection, &test_large_output, 1, 200, &fields, false);
-    try testing.expect(written > constants.frame_size_max);
+    try testing.expect(written > constants.limits.frame_size_max);
     // The HEADERS frame is a whole frame without END_HEADERS, and the CONTINUATION ends the block.
-    try testing.expectEqual(constants.frame_type_headers, test_large_output[3]);
-    try testing.expectEqual(0, test_large_output[4] & constants.flag_end_headers);
-    const second = test_large_output[constants.frame_header_len + constants.frame_size_max ..];
-    try testing.expectEqual(constants.frame_type_continuation, second[3]);
-    try testing.expectEqual(constants.flag_end_headers, second[4]);
+    try testing.expectEqual(constants.protocol.frame_type_headers, test_large_output[3]);
+    try testing.expectEqual(0, test_large_output[4] & constants.protocol.flag_end_headers);
+    const second = test_large_output[constants.protocol.frame_header_len + constants.limits.frame_size_max ..];
+    try testing.expectEqual(constants.protocol.frame_type_continuation, second[3]);
+    try testing.expectEqual(constants.protocol.flag_end_headers, second[4]);
 }
 
 test "a send RFC 9113 §5.1 forbids writes nothing, and so does a buffer with no room" {
@@ -426,7 +426,7 @@ test "a send RFC 9113 §5.1 forbids writes nothing, and so does a buffer with no
     // The stream is closed, so nothing else may be sent on it.
     try testing.expectError(error.StreamNotSendable, write_response(test_connection, test_output, 1, 200, &.{}, true));
     try testing.expectError(error.StreamNotSendable, write_data(test_connection, test_output, 1, test_body, true));
-    try testing.expectError(error.StreamNotSendable, reset(test_connection, 1, constants.error_cancel));
+    try testing.expectError(error.StreamNotSendable, reset(test_connection, 1, constants.protocol.error_cancel));
     // A stream the table never held is not sendable either.
     try testing.expectError(error.StreamNotSendable, write_response(test_connection, test_output, 7, 200, &.{}, true));
     _ = try feed_request(3, "/", true);
@@ -438,7 +438,7 @@ test "a send RFC 9113 §5.1 forbids writes nothing, and so does a buffer with no
 test "a RST_STREAM the caller asks for closes the stream and is queued with the other replies" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    try reset(test_connection, 1, constants.error_cancel);
+    try reset(test_connection, 1, constants.protocol.error_cancel);
     const record = test_connection.streams.lookup(1).live;
     try testing.expectEqual(stream.Closed.rst_stream_sent, record.closed.?);
     try testing.expectEqual(0, test_connection.streams.peer_active);
@@ -450,12 +450,12 @@ test "shutdown queues a GOAWAY naming the last stream colibri acted on (§6.8)" 
     try start_server();
     _ = try feed_request(1, "/", true);
     _ = try feed_request(3, "/", true);
-    shutdown(test_connection, constants.error_no_error);
+    shutdown(test_connection, constants.protocol.error_no_error);
     const queued = write_queued();
     try testing.expectEqualStrings("\x00\x00\x08\x07\x00\x00\x00\x00\x00\x00\x00\x00\x03\x00\x00\x00\x00", queued);
     // The connection is not failed: it goes on reading the streams below that identifier.
     try testing.expect(!test_connection.has_failed());
-    const ping = try frame_bytes(test_input, constants.frame_type_ping, 0, 0, "12345678");
+    const ping = try frame_bytes(test_input, constants.protocol.frame_type_ping, 0, 0, "12345678");
     try testing.expectEqual(null, try feed(ping));
     // RFC 9113 §6.8: a stream above the identifier the GOAWAY named is not opened, and its field
     // block is still decoded, so the connection can go on reading the streams below it.
@@ -471,17 +471,17 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
     try start_server();
     _ = try feed_request(1, "/", true);
     // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
-    const settings = try frame_bytes(test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
+    const settings = try frame_bytes(test_input, constants.protocol.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
     _ = try support.feed(settings);
     _ = try write_response(test_connection, test_output, 1, 200, &.{}, true);
     // RFC 7541 §4.2: the block opens with the size update the change owes, which for 100 is two
     // octets, the prefix full and the remainder 69.
-    try testing.expectEqual(0x3f, test_output[constants.frame_header_len]);
-    try testing.expectEqual(0x45, test_output[constants.frame_header_len + 1]);
+    try testing.expectEqual(0x3f, test_output[constants.protocol.frame_header_len]);
+    try testing.expectEqual(0x45, test_output[constants.protocol.frame_header_len + 1]);
     _ = try feed_request(3, "/", true);
     _ = try write_response(test_connection, test_output, 3, 200, &.{}, true);
     // The first block reached the peer, so the second owes nothing.
-    try testing.expect(test_output[constants.frame_header_len] != 0x3f);
+    try testing.expect(test_output[constants.protocol.frame_header_len] != 0x3f);
 }
 
 test {

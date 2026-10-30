@@ -266,7 +266,7 @@ test "RFC 9000 §4.5: a RESET_STREAM's final size counts against flow control" {
 test "RFC 9000 §4.5: a reset stream's unread octets give the connection its credit back" {
     open_server();
     // Half the connection's window, which is what a new MAX_DATA waits for.
-    const reset_at: u64 = test_max_data / constants.flow_credit_fraction;
+    const reset_at: u64 = test_max_data / constants.policy.flow_credit_fraction;
     _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
     // The application reads part of what arrived.
     try connection_flow.consume(&test_connection, .{ .value = client_bidi_first }, data_len / 2);

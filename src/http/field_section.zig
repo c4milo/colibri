@@ -49,20 +49,20 @@ const Line = struct {
 
 comptime {
     // A line record keeps its two lengths in u16, so both limits must fit one.
-    assert(limits.field_name_len_max <= std.math.maxInt(u16));
-    assert(limits.field_value_len_max <= std.math.maxInt(u16));
+    assert(limits.limits.field_name_len_max <= std.math.maxInt(u16));
+    assert(limits.limits.field_value_len_max <= std.math.maxInt(u16));
     // `append` adds one line's cost to `size` in u32 before it compares against the limit, so the
     // largest sum the comparison can see must fit.
-    const cost_max: u64 = @as(u64, limits.field_name_len_max) + limits.field_value_len_max + limits.field_line_overhead;
-    assert(limits.field_section_size_max + cost_max <= std.math.maxInt(u32));
+    const cost_max: u64 = @as(u64, limits.limits.field_name_len_max) + limits.limits.field_value_len_max + limits.protocol.field_line_overhead;
+    assert(limits.limits.field_section_size_max + cost_max <= std.math.maxInt(u32));
 }
 
 /// One message's field lines, in arrival order, in storage the caller places.
 pub const FieldSection = struct {
     /// Every line's name then value, in arrival order; `octets[0..octets_len]` is in use.
-    octets: [limits.field_section_size_max]u8,
+    octets: [limits.limits.field_section_size_max]u8,
     /// One record per line, in arrival order; `lines[0..count]` is in use.
-    lines: [limits.field_count_max]Line,
+    lines: [limits.limits.field_count_max]Line,
     /// Lines held, at most `field_count_max`.
     count: u32,
     /// Octets of `octets` in use: the sum over the lines of name length and value length.
@@ -100,19 +100,19 @@ pub const FieldSection = struct {
     /// that contract; they check the caller, never the peer (invariant 24). Nothing here checks
     /// the octets, so a section is read only after its protocol module validated it.
     pub fn append(section: *FieldSection, name: []const u8, value: []const u8) AppendError!void {
-        assert(name.len <= limits.field_name_len_max);
-        assert(value.len <= limits.field_value_len_max);
+        assert(name.len <= limits.limits.field_name_len_max);
+        assert(value.len <= limits.limits.field_value_len_max);
         // RFC 9110 §5.4: no predefined limit on a field section, and a server that cannot accept
         // one answers 4xx rather than truncating it, which is what makes a local limit on the
         // number of lines conformant.
-        if (section.count == limits.field_count_max) return error.TooManyLines;
+        if (section.count == limits.limits.field_count_max) return error.TooManyLines;
         const name_len: u16 = @intCast(name.len);
         const value_len: u16 = @intCast(value.len);
         const cost = line_size(name_len, value_len);
         // RFC 9113 §6.5.2 and RFC 9114 §4.2.2: a section's size is the sum over its lines of name
         // length, value length and the overhead, on the unencoded octets, and the endpoint refuses
         // a section larger than the size it advertises.
-        if (section.size + cost > limits.field_section_size_max) return error.SectionTooLarge;
+        if (section.size + cost > limits.limits.field_section_size_max) return error.SectionTooLarge;
         const name_end = section.octets_len + name_len;
         const value_end = name_end + value_len;
         // `octets_len` never exceeds `size`, and `size + cost` fits under the limit, so the
@@ -128,7 +128,7 @@ pub const FieldSection = struct {
         section.count += 1;
         section.octets_len = value_end;
         section.size += cost;
-        assert(section.count <= limits.field_count_max);
+        assert(section.count <= limits.limits.field_count_max);
         section.check_accounting();
     }
 
@@ -142,11 +142,11 @@ pub const FieldSection = struct {
         assert(section.count > 0);
         const line = &section.lines[section.count - 1];
         assert(line.offset + line.name_len + line.value_len == section.octets_len);
-        assert(line.value_len + octets.len <= limits.field_value_len_max);
+        assert(line.value_len + octets.len <= limits.limits.field_value_len_max);
         const added: u32 = @intCast(octets.len);
         // RFC 9113 §6.5.2 and RFC 9114 §4.2.2 measure a section by its unencoded octets, and a
         // joined value counts every octet it holds, as `append` counts them.
-        if (section.size + added > limits.field_section_size_max) return error.SectionTooLarge;
+        if (section.size + added > limits.limits.field_section_size_max) return error.SectionTooLarge;
         const end = section.octets_len + added;
         @memcpy(section.octets[section.octets_len..end], octets);
         line.value_len += @intCast(added);
@@ -171,7 +171,7 @@ pub const FieldSection = struct {
     /// field names, case-insensitively; or null when no line does. It is the first because
     /// RFC 9110 §5.3 makes the order of same-name lines significant.
     pub fn find(section: *const FieldSection, name: []const u8) ?Field {
-        assert(section.count <= limits.field_count_max);
+        assert(section.count <= limits.limits.field_count_max);
         for (section.lines[0..section.count]) |*line| {
             // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case one
             // octet to one octet, so names of two lengths never compare equal: the line is skipped
@@ -199,8 +199,8 @@ pub const FieldSection = struct {
     /// and `extend_last` change the sums, each by exactly the octets it adds, so each sum holds by
     /// induction. Recomputing them from every line would cost a walk of the section per line.
     fn check_accounting(section: *const FieldSection) void {
-        assert(section.count > 0 and section.count <= limits.field_count_max);
-        assert(section.size <= limits.field_section_size_max);
+        assert(section.count > 0 and section.count <= limits.limits.field_count_max);
+        assert(section.size <= limits.limits.field_section_size_max);
         assert(section.octets_len <= section.size);
         const last = section.lines[section.count - 1];
         assert(last.offset + last.name_len + last.value_len == section.octets_len);
@@ -226,8 +226,8 @@ pub const Iterator = struct {
 /// The size one line adds to a section: its name length, its value length and the overhead
 /// (RFC 9113 §6.5.2, RFC 9114 §4.2.2).
 fn line_size(name_len: u16, value_len: u16) u32 {
-    const size = @as(u32, name_len) + value_len + limits.field_line_overhead;
-    assert(size >= limits.field_line_overhead);
+    const size = @as(u32, name_len) + value_len + limits.protocol.field_line_overhead;
+    assert(size >= limits.protocol.field_line_overhead);
     return size;
 }
 
@@ -237,7 +237,7 @@ const testing = std.testing;
 threadlocal var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// A value as long as a value may be, for the tests that fill a section.
-const test_value: [limits.field_value_len_max]u8 = @splat('v');
+const test_value: [limits.limits.field_value_len_max]u8 = @splat('v');
 
 fn expect_line(index: u32, name: []const u8, value: []const u8) !void {
     const line = test_section.get(index);
@@ -282,32 +282,32 @@ test "two lines sharing a name both stay, in order, and find returns the first (
 test "a line that brings the size exactly to the limit is accepted, and one octet more is refused" {
     test_section.init();
     try test_section.append("a", &test_value);
-    const first_size = 1 + limits.field_value_len_max + limits.field_line_overhead;
-    const first_octets_len = 1 + limits.field_value_len_max;
+    const first_size = 1 + limits.limits.field_value_len_max + limits.protocol.field_line_overhead;
+    const first_octets_len = 1 + limits.limits.field_value_len_max;
     try expect_state(1, first_size, first_octets_len);
     // The second value is sized so the section lands exactly on the limit.
-    const fitting_len = limits.field_section_size_max - first_size - 1 - limits.field_line_overhead;
+    const fitting_len = limits.limits.field_section_size_max - first_size - 1 - limits.protocol.field_line_overhead;
     const too_long = test_section.append("b", test_value[0 .. fitting_len + 1]);
     try testing.expectError(error.SectionTooLarge, too_long);
     try expect_state(1, first_size, first_octets_len);
     try test_section.append("b", test_value[0..fitting_len]);
-    try expect_state(2, limits.field_section_size_max, first_octets_len + 1 + fitting_len);
+    try expect_state(2, limits.limits.field_section_size_max, first_octets_len + 1 + fitting_len);
     try expect_line(1, "b", test_value[0..fitting_len]);
     // Even an empty value costs its name and the overhead, so nothing more fits.
     try testing.expectError(error.SectionTooLarge, test_section.append("c", ""));
-    try expect_state(2, limits.field_section_size_max, first_octets_len + 1 + fitting_len);
+    try expect_state(2, limits.limits.field_section_size_max, first_octets_len + 1 + fitting_len);
     try expect_line(0, "a", &test_value);
 }
 
 test "the line after field_count_max is refused and changes nothing" {
     test_section.init();
-    for (0..limits.field_count_max) |_| try test_section.append("n", "v");
-    const size = limits.field_count_max * (1 + 1 + limits.field_line_overhead);
-    const octets_len = limits.field_count_max * 2;
-    try expect_state(limits.field_count_max, size, octets_len);
+    for (0..limits.limits.field_count_max) |_| try test_section.append("n", "v");
+    const size = limits.limits.field_count_max * (1 + 1 + limits.protocol.field_line_overhead);
+    const octets_len = limits.limits.field_count_max * 2;
+    try expect_state(limits.limits.field_count_max, size, octets_len);
     try testing.expectError(error.TooManyLines, test_section.append("n", "v"));
-    try expect_state(limits.field_count_max, size, octets_len);
-    try expect_line(limits.field_count_max - 1, "n", "v");
+    try expect_state(limits.limits.field_count_max, size, octets_len);
+    try expect_line(limits.limits.field_count_max - 1, "n", "v");
 }
 
 test "find compares names case-insensitively (RFC 9110 §5.1)" {
@@ -349,16 +349,16 @@ test "extend_last joins octets to the last line's value and counts them, or refu
     try expect_state(2, 1 + 1 + 32 + 1 + 12 + 32, 2 + 13);
     // A value may reach field_value_len_max by joining, and the size limit still refuses.
     test_section.init();
-    try test_section.append("c", test_value[0 .. limits.field_value_len_max - 1]);
+    try test_section.append("c", test_value[0 .. limits.limits.field_value_len_max - 1]);
     try test_section.extend_last("v");
-    try testing.expectEqual(limits.field_value_len_max, test_section.get(0).value.len);
-    const room = limits.field_section_size_max - test_section.size;
+    try testing.expectEqual(limits.limits.field_value_len_max, test_section.get(0).value.len);
+    const room = limits.limits.field_section_size_max - test_section.size;
     try test_section.append("d", test_value[0 .. room - 1 - 32 - 1]);
     const before = test_section.size;
     try testing.expectError(error.SectionTooLarge, test_section.extend_last("vv"));
     try testing.expectEqual(before, test_section.size);
     try test_section.extend_last("v");
-    try testing.expectEqual(limits.field_section_size_max, test_section.size);
+    try testing.expectEqual(limits.limits.field_section_size_max, test_section.size);
 }
 
 test "clear empties the section, and it accepts lines again" {
@@ -371,7 +371,7 @@ test "clear empties the section, and it accepts lines again" {
     var lines = test_section.iterator();
     try testing.expectEqual(null, lines.next());
     try test_section.append("c", "3");
-    try expect_state(1, 1 + 1 + limits.field_line_overhead, 2);
+    try expect_state(1, 1 + 1 + limits.protocol.field_line_overhead, 2);
     try expect_line(0, "c", "3");
 }
 

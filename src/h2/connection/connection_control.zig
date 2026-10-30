@@ -65,10 +65,10 @@ fn apply_error_code(failure: settings.ApplyError) u32 {
     return switch (failure) {
         // RFC 9113 §6.5.2: a SETTINGS_INITIAL_WINDOW_SIZE above 2^31 - 1 is a connection error of
         // FLOW_CONTROL_ERROR.
-        error.InitialWindowSizeTooLarge => constants.error_flow_control_error,
+        error.InitialWindowSizeTooLarge => constants.protocol.error_flow_control_error,
         // RFC 9113 §6.5.2: an ENABLE_PUSH other than 0 or 1, an ENABLE_PUSH of 1 from a server and
         // a SETTINGS_MAX_FRAME_SIZE outside its range are connection errors of PROTOCOL_ERROR.
-        error.EnablePushInvalid, error.EnablePushByServer, error.MaxFrameSizeOutOfRange => constants.error_protocol_error,
+        error.EnablePushInvalid, error.EnablePushByServer, error.MaxFrameSizeOutOfRange => constants.protocol.error_protocol_error,
     };
 }
 
@@ -79,7 +79,7 @@ fn adjust_windows(target: *Connection, sizes: settings.WindowChange) Error!void 
     target.streams.adjust_send_windows(delta) catch {
         // RFC 9113 §6.9.2: a change that makes a flow-control window exceed the maximum is a
         // connection error of FLOW_CONTROL_ERROR.
-        return target.fail(constants.error_flow_control_error);
+        return target.fail(constants.protocol.error_flow_control_error);
     };
 }
 
@@ -99,7 +99,7 @@ pub fn on_goaway(target: *Connection, goaway: frame.Goaway) Error!?Event {
     target.streams.record_goaway_received(goaway.last_stream_id) catch {
         // RFC 9113 §6.8: an endpoint MUST treat a GOAWAY whose last stream identifier is higher
         // than a previous one as a connection error of PROTOCOL_ERROR (invariant 16).
-        return target.fail(constants.error_protocol_error);
+        return target.fail(constants.protocol.error_protocol_error);
     };
     return .{ .goaway = .{ .last_stream_id = goaway.last_stream_id, .error_code = goaway.error_code } };
 }
@@ -110,7 +110,7 @@ pub fn on_window_update(target: *Connection, update: frame.WindowUpdate) Error!?
     target.send_window.add(update.increment) catch {
         // RFC 9113 §6.9.1: an increment that takes the window above 2^31 - 1 is a connection error
         // of FLOW_CONTROL_ERROR on the connection's window.
-        return target.fail(constants.error_flow_control_error);
+        return target.fail(constants.protocol.error_flow_control_error);
     };
     connection_send_window.note_increment(target, update.increment);
     return null;
@@ -128,16 +128,16 @@ const test_input = &support.test_input;
 
 /// Writes a SETTINGS frame carrying one setting. Test-only.
 fn settings_frame(id: u16, value: u32) ![]const u8 {
-    var payload: [constants.setting_len]u8 = undefined;
+    var payload: [constants.protocol.setting_len]u8 = undefined;
     var writer = Writer.init(&payload);
     try writer.write_int(u16, id);
     try writer.write_int(u32, value);
-    return frame_bytes(test_input, constants.frame_type_settings, 0, 0, writer.written());
+    return frame_bytes(test_input, constants.protocol.frame_type_settings, 0, 0, writer.written());
 }
 
 test "http2/6.5.3/2: a SETTINGS frame is applied and acknowledged, and the peer's values are kept" {
     try start_server();
-    const event = try feed(try settings_frame(constants.setting_max_concurrent_streams, 100));
+    const event = try feed(try settings_frame(constants.protocol.setting_max_concurrent_streams, 100));
     try testing.expectEqual(connection.Event.settings_applied, event.?);
     try testing.expectEqual(100, test_connection.peer.max_concurrent_streams.?);
     try testing.expectEqualStrings("\x00\x00\x00\x04\x01\x00\x00\x00\x00", write_queued());
@@ -145,23 +145,23 @@ test "http2/6.5.3/2: a SETTINGS frame is applied and acknowledged, and the peer'
 
 test "http2/6.5.3/1: the settings of one frame are applied in the order they appear" {
     try start_server();
-    var payload: [2 * constants.setting_len]u8 = undefined;
+    var payload: [2 * constants.protocol.setting_len]u8 = undefined;
     var writer = Writer.init(&payload);
-    try writer.write_int(u16, constants.setting_initial_window_size);
+    try writer.write_int(u16, constants.protocol.setting_initial_window_size);
     try writer.write_int(u32, 100);
-    try writer.write_int(u16, constants.setting_initial_window_size);
+    try writer.write_int(u16, constants.protocol.setting_initial_window_size);
     try writer.write_int(u32, 1);
-    const bytes = try frame_bytes(test_input, constants.frame_type_settings, 0, 0, writer.written());
+    const bytes = try frame_bytes(test_input, constants.protocol.frame_type_settings, 0, 0, writer.written());
     _ = try feed(bytes);
     try testing.expectEqual(1, test_connection.peer.initial_window_size);
 }
 
 test "http2/6.5.2: every value RFC 9113 §6.5.2 refuses ends the connection with the code it names" {
     const cases = [_]struct { id: u16, value: u32, code: u32 }{
-        .{ .id = constants.setting_enable_push, .value = 2, .code = constants.error_protocol_error },
-        .{ .id = constants.setting_initial_window_size, .value = 1 << 31, .code = constants.error_flow_control_error },
-        .{ .id = constants.setting_max_frame_size, .value = 16383, .code = constants.error_protocol_error },
-        .{ .id = constants.setting_max_frame_size, .value = 1 << 24, .code = constants.error_protocol_error },
+        .{ .id = constants.protocol.setting_enable_push, .value = 2, .code = constants.protocol.error_protocol_error },
+        .{ .id = constants.protocol.setting_initial_window_size, .value = 1 << 31, .code = constants.protocol.error_flow_control_error },
+        .{ .id = constants.protocol.setting_max_frame_size, .value = 16383, .code = constants.protocol.error_protocol_error },
+        .{ .id = constants.protocol.setting_max_frame_size, .value = 1 << 24, .code = constants.protocol.error_protocol_error },
     };
     for (cases) |case| {
         try start_server();
@@ -171,8 +171,8 @@ test "http2/6.5.2: every value RFC 9113 §6.5.2 refuses ends the connection with
         // RFC 9113 §6.5.3: the acknowledgment says the values were applied, so a frame that was
         // refused is never acknowledged: the GOAWAY is the only frame left to write.
         const queued = write_queued();
-        try testing.expectEqual(constants.frame_header_len + constants.goaway_len_min, queued.len);
-        try testing.expectEqual(constants.frame_type_goaway, queued[3]);
+        try testing.expectEqual(constants.protocol.frame_header_len + constants.protocol.goaway_len_min, queued.len);
+        try testing.expectEqual(constants.protocol.frame_type_goaway, queued[3]);
     }
 }
 
@@ -186,10 +186,10 @@ test "http2/6.5.2/5: a setting colibri does not know is ignored, and the frame i
 test "the peer's acknowledgment puts colibri's own settings in force, and one it never asked for is ignored" {
     try start_server();
     try testing.expectEqual(1, test_connection.pending.len());
-    const ack = try frame_bytes(test_input, constants.frame_type_settings, constants.flag_ack, 0, "");
+    const ack = try frame_bytes(test_input, constants.protocol.frame_type_settings, constants.protocol.flag_ack, 0, "");
     try testing.expectEqual(connection.Event.settings_acknowledged, (try feed(ack)).?);
     try testing.expectEqual(0, test_connection.pending.len());
-    try testing.expectEqual(constants.concurrent_streams_max, test_connection.local.max_concurrent_streams.?);
+    try testing.expectEqual(constants.limits.concurrent_streams_max, test_connection.local.max_concurrent_streams.?);
     // RFC 9113 §6.5.3 gives no rule for a second acknowledgment, so colibri discards it.
     try testing.expectEqual(null, try feed(ack));
     try testing.expect(!test_connection.has_pending());
@@ -199,28 +199,28 @@ test "a new SETTINGS_INITIAL_WINDOW_SIZE moves every stream's send window, and a
     try start_server();
     _ = try support.feed_request(1, "/", false);
     const record = test_connection.streams.lookup(1).live;
-    try testing.expectEqual(constants.initial_window_size_initial, record.send_window.available);
-    _ = try feed(try settings_frame(constants.setting_initial_window_size, 100));
+    try testing.expectEqual(constants.protocol.initial_window_size_initial, record.send_window.available);
+    _ = try feed(try settings_frame(constants.protocol.setting_initial_window_size, 100));
     try testing.expectEqual(100, record.send_window.available);
     // RFC 9113 §6.9.2: a change that takes a window past the maximum ends the connection.
-    try record.send_window.add(constants.window_max - 100);
-    const bytes = try settings_frame(constants.setting_initial_window_size, 101);
+    try record.send_window.add(constants.protocol.window_max - 100);
+    const bytes = try settings_frame(constants.protocol.setting_initial_window_size, 101);
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
-    try testing.expectEqual(constants.error_flow_control_error, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_flow_control_error, test_connection.failure.?);
 }
 
 test "the peer's SETTINGS_HEADER_TABLE_SIZE becomes the limit on colibri's encoder (§4.3.1)" {
     try start_server();
-    _ = try feed(try settings_frame(constants.setting_header_table_size, 256));
+    _ = try feed(try settings_frame(constants.protocol.setting_header_table_size, 256));
     try testing.expectEqual(256, test_connection.encoder.capacity_limit);
 }
 
 test "http2/6.7/1 and http2/6.7/2: a PING is answered with its own data, and an acknowledgment is not" {
     try start_server();
-    const ping = try frame_bytes(test_input, constants.frame_type_ping, 0, 0, "h2spec\x00\x00");
+    const ping = try frame_bytes(test_input, constants.protocol.frame_type_ping, 0, 0, "h2spec\x00\x00");
     try testing.expectEqual(null, try feed(ping));
     try testing.expectEqualStrings("\x00\x00\x08\x06\x01\x00\x00\x00\x00h2spec\x00\x00", write_queued());
-    const answer = try frame_bytes(test_input, constants.frame_type_ping, constants.flag_ack, 0, "invalid!");
+    const answer = try frame_bytes(test_input, constants.protocol.frame_type_ping, constants.protocol.flag_ack, 0, "invalid!");
     const event = try feed(answer);
     try testing.expectEqualStrings("invalid!", &event.?.ping_acknowledged);
     try testing.expect(!test_connection.has_pending());
@@ -228,36 +228,36 @@ test "http2/6.7/1 and http2/6.7/2: a PING is answered with its own data, and an 
 
 test "http2/6.8: the peer's GOAWAY is reported, and a higher last stream identifier ends the connection" {
     try start_server();
-    const first = try frame_bytes(test_input, constants.frame_type_goaway, 0, 0, "\x00\x00\x00\x05\x00\x00\x00\x00bye");
+    const first = try frame_bytes(test_input, constants.protocol.frame_type_goaway, 0, 0, "\x00\x00\x00\x05\x00\x00\x00\x00bye");
     const event = try feed(first);
     try testing.expectEqual(5, event.?.goaway.last_stream_id);
-    try testing.expectEqual(constants.error_no_error, event.?.goaway.error_code);
-    const lower = try frame_bytes(test_input, constants.frame_type_goaway, 0, 0, "\x00\x00\x00\x03\x00\x00\x00\x00");
+    try testing.expectEqual(constants.protocol.error_no_error, event.?.goaway.error_code);
+    const lower = try frame_bytes(test_input, constants.protocol.frame_type_goaway, 0, 0, "\x00\x00\x00\x03\x00\x00\x00\x00");
     _ = try feed(lower);
     // RFC 9113 §6.8 and invariant 16: a later GOAWAY may not name a higher stream.
-    const higher = try frame_bytes(test_input, constants.frame_type_goaway, 0, 0, "\x00\x00\x00\x07\x00\x00\x00\x00");
+    const higher = try frame_bytes(test_input, constants.protocol.frame_type_goaway, 0, 0, "\x00\x00\x00\x07\x00\x00\x00\x00");
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(higher, 0));
-    try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);
 }
 
 test "http2/6.9.1/2: WINDOW_UPDATE on stream 0 adds to the connection window and overflow is FLOW_CONTROL_ERROR" {
     try start_server();
-    const one = try frame_bytes(test_input, constants.frame_type_window_update, 0, 0, "\x00\x00\x00\x01");
+    const one = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 0, "\x00\x00\x00\x01");
     try testing.expectEqual(null, try feed(one));
-    try testing.expectEqual(constants.initial_window_size_initial + 1, test_connection.send_window.available);
+    try testing.expectEqual(constants.protocol.initial_window_size_initial + 1, test_connection.send_window.available);
     // RFC 9113 §6.9.1: an increment that takes the window past 2^31 - 1 ends the connection.
-    const large = try frame_bytes(test_input, constants.frame_type_window_update, 0, 0, "\x7f\xff\xff\xff");
+    const large = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 0, "\x7f\xff\xff\xff");
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(large, 0));
-    try testing.expectEqual(constants.error_flow_control_error, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_flow_control_error, test_connection.failure.?);
 }
 
 /// Whether the SETTINGS frame at the front of `octets` lists `id` with `value`: each entry is an
 /// identifier of two octets and a value of four (RFC 9113 §6.5.1). Test-only.
 fn lists_setting(octets: []const u8, id: u16, value: u32) bool {
-    const length = std.mem.readInt(u24, octets[0..constants.frame_length_len], .big);
-    const entries = octets[constants.frame_header_len..][0..length];
-    for (0..length / constants.setting_len) |index| {
-        const entry = entries[index * constants.setting_len ..][0..constants.setting_len];
+    const length = std.mem.readInt(u24, octets[0..constants.protocol.frame_length_len], .big);
+    const entries = octets[constants.protocol.frame_header_len..][0..length];
+    for (0..length / constants.protocol.setting_len) |index| {
+        const entry = entries[index * constants.protocol.setting_len ..][0..constants.protocol.setting_len];
         if (std.mem.readInt(u16, entry[0..@sizeOf(u16)], .big) != id) continue;
         return std.mem.readInt(u32, entry[@sizeOf(u16)..][0..@sizeOf(u32)], .big) == value;
     }
@@ -273,15 +273,15 @@ test "decision 110: a server that lowers the streams a client may open says so, 
     test_connection.limit_peer_streams(limit);
     const preface = support.test_output[0..test_connection.write_pending(&support.test_output, 0)];
     // RFC 9113 §6.5.2: SETTINGS_MAX_CONCURRENT_STREAMS carries the limit.
-    try testing.expect(lists_setting(preface, constants.setting_max_concurrent_streams, limit));
-    try testing.expectEqual(null, try feed(constants.client_preface));
+    try testing.expect(lists_setting(preface, constants.protocol.setting_max_concurrent_streams, limit));
+    try testing.expectEqual(null, try feed(constants.protocol.client_preface));
     _ = try feed(support.empty_settings);
     for (0..limit) |index| {
-        _ = try support.feed_request(@intCast(constants.stream_id_client_first + constants.stream_id_step * index), "/", false);
+        _ = try support.feed_request(@intCast(constants.protocol.stream_id_client_first + constants.protocol.stream_id_step * index), "/", false);
     }
     // RFC 9113 §5.1.2: the stream past the limit is refused with REFUSED_STREAM.
-    const past_id = constants.stream_id_client_first + constants.stream_id_step * limit;
+    const past_id = constants.protocol.stream_id_client_first + constants.protocol.stream_id_step * limit;
     const refused = (try support.feed_request(past_id, "/", false)).?.stream_refused;
     try testing.expectEqual(past_id, refused.stream_id);
-    try testing.expectEqual(constants.error_refused_stream, refused.error_code);
+    try testing.expectEqual(constants.protocol.error_refused_stream, refused.error_code);
 }

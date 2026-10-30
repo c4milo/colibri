@@ -199,9 +199,9 @@ const branches_per_parameter = 1_000;
 /// A pattern of `path_parameters_max - 1` parameters and the wildcard, or a path that it matches
 /// with `value_prefix` before each value. Comptime-only.
 fn most_parameters(comptime parameter_prefix: []const u8, comptime value_prefix: []const u8) []const u8 {
-    @setEvalBranchQuota(constants.path_parameters_max * branches_per_parameter);
+    @setEvalBranchQuota(constants.limits.path_parameters_max * branches_per_parameter);
     var text: []const u8 = "";
-    for (0..constants.path_parameters_max - 1) |index| {
+    for (0..constants.limits.path_parameters_max - 1) |index| {
         text = text ++ std.fmt.comptimePrint("/{s}{s}{d}", .{ parameter_prefix, value_prefix, index });
     }
     return text;
@@ -212,15 +212,15 @@ fn most_parameters(comptime parameter_prefix: []const u8, comptime value_prefix:
 const ruling_10_units = 4;
 
 test "decision 122 ruling 10: the parameters and the wildcard of a pattern fill path_parameters_max entries" {
-    @setEvalBranchQuota(ruling_10_units * constants.path_parameters_max * branches_per_parameter);
+    @setEvalBranchQuota(ruling_10_units * constants.limits.path_parameters_max * branches_per_parameter);
     const most = router(u8, .{.{ .get, comptime most_parameters(":", "p") ++ "/*", 1 }});
     const path = comptime most_parameters("", "v") ++ "/w/x";
     var parameters: PathParameters = .{};
     try testing.expectEqual(1, most.match("GET", path, &parameters).found);
-    try testing.expectEqual(constants.path_parameters_max, parameters.count);
+    try testing.expectEqual(constants.limits.path_parameters_max, parameters.count);
     try testing.expectEqualStrings("v0", parameters.get("p0").?);
     try testing.expectEqualStrings("w/x", parameters.get("*").?);
-    inline for (0..constants.path_parameters_max - 1) |index| {
+    inline for (0..constants.limits.path_parameters_max - 1) |index| {
         const name = comptime std.fmt.comptimePrint("p{d}", .{index});
         const value = comptime std.fmt.comptimePrint("v{d}", .{index});
         try testing.expectEqualStrings(value, parameters.get(name).?);

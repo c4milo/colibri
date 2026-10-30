@@ -93,7 +93,7 @@ fn report_exporter() void {
 /// colibri does not admit, so a handshake that completed on one is not a session h2 could use.
 /// Printing the codepoint is not enough; this is what makes the run fail on it.
 fn admitted(suite: u16) bool {
-    for (tls_provider.constants.cipher_suites_admitted) |candidate| {
+    for (tls_provider.constants.policy.cipher_suites_admitted) |candidate| {
         if (suite == candidate) return true;
     }
     return false;
@@ -102,7 +102,7 @@ fn admitted(suite: u16) bool {
 pub fn main(init: std.process.Init.Minimal) !void {
     const asked = parse(init);
     server_identity.seed(&identity_storage);
-    const identity = try server_identity.load(asked.identity_prefix, &identity_storage, &.{&tls_provider.constants.alpn_h2});
+    const identity = try server_identity.load(asked.identity_prefix, &identity_storage, &.{&tls_provider.constants.protocol.alpn_h2});
     config.init(identity) catch |failure| {
         std.debug.print("tls-accept: the configuration was refused: {t}\n", .{failure});
         std.process.exit(exit_failed);

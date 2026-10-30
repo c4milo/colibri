@@ -42,7 +42,7 @@ fn expect_same_verdict(name: []const u8) !void {
 const octet_values = std.math.maxInt(u8) + 1;
 /// The longest name the tests vary one octet of.
 const varied_len_max = 40;
-const name_len_max = core.constants.field_name_len_max;
+const name_len_max = core.constants.limits.field_name_len_max;
 
 test "validate_field_line gives every name of up to two octets the reference's verdict" {
     var name: [2]u8 = undefined;

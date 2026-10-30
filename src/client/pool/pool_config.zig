@@ -25,12 +25,12 @@ pub const Config = struct {
     /// The HTTP versions the client speaks (decision 117). A TCP connection speaks h11 or h2, and
     /// a QUIC connection h3 alone (RFC 9114 §3.1).
     protocols: protocols_module.Protocols = .{},
-    /// TCP connections the pool holds at most: from 1 to `constants.pool_tcp_connections_max`
+    /// TCP connections the pool holds at most: from 1 to `constants.limits.pool_tcp_connections_max`
     /// (decision 125). `memory_bytes` sizes the memory they take.
     tcp_connections: u16 = 1,
     /// Requests the pool holds at once, each until its `finished` event: from 1 to
-    /// `constants.pool_requests_max`.
-    requests: u16 = constants.requests_max,
+    /// `constants.limits.pool_requests_max`.
+    requests: u16 = constants.limits.requests_max,
     /// The authority every request names: `:authority` in h2 and h3 (RFC 9113 §8.3.1, RFC 9114
     /// §4.3.1) and Host in h11 (RFC 9112 §3.2).
     authority: []const u8,
@@ -47,13 +47,13 @@ pub const Config = struct {
     /// speaks h3 (RFC 9114 §3.1). When false, QUIC waits for a TCP response's Alt-Svc.
     quic_first: bool = true,
     /// How long QUIC's handshake runs before TCP opens beside it, in nanoseconds.
-    fallback_delay_ns: u64 = constants.fallback_delay_ns_default,
+    fallback_delay_ns: u64 = constants.policy.fallback_delay_ns_default,
     /// QUIC connections alone. Decision 68: whether the caller reads each datagram's ECN codepoint
     /// and sets the one `send_datagram` names.
     ecn: bool = false,
     /// QUIC connections alone: the idle timeout the client advertises (RFC 9000 §10.1), in
     /// milliseconds.
-    idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
+    idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
 };
 
 /// Why `ConnectionPool.init`, `start_tcp` or `start_quic` refused. `init` returns every member but
@@ -61,7 +61,7 @@ pub const Config = struct {
 pub const StartError = connection_module.StartError || quic_connection.StartError || error{
     /// The TLS value names more anchors than `tls.record.ClientConfig.anchors_max`.
     TooManyAnchors,
-    /// The TLS value names more suites than `tls.constants.cipher_suites_max`.
+    /// The TLS value names more suites than `tls.constants.limits.cipher_suites_max`.
     TooManySuites,
     /// The TLS value orders suites for an object that holds one suite alone (decision 97).
     SuitesUnavailable,
@@ -103,7 +103,7 @@ fn offered(config: *const Config, pool_given: bool) Offered {
 }
 
 /// The protocol a QUIC connection's handshake offers (RFC 9114 §3.1).
-const alpn_h3 = [_][]const u8{&tls_provider.constants.alpn_h3};
+const alpn_h3 = [_][]const u8{&tls_provider.constants.protocol.alpn_h3};
 
 /// Builds QUIC's TLS configuration into `quic_tls`, and what each QUIC connection borrows into
 /// `quic`.
@@ -126,9 +126,9 @@ pub fn build_quic(config: *const Config, quic_tls: *tls.quic.ClientConfig, quic:
 
 /// The protocols a TCP connection's handshake offers, most preferred first (RFC 7301 §3.1): h2
 /// (RFC 9113 §3.2), then h11 (decision 88), as `versions` allows them.
-const alpn_both = [_][]const u8{ &tls_provider.constants.alpn_h2, tls_provider.constants.alpn_http_1_1 };
-const alpn_h2 = [_][]const u8{&tls_provider.constants.alpn_h2};
-const alpn_h11 = [_][]const u8{tls_provider.constants.alpn_http_1_1};
+const alpn_both = [_][]const u8{ &tls_provider.constants.protocol.alpn_h2, tls_provider.constants.protocol.alpn_http_1_1 };
+const alpn_h2 = [_][]const u8{&tls_provider.constants.protocol.alpn_h2};
+const alpn_h11 = [_][]const u8{tls_provider.constants.protocol.alpn_http_1_1};
 
 /// Builds TCP's TLS configuration into `tcp_tls` when the pool runs over TLS, and what each TCP
 /// connection borrows into `tcp`.

@@ -7,7 +7,7 @@
 //! microseconds, and §4.2's cube root is an integer one (non-negotiable 5).
 const std = @import("std");
 const assert = std.debug.assert;
-const cubic = @import("../constants.zig").cubic;
+const cubic = @import("../constants.zig").recovery.cubic;
 
 /// What the cubic increase is shaped by in one congestion avoidance stage: W_max, the window the
 /// stage aims back at (§4.1.2), and K, the microseconds it takes to get there (§4.2, Figure 2).

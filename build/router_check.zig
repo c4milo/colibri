@@ -68,7 +68,7 @@ const cases = [_]Case{
     .{
         .name = "parameters_too_many",
         .message = "server.router: route 1, \"/:a/:b/:c/:d/:e/:f/:g/:h/:i\": parameters_too_many: " ++
-            "a pattern holds server.constants.path_parameters_max parameters at most",
+            "a pattern holds server.constants.limits.path_parameters_max parameters at most",
     },
     .{
         .name = "wildcard_not_last",
@@ -119,12 +119,12 @@ const cases = [_]Case{
         .name = "allow_too_long",
         .message = "server.router: route 1, \"/a\": allow_too_long: " ++
             "the Allow value of the routes of one pattern holds " ++
-            "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
+            "core.constants.limits.field_value_len_max octets at most, because a 405 sends it as a field value",
     },
     .{
         .name = "methods_too_many",
         .message = "server.router: route 10, \"/a\": methods_too_many: " ++
-            "the routes of a table name server.constants.route_methods_max methods at most (decision 128)",
+            "the routes of a table name server.constants.limits.route_methods_max methods at most (decision 128)",
     },
     .{
         .name = "route_unreachable",

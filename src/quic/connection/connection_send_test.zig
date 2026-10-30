@@ -101,7 +101,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !usize {
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     var seen: usize = 0;
     // Bounded by what one datagram can hold (RFC 9000 §12.2).
-    while (seen < constants.coalesced_packets_max) {
+    while (seen < constants.limits.coalesced_packets_max) {
         const outcome = try receive.next(&walk, reader, suite_holder.suite()) orelse break;
         switch (outcome) {
             .opened => |opened| {
@@ -137,7 +137,7 @@ test "RFC 9000 §14.1, decision 54: a client's Initial datagram reaches 1,200 oc
     const sent = (try send_from(&client)).?;
     // "A client MUST expand the payload of all UDP datagrams carrying Initial packets to at
     // least the smallest allowed maximum datagram size of 1200 bytes."
-    try testing.expectEqual(constants.datagram_len_min, sent.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, sent.len);
     // Decision 54 puts the expansion on the last packet, and RFC 9002 §2 counts a packet
     // carrying PADDING as in flight.
     try testing.expect(sent.written()[sent.count - 1].in_flight);
@@ -151,19 +151,19 @@ test "RFC 9000 §14.1: a server expands only its ack-eliciting Initial datagrams
     open_pair();
     // An Initial carrying nothing but an acknowledgment. §14.1 asks a server to expand "all UDP
     // datagrams carrying ack-eliciting Initial packets", and this is not one.
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     _ = connection_module.space_at(&server, .initial).receive(0, test_now_ns, true, .not_ect);
     const sent = (try send_from(&server)).?;
     try testing.expect(!sent.written()[0].ack_eliciting);
-    try testing.expect(sent.len < constants.datagram_len_min);
+    try testing.expect(sent.len < constants.protocol.datagram_len_min);
 
     // With a flight to carry it is ack-eliciting, and then §14.1 does ask for the expansion.
     open_pair();
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     provider_holder = .{ .owed = &flight, .owed_level = .initial };
     const expanded = (try send_from(&server)).?;
     try testing.expect(expanded.written()[0].ack_eliciting);
-    try testing.expectEqual(constants.datagram_len_min, expanded.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, expanded.len);
 }
 
 test "RFC 9000 §8, invariant 18: a server sends no more than three times what it received" {
@@ -177,7 +177,7 @@ test "RFC 9000 §8, invariant 18: a server sends no more than three times what i
     try testing.expectEqual(null, try send_from(&server));
 
     // One datagram in gives it room for three out, and what it sends counts against that.
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     const before = server.path.send_allowance();
     const sent = (try send_from(&server)).?;
     try testing.expectEqual(before - sent.len, server.path.send_allowance());
@@ -206,7 +206,7 @@ test "RFC 9000 §14.2: no datagram exceeds the smallest maximum, whatever the pe
     // The caller's buffer holds more, and nothing has told colibri the path does.
     provider_holder = .{ .owed = &long_flight, .owed_level = .initial };
     const before = (try send_from(&client)).?;
-    try testing.expectEqual(constants.datagram_len_min, before.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, before.len);
 
     // §18.2's `max_udp_payload_size` is what the peer can receive, not what the path carries.
     // §14.2: without PMTUD or DPLPMTUD, "QUIC endpoints SHOULD NOT send datagrams larger than the
@@ -218,13 +218,13 @@ test "RFC 9000 §14.2: no datagram exceeds the smallest maximum, whatever the pe
     connection_module.apply_peer_parameters(&client, peer);
     provider_holder = .{ .owed = &long_flight, .owed_level = .initial };
     const after = (try send_from(&client)).?;
-    try testing.expectEqual(constants.datagram_len_min, after.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, after.len);
 }
 
 /// The unpredictable octets RFC 9000 §8.2.1 asks for, as a fixed value: §5.1 wants them drawn by
 /// the caller and invariant 5 forbids colibri a random number, so a test states them.
 const challenge_octet: u8 = 0x9c;
-const challenge_data: [constants.path_challenge_len]u8 = @splat(challenge_octet);
+const challenge_data: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet);
 
 /// Gives `connection` the application level, which RFC 9000 §12.5's Table 3 confines the path
 /// frames to.
@@ -242,7 +242,7 @@ test "RFC 9000 §8.2.1: a PATH_CHALLENGE goes out in an expanded datagram and is
     const sent = (try send_from(&client)).?;
     // "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to at least the
     // smallest allowed maximum datagram size of 1200 bytes."
-    try testing.expectEqual(constants.datagram_len_min, sent.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, sent.len);
     // §8.2.1 asks once: the frame is not owed again until the caller asks again.
     try testing.expectEqual(null, client.path.challenge_owed);
     // §8.2.1's attempt is outstanding now, which §8.2.4's timer is armed against. The client's
@@ -271,7 +271,7 @@ test "RFC 9000 §8.2.2: a PATH_RESPONSE goes out in an expanded datagram" {
     const sent = (try send_from(&client)).?;
     // §8.2.2: "An endpoint MUST expand datagrams that contain a PATH_RESPONSE frame to at least
     // the smallest allowed maximum datagram size of 1200 bytes."
-    try testing.expectEqual(constants.datagram_len_min, sent.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, sent.len);
     // §8.2.2: "An endpoint MUST NOT send more than one PATH_RESPONSE frame in response to one
     // PATH_CHALLENGE frame", so nothing is owed afterwards and nothing more goes out.
     try testing.expectEqual(null, client.path.response_owed);
@@ -291,7 +291,7 @@ test "RFC 9000 §8.2.1: a datagram the anti-amplification limit bounds is not ex
     const sent = (try send_from(&server)).?;
     // §8.2.1: the expansion applies "unless the anti-amplification limit for the path does not
     // permit sending a datagram of this size", which is what stopped it here.
-    try testing.expect(sent.len < constants.datagram_len_min);
+    try testing.expect(sent.len < constants.protocol.datagram_len_min);
     // §8.2.3: "the path is validated but not the path MTU. ... the endpoint MUST initiate another
     // path validation with an expanded datagram."
     try testing.expect(server.path.on_response(challenge_data));
@@ -337,7 +337,7 @@ test "RFC 9000 §8.2.4: the timer is three times the larger of the two Probe Tim
     const rtt = &client.recovery.rtt;
     const larger_ns = @max(rtt.probe_timeout_ns(true), rtt.new_path_probe_timeout_ns());
     try testing.expectEqual(
-        test_now_ns + constants.path_probe_timeouts * larger_ns,
+        test_now_ns + constants.policy.path_probe_timeouts * larger_ns,
         client.path.challenge_deadline_ns().?,
     );
 }
@@ -483,10 +483,10 @@ test "RFC 9001 §5.4.2: a tiny packet in an expanded datagram is padded rather t
     send.owe_probes(&client, .initial, 1);
     const padded = (try send_from(&client)).?;
     // RFC 9000 §14.1 asks for 1,200 octets, and the widening the PADDING replaced adds none.
-    try testing.expectEqual(constants.datagram_len_min, padded.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, padded.len);
     // A server that may send less than that fills its allowance and not one octet past it.
     server.path.on_datagram_received(tiny_allowance_received);
     send.owe_probes(&server, .initial, 1);
     const limited = (try send_from(&server)).?;
-    try testing.expectEqual(tiny_allowance_received * constants.anti_amplification_factor, limited.len);
+    try testing.expectEqual(tiny_allowance_received * constants.protocol.anti_amplification_factor, limited.len);
 }

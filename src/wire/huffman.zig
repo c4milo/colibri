@@ -33,18 +33,18 @@ pub const DecodeError = core.writer.Error || error{
     HuffmanPaddingNotEos,
 };
 
-const eos_code: u32 = (1 << constants.huffman_code_bits_max) - 1;
+const eos_code: u32 = (1 << constants.protocol.huffman_code_bits_max) - 1;
 
 /// The canonical form of the table, indexed by code length in bits.
 const Canonical = struct {
     /// The numerically smallest code of each length.
-    first_code: [constants.huffman_code_bits_max + 1]u32,
+    first_code: [constants.protocol.huffman_code_bits_max + 1]u32,
     /// How many codes have each length.
-    count: [constants.huffman_code_bits_max + 1]u16,
+    count: [constants.protocol.huffman_code_bits_max + 1]u16,
     /// Where each length's symbols start in `symbols`.
-    first_index: [constants.huffman_code_bits_max + 1]u16,
+    first_index: [constants.protocol.huffman_code_bits_max + 1]u16,
     /// Every symbol, ordered by code length and then by code.
-    symbols: [constants.huffman_symbol_count]u16,
+    symbols: [constants.protocol.huffman_symbol_count]u16,
 };
 
 const canonical: Canonical = build_canonical();
@@ -69,7 +69,7 @@ fn build_canonical() Canonical {
         first_index.* = next_index;
         next_index += count;
     }
-    var placed: [constants.huffman_symbol_count]bool = @splat(false);
+    var placed: [constants.protocol.huffman_symbol_count]bool = @splat(false);
     for (table.codes, 0..) |row, symbol| {
         const offset = row.code - result.first_code[row.bit_count];
         // Contiguity: every code of a length lies inside that length's range, once.
@@ -83,18 +83,18 @@ fn build_canonical() Canonical {
 }
 
 comptime {
-    assert(table.codes.len == constants.huffman_symbol_count);
+    assert(table.codes.len == constants.protocol.huffman_symbol_count);
     // RFC 7541 §5.2 pads with the most significant bits of EOS, which is thirty set bits.
-    const eos = table.codes[constants.huffman_eos_symbol];
-    assert(eos.code == eos_code and eos.bit_count == constants.huffman_code_bits_max);
+    const eos = table.codes[constants.protocol.huffman_eos_symbol];
+    assert(eos.code == eos_code and eos.bit_count == constants.protocol.huffman_code_bits_max);
     // Kraft equality: the code is complete, so every sequence of thirty bits holds a symbol.
     var kraft_sum: u64 = 0;
     for (table.codes) |row| {
-        assert(row.bit_count >= constants.huffman_code_bits_min);
-        assert(row.bit_count <= constants.huffman_code_bits_max);
-        kraft_sum += @as(u64, 1) << @intCast(constants.huffman_code_bits_max - row.bit_count);
+        assert(row.bit_count >= constants.protocol.huffman_code_bits_min);
+        assert(row.bit_count <= constants.protocol.huffman_code_bits_max);
+        kraft_sum += @as(u64, 1) << @intCast(constants.protocol.huffman_code_bits_max - row.bit_count);
     }
-    assert(kraft_sum == @as(u64, 1) << constants.huffman_code_bits_max);
+    assert(kraft_sum == @as(u64, 1) << constants.protocol.huffman_code_bits_max);
     assert_canonical_order();
 }
 
@@ -117,13 +117,13 @@ fn assert_canonical_order() void {
 /// The most octets `data_len` octets of Huffman data can decode to. Every symbol costs at least
 /// `huffman_code_bits_min` bits, so a caller sizes its output from this.
 pub fn decoded_len_max(data_len: usize) usize {
-    return data_len * @bitSizeOf(u8) / constants.huffman_code_bits_min;
+    return data_len * @bitSizeOf(u8) / constants.protocol.huffman_code_bits_min;
 }
 
 /// The most octets `data_len` octets can occupy once encoded, padding included. Every symbol costs
 /// at most `huffman_code_bits_max` bits, so a limit on decoded octets gives a limit on encoded ones.
 pub fn encoded_len_max(data_len: usize) usize {
-    return std.math.divCeil(usize, data_len * constants.huffman_code_bits_max, @bitSizeOf(u8)) catch unreachable;
+    return std.math.divCeil(usize, data_len * constants.protocol.huffman_code_bits_max, @bitSizeOf(u8)) catch unreachable;
 }
 
 /// The octets `bytes` occupies once encoded, padding included.
@@ -166,12 +166,12 @@ pub fn decode_by_bits(encoded: []const u8, output: *Writer) DecodeError!void {
             const bit: u1 = @truncate(octet >> @intCast(@bitSizeOf(u8) - 1 - bit_index));
             const symbol = partial.push(bit) orelse continue;
             // RFC 7541 §5.2: a Huffman-encoded string literal containing EOS is a decoding error.
-            if (symbol == constants.huffman_eos_symbol) return error.HuffmanEosInData;
+            if (symbol == constants.protocol.huffman_eos_symbol) return error.HuffmanEosInData;
             try cursor.write_byte(@intCast(symbol));
         }
     }
     // RFC 7541 §5.2: padding strictly longer than 7 bits is a decoding error.
-    if (partial.bit_count > constants.huffman_padding_bits_max) return error.HuffmanPaddingTooLong;
+    if (partial.bit_count > constants.protocol.huffman_padding_bits_max) return error.HuffmanPaddingTooLong;
     const eos_prefix = (@as(u32, 1) << @intCast(partial.bit_count)) - 1;
     // RFC 7541 §5.2: padding that is not the most significant bits of EOS is a decoding error.
     if (partial.code != eos_prefix) return error.HuffmanPaddingNotEos;
@@ -187,7 +187,7 @@ const tail_octets_max = word_bits / @bitSizeOf(u8);
 comptime {
     // Fewer than `word_bits` bits wait between symbols and a code is at most thirty, so the u64
     // `encode` assembles them in holds both.
-    assert(word_bits - 1 + constants.huffman_code_bits_max <= @bitSizeOf(u64));
+    assert(word_bits - 1 + constants.protocol.huffman_code_bits_max <= @bitSizeOf(u64));
 }
 
 /// Encodes `bytes` into `output`, padded with the most significant bits of EOS (RFC 7541 §5.2).

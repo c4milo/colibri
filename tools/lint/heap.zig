@@ -69,7 +69,7 @@ const passing_fixture: [:0]const u8 =
     \\const core = @import("core");
     \\
     \\pub const Connection = struct {
-    \\    streams: [core.constants.streams_per_connection_max]Stream,
+    \\    streams: [core.constants.limits.streams_per_connection_max]Stream,
     \\
     \\    pub fn init(self: *Connection, count: u32) void {
     \\        for (self.streams[0..count]) |*stream| stream.* = .{};

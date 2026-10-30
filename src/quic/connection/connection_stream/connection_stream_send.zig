@@ -172,7 +172,7 @@ pub fn write(connection: *Connection, stream_provider: StreamProvider, output: [
 /// needs none.
 fn drop_unneeded(streams: *Streams) void {
     // Bounded by the table, each pass dropping one range or stopping.
-    for (0..constants.stream_lost_ranges_max) |_| {
+    for (0..constants.limits.stream_lost_ranges_max) |_| {
         const range = streams.lost.oldest() orelse return;
         const needed = switch (streams.lookup(.{ .value = range.stream_id })) {
             .live => |stream| stream.sending.retransmits_data(),
@@ -190,9 +190,9 @@ fn drop_unneeded(streams: *Streams) void {
 /// turns. A stream that frames nothing, for want of room or of octets from the provider, gives way
 /// to the next.
 fn write_new(connection: *Connection, stream_provider: StreamProvider, output: []u8) Written {
-    var tried: [constants.streams_per_connection_max]bool = @splat(false);
+    var tried: [constants.limits.streams_per_connection_max]bool = @splat(false);
     // Bounded by the table's capacity: each pass tries one stream it has not tried, or ends.
-    for (0..constants.streams_per_connection_max) |_| {
+    for (0..constants.limits.streams_per_connection_max) |_| {
         const chosen = choose(connection, &tried) orelse return .{};
         tried[chosen.slot] = true;
         const written = frame(stream_provider, chosen.owed, output);
@@ -212,7 +212,7 @@ const Choice = struct {
 };
 
 /// The untried stream with new octets that sends next, or null when there is none.
-fn choose(connection: *Connection, tried: *const [constants.streams_per_connection_max]bool) ?Choice {
+fn choose(connection: *Connection, tried: *const [constants.limits.streams_per_connection_max]bool) ?Choice {
     var best: ?Choice = null;
     var best_rank: u64 = 0;
     var walk = connection.streams.pool.iterator();
@@ -233,7 +233,7 @@ fn choose(connection: *Connection, tried: *const [constants.streams_per_connecti
 /// Orders streams by priority, then by how far past the last one to send a stream's slot is, so
 /// the next slot after it ranks first among equals (RFC 9000 §2.3).
 fn rank_of(priority: u8, slot: u32, turn: u32) u64 {
-    const capacity = constants.streams_per_connection_max;
+    const capacity = constants.limits.streams_per_connection_max;
     const distance = (slot + capacity - turn - 1) % capacity;
     return @as(u64, priority) * capacity + distance;
 }
@@ -282,7 +282,7 @@ fn on_new_framed(connection: *Connection, stream: *Stream, written: Written) voi
 fn frame(stream_provider: StreamProvider, owed: Range, output: []u8) Written {
     // `Record.data_len` is 16 bits, and a packet never exceeds the largest UDP payload
     // (RFC 9000 §18.2), which `datagram_ceiling` bounds every datagram by.
-    assert(output.len <= constants.datagram_len_max);
+    assert(output.len <= constants.protocol.datagram_len_max);
     const cap = @min(owed.len, output.len);
     const length_len = wire.varint.encoded_len_minimal(cap);
     const header_len = frame_stream.stream_header_len(owed.stream_id, owed.offset, length_len);

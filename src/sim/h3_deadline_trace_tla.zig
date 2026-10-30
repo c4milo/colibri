@@ -19,7 +19,7 @@ pub const Error = quic.core.writer.Error;
 
 /// The longest line one `print` writes.
 const line_len_max: usize = 256;
-const credit_fraction: u32 = quic.constants.flow_credit_fraction;
+const credit_fraction: u32 = quic.constants.policy.flow_credit_fraction;
 /// The packets the model's colibri owes on a request stream at most besides the response's units:
 /// a 408, a RESET_STREAM and STOP_SENDING, and one more for the GOAWAY.
 const control_packets_per_request: u32 = 4;

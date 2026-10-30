@@ -30,7 +30,7 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
-var datagram: [constants.datagram_len_min]u8 = undefined;
+var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 
@@ -72,7 +72,7 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
     }
     // RFC 9000 §8.1: a server sends only after it has received, and a client's first datagram
     // is at least 1,200 octets (§14.1).
-    if (role == .server) connection.path.on_datagram_received(constants.datagram_len_min);
+    if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 fn complete(connection: *Connection) !bool {

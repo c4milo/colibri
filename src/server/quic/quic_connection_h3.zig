@@ -40,7 +40,7 @@ const status_digits_len: usize = 3;
 
 /// Every line of a response goes out without entering QPACK's dynamic table, so no request
 /// stream waits on the encoder stream (RFC 9204 §2.1.2): `:status`, then the caller's lines.
-const no_insert: [core.constants.field_count_max + 1]Indexing = @splat(.no_insert);
+const no_insert: [core.constants.limits.field_count_max + 1]Indexing = @splat(.no_insert);
 
 /// Brings each request up to date with its stream: drops the runs the peer acknowledged, reports
 /// a response that is done or a stream the peer stopped, writes the 100 (Continue) a request is
@@ -114,7 +114,7 @@ pub fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_
 /// Reads h3's events until one means something to the caller, and returns it, or null.
 pub fn read_event(connection: *QuicConnection, now_ns: u64) quic_connection.Error!?event.ConnectionEvent {
     // Bounded: every event reads at least one octet the pool holds, or ends a stream.
-    for (0..constants.quic_events_per_read_max) |_| {
+    for (0..constants.limits.quic_events_per_read_max) |_| {
         const read = connection.h3.receive(&connection.transport, &connection.body, now_ns) catch {
             internal.fail(connection);
             connection.failure_owed = false;
@@ -149,7 +149,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
     const record = connection.requests.take(arrived.stream_id) orelse {
         // RFC 9114 §4.1.1: a request cancelled "without performing any application processing"
         // is rejected, which the client may send again.
-        connection.h3.cancel(&connection.transport, arrived.stream_id, h3.constants.error_request_rejected);
+        connection.h3.cancel(&connection.transport, arrived.stream_id, h3.constants.protocol.error_request_rejected);
         return null;
     };
     quic_body.add(connection, record, connection.last_ns);
@@ -212,7 +212,7 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.ConnectionEvent 
     if (known) |held| if (held.over) return null;
     if (!resets.count_peer_reset(connection)) return null;
     const record = known orelse return null;
-    connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
+    connection.h3.cancel(&connection.transport, stream_id, h3.constants.protocol.error_request_cancelled);
     record.over = true;
     quic_coding.give_back(connection, record);
     return .{ .cancelled = .{ .id = event.id_of(stream_id), .reason = .peer_reset } };
@@ -337,7 +337,7 @@ pub fn cancel(connection: *QuicConnection, id: Number) void {
     const record = live(connection, id) orelse return;
     // RFC 9114 §4.1.1: a server that abandons a response after processing "SHOULD abort its
     // response stream with the error code H3_REQUEST_CANCELLED".
-    connection.h3.cancel(&connection.transport, id, h3.constants.error_request_cancelled);
+    connection.h3.cancel(&connection.transport, id, h3.constants.protocol.error_request_cancelled);
     record.over = true;
     quic_body.remove(connection, record);
     quic_coding.give_back(connection, record);
@@ -371,9 +371,9 @@ pub fn shut_down(connection: *QuicConnection, now_ns: u64) void {
 /// processed".
 fn reject_unread(connection: *QuicConnection) void {
     // Bounded: each pass rejects one stream, and h3 holds `request_streams_max` of them.
-    for (0..h3.constants.request_streams_max) |_| {
+    for (0..h3.constants.limits.request_streams_max) |_| {
         const wait = connection.h3.oldest_head_wait() orelse return;
-        connection.h3.cancel(&connection.transport, wait.stream_id, h3.constants.error_request_rejected);
+        connection.h3.cancel(&connection.transport, wait.stream_id, h3.constants.protocol.error_request_rejected);
     }
 }
 

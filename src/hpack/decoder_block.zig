@@ -42,7 +42,7 @@ pub const Block = struct {
         if (block.reader.remaining_len() > 0) {
             const first = block.reader.peek_byte() catch unreachable;
             // RFC 7541 §6.1: a first octet whose high bit is set starts an indexed field line.
-            if (first & constants.indexed_pattern != 0) return try block.indexed();
+            if (first & constants.protocol.indexed_pattern != 0) return try block.indexed();
         }
         return block.next_other();
     }
@@ -51,22 +51,22 @@ pub const Block = struct {
     /// It is out of line, so that `next` stays small enough to inline where it is called.
     noinline fn next_other(block: *Block) Error!?FieldLine {
         // Every pass but the last reads one size update, and at most two are allowed.
-        for (0..constants.size_updates_per_block_max + 1) |_| {
+        for (0..constants.protocol.size_updates_per_block_max + 1) |_| {
             if (block.reader.remaining_len() == 0) return null;
             const first = try block.reader.peek_byte();
             // RFC 7541 §6: the representation is named by the first octet's high bits.
-            if (first & constants.indexed_pattern != 0) return try block.indexed();
-            if (first & constants.incremental_pattern != 0) {
-                return try block.literal(.incremental, constants.incremental_prefix_bits);
+            if (first & constants.protocol.indexed_pattern != 0) return try block.indexed();
+            if (first & constants.protocol.incremental_pattern != 0) {
+                return try block.literal(.incremental, constants.protocol.incremental_prefix_bits);
             }
-            if (first & constants.size_update_pattern != 0) {
+            if (first & constants.protocol.size_update_pattern != 0) {
                 try block.size_update();
                 continue;
             }
-            if (first & constants.never_indexed_pattern != 0) {
-                return try block.literal(.never_indexed, constants.literal_prefix_bits);
+            if (first & constants.protocol.never_indexed_pattern != 0) {
+                return try block.literal(.never_indexed, constants.protocol.literal_prefix_bits);
             }
-            return try block.literal(.without_indexing, constants.literal_prefix_bits);
+            return try block.literal(.without_indexing, constants.protocol.literal_prefix_bits);
         }
         unreachable; // A third update fails inside size_update.
     }
@@ -79,7 +79,7 @@ pub const Block = struct {
     inline fn indexed(block: *Block) Error!FieldLine {
         // RFC 9113 §4.3.1: after a lowered limit, the block must start with a size update.
         if (block.is_first() and block.decoder.lowered_limit != null) return error.SizeUpdateMissing;
-        const index = try prefixed_integer.decode(constants.indexed_prefix_bits, &block.reader);
+        const index = try prefixed_integer.decode(constants.protocol.indexed_prefix_bits, &block.reader);
         // RFC 7541 §6.1: the index value of 0 is a decoding error in an indexed field.
         if (index == 0) return error.IndexZero;
         const field = try block.resolve(index);
@@ -121,10 +121,10 @@ pub const Block = struct {
     fn size_update(block: *Block) Error!void {
         const decoder = block.decoder;
         // RFC 7541 §4.2: at most two updates, "resulting in at most two dynamic table size updates".
-        if (block.updates == constants.size_updates_per_block_max) return error.SizeUpdateTooMany;
+        if (block.updates == constants.protocol.size_updates_per_block_max) return error.SizeUpdateTooMany;
         // RFC 7541 §4.2: an update "MUST occur at the beginning" of the block.
         if (block.fields > 0) return error.SizeUpdateNotFirst;
-        const capacity = try prefixed_integer.decode(constants.size_update_prefix_bits, &block.reader);
+        const capacity = try prefixed_integer.decode(constants.protocol.size_update_prefix_bits, &block.reader);
         // RFC 7541 §6.3: a size above the protocol's limit is a decoding error.
         if (capacity > decoder.capacity_limit) return error.SizeUpdateTooLarge;
         if (decoder.lowered_limit) |lowered| {
@@ -138,7 +138,7 @@ pub const Block = struct {
 
     /// One string literal from `cursor` into `output`, which is sized to the implementation limit.
     fn string(cursor: *Reader, output: *Writer) Error!void {
-        _ = string_literal.decode(constants.string_prefix_bits, cursor, output) catch |failure| {
+        _ = string_literal.decode(constants.protocol.string_prefix_bits, cursor, output) catch |failure| {
             // RFC 7541 §7.4: a string past the implementation's length limit is refused.
             if (failure == error.NoSpaceLeft) return error.StringTooLong;
             return failure;
@@ -148,12 +148,12 @@ pub const Block = struct {
     /// The entry at `index` in the fused address space (RFC 7541 §2.3.3).
     fn resolve(block: *const Block, index: u64) Error!Field {
         assert(index > 0);
-        if (index <= constants.static_table_len) {
+        if (index <= constants.protocol.static_table_len) {
             const entry = static_table.entries[index - 1];
             return .{ .name = entry.name, .value = entry.value };
         }
         // RFC 7541 §2.3.3: an index past both tables is a decoding error.
-        return block.decoder.table.get(index - constants.static_table_len) orelse error.IndexOutOfRange;
+        return block.decoder.table.get(index - constants.protocol.static_table_len) orelse error.IndexOutOfRange;
     }
 
     fn is_first(block: *const Block) bool {
@@ -216,7 +216,7 @@ const crowding_literal_framing = 16;
 const crowding_literal_len_max = crowding_value_len + crowding_literal_framing;
 
 test "a name referenced from the entry this insert evicts is returned intact (§4.4)" {
-    decoder_module.test_decoder.init(constants.dynamic_table_capacity_max);
+    decoder_module.test_decoder.init(constants.limits.dynamic_table_capacity_max);
     const value: [crowding_value_len]u8 = @splat('v');
     var block_buffer: [crowding_literal_len_max]u8 = @splat(0);
     var output = Writer.init(&block_buffer);
@@ -228,7 +228,7 @@ test "a name referenced from the entry this insert evicts is returned intact (§
         name_buffer[4] = @intCast('a' + index);
         var field_buffer: [crowding_literal_len_max]u8 = @splat(0);
         var field = Writer.init(&field_buffer);
-        try field.write_byte(constants.incremental_pattern);
+        try field.write_byte(constants.protocol.incremental_pattern);
         try wire.string_literal.encode(8, &field, 0, &name_buffer, .raw);
         try field.write_bytes(encoded_value);
         try expect_lines(field.written(), &.{.{ .name = &name_buffer, .value = &value }});
@@ -237,7 +237,7 @@ test "a name referenced from the entry this insert evicts is returned intact (§
     // A literal whose name is the oldest entry's, index 61 + 14, and whose insert evicts it.
     var field_buffer: [crowding_literal_len_max]u8 = @splat(0);
     var field = Writer.init(&field_buffer);
-    try wire.prefixed_integer.encode(6, &field, constants.incremental_pattern, constants.static_table_len + 14);
+    try wire.prefixed_integer.encode(6, &field, constants.protocol.incremental_pattern, constants.protocol.static_table_len + 14);
     try field.write_bytes(encoded_value);
     try expect_lines(field.written(), &.{.{ .name = "namea", .value = &value }});
     try testing.expectEqual(14, decoder_module.test_decoder.table.len());
@@ -299,7 +299,7 @@ test "a literal cut after its name moves nothing, and decodes once the rest arri
 test "a string past the implementation limit, and a block cut inside a string, are refused" {
     decoder_module.test_decoder.init(4096);
     // A raw name one octet longer than `name_len_max`, every octet present.
-    const too_long = "\x40\x7f\x82\x01" ++ [_]u8{'a'} ** (constants.name_len_max + 1);
+    const too_long = "\x40\x7f\x82\x01" ++ [_]u8{'a'} ** (constants.limits.name_len_max + 1);
     try expect_refused(too_long, error.StringTooLong);
     try expect_refused(too_long[0 .. too_long.len - 1], error.Truncated);
     try expect_refused("\x40\x03ab", error.Truncated);
@@ -313,7 +313,7 @@ test "a string past the implementation limit, and a block cut inside a string, a
 const fuzz_capacity = 256;
 
 fn fuzz_block(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [constants.fuzz_block_len_max]u8 = @splat(0);
+    var input: [constants.limits.fuzz_block_len_max]u8 = @splat(0);
     const octets = input[0..smith.slice(&input)];
     decoder_module.test_decoder.init(fuzz_capacity);
     var block = decoder_module.test_decoder.block(octets);
@@ -323,7 +323,7 @@ fn fuzz_block(_: void, smith: *testing.Smith) anyerror!void {
             try testing.expectEqual(octets.len, block.consumed_len());
             return;
         }
-        try testing.expect(line.?.name.len <= constants.name_len_max);
+        try testing.expect(line.?.name.len <= constants.limits.name_len_max);
         try testing.expect(decoder_module.test_decoder.table.size <= decoder_module.test_decoder.table.capacity);
     }
     return error.TestUnexpectedResult;

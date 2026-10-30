@@ -59,10 +59,10 @@ pub const Rtt = struct {
         rtt.* = .{
             .latest_ns = 0,
             .min_ns = 0,
-            .smoothed_ns = constants.rtt_initial_ns,
-            .variation_ns = constants.rtt_initial_ns / constants.rtt_initial_variation_divisor,
+            .smoothed_ns = constants.recovery.rtt_initial_ns,
+            .variation_ns = constants.recovery.rtt_initial_ns / constants.recovery.rtt_initial_variation_divisor,
             .first_sample_at_ns = null,
-            .peer_max_ack_delay_ns = constants.max_ack_delay_default_ns,
+            .peer_max_ack_delay_ns = constants.protocol.max_ack_delay_default_ns,
         };
     }
 
@@ -84,7 +84,7 @@ pub const Rtt = struct {
     /// milliseconds as the parameter carries it.
     pub fn set_peer_max_ack_delay(rtt: *Rtt, milliseconds: u64) void {
         // RFC 9000 §18.2: values of 2^14 or greater are invalid, which the caller has refused.
-        assert(milliseconds < constants.max_ack_delay_invalid_at);
+        assert(milliseconds < constants.protocol.max_ack_delay_invalid_at);
         rtt.peer_max_ack_delay_ns = milliseconds *| constants.nanoseconds_per_millisecond;
     }
 
@@ -97,7 +97,7 @@ pub const Rtt = struct {
             rtt.first_sample_at_ns = sample.taken_at_ns;
             rtt.min_ns = sample.rtt_ns;
             rtt.smoothed_ns = sample.rtt_ns;
-            rtt.variation_ns = sample.rtt_ns / constants.rtt_initial_variation_divisor;
+            rtt.variation_ns = sample.rtt_ns / constants.recovery.rtt_initial_variation_divisor;
             return;
         }
         // RFC 9002 §5.2: min_rtt ignores acknowledgment delay, so it takes the sample as it came.
@@ -113,8 +113,8 @@ pub const Rtt = struct {
             rtt.smoothed_ns - adjusted_ns
         else
             adjusted_ns - rtt.smoothed_ns;
-        rtt.variation_ns = weighted(rtt.variation_ns, difference_ns, constants.rtt_variation_weight);
-        rtt.smoothed_ns = weighted(rtt.smoothed_ns, adjusted_ns, constants.rtt_smoothed_weight);
+        rtt.variation_ns = weighted(rtt.variation_ns, difference_ns, constants.recovery.rtt_variation_weight);
+        rtt.smoothed_ns = weighted(rtt.smoothed_ns, adjusted_ns, constants.recovery.rtt_smoothed_weight);
     }
 
     /// The sample less the acknowledgment delay, where RFC 9002 §5.3 permits subtracting it.
@@ -144,29 +144,29 @@ pub const Rtt = struct {
     }
 
     pub fn probe_timeout_ns(rtt: *const Rtt, include_max_ack_delay: bool) u64 {
-        const variation_ns = @max(constants.rtt_variation_factor *| rtt.variation_ns, constants.rtt_granularity_ns);
+        const variation_ns = @max(constants.recovery.rtt_variation_factor *| rtt.variation_ns, constants.recovery.rtt_granularity_ns);
         const delay_ns = if (include_max_ack_delay) rtt.peer_max_ack_delay_ns else 0;
         const period_ns = rtt.smoothed_ns +| variation_ns +| delay_ns;
         // RFC 9002 §6.2.1: the period MUST be at least the timer granularity, so it cannot
         // expire the instant it is armed.
-        return @max(period_ns, constants.rtt_granularity_ns);
+        return @max(period_ns, constants.recovery.rtt_granularity_ns);
     }
 
     /// RFC 9002 §7.6.1: how long every packet over a span must be lost before the span counts as
     /// persistent congestion. It is the Probe Timeout times a threshold, and §7.6.1 states that
     /// unlike §6.2's timeout this one carries `max_ack_delay` whatever space the losses are in.
     pub fn persistent_congestion_ns(rtt: *const Rtt) u64 {
-        return rtt.probe_timeout_ns(true) *| constants.persistent_congestion_threshold;
+        return rtt.probe_timeout_ns(true) *| constants.recovery.persistent_congestion_threshold;
     }
 
     /// The instant past which a packet is lost by the time threshold of RFC 9002 §6.1.2: nine
     /// eighths of the larger of the latest and smoothed estimates, never below the granularity.
     pub fn loss_delay_ns(rtt: *const Rtt) u64 {
         const estimate_ns = @max(rtt.latest_ns, rtt.smoothed_ns);
-        const scaled_ns = (estimate_ns *| constants.loss_time_threshold_numerator) /
-            constants.loss_time_threshold_denominator;
+        const scaled_ns = (estimate_ns *| constants.recovery.loss_time_threshold_numerator) /
+            constants.recovery.loss_time_threshold_denominator;
         // RFC 9002 §6.1.2: the delay is at least the granularity, so a timer cannot expire early.
-        return @max(scaled_ns, constants.rtt_granularity_ns);
+        return @max(scaled_ns, constants.recovery.rtt_granularity_ns);
     }
 };
 
@@ -196,13 +196,13 @@ fn plain(rtt_ns: u64) Sample {
 }
 
 /// The instant every test sample was measured at. Test-only.
-const test_taken_at_ns: u64 = constants.rtt_initial_ns;
+const test_taken_at_ns: u64 = constants.recovery.rtt_initial_ns;
 
 test "§5.3: the first sample replaces the initial estimate entirely" {
     test_rtt.init();
     // Before any sample the estimator holds §6.2.2's recommended initial round trip.
-    try testing.expectEqual(constants.rtt_initial_ns, test_rtt.smoothed_ns);
-    try testing.expectEqual(constants.rtt_initial_ns / 2, test_rtt.variation_ns);
+    try testing.expectEqual(constants.recovery.rtt_initial_ns, test_rtt.smoothed_ns);
+    try testing.expectEqual(constants.recovery.rtt_initial_ns / 2, test_rtt.variation_ns);
     try testing.expect(!test_rtt.has_sample());
     // The first sample is taken whole: no part of 333 ms survives into a measured path.
     test_rtt.update(plain(40 * millisecond));
@@ -327,7 +327,7 @@ test "§6.2.1: the probe timeout carries the delay only where a peer may add one
     // driving the variation to zero still leaves a timeout longer than the estimate.
     for (0..64) |_| test_rtt.update(plain(100 * millisecond));
     try testing.expectEqual(0, test_rtt.variation_ns);
-    try testing.expectEqual(100 * millisecond + constants.rtt_granularity_ns, test_rtt.probe_timeout_ns(false));
+    try testing.expectEqual(100 * millisecond + constants.recovery.rtt_granularity_ns, test_rtt.probe_timeout_ns(false));
 }
 
 test "§6.1.2: the loss delay is nine eighths of the larger estimate" {
@@ -346,7 +346,7 @@ test "§6.1.2: the loss delay is nine eighths of the larger estimate" {
     // §6.1.2: never below the granularity, whatever the estimates hold.
     test_rtt.latest_ns = 0;
     test_rtt.smoothed_ns = 0;
-    try testing.expectEqual(constants.rtt_granularity_ns, test_rtt.loss_delay_ns());
+    try testing.expectEqual(constants.recovery.rtt_granularity_ns, test_rtt.loss_delay_ns());
 }
 
 test "§9.4: a reset forgets the path and keeps what the peer advertised" {
@@ -360,7 +360,7 @@ test "§9.4: a reset forgets the path and keeps what the peer advertised" {
     test_rtt.reset();
     try testing.expect(!test_rtt.has_sample());
     try testing.expectEqual(null, test_rtt.first_sample_at_ns);
-    try testing.expectEqual(constants.rtt_initial_ns, test_rtt.smoothed_ns);
+    try testing.expectEqual(constants.recovery.rtt_initial_ns, test_rtt.smoothed_ns);
     try testing.expectEqual(0, test_rtt.min_ns);
     // What the peer advertised is not a property of the path, so it survives the reset.
     try testing.expectEqual(40 * millisecond, test_rtt.peer_max_ack_delay_ns);
@@ -368,5 +368,5 @@ test "§9.4: a reset forgets the path and keeps what the peer advertised" {
     try testing.expectEqual(340 * millisecond, test_rtt.probe_timeout_ns(true));
     // Absent the parameter, §18.2 assumes 25 ms.
     test_rtt.init();
-    try testing.expectEqual(constants.max_ack_delay_default_ns, test_rtt.peer_max_ack_delay_ns);
+    try testing.expectEqual(constants.protocol.max_ack_delay_default_ns, test_rtt.peer_max_ack_delay_ns);
 }

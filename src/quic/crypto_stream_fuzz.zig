@@ -19,10 +19,10 @@ const fuzz_input_len = step_octets * steps_max;
 const frame_len_max = 128;
 /// How far past the base a frame may start, so that some frames end past the window, and how far
 /// below it, so that some carry octets already read.
-const reach_past = constants.crypto_buffer_len + frame_len_max;
+const reach_past = constants.limits.crypto_buffer_len + frame_len_max;
 const reach_below = frame_len_max;
 /// The flow the model keeps: enough for every step to read a whole window.
-const flow_len = steps_max * (constants.crypto_buffer_len + frame_len_max);
+const flow_len = steps_max * (constants.limits.crypto_buffer_len + frame_len_max);
 
 var fuzz_stream: crypto_stream.CryptoStream align(@alignOf(crypto_stream.CryptoStream)) = undefined;
 const ModelPresent = std.StaticBitSet(flow_len);
@@ -67,10 +67,10 @@ fn receive(base: u64, len_input: u8, start_input: u16) !void {
     fuzz_stream.receive(start, frame_octets[0..len]) catch |failure| {
         // RFC 9000 §7.5: past the window is CRYPTO_BUFFER_EXCEEDED, and nothing else is refused.
         try testing.expectEqual(error.CryptoBufferExceeded, failure);
-        try testing.expect(len > 0 and end > base and end > base + constants.crypto_buffer_len);
+        try testing.expect(len > 0 and end > base and end > base + constants.limits.crypto_buffer_len);
         return;
     };
-    try testing.expect(len == 0 or end <= base or end <= base + constants.crypto_buffer_len);
+    try testing.expect(len == 0 or end <= base or end <= base + constants.limits.crypto_buffer_len);
     if (len == 0 or end <= base) return;
     model_present.setRangeValue(.{ .start = @intCast(@max(start, base)), .end = @intCast(end) }, true);
 }
@@ -80,7 +80,7 @@ fn expect_model(base: u64) !void {
     try testing.expectEqual(base, fuzz_stream.consumed_len());
     var run: usize = 0;
     // Bounded by the window.
-    while (run < constants.crypto_buffer_len and model_present.isSet(@intCast(base + run))) run += 1;
+    while (run < constants.limits.crypto_buffer_len and model_present.isSet(@intCast(base + run))) run += 1;
     const readable = fuzz_stream.readable();
     try testing.expectEqual(run, readable.len);
     for (readable, 0..) |octet, index| try testing.expectEqual(octet_at(base + index), octet);

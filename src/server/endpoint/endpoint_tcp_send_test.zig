@@ -93,7 +93,7 @@ test "decision 119: the program's cancel is reported before the input that names
     const handle = try start_h2(false);
     endpoint.cancel(support.id_of(handle, 1));
     // The client's DATA for stream 1 arrives after the program cancelled it.
-    var frame: [h2.constants.frame_header_len + 1]u8 = undefined;
+    var frame: [h2.constants.protocol.frame_header_len + 1]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_data(&writer, 1, "x", true, 0);
     const received = endpoint.receive(.{ .stream = .{ .connection = handle, .bytes = &frame } }, support.now_ns);
@@ -121,7 +121,7 @@ test "RFC 9113 §5.4.1: an h2 connection error ends open requests, sends the GOA
     support.collect();
     try testing.expectEqual(event.CancelReason.closed, support.nth(.cancelled, 0).?.reason.?);
     const sent = support.sent_of(handle.slot);
-    try testing.expect(std.mem.indexOfScalar(u8, sent, h2.constants.frame_type_goaway) != null);
+    try testing.expect(std.mem.indexOfScalar(u8, sent, h2.constants.protocol.frame_type_goaway) != null);
     try testing.expect(support.index_of(.close).? < support.index_of(.ended).?);
     try testing.expect(support.nth(.ended, 0).?.failed);
 }
@@ -154,7 +154,7 @@ test "RFC 9112 §9.6: input after h11 closed is consumed and dropped" {
 
 /// The client preface with SETTINGS_INITIAL_WINDOW_SIZE (0x4) of 100 octets (RFC 9113 §6.5.2),
 /// then the acknowledgment of the server's SETTINGS.
-const preface_small_window = h2.constants.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
+const preface_small_window = h2.constants.protocol.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
     "\x00\x04\x00\x00\x00\x64" ++ h2_support.settings_ack;
 
 test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UPDATE opens it" {
@@ -174,7 +174,7 @@ test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UP
     support.collect();
     // The window took 100 octets of the ring, and the rest waits.
     try testing.expectEqual(null, support.nth(.done, 0));
-    var update: [h2.constants.frame_header_len + h2.constants.window_update_len]u8 = undefined;
+    var update: [h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 = undefined;
     var writer = h2.core.Writer.init(&update);
     try h2.frame.write_window_update(&writer, 1, coded_len * 2);
     _ = support.give(handle, &update);

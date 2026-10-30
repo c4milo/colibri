@@ -85,7 +85,7 @@ fn note_ended(storage: *Storage, handle: server.ConnectionHandle) void {
 fn answer_send(storage: *Storage, handle: server.ConnectionHandle, now_ns: u64) Error!void {
     const connection = storage.ledger.connection_of(handle).?;
     const stream = &storage.tcp.peers[connection.peer].to_client;
-    const output_len = server.constants.output_len;
+    const output_len = server.constants.limits.output_len;
     // Bounded: the socket holds `sends_per_event_max` buffers of the endpoint's output.
     for (0..limits.sends_per_event_max) |index| {
         const room = stream.free();

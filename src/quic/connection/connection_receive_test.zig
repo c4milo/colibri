@@ -43,7 +43,7 @@ const payload_octet: u8 = 0x33;
 /// A payload long enough that the Packet Number field and it reach RFC 9001 §5.4.2's sample, plus
 /// room for the tag this opener pretends to strip.
 const payload_len: usize = 8;
-const tag_len: usize = constants.aead_tag_len;
+const tag_len: usize = constants.protocol.aead_tag_len;
 pub const protected_len: usize = payload_len + tag_len;
 pub const test_payload: [protected_len]u8 = @splat(payload_octet);
 
@@ -152,7 +152,7 @@ fn unreachable_tag_valid(
     _: *const anyopaque,
     _: crypto.suite.Version,
     _: []const u8,
-    _: *const [crypto.constants.retry_integrity_tag_len]u8,
+    _: *const [crypto.constants.protocol.retry_integrity_tag_len]u8,
 ) bool {
     unreachable;
 }
@@ -166,7 +166,7 @@ fn unreachable_tag_write(
     _: *const anyopaque,
     _: crypto.suite.Version,
     _: []const u8,
-    _: *[crypto.constants.retry_integrity_tag_len]u8,
+    _: *[crypto.constants.protocol.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {
     unreachable;
 }

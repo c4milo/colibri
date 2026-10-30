@@ -60,8 +60,8 @@ const chain = [_][]const u8{ identity.leaf, identity.root };
 // The endpoint holds hundreds of kilobytes, so it lives outside the stack.
 var link: *Link = undefined;
 var output: [output_len]u8 = undefined;
-var cookie_key: [tls.constants.server_key_len]u8 = undefined;
-var ticket_key: [tls.constants.server_key_len]u8 = undefined;
+var cookie_key: [tls.constants.protocol.server_key_len]u8 = undefined;
+var ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var config: server.Config align(@alignOf(server.Config)) = undefined;
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.

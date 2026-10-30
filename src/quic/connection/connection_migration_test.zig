@@ -31,7 +31,7 @@ var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scr
 var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 /// Two buffers, so a test can hold one datagram back and deliver it after the next. Test-only.
 const buffer_count: usize = 2;
-var buffers: [buffer_count][constants.datagram_len_min]u8 = undefined;
+var buffers: [buffer_count][constants.protocol.datagram_len_min]u8 = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const id_len: usize = 4;
@@ -59,10 +59,10 @@ const new_path_octet: u8 = 0x6e;
 const previous_path_octet: u8 = 0x70;
 const second_octet: u8 = 0x72;
 const third_octet: u8 = 0x74;
-const new_path_data: [constants.path_challenge_len]u8 = @splat(new_path_octet);
-const previous_path_data: [constants.path_challenge_len]u8 = @splat(previous_path_octet);
-const second_data: [constants.path_challenge_len]u8 = @splat(second_octet);
-const third_data: [constants.path_challenge_len]u8 = @splat(third_octet);
+const new_path_data: [constants.protocol.path_challenge_len]u8 = @splat(new_path_octet);
+const previous_path_data: [constants.protocol.path_challenge_len]u8 = @splat(previous_path_octet);
+const second_data: [constants.protocol.path_challenge_len]u8 = @splat(second_octet);
+const third_data: [constants.protocol.path_challenge_len]u8 = @splat(third_octet);
 const challenge_data: migration.ChallengeData = .{
     .new_path = .{ new_path_data, second_data, third_data },
     .previous_path = previous_path_data,
@@ -99,7 +99,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, peer: PeerAdd
     connection.handshake_complete = true;
     connection.handshake_confirmed = true;
     // RFC 9000 §8.1: a server sends only after it has received.
-    if (role == .server) connection.path.on_datagram_received(constants.datagram_len_min);
+    if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 var nothing_context: u8 = 0;
@@ -180,7 +180,7 @@ test "RFC 9000 §9.3.3: the previous path is challenged in a datagram of its own
     const probe = try send_into(&server, 0, test_now_ns);
     try testing.expect(probe.to.eql(&client_address));
     // RFC 9000 §8.2.1: the datagram carrying a PATH_CHALLENGE is expanded to 1,200 octets.
-    try testing.expectEqual(constants.datagram_len_min, probe.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, probe.len);
     try testing.expectEqual(recorded, server.recovery.table_of(.application).count());
     try testing.expect(server.migration.previous.?.challenge != null);
     // RFC 9000 §9.1: the probe carried probing frames alone, so the ACK the client's PING earned
@@ -368,7 +368,7 @@ test "decision 72: each challenge on a path awaiting validation repeats the late
     _ = try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, due_ns);
     // A datagram of the client's that asks for nothing lifts §8's limit, and brings nothing new
     // to acknowledge.
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     const recorded = client.recovery.table_of(.application).count();
     const resent = try send_into(&server, 0, due_ns);
     _ = try deliver(&client, resent, 0, server_address, due_ns);

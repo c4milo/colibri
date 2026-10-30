@@ -65,7 +65,7 @@ pub fn Pool(comptime count: usize) type {
 }
 
 /// The pool a caller gets by asking for no size in particular (decision 91).
-pub const DefaultPool = Pool(constants.decoders_default);
+pub const DefaultPool = Pool(constants.limits.decoders_default);
 
 /// A pool as a connection holds it, whatever its size.
 pub const Storage = struct {

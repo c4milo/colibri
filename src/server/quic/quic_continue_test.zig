@@ -92,7 +92,7 @@ const send_delay_ns: u64 = 1_000;
 test "RFC 9110 §10.1.1: the 100 goes out before the next datagram, with no receive between" {
     const fetch = try put(&expect_continue, true);
     const record = connection.requests.of(fetch.id).?;
-    var datagram: [quic.constants.datagram_len_max]u8 = undefined;
+    var datagram: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     support.now_ns += send_delay_ns;
     try testing.expect(internal.send(connection, &datagram, support.now_ns) != null);
     try testing.expect(!record.continue_owed and !connection.continue_owed);
@@ -138,7 +138,7 @@ test "RFC 9110 §10.1.1: an h3 request cancelled before its 100 gets none" {
     connection.cancel(fetch.id);
     try support.pump(support.rounds_default);
     try testing.expectEqual(0, fetch.interims);
-    try testing.expectEqual(h3.constants.error_request_cancelled, fetch.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_cancelled, fetch.reset.?);
     try testing.expect(!connection.continue_owed);
 }
 
@@ -147,7 +147,7 @@ test "RFC 9110 §10.1.1: an h3 request that expects no 100 gets none, and a send
     try testing.expect(!connection.requests.of(fetch.id).?.continue_owed and !connection.continue_owed);
     // With no 100 owed, `send` walks no request, so it leaves the instant of the last call.
     const read_at_ns = connection.last_ns;
-    var datagram: [quic.constants.datagram_len_max]u8 = undefined;
+    var datagram: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     support.now_ns += send_delay_ns;
     _ = internal.send(connection, &datagram, support.now_ns);
     try testing.expectEqual(read_at_ns, connection.last_ns);
@@ -202,19 +202,19 @@ test "RFC 9000 §3.1: the 100 waits for a run of the response, and goes out once
     const record = connection.requests.of(fetch.id).?;
     // RFC 9110 §15.2: interim responses, each a HEADERS frame in a run of its own, fill every
     // run the response holds.
-    for (0..constants.quic_response_pieces_max) |_| {
+    for (0..constants.limits.quic_response_pieces_max) |_| {
         try connection.respond(fetch.id, .{ .status = early_hints, .end = false });
     }
     try testing.expectEqual(null, (try connection.receive(support.now_ns)).event);
     try testing.expect(record.continue_owed and connection.continue_owed);
     try support.pump(support.rounds_default);
     try testing.expect(!record.continue_owed and !connection.continue_owed);
-    try testing.expectEqual(constants.quic_response_pieces_max + 1, fetch.interims);
+    try testing.expectEqual(constants.limits.quic_response_pieces_max + 1, fetch.interims);
     try testing.expectEqualStrings("100", last_status());
 }
 
 /// The connection ID and the receive pool the test below starts a connection from. Test-only.
-const start_id: [constants.quic_id_len]u8 = @splat(start_id_octet);
+const start_id: [constants.policy.quic_id_len]u8 = @splat(start_id_octet);
 const start_id_octet: u8 = 0x0d;
 const start_pool_len: usize = 32_768;
 const StartPool = quic.stream.stream_incoming.Pool(start_pool_len);

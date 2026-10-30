@@ -46,7 +46,7 @@ test "RFC 9110 §9.3.6: CONNECT, an empty method and an empty path are refused" 
 test "every slot taken refuses the next request, until a finished event frees one" {
     try support.start_cleartext(.h11);
     var exchanges: [support.events_max]Exchange = @splat(.{ .request = .{ .method = "GET", .path = "/" } });
-    for (exchanges[0..@import("../constants.zig").requests_max]) |*exchange| _ = try connection.request(&exchange.request, &exchange.response);
+    for (exchanges[0..@import("../constants.zig").limits.requests_max]) |*exchange| _ = try connection.request(&exchange.request, &exchange.response);
     try testing.expectError(error.Full, connection.request(&exchanges[support.events_max - 1].request, &exchanges[support.events_max - 1].response));
 }
 

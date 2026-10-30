@@ -83,24 +83,24 @@ pub fn read_encoder(reader: *Reader, strings: *Writer) Error!Encoder {
 }
 
 fn read_encoder_at(first: u8, cursor: *Reader, strings: *Writer) Error!Encoder {
-    if (first & constants.insert_name_reference_mask == constants.insert_name_reference_pattern) {
+    if (first & constants.protocol.insert_name_reference_mask == constants.protocol.insert_name_reference_pattern) {
         return .{ .insert_name_reference = try read_insert_name_reference(first, cursor, strings) };
     }
-    if (first & constants.insert_literal_mask == constants.insert_literal_pattern) {
+    if (first & constants.protocol.insert_literal_mask == constants.protocol.insert_literal_pattern) {
         return .{ .insert_literal = try read_insert_literal(cursor, strings) };
     }
-    if (first & constants.set_capacity_mask == constants.set_capacity_pattern) {
-        return .{ .set_capacity = try prefixed_integer.decode(constants.set_capacity_prefix_bits, cursor) };
+    if (first & constants.protocol.set_capacity_mask == constants.protocol.set_capacity_pattern) {
+        return .{ .set_capacity = try prefixed_integer.decode(constants.protocol.set_capacity_prefix_bits, cursor) };
     }
-    assert(first & constants.duplicate_mask == constants.duplicate_pattern);
-    return .{ .duplicate = try prefixed_integer.decode(constants.duplicate_prefix_bits, cursor) };
+    assert(first & constants.protocol.duplicate_mask == constants.protocol.duplicate_pattern);
+    return .{ .duplicate = try prefixed_integer.decode(constants.protocol.duplicate_prefix_bits, cursor) };
 }
 
 /// RFC 9204 §4.3.2.
 fn read_insert_name_reference(first: u8, cursor: *Reader, strings: *Writer) Error!Encoder.InsertNameReference {
-    const table: Table = if (first & constants.insert_name_reference_static_flag != 0) .static else .dynamic;
-    const name_index = try prefixed_integer.decode(constants.insert_name_reference_prefix_bits, cursor);
-    const value = try read_string(cursor, strings, constants.value_prefix_bits);
+    const table: Table = if (first & constants.protocol.insert_name_reference_static_flag != 0) .static else .dynamic;
+    const name_index = try prefixed_integer.decode(constants.protocol.insert_name_reference_prefix_bits, cursor);
+    const value = try read_string(cursor, strings, constants.protocol.value_prefix_bits);
     return .{
         .table = table,
         .name_index = name_index,
@@ -111,8 +111,8 @@ fn read_insert_name_reference(first: u8, cursor: *Reader, strings: *Writer) Erro
 
 /// RFC 9204 §4.3.3.
 fn read_insert_literal(cursor: *Reader, strings: *Writer) Error!Encoder.InsertLiteral {
-    const name = try read_string(cursor, strings, constants.insert_literal_name_prefix_bits);
-    const value = try read_string(cursor, strings, constants.value_prefix_bits);
+    const name = try read_string(cursor, strings, constants.protocol.insert_literal_name_prefix_bits);
+    const value = try read_string(cursor, strings, constants.protocol.value_prefix_bits);
     return .{
         .name = name.bytes,
         .name_coding = name.coding,
@@ -125,12 +125,12 @@ fn read_insert_literal(cursor: *Reader, strings: *Writer) Error!Encoder.InsertLi
 pub fn read_decoder(reader: *Reader) Error!Decoder {
     var cursor = reader.*;
     const first = try cursor.peek_byte();
-    const found: Decoder = if (first & constants.section_acknowledgment_mask == constants.section_acknowledgment_pattern)
-        .{ .section_acknowledgment = try prefixed_integer.decode(constants.section_acknowledgment_prefix_bits, &cursor) }
-    else if (first & constants.stream_cancellation_mask == constants.stream_cancellation_pattern)
-        .{ .stream_cancellation = try prefixed_integer.decode(constants.stream_cancellation_prefix_bits, &cursor) }
+    const found: Decoder = if (first & constants.protocol.section_acknowledgment_mask == constants.protocol.section_acknowledgment_pattern)
+        .{ .section_acknowledgment = try prefixed_integer.decode(constants.protocol.section_acknowledgment_prefix_bits, &cursor) }
+    else if (first & constants.protocol.stream_cancellation_mask == constants.protocol.stream_cancellation_pattern)
+        .{ .stream_cancellation = try prefixed_integer.decode(constants.protocol.stream_cancellation_prefix_bits, &cursor) }
     else
-        .{ .insert_count_increment = try prefixed_integer.decode(constants.insert_count_increment_prefix_bits, &cursor) };
+        .{ .insert_count_increment = try prefixed_integer.decode(constants.protocol.insert_count_increment_prefix_bits, &cursor) };
     reader.* = cursor;
     return found;
 }
@@ -140,15 +140,15 @@ pub fn write_encoder(writer: *Writer, held: Encoder) core.writer.Error!void {
     var cursor = writer.*;
     switch (held) {
         .set_capacity => |capacity| try prefixed_integer.encode(
-            constants.set_capacity_prefix_bits,
+            constants.protocol.set_capacity_prefix_bits,
             &cursor,
-            constants.set_capacity_pattern,
+            constants.protocol.set_capacity_pattern,
             capacity,
         ),
         .duplicate => |index| try prefixed_integer.encode(
-            constants.duplicate_prefix_bits,
+            constants.protocol.duplicate_prefix_bits,
             &cursor,
-            constants.duplicate_pattern,
+            constants.protocol.duplicate_pattern,
             index,
         ),
         .insert_name_reference => |line| try write_insert_name_reference(&cursor, line),
@@ -158,42 +158,42 @@ pub fn write_encoder(writer: *Writer, held: Encoder) core.writer.Error!void {
 }
 
 fn write_insert_name_reference(cursor: *Writer, line: Encoder.InsertNameReference) core.writer.Error!void {
-    var high = constants.insert_name_reference_pattern;
-    if (line.table == .static) high |= constants.insert_name_reference_static_flag;
-    try prefixed_integer.encode(constants.insert_name_reference_prefix_bits, cursor, high, line.name_index);
-    try string_literal.encode(constants.value_prefix_bits, cursor, 0, line.value, line.value_coding);
+    var high = constants.protocol.insert_name_reference_pattern;
+    if (line.table == .static) high |= constants.protocol.insert_name_reference_static_flag;
+    try prefixed_integer.encode(constants.protocol.insert_name_reference_prefix_bits, cursor, high, line.name_index);
+    try string_literal.encode(constants.protocol.value_prefix_bits, cursor, 0, line.value, line.value_coding);
 }
 
 fn write_insert_literal(cursor: *Writer, line: Encoder.InsertLiteral) core.writer.Error!void {
     try string_literal.encode(
-        constants.insert_literal_name_prefix_bits,
+        constants.protocol.insert_literal_name_prefix_bits,
         cursor,
-        constants.insert_literal_pattern,
+        constants.protocol.insert_literal_pattern,
         line.name,
         line.name_coding,
     );
-    try string_literal.encode(constants.value_prefix_bits, cursor, 0, line.value, line.value_coding);
+    try string_literal.encode(constants.protocol.value_prefix_bits, cursor, 0, line.value, line.value_coding);
 }
 
 /// Writes one decoder instruction. All of the octets are written, or none.
 pub fn write_decoder(writer: *Writer, held: Decoder) core.writer.Error!void {
     switch (held) {
         .section_acknowledgment => |id| try prefixed_integer.encode(
-            constants.section_acknowledgment_prefix_bits,
+            constants.protocol.section_acknowledgment_prefix_bits,
             writer,
-            constants.section_acknowledgment_pattern,
+            constants.protocol.section_acknowledgment_pattern,
             id,
         ),
         .stream_cancellation => |id| try prefixed_integer.encode(
-            constants.stream_cancellation_prefix_bits,
+            constants.protocol.stream_cancellation_prefix_bits,
             writer,
-            constants.stream_cancellation_pattern,
+            constants.protocol.stream_cancellation_pattern,
             id,
         ),
         .insert_count_increment => |increment| try prefixed_integer.encode(
-            constants.insert_count_increment_prefix_bits,
+            constants.protocol.insert_count_increment_prefix_bits,
             writer,
-            constants.insert_count_increment_pattern,
+            constants.protocol.insert_count_increment_pattern,
             increment,
         ),
     }
@@ -321,10 +321,10 @@ test "§4.3: the four encoder instructions are told apart by their high bits" {
     for (0..256) |value| {
         const first: u8 = @intCast(value);
         var matches: usize = 0;
-        if (first & constants.insert_name_reference_mask == constants.insert_name_reference_pattern) matches += 1;
-        if (first & constants.insert_literal_mask == constants.insert_literal_pattern) matches += 1;
-        if (first & constants.set_capacity_mask == constants.set_capacity_pattern) matches += 1;
-        if (first & constants.duplicate_mask == constants.duplicate_pattern) matches += 1;
+        if (first & constants.protocol.insert_name_reference_mask == constants.protocol.insert_name_reference_pattern) matches += 1;
+        if (first & constants.protocol.insert_literal_mask == constants.protocol.insert_literal_pattern) matches += 1;
+        if (first & constants.protocol.set_capacity_mask == constants.protocol.set_capacity_pattern) matches += 1;
+        if (first & constants.protocol.duplicate_mask == constants.protocol.duplicate_pattern) matches += 1;
         try testing.expectEqual(1, matches);
     }
 }
@@ -346,9 +346,9 @@ test "§4.4: the three decoder instructions round trip and do not overlap" {
     for (0..256) |value| {
         const first: u8 = @intCast(value);
         var matches: usize = 0;
-        if (first & constants.section_acknowledgment_mask == constants.section_acknowledgment_pattern) matches += 1;
-        if (first & constants.stream_cancellation_mask == constants.stream_cancellation_pattern) matches += 1;
-        if (first & constants.insert_count_increment_mask == constants.insert_count_increment_pattern) matches += 1;
+        if (first & constants.protocol.section_acknowledgment_mask == constants.protocol.section_acknowledgment_pattern) matches += 1;
+        if (first & constants.protocol.stream_cancellation_mask == constants.protocol.stream_cancellation_pattern) matches += 1;
+        if (first & constants.protocol.insert_count_increment_mask == constants.protocol.insert_count_increment_pattern) matches += 1;
         try testing.expectEqual(1, matches);
     }
     // A large identifier continues past the prefix and still comes back.

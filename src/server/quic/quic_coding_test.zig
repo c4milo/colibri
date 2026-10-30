@@ -167,7 +167,7 @@ test "RFC 9000 §3.1: a coded response whose runs wait for acknowledgments takes
     // RFC 9110 §15.2: interim responses before the final one, each a HEADERS frame the response
     // keeps until acknowledged. With the final head and the frame of the gzip header, they fill
     // every run a response holds.
-    for (0..server_constants.quic_response_pieces_max - held_by_head_and_header) |_| {
+    for (0..server_constants.limits.quic_response_pieces_max - held_by_head_and_header) |_| {
         try connection.respond(fetch.id, .{ .status = early_hints, .end = false });
     }
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });

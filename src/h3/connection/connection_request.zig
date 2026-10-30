@@ -83,7 +83,7 @@ const Step = union(enum) {
 };
 
 pub const Requests = struct {
-    slots: [constants.request_streams_max]?RequestStream,
+    slots: [constants.limits.request_streams_max]?RequestStream,
     /// At a server, the index of the next client-initiated bidirectional stream no slot has seen
     /// (RFC 9000 §2.1). A client opens them in order.
     next_index: u64,
@@ -131,7 +131,7 @@ pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
     if (connection.options.role != .server) return;
     const requests = &connection.requests;
     // Bounded by the slots: a client inside colibri's limit never has more open.
-    for (0..constants.request_streams_max) |_| {
+    for (0..constants.limits.request_streams_max) |_| {
         const id = StreamId.of(.client, .bidirectional, requests.next_index);
         switch (transport.streams.lookup(id)) {
             .unopened => return,
@@ -144,7 +144,7 @@ pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
                 // §5.2: "Requests or pushes with the indicated identifier or greater are
                 // rejected", which §4.1.1 does with H3_REQUEST_REJECTED.
                 const limit = connection.goaway_sent orelse std.math.maxInt(u64);
-                if (id.value >= limit) refuse_stream(connection, transport, &slot.*.?, constants.error_request_rejected);
+                if (id.value >= limit) refuse_stream(connection, transport, &slot.*.?, constants.protocol.error_request_rejected);
             },
         }
         requests.next_index += 1;
@@ -163,7 +163,7 @@ pub fn step(connection: *Connection, transport: *QuicConnection, body: []u8) Err
             if (try step_stream(connection, transport, ready, body)) |event| return event;
         }
     }
-    const count = constants.request_streams_max;
+    const count = constants.limits.request_streams_max;
     for (0..count) |offset| {
         const index: u32 = @intCast((requests.turn + offset) % count);
         const request = if (requests.slots[index]) |*held| held else continue;
@@ -183,7 +183,7 @@ fn step_stream(connection: *Connection, transport: *QuicConnection, request: *Re
         request.blocked_at = null;
     }
     // Bounded: each pass takes a frame header, a payload or part of one, or returns.
-    for (0..constants.request_frames_per_call_max) |_| {
+    for (0..constants.limits.request_frames_per_call_max) |_| {
         switch (try advance(connection, transport, request, body)) {
             .event => |event| return event,
             .wait => return null,
@@ -206,7 +206,7 @@ fn advance(connection: *Connection, transport: *QuicConnection, request: *Reques
 
 fn read_frame(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
     const id: StreamId = .{ .value = request.id };
-    const window = connection.scratch[0..constants.frame_header_len_max];
+    const window = connection.scratch[0..constants.protocol.frame_header_len_max];
     const peeked = stream_read.peek(transport, id, window) catch return on_closed(connection, request);
     if (peeked.len == 0) {
         if (!peeked.fin) return .wait;
@@ -217,14 +217,14 @@ fn read_frame(connection: *Connection, transport: *QuicConnection, request: *Req
     const header = frame.read_header(&reader) catch {
         // RFC 9114 §7.1: "When a stream terminates cleanly, if the last frame on the stream was
         // truncated, this MUST be treated as a connection error of type H3_FRAME_ERROR."
-        if (peeked.fin) return connection.fail(transport, constants.error_frame_error);
+        if (peeked.fin) return connection.fail(transport, constants.protocol.error_frame_error);
         return .wait;
     };
     const header_len = peeked.len - reader.remaining_len();
     try check_sequence(connection, transport, request, header.frame_type);
     return switch (header.frame_type) {
-        constants.frame_headers => read_headers(connection, transport, request, header, header_len),
-        constants.frame_data => start_data(connection, request, transport, header, header_len),
+        constants.protocol.frame_headers => read_headers(connection, transport, request, header, header_len),
+        constants.protocol.frame_data => start_data(connection, request, transport, header, header_len),
         else => start_skip(connection, transport, request, header, header_len),
     };
 }
@@ -233,23 +233,23 @@ fn read_frame(connection: *Connection, transport: *QuicConnection, request: *Req
 fn check_sequence(connection: *Connection, transport: *QuicConnection, request: *const RequestStream, frame_type: u64) Error!void {
     // §7.2.3, §7.2.4, §7.2.6, §7.2.7 and §7.2.8: a control frame, or one of HTTP/2's types, on
     // a request stream is H3_FRAME_UNEXPECTED.
-    if (!frame.permitted(frame_type, .request)) return connection.fail(transport, constants.error_frame_unexpected);
+    if (!frame.permitted(frame_type, .request)) return connection.fail(transport, constants.protocol.error_frame_unexpected);
     switch (frame_type) {
-        constants.frame_data, constants.frame_headers => {
+        constants.protocol.frame_data, constants.protocol.frame_headers => {
             // §4.1: "a DATA frame before any HEADERS frame, or a HEADERS or DATA frame after the
             // trailing HEADERS frame, is considered invalid", which is H3_FRAME_UNEXPECTED.
-            if (request.phase == .trailers_read) return connection.fail(transport, constants.error_frame_unexpected);
-            if (frame_type == constants.frame_data and request.phase == .head) {
-                return connection.fail(transport, constants.error_frame_unexpected);
+            if (request.phase == .trailers_read) return connection.fail(transport, constants.protocol.error_frame_unexpected);
+            if (frame_type == constants.protocol.frame_data and request.phase == .head) {
+                return connection.fail(transport, constants.protocol.error_frame_unexpected);
             }
         },
-        constants.frame_push_promise => switch (connection.options.role) {
+        constants.protocol.frame_push_promise => switch (connection.options.role) {
             // §7.2.5: "A server MUST treat the receipt of a PUSH_PROMISE frame as a connection
             // error of type H3_FRAME_UNEXPECTED."
-            .server => return connection.fail(transport, constants.error_frame_unexpected),
+            .server => return connection.fail(transport, constants.protocol.error_frame_unexpected),
             // §7.2.5: a push ID larger than the client advertised is H3_ID_ERROR, and colibri
             // advertised none (decision 17).
-            .client => return connection.fail(transport, constants.error_id_error),
+            .client => return connection.fail(transport, constants.protocol.error_id_error),
         },
         else => {},
     }
@@ -260,13 +260,13 @@ fn read_headers(connection: *Connection, transport: *QuicConnection, request: *R
     const id: StreamId = .{ .value = request.id };
     // RFC 9114 §10.5.1: a peer that sends a field section past the limit colibri advertised
     // risks "having the request or response being treated as malformed".
-    if (header.length > constants.frame_length_max) return refuse(connection, transport, request, constants.error_message_error);
+    if (header.length > constants.limits.frame_length_max) return refuse(connection, transport, request, constants.protocol.error_message_error);
     const total = header_len + @as(usize, @intCast(header.length));
     const window = connection.scratch[0..total];
     const peeked = stream_read.peek(transport, id, window) catch return on_closed(connection, request);
     if (peeked.len < total) {
         // §7.1: a stream that ended inside a frame is H3_FRAME_ERROR.
-        if (peeked.fin) return connection.fail(transport, constants.error_frame_error);
+        if (peeked.fin) return connection.fail(transport, constants.protocol.error_frame_error);
         return .wait;
     }
     connection.section.init();
@@ -297,10 +297,10 @@ fn read_headers(connection: *Connection, transport: *QuicConnection, request: *R
 fn on_decode_failure(connection: *Connection, transport: *QuicConnection, request: *RequestStream, failure: qpack.decoder.Error) Error!Step {
     return switch (failure) {
         // RFC 9204 §7.4: a string longer than colibri accepts refuses the stream alone.
-        error.FieldTooLong => refuse(connection, transport, request, qpack.constants.error_decompression_failed),
+        error.FieldTooLong => refuse(connection, transport, request, qpack.constants.protocol.error_decompression_failed),
         // RFC 9114 §4.2.2 and §10.5.1: a section past colibri's limits may be treated as
         // malformed, which §4.1.2 makes H3_MESSAGE_ERROR.
-        error.SectionTooLarge, error.TooManyLines => refuse(connection, transport, request, constants.error_message_error),
+        error.SectionTooLarge, error.TooManyLines => refuse(connection, transport, request, constants.protocol.error_message_error),
         // RFC 9204 §2.2.3 and §6: every other failure to interpret a section is a connection
         // error of QPACK_DECOMPRESSION_FAILED.
         else => connection.fail(transport, qpack.decoder.error_code(failure)),
@@ -323,7 +323,7 @@ fn on_section(connection: *Connection, transport: *QuicConnection, request: *Req
         .content => {
             message.validate_trailers(section) catch |reason| return refuse(connection, transport, request, message.verdict(reason));
             // §4.1.2: the content is whole once the trailer section arrives.
-            if (!content_length_matches(request)) return refuse(connection, transport, request, constants.error_message_error);
+            if (!content_length_matches(request)) return refuse(connection, transport, request, constants.protocol.error_message_error);
             request.phase = .trailers_read;
             return .{ .event = .{ .trailers = request.id } };
         },
@@ -358,11 +358,11 @@ fn start_data(connection: *Connection, request: *RequestStream, transport: *Quic
     // §4.1.2: content past the content-length is malformed, which the frame's header shows.
     if (!request.no_content) {
         if (request.content_length) |expected| {
-            if (request.content_received > expected) return refuse(connection, transport, request, constants.error_message_error);
+            if (request.content_received > expected) return refuse(connection, transport, request, constants.protocol.error_message_error);
         }
     }
     // §7.1: the stream ended inside the DATA frame.
-    if (request.fin_read and request.data_left > 0) return connection.fail(transport, constants.error_frame_error);
+    if (request.fin_read and request.data_left > 0) return connection.fail(transport, constants.protocol.error_frame_error);
     return .again;
 }
 
@@ -373,7 +373,7 @@ fn read_data(connection: *Connection, transport: *QuicConnection, request: *Requ
     request.data_left -= read.len;
     request.fin_read = read.fin;
     // §7.1: a stream that ended inside a DATA frame is H3_FRAME_ERROR.
-    if (read.fin and request.data_left > 0) return connection.fail(transport, constants.error_frame_error);
+    if (read.fin and request.data_left > 0) return connection.fail(transport, constants.protocol.error_frame_error);
     if (read.len == 0) return .wait;
     return .{ .event = .{ .data = .{ .stream_id = request.id, .octets = window[0..read.len] } } };
 }
@@ -396,7 +396,7 @@ fn skip(connection: *Connection, transport: *QuicConnection, request: *RequestSt
     request.skip_left -= peeked.len;
     request.fin_read = taken.fin;
     // §7.1: a stream that ended inside a frame is H3_FRAME_ERROR.
-    if (taken.fin and request.skip_left > 0) return connection.fail(transport, constants.error_frame_error);
+    if (taken.fin and request.skip_left > 0) return connection.fail(transport, constants.protocol.error_frame_error);
     if (peeked.len == 0) return .wait;
     return .again;
 }
@@ -408,15 +408,15 @@ fn on_end(connection: *Connection, transport: *QuicConnection, request: *Request
             // §4.1: "If a client-initiated stream terminates without enough of the HTTP message
             // to provide a complete response, the server SHOULD abort its response stream with
             // the error code H3_REQUEST_INCOMPLETE."
-            .server => constants.error_request_incomplete,
+            .server => constants.protocol.error_request_incomplete,
             // §4.1.2: a response stream that ends before its final response holds "an invalid
             // sequence of HTTP messages", so it is malformed.
-            .client => constants.error_message_error,
+            .client => constants.protocol.error_message_error,
         };
         return refuse(connection, transport, request, code);
     }
     // §4.1.2: a content-length that is not "the sum of the DATA frame lengths received".
-    if (!content_length_matches(request)) return refuse(connection, transport, request, constants.error_message_error);
+    if (!content_length_matches(request)) return refuse(connection, transport, request, constants.protocol.error_message_error);
     const id = request.id;
     connection.requests.release(id);
     return .{ .event = .{ .end = id } };

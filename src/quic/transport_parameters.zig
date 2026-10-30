@@ -76,11 +76,11 @@ pub const Id = enum(u64) {
 /// A connection ID a parameter carries, stored inline. RFC 9000 §18.2 gives three parameters this
 /// shape, and §17.2 bounds one at `connection_id_len_max`.
 pub const ConnectionId = struct {
-    octets: [constants.connection_id_len_max]u8,
+    octets: [constants.protocol.connection_id_len_max]u8,
     len: u8,
 
     pub fn of(source: []const u8) ConnectionId {
-        assert(source.len <= constants.connection_id_len_max);
+        assert(source.len <= constants.protocol.connection_id_len_max);
         var id: ConnectionId = .{ .octets = @splat(0), .len = @intCast(source.len) };
         @memcpy(id.octets[0..source.len], source);
         return id;
@@ -101,16 +101,16 @@ pub const ConnectionId = struct {
 /// RFC 9368 §3's Version Information: the version the sender chose for this connection, and the
 /// versions it lists as available, in its order. A peer's list is bounded only by the parameter's
 /// length, so the reader checks every entry and keeps the first
-/// `constants.version_information_versions_max`.
+/// `constants.limits.version_information_versions_max`.
 pub const VersionInformation = struct {
     chosen_version: u32,
-    available: [constants.version_information_versions_max]u32,
+    available: [constants.limits.version_information_versions_max]u32,
     available_len: u8,
 
     pub fn of(chosen_version: u32, available: []const u32) VersionInformation {
         // RFC 9368 §4: a version of zero is a parsing failure, so no endpoint may send one.
         assert(chosen_version != 0 and std.mem.indexOfScalar(u32, available, 0) == null);
-        assert(available.len <= constants.version_information_versions_max);
+        assert(available.len <= constants.limits.version_information_versions_max);
         var info: VersionInformation = .{ .chosen_version = chosen_version, .available = @splat(0), .available_len = @intCast(available.len) };
         @memcpy(info.available[0..available.len], available);
         return info;
@@ -130,19 +130,19 @@ pub const VersionInformation = struct {
 pub const stateless_reset_token_len: usize = 16;
 
 /// RFC 9000 §18.2's defaults for the parameters whose absent value is not zero.
-pub const default_max_udp_payload_size: u64 = constants.datagram_len_max;
+pub const default_max_udp_payload_size: u64 = constants.protocol.datagram_len_max;
 pub const default_ack_delay_exponent: u64 = 3;
 pub const default_max_ack_delay_ms: u64 = 25;
 pub const default_active_connection_id_limit: u64 = 2;
 
 /// RFC 9000 §18.2's bounds, each stated as a value that is invalid.
-pub const max_udp_payload_size_min: u64 = constants.datagram_len_min;
+pub const max_udp_payload_size_min: u64 = constants.protocol.datagram_len_min;
 
 comptime {
-    // `constants.max_ack_delay_default_ns` spells RFC 9000 §18.2's same 25 milliseconds in the
+    // `constants.protocol.max_ack_delay_default_ns` spells RFC 9000 §18.2's same 25 milliseconds in the
     // unit RFC 9002 counts in. Two spellings of one number, so they are held together here.
     assert(default_max_ack_delay_ms * constants.nanoseconds_per_millisecond ==
-        constants.max_ack_delay_default_ns);
+        constants.protocol.max_ack_delay_default_ns);
 }
 pub const ack_delay_exponent_max: u64 = 20;
 /// RFC 9000 §18.2 states this bound as a power of two, so the exponent is named rather than the
@@ -227,8 +227,8 @@ pub const Parameters = struct {
         if (parameters.active_connection_id_limit < active_connection_id_limit_min) return false;
         // RFC 9000 §4.6: a limit above 2^60 is invalid, which §19.11 states for MAX_STREAMS and
         // §18.2 makes these two parameters equivalent to.
-        if (parameters.initial_max_streams_bidi > constants.max_streams_max) return false;
-        if (parameters.initial_max_streams_uni > constants.max_streams_max) return false;
+        if (parameters.initial_max_streams_bidi > constants.protocol.max_streams_max) return false;
+        if (parameters.initial_max_streams_uni > constants.protocol.max_streams_max) return false;
         return true;
     }
 };

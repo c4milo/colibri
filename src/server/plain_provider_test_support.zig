@@ -8,7 +8,7 @@ const tls_provider = @import("tls_provider");
 
 const core = tls_provider.core;
 const provider_module = tls_provider.provider;
-const header_len = tls_provider.constants.record_header_len;
+const header_len = tls_provider.constants.protocol.record_header_len;
 
 /// RFC 9846 §5.1's content types, the legacy version every record carries, and §6's alerts.
 pub const content_alert: u8 = 21;
@@ -53,7 +53,7 @@ pub const PlainProvider = struct {
     /// Whether `encrypt_record` refuses every record, as a provider does after a failure.
     refuse_seal: bool = false,
     /// The version the handshake reports (RFC 9846 Appendix B.1).
-    version: u16 = tls_provider.constants.version_tls_1_3,
+    version: u16 = tls_provider.constants.protocol.version_tls_1_3,
 
     const vtable: tls_provider.VTable = .{
         .handshake_read = handshake_read,
@@ -94,7 +94,7 @@ pub const PlainProvider = struct {
         // RFC 9846 §4.7.3: the provider writes the answer first, under the keys it replaces.
         if (plain.answer_owed) _ = seal(content_handshake, &key_update_not_requested, output) catch unreachable;
         plain.answer_owed = false;
-        const taken = @min(plaintext.len, output.len - answer_len - header_len, tls_provider.constants.record_plaintext_len_max);
+        const taken = @min(plaintext.len, output.len - answer_len - header_len, tls_provider.constants.protocol.record_plaintext_len_max);
         const written = seal(content_application_data, plaintext[0..taken], output[answer_len..]) catch unreachable;
         return .{ .consumed = taken, .written = answer_len + written.len };
     }
@@ -179,7 +179,7 @@ pub const PlainProvider = struct {
     }
 
     fn negotiated_parameters(context: *const anyopaque) ?tls_provider.Negotiated {
-        return .{ .version = held_const(context).version, .cipher_suite = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256 };
+        return .{ .version = held_const(context).version, .cipher_suite = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256 };
     }
 
     fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) provider_module.HandshakeReadError!usize {

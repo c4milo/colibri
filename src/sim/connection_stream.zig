@@ -83,7 +83,7 @@ pub const Frame = struct {
     /// asking for an answer (RFC 9113 §6.5.3, §6.7).
     ack: bool = false,
     /// `ping`: the Opaque Data the frame carries and the connection echoes (RFC 9113 §6.7).
-    opaque_data: [h2_constants.ping_len]u8 = @splat(0),
+    opaque_data: [h2_constants.protocol.ping_len]u8 = @splat(0),
 };
 
 /// The field block of the request a plan sends: `:method: GET`, `:scheme: http` and `:path: /`,
@@ -101,12 +101,12 @@ const request_block_authority = request_block ++ "\x01\x0bexample.com";
 const data_payload: [constants.connection_check_data_len_max]u8 = @splat('d');
 
 /// The Opaque Data of the PING frame `frame_inside_field_block` sends (RFC 9113 §6.7).
-const refusal_ping_data: [h2_constants.ping_len]u8 = @splat('p');
+const refusal_ping_data: [h2_constants.protocol.ping_len]u8 = @splat('p');
 
 /// The last stream identifiers of the two GOAWAY frames `goaway_last_id_rises` sends. The second
 /// is the higher, which RFC 9113 §6.8 refuses.
 const goaway_last_id_first: u32 = 0;
-const goaway_last_id_second: u32 = h2_constants.stream_id_client_first;
+const goaway_last_id_second: u32 = h2_constants.protocol.stream_id_client_first;
 
 /// The outcomes a drawn flag takes.
 const flag_outcomes: u64 = 2;
@@ -121,7 +121,7 @@ const initial_window_sizes = [_]u32{
     0,
     1,
     constants.connection_check_window_size_small,
-    h2_constants.initial_window_size_initial,
+    h2_constants.protocol.initial_window_size_initial,
 };
 
 pub const Plan = struct {
@@ -153,14 +153,14 @@ pub const Plan = struct {
             plan.refusal = refusals[random.below(refusals.len)];
         }
         assert(plan.count >= 1 and plan.count <= constants.connection_check_frames_max);
-        assert(plan.refusal_stream_id > h2_constants.stream_id_client_first);
+        assert(plan.refusal_stream_id > h2_constants.protocol.stream_id_client_first);
         return plan;
     }
 
     /// Encodes the preface, every frame and the refusal into `output`.
     pub fn write(plan: *const Plan, output: *Writer) core.writer.Error!void {
         // RFC 9113 §3.4: a client starts the connection with 24 octets and a SETTINGS frame.
-        try output.write_bytes(h2_constants.client_preface);
+        try output.write_bytes(h2_constants.protocol.client_preface);
         try write_settings(plan.initial_window_size, output);
         for (plan.frames[0..plan.count]) |*drawn| try write_frame(drawn, output);
         if (plan.refusal != null) try write_refusal(plan, output);
@@ -177,9 +177,9 @@ const Opened = struct {
 
     fn init(random: *Random) Opened {
         const drawn = random.below(constants.connection_check_first_stream_ids);
-        const step = h2_constants.stream_id_step * (drawn + 1);
+        const step = h2_constants.protocol.stream_id_step * (drawn + 1);
         // Above the first identifier a client may use, which stays below the watermark.
-        const first = h2_constants.stream_id_client_first + step;
+        const first = h2_constants.protocol.stream_id_client_first + step;
         return .{ .ids = @splat(0), .count = 0, .next_id = @intCast(first) };
     }
 
@@ -191,8 +191,8 @@ const Opened = struct {
         opened.ids[opened.count] = id;
         opened.count += 1;
         const steps = random.between(1, constants.connection_check_stream_id_steps);
-        opened.next_id += @intCast(h2_constants.stream_id_step * steps);
-        assert(opened.next_id > id and opened.next_id <= h2_constants.stream_id_max);
+        opened.next_id += @intCast(h2_constants.protocol.stream_id_step * steps);
+        assert(opened.next_id > id and opened.next_id <= h2_constants.protocol.stream_id_max);
         return id;
     }
 
@@ -263,7 +263,7 @@ fn draw_stream_frame(random: *Random, opened: *Opened, kind: Kind) Frame {
     const id = opened.pick(random) orelse return draw_ping(random);
     if (kind == .rst_stream) {
         opened.forget(id);
-        return .{ .kind = .rst_stream, .stream_id = id, .value = h2_constants.error_cancel };
+        return .{ .kind = .rst_stream, .stream_id = id, .value = h2_constants.protocol.error_cancel };
     }
     if (kind == .stream_window_update) {
         return .{ .kind = kind, .stream_id = id, .value = draw_increment(random) };
@@ -289,7 +289,7 @@ fn block_of(drawn: *const Frame) []const u8 {
 
 fn write_settings(initial_window_size: u32, output: *Writer) core.writer.Error!void {
     const setting: frame.Setting = .{
-        .id = h2_constants.setting_initial_window_size,
+        .id = h2_constants.protocol.setting_initial_window_size,
         .value = initial_window_size,
     };
     try frame.write_settings(output, &.{setting});
@@ -313,7 +313,7 @@ fn write_frame(drawn: *const Frame, output: *Writer) core.writer.Error!void {
             try frame.write_settings_ack(output)
         else
             try write_settings(drawn.value, output),
-        .connection_window_update => try frame.write_window_update(output, h2_constants.connection_stream_id, drawn.value),
+        .connection_window_update => try frame.write_window_update(output, h2_constants.protocol.connection_stream_id, drawn.value),
         .stream_window_update => try frame.write_window_update(output, id, drawn.value),
         .rst_stream => try frame.write_rst_stream(output, id, drawn.value),
     }
@@ -345,7 +345,7 @@ fn write_refusal(plan: *const Plan, output: *Writer) core.writer.Error!void {
         // RFC 9113 §5.1.1: the first use of an identifier closes every lower idle one the peer
         // could have opened, so a HEADERS frame on the identifier the plan's requests left behind
         // is a connection error of PROTOCOL_ERROR.
-        .headers_below_watermark => try write_bare_headers(h2_constants.stream_id_client_first, true, output),
+        .headers_below_watermark => try write_bare_headers(h2_constants.protocol.stream_id_client_first, true, output),
         // RFC 9113 §4.3: the frames of a field block are contiguous, so a PING frame between a
         // HEADERS frame and the CONTINUATION it waits for ends the connection.
         .frame_inside_field_block => {
@@ -356,13 +356,13 @@ fn write_refusal(plan: *const Plan, output: *Writer) core.writer.Error!void {
         // connection error of FLOW_CONTROL_ERROR, and the window starts above 0.
         .connection_window_overflow => try frame.write_window_update(
             output,
-            h2_constants.connection_stream_id,
-            h2_constants.window_max,
+            h2_constants.protocol.connection_stream_id,
+            h2_constants.protocol.window_max,
         ),
         // RFC 9113 §6.8: a GOAWAY may not name a higher last stream identifier than the one before.
         .goaway_last_id_rises => {
-            try frame.write_goaway(output, goaway_last_id_first, h2_constants.error_no_error, "");
-            try frame.write_goaway(output, goaway_last_id_second, h2_constants.error_no_error, "");
+            try frame.write_goaway(output, goaway_last_id_first, h2_constants.protocol.error_no_error, "");
+            try frame.write_goaway(output, goaway_last_id_second, h2_constants.protocol.error_no_error, "");
         },
     }
 }
@@ -374,26 +374,26 @@ fn write_bare_headers(stream_id: u32, end_headers: bool, output: *Writer) core.w
 
 comptime {
     // The preface: the client's octets and a SETTINGS frame carrying one setting.
-    const preface_len = h2_constants.client_preface_len +
-        h2_constants.frame_header_len + h2_constants.setting_len;
+    const preface_len = h2_constants.protocol.client_preface_len +
+        h2_constants.protocol.frame_header_len + h2_constants.protocol.setting_len;
     assert(preface_len <= constants.connection_check_preface_len_max);
     // The frames that write the most: a DATA frame at its longest payload, and a request cut into
     // the most fragments, each fragment carrying a frame header of its own.
-    const data_len = h2_constants.frame_header_len + constants.connection_check_data_len_max;
-    const continued_len = constants.connection_check_fragments_max * h2_constants.frame_header_len +
+    const data_len = h2_constants.protocol.frame_header_len + constants.connection_check_data_len_max;
+    const continued_len = constants.connection_check_fragments_max * h2_constants.protocol.frame_header_len +
         request_block_authority.len;
     assert(data_len <= constants.connection_check_frame_len_max);
     assert(continued_len <= constants.connection_check_frame_len_max);
     // The refusal that writes the most: a HEADERS frame and the PING frame inside its block.
-    const refusal_len = 2 * h2_constants.frame_header_len + request_block.len + h2_constants.ping_len;
+    const refusal_len = 2 * h2_constants.protocol.frame_header_len + request_block.len + h2_constants.protocol.ping_len;
     const refusal_room = constants.connection_check_refusal_frames_max *
         constants.connection_check_frame_len_max;
     assert(refusal_len <= refusal_room);
     // A plan draws fewer frames than RFC 9113 §10.5's RST_STREAM rate limit admits, so no plan can
     // reach it: the instants the pipe supplies cannot decide a verdict, and neither can chunking.
-    assert(constants.connection_check_frames_max < h2_constants.rst_stream_rate_max);
+    assert(constants.connection_check_frames_max < h2_constants.policy.rst_stream_rate_max);
     // The CONTINUATION frames one request is cut into stay under §6.10's bound (invariant 14).
-    assert(constants.connection_check_fragments_max <= h2_constants.continuation_count_max + 1);
+    assert(constants.connection_check_fragments_max <= h2_constants.limits.continuation_count_max + 1);
 }
 
 const testing = std.testing;
@@ -412,11 +412,11 @@ test "every plan opens increasing identifiers above the one its refusal names" {
     for (0..constants.check_seeds_default) |seed| {
         var random = Random.init(seed);
         const plan = Plan.draw(&random);
-        var highest: u32 = h2_constants.stream_id_client_first;
+        var highest: u32 = h2_constants.protocol.stream_id_client_first;
         for (plan.frames[0..plan.count]) |drawn| {
             if (drawn.kind != .request and drawn.kind != .request_continued) continue;
             try testing.expect(drawn.stream_id > highest);
-            try testing.expectEqual(1, drawn.stream_id % h2_constants.stream_id_step);
+            try testing.expectEqual(1, drawn.stream_id % h2_constants.protocol.stream_id_step);
             highest = drawn.stream_id;
         }
         try testing.expectEqual(Kind.request, plan.frames[0].kind);
@@ -430,9 +430,9 @@ test "every plan's stream opens with the preface and fits the named length" {
         var random = Random.init(seed);
         const plan = Plan.draw(&random);
         const stream = try stream_of(&plan);
-        try testing.expectEqualStrings(h2_constants.client_preface, stream[0..h2_constants.client_preface_len]);
+        try testing.expectEqualStrings(h2_constants.protocol.client_preface, stream[0..h2_constants.protocol.client_preface_len]);
         // RFC 9113 §3.4: the preface ends with a SETTINGS frame, which the frame header names.
-        try testing.expectEqual(h2_constants.frame_type_settings, stream[h2_constants.client_preface_len + 3]);
+        try testing.expectEqual(h2_constants.protocol.frame_type_settings, stream[h2_constants.protocol.client_preface_len + 3]);
         try testing.expect(stream.len <= constants.connection_check_stream_len_max);
         if (plan.refusal != null) refused += 1;
     }
@@ -443,7 +443,7 @@ test "a request cut into fragments writes the same field block as one written wh
     const whole: Frame = .{ .kind = .request, .stream_id = 3, .with_authority = true };
     var output = Writer.init(&test_stream);
     try write_frame(&whole, &output);
-    const block = output.written()[h2_constants.frame_header_len..];
+    const block = output.written()[h2_constants.protocol.frame_header_len..];
     try testing.expectEqualStrings(request_block_authority, block);
     for (2..constants.connection_check_fragments_max + 1) |fragments| {
         const cut: Frame = .{
@@ -466,7 +466,7 @@ fn count_frames(octets: []const u8) usize {
         if (offset == octets.len) return frames;
         var reader = core.Reader.init(octets[offset..]);
         const header = frame.read_header(&reader) catch unreachable;
-        offset += h2_constants.frame_header_len + header.length;
+        offset += h2_constants.protocol.frame_header_len + header.length;
         frames += 1;
     }
     unreachable; // Every frame takes at least a header, so the octets run out first.

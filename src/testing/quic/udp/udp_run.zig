@@ -190,11 +190,11 @@ fn issue_spare_ids(connection: *Connection) void {
     if (!held.handshake_confirmed) return;
     const peer = held.peer_parameters orelse return;
     connection.spare_ids_issued = true;
-    const limit = @min(peer.active_connection_id_limit, quic.constants.connection_ids_max);
+    const limit = @min(peer.active_connection_id_limit, quic.constants.limits.connection_ids_max);
     // Bounded by `connection_ids_max`, a named limit.
     for (1..limit) |_| {
         var id: [udp_identity.id_len]u8 = undefined;
-        var token: [quic.constants.stateless_reset_token_len]u8 = undefined;
+        var token: [quic.constants.protocol.stateless_reset_token_len]u8 = undefined;
         udp_identity.spare_id(&id, &token);
         _ = quic.connection_id_frames.issue(held, &id, &token) catch return;
     }
@@ -252,7 +252,7 @@ fn accept(delivery: udp.Delivery, now_ns: u64) ?*Connection {
     if (!arguments.server.retry) return start(delivery, now_ns, udp_identity.server_ids(long.dcid, long.scid), long.version);
     // RFC 9000 §14.1: "A server MUST discard an Initial packet that is carried in a UDP datagram
     // with a payload that is smaller than the smallest allowed maximum datagram size".
-    if (delivery.bytes.len < quic.constants.datagram_len_min) return null;
+    if (delivery.bytes.len < quic.constants.protocol.datagram_len_min) return null;
     var address_storage: [udp_peer.token_address_len_max]u8 = undefined;
     const address = udp_peer.token_address(delivery.from.peer, &address_storage);
     switch (quic.connection_retry.verify_token(udp_identity.retry_suite(), long.version, address, long.token, long.dcid, now_ns)) {
@@ -269,7 +269,7 @@ fn accept(delivery: udp.Delivery, now_ns: u64) ?*Connection {
 /// slot free the Initial goes unanswered, and the client sends it again.
 fn send_retry(delivery: udp.Delivery, long: quic.packet.header.Long, address: []const u8, now_ns: u64) void {
     const index = free_slot() orelse return;
-    var pseudo: [quic.constants.retry_pseudo_packet_len_max]u8 = undefined;
+    var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
     const answered = quic.connection_retry.answer(udp_identity.retry_suite(), .{
         .version = long.version,
         .client_source = long.scid,
@@ -354,7 +354,7 @@ fn step_application(connection: *Connection, now_ns: u64) void {
 fn application_of(connection: *Connection) Application {
     if (!connection.peer.connection.handshake_complete) return .undecided;
     const selected = connection.peer.session.provider().negotiated_alpn() orelse return .hq;
-    return if (std.mem.eql(u8, selected, &h2.tls_provider.constants.alpn_h3)) .h3 else .hq;
+    return if (std.mem.eql(u8, selected, &h2.tls_provider.constants.protocol.alpn_h3)) .h3 else .hq;
 }
 
 /// Sends every datagram `connection` owes now, each from a free slot.
@@ -448,18 +448,18 @@ fn report() void {
 /// connection window as large as its receive pool (decision 61).
 pub fn server_parameters() Parameters {
     var held = Parameters.initial();
-    held.initial_max_data = quic.constants.receive_pool_len_default;
+    held.initial_max_data = quic.constants.limits.receive_pool_len_default;
     held.initial_max_stream_data_bidi_remote = constants.h3_stream_window;
     held.initial_max_stream_data_uni = constants.h3_stream_window;
     held.initial_max_streams_bidi = constants.hq_requests_max;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = constants.quic_idle_timeout_ms;
     return held;
 }
 
 comptime {
     // A server never grants more request streams than an h3 connection holds (RFC 9114 §6.1).
-    std.debug.assert(constants.hq_requests_max <= h3.constants.request_streams_max);
+    std.debug.assert(constants.hq_requests_max <= h3.constants.limits.request_streams_max);
 }
 
 pub fn fail(comptime format: []const u8, values: anytype) noreturn {

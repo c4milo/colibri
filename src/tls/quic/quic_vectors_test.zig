@@ -235,7 +235,7 @@ const server_packet_number_len = 2;
 
 test "RFC 9001 Appendix A.4: the Retry Integrity Tag over the Retry pseudo-packet" {
     const suite = try start_client(.v1);
-    const tag_len = crypto.constants.retry_integrity_tag_len;
+    const tag_len = crypto.constants.protocol.retry_integrity_tag_len;
     const without_tag = retry_packet[0 .. retry_packet.len - tag_len];
     const tag = retry_packet[retry_packet.len - tag_len ..];
     var pseudo_buffer: [retry_packet.len + client_dcid.len + 1]u8 = undefined;
@@ -292,7 +292,7 @@ test "RFC 9369 Appendix A.3: version 2's server Initial opens to its header and 
 
 test "RFC 9369 Appendix A.4: version 2's Retry Integrity Tag, and version 1's key refused on it" {
     const suite = try start_client(.v2);
-    const tag_len = crypto.constants.retry_integrity_tag_len;
+    const tag_len = crypto.constants.protocol.retry_integrity_tag_len;
     const without_tag = retry_packet_v2[0 .. retry_packet_v2.len - tag_len];
     const tag = retry_packet_v2[retry_packet_v2.len - tag_len ..];
     var pseudo_buffer: [retry_packet_v2.len + client_dcid.len + 1]u8 = undefined;

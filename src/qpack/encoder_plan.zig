@@ -54,7 +54,7 @@ pub const Usage = struct {
 
 /// The lines of the section being written, decided before any is written.
 pub const Plan = struct {
-    lines: [core.constants.field_count_max]Planned,
+    lines: [core.constants.limits.field_count_max]Planned,
     len: u32,
     usage: Usage,
     /// RFC 9204 §2.1.2: one more than the largest absolute index referenced, or zero.
@@ -165,7 +165,7 @@ fn insert(encoder: *Encoder, name: []const u8, value: []const u8, static_name: ?
     const size = entry_size(name.len, value.len);
     // Decision 76: one line takes at most the capacity over `insert_size_divisor`. With RFC 9204
     // §3.2.3's maximum of zero, nothing fits and nothing is ever inserted.
-    if (size > capacity / constants.insert_size_divisor) return null;
+    if (size > capacity / constants.policy.insert_size_divisor) return null;
     if (!room_for(encoder, size, capacity)) return null;
     var cursor = encoder_stream.*;
     // RFC 9204 §3.2.2: the table's capacity starts at zero, and the encoder sets it before it

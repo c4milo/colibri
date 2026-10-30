@@ -15,8 +15,8 @@ pub const leaf = testdata.leaf;
 pub const root = testdata.root;
 pub const root_name = testdata.root_name;
 pub const root_spki = testdata.root_spki;
-pub const private_key: *const [constants.p256_private_key_len]u8 = testdata.private_key;
-pub const public_key: *const [constants.p256_public_key_len]u8 = testdata.public_key;
+pub const private_key: *const [constants.protocol.p256_private_key_len]u8 = testdata.private_key;
+pub const public_key: *const [constants.protocol.p256_public_key_len]u8 = testdata.public_key;
 
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
@@ -56,8 +56,8 @@ pub const not_after_seconds = testdata.not_after_seconds;
 /// Milliseconds in a second, for a ticket's age.
 pub const ms_per_second: u64 = 1000;
 
-pub const cookie_key: [constants.server_key_len]u8 = @splat(cookie_key_octet);
-pub const ticket_key: [constants.server_key_len]u8 = @splat(ticket_key_octet);
+pub const cookie_key: [constants.protocol.server_key_len]u8 = @splat(cookie_key_octet);
+pub const ticket_key: [constants.protocol.server_key_len]u8 = @splat(ticket_key_octet);
 /// The octet each test key repeats, which only has to differ from the other key's.
 const cookie_key_octet: u8 = 0x07;
 const ticket_key_octet: u8 = 0x09;
@@ -118,8 +118,8 @@ pub const cpus: []const values.Cpu = if (takes_cpu and cpu.probe.aes_clmul == .y
 
 /// The suites a session under the tests' answer holds: the three colibri admits with AES-GCM, and
 /// ChaCha20 alone without it.
-pub const suites_held: []const u16 = if (holds_aes_gcm(cpu)) &tls_provider.constants.cipher_suites_admitted else &.{chacha};
-pub const chacha = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256;
+pub const suites_held: []const u16 = if (holds_aes_gcm(cpu)) &tls_provider.constants.policy.cipher_suites_admitted else &.{chacha};
+pub const chacha = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256;
 
 /// A server order naming `suite` alone, or none in an object that holds one suite and no order.
 pub fn order_of(suite: *const [1]u16) []const u16 {
@@ -129,7 +129,7 @@ pub fn order_of(suite: *const [1]u16) []const u16 {
 /// The suite chapulin's own order runs when neither side names one: AES-256-GCM first when both
 /// sessions hold AES-GCM (chapulin's decision 80), and ChaCha20 when either holds it alone.
 pub fn default_suite_of(client_cpu: values.Cpu, server_cpu: values.Cpu) u16 {
-    if (holds_aes_gcm(client_cpu) and holds_aes_gcm(server_cpu)) return tls_provider.constants.cipher_suite_aes_256_gcm_sha384;
+    if (holds_aes_gcm(client_cpu) and holds_aes_gcm(server_cpu)) return tls_provider.constants.protocol.cipher_suite_aes_256_gcm_sha384;
     return chacha;
 }
 

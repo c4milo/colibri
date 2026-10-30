@@ -67,7 +67,7 @@ pub const Framed = struct {
     ack_eliciting: bool,
     carries_close: bool = false,
     carries_ack: bool = false,
-    path_challenge: ?[constants.path_challenge_len]u8 = null,
+    path_challenge: ?[constants.protocol.path_challenge_len]u8 = null,
     carries_path_response: bool = false,
     /// Whether it carries a HANDSHAKE_DONE frame, whose packet number §13.3 needs.
     carries_handshake_done: bool = false,
@@ -223,7 +223,7 @@ fn write_probe(connection: *const Connection, level: Level, output: []u8, elicit
 /// the PING, one such packet, asks for no PING back.
 fn elicit_due(connection: *const Connection, level: Level, now_ns: u64) bool {
     if (level != .application) return false;
-    if (connection.ack_only_since_eliciting < constants.ack_only_packets_before_ping) return false;
+    if (connection.ack_only_since_eliciting < constants.policy.ack_only_packets_before_ping) return false;
     const held = connection.recovery.timer.spaces[@intFromEnum(Level.application)];
     const last_ns = held.last_ack_eliciting_sent_at_ns orelse return false;
     return now_ns -| last_ns >= connection.recovery.rtt.smoothed_ns;
@@ -297,11 +297,11 @@ const Extras = struct {
 fn write_extra_streams(connection: *Connection, stream_provider: StreamProvider, output: []u8) Extras {
     const ring = &connection.stream_ranges;
     const tail = connection_stream_ranges.tail(connection);
-    const allowed = @min(constants.stream_frames_per_packet_max - 1, ring.room(tail));
+    const allowed = @min(constants.limits.stream_frames_per_packet_max - 1, ring.room(tail));
     var extras: Extras = .{};
     // Bounded by `stream_frames_per_packet_max`.
     for (0..allowed) |_| {
-        if (output.len - extras.len < constants.stream_frame_room_min) break;
+        if (output.len - extras.len < constants.policy.stream_frame_room_min) break;
         const stream = connection_stream_send.write(connection, stream_provider, output[extras.len..]);
         if (stream.len == 0) break;
         ring.push(tail, .{ .stream_id = stream.stream_id, .offset = stream.offset, .len = stream.data_len, .fin = stream.fin });
@@ -347,7 +347,7 @@ fn write_ack(connection: *const Connection, space: anytype, writer: *Writer, now
 
 /// What the path frames amount to in one packet.
 const PathFrames = struct {
-    path_challenge: ?[constants.path_challenge_len]u8 = null,
+    path_challenge: ?[constants.protocol.path_challenge_len]u8 = null,
     carries_path_response: bool = false,
 };
 

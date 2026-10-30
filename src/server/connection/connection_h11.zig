@@ -135,12 +135,12 @@ pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const
     try check_current(connection, id);
     const session = &connection.session.h11;
     defer note_done(connection, id);
-    var lines: [core.constants.field_count_max]Field = unfilled_lines();
+    var lines: [core.constants.limits.field_count_max]Field = unfilled_lines();
     const framed = try complete(connection, status, fields, end, &lines);
-    const interim = status >= http.constants.status_code_min and status < @intFromEnum(Code.ok);
+    const interim = status >= http.constants.protocol.status_code_min and status < @intFromEnum(Code.ok);
     // A response that ends with its head keeps room for the last chunk a caller's own
     // Transfer-Encoding would need, so the end never fails after the head went out.
-    const reserve: usize = if (end and !interim) constants.last_chunk_len else 0;
+    const reserve: usize = if (end and !interim) constants.protocol.last_chunk_len else 0;
     const room = internal.room(connection);
     if (room.len <= reserve) return error.NoSpaceLeft;
     const written = session.write_response(room[0 .. room.len - reserve], status, reason.of(status), framed) catch |failure| {
@@ -156,14 +156,14 @@ pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const
 /// fill all 4,096 octets with 0xAA on every response, whether `complete` adds a line or not.
 /// `complete` writes each line it returns, and code reads no other line. The owner ruled for
 /// this on 2026-10-18.
-fn unfilled_lines() [core.constants.field_count_max]Field {
+fn unfilled_lines() [core.constants.limits.field_count_max]Field {
     @setRuntimeSafety(false);
     return undefined;
 }
 
 /// The caller's fields and the lines the server adds: the framing field the response needs when
 /// it names none, and the Alt-Svc line that advertises h3.
-pub fn complete(connection: *const Connection, status: u16, fields: []const Field, end: bool, lines: *[core.constants.field_count_max]Field) SendError![]const Field {
+pub fn complete(connection: *const Connection, status: u16, fields: []const Field, end: bool, lines: *[core.constants.limits.field_count_max]Field) SendError![]const Field {
     // RFC 9110 §15: a status code is three digits from 100 to 599.
     const code = http.Status.from_code(status) catch return error.StatusInvalid;
     var added: [lines_added_max]Field = undefined;
@@ -221,8 +221,8 @@ pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: 
     // RFC 9112 §6: content follows only a final response that declared some, and ends once. h11
     // refuses the rest with `NoBody`.
     const chunked = session.writer.kind == .chunked;
-    const framing_len: usize = if (chunked) constants.chunk_framing_len_max else 0;
-    const reserve: usize = if (end and chunked) constants.last_chunk_len else 0;
+    const framing_len: usize = if (chunked) constants.limits.chunk_framing_len_max else 0;
+    const reserve: usize = if (end and chunked) constants.protocol.last_chunk_len else 0;
     const room = internal.room(connection);
     // RFC 9112 §7.1: a chunk is its size line, its data and a CRLF, so room for less holds none.
     if (room.len <= framing_len + reserve) return error.Blocked;

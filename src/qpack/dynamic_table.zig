@@ -54,8 +54,8 @@ pub const Match = struct {
 };
 
 pub const DynamicTable = struct {
-    octets: [constants.dynamic_table_capacity_max]u8,
-    entries: [constants.dynamic_table_entries_max]Entry,
+    octets: [constants.limits.dynamic_table_capacity_max]u8,
+    entries: [constants.limits.dynamic_table_entries_max]Entry,
     /// The oldest entry's slot; the newest is `count - 1` slots after it, wrapping.
     first: u32,
     count: u32,
@@ -76,7 +76,7 @@ pub const DynamicTable = struct {
     /// RFC 9204 §3.2.2: the initial capacity of the dynamic table is zero, and the encoder sends
     /// a Set Dynamic Table Capacity instruction to begin using it.
     pub fn init(table: *DynamicTable, capacity_max: u64) void {
-        assert(capacity_max <= constants.dynamic_table_capacity_max);
+        assert(capacity_max <= constants.limits.dynamic_table_capacity_max);
         table.first = 0;
         table.count = 0;
         table.octets_start = 0;
@@ -98,7 +98,7 @@ pub const DynamicTable = struct {
     /// maximum capacity over §3.2.1's smallest entry. The Required Insert Count is encoded
     /// modulo twice this, which is what keeps the prefix short on a long-lived connection.
     pub fn max_entries(table: *const DynamicTable) u64 {
-        return table.capacity_max / constants.entry_overhead_len;
+        return table.capacity_max / constants.protocol.entry_overhead_len;
     }
 
     /// RFC 9204 §4.3.1's Set Dynamic Table Capacity. Reducing it evicts from the oldest end
@@ -122,7 +122,7 @@ pub const DynamicTable = struct {
         // §3.2.2: evict until the size is at or below the capacity less the new entry's size.
         table.evict_until_fits(size);
         table.make_room(@intCast(name.len + value.len));
-        const slot = (table.first + table.count) % constants.dynamic_table_entries_max;
+        const slot = (table.first + table.count) % constants.limits.dynamic_table_entries_max;
         table.entries[slot] = .{
             .offset = table.octets_end,
             .name_len = @intCast(name.len),
@@ -135,7 +135,7 @@ pub const DynamicTable = struct {
         table.size += size;
         // §3.2.4: indices increase by one with each insertion and are never reused.
         table.inserted += 1;
-        assert(table.count <= constants.dynamic_table_entries_max);
+        assert(table.count <= constants.limits.dynamic_table_entries_max);
         assert(table.inserted - table.dropped == table.count);
     }
 
@@ -144,7 +144,7 @@ pub const DynamicTable = struct {
     pub fn get_absolute(table: *const DynamicTable, absolute: u64) ?Field {
         if (absolute < table.dropped or absolute >= table.inserted) return null;
         const from_oldest: u32 = @intCast(absolute - table.dropped);
-        const slot = (table.first + from_oldest) % constants.dynamic_table_entries_max;
+        const slot = (table.first + from_oldest) % constants.limits.dynamic_table_entries_max;
         return table.field(&table.entries[slot]);
     }
 
@@ -203,7 +203,7 @@ pub const DynamicTable = struct {
     /// Evicts oldest entries until `size` more octets fit under the capacity, or none are left.
     fn evict_until_fits(table: *DynamicTable, size: u64) void {
         // Each pass evicts one entry, so the entry count bounds the loop.
-        for (0..constants.dynamic_table_entries_max) |_| {
+        for (0..constants.limits.dynamic_table_entries_max) |_| {
             if (table.count == 0 or table.size + size <= table.capacity) break;
             table.evict_oldest();
         }
@@ -215,7 +215,7 @@ pub const DynamicTable = struct {
         const entry = table.entries[table.first];
         table.octets_start += entry.name_len + entry.value_len;
         table.size -= entry_size(entry.name_len, entry.value_len);
-        table.first = (table.first + 1) % constants.dynamic_table_entries_max;
+        table.first = (table.first + 1) % constants.limits.dynamic_table_entries_max;
         table.count -= 1;
         // §3.2.4: a dropped entry's absolute index is never reused, so the floor only rises.
         table.dropped += 1;
@@ -228,17 +228,17 @@ pub const DynamicTable = struct {
     /// Moves the live octets to the front where `len` more will not fit after them. The entries
     /// hold offsets rather than slices, so moving them is a copy and a rebase.
     fn make_room(table: *DynamicTable, len: u32) void {
-        if (table.octets_end + len <= constants.dynamic_table_capacity_max) return;
+        if (table.octets_end + len <= constants.limits.dynamic_table_capacity_max) return;
         const live = table.octets_end - table.octets_start;
         std.mem.copyForwards(u8, table.octets[0..live], table.octets[table.octets_start..table.octets_end]);
         // Bounded by the entry count, which is a named limit.
         for (0..table.count) |step| {
-            const slot = (table.first + step) % constants.dynamic_table_entries_max;
+            const slot = (table.first + step) % constants.limits.dynamic_table_entries_max;
             table.entries[slot].offset -= table.octets_start;
         }
         table.octets_start = 0;
         table.octets_end = live;
-        assert(table.octets_end + len <= constants.dynamic_table_capacity_max);
+        assert(table.octets_end + len <= constants.limits.dynamic_table_capacity_max);
     }
 };
 
@@ -250,7 +250,7 @@ threadlocal var test_table: DynamicTable align(@alignOf(DynamicTable)) = undefin
 /// overhead plus a one-octet name and a one-octet value.
 const test_entries: u64 = 4;
 const test_capacity: u64 = test_entries * small_entry_len;
-const small_entry_len: u64 = constants.entry_overhead_len + test_name_len + test_value_len;
+const small_entry_len: u64 = constants.protocol.entry_overhead_len + test_name_len + test_value_len;
 const test_name_len: u64 = 1;
 const test_value_len: u64 = 1;
 
@@ -263,7 +263,7 @@ fn fill(count: u8) !void {
 }
 
 test "§3.2.2: the table starts empty with a capacity of zero" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     try testing.expectEqual(0, test_table.capacity);
     try testing.expectEqual(0, test_table.insert_count());
     // §3.2.2: nothing fits until the encoder sets a capacity, so the first insert is refused.
@@ -285,7 +285,7 @@ test "§3.2.3: a capacity above what the decoder advertised is refused" {
 }
 
 test "§3.2.4: an absolute index is fixed for the entry's life and never reused" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     try test_table.set_capacity(test_capacity);
     try fill(4);
     // §3.2.4: the first entry inserted has absolute index 0 and they increase by one.
@@ -302,7 +302,7 @@ test "§3.2.4: an absolute index is fixed for the entry's life and never reused"
 }
 
 test "§3.2.5: a relative index means one thing on the encoder stream and another in a section" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     try test_table.set_capacity(test_capacity);
     try fill(4);
     // In an encoder instruction, relative 0 is the most recently inserted entry.
@@ -319,7 +319,7 @@ test "§3.2.5: a relative index means one thing on the encoder stream and anothe
 }
 
 test "§3.2.6: a post-Base index counts forward from the Base" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     try test_table.set_capacity(test_capacity);
     try fill(4);
     // With a Base of 2, post-Base 0 is absolute 2 and 1 is absolute 3 — the entries the encoder
@@ -333,7 +333,7 @@ test "§3.2.6: a post-Base index counts forward from the Base" {
 }
 
 test "§3.2.2: eviction makes room from the oldest end, and an oversized entry is an error" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     try test_table.set_capacity(test_capacity);
     try fill(4);
     try testing.expectEqual(4, test_table.count);
@@ -362,7 +362,7 @@ test "§3.2.2: eviction makes room from the oldest end, and an oversized entry i
 }
 
 test "§3.2: duplicate entries are ordinary, and the newest is what a lookup finds" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     try test_table.set_capacity(test_capacity);
     // §3.2: the table can contain duplicate entries, and they MUST NOT be treated as an error.
     try test_table.insert("a", "v");
@@ -384,8 +384,8 @@ test "§3.2: duplicate entries are ordinary, and the newest is what a lookup fin
 }
 
 test "§4.5.1.1: MaxEntries follows the advertised maximum" {
-    test_table.init(constants.dynamic_table_capacity_max);
-    try testing.expectEqual(constants.dynamic_table_entries_max, test_table.max_entries());
+    test_table.init(constants.limits.dynamic_table_capacity_max);
+    try testing.expectEqual(constants.limits.dynamic_table_entries_max, test_table.max_entries());
     // §4.5.1.1's example: a table of 100 octets encodes the Required Insert Count modulo 6, so
     // MaxEntries is 3 and the full range is twice it.
     test_table.init(100);
@@ -393,7 +393,7 @@ test "§4.5.1.1: MaxEntries follows the advertised maximum" {
 }
 
 test "the octets survive wrapping, so an entry read after many inserts is still whole" {
-    test_table.init(constants.dynamic_table_capacity_max);
+    test_table.init(constants.limits.dynamic_table_capacity_max);
     try test_table.set_capacity(test_capacity);
     // Enough inserts that the octet buffer is rebased more than once, with names long enough to
     // tell apart. Each pass evicts one, so the live entries move through the storage.

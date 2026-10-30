@@ -68,7 +68,7 @@ pub const Versions = struct {
 /// The versions a client lists in its Version Information, in its order of preference (RFC 9368
 /// §3): version 2, then version 1. Each is compatible with the other (RFC 9369 §4), and RFC 9368
 /// §2.5 has a client start in the oldest version it supports while it advertises the newer ones.
-pub const client_versions = [_]u32{ constants.version_2, constants.version_1 };
+pub const client_versions = [_]u32{ constants.protocol.version_2, constants.protocol.version_1 };
 
 /// The Version Information an endpoint in `role` sends when it starts in `original` (RFC 9368 §3).
 /// A server lists its Fully Deployed Versions, which are the versions it accepts.
@@ -204,7 +204,7 @@ pub fn check_information(
 /// RFC 9000 §6.3 lets an endpoint add a reserved version here to test that a peer ignores what it
 /// does not know. colibri adds none: the value would have to be chosen, and a fixed choice tests
 /// a peer against one number rather than against the rule.
-pub const supported_versions = [_]u32{ constants.version_1, constants.version_2 };
+pub const supported_versions = [_]u32{ constants.protocol.version_1, constants.protocol.version_2 };
 
 /// Why no Version Negotiation packet was written.
 pub const Silence = enum {
@@ -239,7 +239,7 @@ pub const Answer = union(enum) {
 /// connection to have parsed it with, and because §17.2.1's one-packet-per-datagram rule is kept
 /// by the shape of this call.
 pub fn answer(role: Role, datagram: []const u8, output: []u8) Answer {
-    assert(datagram.len <= constants.datagram_len_max);
+    assert(datagram.len <= constants.protocol.datagram_len_max);
     // RFC 9000 §17.2.1: "It is only sent by servers."
     if (role != .server) return .{ .none = .not_a_server };
     if (datagram.len == 0) return .{ .none = .unreadable };
@@ -255,7 +255,7 @@ pub fn answer(role: Role, datagram: []const u8, output: []u8) Answer {
     // server SHOULD send a Version Negotiation packet". §14.1 puts version 1's size at 1200
     // octets, and §5.2.2 makes a smaller datagram one to drop: "Servers MUST drop smaller
     // packets that specify unsupported versions."
-    if (datagram.len < constants.datagram_len_min) return .{ .none = .datagram_too_small };
+    if (datagram.len < constants.protocol.datagram_len_min) return .{ .none = .datagram_too_small };
     return .{ .written = write(received, output) };
 }
 
@@ -270,7 +270,7 @@ fn write(received: invariant.Long, output: []u8) usize {
     // so that Version Negotiation packets appear to have the Fixed Bit field." The other six
     // bits are arbitrary and colibri leaves them clear, which invariant 5 also requires: it has
     // no random number to put there.
-    invariant.write_version_negotiation(&writer, constants.fixed_bit, received, &supported_versions) catch
+    invariant.write_version_negotiation(&writer, constants.protocol.fixed_bit, received, &supported_versions) catch
         unreachable;
     return writer.written().len;
 }

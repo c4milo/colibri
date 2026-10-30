@@ -19,7 +19,7 @@ const first_id: [first_len]u8 = @splat(first_octet);
 const next_len: usize = 8;
 const next_octet: u8 = 0x5e;
 const next_id: [next_len]u8 = @splat(next_octet);
-const limit = constants.active_connection_id_limit_min;
+const limit = constants.protocol.active_connection_id_limit_min;
 
 test "RFC 9000 §17.3: a 1-RTT packet is laid out for the length of the ID it goes to" {
     fixture.open_connection();

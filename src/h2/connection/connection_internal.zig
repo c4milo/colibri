@@ -16,13 +16,13 @@ const Writer = @import("core").Writer;
 pub fn write_preface(connection: *Connection, writer: *Writer, now_ns: u64) void {
     if (connection.role == .client and !connection.preface_written) {
         // RFC 9113 §3.4: a client starts the connection with these 24 octets.
-        writer.write_bytes(constants.client_preface) catch return;
+        writer.write_bytes(constants.protocol.client_preface) catch return;
         connection.preface_written = true;
     }
     if (connection.settings_written) return;
-    var buffer: [constants.settings_count]settings.Setting = undefined;
+    var buffer: [constants.protocol.settings_count]settings.Setting = undefined;
     const entries = settings.entries(connection.local, connection.role, &buffer);
-    var pairs: [constants.settings_count]frame.Setting = undefined;
+    var pairs: [constants.protocol.settings_count]frame.Setting = undefined;
     for (entries, 0..) |entry, index| pairs[index] = .{ .id = entry.id, .value = entry.value };
     // RFC 9113 §3.4: the preface ends with a SETTINGS frame, which may be empty.
     frame.write_settings(writer, pairs[0..entries.len]) catch return;
@@ -44,5 +44,5 @@ pub fn push_refused(connection: *const Connection) bool {
 /// limit it was. The first failure stands.
 pub fn fail_limit(connection: *Connection, limit: Limit) Error {
     if (connection.failure == null) connection.failure_limit = limit;
-    return connection.fail(constants.error_enhance_your_calm);
+    return connection.fail(constants.protocol.error_enhance_your_calm);
 }

@@ -12,7 +12,7 @@
 //! every instant is a parameter (non-negotiable 3).
 const std = @import("std");
 const assert = std.debug.assert;
-const hystart = @import("../constants.zig").hystart;
+const hystart = @import("../constants.zig").recovery.hystart;
 
 /// Where slow start stands. `done` is every slow start after the first, which §4.3 leaves to the
 /// standard algorithm.

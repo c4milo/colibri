@@ -1,58 +1,20 @@
-//! Limits two or more modules share (docs/design.md §7). Every limit colibri enforces is named
-//! here or in its own module's `constants.zig`, and never written inline (CLAUDE.md
-//! non-negotiable 4).
+//! The constants of `core` (docs/design.md §7), never written inline (CLAUDE.md
+//! non-negotiable 4). Decision 137 puts each in a file by who sets it, and this file exports
+//! the files:
+//! - `protocol`: the values the RFCs fix, which no one may change.
+//! - `limits`: the bounds colibri chose, which size memory or bound a loop or a queue. Ask
+//!   the owner before changing one (CLAUDE.md).
+//! This file holds the units.
 //!
-//! Several of these exist because an RFC declines to bound something and leaves the job
-//! to the implementation. Each such limit names the section that declines, so a reader can tell a
-//! limit colibri chose from a limit a protocol fixed.
+//! These are the constants two or more modules share. Several of the limits exist because an
+//! RFC declines to bound something and leaves the job to the implementation. Each such limit
+//! names the section that declines, so a reader can tell a limit colibri chose from a limit a
+//! protocol fixed.
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Longest field name colibri will emit or accept, in octets. RFC 9110 §5.4 states that HTTP
-/// places no predefined limit on a field line, so this is colibri's policy and not a protocol
-/// constant. RFC 9110 §5.4 also requires a server that cannot accept what it was sent to answer
-/// 4xx rather than truncate, so a local limit is conformant.
-pub const field_name_len_max: u32 = 256;
-
-/// Longest field value colibri will emit or accept, in octets. Policy, for the reason above.
-pub const field_value_len_max: u32 = 8192;
-
-/// Most field lines in one field section. Policy. A section is a fixed array of this length, so
-/// the limit sets its size.
-pub const field_count_max: u32 = 128;
-
-/// Octets added to a field line's name and value lengths wherever both protocols measure lines:
-/// a field section against `SETTINGS_MAX_HEADER_LIST_SIZE` (RFC 9113 §6.5.2) and
-/// `SETTINGS_MAX_FIELD_SECTION_SIZE` (RFC 9114 §4.2.2), and a dynamic table entry (RFC 7541 §4.1,
-/// RFC 9204 §3.2.1). The four give the same formula, and this is its one constant.
-pub const field_line_overhead: u32 = 32;
-
-/// Largest field section colibri will accept, measured the way both protocols measure it: the sum
-/// over field lines of `name_len + value_len + 32`, on the unencoded strings (RFC 9113 §6.5.2,
-/// RFC 9114 §4.2.2). colibri advertises this value to the peer and enforces it locally; RFC 9113
-/// §10.5.1 states there is no hard limit on field block size, so a peer may exceed it and the
-/// decoder must still consume every octet (invariant 10).
-pub const field_section_size_max: u32 = 16384;
-
-/// Most TLS records in a row that may carry no application data, in h2 and in h11. A
-/// NewSessionTicket, a KeyUpdate and a `user_canceled` alert each yield none and each is
-/// legitimate (RFC 9846 §4.7.1, §4.7.3, §6.1), and RFC 9846 §6.1 obliges a receiver to keep
-/// reading past a `user_canceled` rather than close. So the peer chooses how much work colibri
-/// does for nothing, and one past this bound fails the connection: in h2 with ENHANCE_YOUR_CALM
-/// (RFC 9113 §10.5), and in h11 with a close. The owner set it at 32 on 2026-09-20 to match h2's
-/// `continuation_count_max`, which bounds the same kind of peer-chosen run.
-pub const records_without_data_max: u32 = 32;
-
-/// Most connections one endpoint holds at once. The caller owns every connection struct and places
-/// it where it chooses; colibri exposes the struct's size as a comptime constant, allocates none
-/// of them and grows nothing (decision 35, invariant 1).
-pub const connections_max: u32 = 1024;
-
-/// Most concurrent streams one connection holds at once, in either protocol. h2 advertises it as
-/// `SETTINGS_MAX_CONCURRENT_STREAMS`, whose initial value RFC 9113 §6.5.2 leaves unlimited — so
-/// an endpoint that does not advertise a value has bounded nothing. QUIC advertises it through
-/// `initial_max_streams_bidi` and `initial_max_streams_uni` (RFC 9000 §18.2).
-pub const streams_per_connection_max: u32 = 128;
+pub const protocol = @import("constants_protocol.zig");
+pub const limits = @import("constants_limits.zig");
 
 /// Nanoseconds in a second. QUIC gives a delivery rate in octets a second
 /// (draft-ietf-ccwg-bbr-06 §4.1).
@@ -61,30 +23,12 @@ pub const nanoseconds_per_second: u64 = 1_000_000_000;
 comptime {
     // A field section that could not hold one maximal field line would make the two limits
     // disagree, and the peer would see the disagreement as a refusal it cannot diagnose.
-    assert(field_section_size_max >= field_name_len_max + field_value_len_max + field_line_overhead);
+    assert(limits.field_section_size_max >= limits.field_name_len_max + limits.field_value_len_max + protocol.field_line_overhead);
     // The per-line limits must fit the accounting type the size formula uses.
-    assert(@as(u64, field_name_len_max) + field_value_len_max + field_line_overhead <= std.math.maxInt(u32));
-    assert(field_line_overhead == 32);
-    // A fixed array of this many field lines is the section's storage; keep it representable.
-    assert(field_count_max > 0);
-    assert(connections_max > 0);
-    assert(streams_per_connection_max > 0);
+    assert(@as(u64, limits.field_name_len_max) + limits.field_value_len_max + protocol.field_line_overhead <= std.math.maxInt(u32));
 }
 
 test "field_section_size_max admits one maximal field line" {
-    const line_size: u64 = @as(u64, field_name_len_max) + field_value_len_max + field_line_overhead;
-    try std.testing.expect(line_size <= field_section_size_max);
-}
-
-test "every named limit is non-zero" {
-    inline for (.{
-        field_name_len_max,
-        field_value_len_max,
-        field_count_max,
-        field_section_size_max,
-        connections_max,
-        streams_per_connection_max,
-    }) |limit| {
-        try std.testing.expect(limit > 0);
-    }
+    const line_size: u64 = @as(u64, limits.field_name_len_max) + limits.field_value_len_max + protocol.field_line_overhead;
+    try std.testing.expect(line_size <= limits.field_section_size_max);
 }

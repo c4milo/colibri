@@ -31,15 +31,15 @@ pub const EncodeError = error{
 /// A.2). `largest_acked` is the largest packet number the peer has acknowledged in this packet
 /// number space, or null before any.
 pub fn encode(full: u64, largest_acked: ?u64) EncodeError!Truncated {
-    assert(full <= constants.packet_number_max);
+    assert(full <= constants.protocol.packet_number_max);
     assert(largest_acked == null or largest_acked.? < full);
     // RFC 9000 §17.1: before an acknowledgment arrives the full packet number MUST be included,
     // which Appendix A.2 gets by counting every number from 0 as unacknowledged.
     const unacknowledged = if (largest_acked) |acked| full - acked else full + 1;
     // RFC 9000 §17.1: the sender MUST use a size able to represent more than twice as large a
     // range as the difference between the largest acknowledged number and the one being sent.
-    const range = unacknowledged * constants.packet_number_range_factor;
-    for (1..constants.packet_number_len_max + 1) |len| {
+    const range = unacknowledged * constants.protocol.packet_number_range_factor;
+    for (1..constants.protocol.packet_number_len_max + 1) |len| {
         if (range < window_of(@intCast(len))) {
             return .{ .value = @truncate(full & (window_of(@intCast(len)) - 1)), .len = @intCast(len) };
         }
@@ -50,8 +50,8 @@ pub fn encode(full: u64, largest_acked: ?u64) EncodeError!Truncated {
 
 /// Writes the Packet Number field, most significant octet first (RFC 9000 §17.1).
 pub fn write(writer: *Writer, truncated: Truncated) core.writer.Error!void {
-    assert(truncated.len >= 1 and truncated.len <= constants.packet_number_len_max);
-    var octets: [constants.packet_number_len_max]u8 = undefined;
+    assert(truncated.len >= 1 and truncated.len <= constants.protocol.packet_number_len_max);
+    var octets: [constants.protocol.packet_number_len_max]u8 = undefined;
     for (0..truncated.len) |index| {
         const shift = @as(u8, @bitSizeOf(u8)) * @as(u8, @intCast(truncated.len - 1 - index));
         octets[index] = @truncate(truncated.value >> @intCast(shift));
@@ -85,11 +85,11 @@ test "§17.1: each length starts where twice the range stops fitting the one bel
     try testing.expectEqual(3, (try encode(acked + 0x8000, acked)).len);
     try testing.expectEqual(4, (try encode(acked + 0x80_0000, acked)).len);
     try testing.expectError(error.RangeTooLarge, encode(acked + 0x8000_0000, acked));
-    try testing.expectEqual(1, (try encode(constants.packet_number_max, constants.packet_number_max - 1)).len);
+    try testing.expectEqual(1, (try encode(constants.protocol.packet_number_max, constants.protocol.packet_number_max - 1)).len);
 }
 
 test "§17.1: what encode truncates, decode rebuilds, across every length" {
-    const acked = [_]u64{ 0, 1, 0xfe, 0xffff, 0xab_cdef, 1 << 33, constants.packet_number_max - 0x7fff_ffff };
+    const acked = [_]u64{ 0, 1, 0xfe, 0xffff, 0xab_cdef, 1 << 33, constants.protocol.packet_number_max - 0x7fff_ffff };
     const ahead = [_]u64{ 1, 2, 127, 128, 0x7fff, 0x8000, 0x7f_ffff, 0x80_0000, 0x7fff_ffff };
     for (acked) |largest_acked| {
         for (ahead) |distance| {
@@ -103,7 +103,7 @@ test "§17.1: what encode truncates, decode rebuilds, across every length" {
 }
 
 test "§17.1: the field is written most significant octet first, and read back" {
-    var buffer: [constants.packet_number_len_max]u8 = undefined;
+    var buffer: [constants.protocol.packet_number_len_max]u8 = undefined;
     for ([_]Truncated{
         .{ .value = 0x9b, .len = 1 },
         .{ .value = 0x9b32, .len = 2 },
@@ -138,11 +138,11 @@ fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
         try testing.expectError(error.RangeTooLarge, encode(full, acked));
         return;
     }
-    var storage: [constants.packet_number_len_max]u8 = undefined;
+    var storage: [constants.protocol.packet_number_len_max]u8 = undefined;
     const octets = try std.fmt.hexToBytes(&storage, answer);
     const truncated = try encode(full, acked);
     try testing.expectEqual(octets.len, truncated.len);
-    var buffer: [constants.packet_number_len_max]u8 = undefined;
+    var buffer: [constants.protocol.packet_number_len_max]u8 = undefined;
     var writer = Writer.init(&buffer);
     try write(&writer, truncated);
     try testing.expectEqualSlices(u8, octets, writer.written());

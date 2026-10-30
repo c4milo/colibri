@@ -105,7 +105,7 @@ fn read_retry_token(reader: *core.Reader, version: Version, address: []const u8,
 fn read_connection_id(reader: *core.Reader) ![]const u8 {
     const len = try reader.read_byte();
     // RFC 9000 §17.2: a connection ID is at most 20 octets.
-    if (len > crypto.constants.connection_id_len_max) return error.ConnectionIdTooLong;
+    if (len > crypto.constants.protocol.connection_id_len_max) return error.ConnectionIdTooLong;
     return reader.take(len);
 }
 
@@ -140,7 +140,7 @@ test "RFC 9000 §8.1.4: a token checks for its address, within its lifetime, and
     var suite_under_test: NullSuite = .{};
     const vtable = suite_under_test.suite().vtable;
     const ids = crypto.suite.RetryConnectionIds.of("original", "retry");
-    var token: [crypto.constants.connection_id_len_max * 2 + 16]u8 = undefined;
+    var token: [crypto.constants.protocol.connection_id_len_max * 2 + 16]u8 = undefined;
     const now_ns: u64 = 5_000;
     const len = try vtable.retry_token_write(&suite_under_test, .v1, "address", &ids, now_ns, &token);
     const written = token[0..len];

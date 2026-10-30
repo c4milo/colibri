@@ -94,7 +94,7 @@ pub const SectionsReceived = enum {
 
 /// The slot pool the table keeps its records in: `concurrent_streams_max` slots, the
 /// SETTINGS_MAX_CONCURRENT_STREAMS colibri advertises, and one watermark per parity.
-const Pool = core.Pool(Stream, constants.concurrent_streams_max, constants.stream_id_parity_count, open.class_of);
+const Pool = core.Pool(Stream, constants.limits.concurrent_streams_max, constants.protocol.stream_id_parity_count, open.class_of);
 
 /// What a peer frame's stream identifier finds in the table.
 pub const Lookup = union(enum) {
@@ -146,7 +146,7 @@ pub const Streams = struct {
     highest_peer_opened_id: u32,
     /// For each parity, the highest identifier of a stream colibri reset and holds no record for,
     /// or null when there is none. It never decreases.
-    highest_forgotten_reset_id: [constants.stream_id_parity_count]?u32,
+    highest_forgotten_reset_id: [constants.protocol.stream_id_parity_count]?u32,
     /// The last stream identifier of the latest GOAWAY colibri sent, or null before the first.
     goaway_sent_last_id: ?u32,
     /// The last stream identifier of the latest GOAWAY the peer sent, or null before the first.
@@ -157,7 +157,7 @@ pub const Streams = struct {
     resets_owed: u32,
     /// The slots of the closed records the pool holds, oldest close first: a ring read from
     /// `closed_first`, `closed_len` long (`streams_slot.zig`).
-    closed_slots: [constants.concurrent_streams_max]u8,
+    closed_slots: [constants.limits.concurrent_streams_max]u8,
     closed_first: u32,
     closed_len: u32,
 
@@ -168,7 +168,7 @@ pub const Streams = struct {
         // RFC 9113 §5.1.1: a client opens odd identifiers and a server even ones.
         streams.next_local_id = open.first_stream_id(role);
         streams.peer_active = 0;
-        streams.peer_active_max = constants.concurrent_streams_max;
+        streams.peer_active_max = constants.limits.concurrent_streams_max;
         streams.local_active = 0;
         streams.highest_peer_opened_id = 0;
         streams.highest_forgotten_reset_id = @splat(null);

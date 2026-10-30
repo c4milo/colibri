@@ -52,7 +52,7 @@ pub fn write_request(target: *Connection, output: []u8, method: []const u8, targ
     // RFC 9112 §9.3.2: requests go out in order, so a body is finished before the next head.
     if (target.writer.open()) return error.BodyInProgress;
     // RFC 9112 §9.2: a client keeps its outstanding requests in order, in a queue colibri bounds.
-    if (target.outstanding_len == constants.pipeline_depth_max) return error.PipelineFull;
+    if (target.outstanding_len == constants.limits.pipeline_depth_max) return error.PipelineFull;
     if (target.outstanding_len > 0) try check_pipelining(target);
     // RFC 9110 §7.8: Upgrade invites the server to switch protocols, which h11 cannot follow, and
     // RFC 9931 §4.1: the server would read what the client sends next in the protocol it chose.
@@ -79,7 +79,7 @@ fn names_upgrade(fields: []const Field) bool {
 /// The request head, with TE when the connection has decoders to offer (decision 91).
 fn write_head(target: *const Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field, checked: *const message.Checked) connection.SendError!usize {
     if (target.decoders == null) return message.write_request_head_checked(output, method, target_uri, fields, checked);
-    var with_te: [core.constants.field_count_max]Field = undefined;
+    var with_te: [core.constants.limits.field_count_max]Field = undefined;
     // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
     if (fields.len + te_fields.len > with_te.len) return error.TooManyFields;
     @memcpy(with_te[0..fields.len], fields);
@@ -177,19 +177,19 @@ fn complete_response(target: *Connection) void {
 
 fn at(target: *const Connection, offset: u32) connection.Outstanding {
     assert(offset < target.outstanding_len);
-    return target.outstanding[(target.outstanding_first + offset) % constants.pipeline_depth_max];
+    return target.outstanding[(target.outstanding_first + offset) % constants.limits.pipeline_depth_max];
 }
 
 fn push(target: *Connection, request: connection.Outstanding) void {
-    assert(target.outstanding_len < constants.pipeline_depth_max);
-    const index = (target.outstanding_first + target.outstanding_len) % constants.pipeline_depth_max;
+    assert(target.outstanding_len < constants.limits.pipeline_depth_max);
+    const index = (target.outstanding_first + target.outstanding_len) % constants.limits.pipeline_depth_max;
     target.outstanding[index] = request;
     target.outstanding_len += 1;
 }
 
 fn pop(target: *Connection) void {
     assert(target.outstanding_len > 0);
-    target.outstanding_first = (target.outstanding_first + 1) % constants.pipeline_depth_max;
+    target.outstanding_first = (target.outstanding_first + 1) % constants.limits.pipeline_depth_max;
     target.outstanding_len -= 1;
 }
 

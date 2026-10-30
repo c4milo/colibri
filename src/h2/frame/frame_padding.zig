@@ -41,7 +41,7 @@ pub const Unpadded = struct {
 /// Removes the Pad Length octet and the padding from `payload` when `header` has the PADDED flag.
 pub fn strip(header: Header, payload: []const u8) Error!Unpadded {
     assert(payload.len == header.length);
-    if (!frame_header.has_flag(header, constants.flag_padded)) {
+    if (!frame_header.has_flag(header, constants.protocol.flag_padded)) {
         return .{ .payload = payload, .padding_len = 0 };
     }
     var reader = Reader.init(payload);
@@ -54,21 +54,21 @@ pub fn strip(header: Header, payload: []const u8) Error!Unpadded {
     const fields = reader.take(reader.remaining_len() - padding_len) catch unreachable;
     const padding = reader.take_rest();
     assert(padding.len == padding_len);
-    assert(fields.len + padding.len + constants.pad_length_len == payload.len);
+    assert(fields.len + padding.len + constants.protocol.pad_length_len == payload.len);
     return .{ .payload = fields, .padding_len = padding_len };
 }
 
 /// The PADDED flag when `padding_len` is not 0, and no flag when it is.
 pub fn flag(padding_len: u8) u8 {
-    return if (padding_len == 0) 0 else constants.flag_padded;
+    return if (padding_len == 0) 0 else constants.protocol.flag_padded;
 }
 
 /// The Length field of a frame whose own fields take `fields_len` octets and that carries
 /// `padding_len` octets of padding, counting the Pad Length octet when there is padding.
 pub fn padded_len(fields_len: usize, padding_len: u8) u32 {
-    const padding_total: usize = if (padding_len == 0) 0 else constants.pad_length_len + padding_len;
+    const padding_total: usize = if (padding_len == 0) 0 else constants.protocol.pad_length_len + padding_len;
     const total = fields_len + padding_total;
-    assert(total <= constants.frame_length_max);
+    assert(total <= constants.protocol.frame_length_max);
     return @intCast(total);
 }
 
@@ -89,11 +89,11 @@ pub fn write_padding(writer: *Writer, padding_len: u8) core.writer.Error!void {
 const testing = std.testing;
 
 fn padded_header(length: u32) Header {
-    return .{ .length = length, .type = constants.frame_type_data, .flags = constants.flag_padded, .stream_id = 1 };
+    return .{ .length = length, .type = constants.protocol.frame_type_data, .flags = constants.protocol.flag_padded, .stream_id = 1 };
 }
 
 test "an unpadded payload is returned whole with a padding length of 0" {
-    const header: Header = .{ .length = 3, .type = constants.frame_type_data, .flags = 0, .stream_id = 1 };
+    const header: Header = .{ .length = 3, .type = constants.protocol.frame_type_data, .flags = 0, .stream_id = 1 };
     const unpadded = try strip(header, "abc");
     try testing.expectEqualStrings("abc", unpadded.payload);
     try testing.expectEqual(0, unpadded.padding_len);
@@ -129,7 +129,7 @@ test "non-zero padding octets are not verified on receipt (RFC 9113 §6.1, a MAY
 
 test "the writers produce the Pad Length octet, the fields' length and zero padding" {
     try testing.expectEqual(0, flag(0));
-    try testing.expectEqual(constants.flag_padded, flag(1));
+    try testing.expectEqual(constants.protocol.flag_padded, flag(1));
     try testing.expectEqual(3, padded_len(3, 0));
     try testing.expectEqual(3 + 1 + 6, padded_len(3, 6));
     var buffer: [8]u8 = @splat(0xee);

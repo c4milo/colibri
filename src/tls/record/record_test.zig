@@ -23,7 +23,7 @@ test "a client and a server complete the handshake and report what they chose" {
         // RFC 7301 §3.2: the server selects the first protocol it offers that the client does.
         try testing.expectEqualStrings("h2", provider.vtable.negotiated_alpn(provider.context).?);
         const chosen = provider.vtable.negotiated_parameters(provider.context).?;
-        try testing.expectEqual(tls_provider.constants.version_tls_1_3, chosen.version);
+        try testing.expectEqual(tls_provider.constants.protocol.version_tls_1_3, chosen.version);
         try testing.expect(tls_provider.provider.cipher_suite_admitted(chosen.cipher_suite));
     }
     try testing.expectEqualStrings("localhost", server.sni().?);

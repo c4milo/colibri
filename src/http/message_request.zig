@@ -94,7 +94,7 @@ fn check_connect(seen: Seen) Error!void {
 /// RFC 9112 §3.2.3). The host
 /// ends at the last colon, so an IPv6 literal such as `[::1]:443` keeps its own colons.
 fn check_connect_authority(authority: []const u8) Error!void {
-    assert(authority.len <= core.constants.field_value_len_max);
+    assert(authority.len <= core.constants.limits.field_value_len_max);
     // RFC 9113 §8.5 and RFC 9114 §4.4: the authority-form of RFC 9112 §3.2.3,
     // authority-form = uri-host ":" port.
     const host, const port = std.mem.cutScalarLast(u8, authority, port_separator) orelse
@@ -149,7 +149,7 @@ fn check_path(method: []const u8, scheme: []const u8, path: []const u8) Error!vo
 /// refuses any `@`, which is the strict side of a rule about the userinfo that `@` ends.
 fn check_authority(scheme: []const u8, authority: []const u8) Error!void {
     assert(scheme.len > 0);
-    assert(authority.len <= core.constants.field_value_len_max);
+    assert(authority.len <= core.constants.limits.field_value_len_max);
     if (!is_http_scheme(scheme)) return;
     // RFC 9113 §8.3.1 and RFC 9114 §4.3.1: :authority must not include the deprecated userinfo
     // subcomponent for "http" or "https" URIs, and userinfo ends with its "@" (RFC 9110 §4.2.4).

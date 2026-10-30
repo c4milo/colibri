@@ -26,8 +26,8 @@ pub var bodies: [bodies_count][body_len]u8 = undefined;
 const bodies_count: usize = 2;
 const body_len: usize = 1024;
 /// Where a datagram crosses from one side to the other. Test-only.
-pub var datagram: [quic.constants.datagram_len_max]u8 = undefined;
-pub var crossing: [quic.constants.datagram_len_max]u8 = undefined;
+pub var datagram: [quic.constants.protocol.datagram_len_max]u8 = undefined;
+pub var crossing: [quic.constants.protocol.datagram_len_max]u8 = undefined;
 /// Whether the datagrams the pool sends are lost, as on a network that blocks UDP.
 pub var blocked: bool = false;
 

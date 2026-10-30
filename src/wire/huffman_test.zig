@@ -13,7 +13,7 @@ const testing = std.testing;
 
 /// Most whole octets ready to write after one symbol. At most seven bits remain between symbols and
 /// a code is at most thirty, so no more than four octets are ever ready at once.
-const ready_octets_max = (constants.huffman_padding_bits_max + constants.huffman_code_bits_max) /
+const ready_octets_max = (constants.protocol.huffman_padding_bits_max + constants.protocol.huffman_code_bits_max) /
     @bitSizeOf(u8);
 
 /// The reference: the encoder `huffman.encode` replaced. All of the octets are written, or none.

@@ -39,7 +39,7 @@ pub const Sends = struct {
     meter: rate.Meter,
     /// Only the first `written` entries hold what a stream wrote. `init` writes none of them, and
     /// a held stream writes the next entry whole when no freed entry is left, as a body does.
-    entries: [constants.bodies_max]Blocked,
+    entries: [constants.limits.bodies_max]Blocked,
     /// The count of entries written since `init`.
     written: u32,
     /// The entries in use: those whose `id` is not 0. While it is 0 a lookup or a sweep reads no
@@ -179,7 +179,7 @@ pub fn fire(connection: *Connection, now_ns: u64) ?Timeout {
 
 /// RFC 9113 §6.4: CANCEL says the stream is no longer needed; the caller reads `cancelled`.
 fn cancel_stream(connection: *Connection, id: Number) void {
-    connection.session.h2.reset_stream(@intCast(id), h2.constants.error_cancel) catch |failure| {
+    connection.session.h2.reset_stream(@intCast(id), h2.constants.protocol.error_cancel) catch |failure| {
         assert(failure == error.StreamNotSendable);
     };
     connection_coding.forget(connection, id);

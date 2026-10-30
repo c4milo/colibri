@@ -115,7 +115,7 @@ fn is_lost(held: Record, largest_acknowledged: u64, lost_before_ns: u64) bool {
     // RFC 9002 §6.1.1: three packets acknowledged after it. The count stands in for reordering,
     // and Appendix A.10 notes it assumes the sender left no gaps in its numbers, which colibri
     // does not: `space.zig` hands out every number in turn.
-    return largest_acknowledged >= held.number +| constants.loss_packet_threshold;
+    return largest_acknowledged >= held.number +| constants.recovery.loss_packet_threshold;
 }
 
 /// The run of ack-eliciting loss RFC 9002 §7.6.2 measures, and what breaks it.

@@ -21,10 +21,10 @@ const support = @import("connection_test_support.zig");
 /// Test-only.
 const Fake = struct {
     complete: bool = true,
-    selected: ?[]const u8 = &tls_provider.constants.alpn_h2,
+    selected: ?[]const u8 = &tls_provider.constants.protocol.alpn_h2,
     parameters: ?tls_provider.Negotiated = .{
-        .version = tls_provider.constants.version_tls_1_3,
-        .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256,
+        .version = tls_provider.constants.protocol.version_tls_1_3,
+        .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256,
     },
     /// What the next `decrypt_record` reports. Test-only.
     content: tls_provider.Content = .application_data,
@@ -144,7 +144,7 @@ test "§3.3 and §9.2: h2 runs only on a complete handshake that chose h2 at TLS
     try testing.expectEqual(error.AlpnNotH2, check(state.provider()));
 
     // Decision 45: TLS 1.3 alone, which is inside RFC 9113 §9.2's floor of 1.2.
-    state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_2, .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256 } };
+    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_2, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256 } };
     try testing.expectEqual(error.TlsVersionRefused, check(state.provider()));
     state = .{ .parameters = null };
     try testing.expectEqual(error.ParametersUnknown, check(state.provider()));
@@ -155,17 +155,17 @@ test "decision 45: the three suites of RFC 9846 §9.1 are admitted and nothing e
     var state: Fake = .{};
     // RFC 9846 Appendix B.4: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and
     // TLS_CHACHA20_POLY1305_SHA256.
-    for (tls_provider.constants.cipher_suites_admitted) |suite| {
-        state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_3, .cipher_suite = suite } };
+    for (tls_provider.constants.policy.cipher_suites_admitted) |suite| {
+        state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = suite } };
         try check(state.provider());
     }
     // RFC 9001 §5.3 excludes TLS_AES_128_CCM_8_SHA256 by name, and RFC 9846 §9.1 makes neither
     // CCM suite a MUST or a SHOULD.
     for ([_]u16{
-        tls_provider.constants.cipher_suite_aes_128_ccm_sha256,
-        tls_provider.constants.cipher_suite_aes_128_ccm_8_sha256,
+        tls_provider.constants.protocol.cipher_suite_aes_128_ccm_sha256,
+        tls_provider.constants.protocol.cipher_suite_aes_128_ccm_8_sha256,
     }) |suite| {
-        state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_3, .cipher_suite = suite } };
+        state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = suite } };
         try testing.expectEqual(error.CipherSuiteRefused, check(state.provider()));
     }
 }
@@ -191,7 +191,7 @@ test "§9.2.3: a post-handshake CertificateRequest is a connection error of PROT
         error.ConnectionFailed,
         decrypt(&support.test_connection, "record", &plaintext, 0),
     );
-    try testing.expectEqual(constants.error_protocol_error, support.test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_protocol_error, support.test_connection.failure.?);
 }
 
 test "§9.2.3: a NewSessionTicket or a KeyUpdate is consumed, yields no plaintext, and owes nothing" {
@@ -313,7 +313,7 @@ test "a run of records carrying no data is bounded, and one past it is ENHANCE_Y
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     // The bound is what a peer may send, so the last permitted record still succeeds.
-    for (0..core.constants.records_without_data_max) |_| {
+    for (0..core.constants.limits.records_without_data_max) |_| {
         const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
         try testing.expectEqual(0, opened.plaintext_len);
     }
@@ -323,7 +323,7 @@ test "a run of records carrying no data is bounded, and one past it is ENHANCE_Y
         error.ConnectionFailed,
         decrypt(&support.test_connection, "record", &plaintext, 0),
     );
-    try testing.expectEqual(constants.error_enhance_your_calm, support.test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_enhance_your_calm, support.test_connection.failure.?);
     try testing.expectEqual(.records_without_data, support.test_connection.failure_limit.?);
 }
 
@@ -333,15 +333,15 @@ test "a limit passed after another failure names no limit, since the first failu
     support.test_connection.init(.client);
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
-    try testing.expectEqual(error.ConnectionFailed, support.test_connection.fail(constants.error_protocol_error));
-    for (0..core.constants.records_without_data_max) |_| {
+    try testing.expectEqual(error.ConnectionFailed, support.test_connection.fail(constants.protocol.error_protocol_error));
+    for (0..core.constants.limits.records_without_data_max) |_| {
         _ = try decrypt(&support.test_connection, "record", &plaintext, 0);
     }
     try testing.expectEqual(
         error.ConnectionFailed,
         decrypt(&support.test_connection, "record", &plaintext, 0),
     );
-    try testing.expectEqual(constants.error_protocol_error, support.test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_protocol_error, support.test_connection.failure.?);
     try testing.expectEqual(null, support.test_connection.failure_limit);
     // The provider's limit on KeyUpdates, passed after the failure, names no limit either.
     state.refusal = error.KeyUpdates;
@@ -359,7 +359,7 @@ test "a record carrying data ends the run, so an interleaved stream never reache
     for (0..interleaved_runs) |_| {
         state.content = .without_data;
         state.body = "";
-        for (0..core.constants.records_without_data_max) |_| {
+        for (0..core.constants.limits.records_without_data_max) |_| {
             _ = try decrypt(&support.test_connection, "record", &plaintext, 0);
         }
         state.content = .application_data;

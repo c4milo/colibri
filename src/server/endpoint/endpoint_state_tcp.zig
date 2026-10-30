@@ -29,7 +29,7 @@ pub const Accepted = struct { tls: bool = true };
 pub const StreamBytes = struct { connection: ConnectionHandle, bytes: []u8 };
 
 /// A TCP slot's open requests: as many as an h2 connection holds at once.
-pub const TcpTable = endpoint_requests.Table(constants.tcp_requests_max, constants.tcp_request_number_step);
+pub const TcpTable = endpoint_requests.Table(constants.limits.tcp_requests_max, constants.protocol.tcp_request_number_step);
 
 /// Whether a TCP slot's socket is open, or who closed it: the endpoint, with a `close` event, or
 /// the program, with `transport_closed`.
@@ -124,7 +124,7 @@ pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
 /// whose transport closed still reports the `done` of each response it wrote whole.
 fn connection_event(state: *State, slot: u32, connection: *Connection, table: *TcpTable, now_ns: u64) ?Event {
     // Bounded: every event ends a request, or reads a frame the plaintext holds.
-    for (0..constants.tcp_events_per_poll_max) |_| {
+    for (0..constants.limits.tcp_events_per_poll_max) |_| {
         if (reads_nothing(state, slot, now_ns)) return null;
         const received = connection.receive(&.{}, now_ns) catch {
             state.failed[slot] = true;

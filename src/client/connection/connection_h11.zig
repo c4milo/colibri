@@ -187,7 +187,7 @@ pub fn cancel(connection: *Connection, slot: *Slot) void {
 /// being written, then the next head and its content.
 pub fn write_requests(connection: *Connection) void {
     // Bounded: each pass finishes an exchange's request, or stops.
-    for (0..constants.requests_max + 1) |_| {
+    for (0..constants.limits.requests_max + 1) |_| {
         const slot = writing(connection) orelse (connection.slots.oldest(.queued) orelse return);
         if (!write_request(connection, slot)) return;
     }
@@ -222,8 +222,8 @@ fn write_request(connection: *Connection, slot: *Slot) bool {
 /// Writes the head of `slot`'s request. Returns false when it must wait: for room, or for
 /// decision 88 to let it follow the requests outstanding.
 fn write_head(connection: *Connection, slot: *Slot) bool {
-    var lines: [constants.request_fields_max]Header = undefined;
-    var digits: [constants.content_length_digits_max]u8 = undefined;
+    var lines: [constants.limits.request_fields_max]Header = undefined;
+    var digits: [constants.limits.content_length_digits_max]u8 = undefined;
     var offer: [coding.offer_len_max]u8 = undefined;
     const fields = request_fields(connection, slot, &lines, &digits, &offer) orelse {
         slots_module.end(slot, .invalid);
@@ -259,12 +259,12 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
 fn request_fields(
     connection: *const Connection,
     slot: *Slot,
-    lines: *[constants.request_fields_max]Header,
-    digits: *[constants.content_length_digits_max]u8,
+    lines: *[constants.limits.request_fields_max]Header,
+    digits: *[constants.limits.content_length_digits_max]u8,
     offer: *[coding.offer_len_max]u8,
 ) ?[]const Header {
     const request = slot.request;
-    if (request.headers.len + constants.added_fields_max > lines.len) return null;
+    if (request.headers.len + constants.limits.added_fields_max > lines.len) return null;
     // RFC 9112 §3.2: "A client MUST send a Host header field in all HTTP/1.1 request messages."
     lines[0] = .{ .name = "Host", .value = connection.config.authority };
     @memcpy(lines[1..][0..request.headers.len], request.headers);

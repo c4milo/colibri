@@ -33,7 +33,7 @@ fn connected(idle_ns: ?u64) !void {
 /// Whether `code` is H3_NO_ERROR, or the reserved code h3 sends in its place now and then (RFC
 /// 9114 §8.1). Test-only.
 fn is_no_error(code: u64) bool {
-    return code == h3.constants.error_no_error or h3.constants.is_reserved(code);
+    return code == h3.constants.protocol.error_no_error or h3.constants.protocol.is_reserved(code);
 }
 
 /// Whether the connection owes an application close with H3_NO_ERROR. Test-only.
@@ -58,11 +58,11 @@ fn one_exchange() !void {
 }
 
 test "decision 110: a connection that brings no whole request head by its first-request deadline ends with H3_NO_ERROR" {
-    try connected(constants.idle_timeout_ns);
+    try connected(constants.policy.idle_timeout_ns);
     // A head that is not whole is no request.
     _ = try support.request_short_of_head("GET", "/");
     try support.pump(rounds_few);
-    const at_ns = connection.clock.opened_ns + constants.first_request_timeout_ns;
+    const at_ns = connection.clock.opened_ns + constants.policy.first_request_timeout_ns;
     try testing.expectEqual(at_ns, quic_deadline.soonest(connection).?);
     server_at(at_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
@@ -83,7 +83,7 @@ test "RFC 9000 §10.2.3: a client that never completes its handshake is closed a
     // One round carries the client's first Initial, and the server's answer finds no reply.
     try support.pump(1);
     try testing.expect(support.server_started and !connection.transport.handshake_complete);
-    const at_ns = connection.clock.opened_ns + constants.first_request_timeout_ns;
+    const at_ns = connection.clock.opened_ns + constants.policy.first_request_timeout_ns;
     server_at(at_ns - 1);
     try testing.expectEqual(null, connection.clock.timed_out);
     server_at(at_ns);
@@ -95,8 +95,8 @@ test "RFC 9000 §10.2.3: a client that never completes its handshake is closed a
 }
 
 test "decision 110: a caller that wakes at deadline_ns meets the first-request deadline at its instant" {
-    try connected(constants.idle_timeout_ns);
-    const at_ns = connection.clock.opened_ns + constants.first_request_timeout_ns;
+    try connected(constants.policy.idle_timeout_ns);
+    const at_ns = connection.clock.opened_ns + constants.policy.first_request_timeout_ns;
     var woke_ns: u64 = 0;
     for (0..wakes_max) |_| {
         woke_ns = internal.deadline_ns(connection) orelse break;
@@ -108,19 +108,19 @@ test "decision 110: a caller that wakes at deadline_ns meets the first-request d
 }
 
 test "decision 110: a deadline that passed fires at the next receive, with no call to on_instant" {
-    try connected(constants.idle_timeout_ns);
-    const at_ns = connection.clock.opened_ns + constants.first_request_timeout_ns;
+    try connected(constants.policy.idle_timeout_ns);
+    const at_ns = connection.clock.opened_ns + constants.policy.first_request_timeout_ns;
     support.now_ns = at_ns;
     try testing.expectEqual(null, (try connection.receive(at_ns)).event);
     try testing.expectEqual(Timeout.first_request, connection.clock.timed_out.?);
 }
 
 test "decision 110: a program changes one connection's limits, null turns one off, and what a start refuses is refused" {
-    try connected(constants.idle_timeout_ns);
+    try connected(constants.policy.idle_timeout_ns);
     try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .idle_ns = 0 }));
     // Twice 819 octets a second over a window of 10 s is under a unit of 16,384 octets.
     try testing.expectError(error.TimeoutInvalid, connection.set_timeouts(.{ .body_rate_min = unit_bound_rate - 1 }));
-    try testing.expectEqual(constants.first_request_timeout_ns, connection.timeouts.first_request_ns.?);
+    try testing.expectEqual(constants.policy.first_request_timeout_ns, connection.timeouts.first_request_ns.?);
     try connection.set_timeouts(.{ .first_request_ns = null });
     try testing.expectEqual(null, quic_deadline.soonest(connection));
     // A shorter limit counts from the start the deadline already has.
@@ -136,7 +136,7 @@ test "decision 110: a deadline set to null does not run" {
     support.config.timeouts.first_request_ns = null;
     try support.connect();
     try testing.expectEqual(null, quic_deadline.soonest(connection));
-    server_at(connection.clock.opened_ns + constants.first_request_timeout_ns);
+    server_at(connection.clock.opened_ns + constants.policy.first_request_timeout_ns);
     try testing.expectEqual(null, connection.clock.timed_out);
 }
 
@@ -175,7 +175,7 @@ test "decision 110: a request stream whose head is not whole does not stop the i
 }
 
 test "RFC 9110 §15.5.9: a request whose head is late gets a 408, the server stops reading it, and the connection goes on" {
-    try connected(constants.idle_timeout_ns);
+    try connected(constants.policy.idle_timeout_ns);
     // An open request keeps the connection from being idle while the late head waits.
     const open = try support.request_open("POST", "/", "x");
     try support.pump(rounds_few);
@@ -183,7 +183,7 @@ test "RFC 9110 §15.5.9: a request whose head is late gets a 408, the server sto
     try support.pump(rounds_few);
     const wait = connection.h3.oldest_head_wait().?;
     try testing.expectEqual(late.id, wait.stream_id);
-    const at_ns = wait.since_ns + constants.head_timeout_ns;
+    const at_ns = wait.since_ns + constants.policy.head_timeout_ns;
     try testing.expectEqual(at_ns, quic_deadline.soonest(connection).?);
     server_at(at_ns - 1);
     // The stream still waits for its head, and has no response.
@@ -212,7 +212,7 @@ test "RFC 9110 §15.5.9: a request whose head is late gets a 408, the server sto
 }
 
 test "RFC 9114 §4.1.1: a late head with no record free for a response is rejected" {
-    try connected(constants.idle_timeout_ns);
+    try connected(constants.policy.idle_timeout_ns);
     const open = try support.request_open("POST", "/", "x");
     try support.pump(rounds_few);
     const late = try support.request_short_of_head("GET", "/");
@@ -224,8 +224,8 @@ test "RFC 9114 §4.1.1: a late head with no record free for a response is reject
         record.* = .{ .in_use = true, .stream_id = open.id, .ended = true, .answered = false, .finished = false, .over = true, .continue_owed = false, .response = undefined, .asked = .{}, .coded = null };
         record.response.init();
     }
-    server_at(wait.since_ns + constants.head_timeout_ns);
+    server_at(wait.since_ns + constants.policy.head_timeout_ns);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(h3.constants.error_request_rejected, late.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_rejected, late.reset.?);
     try testing.expectEqual(0, late.status);
 }

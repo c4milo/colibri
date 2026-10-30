@@ -19,10 +19,10 @@ const testing = std.testing;
 /// Test-only.
 const Fake = struct {
     complete: bool = true,
-    selected: ?[]const u8 = tls_provider.constants.alpn_http_1_1,
+    selected: ?[]const u8 = tls_provider.constants.protocol.alpn_http_1_1,
     parameters: ?tls_provider.Negotiated = .{
-        .version = tls_provider.constants.version_tls_1_3,
-        .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256,
+        .version = tls_provider.constants.protocol.version_tls_1_3,
+        .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256,
     },
     /// What the next `decrypt_record` reports. Test-only.
     content: tls_provider.Content = .application_data,
@@ -145,7 +145,7 @@ test "decision 88: h11 runs on a finished TLS 1.3 handshake that selected http/1
     state = .{ .selected = null };
     try check(state.provider());
     // RFC 7301 §3.2: any other selection is definitive, and it is not h11.
-    state = .{ .selected = &tls_provider.constants.alpn_h2 };
+    state = .{ .selected = &tls_provider.constants.protocol.alpn_h2 };
     try testing.expectEqual(error.AlpnNotHttp11, check(state.provider()));
     state = .{ .selected = "http/1.0" };
     try testing.expectEqual(error.AlpnNotHttp11, check(state.provider()));
@@ -158,11 +158,11 @@ test "decision 88: h11 runs on a finished TLS 1.3 handshake that selected http/1
 
 test "decision 45: TLS 1.3 alone, and the three suites of RFC 9846 §9.1" {
     Fake.init_table();
-    var state: Fake = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_2, .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256 } };
+    var state: Fake = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_2, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256 } };
     try testing.expectEqual(error.TlsVersionRefused, check(state.provider()));
-    state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_3, .cipher_suite = tls_provider.constants.cipher_suite_aes_128_ccm_8_sha256 } };
+    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_ccm_8_sha256 } };
     try testing.expectEqual(error.CipherSuiteRefused, check(state.provider()));
-    state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_3, .cipher_suite = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256 } };
+    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256 } };
     try check(state.provider());
 }
 
@@ -210,12 +210,12 @@ test "RFC 9846 §6.1: close_notify ends the data, user_canceled does not, and ot
 test "a run of records carrying no data is bounded, and one carrying data resets it" {
     var state: Fake = .{ .content = .without_data };
     const target = try attached(.server, &state);
-    for (0..core.constants.records_without_data_max) |_| _ = try decrypt(target, "record", &test_plaintext);
+    for (0..core.constants.limits.records_without_data_max) |_| _ = try decrypt(target, "record", &test_plaintext);
     state.content = .application_data;
     _ = try decrypt(target, "record", &test_plaintext);
     try testing.expectEqual(0, target.records_without_data);
     state.content = .without_data;
-    for (0..core.constants.records_without_data_max) |_| _ = try decrypt(target, "record", &test_plaintext);
+    for (0..core.constants.limits.records_without_data_max) |_| _ = try decrypt(target, "record", &test_plaintext);
     try testing.expectEqual(error.ConnectionFailed, decrypt(target, "record", &test_plaintext));
     try testing.expectEqual(error.RecordsWithoutData, target.failure.?);
     // The failure is the transport's: a server owes no response to it.

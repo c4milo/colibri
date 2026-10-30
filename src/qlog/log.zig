@@ -49,7 +49,7 @@ pub const Log = struct {
     /// A log over `buffer`, written with `features`: `Features.detect()`, what the CPU has, or
     /// `Features.target()`, what the build target guarantees. colibri never asks the CPU itself.
     pub fn init(buffer: []u8, features: Features) Log {
-        assert(buffer.len >= constants.log_len_min);
+        assert(buffer.len >= constants.limits.log_len_min);
         return .{ .buffer = buffer, .features = features };
     }
 
@@ -139,7 +139,7 @@ fn write_event(buffer: []u8, features: Features, tuple: u32, name: []const u8, t
     try member.milliseconds(&text, "time", time_ns);
     try member.string(&text, "name", name);
     if (tuple != 0) {
-        var digits: [constants.tuple_id_len_max]u8 = undefined;
+        var digits: [constants.limits.tuple_id_len_max]u8 = undefined;
         try member.string(&text, "tuple", member.tuple_id(&digits, tuple));
     }
     try text.name("data");
@@ -167,7 +167,7 @@ fn test_trace(group_id: []const u8) Trace {
 }
 
 test "the header record is a QlogFileSeq between RS and LF" {
-    var buffer: [constants.log_len_min]u8 = undefined;
+    var buffer: [constants.limits.log_len_min]u8 = undefined;
     var log = Log.init(&buffer, Features.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 7);
     try testing.expectEqualStrings("\x1e{\"file_schema\":\"urn:ietf:params:qlog:file:sequential\"," ++
@@ -178,7 +178,7 @@ test "the header record is a QlogFileSeq between RS and LF" {
 }
 
 test "an event record carries its time from the header's instant, its name and its data" {
-    var buffer: [constants.log_len_min]u8 = undefined;
+    var buffer: [constants.limits.log_len_min]u8 = undefined;
     var log = Log.init(&buffer, Features.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 1_000_000);
     log.clear();
@@ -188,10 +188,10 @@ test "an event record carries its time from the header's instant, its name and i
 }
 
 test "an event that does not fit is dropped whole, and the next one that fits is written" {
-    var buffer: [constants.log_len_min]u8 = undefined;
+    var buffer: [constants.limits.log_len_min]u8 = undefined;
     var log = Log.init(&buffer, Features.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 0);
-    const filler: [constants.log_len_min]u8 = @splat('x');
+    const filler: [constants.limits.log_len_min]u8 = @splat('x');
     const kept = log.len;
     log.event("loglevel:info", 0, Marker{ .message = &filler });
     try testing.expectEqual(1, log.dropped);
@@ -202,7 +202,7 @@ test "an event that does not fit is dropped whole, and the next one that fits is
 }
 
 test "an event on a later tuple names it, and one on the first names none" {
-    var buffer: [constants.log_len_min]u8 = undefined;
+    var buffer: [constants.limits.log_len_min]u8 = undefined;
     var log = Log.init(&buffer, Features.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 0);
     log.clear();

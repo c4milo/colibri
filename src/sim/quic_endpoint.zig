@@ -200,8 +200,8 @@ pub const Endpoint = struct {
     /// The next PATH_CHALLENGE payload: the count drawn so far, in network byte order. RFC 9000
     /// §8.2.1 wants the data unpredictable to an attacker, and a simulator has none, so distinct
     /// is all it needs.
-    fn draw_challenge(endpoint: *Endpoint) [quic.constants.path_challenge_len]u8 {
-        var payload: [quic.constants.path_challenge_len]u8 = undefined;
+    fn draw_challenge(endpoint: *Endpoint) [quic.constants.protocol.path_challenge_len]u8 {
+        var payload: [quic.constants.protocol.path_challenge_len]u8 = undefined;
         std.mem.writeInt(u64, &payload, endpoint.challenges_drawn, .big);
         endpoint.challenges_drawn += 1;
         return payload;

@@ -29,8 +29,8 @@ const blocked_counts = constants.qpack_check_blocked_counts;
 comptime {
     // `sim` cannot import `qpack`, so its lists end at `qpack`'s limits written out, and this
     // module, which imports both, holds them in step.
-    assert(capacities[capacities.len - 1] == qpack.constants.dynamic_table_capacity_max);
-    assert(blocked_counts[blocked_counts.len - 1] == qpack.constants.blocked_streams_max);
+    assert(capacities[capacities.len - 1] == qpack.constants.limits.dynamic_table_capacity_max);
+    assert(blocked_counts[blocked_counts.len - 1] == qpack.constants.limits.blocked_streams_max);
 }
 
 /// The octets a drawn value is made of.

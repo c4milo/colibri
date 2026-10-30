@@ -56,7 +56,7 @@ pub fn sendable(target: *const Connection, record: *const Stream, room_len: usiz
     }
     // RFC 9113 §4.2: no frame is longer than the peer's SETTINGS_MAX_FRAME_SIZE.
     if (target.peer.max_frame_size < next.len) next = .{ .len = target.peer.max_frame_size, .short_by = .frame_size };
-    const room = if (room_len > constants.frame_header_len) room_len - constants.frame_header_len else 0;
+    const room = if (room_len > constants.protocol.frame_header_len) room_len - constants.protocol.frame_header_len else 0;
     if (room < next.len) next = .{ .len = room, .short_by = .room };
     assert(next.len <= payload_len);
     return next;
@@ -96,7 +96,7 @@ const test_output = &support.test_output;
 const floor_len: u32 = 1_024;
 const body_len: usize = 2_048;
 const ok: u16 = 200;
-const test_body: [constants.frame_size_max + 1]u8 = @splat('x');
+const test_body: [constants.limits.frame_size_max + 1]u8 = @splat('x');
 
 /// A server that has read a request on stream 1 and answered it with a head, with a floor of
 /// `floor_len` that applies, as after a small increment, and a stream window of `stream_window`
@@ -131,13 +131,13 @@ test "decision 110: a payload the window holds goes out whole, however short" {
 }
 
 test "RFC 9113 §6.9.1: the connection's window, the frame size and the room each say they held a frame short" {
-    _ = try start(constants.window_max);
+    _ = try start(constants.protocol.window_max);
     test_connection.send_window = window_module.Window.init(floor_len);
     try testing.expectEqual(.connection_window, (try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], false)).short_by);
-    test_connection.send_window = window_module.Window.init(constants.window_max);
+    test_connection.send_window = window_module.Window.init(constants.protocol.window_max);
     const frame = try connection_send.write_data(test_connection, test_output, 1, &test_body, false);
     try testing.expectEqual(.frame_size, frame.short_by);
-    const room = try connection_send.write_data(test_connection, test_output[0 .. constants.frame_header_len + floor_len], 1, test_body[0..body_len], false);
+    const room = try connection_send.write_data(test_connection, test_output[0 .. constants.protocol.frame_header_len + floor_len], 1, test_body[0..body_len], false);
     try testing.expectEqual(floor_len, room.consumed);
     try testing.expectEqual(.room, room.short_by);
 }
@@ -167,23 +167,23 @@ test "decision 110 as amended: until the peer sends an increment below the floor
 
 /// A WINDOW_UPDATE frame on `stream_id` granting `increment` octets. Test-only.
 fn window_update(stream_id: u32, increment: u32) ![]const u8 {
-    var payload: [constants.window_update_len]u8 = undefined;
+    var payload: [constants.protocol.window_update_len]u8 = undefined;
     var writer = Writer.init(&payload);
     try writer.write_int(u32, increment);
-    return support.frame_bytes(&support.test_input, constants.frame_type_window_update, 0, stream_id, writer.written());
+    return support.frame_bytes(&support.test_input, constants.protocol.frame_type_window_update, 0, stream_id, writer.written());
 }
 
 test "RFC 9113 §10.5: an increment below the floor, on the connection or a stream, makes the floor apply" {
     _ = try start(floor_len);
     test_connection.tiny_update_read = false;
     // An increment of the floor or more leaves it off.
-    _ = try support.feed(try window_update(constants.connection_stream_id, floor_len));
+    _ = try support.feed(try window_update(constants.protocol.connection_stream_id, floor_len));
     _ = try support.feed(try window_update(1, floor_len));
     try testing.expect(!test_connection.tiny_update_read);
     _ = try support.feed(try window_update(1, floor_len - 1));
     try testing.expect(test_connection.tiny_update_read);
     test_connection.tiny_update_read = false;
-    _ = try support.feed(try window_update(constants.connection_stream_id, floor_len - 1));
+    _ = try support.feed(try window_update(constants.protocol.connection_stream_id, floor_len - 1));
     try testing.expect(test_connection.tiny_update_read);
 }
 
@@ -201,7 +201,7 @@ test "decision 119: sendable_len is what write_data sends, under the windows, th
     record.send_window = window_module.Window.init(floor_len);
     try testing.expectEqual(floor_len, test_connection.sendable_len(1, test_output.len, body_len));
     // RFC 9113 §4.1: the room holds the frame's header before its payload.
-    try testing.expectEqual(room_payload_len, test_connection.sendable_len(1, constants.frame_header_len + room_payload_len, body_len));
+    try testing.expectEqual(room_payload_len, test_connection.sendable_len(1, constants.protocol.frame_header_len + room_payload_len, body_len));
     const sent = try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], false);
     try testing.expectEqual(floor_len, sent.consumed);
 }
@@ -216,6 +216,6 @@ test "RFC 9113 §5.1, §8.1: a stream before its final head, unknown, or reset, 
     try testing.expectEqual(0, test_connection.sendable_len(3, test_output.len, body_len));
     try testing.expectEqual(0, test_connection.sendable_len(5, test_output.len, body_len));
     try testing.expect(test_connection.sendable_len(1, test_output.len, body_len) > 0);
-    try test_connection.reset_stream(1, constants.error_cancel);
+    try test_connection.reset_stream(1, constants.protocol.error_cancel);
     try testing.expectEqual(0, test_connection.sendable_len(1, test_output.len, body_len));
 }

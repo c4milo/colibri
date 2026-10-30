@@ -129,7 +129,7 @@ fn truncated_from(case_name: []const u8) Construction {
     return .{ .truncated = .{ .case_name = case_name, .drop = 1 } };
 }
 
-const integer_value_max = wire.constants.integer_value_max;
+const integer_value_max = wire.constants.protocol.integer_value_max;
 
 pub const varint = [_]Case{
     // RFC 9000 Appendix A.1's five sample decodings: one of each length, and a non-minimal 37.
@@ -142,7 +142,7 @@ pub const varint = [_]Case{
     }),
     // The largest value, which needs all 62 bits.
     accept("varint_8_octets_max", .{
-        .varint = .{ .value = wire.constants.varint_value_max, .encoded_len = 8 },
+        .varint = .{ .value = wire.constants.protocol.varint_value_max, .encoded_len = 8 },
     }),
     // One truncation per length: the first octet declares more octets than are present.
     reject("varint_empty", .{ .literal = &.{} }, error.Truncated),

@@ -35,16 +35,16 @@ pub const Data = struct {
 
 /// Parses the payload of a DATA frame whose header the connection has read and sized.
 pub fn parse(header: Header, payload: []const u8) Error!Data {
-    assert(header.type == constants.frame_type_data);
+    assert(header.type == constants.protocol.frame_type_data);
     assert(payload.len == header.length);
     // RFC 9113 §6.1: a DATA frame whose Stream Identifier field is 0x00 is a connection error of
     // PROTOCOL_ERROR.
-    if (header.stream_id == constants.connection_stream_id) return error.StreamIdZero;
+    if (header.stream_id == constants.protocol.connection_stream_id) return error.StreamIdZero;
     const unpadded = try frame_padding.strip(header, payload);
     return .{
         .data = unpadded.payload,
         .padding_len = unpadded.padding_len,
-        .end_stream = frame_header.has_flag(header, constants.flag_end_stream),
+        .end_stream = frame_header.has_flag(header, constants.protocol.flag_end_stream),
     };
 }
 
@@ -57,27 +57,27 @@ pub fn write_data(
     end_stream: bool,
     padding_len: u8,
 ) core.writer.Error!void {
-    assert(stream_id != constants.connection_stream_id and stream_id <= constants.stream_id_max);
+    assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     const length = frame_padding.padded_len(data.len, padding_len);
     var cursor = writer.*;
-    const end_stream_flag: u8 = if (end_stream) constants.flag_end_stream else 0;
+    const end_stream_flag: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
     try frame_header.write(&cursor, .{
         .length = length,
-        .type = constants.frame_type_data,
+        .type = constants.protocol.frame_type_data,
         .flags = end_stream_flag | frame_padding.flag(padding_len),
         .stream_id = stream_id,
     });
     try frame_padding.write_pad_length(&cursor, padding_len);
     try cursor.write_bytes(data);
     try frame_padding.write_padding(&cursor, padding_len);
-    assert(cursor.offset - writer.offset == constants.frame_header_len + length);
+    assert(cursor.offset - writer.offset == constants.protocol.frame_header_len + length);
     writer.* = cursor;
 }
 
 const testing = std.testing;
 
 fn data_header(length: u32, flags: u8, stream_id: u32) Header {
-    return .{ .length = length, .type = constants.frame_type_data, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = constants.protocol.frame_type_data, .flags = flags, .stream_id = stream_id };
 }
 
 test "a DATA frame yields its data, its padding length and END_STREAM" {
@@ -86,7 +86,7 @@ test "a DATA frame yields its data, its padding length and END_STREAM" {
     try testing.expectEqual(0, plain.padding_len);
     try testing.expect(!plain.end_stream);
 
-    const flags = constants.flag_padded | constants.flag_end_stream;
+    const flags = constants.protocol.flag_padded | constants.protocol.flag_end_stream;
     const padded = try parse(data_header(8, flags, 3), "\x02hello\x00\x00");
     try testing.expectEqualStrings("hello", padded.data);
     try testing.expectEqual(2, padded.padding_len);
@@ -94,7 +94,7 @@ test "a DATA frame yields its data, its padding length and END_STREAM" {
 }
 
 test "an empty DATA frame is legal, with or without END_STREAM" {
-    const empty = try parse(data_header(0, constants.flag_end_stream, 1), "");
+    const empty = try parse(data_header(0, constants.protocol.flag_end_stream, 1), "");
     try testing.expectEqual(0, empty.data.len);
     try testing.expect(empty.end_stream);
 }
@@ -104,19 +104,19 @@ test "DATA on stream 0 is StreamIdZero (RFC 9113 §6.1)" {
 }
 
 test "DATA with padding of the payload length is PaddingTooLong (RFC 9113 §6.1)" {
-    try testing.expectError(error.PaddingTooLong, parse(data_header(4, constants.flag_padded, 1), "\x04\xaa\xaa\xaa"));
+    try testing.expectError(error.PaddingTooLong, parse(data_header(4, constants.protocol.flag_padded, 1), "\x04\xaa\xaa\xaa"));
 }
 
 test "a PADDED DATA frame with no Pad Length octet is LengthInvalid (RFC 9113 §4.2)" {
-    try testing.expectError(error.LengthInvalid, parse(data_header(0, constants.flag_padded, 1), ""));
+    try testing.expectError(error.LengthInvalid, parse(data_header(0, constants.protocol.flag_padded, 1), ""));
 }
 
 test "stream 0 is refused before the padding is read" {
-    try testing.expectError(error.StreamIdZero, parse(data_header(4, constants.flag_padded, 0), "\x04\xaa\xaa\xaa"));
+    try testing.expectError(error.StreamIdZero, parse(data_header(4, constants.protocol.flag_padded, 0), "\x04\xaa\xaa\xaa"));
 }
 
 test "an unused flag on DATA is ignored on receipt (RFC 9113 §4.1)" {
-    const data = try parse(data_header(1, constants.flag_end_headers, 1), "a");
+    const data = try parse(data_header(1, constants.protocol.flag_end_headers, 1), "a");
     try testing.expectEqualStrings("a", data.data);
     try testing.expect(!data.end_stream);
 }

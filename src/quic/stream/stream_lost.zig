@@ -35,7 +35,7 @@ pub const Range = struct {
 
 pub const LostRanges = struct {
     /// The ranges in the order they were lost, as a ring: `count` of them from `head`.
-    entries: [constants.stream_lost_ranges_max]Range,
+    entries: [constants.limits.stream_lost_ranges_max]Range,
     head: usize,
     count: usize,
 
@@ -123,8 +123,8 @@ pub const LostRanges = struct {
 
 /// The slot `from` places past `head`.
 fn slot_at(head: usize, from: usize) usize {
-    assert(from <= constants.stream_lost_ranges_max);
-    return (head + from) % constants.stream_lost_ranges_max;
+    assert(from <= constants.limits.stream_lost_ranges_max);
+    return (head + from) % constants.limits.stream_lost_ranges_max;
 }
 
 const testing = std.testing;
@@ -195,20 +195,20 @@ test "§13.3: ranges of one stream that meet become one, on either side" {
 
 test "§13.3: a full table refuses a range it cannot join, and joins one it can" {
     test_lost.init();
-    for (0..constants.stream_lost_ranges_max) |index| {
+    for (0..constants.limits.stream_lost_ranges_max) |index| {
         // Each range a gap apart, so none of them joins another.
         try test_lost.add(range_of(test_stream, 2 * test_len * index, test_len, false));
     }
-    const past = range_of(test_stream, 2 * test_len * constants.stream_lost_ranges_max, test_len, false);
+    const past = range_of(test_stream, 2 * test_len * constants.limits.stream_lost_ranges_max, test_len, false);
     try testing.expectError(Error.Full, test_lost.add(past));
-    try testing.expectEqual(constants.stream_lost_ranges_max, test_lost.count);
+    try testing.expectEqual(constants.limits.stream_lost_ranges_max, test_lost.count);
     // A range filling the first gap joins the first entry, so a full table still takes it.
     try test_lost.add(range_of(test_stream, test_len, test_len, false));
     try testing.expectEqual(2 * test_len, test_lost.oldest().?.len);
     // Dropping the oldest frees a slot, and the ring goes on past its end.
     test_lost.drop_oldest();
     try test_lost.add(past);
-    try testing.expectEqual(constants.stream_lost_ranges_max, test_lost.count);
+    try testing.expectEqual(constants.limits.stream_lost_ranges_max, test_lost.count);
 }
 
 test "decision 78: the lowest lost offset is per stream, whatever order the ranges came in" {

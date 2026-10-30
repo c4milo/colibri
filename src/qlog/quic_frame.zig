@@ -241,8 +241,8 @@ pub fn transport_error(text: *TextWriter, name: []const u8, error_code: u64) Err
         try member.string(text, name, transport_error_names[@intCast(error_code)]);
         return;
     }
-    if (error_code >= constants.crypto_error_first and error_code <= constants.crypto_error_last) {
-        var error_name: [crypto_error_prefix.len + constants.crypto_error_digits]u8 = undefined;
+    if (error_code >= constants.protocol.crypto_error_first and error_code <= constants.protocol.crypto_error_last) {
+        var error_name: [crypto_error_prefix.len + constants.protocol.crypto_error_digits]u8 = undefined;
         @memcpy(error_name[0..crypto_error_prefix.len], crypto_error_prefix);
         const digits = std.fmt.bufPrint(error_name[crypto_error_prefix.len..], "{x:0>3}", .{error_code}) catch unreachable;
         assert(digits.len == error_name.len - crypto_error_prefix.len);

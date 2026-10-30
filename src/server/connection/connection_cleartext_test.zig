@@ -10,7 +10,7 @@ const connection = &support.connection;
 
 /// The client's connection preface and an empty SETTINGS frame (RFC 9113 §3.4). The client has not
 /// read the server's SETTINGS yet, so it acknowledges none.
-const preface_and_settings = h2.constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
+const preface_and_settings = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 const h11_request = "GET / HTTP/1.1\r\nhost: example.com\r\n\r\n";
 
 /// A connection with the default configuration, which allows both h11 and h2.
@@ -27,7 +27,7 @@ test "RFC 9113 §3.3: the connection preface chooses h2 when both versions are a
     try testing.expectEqual(.h2, connection.protocol().?);
     // RFC 9113 §3.4: the server's connection preface, its SETTINGS frame, goes out first.
     const sent = support.drain();
-    try testing.expectEqual(h2.constants.frame_type_settings, sent[h2_support.type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_settings, sent[h2_support.type_index]);
     const request = try support.receive_copy(try h2_support.request_frame(1, "/", true));
     try testing.expectEqualStrings("/", request.event.?.request.path.?);
 }
@@ -41,7 +41,7 @@ test "RFC 9113 §3.3: any other first octets choose h11" {
 
 test "RFC 9113 §3.3: a prefix of the preface chooses nothing and consumes nothing" {
     try start_both();
-    const prefix = h2.constants.client_preface[0..16];
+    const prefix = h2.constants.protocol.client_preface[0..16];
     const waiting = try support.receive_copy(prefix);
     try testing.expectEqual(0, waiting.consumed);
     try testing.expectEqual(null, waiting.event);

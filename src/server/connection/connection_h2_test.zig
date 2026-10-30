@@ -61,7 +61,7 @@ test "RFC 9113 §3.4: the server's SETTINGS goes first, before a response to a r
     try connection.respond(1, .{ .status = ok, .end = true });
     const sent = support.drain();
     // RFC 9113 §3.4: the SETTINGS frame "MUST be the first frame the server sends".
-    try testing.expectEqual(constants.frame_type_settings, sent[type_index]);
+    try testing.expectEqual(constants.protocol.frame_type_settings, sent[type_index]);
     try testing.expectEqual(0, sent[flags_index]);
 }
 
@@ -75,14 +75,14 @@ test "RFC 9113 §6.1: content that ends with no octet left goes out as an empty 
     _ = support.drain();
     try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = true }));
     const sent = support.drain();
-    try testing.expectEqual(constants.frame_header_len, sent.len);
-    try testing.expectEqual(constants.frame_type_data, sent[type_index]);
-    try testing.expectEqual(constants.flag_end_stream, sent[flags_index]);
+    try testing.expectEqual(constants.protocol.frame_header_len, sent.len);
+    try testing.expectEqual(constants.protocol.frame_type_data, sent[type_index]);
+    try testing.expectEqual(constants.protocol.flag_end_stream, sent[flags_index]);
 }
 
 /// Content of `long_body_frames` of the peer's largest frames and one octet more (RFC 9113 §4.2).
 const long_body_frames: usize = 2;
-const long_body: [long_body_frames * constants.max_frame_size_initial + 1]u8 = @splat('x');
+const long_body: [long_body_frames * constants.protocol.max_frame_size_initial + 1]u8 = @splat('x');
 
 test "one write_body call takes what the room and the windows allow, cut at the peer's frame size" {
     try start();
@@ -92,17 +92,17 @@ test "one write_body call takes what the room and the windows allow, cut at the 
     // https://github.com/c4milo/colibri/issues/91: one call writes every frame the content needs.
     try testing.expectEqual(long_body.len, try connection.write_body(1, .{ .bytes = &long_body, .end = true }));
     const sent = support.drain();
-    const whole_frame_len = constants.frame_header_len + constants.max_frame_size_initial;
+    const whole_frame_len = constants.protocol.frame_header_len + constants.protocol.max_frame_size_initial;
     const whole_frames_len = long_body_frames * whole_frame_len;
-    try testing.expectEqual(whole_frames_len + constants.frame_header_len + 1, sent.len);
+    try testing.expectEqual(whole_frames_len + constants.protocol.frame_header_len + 1, sent.len);
     for (0..long_body_frames) |index| {
         const frame = sent[index * whole_frame_len ..];
-        try testing.expectEqual(constants.frame_type_data, frame[type_index]);
+        try testing.expectEqual(constants.protocol.frame_type_data, frame[type_index]);
         try testing.expectEqual(whole_frame_len, frame_len(frame));
         try testing.expectEqual(0, frame[flags_index]);
     }
     // h2 sets END_STREAM on the frame that carries the last octet (RFC 9113 §8.1).
-    try testing.expectEqual(constants.flag_end_stream, sent[whole_frames_len..][flags_index]);
+    try testing.expectEqual(constants.protocol.flag_end_stream, sent[whole_frames_len..][flags_index]);
 }
 
 test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame ends the stream" {
@@ -113,19 +113,19 @@ test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame 
     try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = false }));
     try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
     const sent = support.drain();
-    try testing.expectEqual(constants.frame_type_headers, sent[type_index]);
-    try testing.expectEqual(constants.flag_end_headers, sent[flags_index]);
+    try testing.expectEqual(constants.protocol.frame_type_headers, sent[type_index]);
+    try testing.expectEqual(constants.protocol.flag_end_headers, sent[flags_index]);
     const head_len = frame_len(sent);
-    decoder.init(constants.header_table_size_initial);
-    var block = decoder.block(sent[constants.frame_header_len..head_len]);
+    decoder.init(constants.protocol.header_table_size_initial);
+    var block = decoder.block(sent[constants.protocol.frame_header_len..head_len]);
     const status = (try block.next()).?;
     try testing.expectEqualStrings(":status", status.name);
     try testing.expectEqualStrings("200", status.value);
     try testing.expectEqualStrings("text/plain", (try block.next()).?.value);
     const data = sent[head_len..];
-    try testing.expectEqual(constants.frame_type_data, data[type_index]);
-    try testing.expectEqual(constants.flag_end_stream, data[flags_index]);
-    try testing.expectEqualStrings("hello", data[constants.frame_header_len..]);
+    try testing.expectEqual(constants.protocol.frame_type_data, data[type_index]);
+    try testing.expectEqual(constants.protocol.flag_end_stream, data[flags_index]);
+    try testing.expectEqualStrings("hello", data[constants.protocol.frame_header_len..]);
     try testing.expect(!connection.should_close());
 }
 
@@ -135,11 +135,11 @@ test "RFC 9113 §8.1: an interim response ends no stream, whatever `end` asks, a
     try connection.respond(1, .{ .status = early_hints, .end = true });
     try connection.respond(1, .{ .status = ok, .end = true });
     const sent = support.drain();
-    try testing.expectEqual(constants.frame_type_headers, sent[type_index]);
-    try testing.expectEqual(constants.flag_end_headers, sent[flags_index]);
+    try testing.expectEqual(constants.protocol.frame_type_headers, sent[type_index]);
+    try testing.expectEqual(constants.protocol.flag_end_headers, sent[flags_index]);
     const final = sent[frame_len(sent)..];
-    try testing.expectEqual(constants.frame_type_headers, final[type_index]);
-    try testing.expectEqual(constants.flag_end_headers | constants.flag_end_stream, final[flags_index]);
+    try testing.expectEqual(constants.protocol.frame_type_headers, final[type_index]);
+    try testing.expectEqual(constants.protocol.flag_end_headers | constants.protocol.flag_end_stream, final[flags_index]);
 }
 
 test "RFC 9113 §8.1: a request's DATA arrives as body events, the last ending it" {
@@ -159,25 +159,25 @@ test "RFC 9113 §6.4: cancel resets the stream with CANCEL" {
     _ = try support.receive_copy(try request_frame(1, "/", false));
     connection.cancel(1);
     const sent = support.drain();
-    try testing.expectEqual(constants.frame_type_rst_stream, sent[type_index]);
-    const code = sent[constants.frame_header_len..][0..error_code_len];
-    try testing.expectEqual(constants.error_cancel, std.mem.readInt(u32, code, .big));
+    try testing.expectEqual(constants.protocol.frame_type_rst_stream, sent[type_index]);
+    const code = sent[constants.protocol.frame_header_len..][0..error_code_len];
+    try testing.expectEqual(constants.protocol.error_cancel, std.mem.readInt(u32, code, .big));
     // The stream is closed, so nothing more is written on it.
     try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = ok, .end = true }));
 }
 
 test "RFC 9113 §6.4: cancel resets more streams between two sends than h2's reply queue holds" {
     try start();
-    const streams = h2.constants.stream_replies_max + 1;
+    const streams = h2.constants.limits.stream_replies_max + 1;
     for (0..streams) |index| _ = try support.receive_copy(try request_frame(client_stream(index), "/", false));
     for (0..streams) |index| connection.cancel(client_stream(index));
     var sent = support.drain();
     // Each stream's RST_STREAM carries CANCEL, and goes out once (decision 113).
     for (0..streams) |index| {
-        try testing.expectEqual(constants.frame_type_rst_stream, sent[type_index]);
+        try testing.expectEqual(constants.protocol.frame_type_rst_stream, sent[type_index]);
         try testing.expectEqual(client_stream(index), std.mem.readInt(u32, sent[stream_id_index..][0..stream_id_len], .big));
-        const code = sent[constants.frame_header_len..][0..error_code_len];
-        try testing.expectEqual(constants.error_cancel, std.mem.readInt(u32, code, .big));
+        const code = sent[constants.protocol.frame_header_len..][0..error_code_len];
+        try testing.expectEqual(constants.protocol.error_cancel, std.mem.readInt(u32, code, .big));
         sent = sent[frame_len(sent)..];
     }
     try testing.expectEqual(0, sent.len);
@@ -185,7 +185,7 @@ test "RFC 9113 §6.4: cancel resets more streams between two sends than h2's rep
 
 /// The identifier of the `index`th stream a client opens, counting from 0 (RFC 9113 §5.1.1).
 fn client_stream(index: usize) u32 {
-    return constants.stream_id_client_first + constants.stream_id_step * @as(u32, @intCast(index));
+    return constants.protocol.stream_id_client_first + constants.protocol.stream_id_step * @as(u32, @intCast(index));
 }
 
 /// Where a frame header holds its stream identifier, and its octets (RFC 9113 §4.1).
@@ -196,7 +196,7 @@ test "RFC 9113 §6.4: a stream the peer resets arrives as its cancellation" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", false));
     var writer = h2.core.Writer.init(frames);
-    try h2.frame.write_rst_stream(&writer, 1, constants.error_cancel);
+    try h2.frame.write_rst_stream(&writer, 1, constants.protocol.error_cancel);
     const received = try support.receive_copy(writer.written());
     try testing.expectEqual(1, received.event.?.cancelled.id.number);
 }
@@ -237,7 +237,7 @@ test "RFC 9113 §4.1: a response head waits when the output has no room for its 
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
     const short_room: usize = 4;
-    connection.output_len = support.server_constants.output_len - short_room;
+    connection.output_len = support.server_constants.limits.output_len - short_room;
     try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .end = true }));
     connection.output_len = 0;
     try connection.respond(1, .{ .status = ok, .end = true });
@@ -250,7 +250,7 @@ test "RFC 9113 §6.8: a shutdown sends GOAWAY, and the connection closes once it
     try testing.expect(!connection.should_close());
     try connection.respond(1, .{ .status = ok, .end = true });
     const sent = support.drain();
-    try testing.expect(std.mem.indexOfScalar(u8, &.{ sent[type_index], sent[frame_len(sent) + type_index] }, constants.frame_type_goaway) != null);
+    try testing.expect(std.mem.indexOfScalar(u8, &.{ sent[type_index], sent[frame_len(sent) + type_index] }, constants.protocol.frame_type_goaway) != null);
     try testing.expect(connection.should_close());
 }
 
@@ -262,7 +262,7 @@ test "RFC 9113 §5.4.1: a connection error fails the connection, and its GOAWAY 
     try testing.expectError(error.ConnectionFailed, support.receive_copy(writer.written()));
     try testing.expect(!connection.should_close());
     const sent = support.drain();
-    try testing.expectEqual(constants.frame_type_goaway, sent[type_index]);
+    try testing.expectEqual(constants.protocol.frame_type_goaway, sent[type_index]);
     try testing.expect(connection.should_close());
     try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
     // The peer broke the protocol, and passed no limit.
@@ -272,9 +272,9 @@ test "RFC 9113 §5.4.1: a connection error fails the connection, and its GOAWAY 
 test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and ends it" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", false));
-    var block: [constants.frame_size_max]u8 = undefined;
+    var block: [constants.limits.frame_size_max]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(constants.header_table_size_initial, .never);
+    encoder.init(constants.protocol.header_table_size_initial, .never);
     var block_writer = h2.core.Writer.init(&block);
     try encoder.begin_block(&block_writer);
     try encoder.write_field(&block_writer, "grpc-status", "0", .without_indexing);
@@ -282,8 +282,8 @@ test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and e
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
-        .type = constants.frame_type_headers,
-        .flags = constants.flag_end_headers | constants.flag_end_stream,
+        .type = constants.protocol.frame_type_headers,
+        .flags = constants.protocol.flag_end_headers | constants.protocol.flag_end_stream,
         .stream_id = 1,
     });
     try writer.write_bytes(block_writer.written());
@@ -296,17 +296,17 @@ test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and e
 test "RFC 9113 §5.1.1: an id past the largest stream identifier names no request" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    const past: u64 = @as(u64, constants.stream_id_max) + 2;
+    const past: u64 = @as(u64, constants.protocol.stream_id_max) + 2;
     try testing.expectError(error.RequestUnknown, connection.respond(past, .{ .status = ok, .end = true }));
 }
 
 /// One field line more than a section may carry, and values that fill more than the encoder's
 /// buffer. Test-only.
-const field_count_max = h2.core.constants.field_count_max;
+const field_count_max = h2.core.constants.limits.field_count_max;
 var too_many: [field_count_max + 1]support.Field align(@alignOf(support.Field)) = @splat(.{ .name = "x-a", .value = "b" });
-var long_value: [h2.core.constants.field_value_len_max]u8 = @splat('x');
+var long_value: [h2.core.constants.limits.field_value_len_max]u8 = @splat('x');
 /// Lines of the longest value whose section is larger than `send_block_len_max`.
-const long_lines: usize = constants.send_block_len_max / h2.core.constants.field_value_len_max + 1;
+const long_lines: usize = constants.limits.send_block_len_max / h2.core.constants.limits.field_value_len_max + 1;
 var long_fields: [long_lines]support.Field align(@alignOf(support.Field)) = undefined;
 
 test "RFC 9113 §4.3: a section past what colibri sends in one field block is refused whole" {
@@ -323,7 +323,7 @@ test "RFC 9113 §6.7: the PING acknowledgments h2 owes go out, and the request a
     try start();
     var writer = h2.core.Writer.init(frames);
     // One more PING than h2 holds acknowledgments for, so it stops reading until they are written.
-    for (0..h2.constants.ping_ack_pending_max + 1) |_| try h2.frame.write_ping(&writer, @splat(0), false);
+    for (0..h2.constants.limits.ping_ack_pending_max + 1) |_| try h2.frame.write_ping(&writer, @splat(0), false);
     const pings_len = writer.written().len;
     @memcpy(support.input[0..pings_len], frames[0..pings_len]);
     const request = try request_frame(1, "/", true);
@@ -344,9 +344,9 @@ test "RFC 9113 §6.8: nothing h2 owes goes out once the transport closed" {
 
 test "RFC 9110 §10.1.1: an h2 request expecting 100-continue gets a 100 HEADERS frame" {
     try start();
-    var block: [constants.frame_size_max]u8 = undefined;
+    var block: [constants.limits.frame_size_max]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(constants.header_table_size_initial, .never);
+    encoder.init(constants.protocol.header_table_size_initial, .never);
     var block_writer = h2.core.Writer.init(&block);
     try encoder.begin_block(&block_writer);
     try encoder.write_field(&block_writer, ":method", "PUT", .without_indexing);
@@ -358,8 +358,8 @@ test "RFC 9110 §10.1.1: an h2 request expecting 100-continue gets a 100 HEADERS
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
-        .type = constants.frame_type_headers,
-        .flags = constants.flag_end_headers,
+        .type = constants.protocol.frame_type_headers,
+        .flags = constants.protocol.flag_end_headers,
         .stream_id = 1,
     });
     try writer.write_bytes(block_writer.written());
@@ -367,14 +367,14 @@ test "RFC 9110 §10.1.1: an h2 request expecting 100-continue gets a 100 HEADERS
     try testing.expectEqual(2, head.version.major);
     try testing.expectEqualStrings("/f", head.target);
     const sent = support.drain();
-    try testing.expectEqual(constants.frame_type_headers, sent[type_index]);
-    decoder.init(constants.header_table_size_initial);
-    var lines = decoder.block(sent[constants.frame_header_len..frame_len(sent)]);
+    try testing.expectEqual(constants.protocol.frame_type_headers, sent[type_index]);
+    decoder.init(constants.protocol.header_table_size_initial);
+    var lines = decoder.block(sent[constants.protocol.frame_header_len..frame_len(sent)]);
     try testing.expectEqualStrings("100", (try lines.next()).?.value);
 }
 
 /// A PING frame, whose acknowledgment the server owes once it reads it (RFC 9113 §6.7).
-const ping = "\x00\x00\x08\x06\x00\x00\x00\x00\x00" ++ "\x00" ** constants.ping_len;
+const ping = "\x00\x00\x08\x06\x00\x00\x00\x00\x00" ++ "\x00" ** constants.protocol.ping_len;
 const expect_continue = [_]support.Field{.{ .name = "expect", .value = "100-continue" }};
 const response_trailers = [_]support.Field{.{ .name = "grpc-status", .value = "0" }};
 
@@ -391,8 +391,8 @@ fn read_ping_then_request(stream_id: u32, method: []const u8, fields: []const su
 
 /// Checks that `sent` starts with the PING's acknowledgment, then a frame of `frame_type`.
 fn expect_ack_then(sent: []const u8, frame_type: u8) !void {
-    try testing.expectEqual(constants.frame_type_ping, sent[type_index]);
-    try testing.expectEqual(constants.flag_ack, sent[flags_index]);
+    try testing.expectEqual(constants.protocol.frame_type_ping, sent[type_index]);
+    try testing.expectEqual(constants.protocol.flag_ack, sent[flags_index]);
     try testing.expectEqual(frame_type, sent[frame_len(sent)..][type_index]);
 }
 
@@ -400,7 +400,7 @@ test "decision 39 as amended: a response's head goes out after the replies h2 ow
     try start();
     try read_ping_then_request(1, "GET", &.{}, true);
     try connection.respond(1, .{ .status = ok, .end = true });
-    try expect_ack_then(support.drain(), constants.frame_type_headers);
+    try expect_ack_then(support.drain(), constants.protocol.frame_type_headers);
 }
 
 test "decision 39 as amended: DATA and a trailer section go out after the replies h2 owes" {
@@ -410,17 +410,17 @@ test "decision 39 as amended: DATA and a trailer section go out after the replie
     _ = support.drain();
     try read_ping_then_request(3, "GET", &.{}, true);
     try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = false }));
-    try expect_ack_then(support.drain(), constants.frame_type_data);
+    try expect_ack_then(support.drain(), constants.protocol.frame_type_data);
     try read_ping_then_request(5, "GET", &.{}, true);
     try connection.write_trailers(1, &response_trailers);
-    try expect_ack_then(support.drain(), constants.frame_type_headers);
+    try expect_ack_then(support.drain(), constants.protocol.frame_type_headers);
 }
 
 test "decision 39 as amended: a 100 (Continue) goes out after the replies h2 owes" {
     try start();
     // RFC 9110 §10.1.1: a request that expects 100-continue is owed a 100 before its content.
     try read_ping_then_request(1, "PUT", &expect_continue, false);
-    try expect_ack_then(support.drain(), constants.frame_type_headers);
+    try expect_ack_then(support.drain(), constants.protocol.frame_type_headers);
 }
 
 test "decision 110: the server advertises 100 concurrent streams, refuses the next, and a configuration lowers it" {
@@ -428,8 +428,8 @@ test "decision 110: the server advertises 100 concurrent streams, refuses the ne
     _ = try support.receive_copy(h2_support.client_preface);
     const sent = support.drain();
     // RFC 9113 §6.5.2: SETTINGS_MAX_CONCURRENT_STREAMS carries the limit.
-    try testing.expect(lists_streams_max(sent, support.server_constants.requests_max));
-    try expect_refused_after(support.server_constants.requests_max);
+    try testing.expect(lists_streams_max(sent, support.server_constants.limits.requests_max));
+    try expect_refused_after(support.server_constants.limits.requests_max);
     support.config = .{ .protocols = support.only(.h2), .limits = .{ .requests_max = lowered_streams_max } };
     try connection.init(&support.config, support.stream.random(), 0, 0);
     _ = try support.receive_copy(h2_support.client_preface);
@@ -447,16 +447,16 @@ test "decision 117: the configuration's DATA frame floor is the one h2 holds to"
 }
 
 /// A floor one octet under the default, so a connection that kept the default shows.
-const lowered_floor_len: u32 = support.server_constants.data_frame_len_min - 1;
+const lowered_floor_len: u32 = support.server_constants.policy.data_frame_len_min - 1;
 
 /// Opens `limit` streams, each a request whose body is still to come, and requires the next to be
 /// refused with REFUSED_STREAM (RFC 9113 §5.1.2).
 fn expect_refused_after(limit: u32) !void {
     for (0..limit) |index| {
-        const stream_id: u32 = @intCast(constants.stream_id_client_first + constants.stream_id_step * index);
+        const stream_id: u32 = @intCast(constants.protocol.stream_id_client_first + constants.protocol.stream_id_step * index);
         try testing.expectEqual(stream_id, (try support.receive_copy(try h2_support.request_frame(stream_id, "/", false))).event.?.request.id.number);
     }
-    const refused_id = constants.stream_id_client_first + constants.stream_id_step * limit;
+    const refused_id = constants.protocol.stream_id_client_first + constants.protocol.stream_id_step * limit;
     const cancelled = (try support.receive_copy(try h2_support.request_frame(refused_id, "/", false))).event.?.cancelled;
     try testing.expectEqual(refused_id, cancelled.id.number);
     try testing.expect(cancelled.reason == .refused);
@@ -465,11 +465,11 @@ fn expect_refused_after(limit: u32) !void {
 /// Whether the server's SETTINGS frame at the front of `sent` lists SETTINGS_MAX_CONCURRENT_STREAMS
 /// as `limit`: each entry is an identifier of two octets and a value of four (RFC 9113 §6.5.1).
 fn lists_streams_max(sent: []const u8, limit: u32) bool {
-    const length = std.mem.readInt(u24, sent[0..constants.frame_length_len], .big);
-    const entries = sent[constants.frame_header_len..][0..length];
-    for (0..length / constants.setting_len) |index| {
-        const entry = entries[index * constants.setting_len ..][0..constants.setting_len];
-        if (std.mem.readInt(u16, entry[0..@sizeOf(u16)], .big) != constants.setting_max_concurrent_streams) continue;
+    const length = std.mem.readInt(u24, sent[0..constants.protocol.frame_length_len], .big);
+    const entries = sent[constants.protocol.frame_header_len..][0..length];
+    for (0..length / constants.protocol.setting_len) |index| {
+        const entry = entries[index * constants.protocol.setting_len ..][0..constants.protocol.setting_len];
+        if (std.mem.readInt(u16, entry[0..@sizeOf(u16)], .big) != constants.protocol.setting_max_concurrent_streams) continue;
         return std.mem.readInt(u32, entry[@sizeOf(u16)..][0..@sizeOf(u32)], .big) == limit;
     }
     return false;
@@ -478,7 +478,7 @@ fn lists_streams_max(sent: []const u8, limit: u32) bool {
 test "decision 110: a peer that resets streams past peer_reset_rate_max ends the connection, and the limit is named" {
     try start();
     var id: u32 = 1;
-    for (0..constants.peer_reset_rate_max) |_| {
+    for (0..constants.policy.peer_reset_rate_max) |_| {
         try open_and_reset(id);
         id += 2;
     }
@@ -494,7 +494,7 @@ fn open_and_reset(id: u32) !void {
     const opened = try support.receive_copy(try request_frame(id, "/", true));
     try testing.expectEqual(id, opened.event.?.request.id.number);
     var writer = h2.core.Writer.init(frames);
-    try h2.frame.write_rst_stream(&writer, id, constants.error_cancel);
+    try h2.frame.write_rst_stream(&writer, id, constants.protocol.error_cancel);
     const reset = try support.receive_copy(writer.written());
     try testing.expectEqual(id, reset.event.?.cancelled.id.number);
 }

@@ -43,7 +43,7 @@ pub const Outgoing = struct {
         assert(!outgoing.finished);
         assert(end >= outgoing.supplied_end);
         // RFC 9000 §19.8: an offset past 2^62-1 cannot be written in a STREAM frame.
-        if (end > constants.stream_offset_max) return Error.OffsetTooLarge;
+        if (end > constants.protocol.stream_offset_max) return Error.OffsetTooLarge;
         outgoing.supplied_end = end;
         outgoing.finished = fin;
     }
@@ -140,8 +140,8 @@ test "§3.1: a stream the caller has not ended is never all acknowledged" {
 
 test "§19.8: a stream cannot reach past 2^62-1" {
     var outgoing: Outgoing = .{};
-    try testing.expectError(Error.OffsetTooLarge, outgoing.supply(constants.stream_offset_max + 1, false));
+    try testing.expectError(Error.OffsetTooLarge, outgoing.supply(constants.protocol.stream_offset_max + 1, false));
     try testing.expectEqual(0, outgoing.supplied_end);
-    try outgoing.supply(constants.stream_offset_max, true);
+    try outgoing.supply(constants.protocol.stream_offset_max, true);
     try testing.expect(outgoing.finished);
 }

@@ -89,9 +89,9 @@ pub const Census = struct {
 comptime {
     // No deadline passes during a run: the longest takes less than decision 110's shortest
     // default limit, so every clock the trace logs is one that runs, not one that fired.
-    assert(limits.run_ns_max < server.constants.first_request_timeout_ns);
-    assert(limits.run_ns_max < server.constants.head_timeout_ns);
-    assert(limits.run_ns_max < server.constants.rate_grace_ns);
+    assert(limits.run_ns_max < server.constants.policy.first_request_timeout_ns);
+    assert(limits.run_ns_max < server.constants.policy.head_timeout_ns);
+    assert(limits.run_ns_max < server.constants.policy.rate_grace_ns);
 }
 
 /// Runs one seed twice and returns the first run's counts.

@@ -37,9 +37,9 @@ const Timer = recovery_timer.Timer;
 pub const Error = recovery_sent.Error;
 
 /// One space's outstanding packets, sized by the one named limit. Every space gets the same
-/// table because RFC 9000 §12.3 gives them the same shape; `constants.sent_packets_max` records
+/// table because RFC 9000 §12.3 gives them the same shape; `constants.limits.sent_packets_max` records
 /// why they are not sized apart.
-pub const Table = recovery_sent.Sent(constants.sent_packets_max);
+pub const Table = recovery_sent.Sent(constants.limits.sent_packets_max);
 
 /// What a timeout asks the caller to do (RFC 9002 Appendix A.9).
 pub const Action = union(enum) {
@@ -59,14 +59,14 @@ pub const Recovery = struct {
     pacer: Pacer,
     /// What `recovery_timer.zig` chooses the one timer from.
     timer: recovery_timer.State,
-    tables: [constants.packet_number_spaces]Table,
+    tables: [constants.protocol.packet_number_spaces]Table,
     /// RFC 9002 Appendix A.3's `largest_acked_packet[space]`, or null where the peer has
     /// acknowledged nothing in that space yet.
-    largest_acknowledged: [constants.packet_number_spaces]?u64,
+    largest_acknowledged: [constants.protocol.packet_number_spaces]?u64,
     /// RFC 9000 §13.4.2.1's counts, per packet number space: what the peer last reported and what
     /// this endpoint sent under each ECT codepoint. RFC 9002 Appendix B.2's `ecn_ce_counters` is
     /// `reported.ecn_ce`.
-    ecn: [constants.packet_number_spaces]recovery_ecn.State,
+    ecn: [constants.protocol.packet_number_spaces]recovery_ecn.State,
     /// RFC 9000 Appendix A.4's state of the path, which says whether this endpoint marks ECT(0)
     /// (decision 69). §13.4.2 validates "for each network path", and a connection holds one path
     /// here, so one answer covers the three spaces.
@@ -194,7 +194,7 @@ pub const Recovery = struct {
         // RFC 9002 Appendix A.9: with nothing outstanding this is the anti-deadlock packet, and
         // the space `recovery_timer.zig` chose is the one it goes in.
         const count: u8 = if (recovery.timer.spaces[@intFromEnum(timer.space)].ack_eliciting_in_flight)
-            constants.probe_packets
+            constants.recovery.probe_packets
         else
             1;
         recovery.timer.pto_count +|= 1;
@@ -225,7 +225,7 @@ pub const Recovery = struct {
     /// names "an unnecessary rate reduction by the congestion controller" as this choice's risk.
     pub fn declare_in_flight_lost(recovery: *Recovery, kind: Kind, lost: []Record) recovery_sent.Removed {
         assert(kind != .application);
-        const removed = recovery.table_of(kind).remove_range_into(0, constants.packet_number_max, lost);
+        const removed = recovery.table_of(kind).remove_range_into(0, constants.protocol.packet_number_max, lost);
         recovery.timer.spaces[@intFromEnum(kind)].ack_eliciting_in_flight = false;
         assert(recovery.table_of(kind).count() == 0);
         return removed;

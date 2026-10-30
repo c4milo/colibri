@@ -116,13 +116,13 @@ pub const Space = struct {
     /// spends only once the packet exists.
     pub fn peek_number(space: *const Space) SendError!u64 {
         // RFC 9000 §12.3: at 2^62-1 the sender closes the connection and sends nothing further.
-        if (space.next_packet_number > constants.packet_number_max) return error.PacketNumbersExhausted;
+        if (space.next_packet_number > constants.protocol.packet_number_max) return error.PacketNumbersExhausted;
         return space.next_packet_number;
     }
 
     pub fn next_number(space: *Space) SendError!u64 {
         // RFC 9000 §12.3: at 2^62-1 the sender closes the connection and sends nothing further.
-        if (space.next_packet_number > constants.packet_number_max) return error.PacketNumbersExhausted;
+        if (space.next_packet_number > constants.protocol.packet_number_max) return error.PacketNumbersExhausted;
         const number = space.next_packet_number;
         space.next_packet_number = number + 1;
         if (space.skips) |*skips| {
@@ -203,7 +203,7 @@ pub const Space = struct {
     /// without waiting, or enough of them to have earned one.
     fn owes_ack_at_once(space: *const Space) bool {
         const owed = space.ack_immediately or
-            space.ack_eliciting_since_ack >= constants.ack_eliciting_before_ack;
+            space.ack_eliciting_since_ack >= constants.policy.ack_eliciting_before_ack;
         // Nothing is owed before anything is received: both of those move only on a packet this
         // space processed. Stated rather than guarded, so a later change that empties a space
         // without clearing them fails here instead of writing an ACK frame with no ranges.
@@ -278,7 +278,7 @@ pub const Space = struct {
     ) core.writer.Error!void {
         const count = space.received.len - 1;
         // RFC 9000 §19.3: the type is 0x02, or 0x03 when the ECN counts follow (§19.3.2).
-        const frame_type = if (report_ecn) constants.frame_ack_ecn else constants.frame_ack;
+        const frame_type = if (report_ecn) constants.protocol.frame_ack_ecn else constants.protocol.frame_ack;
         try frame.write_type(writer, frame_type);
         const first = space.received.range_at(0);
         try wire.varint.encode(writer, first.largest);
@@ -350,7 +350,7 @@ pub const Skips = struct {
     pub fn init(intervals: u64) Skips {
         var skips: Skips = .{ .intervals = intervals, .turn = 0, .countdown = 0, .skipped = null };
         skips.countdown = skips.next_interval();
-        assert(skips.countdown >= constants.packet_number_skip_interval_min);
+        assert(skips.countdown >= constants.policy.packet_number_skip_interval_min);
         return skips;
     }
 
@@ -366,7 +366,7 @@ pub const Skips = struct {
     fn next_interval(skips: *Skips) u16 {
         const octet: u8 = @truncate(skips.intervals >> (@as(u6, skips.turn) * @bitSizeOf(u8)));
         skips.turn +%= 1;
-        return constants.packet_number_skip_interval_min + octet;
+        return constants.policy.packet_number_skip_interval_min + octet;
     }
 };
 

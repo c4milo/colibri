@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
 /// The octets of one encoder's ring.
-pub const Octets = [constants.encoder_ring_len]u8;
+pub const Octets = [constants.limits.encoder_ring_len]u8;
 
 pub const Ring = struct {
     /// Octets the encoder wrote into the ring, and octets freed, since the response started.
@@ -21,7 +21,7 @@ pub const Ring = struct {
     pub fn held(ring: Ring) usize {
         assert(ring.freed <= ring.written);
         const held_len = ring.written - ring.freed;
-        assert(held_len <= constants.encoder_ring_len);
+        assert(held_len <= constants.limits.encoder_ring_len);
         return @intCast(held_len);
     }
 
@@ -35,7 +35,7 @@ pub const Ring = struct {
 
     /// Counts the `len` octets the encoder wrote at the front of `room`.
     pub fn wrote(ring: *Ring, len: usize) void {
-        assert(len <= constants.encoder_ring_len - ring.held());
+        assert(len <= constants.limits.encoder_ring_len - ring.held());
         ring.written += len;
     }
 
@@ -52,7 +52,7 @@ pub const Ring = struct {
     }
 
     fn place(count: u64) usize {
-        return @intCast(count % constants.encoder_ring_len);
+        return @intCast(count % constants.limits.encoder_ring_len);
     }
 };
 

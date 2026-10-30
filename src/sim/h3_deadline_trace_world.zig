@@ -417,8 +417,8 @@ pub const World = struct {
     fn learned(world: *World, index: usize) Outcome {
         const fetch = &world.peer.fetches[index];
         if (fetch.reset) |code| {
-            if (code == h3.constants.error_request_rejected) return .rejected;
-            if (code == h3.constants.error_request_cancelled) return .cancelled;
+            if (code == h3.constants.protocol.error_request_rejected) return .rejected;
+            if (code == h3.constants.protocol.error_request_cancelled) return .cancelled;
             world.broken = true;
             return .none;
         }

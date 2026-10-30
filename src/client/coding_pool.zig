@@ -23,7 +23,7 @@ pub const Zstd = struct {
 
 /// The `br` coding (RFC 7932 §13): one stream, whose window reaches `brotli_window_bits_max`.
 pub const Brotli = struct {
-    pub const Decoder = brotli.Decoder(.{ .window_bits_max = constants.brotli_window_bits_max });
+    pub const Decoder = brotli.Decoder(.{ .window_bits_max = constants.protocol.brotli_window_bits_max });
     /// RFC 7932 §9.2: the last meta-block ends the stream, so octets after it belong to none.
     pub const frames_repeat = false;
 };
@@ -214,8 +214,8 @@ pub const BrotliDecoders = Storage(Brotli);
 
 comptime {
     // RFC 7932 §9.1: a window of (1 << WBITS) - 16 octets, WBITS from 10 to 24.
-    assert(constants.brotli_window_bits_max >= brotli.constants.window_bits_min);
-    assert(constants.brotli_window_bits_max <= brotli.constants.window_bits_max);
+    assert(constants.protocol.brotli_window_bits_max >= brotli.constants.window_bits_min);
+    assert(constants.protocol.brotli_window_bits_max <= brotli.constants.window_bits_max);
 }
 
 test {

@@ -146,7 +146,7 @@ fn close_due(peer: *Peer, plan: *const QuicPeer, now_ms: u64) bool {
     peer.closing = true;
     quic.connection_close.owe(&peer.peer.connection, .{
         .layer = .application,
-        .error_code = h3.constants.error_no_error,
+        .error_code = h3.constants.protocol.error_no_error,
         .frame_type = null,
         .reason = "",
     });

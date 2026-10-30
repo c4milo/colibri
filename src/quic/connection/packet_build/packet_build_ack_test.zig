@@ -70,7 +70,7 @@ test "RFC 9000 §13.2.1: an ACK goes out once max_ack_delay has passed" {
 
 /// A PATH_CHALLENGE's data, which gives a packet a frame of its own. Test-only.
 const challenge_octet: u8 = 0x5c;
-const challenge_data: [constants.path_challenge_len]u8 = @splat(challenge_octet);
+const challenge_data: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet);
 
 test "RFC 9000 §13.2.1: an ACK not yet owed goes out with other frames, and only then" {
     fixture.open_connection();
@@ -128,7 +128,7 @@ fn open_application(sent_at_ns: u64) void {
     }
     fixture.fake = .{};
     fixture.test_connection.recovery.timer.spaces[@intFromEnum(core.Level.application)].last_ack_eliciting_sent_at_ns = sent_at_ns;
-    fixture.test_connection.ack_only_since_eliciting = constants.ack_only_packets_before_ping;
+    fixture.test_connection.ack_only_since_eliciting = constants.policy.ack_only_packets_before_ping;
 }
 
 /// The ack-eliciting 1-RTT packets §13.2.2 acknowledges at once. Test-only.
@@ -160,7 +160,7 @@ test "RFC 9000 §13.2.4: an endpoint that only acknowledges adds a PING once a r
     // An endpoint that has not yet sent enough packets of ACK frames alone adds none: that is
     // the peer answering a PING, and asking for an answer back would never end.
     open_application(test_now_ns);
-    fixture.test_connection.ack_only_since_eliciting = constants.ack_only_packets_before_ping - 1;
+    fixture.test_connection.ack_only_since_eliciting = constants.policy.ack_only_packets_before_ping - 1;
     receive_two();
     try testing.expect(!(try fixture.build_at_instant(.application, test_now_ns + round_trip_ns)).?.ack_eliciting);
 
@@ -177,7 +177,7 @@ test "decision 73: the packets of ACK frames alone are counted, and a PING start
     fixture.test_connection.ack_only_since_eliciting = 0;
     const at_ns = test_now_ns + fixture.test_connection.recovery.rtt.smoothed_ns;
     // Bounded by the threshold, a named limit.
-    for (0..constants.ack_only_packets_before_ping) |_| {
+    for (0..constants.policy.ack_only_packets_before_ping) |_| {
         receive_two();
         try testing.expect(!(try fixture.build_at_instant(.application, at_ns)).?.ack_eliciting);
     }

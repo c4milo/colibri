@@ -29,7 +29,7 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
-var datagram: [constants.datagram_len_min]u8 = undefined;
+var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 
@@ -48,7 +48,7 @@ const issued_id: [id_len]u8 = @splat(issued_octet);
 const second_octet: u8 = 0x6b;
 const second_id: [id_len]u8 = @splat(second_octet);
 const token_octet: u8 = 0x9d;
-const token: [constants.stateless_reset_token_len]u8 = @splat(token_octet);
+const token: [constants.protocol.stateless_reset_token_len]u8 = @splat(token_octet);
 
 fn parameters(limit: u64) Parameters {
     var held = Parameters.initial();
@@ -78,7 +78,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, limit: u64) v
     keys.on_keys_installed(connection, .application, .write);
     connection.handshake_complete = true;
     // RFC 9000 §8.1: a server sends only after it has received.
-    if (role == .server) connection.path.on_datagram_received(constants.datagram_len_min);
+    if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 fn send_from(connection: *Connection) !?send.Sent {
@@ -203,7 +203,7 @@ test "RFC 9000 §5.1.2: once the peer retires the ID in use, colibri addresses t
 test "RFC 9000 §12.4: neither frame goes below 1-RTT" {
     open_pair(transport_parameters.default_active_connection_id_limit);
     _ = try id_frames.issue(&client, &issued_id, &token);
-    var room: [constants.datagram_len_min]u8 = undefined;
+    var room: [constants.protocol.datagram_len_min]u8 = undefined;
     var writer = Writer.init(&room);
     try testing.expect(!id_frames.write(&client, .handshake, &writer, 0));
     try testing.expectEqual(0, writer.written().len);

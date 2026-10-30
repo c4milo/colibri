@@ -25,7 +25,7 @@ pub const Extra = struct {
 };
 
 pub const Ring = struct {
-    entries: [constants.stream_ranges_max]Extra,
+    entries: [constants.limits.stream_ranges_max]Extra,
     /// The position the next range takes.
     head: u32,
 
@@ -38,8 +38,8 @@ pub const Ring = struct {
     pub fn room(ring: *const Ring, tail: u32) usize {
         const used = ring.head -% tail;
         // INV-33: no record the table holds is older than the oldest one.
-        assert(used <= constants.stream_ranges_max);
-        return constants.stream_ranges_max - used;
+        assert(used <= constants.limits.stream_ranges_max);
+        return constants.limits.stream_ranges_max - used;
     }
 
     /// Writes `extra` at the head. The caller asked `room` first.
@@ -47,7 +47,7 @@ pub const Ring = struct {
         // INV-33: the head never passes a range a live record names.
         assert(ring.room(tail) > 0);
         assert(extra.len > 0 or extra.fin);
-        ring.entries[ring.head % constants.stream_ranges_max] = extra;
+        ring.entries[ring.head % constants.limits.stream_ranges_max] = extra;
         ring.head +%= 1;
     }
 
@@ -56,9 +56,9 @@ pub const Ring = struct {
     pub fn at(ring: *const Ring, from: u32, len: u8, index: usize) Extra {
         assert(index < len);
         // INV-33: the record's ranges were written, and none has been written over since.
-        assert(ring.head -% from <= constants.stream_ranges_max);
+        assert(ring.head -% from <= constants.limits.stream_ranges_max);
         assert(len <= ring.head -% from);
-        return ring.entries[(from +% @as(u32, @intCast(index))) % constants.stream_ranges_max];
+        return ring.entries[(from +% @as(u32, @intCast(index))) % constants.limits.stream_ranges_max];
     }
 };
 
@@ -78,26 +78,26 @@ test "decision 131: a record reads back the ranges written after its position" {
     const from = ring.head;
     ring.push(from, extra_of(0, 10));
     ring.push(from, extra_of(10, 20));
-    try testing.expectEqual(constants.stream_ranges_max - 2, ring.room(from));
+    try testing.expectEqual(constants.limits.stream_ranges_max - 2, ring.room(from));
     try testing.expectEqual(10, ring.at(from, 2, 1).offset);
     try testing.expectEqual(20, ring.at(from, 2, 1).len);
     // With no record held, the tail is the head, and the whole ring is free.
-    try testing.expectEqual(constants.stream_ranges_max, ring.room(ring.head));
+    try testing.expectEqual(constants.limits.stream_ranges_max, ring.room(ring.head));
 }
 
 test "INV-33: the ring fills up to the oldest record, and frees as the tail moves" {
     var ring: Ring = undefined;
     ring.init();
     const oldest = ring.head;
-    for (0..constants.stream_ranges_max) |index| ring.push(oldest, extra_of(index, 1));
+    for (0..constants.limits.stream_ranges_max) |index| ring.push(oldest, extra_of(index, 1));
     try testing.expectEqual(0, ring.room(oldest));
     // The oldest record left: the next one's position is the tail, and its ranges stay readable.
     const next = oldest +% 1;
     try testing.expectEqual(1, ring.room(next));
-    ring.push(next, extra_of(constants.stream_ranges_max, 1));
+    ring.push(next, extra_of(constants.limits.stream_ranges_max, 1));
     try testing.expectEqual(1, ring.at(next, 1, 0).offset);
-    const last = next +% @as(u32, constants.stream_ranges_max - 1);
-    try testing.expectEqual(constants.stream_ranges_max, ring.at(last, 1, 0).offset);
+    const last = next +% @as(u32, constants.limits.stream_ranges_max - 1);
+    try testing.expectEqual(constants.limits.stream_ranges_max, ring.at(last, 1, 0).offset);
 }
 
 test "INV-33: positions wrap past 32 bits and still name their ranges" {
@@ -109,5 +109,5 @@ test "INV-33: positions wrap past 32 bits and still name their ranges" {
     ring.push(from, extra_of(8, 1));
     try testing.expectEqual(0, ring.head -% 1);
     try testing.expectEqual(8, ring.at(from, 2, 1).offset);
-    try testing.expectEqual(constants.stream_ranges_max - 2, ring.room(from));
+    try testing.expectEqual(constants.limits.stream_ranges_max - 2, ring.room(from));
 }

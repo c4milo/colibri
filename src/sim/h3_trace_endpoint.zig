@@ -188,7 +188,7 @@ pub const Endpoint = struct {
         for (endpoint.outcome[0..endpoint.opened], 0..) |*outcome, r| {
             const due = endpoint.plan.cancel_at[r] orelse continue;
             if (due > at or outcome.* != .none) continue;
-            endpoint.h3.cancel(&endpoint.transport.connection, r * request_stream_step, h3.constants.error_request_cancelled);
+            endpoint.h3.cancel(&endpoint.transport.connection, r * request_stream_step, h3.constants.protocol.error_request_cancelled);
             outcome.* = .cancelled;
         }
     }
@@ -212,7 +212,7 @@ pub const Endpoint = struct {
             },
             // RFC 9114 §4.1.1: a request the server refused after its GOAWAY is rejected.
             .reset => |held| {
-                if (held.error_code != h3.constants.error_request_rejected) return error.UnexpectedEvent;
+                if (held.error_code != h3.constants.protocol.error_request_rejected) return error.UnexpectedEvent;
                 endpoint.answer_read[index_of(held.stream_id)] = true;
                 endpoint.settle(held.stream_id, .rejected);
             },
@@ -303,7 +303,7 @@ fn parameters() quic.transport_parameters.Parameters {
     held.initial_max_stream_data_bidi_remote = stream_window;
     held.initial_max_stream_data_uni = stream_window;
     held.initial_max_streams_bidi = constants.h3_trace.requests_max;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = idle_timeout_ms;
     return held;
 }

@@ -144,7 +144,7 @@ fn read_time(reader: *TextReader, previous_ns: u64) Error!u64 {
     var parts = std.mem.splitScalar(u8, text, '.');
     const integer = parts.first();
     const fraction = parts.next() orelse return error.QlogRecordMalformed;
-    if (fraction.len != qlog.constants.millisecond_fraction_digits) return error.QlogRecordMalformed;
+    if (fraction.len != qlog.constants.protocol.millisecond_fraction_digits) return error.QlogRecordMalformed;
     const milliseconds = std.fmt.parseUnsigned(u64, integer, decimal_base) catch return error.QlogRecordMalformed;
     const microseconds = std.fmt.parseUnsigned(u64, fraction, decimal_base) catch return error.QlogRecordMalformed;
     const time_ns = milliseconds * qlog.constants.nanoseconds_per_millisecond +

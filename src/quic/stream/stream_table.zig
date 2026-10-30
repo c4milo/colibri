@@ -53,7 +53,7 @@ pub const Stream = struct {
     incoming: stream_incoming.Incoming = .{},
     /// Where this stream's new octets go against other streams': a lower value first (RFC 9000
     /// §2.3).
-    priority: u8 = constants.stream_priority_default,
+    priority: u8 = constants.policy.stream_priority_default,
     /// The MAX_STREAM_DATA and STREAM_DATA_BLOCKED frames most recently sent for this stream
     /// (RFC 9000 §13.3).
     max_stream_data: frame_latest.Latest = .{},
@@ -76,10 +76,10 @@ pub const Stream = struct {
 
 /// RFC 9000 §2.1: the two low bits give the type, which is the pool's class.
 fn class_of(id: u64) u32 {
-    return @intCast(id & (constants.stream_id_initiator_bit | constants.stream_id_directionality_bit));
+    return @intCast(id & (constants.protocol.stream_id_initiator_bit | constants.protocol.stream_id_directionality_bit));
 }
 
-const Pool = core.Pool(Stream, constants.streams_per_connection_max, constants.stream_types, class_of);
+const Pool = core.Pool(Stream, constants.limits.streams_per_connection_max, constants.protocol.stream_types, class_of);
 
 /// Why a stream was not opened.
 pub const OpenError = error{
@@ -118,19 +118,19 @@ pub const Streams = struct {
     /// Which endpoint this is, which decides who initiated a given identifier (§2.1).
     role: Initiator,
     /// What the peer permits this endpoint to open, by directionality (§4.6).
-    local_limit: [constants.stream_directionalities]flow.Sender,
+    local_limit: [constants.protocol.stream_directionalities]flow.Sender,
     /// What this endpoint permits the peer to open (§4.6).
-    peer_limit: [constants.stream_directionalities]flow.Receiver,
+    peer_limit: [constants.protocol.stream_directionalities]flow.Receiver,
     /// The next index this endpoint opens, by directionality (§2.1).
-    next_index: [constants.stream_directionalities]u64,
+    next_index: [constants.protocol.stream_directionalities]u64,
     /// The stream octets lost in transit and owed again (§13.3), across every stream.
     lost: stream_lost.LostRanges,
     /// The MAX_STREAMS and STREAMS_BLOCKED frames most recently sent for each stream type (§13.3).
-    max_streams: [constants.stream_directionalities]frame_latest.Latest,
-    streams_blocked: [constants.stream_directionalities]frame_latest.Latest,
+    max_streams: [constants.protocol.stream_directionalities]frame_latest.Latest,
+    streams_blocked: [constants.protocol.stream_directionalities]frame_latest.Latest,
     /// Whether this endpoint tried to open a stream of each type and the peer's limit refused it
     /// since the last one it opened, which is when §4.6 asks for STREAMS_BLOCKED.
-    open_refused: [constants.stream_directionalities]bool,
+    open_refused: [constants.protocol.stream_directionalities]bool,
     /// How many streams are in "Reset Sent", waiting for their RESET_STREAM to be acknowledged
     /// (RFC 9000 §3.1). An acknowledgment looks for one only while this is above zero.
     resets_unacknowledged: u32,
@@ -144,8 +144,8 @@ pub const Streams = struct {
     pub fn init(
         streams: *Streams,
         role: Initiator,
-        local_limits: [constants.stream_directionalities]u64,
-        peer_limits: [constants.stream_directionalities]u64,
+        local_limits: [constants.protocol.stream_directionalities]u64,
+        peer_limits: [constants.protocol.stream_directionalities]u64,
     ) void {
         streams.pool.init();
         streams.role = role;
@@ -156,10 +156,10 @@ pub const Streams = struct {
         streams.open_refused = @splat(false);
         streams.resets_unacknowledged = 0;
         // No stream has sent, so the turn starts at the first slot.
-        streams.send_turn = constants.streams_per_connection_max - 1;
-        for (0..constants.stream_directionalities) |index| {
+        streams.send_turn = constants.limits.streams_per_connection_max - 1;
+        for (0..constants.protocol.stream_directionalities) |index| {
             streams.local_limit[index] = flow.Sender.init(local_limits[index]);
-            const capped = @min(peer_limits[index], constants.streams_per_connection_max);
+            const capped = @min(peer_limits[index], constants.limits.streams_per_connection_max);
             // A stream count is not data, so it never grows: decision 49 tunes a data window
             // against a round trip, and §4.6's limit is bounded by the table instead. Each
             // closed stream is worth a MAX_STREAMS frame (`count_frame_limit`, decision 130).
@@ -192,7 +192,7 @@ pub const Streams = struct {
         }
         const index = streams.next_index[which];
         // RFC 9000 §2.1: a stream ID is 62 bits, so each type's indices end.
-        if (index > constants.stream_index_max) return error.IdentifiersExhausted;
+        if (index > constants.protocol.stream_index_max) return error.IdentifiersExhausted;
         const id = StreamId.of(streams.role, directionality, index);
         const stream = streams.pool.open(id.value) catch return error.Full;
         streams.next_index[which] = index + 1;
@@ -219,7 +219,7 @@ pub const Streams = struct {
         // RFC 9000 §3.2: every lower-numbered stream of the same type is created too, so the
         // creation order is the same at both endpoints. The limit above bounds this walk.
         var index = streams.lowest_unopened(id);
-        for (0..constants.streams_per_connection_max + 1) |_| {
+        for (0..constants.limits.streams_per_connection_max + 1) |_| {
             const next = StreamId.of(id.initiator(), id.directionality(), index);
             const stream = streams.pool.open(next.value) catch return error.Full;
             if (index == id.index()) return stream;
@@ -331,7 +331,7 @@ const testing = std.testing;
 /// The table the tests drive, and the limits they start it with. Test-only.
 threadlocal var test_streams: Streams align(@alignOf(Streams)) = undefined;
 const test_limit = 8;
-const both_limits: [constants.stream_directionalities]u64 = @splat(test_limit);
+const both_limits: [constants.protocol.stream_directionalities]u64 = @splat(test_limit);
 
 /// A stream the peer initiates, of `directionality` and index `index`. Test-only.
 fn peer_id(role: Initiator, directionality: Directionality, index: u64) StreamId {
@@ -431,16 +431,16 @@ test "§3: a stream that both halves finished is closed, and reads as closed aft
 }
 
 test "§4.6, §3.2: the advertised limit never exceeds what the table can hold" {
-    const past_table: [constants.stream_directionalities]u64 = @splat(constants.streams_per_connection_max + 100);
+    const past_table: [constants.protocol.stream_directionalities]u64 = @splat(constants.limits.streams_per_connection_max + 100);
     test_streams.init(.server, both_limits, past_table);
     // §3.2's implicit creation makes an advertised limit a promise to hold that many streams,
     // so the table's capacity is what is advertised instead.
-    try testing.expectEqual(constants.streams_per_connection_max, test_streams.peer_limit[0].limit);
+    try testing.expectEqual(constants.limits.streams_per_connection_max, test_streams.peer_limit[0].limit);
     // The peer may fill the table and no more, and filling it is not an error.
-    const last = peer_id(.server, .bidirectional, constants.streams_per_connection_max - 1);
+    const last = peer_id(.server, .bidirectional, constants.limits.streams_per_connection_max - 1);
     _ = try test_streams.open_peer(last);
-    try testing.expectEqual(constants.streams_per_connection_max, test_streams.len());
-    const past = peer_id(.server, .bidirectional, constants.streams_per_connection_max);
+    try testing.expectEqual(constants.limits.streams_per_connection_max, test_streams.len());
+    const past = peer_id(.server, .bidirectional, constants.limits.streams_per_connection_max);
     try testing.expectError(error.StreamLimitReached, test_streams.open_peer(past));
 }
 

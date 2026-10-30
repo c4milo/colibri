@@ -52,7 +52,7 @@ test "RFC 9113 §8.1: a response that ends before the upload does closes the str
     try testing.expect(post.response.body_sent < upload.len);
     support.peer_events_len = 0;
     try support.pump_h2();
-    try testing.expectEqual(h2.constants.error_cancel, peer_reset().?.error_code);
+    try testing.expectEqual(h2.constants.protocol.error_cancel, peer_reset().?.error_code);
 }
 
 test "RFC 9113 §6.8: an exchange not yet written when a GOAWAY arrives is refused" {
@@ -63,7 +63,7 @@ test "RFC 9113 §6.8: an exchange not yet written when a GOAWAY arrives is refus
     try support.pump_h2();
     _ = try connection.request(&waiting.request, &waiting.response);
     var writer = h2.core.Writer.init(support.to_client[support.to_client_len..]);
-    try h2.frame.write_goaway(&writer, 1, h2.constants.error_no_error, "");
+    try h2.frame.write_goaway(&writer, 1, h2.constants.protocol.error_no_error, "");
     support.to_client_len += writer.written().len;
     try support.client_receive();
     try testing.expectEqual(.refused, waiting.response.result);
@@ -74,7 +74,7 @@ test "RFC 9113 §5.1.2: an exchange past the server's stream limit waits for a s
     try start();
     // The prefaces go first: the server's own SETTINGS names its limit, and this one lowers it.
     try support.pump_h2();
-    try support.peer_setting(h2.constants.setting_max_concurrent_streams, 1);
+    try support.peer_setting(h2.constants.protocol.setting_max_concurrent_streams, 1);
     try support.client_receive();
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
@@ -94,7 +94,7 @@ test "RFC 9113 §5.1.2: an exchange past the server's stream limit waits for a s
 
 test "RFC 9113 §5.1.1: with no stream identifier left, an exchange is refused and the connection drains" {
     try start();
-    connection.session.h2.streams.next_local_id = h2.constants.stream_id_max + h2.constants.stream_id_step;
+    connection.session.h2.streams.next_local_id = h2.constants.protocol.stream_id_max + h2.constants.protocol.stream_id_step;
     var exchange = get(&bodies[0]);
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
@@ -130,7 +130,7 @@ test "RFC 9113 §8.1: content before the response's head is malformed, and colib
     try testing.expectEqual(0, exchange.response.body_len);
     support.peer_events_len = 0;
     try support.pump_h2();
-    try testing.expectEqual(h2.constants.error_protocol_error, peer_reset().?.error_code);
+    try testing.expectEqual(h2.constants.protocol.error_protocol_error, peer_reset().?.error_code);
 }
 
 /// The encoder a test writes the representations it looks for with, as h2's own encoder writes
@@ -141,7 +141,7 @@ const representation_len_max: usize = 256;
 
 /// How h2's encoder writes one field line `how`, with no size update before it. Test-only.
 fn representation(name: []const u8, value: []const u8, how: h2.hpack.encoder.Indexing) ![]const u8 {
-    test_encoder.init(h2.constants.header_table_size_initial, .when_shorter);
+    test_encoder.init(h2.constants.protocol.header_table_size_initial, .when_shorter);
     var writer = h2.core.Writer.init(&test_representation);
     try test_encoder.write_field(&writer, name, value, how);
     return writer.written();

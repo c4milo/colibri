@@ -38,11 +38,11 @@ test "RFC 9113 §8.1: a server's trailer section ends the stream after its respo
     written += (try test_connection.write_data(test_output[written..], 1, body, false)).written;
     const trailer_len = try test_connection.write_trailers(test_output[written..], 1, &trailers);
     const frame_bytes = test_output[written..][0..trailer_len];
-    try testing.expectEqual(constants.frame_type_headers, frame_bytes[3]);
-    try testing.expectEqual(constants.flag_end_stream | constants.flag_end_headers, frame_bytes[4]);
+    try testing.expectEqual(constants.protocol.frame_type_headers, frame_bytes[3]);
+    try testing.expectEqual(constants.protocol.flag_end_stream | constants.protocol.flag_end_headers, frame_bytes[4]);
     // The section holds the caller's field lines and no pseudo-header field.
-    trailer_decoder.init(constants.header_table_size_initial);
-    var block = trailer_decoder.block(frame_bytes[constants.frame_header_len..]);
+    trailer_decoder.init(constants.protocol.header_table_size_initial);
+    var block = trailer_decoder.block(frame_bytes[constants.protocol.frame_header_len..]);
     const line = (try block.next()).?;
     try testing.expectEqualStrings("grpc-status", line.name);
     try testing.expectEqualStrings("0", line.value);
@@ -103,7 +103,7 @@ test "RFC 9113 §8.1: a client's trailer section follows its request and its DAT
     var written = sent.written;
     written += (try test_connection.write_data(test_output[written..], sent.stream_id, body, false)).written;
     const trailer_len = try test_connection.write_trailers(test_output[written..], sent.stream_id, &trailers);
-    try testing.expectEqual(constants.flag_end_stream | constants.flag_end_headers, test_output[written..][0..trailer_len][4]);
+    try testing.expectEqual(constants.protocol.flag_end_stream | constants.protocol.flag_end_headers, test_output[written..][0..trailer_len][4]);
     try testing.expectEqual(stream.State.half_closed_local, test_connection.streams.lookup(sent.stream_id).live.state);
 }
 
@@ -123,6 +123,6 @@ test "RFC 9113 §8.1: ended_stream names the stream a request, response, DATA or
     const trailer_event: Event = .{ .trailers = .{ .stream_id = 7 } };
     try testing.expectEqual(7, trailer_event.ended_stream().?);
     // A reset ends a stream too, but not by END_STREAM, and says so in its own event.
-    const reset: Event = .{ .stream_reset = .{ .stream_id = 9, .error_code = constants.error_cancel } };
+    const reset: Event = .{ .stream_reset = .{ .stream_id = 9, .error_code = constants.protocol.error_cancel } };
     try testing.expectEqual(null, reset.ended_stream());
 }

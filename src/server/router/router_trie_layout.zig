@@ -160,7 +160,7 @@ pub fn build(comptime Value: type, comptime table: anytype, comptime trie: anyty
 }
 
 /// The first route, in table order, whose leaf has an Allow value longer than
-/// `core.constants.field_value_len_max`, or null. `layout` is the layout of `table`, and
+/// `core.constants.limits.field_value_len_max`, or null. `layout` is the layout of `table`, and
 /// `trie` is a pointer to the value of `router_trie.trie_of(table)`. Comptime-only.
 pub fn allow_refusal(comptime layout: anytype, comptime table: anytype, comptime trie: anytype) ?router_trie.Refusal {
     @setEvalBranchQuota(router_trie.quota_of(table));
@@ -181,8 +181,8 @@ pub fn allow_refusal(comptime layout: anytype, comptime table: anytype, comptime
 /// it, so the two loops compare with one rule.
 fn allow_too_long(allow_len: usize) bool {
     // RFC 9110 §10.2.1: a 405 carries the Allow value as a field value, which the endpoint
-    // bounds at `core.constants.field_value_len_max` (decision 122).
-    return allow_len > core.constants.field_value_len_max;
+    // bounds at `core.constants.limits.field_value_len_max` (decision 122).
+    return allow_len > core.constants.limits.field_value_len_max;
 }
 
 fn Builder(comptime Value: type, comptime sizes: Sizes) type {

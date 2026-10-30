@@ -10,7 +10,8 @@
 //! Four kinds of file are not read, because each is a table of numbers rather than code that uses
 //! one:
 //!
-//! - `constants.zig`, where the names live.
+//! - `constants.zig` and the files decision 137 sorts its names into: `constants_protocol.zig`,
+//!   `constants_limits.zig`, `constants_policy.zig` and `constants_recovery.zig`.
 //! - `huffman_table.zig` and `static_table.zig`, which `zig build huffman-table` and
 //!   `zig build static-table` generate from RFC 7541 Appendix B and Appendix A.
 //! - `src/golden/corpus_cases.zig`, the octets and values the corpus cases are built from.
@@ -35,7 +36,15 @@ pub const config: magic_numbers.Config = .{
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_basenames = &.{ "constants.zig", "huffman_table.zig", "static_table.zig" },
+        .exclude_basenames = &.{
+            "constants.zig",
+            "constants_protocol.zig",
+            "constants_limits.zig",
+            "constants_policy.zig",
+            "constants_recovery.zig",
+            "huffman_table.zig",
+            "static_table.zig",
+        },
         .exclude_paths = &.{
             "src/golden/corpus_cases.zig",
             "src/golden/mutations.zig",
@@ -105,6 +114,7 @@ test "magic-numbers reads src/ but not its constants or its tables" {
         "integer literal 16",
     });
     try expect_findings("src/wire/constants.zig", failing_fixture, &.{});
+    try expect_findings("src/quic/constants_limits.zig", failing_fixture, &.{});
     try expect_findings("src/wire/huffman_table.zig", failing_fixture, &.{});
     try expect_findings("src/hpack/static_table.zig", failing_fixture, &.{});
     try expect_findings("src/golden/corpus_cases.zig", failing_fixture, &.{});

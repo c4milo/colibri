@@ -18,7 +18,7 @@ const event = @import("../event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const field_count_max = h2.core.constants.field_count_max;
+const field_count_max = h2.core.constants.limits.field_count_max;
 const ok: u16 = 200;
 
 /// One line more than a section may carry, each with a name and a value no other line has, so
@@ -127,8 +127,8 @@ test "RFC 9110 §5.4: a section of field_count_max lines is sent whole, and one 
     try connection.respond(1, .{ .status = ok, .headers = lines[0..field_count_max], .end = false });
     // The head went out whole: one HEADERS frame that ends its field block (RFC 9113 §6.2).
     const head = support.drain();
-    try testing.expectEqual(h2.constants.frame_type_headers, head[h2_support.type_index]);
-    try testing.expect(head[h2_support.flags_index] & h2.constants.flag_end_headers != 0);
+    try testing.expectEqual(h2.constants.protocol.frame_type_headers, head[h2_support.type_index]);
+    try testing.expect(head[h2_support.flags_index] & h2.constants.protocol.flag_end_headers != 0);
     try testing.expectEqual(head.len, h2_support.frame_len(head));
     try testing.expectError(error.SectionTooLarge, connection.write_trailers(1, &lines));
     try testing.expectEqual(0, connection.output_len);
@@ -157,7 +157,7 @@ test "a section refused for its count leaves the reply h2 owes unwritten, and th
     try testing.expectEqual(held_len, connection.output_len);
     try connection.respond(1, .{ .status = ok, .end = true });
     const sent = support.drain();
-    try testing.expectEqual(h2.constants.frame_type_ping, sent[held_len + h2_support.type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_ping, sent[held_len + h2_support.type_index]);
 }
 
 /// The pseudo-header field lines a request can carry, as h2 admits them (RFC 9113 §8.3.1, §8.5).
@@ -174,20 +174,20 @@ const pseudo_sets = [_]PseudoSet{
 
 /// Sends a HEADERS frame on stream 1 holding `pseudo` and then `regular`, and returns the event.
 fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool) !event.ConnectionEvent {
-    var block: [h2.constants.frame_size_max]u8 = undefined;
+    var block: [h2.constants.limits.frame_size_max]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(h2.constants.header_table_size_initial, .never);
+    encoder.init(h2.constants.protocol.header_table_size_initial, .never);
     var block_writer = h2.core.Writer.init(&block);
     try encoder.begin_block(&block_writer);
     for (pseudo) |line| try encoder.write_field(&block_writer, line.name, line.value, .without_indexing);
     for (regular) |line| try encoder.write_field(&block_writer, line.name, line.value, .without_indexing);
     encoder.commit_block();
     var writer = h2.core.Writer.init(&h2_support.frames);
-    const end_flag: u8 = if (end) h2.constants.flag_end_stream else 0;
+    const end_flag: u8 = if (end) h2.constants.protocol.flag_end_stream else 0;
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
-        .type = h2.constants.frame_type_headers,
-        .flags = h2.constants.flag_end_headers | end_flag,
+        .type = h2.constants.protocol.frame_type_headers,
+        .flags = h2.constants.protocol.flag_end_headers | end_flag,
         .stream_id = 1,
     });
     try writer.write_bytes(block_writer.written());

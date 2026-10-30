@@ -38,7 +38,7 @@ var client_pool: stream_module.stream_incoming.Pool(pool_capacity) align(@alignO
 
 /// Datagrams held while a test decides when each arrives. Test-only.
 const held_max: usize = 8;
-var held: [held_max][constants.datagram_len_min]u8 = undefined;
+var held: [held_max][constants.protocol.datagram_len_min]u8 = undefined;
 var held_len: [held_max]usize = undefined;
 var output: [pool_capacity]u8 = undefined;
 
@@ -104,7 +104,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, receive: ?str
     keys.on_keys_installed(connection, .application, .write);
     connection.handshake_complete = true;
     // RFC 9000 §8.1: a server sends only after it has received.
-    if (role == .server) connection.path.on_datagram_received(constants.datagram_len_min);
+    if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 /// Sends every datagram `from` owes now into `held`, and returns how many.
@@ -221,7 +221,7 @@ test "decision 61: every receive window grows no further than the pool holds" {
 const reset_error_code: u64 = 0x10c;
 
 /// A datagram held back past a reset, as a delayed one arrives. Test-only.
-var late: [constants.datagram_len_min]u8 = undefined;
+var late: [constants.protocol.datagram_len_min]u8 = undefined;
 var late_len: usize = 0;
 
 test "RFC 9000 §3.2: a reset stream is reported once, and its octets go back to the pool" {

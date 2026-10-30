@@ -46,7 +46,7 @@ pub const Error = error{
 pub fn issue(
     connection: *Connection,
     octets: []const u8,
-    token: *const [constants.stateless_reset_token_len]u8,
+    token: *const [constants.protocol.stateless_reset_token_len]u8,
 ) Error!u64 {
     const local = &connection.local_ids;
     // RFC 9000 §19.15: no NEW_CONNECTION_ID from an endpoint whose peer sends it zero-length
@@ -73,7 +73,7 @@ pub fn write(connection: *Connection, level: Level, writer: *Writer, number: u64
     // RFC 9000 §12.4, Table 3 marks both "__01", and decision 20 refuses 0-RTT.
     if (level != .application) return false;
     var wrote = false;
-    // Bounded by the set, which `constants.connection_ids_max` caps.
+    // Bounded by the set, which `constants.limits.connection_ids_max` caps.
     for (connection.local_ids.active_ids()) |*issued| {
         if (!issued.new_frame.owed) continue;
         const frame: frame_module.Frame = .{
@@ -101,7 +101,7 @@ pub fn write(connection: *Connection, level: Level, writer: *Writer, number: u64
 /// nothing: it stays until the peer retires it. The records are `level`'s space's (§12.3).
 pub fn on_packets_acknowledged(connection: *Connection, level: Level, acknowledged: []const Record) void {
     if (level != .application) return;
-    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    // Bounded by the slice the caller placed, which `constants.limits.sent_packets_max` sizes.
     for (acknowledged) |record| connection.remote_ids.on_packet_acknowledged(record.number);
 }
 
@@ -109,7 +109,7 @@ pub fn on_packets_acknowledged(connection: *Connection, level: Level, acknowledg
 /// §13.3). The records are `level`'s space's (§12.3).
 pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Record) void {
     if (level != .application) return;
-    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    // Bounded by the slice the caller placed, which `constants.limits.sent_packets_max` sizes.
     for (lost) |record| {
         connection.local_ids.on_packet_lost(record.number);
         connection.remote_ids.on_packet_lost(record.number);

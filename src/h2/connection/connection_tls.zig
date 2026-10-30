@@ -64,7 +64,7 @@ pub fn check(provider: tls_provider.Provider) AttachError!void {
     // RFC 9113 §9.2 makes TLS 1.2 the floor for HTTP/2 over TLS, and colibri admits TLS 1.3 alone
     // (decision 45). Admitting less than the floor permits is the endpoint's choice; §7 names
     // INADEQUATE_SECURITY for a transport that does not meet the requirements of §9.2.
-    if (negotiated.version != tls_provider.constants.version_tls_1_3) return error.TlsVersionRefused;
+    if (negotiated.version != tls_provider.constants.protocol.version_tls_1_3) return error.TlsVersionRefused;
     // RFC 9846 Appendix B.4: the suite is a codepoint, and colibri admits the three of §9.1
     // (decision 45). Refusing here needs no part of RFC 9113 Appendix A, whose prohibited suites
     // are TLS 1.2's and are listed by name with no codepoint.
@@ -154,7 +154,7 @@ fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8,
         .without_data => try without_data(target, opened.consumed),
         // RFC 9113 §9.2.3: HTTP/2 clients MUST treat a post-handshake CertificateRequest as a
         // connection error of type PROTOCOL_ERROR.
-        .certificate_request => return target.fail(constants.error_protocol_error),
+        .certificate_request => return target.fail(constants.protocol.error_protocol_error),
         .alert => try on_alert(target, provider, opened.consumed),
     };
 }
@@ -196,7 +196,7 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
     target.records_without_data += 1;
     // RFC 9113 §10.5: a peer generating excessive load is a connection error of
     // ENHANCE_YOUR_CALM, which is what a run of records carrying nothing is.
-    if (target.records_without_data > core.constants.records_without_data_max) {
+    if (target.records_without_data > core.constants.limits.records_without_data_max) {
         return internal.fail_limit(target, .records_without_data);
     }
     return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = false };

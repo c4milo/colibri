@@ -118,9 +118,9 @@ pub fn frames_below(client: *const Endpoint, r: usize, offset: u64) u64 {
 
 /// The octets of one DATA frame the trace run writes: its header and `h3_trace.data_len` octets.
 pub fn data_frame_len() u64 {
-    var octets: [h3.constants.frame_header_len_max]u8 = undefined;
+    var octets: [h3.constants.protocol.frame_header_len_max]u8 = undefined;
     var writer = Writer.init(&octets);
-    h3.frame_write.write_header(&writer, h3.constants.frame_data, constants.h3_trace.data_len) catch unreachable;
+    h3.frame_write.write_header(&writer, h3.constants.protocol.frame_data, constants.h3_trace.data_len) catch unreachable;
     return writer.written().len + constants.h3_trace.data_len;
 }
 
@@ -140,7 +140,7 @@ fn parse_encoder(log: *Log(u64), buffer: anytype) void {
     var reader = Reader.init(unparsed(buffer, log.parsed_end));
     const base = log.parsed_end;
     skip_stream_type(&reader, base);
-    var strings: [qpack.constants.encoder_instruction_len_max]u8 = undefined;
+    var strings: [qpack.constants.limits.encoder_instruction_len_max]u8 = undefined;
     // Bounded: a stream carries no more units than the log holds.
     for (0..units_max) |_| {
         if (reader.remaining_len() == 0) break;
@@ -167,9 +167,9 @@ fn parse_control(log: *Log(ControlFrame), buffer: anytype) void {
         const length = (wire.varint.decode(&reader) catch unreachable).value;
         const payload = reader.take(@intCast(length)) catch unreachable;
         const end = base + reader.consumed().len;
-        if (frame_type == h3.constants.frame_settings) {
+        if (frame_type == h3.constants.protocol.frame_settings) {
             append(ControlFrame, log, .{ .kind = .settings, .id = 0, .end = end });
-        } else if (frame_type == h3.constants.frame_goaway) {
+        } else if (frame_type == h3.constants.protocol.frame_goaway) {
             var goaway = Reader.init(payload);
             const id = (wire.varint.decode(&goaway) catch unreachable).value;
             append(ControlFrame, log, .{ .kind = .goaway, .id = id / h3_trace_endpoint.request_stream_step, .end = end });

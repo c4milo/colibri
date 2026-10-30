@@ -39,7 +39,7 @@ pub const Storage = struct {
     decoder: qpack.Decoder,
     section: FieldSection,
     decoded: FieldSection,
-    strings: [core.constants.field_section_size_max]u8,
+    strings: [core.constants.limits.field_section_size_max]u8,
     encoded: [constants.qpack_check_section_len_max]u8,
     instructions: [constants.qpack_check_section_len_max]u8,
     input: [constants.qpack_input_check_input_len_max]u8,

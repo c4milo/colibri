@@ -16,7 +16,7 @@ const constants = @import("../constants.zig");
 const percent = @import("uri_percent.zig");
 
 pub const ReadError = error{
-    /// The query holds more pairs than `constants.query_parameters_max`: the table is full.
+    /// The query holds more pairs than `constants.limits.query_parameters_max`: the table is full.
     Full,
     /// The decoded names and values do not fit the buffer `read` was given.
     NoSpaceLeft,
@@ -25,14 +25,14 @@ pub const ReadError = error{
 /// The pairs that one `read` wrote: a name and a value for each, in the order of the query.
 /// `read` sets `count` to 0 first, so a pair of an earlier read is never read.
 pub const QueryParameters = struct {
-    names: [constants.query_parameters_max][]const u8 = @splat(""),
-    values: [constants.query_parameters_max][]const u8 = @splat(""),
+    names: [constants.limits.query_parameters_max][]const u8 = @splat(""),
+    values: [constants.limits.query_parameters_max][]const u8 = @splat(""),
     /// How many entries of `names` and `values` the last `read` wrote.
-    count: std.math.IntFittingRange(0, constants.query_parameters_max) = 0,
+    count: std.math.IntFittingRange(0, constants.limits.query_parameters_max) = 0,
 
     /// Reads the pairs of `query`, the bytes after a target's "?", decoding each name and value
     /// into `storage`. A query whose decoded pairs do not fit `storage`, or that holds more than
-    /// `constants.query_parameters_max` pairs, is refused, and `count` stays 0.
+    /// `constants.limits.query_parameters_max` pairs, is refused, and `count` stays 0.
     pub fn read(parameters: *QueryParameters, query: []const u8, storage: []u8) ReadError!void {
         parameters.count = 0;
         var writer = core.Writer.init(storage);
@@ -43,7 +43,7 @@ pub const QueryParameters = struct {
         while (pieces.next()) |piece| {
             // Step 3.1: an empty sequence adds no pair.
             if (piece.len == 0) continue;
-            if (count == constants.query_parameters_max) return error.Full;
+            if (count == constants.limits.query_parameters_max) return error.Full;
             // Steps 3.2 and 3.3: the name runs to the first "=", and the value after it.
             const mark = std.mem.indexOfScalar(u8, piece, '=');
             const name = if (mark) |at| piece[0..at] else piece;
@@ -52,14 +52,14 @@ pub const QueryParameters = struct {
             parameters.values[count] = try decode(&writer, value);
             count += 1;
         }
-        assert(count <= constants.query_parameters_max);
+        assert(count <= constants.limits.query_parameters_max);
         parameters.count = @intCast(count);
     }
 
     /// The value of the first pair named `name`, as URLSearchParams' `get` returns it, or null
     /// when no pair has that name. The names compare byte for byte, after decoding.
     pub fn get(parameters: *const QueryParameters, name: []const u8) ?[]const u8 {
-        assert(parameters.count <= constants.query_parameters_max);
+        assert(parameters.count <= constants.limits.query_parameters_max);
         const count = parameters.count;
         for (parameters.names[0..count], parameters.values[0..count]) |held, value| {
             if (std.mem.eql(u8, held, name)) return value;
@@ -135,14 +135,14 @@ test "decision 127: get returns the first value of a name" {
 
 test "decision 127: too many pairs, or a buffer too small, is refused and leaves no pair" {
     var parameters: QueryParameters = .{};
-    var storage: [4 * constants.query_parameters_max]u8 = undefined;
+    var storage: [4 * constants.limits.query_parameters_max]u8 = undefined;
     const pair = "a=1&";
-    var query: [pair.len * (constants.query_parameters_max + 1)]u8 = undefined;
-    for (0..constants.query_parameters_max + 1) |index| @memcpy(query[index * pair.len ..][0..pair.len], pair);
+    var query: [pair.len * (constants.limits.query_parameters_max + 1)]u8 = undefined;
+    for (0..constants.limits.query_parameters_max + 1) |index| @memcpy(query[index * pair.len ..][0..pair.len], pair);
     try testing.expectError(error.Full, parameters.read(&query, &storage));
     try testing.expectEqual(0, parameters.count);
-    try parameters.read(query[0 .. pair.len * constants.query_parameters_max], &storage);
-    try testing.expectEqual(constants.query_parameters_max, parameters.count);
+    try parameters.read(query[0 .. pair.len * constants.limits.query_parameters_max], &storage);
+    try testing.expectEqual(constants.limits.query_parameters_max, parameters.count);
     var small: [3]u8 = undefined;
     try testing.expectError(error.NoSpaceLeft, parameters.read("ab=cd", &small));
     try testing.expectEqual(0, parameters.count);
@@ -157,8 +157,8 @@ const fuzz_storage_short_len = 8;
 /// The pairs `read` must write, from a parser written apart from `read`: one pass over the
 /// query, byte by byte. Test-only.
 const Reference = struct {
-    names: [constants.query_parameters_max][]const u8 = @splat(""),
-    values: [constants.query_parameters_max][]const u8 = @splat(""),
+    names: [constants.limits.query_parameters_max][]const u8 = @splat(""),
+    values: [constants.limits.query_parameters_max][]const u8 = @splat(""),
     count: usize = 0,
     storage: [fuzz_input_len_max]u8 = undefined,
     len: usize = 0,
@@ -174,7 +174,7 @@ const Reference = struct {
     }
 
     fn pair(reference: *Reference, piece: []const u8) ReadError!void {
-        if (reference.count == constants.query_parameters_max) return error.Full;
+        if (reference.count == constants.limits.query_parameters_max) return error.Full;
         var mark = piece.len;
         for (piece, 0..) |byte, index| {
             if (byte == '=') {

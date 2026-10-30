@@ -45,7 +45,7 @@ pub fn transport(code: u64, frame_type: ?u64) Close {
         .error_code = code,
         // RFC 9000 §19.19: a 0x1c frame always carries the field, and "A value of 0 (equivalent
         // to the mention of the PADDING frame) is used when the frame type is unknown."
-        .frame_type = frame_type orelse constants.frame_padding,
+        .frame_type = frame_type orelse constants.protocol.frame_padding,
         // RFC 9000 §19.19: "This can be zero length if the sender chooses not to give details
         // beyond the Error Code value."
         .reason = "",
@@ -100,7 +100,7 @@ pub fn frame_for(pending: Close, level: Level) Close {
         // §19.19: a transport close carries the Frame Type field and an application close does
         // not, so there is none to carry over. "A value of 0 (equivalent to the mention of the
         // PADDING frame) is used when the frame type is unknown."
-        .frame_type = constants.frame_padding,
+        .frame_type = constants.protocol.frame_padding,
         .reason = "",
     };
 }

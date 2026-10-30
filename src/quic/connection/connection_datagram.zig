@@ -75,7 +75,7 @@ pub const Scratch = struct {
     /// The packets an ACK frame takes out, and the streams they finish (decision 59).
     recovery: connection_recovery.Scratch,
     /// The Retry Pseudo-Packet of RFC 9001 §5.8, which a Retry's tag is checked over.
-    retry_pseudo: [constants.retry_pseudo_packet_len_max]u8,
+    retry_pseudo: [constants.limits.retry_pseudo_packet_len_max]u8,
 };
 
 /// What the datagram did that the caller may want to act on.
@@ -199,7 +199,7 @@ fn walk_packets(
     var walk: receive_module.Walk = undefined;
     walk.init(datagram);
     var walked_len: usize = 0;
-    // Bounded by the walk, which separates at most `constants.coalesced_packets_max` packets.
+    // Bounded by the walk, which separates at most `constants.limits.coalesced_packets_max` packets.
     while (try receive_module.next(&walk, connection, suite)) |outcome| {
         // The octets `next` stepped over are the packet's.
         connection_qlog.on_packet_read(connection, outcome, walk.consumed - walked_len, &datagram.from, datagram.now_ns);

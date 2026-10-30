@@ -43,7 +43,7 @@ pub const Entry = struct {
 /// The requests whose responses may be coded, and the h2 requests to HEAD: one entry each, from
 /// the request's head until its response is uncoded and not to HEAD, ends, or is cancelled.
 pub const Table = struct {
-    entries: [constants.coding_requests_max]Entry,
+    entries: [constants.limits.coding_requests_max]Entry,
     /// Entries in use.
     used: usize,
 

@@ -7,16 +7,16 @@ const h11 = @import("h11");
 
 /// Octets the server reads from a socket at once: one whole h2 frame, header included, so a
 /// connection always makes progress on the largest frame colibri accepts (RFC 9113 §4.2).
-pub const read_buffer_len: u32 = h2.constants.frame_header_len + h2.constants.frame_size_max;
+pub const read_buffer_len: u32 = h2.constants.protocol.frame_header_len + h2.constants.limits.frame_size_max;
 
 /// Octets the server writes at once: a whole field block cut into frames, and the DATA frame of a
 /// response body after it.
-pub const write_buffer_len: u32 = h2.constants.send_block_len_max + read_buffer_len;
+pub const write_buffer_len: u32 = h2.constants.limits.send_block_len_max + read_buffer_len;
 
 /// Octets a connection of the server reads from its socket at once. A cleartext connection reads
 /// an h2 frame, and a TLS connection a whole record, which is what chapulin opens (RFC 9846
 /// §5.1), so this is the larger of the two.
-pub const wire_read_len: u32 = @max(read_buffer_len, h2.tls_provider.constants.record_write_len_min);
+pub const wire_read_len: u32 = @max(read_buffer_len, h2.tls_provider.constants.protocol.record_write_len_min);
 
 /// The instant one step of the server reports, in nanoseconds, and how far the next one is. The
 /// server reads no clock: design §4.2 makes time a value the caller passes, and
@@ -40,8 +40,8 @@ pub const echo_body_len_max: u32 = 16384;
 /// long, the field lines, each name and value base64-encoded inside `["",""],`, the content, and
 /// the keys around them (`h11/h11_echo.zig`). Only modules that import h11 reach it, so its
 /// comptime asserts are in `h11/h11_echo.zig`.
-pub const echo_json_len_max: u32 = 2 * base64_len(h11.constants.start_line_len_max) +
-    base64_len(h11.core.constants.field_section_size_max) + echo_json_line_len * h11.core.constants.field_count_max +
+pub const echo_json_len_max: u32 = 2 * base64_len(h11.constants.limits.start_line_len_max) +
+    base64_len(h11.core.constants.limits.field_section_size_max) + echo_json_line_len * h11.core.constants.limits.field_count_max +
     base64_len(echo_body_len_max) + echo_json_keys_len;
 /// The octets around one field line in the echo, `["",""],`, and around everything else.
 pub const echo_json_line_len: u32 = 8;
@@ -90,7 +90,7 @@ pub const cache_line_bytes: u32 = 128;
 /// reading before the stream limit does: a peer that opens one stream too many is refused by
 /// SETTINGS_MAX_CONCURRENT_STREAMS and its REFUSED_STREAM (RFC 9113 §5.1.2), not a server that
 /// stopped reading.
-pub const responses_owed_max: u32 = h2.constants.concurrent_streams_max + 1;
+pub const responses_owed_max: u32 = h2.constants.limits.concurrent_streams_max + 1;
 
 /// The comptime branches that building the `--routes github` route table takes: it reads 203
 /// routes of up to about 70 octets each (design §8 step 13f).
@@ -176,14 +176,14 @@ pub const client_ticks_max: u32 = 1 << 20;
 comptime {
     assert(requests_max > 0 and client_connections_max > 0 and client_ticks_max > 0);
     assert(client_tcp_connections_max > 0 and client_tcp_connections_max <= client_sockets_max);
-    assert(response_content_len_max > h2.constants.frame_size_max);
+    assert(response_content_len_max > h2.constants.limits.frame_size_max);
     // The digits hold the largest length a plan may name.
     assert(std.math.pow(u64, port_radix, content_length_digits_max) > request_content_len_max);
     assert(client_wait_ns > 0 and client_arguments_max > arguments_max);
 }
 
 comptime {
-    assert(read_buffer_len > h2.constants.frame_size_max);
+    assert(read_buffer_len > h2.constants.limits.frame_size_max);
     assert(write_buffer_len > read_buffer_len);
     assert(tick_ns > 0 and default_port > 0 and port_radix > 0);
     assert(arguments_max > 0 and steps_per_read_max > 0 and responses_owed_max > 0);
@@ -336,7 +336,7 @@ pub const pool_udp_send_slots: usize = udp_operations_max - 1 - pool_tcp_operati
 pub const pool_fallback_delay_ns: u64 = 250 * nanoseconds_per_millisecond;
 
 /// How long one pool mode run lasts before the client gives it up: past the idle timeout the
-/// QUIC connection advertises (`client.constants.quic_idle_timeout_ms_default`), so a QUIC
+/// QUIC connection advertises (`client.constants.policy.quic_idle_timeout_ms_default`), so a QUIC
 /// handshake that never completes ends first.
 pub const pool_run_ns_max: u64 = 60 * nanoseconds_per_second;
 
@@ -405,5 +405,5 @@ comptime {
     assert(tls_der_len_max > 0);
     // The server's output holds a whole flight, and its input a whole record.
     assert(write_buffer_len >= tls_flight_len_max);
-    assert(wire_read_len >= h2.tls_provider.constants.record_write_len_min);
+    assert(wire_read_len >= h2.tls_provider.constants.protocol.record_write_len_min);
 }

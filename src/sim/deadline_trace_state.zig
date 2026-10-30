@@ -204,7 +204,7 @@ fn frames_of(octets: []const u8, preface_len: usize) Error!Frames {
     if (preface_len > 0) try push(&frames, .{ .kind = .preface });
     var reader = h2.core.Reader.init(octets[preface_len..]);
     // Bounded: each pass reads a frame's header of nine octets at least.
-    for (0..octets.len / h2.constants.frame_header_len + 1) |_| {
+    for (0..octets.len / h2.constants.protocol.frame_header_len + 1) |_| {
         const header = h2.frame.read_header(&reader) catch break;
         const payload = reader.take(header.length) catch unreachable;
         try push(&frames, frame_of(header, payload));

@@ -37,7 +37,7 @@ const completed_max: usize = 4;
 /// datagram (RFC 9000 §8.1).
 fn open_pair() void {
     send_test.open_pair(.{});
-    send_test.server.path.on_datagram_received(constants.datagram_len_min);
+    send_test.server.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 fn send_as(connection: *Connection, body: *Body) !?send.Sent {
@@ -230,7 +230,7 @@ test "RFC 9000 §2.1, §19.5: each ending is refused on a stream it cannot end" 
     // Below 1-RTT neither is written (RFC 9000 §12.4, Table 3).
     const bidirectional = try stream_send.open(client, .bidirectional);
     try stream_send.reset(client, bidirectional, reset_code);
-    var room: [constants.datagram_len_min]u8 = undefined;
+    var room: [constants.protocol.datagram_len_min]u8 = undefined;
     var writer = Writer.init(&room);
     try testing.expect(!stream_send.write_endings(client, .handshake, &writer, 0));
     try testing.expectEqual(0, writer.written().len);

@@ -60,10 +60,10 @@ test "RFC 9110 §9.3.2: h11 takes the content of a response to HEAD and writes n
 /// Reads the HEADERS frame at the front of `sent` on `stream_id`, expects the program's
 /// Content-Length in it, and returns the octets after it.
 fn expect_head(sent: []const u8, stream_id: u32) ![]const u8 {
-    try testing.expectEqual(constants.frame_type_headers, sent[h2_support.type_index]);
-    try testing.expectEqual(stream_id, std.mem.readInt(u32, sent[stream_id_at..constants.frame_header_len], .big));
+    try testing.expectEqual(constants.protocol.frame_type_headers, sent[h2_support.type_index]);
+    try testing.expectEqual(stream_id, std.mem.readInt(u32, sent[stream_id_at..constants.protocol.frame_header_len], .big));
     const head_len = h2_support.frame_len(sent);
-    var block = test_decoder.block(sent[constants.frame_header_len..head_len]);
+    var block = test_decoder.block(sent[constants.protocol.frame_header_len..head_len]);
     var length: ?[]const u8 = null;
     // Bounded by the block's field lines, each one octet at least.
     for (0..head_len) |_| {
@@ -77,18 +77,18 @@ fn expect_head(sent: []const u8, stream_id: u32) ![]const u8 {
 
 /// Expects `sent` to be one DATA frame on `stream_id` that carries no octet and ends the stream.
 fn expect_empty_end(sent: []const u8, stream_id: u32) !void {
-    try testing.expectEqual(constants.frame_header_len, sent.len);
-    try testing.expectEqual(constants.frame_type_data, sent[h2_support.type_index]);
-    try testing.expectEqual(constants.flag_end_stream, sent[h2_support.flags_index]);
-    try testing.expectEqual(stream_id, std.mem.readInt(u32, sent[stream_id_at..constants.frame_header_len], .big));
+    try testing.expectEqual(constants.protocol.frame_header_len, sent.len);
+    try testing.expectEqual(constants.protocol.frame_type_data, sent[h2_support.type_index]);
+    try testing.expectEqual(constants.protocol.flag_end_stream, sent[h2_support.flags_index]);
+    try testing.expectEqual(stream_id, std.mem.readInt(u32, sent[stream_id_at..constants.protocol.frame_header_len], .big));
 }
 
 /// Where a frame header's stream identifier starts: its last four octets (RFC 9113 §4.1).
-const stream_id_at: usize = constants.frame_header_len - @sizeOf(u32);
+const stream_id_at: usize = constants.protocol.frame_header_len - @sizeOf(u32);
 
 test "RFC 9113 §8.1.1: h2 takes the content of a response to HEAD and writes no DATA octet" {
     try h2_support.start();
-    test_decoder.init(constants.header_table_size_initial);
+    test_decoder.init(constants.protocol.header_table_size_initial);
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "HEAD", "/", &.{}, true));
     // RFC 9113 §8.1: DATA follows the final response's HEADERS frame.
     try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .bytes = content, .end = true }));
@@ -104,7 +104,7 @@ test "RFC 9113 §8.1.1: h2 takes the content of a response to HEAD and writes no
     try connection.respond(3, .{ .status = ok, .headers = &head_fields, .end = false });
     try testing.expectEqual(content.len, try connection.write_body(3, .{ .bytes = content, .end = true }));
     const data = try expect_head(support.drain(), 3);
-    try testing.expectEqualStrings(content, data[constants.frame_header_len..]);
+    try testing.expectEqualStrings(content, data[constants.protocol.frame_header_len..]);
     try testing.expectEqual(0, connection.coding.used);
 }
 
@@ -125,13 +125,13 @@ test "RFC 9110 §9.3.2: an h2 response to HEAD that ends with its head, or that 
 test "RFC 9110 §9.3.2: an h2 connection that codes content takes the content of a response to HEAD and writes none" {
     try support.start_coding(.h2);
     try h2_support.start_preface();
-    test_decoder.init(constants.header_table_size_initial);
+    test_decoder.init(constants.protocol.header_table_size_initial);
     _ = try support.receive_copy(try h2_support.request_frame_with(1, "HEAD", "/", &accepts_gzip, true));
     try connection.respond(1, .{ .status = ok, .headers = &head_fields, .end = false, .codable = true });
     try write_content(1);
     const sent = support.drain();
     // Decision 101: a coded representation loses Content-Length, so the head names none here.
-    try testing.expectEqual(constants.frame_type_headers, sent[h2_support.type_index]);
+    try testing.expectEqual(constants.protocol.frame_type_headers, sent[h2_support.type_index]);
     try expect_empty_end(sent[h2_support.frame_len(sent)..], 1);
     try support.expect_done(1);
     try testing.expectEqual(0, connection.coding.used);

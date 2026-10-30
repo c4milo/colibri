@@ -129,7 +129,7 @@ pub fn read(reader: *Reader, frame_type: u64) frame.Error!Ack {
         .count = count,
     };
     // RFC 9000 §19.3.2: the low bit of the type says the three counts follow.
-    const ecn = if (frame_type & constants.frame_low_bit != 0) try read_ecn(reader) else null;
+    const ecn = if (frame_type & constants.protocol.frame_low_bit != 0) try read_ecn(reader) else null;
     return .{ .ranges = ranges, .delay = delay, .ecn = ecn };
 }
 
@@ -172,7 +172,7 @@ fn read_ecn(reader: *Reader) frame.Error!EcnCounts {
 /// Writes an ACK frame, all of it or none.
 pub fn write(writer: *Writer, ack: Ack) core.writer.Error!void {
     // RFC 9000 §19.3: the type is 0x02, or 0x03 when the ECN counts follow (§19.3.2).
-    const frame_type = if (ack.ecn == null) constants.frame_ack else constants.frame_ack_ecn;
+    const frame_type = if (ack.ecn == null) constants.protocol.frame_ack else constants.protocol.frame_ack_ecn;
     try frame.write_type(writer, frame_type);
     try wire.varint.encode(writer, ack.ranges.largest_acknowledged);
     try wire.varint.encode(writer, ack.delay);
@@ -194,8 +194,8 @@ const vector_leading_fields = 4;
 /// A Gap and an ACK Range Length (RFC 9000 §19.3.1).
 const vector_fields_per_pair = 2;
 /// Room for a vector's frame: every field at a varint's longest, and `ack_ranges_max` pairs.
-const vector_frame_len_max = (vector_leading_fields + vector_fields_per_pair * constants.ack_ranges_max) *
-    wire.constants.varint_len_max;
+const vector_frame_len_max = (vector_leading_fields + vector_fields_per_pair * constants.limits.ack_ranges_max) *
+    wire.constants.protocol.varint_len_max;
 
 fn parse_number(text: []const u8) !u64 {
     return std.fmt.parseUnsigned(u64, text, vector_radix);
@@ -232,10 +232,10 @@ fn expect_decode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
     var reader = Reader.init(writer.written());
     const answer = fields.next().?;
     if (std.mem.eql(u8, answer, "below_zero")) {
-        try testing.expectError(error.AckRangeBelowZero, read(&reader, constants.frame_ack));
+        try testing.expectError(error.AckRangeBelowZero, read(&reader, constants.protocol.frame_ack));
         return;
     }
-    const ack = try read(&reader, constants.frame_ack);
+    const ack = try read(&reader, constants.protocol.frame_ack);
     try testing.expectEqual(writer.written().len, reader.offset);
     var walk = ack.ranges.iterator();
     var expected = std.mem.tokenizeScalar(u8, answer, ',');

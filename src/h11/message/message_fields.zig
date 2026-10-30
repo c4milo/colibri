@@ -50,12 +50,12 @@ const whitespace = " \t";
 const fold_replacement = " ";
 
 /// Most lines a head holds: every line takes at least its CRLF.
-const lines_max = constants.head_len_max / line_end.len;
+const lines_max = constants.limits.head_len_max / line_end.len;
 
 /// Reads the field lines of `octets`, up to and including the empty line that ends them, into
 /// `section`, which it empties first.
 pub fn parse(role: Role, octets: []const u8, section: *FieldSection) Error!void {
-    assert(octets.len <= constants.head_len_max);
+    assert(octets.len <= constants.limits.head_len_max);
     assert(std.mem.endsWith(u8, octets, line_end));
     section.init();
     var rest = octets;
@@ -111,7 +111,7 @@ fn join_fold(section: *FieldSection, line: []const u8) Error!void {
     const last = section.get(section.len() - 1);
     const joined_len = last.value.len + fold_replacement.len + segment.len;
     // RFC 9110 §5.4: no predefined limit on a value, so colibri's applies to the joined one.
-    if (joined_len > core.constants.field_value_len_max) return error.FieldValueInvalid;
+    if (joined_len > core.constants.limits.field_value_len_max) return error.FieldValueInvalid;
     // RFC 9112 §5.2: a user agent MUST replace each obs-fold with one or more SP octets. After an
     // empty value that SP would lead the value, and RFC 9112 §5.1 leaves leading OWS out of it.
     if (last.value.len > 0) section.extend_last(fold_replacement) catch return error.SectionTooLarge;
@@ -187,7 +187,7 @@ test "RFC 9112 §5.2: obs-fold is refused in a request and joined with one SP in
 }
 
 test "a folded value is held to field_value_len_max once joined" {
-    const limit = core.constants.field_value_len_max;
+    const limit = core.constants.limits.field_value_len_max;
     var octets: [limit + 32]u8 = undefined;
     const head = "X: ";
     const fold = "\r\n z\r\n\r\n";
@@ -205,9 +205,9 @@ test "a folded value is held to field_value_len_max once joined" {
 }
 
 test "the section's own limits refuse a head with too many lines" {
-    var octets: [core.constants.field_count_max * 6 + 8]u8 = undefined;
+    var octets: [core.constants.limits.field_count_max * 6 + 8]u8 = undefined;
     var length: usize = 0;
-    for (0..core.constants.field_count_max + 1) |_| {
+    for (0..core.constants.limits.field_count_max + 1) |_| {
         @memcpy(octets[length..][0..6], "a: b\r\n");
         length += 6;
     }

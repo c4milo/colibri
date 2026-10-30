@@ -44,13 +44,13 @@ const client_uni_window: u64 = 65_536;
 /// connection start with, whether it reads what arrives, so that credit grows (RFC 9000 §4.1),
 /// and whether its datagrams reach the server. And how many of the server's next datagrams the
 /// network loses, and how long the server's datagrams may be. `start` restores the last four.
-pub const window_default: u64 = quic.constants.receive_pool_len_default;
+pub const window_default: u64 = quic.constants.limits.receive_pool_len_default;
 pub var client_stream_window: u64 = window_default;
 pub var client_connection_window: u64 = window_default;
 pub var client_reads: bool = true;
 pub var client_mute: bool = false;
 pub var server_drop: usize = 0;
-pub var server_datagram_len: usize = quic.constants.datagram_len_max;
+pub var server_datagram_len: usize = quic.constants.protocol.datagram_len_max;
 
 pub var now_ns: u64 = start_ns;
 /// The server's connection and what it borrows.
@@ -120,8 +120,8 @@ pub var fetches_len: usize = 0;
 pub var received: [fetches_max][received_len_max]u8 = undefined;
 
 /// Where a datagram crosses from one side to the other.
-var datagram: [quic.constants.datagram_len_max]u8 = undefined;
-var crossing: [quic.constants.datagram_len_max]u8 = undefined;
+var datagram: [quic.constants.protocol.datagram_len_max]u8 = undefined;
+var crossing: [quic.constants.protocol.datagram_len_max]u8 = undefined;
 
 /// A client whose first datagram is owed, and a server that starts from it, over TLS for h3.
 pub fn start() !void {
@@ -147,7 +147,7 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     client_mute = false;
     seen_support.seen_len = 0;
     server_drop = 0;
-    server_datagram_len = quic.constants.datagram_len_max;
+    server_datagram_len = quic.constants.protocol.datagram_len_max;
     fetches_len = 0;
     try start_client();
 }
@@ -192,7 +192,7 @@ fn client_parameters() quic.transport_parameters.Parameters {
     held.initial_max_data = client_connection_window;
     held.initial_max_stream_data_bidi_local = client_stream_window;
     held.initial_max_stream_data_uni = client_uni_window;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = client_idle_timeout_ms;
     return held;
 }
@@ -280,12 +280,12 @@ pub fn stage_request(method: []const u8, path: []const u8, fields: []const Field
 /// The client asks the server to stop sending `fetch`'s response, and nothing more (RFC 9000
 /// §3.5).
 pub fn stop_fetch(fetch: *const Fetch) !void {
-    try quic.connection_stream_send.stop_sending(&client, .{ .value = fetch.id }, h3.constants.error_request_cancelled);
+    try quic.connection_stream_send.stop_sending(&client, .{ .value = fetch.id }, h3.constants.protocol.error_request_cancelled);
 }
 
 /// The client resets its side of `fetch`'s stream, and nothing more (RFC 9000 §3.1).
 pub fn reset_fetch(fetch: *const Fetch) !void {
-    try quic.connection_stream_send.reset(&client, .{ .value = fetch.id }, h3.constants.error_request_cancelled);
+    try quic.connection_stream_send.reset(&client, .{ .value = fetch.id }, h3.constants.protocol.error_request_cancelled);
 }
 const request_lines: usize = 4;
 /// The most field lines a test's request carries after its pseudo-header fields.
@@ -293,7 +293,7 @@ const request_fields_max: usize = 4;
 
 /// The client cancels `fetch` (RFC 9114 §4.1.1).
 pub fn cancel_fetch(fetch: *const Fetch) void {
-    client_h3.cancel(&client, fetch.id, h3.constants.error_request_cancelled);
+    client_h3.cancel(&client, fetch.id, h3.constants.protocol.error_request_cancelled);
 }
 
 /// Moves datagrams both ways for `rounds` rounds, moving time on and firing each side's timers,

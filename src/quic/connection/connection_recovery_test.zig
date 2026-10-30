@@ -38,7 +38,7 @@ const generous_limit: u64 = 4;
 const issued_octet: u8 = 0x6a;
 const issued_id: [id_len]u8 = @splat(issued_octet);
 const token_octet: u8 = 0x9d;
-const token: [constants.stateless_reset_token_len]u8 = @splat(token_octet);
+const token: [constants.protocol.stateless_reset_token_len]u8 = @splat(token_octet);
 /// The packet every piece says it last carried its frame in. Test-only.
 const carrying: u64 = 5;
 /// Octets of the stream range the packet carried. Test-only.
@@ -124,7 +124,7 @@ test "decision 59: a lost packet whose CRYPTO octets are forgotten, or a full ta
     open_server();
     const id = try framed_stream();
     const gap: u64 = 2;
-    for (0..constants.stream_lost_ranges_max) |index| {
+    for (0..constants.limits.stream_lost_ranges_max) |index| {
         try server.streams.lost.add(.{ .stream_id = id.value + 4, .offset = gap * index, .len = 1, .fin = false });
     }
     try testing.expectError(error.LostRangesFull, recovery.on_packets_lost(&server, .application, &.{carried_range(id)}));
@@ -162,7 +162,7 @@ const slower_round_trip_ns: u64 = 150_000_000;
 const peer_exponent: u64 = 4;
 const delay_field: u64 = 3_125;
 /// Packets one space sends before an ACK of the last reveals the first lost (RFC 9002 §6.1.1).
-const threshold_packets: u64 = constants.loss_packet_threshold + 1;
+const threshold_packets: u64 = constants.recovery.loss_packet_threshold + 1;
 
 /// Records that packet `number` carried `range` of stream `id`, as the send path will (RFC 9002
 /// Appendix A.5), and spends the number in the space so the peer may acknowledge it.
@@ -184,7 +184,7 @@ fn record_sent(level: Level, carries: recovery_sent.Carries, id: u64, offset: u6
 
 /// The server reads an ACK frame for `smallest` to `largest` at `level`, at `at_ns`.
 fn take_ack(level: Level, smallest: u64, largest: u64, delay: u64, at_ns: u64) !frames.Report {
-    var payload: [constants.datagram_len_min]u8 = undefined;
+    var payload: [constants.protocol.datagram_len_min]u8 = undefined;
     var writer = core.Writer.init(&payload);
     const ack: frame_module.Ack = .{
         .ranges = .{ .largest_acknowledged = largest, .first_range = largest - smallest, .octets = &.{}, .count = 0 },
@@ -268,7 +268,7 @@ fn send_padded_ack() !void {
     try server.recovery.on_packet_sent(.initial, .{
         .number = number,
         .sent_at_ns = sent_at_ns,
-        .sent_len = @intCast(constants.datagram_len_min),
+        .sent_len = @intCast(constants.protocol.datagram_len_min),
         .ack_eliciting = false,
         .in_flight = true,
     }, sent_at_ns);
@@ -310,30 +310,30 @@ test "decision 59: a loss the timer finds that the connection cannot repair is a
 
 test "RFC 9002 A.9, decision 59: a Probe Timeout owes probes in the space that set it" {
     open_server();
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     // RFC 9002 §6.2.1: no Application Data probe before the handshake is confirmed.
     try record_sent(.application, .none, 0, 0, sent_at_ns);
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
     connection_module.confirm_handshake(&server);
     try testing.expect(try fire_loss_timer());
     // RFC 9002 §6.2.4: two probes, because a packet is in flight.
-    try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
+    try testing.expectEqual(constants.recovery.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
     try testing.expectEqual(1, server.recovery.timer.pto_count);
 }
 
 test "decision 66: an application PTO declares the oldest packets lost, one for each probe" {
     open_server();
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     connection_module.confirm_handshake(&server);
     const id = try framed_stream();
     // The stream's range went out first, then two packets of nothing a probe could carry.
     try record_sent(.application, .stream_fin, id.value, 0, sent_at_ns);
-    for (0..constants.probe_packets) |_| try record_sent(.application, .none, 0, 0, sent_at_ns);
+    for (0..constants.recovery.probe_packets) |_| try record_sent(.application, .none, 0, 0, sent_at_ns);
     try testing.expect(try fire_loss_timer());
     // The oldest two are lost, so the probes carry the stream's range; the newest stays.
     try testing.expectEqual(1, server.streams.lost.count);
     try testing.expectEqual(1, server.recovery.tables[@intFromEnum(Level.application)].count());
-    try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
+    try testing.expectEqual(constants.recovery.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
 }
 
 test "decision 64: a Handshake PTO declares its packets lost, and the window stays" {
@@ -345,7 +345,7 @@ test "decision 64: a Handshake PTO declares its packets lost, and the window sta
     // carry what they held.
     try testing.expectEqual(0, server.recovery.tables[@intFromEnum(Level.handshake)].count());
     try testing.expectEqual(0, server.recovery.in_flight_len());
-    try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.handshake)]);
+    try testing.expectEqual(constants.recovery.probe_packets, server.probes_owed[@intFromEnum(Level.handshake)]);
     // Declared lost to move their octets and not for congestion, so no rate reduction.
     try testing.expectEqual(window, server.recovery.congestion.window);
 }
@@ -359,7 +359,7 @@ test "RFC 9002 A.8: a server at the anti-amplification limit sets no probe timer
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
     server.path.on_datagram_received(1);
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     try testing.expect(recovery.loss_deadline_ns(&server) != null);
 }
 
@@ -367,7 +367,7 @@ test "RFC 9002 A.8: a client probes until the server has validated its address" 
     // "Assume clients validate the server's address implicitly": a server with nothing the peer
     // must acknowledge sets no timer, although a packet in flight has set it.
     open_server();
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     try send_padded_ack();
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
 
@@ -421,7 +421,7 @@ test "RFC 9000 §18.2: the peer's max_ack_delay reaches the Probe Timeout" {
 
 test "RFC 9000 §10.2.1: a connection that has stopped being active sets no loss timer" {
     open_server();
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     try record_sent(.initial, .none, 0, 0, sent_at_ns);
     try testing.expect(recovery.loss_deadline_ns(&server) != null);
     server.termination.on_close_sent(sent_at_ns, round_trip_ns);
@@ -467,7 +467,7 @@ test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender that ran out of data is marked 
 
 test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender that ran out of data is marked as a timer fires" {
     open_server();
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     try record_sent(.application, .none, 0, 0, sent_at_ns);
     connection_module.confirm_handshake(&server);
     server.ran_out_of_data = true;

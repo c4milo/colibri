@@ -41,7 +41,7 @@ const Suite = crypto.Suite;
 /// The Retry token a client repeats (RFC 9000 §8.1.2). Decision 54 sizes it: both RFCs bound the
 /// field only by the packet that carries it, so `token_len_max` is a judgement written down once.
 pub const Token = struct {
-    octets: [constants.token_len_max]u8,
+    octets: [constants.limits.token_len_max]u8,
     len: usize,
 
     pub fn init(token: *Token) void {
@@ -52,7 +52,7 @@ pub const Token = struct {
     /// RFC 9000 §17.2.5.3: "The value of the Token field is copied to all subsequent Initial
     /// packets", so a client keeps the octets rather than the packet they came in.
     pub fn take(token: *Token, octets: []const u8) void {
-        assert(octets.len <= constants.token_len_max);
+        assert(octets.len <= constants.limits.token_len_max);
         // §17.2.5.2: a client acts on one Retry per connection attempt, so this is written once.
         assert(token.len == 0);
         @memcpy(token.octets[0..octets.len], octets);
@@ -107,7 +107,7 @@ pub fn receive(
     connection: *Connection,
     suite: Suite,
     retry: header.Retry,
-    pseudo: *[constants.retry_pseudo_packet_len_max]u8,
+    pseudo: *[constants.limits.retry_pseudo_packet_len_max]u8,
 ) Outcome {
     if (refuse(connection, retry)) |why| return .{ .discarded = why };
     if (!tag_valid(connection, suite, retry, pseudo)) return .{ .discarded = .tag_invalid };
@@ -140,7 +140,7 @@ fn refuse(connection: *const Connection, retry: header.Retry) ?Discarded {
     if (std.mem.eql(u8, retry.scid, connection.identity.destination().slice())) {
         return .source_is_destination;
     }
-    if (retry.token.len > constants.token_len_max) return .token_too_long;
+    if (retry.token.len > constants.limits.token_len_max) return .token_too_long;
     // §17.2.5.3: "A client MUST use the same cryptographic handshake message it included in this
     // packet." That message is what the Initial level's send window still holds, so a first
     // flight larger than the window is a Retry colibri cannot answer.
@@ -154,7 +154,7 @@ fn tag_valid(
     connection: *const Connection,
     suite: Suite,
     retry: header.Retry,
-    pseudo: *[constants.retry_pseudo_packet_len_max]u8,
+    pseudo: *[constants.limits.retry_pseudo_packet_len_max]u8,
 ) bool {
     var writer = Writer.init(pseudo);
     // `refuse` bounded the token and the reader bounds both connection IDs at 20 octets
@@ -220,17 +220,17 @@ pub const Answer = union(enum) {
 pub fn answer(
     suite: Suite,
     request: Request,
-    pseudo: *[constants.retry_pseudo_packet_len_max]u8,
+    pseudo: *[constants.limits.retry_pseudo_packet_len_max]u8,
     output: []u8,
 ) Answer {
-    assert(request.client_source.len <= constants.connection_id_len_max);
-    assert(request.server_source.len <= constants.connection_id_len_max);
+    assert(request.client_source.len <= constants.protocol.connection_id_len_max);
+    assert(request.server_source.len <= constants.protocol.connection_id_len_max);
     // §17.2.5.1: "This value MUST NOT be equal to the Destination Connection ID field of the
     // packet sent by the client", and a client that saw one would discard the Retry.
     if (std.mem.eql(u8, request.server_source, request.original_destination)) {
         return .{ .refused = .source_is_destination };
     }
-    var token: [constants.token_len_max]u8 = undefined;
+    var token: [constants.limits.token_len_max]u8 = undefined;
     // Decision 55: the token carries the two connection IDs RFC 9000 §7.3 has the server send
     // back, because the server keeps nothing between this Retry and the client's next Initial.
     const ids = crypto.suite.RetryConnectionIds.of(request.original_destination, request.server_source);
@@ -253,7 +253,7 @@ fn write_packet(
     suite: Suite,
     request: Request,
     token: []const u8,
-    pseudo: *[constants.retry_pseudo_packet_len_max]u8,
+    pseudo: *[constants.limits.retry_pseudo_packet_len_max]u8,
     output: []u8,
 ) Answer {
     var writer = Writer.init(output);
@@ -276,7 +276,7 @@ fn write_packet(
         request.original_destination,
         writer.written(),
     ) catch unreachable;
-    var tag: [constants.retry_integrity_tag_len]u8 = undefined;
+    var tag: [constants.protocol.retry_integrity_tag_len]u8 = undefined;
     // RFC 9369 §3.3.3: the tag is under the Retry key and nonce of the Retry's version.
     suite.vtable.retry_tag_write(suite.context, request.version, pseudo_writer.written(), &tag) catch
         return .{ .refused = .no_tag };

@@ -63,11 +63,11 @@ pub fn find_frame(sent: []const u8, frame_type: u8, stream_id: u32) ?[]const u8 
     var offset: usize = 0;
     // Bounded: each pass skips one whole frame.
     for (0..sent.len) |_| {
-        if (offset + constants.frame_header_len > sent.len) return null;
+        if (offset + constants.protocol.frame_header_len > sent.len) return null;
         const frame = sent[offset..];
-        const id = std.mem.readInt(u32, frame[stream_id_index..][0..@sizeOf(u32)], .big) & constants.stream_id_max;
+        const id = std.mem.readInt(u32, frame[stream_id_index..][0..@sizeOf(u32)], .big) & constants.protocol.stream_id_max;
         if (frame[h2_support.type_index] == frame_type and id == stream_id) {
-            return frame[constants.frame_header_len..h2_support.frame_len(frame)];
+            return frame[constants.protocol.frame_header_len..h2_support.frame_len(frame)];
         }
         offset += h2_support.frame_len(frame);
     }
@@ -80,7 +80,7 @@ const stream_id_index: usize = h2_support.flags_index + 1;
 
 /// The error code of the GOAWAY frame in `sent`, which a test requires to be there.
 pub fn goaway_code(sent: []const u8) !u32 {
-    const payload = find_frame(sent, constants.frame_type_goaway, constants.connection_stream_id) orelse return error.TestUnexpectedResult;
+    const payload = find_frame(sent, constants.protocol.frame_type_goaway, constants.protocol.connection_stream_id) orelse return error.TestUnexpectedResult;
     return std.mem.readInt(u32, payload[goaway_code_start..][0..@sizeOf(u32)], .big);
 }
 
@@ -89,26 +89,26 @@ const goaway_code_start: usize = 4;
 
 /// The error code of the RST_STREAM frame on `stream_id` in `sent`, which a test requires.
 pub fn reset_code(sent: []const u8, stream_id: u32) !u32 {
-    const payload = find_frame(sent, constants.frame_type_rst_stream, stream_id) orelse return error.TestUnexpectedResult;
-    return std.mem.readInt(u32, payload[0..constants.rst_stream_len], .big);
+    const payload = find_frame(sent, constants.protocol.frame_type_rst_stream, stream_id) orelse return error.TestUnexpectedResult;
+    return std.mem.readInt(u32, payload[0..constants.protocol.rst_stream_len], .big);
 }
 
 /// Decodes the field blocks of `sent` in order, as the first the connection sent, and returns
 /// the status of the response on `stream_id`, which a test requires to be there.
 pub fn response_status(sent: []const u8, stream_id: u32) !u16 {
-    decoder.init(constants.header_table_size_initial);
+    decoder.init(constants.protocol.header_table_size_initial);
     var status: ?u16 = null;
     var offset: usize = 0;
     // Bounded: each pass reads one whole frame.
     for (0..sent.len) |_| {
-        if (offset + constants.frame_header_len > sent.len) break;
+        if (offset + constants.protocol.frame_header_len > sent.len) break;
         const frame_end = offset + h2_support.frame_len(sent[offset..]);
         if (frame_end > sent.len) break;
         const frame = sent[offset..frame_end];
         offset = frame_end;
-        if (frame[h2_support.type_index] != constants.frame_type_headers) continue;
-        const id = std.mem.readInt(u32, frame[stream_id_index..][0..@sizeOf(u32)], .big) & constants.stream_id_max;
-        var lines = decoder.block(frame[constants.frame_header_len..]);
+        if (frame[h2_support.type_index] != constants.protocol.frame_type_headers) continue;
+        const id = std.mem.readInt(u32, frame[stream_id_index..][0..@sizeOf(u32)], .big) & constants.protocol.stream_id_max;
+        var lines = decoder.block(frame[constants.protocol.frame_header_len..]);
         for (0..frame.len) |_| {
             const line = (try lines.next()) orelse break;
             if (id == stream_id and std.mem.eql(u8, line.name, ":status")) status = try std.fmt.parseInt(u16, line.value, decimal);
@@ -130,8 +130,8 @@ pub fn data_frame(stream_id: u32, octets: []const u8, end: bool, padding_len: u8
 pub var data_frames: [support.input_len]u8 = undefined;
 
 /// A PING frame that asks for an acknowledgment (RFC 9113 §6.7).
-pub fn ping_frame() ![constants.frame_header_len + constants.ping_len]u8 {
-    var frame: [constants.frame_header_len + constants.ping_len]u8 = undefined;
+pub fn ping_frame() ![constants.protocol.frame_header_len + constants.protocol.ping_len]u8 {
+    var frame: [constants.protocol.frame_header_len + constants.protocol.ping_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_ping(&writer, @splat(0), false);
     return frame;

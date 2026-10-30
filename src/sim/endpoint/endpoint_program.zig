@@ -75,8 +75,8 @@ pub const Program = struct {
     now_ms: u64,
     counts: Counts,
     /// What a probe of P6 or a stale call hands `send_stream` and `send_datagram`.
-    probe: [server.constants.output_len]u8,
-    datagram: [quic.constants.datagram_len_max]u8,
+    probe: [server.constants.limits.output_len]u8,
+    datagram: [quic.constants.protocol.datagram_len_max]u8,
     /// The content every answer is written from, which stays the program's (decision 103).
     content: [limits.answer_long_len_max]u8,
 

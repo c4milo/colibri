@@ -12,7 +12,7 @@
 //!      parameter position differently (decision 129), so a pattern's names do not decide a leaf.
 //!
 //! `router.zig` then builds the layout and checks it in this order: each Allow value fits
-//! `core.constants.field_value_len_max`, or `allow_too_long` (`router_trie_layout.zig`), and no
+//! `core.constants.limits.field_value_len_max`, or `allow_too_long` (`router_trie_layout.zig`), and no
 //! route is unreachable, or `route_unreachable` (`router_hidden.zig`). A table names
 //! `route_methods_max` methods at most, or `methods_too_many` (decision 128).
 //!
@@ -117,8 +117,8 @@ pub const Reason = union(enum) {
             .entry_shape => "an entry is a tuple of a method, a pattern and a value",
             .route_repeated => "two routes name one method and one path",
             .allow_too_long => "the Allow value of the routes of one pattern holds " ++
-                "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
-            .methods_too_many => "the routes of a table name server.constants.route_methods_max methods at most (decision 128)",
+                "core.constants.limits.field_value_len_max octets at most, because a 405 sends it as a field value",
+            .methods_too_many => "the routes of a table name server.constants.limits.route_methods_max methods at most (decision 128)",
             .route_unreachable => |never| never.sentence(),
         };
     }
@@ -129,12 +129,12 @@ pub const Unreachable = struct {
     /// The patterns of the leaves that the walk stops at on the paths of the route, each in
     /// quotes and joined by ", ", or "" when there is none.
     patterns: []const u8,
-    /// Whether a path of the route is longer than `server.constants.path_len_max`.
+    /// Whether a path of the route is longer than `server.constants.limits.path_len_max`.
     too_long: bool,
 
     fn sentence(comptime never: Unreachable) []const u8 {
         const prefix = "no request reaches this route, because ";
-        const long = "server.constants.path_len_max";
+        const long = "server.constants.limits.path_len_max";
         if (never.patterns.len == 0) return prefix ++ "each of its paths is longer than " ++ long;
         const first = "another pattern matches each of its paths first";
         if (!never.too_long) return prefix ++ first ++ ": " ++ never.patterns;

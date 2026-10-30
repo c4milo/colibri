@@ -41,8 +41,8 @@ const story_bytes_max = 16 << 20;
 const block_len_max = 64 << 10;
 
 /// The longest name and value the corpus holds, in octets; a longer one is a corpus change.
-const name_len_max = hpack.constants.name_len_max;
-const value_len_max = hpack.constants.value_len_max;
+const name_len_max = hpack.constants.limits.name_len_max;
+const value_len_max = hpack.constants.limits.value_len_max;
 
 const exit_mismatch: u8 = 1;
 const exit_usage: u8 = 2;

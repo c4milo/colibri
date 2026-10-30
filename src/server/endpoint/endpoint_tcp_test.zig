@@ -56,7 +56,7 @@ test "RFC 9113 §3.3: an h2 preface in cleartext chooses h2, and a request on st
     try endpoint.respond(support.id_of(handle, 1), .{ .status = ok, .end = true });
     support.collect();
     // RFC 9113 §3.4: the server's preface, a SETTINGS frame, goes first, then the response.
-    try testing.expectEqual(h2.constants.frame_type_settings, support.sent_of(handle.slot)[h2_support.type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_settings, support.sent_of(handle.slot)[h2_support.type_index]);
     try testing.expectEqual(1, support.nth(.done, 0).?.number);
     try testing.expectEqual(null, support.nth(.close, 0));
 }
@@ -109,7 +109,7 @@ test "decision 110: a read with no octets at a later instant asks the connection
     try testing.expectEqual(@as(?u64, support.now_ns), endpoint.state.empty_read_ns[handle.slot]);
     // The head deadline passes, and the program passes no octets and calls no `on_instant`. The
     // read at the new instant fires the deadline, and the connection answers 408.
-    support.instant_ns = support.now_ns + server_constants.head_timeout_ns;
+    support.instant_ns = support.now_ns + server_constants.policy.head_timeout_ns;
     _ = support.give(handle, "");
     try testing.expect(std.mem.startsWith(u8, support.sent_of(handle.slot), "HTTP/1.1 408"));
 }
@@ -153,10 +153,10 @@ test "decision 119: TCP slots owe no datagram, and an endpoint that serves no QU
     try support.start(null, .{});
     const handle = endpoint.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, get_h11);
-    var output: [@import("quic").constants.datagram_len_max]u8 = undefined;
+    var output: [@import("quic").constants.protocol.datagram_len_max]u8 = undefined;
     try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
     // With no identity the QUIC slot serves nothing: a datagram is consumed, and starts nothing.
-    var datagram: [@import("quic").constants.datagram_len_min]u8 = @splat(0xc0);
+    var datagram: [@import("quic").constants.protocol.datagram_len_min]u8 = @splat(0xc0);
     const from = @import("quic").PeerAddress.of(&.{ 127, 0, 0, 1 }, 50_000);
     const received = endpoint.receive(.{ .datagram = .{ .bytes = &datagram, .from = from } }, support.now_ns);
     try testing.expectEqual(datagram.len, received.consumed);
@@ -279,10 +279,10 @@ const retry_key_octet: u8 = 0x2e;
 const retry_lifetime_seconds: u64 = 10;
 threadlocal var retry: tls.quic.Retry align(@alignOf(tls.quic.Retry)) = undefined;
 /// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets, with a payload no key opens.
-threadlocal var initial: [quic.constants.datagram_len_max]u8 = undefined;
-const initial_id: [server_constants.quic_id_len]u8 = @splat(initial_id_octet);
+threadlocal var initial: [quic.constants.protocol.datagram_len_max]u8 = undefined;
+const initial_id: [server_constants.policy.quic_id_len]u8 = @splat(initial_id_octet);
 const initial_id_octet: u8 = 0x5a;
-const other_id: [server_constants.quic_id_len]u8 = @splat(other_id_octet);
+const other_id: [server_constants.policy.quic_id_len]u8 = @splat(other_id_octet);
 const other_id_octet: u8 = 0x5b;
 const client_port: u16 = 4433;
 const loopback = [_]u8{ loopback_first, 0, 0, 1 };
@@ -290,7 +290,7 @@ const loopback_first: u8 = 127;
 
 /// Gives the endpoint a client's first Initial for `id`, and returns whether it answers with a
 /// Retry. Test-only.
-fn answers_with_retry(id: *const [server_constants.quic_id_len]u8) !bool {
+fn answers_with_retry(id: *const [server_constants.policy.quic_id_len]u8) !bool {
     var writer = quic.core.Writer.init(&initial);
     try quic.packet.header_write.write_long(&writer, .{
         .version = .v1,
@@ -298,15 +298,15 @@ fn answers_with_retry(id: *const [server_constants.quic_id_len]u8) !bool {
         .dcid = id,
         .scid = id,
         .packet_number = try quic.packet.packet_number.encode(0, null),
-        .protected_payload_len = quic.constants.datagram_len_min,
+        .protected_payload_len = quic.constants.protocol.datagram_len_min,
     });
-    const len = writer.written().len + quic.constants.datagram_len_min;
+    const len = writer.written().len + quic.constants.protocol.datagram_len_min;
     @memset(initial[writer.written().len..len], 0);
     const from = quic.PeerAddress.of(&loopback, client_port);
     _ = endpoint.receive(.{ .datagram = .{ .bytes = initial[0..len], .from = from } }, support.now_ns);
-    var output: [quic.constants.datagram_len_max]u8 = undefined;
+    var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     const sent = endpoint.state.connections.replies.take(&output) orelse return false;
-    return (try quic.packet.header.read(sent.bytes, server_constants.quic_id_len)) == .retry;
+    return (try quic.packet.header.read(sent.bytes, server_constants.policy.quic_id_len)) == .retry;
 }
 
 test "decision 110 as amended: retry_from_percent is a share of the QUIC slots alone, not of the TCP ones" {

@@ -102,7 +102,7 @@ test "RFC 9000 §4.1: no window the server advertises grants more than a smaller
 
 /// A response of about 200 packets in datagrams of the smallest size, past the first skip when
 /// the intervals are the shortest. Test-only.
-const long_body_len: usize = long_body_packets * quic.constants.datagram_len_min;
+const long_body_len: usize = long_body_packets * quic.constants.protocol.datagram_len_min;
 const long_body_packets: usize = 200;
 const long_body: [long_body_len]u8 = @splat('x');
 /// Calls of `write_body` and rounds of pumping that carry the long response. Test-only.
@@ -110,7 +110,7 @@ const write_rounds_max: usize = 512;
 
 test "RFC 9000 §21.4: the server skips a packet number, and a long response reaches an honest client whole" {
     try support.start();
-    support.server_datagram_len = quic.constants.datagram_len_min;
+    support.server_datagram_len = quic.constants.protocol.datagram_len_min;
     try support.connect();
     const space = quic.connection.space_at(&connection.transport, .application);
     // The server drew the intervals at start. From here every interval is the shortest, so the

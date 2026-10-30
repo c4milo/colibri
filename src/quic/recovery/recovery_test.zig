@@ -17,8 +17,8 @@ const testing = std.testing;
 /// The recovery state the tests drive, and room for everything one pass can acknowledge or
 /// declare lost.
 var test_recovery: recovery.Recovery align(@alignOf(recovery.Recovery)) = undefined;
-var test_acknowledged: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
-var test_lost: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
+var test_acknowledged: [constants.limits.sent_packets_max]Record align(@alignOf(Record)) = undefined;
+var test_lost: [constants.limits.sent_packets_max]Record align(@alignOf(Record)) = undefined;
 /// A path of 1200-octet datagrams. Every instant is written whole in nanoseconds, because the
 /// magic-numbers rule reads a constant's whole value.
 const test_datagram_len: u16 = 1_200;
@@ -100,8 +100,8 @@ test "A.5: a sent packet is outstanding, counted and paced" {
     try testing.expectEqual(test_start_ns + 2 * test_round_trip_ns, held.last_ack_eliciting_sent_at_ns);
     // RFC 9002 places no bound on `sent_packets`; colibri's is named and fails closed.
     const filled_at_ns = test_start_ns + 2 * test_round_trip_ns;
-    try send(.application, 3, constants.sent_packets_max - 3, filled_at_ns, 0);
-    const past_it = eliciting(constants.sent_packets_max, filled_at_ns);
+    try send(.application, 3, constants.limits.sent_packets_max - 3, filled_at_ns, 0);
+    const past_it = eliciting(constants.limits.sent_packets_max, filled_at_ns);
     try testing.expectError(recovery.Error.Full, test_recovery.on_packet_sent(.application, past_it, filled_at_ns));
 }
 
@@ -229,7 +229,7 @@ test "A.9: a probe timeout asks for two packets and backs the next one off" {
     try testing.expectEqual(.probe, timer.mode);
     try testing.expectEqual(Kind.application, timer.space);
     const action = test_recovery.on_timeout(timer.at_ns, &test_lost);
-    try testing.expectEqual(constants.probe_packets, action.probe.count);
+    try testing.expectEqual(constants.recovery.probe_packets, action.probe.count);
     try testing.expectEqual(Kind.application, action.probe.space);
     try testing.expectEqual(1, test_recovery.timer.pto_count);
     // RFC 9002 §6.2.1: the next timeout is twice as far out.
@@ -364,7 +364,7 @@ test "A.9: with nothing outstanding the probe is the single anti-deadlock packet
     // With something outstanding it is the two of a real Probe Timeout.
     try send_spaced(.initial, 1);
     const armed = test_recovery.next_timer().?;
-    try testing.expectEqual(constants.probe_packets, test_recovery.on_timeout(armed.at_ns, &test_lost).probe.count);
+    try testing.expectEqual(constants.recovery.probe_packets, test_recovery.on_timeout(armed.at_ns, &test_lost).probe.count);
 }
 
 test "A.7: an acknowledgment sets the timer again, which the anti-deadlock probe counts from" {
@@ -463,8 +463,8 @@ test "decision 66: a PTO takes the oldest ack-eliciting packets in flight, and n
     try test_recovery.on_packet_sent(.application, padding_only(0, test_start_ns), test_start_ns);
     try send(.application, 1, 3, test_start_ns, test_round_trip_ns);
     const window = test_recovery.congestion.window;
-    const taken = test_recovery.declare_oldest_lost(.application, constants.probe_packets, &test_lost);
-    try testing.expectEqual(constants.probe_packets, taken);
+    const taken = test_recovery.declare_oldest_lost(.application, constants.recovery.probe_packets, &test_lost);
+    try testing.expectEqual(constants.recovery.probe_packets, taken);
     try testing.expectEqual(1, test_lost[0].number);
     try testing.expectEqual(2, test_lost[1].number);
     // The newest and the PADDING stay, and the timer still waits on the newest.
@@ -479,7 +479,7 @@ test "decision 66: a PTO takes the oldest ack-eliciting packets in flight, and n
 test "decision 66: with every ack-eliciting packet taken, the timer waits on none" {
     test_recovery.init(test_datagram_len);
     try send(.application, 0, 1, test_start_ns, test_round_trip_ns);
-    try testing.expectEqual(1, test_recovery.declare_oldest_lost(.application, constants.probe_packets, &test_lost));
+    try testing.expectEqual(1, test_recovery.declare_oldest_lost(.application, constants.recovery.probe_packets, &test_lost));
     try testing.expect(!test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
     try testing.expectEqual(0, test_recovery.in_flight_len());
 }

@@ -47,7 +47,7 @@ const partial_window_len: u64 = 1500;
 const issued_octet: u8 = 0x6a;
 const issued_id: [id_len]u8 = @splat(issued_octet);
 const token_octet: u8 = 0x9d;
-const token: [constants.stateless_reset_token_len]u8 = @splat(token_octet);
+const token: [constants.protocol.stateless_reset_token_len]u8 = @splat(token_octet);
 
 fn parameters() Parameters {
     var held = Parameters.initial();
@@ -135,13 +135,13 @@ test "RFC 9002 §7: a window that cannot hold the datagram holds back what is in
     open(.server);
     provider_holder = .{ .owed = &flight, .owed_level = .handshake };
     receive_eliciting(.handshake);
-    leave_window(constants.datagram_len_min - 1);
+    leave_window(constants.protocol.datagram_len_min - 1);
     const held_back = try send_now() orelse return error.NothingSent;
     try testing.expect(!held_back.packets[0].ack_eliciting);
     try testing.expectEqual(flight_len, provider_holder.owed.len);
     try testing.expect(endpoint.window_limited);
     // A whole datagram's worth of window lets the octets go.
-    leave_window(constants.datagram_len_min);
+    leave_window(constants.protocol.datagram_len_min);
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expect(sent.packets[0].ack_eliciting);
     try testing.expectEqual(0, provider_holder.owed.len);
@@ -190,9 +190,9 @@ test "RFC 9000 §14.1: a client the window holds back sends no Initial, not even
     try testing.expectEqual(null, try send_now());
     // With a datagram's worth of window the ACK goes, padded to 1,200 octets and so in flight
     // (RFC 9002 §2), which is why it is recorded although it elicits nothing.
-    leave_window(constants.datagram_len_min);
+    leave_window(constants.protocol.datagram_len_min);
     const sent = try send_now() orelse return error.NothingSent;
-    try testing.expectEqual(constants.datagram_len_min, sent.len);
+    try testing.expectEqual(constants.protocol.datagram_len_min, sent.len);
     try testing.expectEqual(sent.len, endpoint.recovery.in_flight_len());
 }
 
@@ -208,9 +208,9 @@ test "RFC 9000 §10.2.1: a CONNECTION_CLOSE goes whatever the window says, and i
     try testing.expectEqual(0, endpoint.recovery.in_flight_len());
 }
 
-test "constants.sent_packets_max: a space whose table is full sends nothing, not even an ACK" {
+test "constants.limits.sent_packets_max: a space whose table is full sends nothing, not even an ACK" {
     open(.server);
-    for (0..constants.sent_packets_max) |number| {
+    for (0..constants.limits.sent_packets_max) |number| {
         try endpoint.recovery.on_packet_sent(.handshake, .{
             .number = number,
             .sent_at_ns = test_now_ns,
@@ -304,9 +304,9 @@ test "RFC 9001 §5.4.2: no packet is planned in room its widened number would ov
     // The same datagram again, with an allowance that leaves the PING 24 octets (RFC 9000 §8.1).
     owe_flight_and_ping();
     const allowance = leading_len + unwidened_ping_room;
-    const received = allowance / constants.anti_amplification_factor + 1;
+    const received = allowance / constants.protocol.anti_amplification_factor + 1;
     endpoint.path.received = received;
-    endpoint.path.sent = received * constants.anti_amplification_factor - allowance;
+    endpoint.path.sent = received * constants.protocol.anti_amplification_factor - allowance;
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expectEqual(1, sent.count);
     try testing.expectEqual(leading_len, sent.len);
@@ -324,7 +324,7 @@ test "RFC 9000 §8.1: a widened packet's octets count against what the rest of t
     provider_holder = .{ .owed = &long_flight, .owed_level = .application };
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expectEqual(2, sent.count);
-    try testing.expectEqual(coalesced_allowance_received * constants.anti_amplification_factor, sent.len);
+    try testing.expectEqual(coalesced_allowance_received * constants.protocol.anti_amplification_factor, sent.len);
 }
 
 /// A round trip the pacing cases give the path, so the pacer earns at a rate rather than a whole
@@ -422,13 +422,13 @@ test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a full table or RFC 9000 §8's limit is 
     open(.server);
     _ = endpoint.send_flow.raise(test_max_data);
     // RFC 9000 §8: the server has sent three times what it received, so it may send nothing.
-    endpoint.path.sent = endpoint.path.received * constants.anti_amplification_factor;
+    endpoint.path.sent = endpoint.path.received * constants.protocol.anti_amplification_factor;
     try testing.expectEqual(null, try send_now());
     try testing.expect(!endpoint.ran_out_of_data);
-    // `constants.sent_packets_max`: the application space's table holds every packet it may.
+    // `constants.limits.sent_packets_max`: the application space's table holds every packet it may.
     open(.server);
     _ = endpoint.send_flow.raise(test_max_data);
-    for (0..constants.sent_packets_max) |number| {
+    for (0..constants.limits.sent_packets_max) |number| {
         try endpoint.recovery.on_packet_sent(.application, .{
             .number = number,
             .sent_at_ns = test_now_ns,

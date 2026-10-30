@@ -100,11 +100,11 @@ pub const Connections = struct {
         // RFC 9000 §14.1: "A server MUST discard an Initial packet that is carried in a UDP
         // datagram with a payload that is smaller than the smallest allowed maximum datagram
         // size of 1200 bytes."
-        if (datagram.len < quic.constants.datagram_len_min) return null;
+        if (datagram.len < quic.constants.protocol.datagram_len_min) return null;
         // RFC 9000 §7.2: a client's first Destination Connection ID "MUST be at least 8 bytes
         // in length". The Initial keys come from it, so a shorter one starts nothing and owes no
         // Retry (INV-24: it never reaches the start's assertion).
-        if (long.dcid.len < quic.constants.initial_destination_len_min) return null;
+        if (long.dcid.len < quic.constants.protocol.initial_destination_len_min) return null;
         const slot = held.accept(long, from, now_ns) orelse return null;
         internal.take(held.at(slot), datagram, ecn, from, now_ns);
         return slot;
@@ -122,7 +122,7 @@ pub const Connections = struct {
     /// Owes a Version Negotiation packet for a datagram that asks for another version, and
     /// says whether it did.
     fn answer_version(held: *Connections, datagram: []const u8, from: PeerAddress) bool {
-        var answer: [quic.constants.datagram_len_min]u8 = undefined;
+        var answer: [quic.constants.protocol.datagram_len_min]u8 = undefined;
         const written = endpoint_stateless.version_negotiation(datagram, &answer) orelse return false;
         held.replies.push(written, from);
         return true;
@@ -155,16 +155,16 @@ pub const Connections = struct {
         const count: u64 = held.connections.len;
         const holding: u64 = held.slots.holding_quic();
         assert(count > 0 and holding <= count);
-        return holding * constants.retry_from_percent_max >= held.config.retry_from_percent * count;
+        return holding * constants.limits.retry_from_percent_max >= held.config.retry_from_percent * count;
     }
 
     /// Owes a Retry for a client's first Initial (RFC 9000 §17.2.5.1), from a Source
     /// Connection ID drawn at random, which the client addresses next.
     fn owe_retry(held: *Connections, retry: *const tls.quic.Retry, long: quic.packet.header.Long, address: []const u8, from: PeerAddress, now_ns: u64) void {
-        var source: [constants.quic_id_len]u8 = undefined;
+        var source: [constants.policy.quic_id_len]u8 = undefined;
         held.random.bytes(&source);
-        var pseudo: [quic.constants.retry_pseudo_packet_len_max]u8 = undefined;
-        var packet: [quic.constants.datagram_len_min]u8 = undefined;
+        var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
+        var packet: [quic.constants.protocol.datagram_len_min]u8 = undefined;
         const answered = quic.connection_retry.answer(retry.suite(), .{
             .version = long.version,
             .client_source = long.scid,
@@ -188,7 +188,7 @@ pub const Connections = struct {
         // RFC 9000 §7.2: a client's first Destination Connection ID "MUST be at least 8 bytes in
         // length". After a Retry the ID comes from the token, which a build without `receive`'s
         // check could have sealed shorter under the same key (INV-24).
-        if (original_destination.len < quic.constants.initial_destination_len_min) return null;
+        if (original_destination.len < quic.constants.protocol.initial_destination_len_min) return null;
         const handle = held.slots.take(.quic) orelse return null;
         var how: quic_connection.Start = .{
             .version = version,
@@ -232,14 +232,14 @@ pub const Connections = struct {
 /// The Version Negotiation and Retry packets the endpoint owes, oldest first, with where each
 /// goes. A reply that finds the queue full is dropped, and its client sends again.
 pub const Replies = struct {
-    packets: [constants.quic_replies_max][quic.constants.datagram_len_min]u8 = undefined,
-    lens: [constants.quic_replies_max]usize = undefined,
-    to: [constants.quic_replies_max]PeerAddress = undefined,
+    packets: [constants.limits.quic_replies_max][quic.constants.protocol.datagram_len_min]u8 = undefined,
+    lens: [constants.limits.quic_replies_max]usize = undefined,
+    to: [constants.limits.quic_replies_max]PeerAddress = undefined,
     first: usize = 0,
     len: usize = 0,
 
     pub fn push(replies: *Replies, packet: []const u8, to: PeerAddress) void {
-        assert(packet.len <= quic.constants.datagram_len_min);
+        assert(packet.len <= quic.constants.protocol.datagram_len_min);
         if (replies.len == replies.packets.len) return;
         const index = (replies.first + replies.len) % replies.packets.len;
         @memcpy(replies.packets[index][0..packet.len], packet);

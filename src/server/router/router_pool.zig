@@ -53,7 +53,7 @@ const service_unavailable: u16 = @intFromEnum(http.status.Code.service_unavailab
 
 /// The calls of `on_writable` one event makes while the endpoint takes all it is given, so a route
 /// that writes little at a time cannot hold the program's call.
-const writable_calls_max = constants.response_pieces_max;
+const writable_calls_max = constants.limits.response_pieces_max;
 
 pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime RouteOf: type, comptime TableOf: type, comptime options_of: Options) type {
     comptime assert(options_of.requests > 0);

@@ -115,16 +115,16 @@ pub const TokenError = error{
 pub const RetryConnectionIds = struct {
     /// The Destination Connection ID of the client's first Initial, which the server sends back as
     /// original_destination_connection_id.
-    original_destination: [constants.connection_id_len_max]u8 = undefined,
+    original_destination: [constants.protocol.connection_id_len_max]u8 = undefined,
     original_destination_len: u8 = 0,
     /// The Source Connection ID of the Retry, which the client addresses next (§17.2.5.2) and the
     /// server sends back as retry_source_connection_id.
-    retry_source: [constants.connection_id_len_max]u8 = undefined,
+    retry_source: [constants.protocol.connection_id_len_max]u8 = undefined,
     retry_source_len: u8 = 0,
 
     pub fn of(original_destination: []const u8, retry_source: []const u8) RetryConnectionIds {
-        assert(original_destination.len <= constants.connection_id_len_max);
-        assert(retry_source.len <= constants.connection_id_len_max);
+        assert(original_destination.len <= constants.protocol.connection_id_len_max);
+        assert(retry_source.len <= constants.protocol.connection_id_len_max);
         var ids: RetryConnectionIds = .{
             .original_destination_len = @intCast(original_destination.len),
             .retry_source_len = @intCast(retry_source.len),
@@ -263,7 +263,7 @@ pub const VTable = struct {
         context: *const anyopaque,
         version: Version,
         pseudo_packet: []const u8,
-        tag: *const [constants.retry_integrity_tag_len]u8,
+        tag: *const [constants.protocol.retry_integrity_tag_len]u8,
     ) bool,
 
     /// Writes the Retry Integrity Tag of `pseudo_packet` (RFC 9001 §5.8) under `version`'s Retry
@@ -272,7 +272,7 @@ pub const VTable = struct {
         context: *const anyopaque,
         version: Version,
         pseudo_packet: []const u8,
-        tag: *[constants.retry_integrity_tag_len]u8,
+        tag: *[constants.protocol.retry_integrity_tag_len]u8,
     ) RetryTagError!void,
 
     /// Writes an address validation token into `output` and returns its length (RFC 9000 §8.1.1,
@@ -328,14 +328,14 @@ pub const Suite = struct {
     /// Protects one packet. The assertions are colibri's half of the contract: a packet framed
     /// wrongly is colibri's defect and never the peer's.
     pub fn seal(suite: Suite, sealing: Sealing, output: []u8) SealError!usize {
-        assert(sealing.packet_number <= constants.packet_number_max);
+        assert(sealing.packet_number <= constants.protocol.packet_number_max);
         assert(sealing.packet_number_len >= 1);
-        assert(sealing.packet_number_len <= constants.packet_number_len_max);
+        assert(sealing.packet_number_len <= constants.protocol.packet_number_len_max);
         assert(sealing.header.len > sealing.packet_number_len);
         // RFC 9001 §5.4.2: the sender pads so the sample lies inside the packet.
-        assert(sealing.packet_number_len + sealing.payload.len >= constants.protected_len_min);
+        assert(sealing.packet_number_len + sealing.payload.len >= constants.protocol.protected_len_min);
         const written = try suite.vtable.seal(suite.context, sealing, output);
-        assert(written == sealing.header.len + sealing.payload.len + constants.aead_tag_len);
+        assert(written == sealing.header.len + sealing.payload.len + constants.protocol.aead_tag_len);
         assert(written <= output.len);
         return written;
     }
@@ -345,12 +345,12 @@ pub const Suite = struct {
         assert(opening.packet_number_offset >= 1);
         assert(opening.packet_number_offset <= opening.packet.len);
         assert(opening.largest_packet_number == null or
-            opening.largest_packet_number.? <= constants.packet_number_max);
+            opening.largest_packet_number.? <= constants.protocol.packet_number_max);
         const opened = try suite.vtable.open(suite.context, opening);
-        assert(opened.packet_number <= constants.packet_number_max);
-        assert(opened.packet_number_len >= 1 and opened.packet_number_len <= constants.packet_number_len_max);
+        assert(opened.packet_number <= constants.protocol.packet_number_max);
+        assert(opened.packet_number_len >= 1 and opened.packet_number_len <= constants.protocol.packet_number_len_max);
         const protected_len = opening.packet.len - opening.packet_number_offset;
-        assert(opened.packet_number_len + opened.payload_len + constants.aead_tag_len == protected_len);
+        assert(opened.packet_number_len + opened.payload_len + constants.protocol.aead_tag_len == protected_len);
         assert(opening.level == .application or opened.key_set == .current);
         return opened;
     }

@@ -28,10 +28,10 @@ fn fuzz_encode(_: void, smith: *Smith) anyerror!void {
 /// Encodes `value`, cut to 62 bits, at the length `picked` names or the shortest that holds it,
 /// into a buffer of the room `room` names.
 fn check(value_input: u64, picked_input: u8, room_input: u8) !void {
-    const value = value_input & constants.varint_value_max;
-    const picked = constants.varint_lens[picked_input % constants.varint_lens.len];
+    const value = value_input & constants.protocol.varint_value_max;
+    const picked = constants.protocol.varint_lens[picked_input % constants.protocol.varint_lens.len];
     const len = @max(picked, varint.encoded_len_minimal(value));
-    var buffer: [constants.varint_len_max + 1]u8 = @splat(untouched);
+    var buffer: [constants.protocol.varint_len_max + 1]u8 = @splat(untouched);
     const room = room_input % buffer.len;
     var writer = Writer.init(buffer[0..room]);
     varint.encode_with_len(&writer, value, len) catch |failure| {
@@ -52,12 +52,12 @@ fn check(value_input: u64, picked_input: u8, room_input: u8) !void {
 /// RFC 9000 §16, built another way: the value in network byte order over all eight octets, its
 /// last `len` moved to the front, with the length's base-2 logarithm in the first octet's two most
 /// significant bits.
-fn expected(value: u64, len: u8) [constants.varint_len_max]u8 {
-    var big: [constants.varint_len_max]u8 = undefined;
+fn expected(value: u64, len: u8) [constants.protocol.varint_len_max]u8 {
+    var big: [constants.protocol.varint_len_max]u8 = undefined;
     std.mem.writeInt(u64, &big, value, .big);
-    var octets: [constants.varint_len_max]u8 = @splat(untouched);
-    @memcpy(octets[0..len], big[constants.varint_len_max - len ..]);
-    octets[0] |= @as(u8, std.math.log2_int(u8, len)) << (@bitSizeOf(u8) - constants.varint_length_bits);
+    var octets: [constants.protocol.varint_len_max]u8 = @splat(untouched);
+    @memcpy(octets[0..len], big[constants.protocol.varint_len_max - len ..]);
+    octets[0] |= @as(u8, std.math.log2_int(u8, len)) << (@bitSizeOf(u8) - constants.protocol.varint_length_bits);
     return octets;
 }
 
@@ -78,11 +78,11 @@ test "fuzz: the varint encoder writes RFC 9000 §16's octets in place, all of th
 test "the varint property holds at each edge of each length, with every room" {
     // The sweep reaches values of two octets alone, so this pass takes each power of two, one
     // less and one more, up to the largest value, at each length and each room.
-    for (0..@bitSizeOf(u64) - constants.varint_length_bits + 1) |bit| {
+    for (0..@bitSizeOf(u64) - constants.protocol.varint_length_bits + 1) |bit| {
         const power = @as(u64, 1) << @intCast(bit);
         for ([_]u64{ power -% 1, power, power +% 1 }) |value| {
-            for (0..constants.varint_lens.len) |picked| {
-                for (0..constants.varint_len_max + 1) |room| try check(value, @intCast(picked), @intCast(room));
+            for (0..constants.protocol.varint_lens.len) |picked| {
+                for (0..constants.protocol.varint_len_max + 1) |room| try check(value, @intCast(picked), @intCast(room));
             }
         }
     }

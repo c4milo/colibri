@@ -96,7 +96,7 @@ pub const Storage = struct {
     ended: ?server.Ended,
     peer: Peer,
     link: link_module.Link,
-    datagram: [quic.constants.datagram_len_max]u8,
+    datagram: [quic.constants.protocol.datagram_len_max]u8,
     /// The content the application's answers carry.
     content: [limits.read_content_len_max]u8,
     record: Record,

@@ -194,7 +194,7 @@ test "the echo mode answers content past its limit with 413, and writes a long e
 }
 
 /// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4). Test-only.
-const client_preface = h2.constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
+const client_preface = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 /// A HEADERS frame on stream `id` ending it, whose block is the static table's `:method: GET`,
 /// `:scheme: http` and `:path: /`, each an indexed field line (RFC 7541 §6.1, Appendix A).
 /// Test-only.
@@ -210,15 +210,15 @@ test "an h2 GET is answered with 200, its body, and END_STREAM on the DATA frame
     _ = try fresh_session(.h2, null);
     const preface = step(client_preface, &test_output);
     try testing.expectEqual(client_preface.len, preface.consumed);
-    try testing.expectEqual(h2.constants.frame_type_settings, test_output[type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_settings, test_output[type_index]);
     const answer = step(get_frame(1), &test_output);
     const written = test_output[0..answer.written];
-    try testing.expectEqual(h2.constants.frame_type_headers, written[type_index]);
-    const head_len = h2.constants.frame_header_len + std.mem.readInt(u24, written[0..length_len], .big);
+    try testing.expectEqual(h2.constants.protocol.frame_type_headers, written[type_index]);
+    const head_len = h2.constants.protocol.frame_header_len + std.mem.readInt(u24, written[0..length_len], .big);
     const body = written[head_len..];
-    try testing.expectEqual(h2.constants.frame_type_data, body[type_index]);
-    try testing.expectEqual(h2.constants.flag_end_stream, body[flags_index]);
-    try testing.expectEqualStrings(constants.response_body, body[h2.constants.frame_header_len..]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_data, body[type_index]);
+    try testing.expectEqual(h2.constants.protocol.flag_end_stream, body[flags_index]);
+    try testing.expectEqualStrings(constants.response_body, body[h2.constants.protocol.frame_header_len..]);
     try testing.expect(!answer.done);
     // A second stream is answered too, and both close.
     _ = step(get_frame(3), &test_output);
@@ -241,9 +241,9 @@ test "RFC 9110 §9.3.6: an h2 CONNECT gets 501 on a HEADERS frame that ends the 
     const answer = step(connect_frame, &test_output);
     try testing.expectEqual(connect_frame.len, answer.consumed);
     const written = test_output[0..answer.written];
-    try testing.expectEqual(h2.constants.frame_type_headers, written[type_index]);
-    try testing.expect(written[flags_index] & h2.constants.flag_end_stream != 0);
-    const head_len = h2.constants.frame_header_len + std.mem.readInt(u24, written[0..length_len], .big);
+    try testing.expectEqual(h2.constants.protocol.frame_type_headers, written[type_index]);
+    try testing.expect(written[flags_index] & h2.constants.protocol.flag_end_stream != 0);
+    const head_len = h2.constants.protocol.frame_header_len + std.mem.readInt(u24, written[0..length_len], .big);
     try testing.expectEqual(head_len, written.len);
     // RFC 7541 Appendix A: the static table holds no :status of 501, so its digits are a string
     // literal, which the encoder writes in the Huffman code because that is shorter (§5.2).
@@ -261,7 +261,7 @@ test "an h2 peer that breaks the protocol gets a GOAWAY, and the session is done
     // RFC 9113 §5.1: a DATA frame on an idle stream ends the connection.
     const data = "\x00\x00\x04\x00\x00\x00\x00\x00\x01test";
     const answer = step(data, &test_output);
-    try testing.expectEqual(h2.constants.frame_type_goaway, test_output[type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_goaway, test_output[type_index]);
     try testing.expect(answer.done);
     // A finished session reads nothing more and writes nothing.
     const after = step(data, &test_output);
@@ -292,14 +292,14 @@ test "decision 119: an event that names another connection reaches that connecti
     _ = try fresh_session(.h2, null);
     try testing.expect(test_session.accept(1, false, null, test_now_ns));
     const first = step_entry(0, client_preface, &test_output);
-    try testing.expectEqual(h2.constants.frame_type_settings, test_output[type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_settings, test_output[type_index]);
     try testing.expect(first.written > 0);
     // The step of entry 0 read the `send` of entry 1, which owes it and waits for its own step.
     try testing.expect(test_session.entries[1].send_owed);
     try testing.expectEqual(@as(?usize, 1), test_session.next_pending());
     try testing.expectEqual(null, test_session.next_pending());
     const second = step_entry(1, "", &test_other_output);
-    try testing.expectEqual(h2.constants.frame_type_settings, test_other_output[type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_settings, test_other_output[type_index]);
     try testing.expect(second.written > 0 and !test_session.entries[1].send_owed);
     // Each connection's request is answered on its own stream and in its own output.
     _ = step_entry(1, client_preface, &test_other_output);

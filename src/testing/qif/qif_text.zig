@@ -46,8 +46,8 @@ pub const Reader = struct {
             var parts = std.mem.splitScalar(u8, line, '\t');
             const name = parts.first();
             const value = parts.rest();
-            if (name.len > core.constants.field_name_len_max) return error.LineTooLong;
-            if (value.len > core.constants.field_value_len_max) return error.LineTooLong;
+            if (name.len > core.constants.limits.field_name_len_max) return error.LineTooLong;
+            if (value.len > core.constants.limits.field_value_len_max) return error.LineTooLong;
             try section.append(name, value);
         }
         return section.len() > 0;

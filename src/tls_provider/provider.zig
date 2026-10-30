@@ -31,7 +31,7 @@ pub const HandshakeReadError = error{TlsFailed};
 pub const HandshakeWriteError = error{
     /// The provider gave up while producing its flight (RFC 9846 §6).
     TlsFailed,
-    /// The output is shorter than `constants.record_write_len_min`. Nothing was written and no
+    /// The output is shorter than `constants.protocol.record_write_len_min`. Nothing was written and no
     /// provider state moved.
     NoSpaceLeft,
 };
@@ -82,7 +82,7 @@ pub const KeyUpdateError = error{
     HandshakeIncomplete,
     /// The provider does not offer key updates.
     Unsupported,
-    /// RFC 9846 §4.7.3: this sender has made `constants.key_updates_max` key updates, and one more
+    /// RFC 9846 §4.7.3: this sender has made `constants.protocol.key_updates_max` key updates, and one more
     /// would pass the cap. Nothing was written and the sending keys did not change, so the
     /// connection goes on under them. It is not `TlsFailed`, which ends the connection, and not
     /// `Unsupported`, which says the provider offers no key updates at all.
@@ -105,7 +105,7 @@ pub const ExportError = error{
 /// What `encrypt_record` protected and wrote.
 pub const Sealed = struct {
     /// Octets of the plaintext that went into records, at most
-    /// `constants.record_plaintext_len_max` per record (RFC 9846 §5.1).
+    /// `constants.protocol.record_plaintext_len_max` per record (RFC 9846 §5.1).
     consumed: usize,
     /// Octets of the output the records occupy.
     written: usize,
@@ -121,7 +121,7 @@ pub const Content = enum {
     /// A whole record that held no application data and no alert: a NewSessionTicket, a
     /// KeyUpdate, or an empty record of application data. RFC 9113 §9.2.3 permits the first two,
     /// and RFC 9846 §5.1 permits the third. h2 and h11 count each against
-    /// `core.constants.records_without_data_max`.
+    /// `core.constants.limits.records_without_data_max`.
     ///
     /// A KeyUpdate may ask for an answer (RFC 9846 §4.7.3), which the next `encrypt_record` writes
     /// in front of its records. A provider at §4.7.3's cap ignores the request and writes no
@@ -156,7 +156,7 @@ pub const Negotiated = struct {
 
 /// Whether `suite` is one of the three colibri admits (RFC 9846 Appendix B.4, decision 45).
 pub fn cipher_suite_admitted(suite: u16) bool {
-    for (constants.cipher_suites_admitted) |admitted| {
+    for (constants.policy.cipher_suites_admitted) |admitted| {
         if (suite == admitted) return true;
     }
     return false;
@@ -251,7 +251,7 @@ pub const Provider = struct {
     pub fn speaks_h2(provider: Provider) bool {
         const selected = provider.vtable.negotiated_alpn(provider.context) orelse return false;
         // RFC 9113 §3.1: "h2" is the two-octet sequence 0x68, 0x32.
-        return std.mem.eql(u8, selected, &constants.alpn_h2);
+        return std.mem.eql(u8, selected, &constants.protocol.alpn_h2);
     }
 
     /// Whether the handshake has completed (RFC 9846 Appendix E.5).
@@ -288,7 +288,7 @@ test "a provider that selects h2 speaks h2, and every other answer does not" {
     // RFC 9113 §3.2: the "h2c" identifier is never selected.
     state.selected = "h2c";
     try testing.expect(!provider.speaks_h2());
-    state.selected = &constants.alpn_h2;
+    state.selected = &constants.protocol.alpn_h2;
     state.complete = true;
     try testing.expect(provider.speaks_h2());
     try testing.expect(provider.is_complete());

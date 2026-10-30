@@ -119,8 +119,8 @@ pub const Storage = struct {
     network: Network,
     /// The records one acknowledgment took out of flight, and the ones one detection pass
     /// declared lost. Each is as long as the sender's table, so every record fits.
-    acknowledged: [quic.constants.sent_packets_max]Record,
-    lost: [quic.constants.sent_packets_max]Record,
+    acknowledged: [quic.constants.limits.sent_packets_max]Record,
+    lost: [quic.constants.limits.sent_packets_max]Record,
     /// Whether the packet of that number is still outstanding as far as the harness knows, and
     /// whether it has been accounted for. The two together are what catch a packet leaving
     /// `sent_packets` twice.
@@ -139,7 +139,7 @@ pub const packets_per_seed: usize = 64;
 pub const numbers_max: usize = packets_per_seed * probe_numbers_factor;
 /// How many times a seed's data packets the number space is, leaving the rest for probes.
 pub const probe_numbers_factor: usize = 4;
-pub const datagram_len: u16 = @intCast(quic.constants.datagram_len_min);
+pub const datagram_len: u16 = @intCast(quic.constants.protocol.datagram_len_min);
 /// The first octet of a datagram says which of the two it is.
 pub const kind_data: u8 = 0x01;
 pub const kind_ack: u8 = 0x02;

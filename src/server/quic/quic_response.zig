@@ -25,9 +25,9 @@ pub const Piece = struct {
 };
 
 pub const Pieces = struct {
-    kept: [constants.quic_response_kept_len]u8,
+    kept: [constants.limits.quic_response_kept_len]u8,
     kept_len: usize,
-    runs: [constants.quic_response_pieces_max]Piece,
+    runs: [constants.limits.quic_response_pieces_max]Piece,
     runs_len: usize,
     /// One past the stream's last octet the runs hold.
     end: u64,

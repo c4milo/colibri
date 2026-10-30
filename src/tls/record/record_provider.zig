@@ -23,7 +23,7 @@ const provider_module = tls_provider.provider;
 pub const owed_len_max = chapulin.record.alert_record_len;
 
 /// RFC 9846 §4.3.1: chapulin speaks TLS 1.3 and nothing else.
-const tls_1_3 = tls_provider.constants.version_tls_1_3;
+const tls_1_3 = tls_provider.constants.protocol.version_tls_1_3;
 
 /// What the provider keeps beside chapulin's session.
 pub const State = struct {
@@ -152,7 +152,7 @@ fn open(role: anytype, input: []const u8, plaintext: []u8) provider_module.OpenE
     if (whole == 0) return .{ .consumed = 0, .plaintext_len = 0, .content = .incomplete };
     // RFC 9846 §5.2: a record's plaintext is shorter than what follows its header, so a buffer
     // that long holds all of it and chapulin keeps none back.
-    if (plaintext.len < whole - tls_provider.constants.record_header_len) return error.NoSpaceLeft;
+    if (plaintext.len < whole - tls_provider.constants.protocol.record_header_len) return error.NoSpaceLeft;
     const state = &role.state;
     // A failed read ends the session, and h2 and h11 read no record after one, so nothing is owed.
     assert(state.owed_len == 0);

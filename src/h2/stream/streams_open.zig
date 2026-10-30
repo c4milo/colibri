@@ -98,9 +98,9 @@ pub const ReservePeerError = error{
 pub fn open_peer(streams: *Streams, id: u32, initial_send_window: u32) OpenPeerError!*Stream {
     // RFC 9113 §5.1: only a server opens a stream on a HEADERS it receives.
     assert(streams.role == .server);
-    assert(id != constants.connection_stream_id);
-    assert(id <= constants.stream_id_max);
-    assert(initial_send_window <= constants.window_max);
+    assert(id != constants.protocol.connection_stream_id);
+    assert(id <= constants.protocol.stream_id_max);
+    assert(initial_send_window <= constants.protocol.window_max);
     assert_counts(streams);
     // RFC 9113 §5.1.1: a client opens odd identifiers and a server even ones, so a HEADERS on this
     // endpoint's parity opens nothing, and §5.1 makes it a connection error of PROTOCOL_ERROR.
@@ -140,14 +140,14 @@ pub fn open_local(
     // RFC 9113 §5.1: a client opens a stream with the HEADERS it sends, and a server's own stream
     // starts with a PUSH_PROMISE, which decision 17 refuses.
     assert(streams.role == .client);
-    assert(initial_send_window <= constants.window_max);
+    assert(initial_send_window <= constants.protocol.window_max);
     assert(!initiated_by_peer(streams, streams.next_local_id));
     assert_counts(streams);
     // RFC 9113 §6.8: receivers of a GOAWAY frame MUST NOT open additional streams.
     if (streams.goaway_received_last_id != null) return error.AfterGoawayReceived;
     // RFC 9113 §5.1.1: identifiers cannot be reused, and an endpoint that cannot establish a new
     // identifier needs a new connection.
-    if (streams.next_local_id > constants.stream_id_max) return error.IdentifiersExhausted;
+    if (streams.next_local_id > constants.protocol.stream_id_max) return error.IdentifiersExhausted;
     // RFC 9113 §5.1.2: endpoints MUST NOT exceed the limit set by their peer. The initial value
     // is unlimited (§6.5.2), and a peer may lower the limit below the streams already open.
     if (at_limit(streams.local_active, peer_max_concurrent_streams)) return error.PeerLimitReached;
@@ -156,7 +156,7 @@ pub fn open_local(
     fill(streams, record, false, initial_send_window);
     streams.local_active += 1;
     // RFC 9113 §5.1.1: the next identifier is numerically greater than every one opened.
-    streams.next_local_id += constants.stream_id_step;
+    streams.next_local_id += constants.protocol.stream_id_step;
     assert_counts(streams);
     return record;
 }
@@ -168,7 +168,7 @@ pub fn open_local(
 pub fn reserve_peer(streams: *Streams, id: u32) ReservePeerError!void {
     // RFC 9113 §8.4: a client cannot push, so only a client receives a PUSH_PROMISE.
     assert(streams.role == .client);
-    assert(id != constants.connection_stream_id and id <= constants.stream_id_max);
+    assert(id != constants.protocol.connection_stream_id and id <= constants.protocol.stream_id_max);
     assert(initiated_by_peer(streams, id));
     assert_counts(streams);
     // RFC 9113 §6.6: a PUSH_PROMISE that promises a stream not in the idle state is a connection
@@ -182,12 +182,12 @@ pub fn reserve_peer(streams: *Streams, id: u32) ReservePeerError!void {
 /// The identifier class of a stream identifier in the pool: its parity, 1 for the odd identifiers
 /// a client opens and 0 for the even ones a server opens (RFC 9113 §5.1.1).
 pub fn class_of(id: u64) u32 {
-    return @intCast(id % constants.stream_id_parity_count);
+    return @intCast(id % constants.protocol.stream_id_parity_count);
 }
 
 /// The first identifier an endpoint in `role` opens (RFC 9113 §5.1.1).
 pub fn first_stream_id(role: Role) u32 {
-    return if (role.initiates_odd()) constants.stream_id_client_first else constants.stream_id_server_first;
+    return if (role.initiates_odd()) constants.protocol.stream_id_client_first else constants.protocol.stream_id_server_first;
 }
 
 /// Whether `id` has the parity of the identifiers the peer opens (RFC 9113 §5.1.1).
@@ -199,8 +199,8 @@ pub fn initiated_by_peer(streams: *const Streams, id: u64) bool {
 /// streams in this role, and together they count at most the records the pool holds. The records
 /// that owe a RST_STREAM are among the rest, the closed ones.
 pub fn assert_counts(streams: *const Streams) void {
-    assert(streams.peer_active <= constants.concurrent_streams_max);
-    assert(streams.local_active <= constants.concurrent_streams_max);
+    assert(streams.peer_active <= constants.limits.concurrent_streams_max);
+    assert(streams.local_active <= constants.limits.concurrent_streams_max);
     assert(streams.peer_active + streams.local_active <= streams.pool.len());
     assert(streams.role == .server or streams.peer_active == 0);
     assert(streams.role == .client or streams.local_active == 0);
@@ -215,7 +215,7 @@ fn fill(streams: *const Streams, record: *Stream, peer_initiated: bool, initial_
     record.state = .open;
     record.peer_initiated = peer_initiated;
     record.send_window = window.Window.init(initial_send_window);
-    record.receive = window.Receiver.init(constants.window_initial);
+    record.receive = window.Receiver.init(constants.policy.window_initial);
 }
 
 /// Whether `active` streams have reached `limit`. Null is unlimited.
@@ -238,7 +238,7 @@ pub const test_send_window: u32 = 1000;
 
 /// The `index`th identifier a client opens, counting from 0. Test-only.
 pub fn client_id(index: u32) u32 {
-    return constants.stream_id_client_first + constants.stream_id_step * index;
+    return constants.protocol.stream_id_client_first + constants.protocol.stream_id_step * index;
 }
 
 /// The record `lookup` finds for `id`, which must be live. Test-only.
@@ -267,10 +267,10 @@ pub fn reset(record: *Stream) !void {
 
 /// Opens every slot with a stream the client opens, at a server. Test-only.
 pub fn fill_with_peer_streams() !void {
-    for (0..constants.concurrent_streams_max) |index| {
+    for (0..constants.limits.concurrent_streams_max) |index| {
         _ = try test_table.open_peer(client_id(@intCast(index)), test_send_window);
     }
-    try testing.expectEqual(constants.concurrent_streams_max, test_table.len());
+    try testing.expectEqual(constants.limits.concurrent_streams_max, test_table.len());
 }
 
 test "http2/5.1.1/2: a server opens peer streams 1, 3 and 5, then refuses 3 and 5 as IdentifierNotIncreasing" {
@@ -281,7 +281,7 @@ test "http2/5.1.1/2: a server opens peer streams 1, 3 and 5, then refuses 3 and 
         try testing.expectEqual(stream.State.open, record.state);
         try testing.expect(record.peer_initiated);
         try testing.expectEqual(test_send_window, record.send_window.available);
-        try testing.expectEqual(constants.window_initial, record.receive.window.available);
+        try testing.expectEqual(constants.policy.window_initial, record.receive.window.available);
         try testing.expectEqual(count, test_table.peer_active);
     }
     try testing.expectError(error.IdentifierNotIncreasing, test_table.open_peer(3, test_send_window));
@@ -306,26 +306,26 @@ test "http2/5.1.1/1: a server refuses HEADERS on its own even parity as WrongPar
 test "http2/5.1.2/1: the stream past concurrent_streams_max is Refused, the watermark moves past it, and its late frames are discarded" {
     test_table.init(.server);
     try fill_with_peer_streams();
-    try testing.expectEqual(constants.concurrent_streams_max, test_table.peer_active);
-    const refused = client_id(constants.concurrent_streams_max);
+    try testing.expectEqual(constants.limits.concurrent_streams_max, test_table.peer_active);
+    const refused = client_id(constants.limits.concurrent_streams_max);
     try testing.expectError(error.Refused, test_table.open_peer(refused, test_send_window));
     try testing.expectEqual(refused, test_table.last_peer_stream_id());
-    try testing.expectEqual(client_id(constants.concurrent_streams_max - 1), test_table.highest_peer_opened_id);
+    try testing.expectEqual(client_id(constants.limits.concurrent_streams_max - 1), test_table.highest_peer_opened_id);
     const found = test_table.lookup(refused);
     try testing.expectEqual(Lookup.reset_and_dropped, found);
     try testing.expectEqual(Lookup.reset_and_dropped, found);
     try testing.expectError(error.IdentifierNotIncreasing, test_table.open_peer(refused, test_send_window));
     try apply_frame(try expect_live(1), .receive, .rst_stream, false);
-    const next = client_id(constants.concurrent_streams_max + 1);
+    const next = client_id(constants.limits.concurrent_streams_max + 1);
     try testing.expectEqual(next, (try test_table.open_peer(next, test_send_window)).id);
-    try testing.expectEqual(constants.concurrent_streams_max, test_table.peer_active);
+    try testing.expectEqual(constants.limits.concurrent_streams_max, test_table.peer_active);
 }
 
 test "open_peer checks the watermark, then colibri's GOAWAY, then the concurrency limit (invariant 7)" {
     test_table.init(.server);
     try fill_with_peer_streams();
-    const last_opened = client_id(constants.concurrent_streams_max - 1);
-    const above = client_id(constants.concurrent_streams_max);
+    const last_opened = client_id(constants.limits.concurrent_streams_max - 1);
+    const above = client_id(constants.limits.concurrent_streams_max);
     test_table.record_goaway_sent(last_opened);
     try testing.expectError(error.AfterGoaway, test_table.open_peer(above, test_send_window));
     try testing.expectEqual(Lookup{ .idle = true }, test_table.lookup(above));
@@ -348,7 +348,7 @@ test "a client opens local streams 1, 3 and 5, and PeerLimitReached at a peer li
         try testing.expectEqual(stream.State.open, record.state);
         try testing.expect(!record.peer_initiated);
         try testing.expectEqual(test_send_window, record.send_window.available);
-        try testing.expectEqual(constants.window_initial, record.receive.window.available);
+        try testing.expectEqual(constants.policy.window_initial, record.receive.window.available);
         try testing.expectEqual(count, test_table.local_active);
     }
     try testing.expectError(error.PeerLimitReached, test_table.open_local(3, test_send_window));
@@ -363,7 +363,7 @@ test "a client opens local streams 1, 3 and 5, and PeerLimitReached at a peer li
 }
 
 test "a client that received a GOAWAY opens no further stream, whatever its last stream identifier (§6.8)" {
-    for ([_]u32{ 0, constants.stream_id_max }) |last_stream_id| {
+    for ([_]u32{ 0, constants.protocol.stream_id_max }) |last_stream_id| {
         test_table.init(.client);
         _ = try test_table.open_local(null, test_send_window);
         try test_table.record_goaway_received(last_stream_id);
@@ -376,24 +376,24 @@ test "a client that received a GOAWAY opens no further stream, whatever its last
 
 test "open_local checks the peer's GOAWAY, the identifiers left, the peer's limit, then the pool, which a reset stream gives way in" {
     test_table.init(.client);
-    for (0..constants.concurrent_streams_max) |_| _ = try test_table.open_local(null, test_send_window);
-    const limit = constants.concurrent_streams_max;
+    for (0..constants.limits.concurrent_streams_max) |_| _ = try test_table.open_local(null, test_send_window);
+    const limit = constants.limits.concurrent_streams_max;
     try testing.expectError(error.Full, test_table.open_local(null, test_send_window));
     try reset(try expect_live(client_id(0)));
     try testing.expectEqual(client_id(limit), (try test_table.open_local(null, test_send_window)).id);
     try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(client_id(0)));
     try testing.expectError(error.PeerLimitReached, test_table.open_local(limit, test_send_window));
-    test_table.next_local_id = constants.stream_id_max + constants.stream_id_step;
+    test_table.next_local_id = constants.protocol.stream_id_max + constants.protocol.stream_id_step;
     try testing.expectError(error.IdentifiersExhausted, test_table.open_local(limit, test_send_window));
-    try test_table.record_goaway_received(constants.stream_id_max);
+    try test_table.record_goaway_received(constants.protocol.stream_id_max);
     try testing.expectError(error.AfterGoawayReceived, test_table.open_local(limit, test_send_window));
-    try testing.expectEqual(constants.concurrent_streams_max, test_table.local_active);
+    try testing.expectEqual(constants.limits.concurrent_streams_max, test_table.local_active);
 }
 
 test "IdentifiersExhausted: a client opens stream_id_max, and then has no identifier left" {
     test_table.init(.client);
-    test_table.next_local_id = constants.stream_id_max;
-    try testing.expectEqual(constants.stream_id_max, (try test_table.open_local(null, test_send_window)).id);
+    test_table.next_local_id = constants.protocol.stream_id_max;
+    try testing.expectEqual(constants.protocol.stream_id_max, (try test_table.open_local(null, test_send_window)).id);
     try testing.expectError(error.IdentifiersExhausted, test_table.open_local(null, test_send_window));
     try testing.expectEqual(1, test_table.local_active);
 }

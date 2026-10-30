@@ -55,7 +55,7 @@ pub const crypto_octets: [payload_len]u8 = @splat(crypto_octet);
 const payload_octet: u8 = 0x33;
 /// Long enough that the octets after the Packet Number field hold a tag and a payload.
 const payload_len: usize = 8;
-const protected_len: usize = payload_len + constants.aead_tag_len;
+const protected_len: usize = payload_len + constants.protocol.aead_tag_len;
 const test_payload: [protected_len]u8 = @splat(payload_octet);
 
 const datagram_len: usize = 256;
@@ -65,7 +65,7 @@ pub var datagram: [datagram_len]u8 = undefined;
 /// as a tag.
 const ack_octets_len: usize = 32;
 var ack_octets: [ack_octets_len]u8 = undefined;
-const tag_octets: [constants.aead_tag_len]u8 = @splat(0);
+const tag_octets: [constants.protocol.aead_tag_len]u8 = @splat(0);
 
 fn parameters() Parameters {
     var held = Parameters.initial();
@@ -106,7 +106,7 @@ pub fn send_and_acknowledge() void {
 
 /// RFC 9001 §6.5's period: three Probe Timeouts, which this connection's RTT answers.
 fn three_probe_timeouts_ns() u64 {
-    return constants.key_update_probe_timeouts * test_connection.recovery.rtt.probe_timeout_ns(true);
+    return constants.policy.key_update_probe_timeouts * test_connection.recovery.rtt.probe_timeout_ns(true);
 }
 
 /// Has an acknowledgment confirm the current phase now, and answers the instant RFC 9001 §6.5's
@@ -456,5 +456,5 @@ pub fn build_at(level: Level) !?packet_build.Built {
 /// RFC 9000 §17.3.1: the Key Phase bit of a short header, which RFC 9001 §5.4 protects and this
 /// suite leaves in the clear.
 pub fn key_phase_of(packet: []const u8) bool {
-    return packet[0] & constants.key_phase_bit != 0;
+    return packet[0] & constants.protocol.key_phase_bit != 0;
 }

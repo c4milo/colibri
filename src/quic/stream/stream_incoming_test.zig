@@ -148,7 +148,7 @@ test "decision 61: a pool with no block free refuses the write" {
 test "decision 61: two blocks per stream beyond the capacity" {
     const blocks = @typeInfo(@TypeOf(test_pool.blocks)).array.len;
     const edges: usize = 2;
-    try testing.expectEqual(capacity_blocks + edges * constants.streams_per_connection_max, blocks);
+    try testing.expectEqual(capacity_blocks + edges * constants.limits.streams_per_connection_max, blocks);
 }
 
 test "decision 80: a peek copies what a read would, and leaves every block in place" {

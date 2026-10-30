@@ -109,7 +109,7 @@ pub fn write_trailers(
 ) Error!void {
     // RFC 9114 §4.1.2: colibri sends no malformed trailer section.
     message.validate_trailers(section) catch return error.MessageInvalid;
-    var no_insert: [core.constants.field_count_max]Indexing = @splat(.no_insert);
+    var no_insert: [core.constants.limits.field_count_max]Indexing = @splat(.no_insert);
     const payload_len = try write_headers(connection, transport, stream_id, section, no_insert[0..section.len()], output);
     connection_qlog.frame_event(connection, .created, stream_id, .{ .headers = .{ .section = section, .payload_len = payload_len } });
 }
@@ -117,7 +117,7 @@ pub fn write_trailers(
 /// Writes a DATA frame's header on `stream_id` (RFC 9114 §7.2.1). The caller writes `len` octets
 /// of content after it.
 pub fn write_data_header(connection: *Connection, stream_id: u64, len: u64, output: *Writer) Error!void {
-    try frame_write.write_header(output, constants.frame_data, len);
+    try frame_write.write_header(output, constants.protocol.frame_data, len);
     connection_qlog.frame_event(connection, .created, stream_id, .{ .data = len });
 }
 
@@ -147,7 +147,7 @@ fn write_headers(
     // The scratch holds the longest section `frame_len_max` admits.
     result catch unreachable;
     var cursor = output.*;
-    frame_write.write_header(&cursor, constants.frame_headers, encoded.written().len) catch unreachable;
+    frame_write.write_header(&cursor, constants.protocol.frame_headers, encoded.written().len) catch unreachable;
     cursor.write_bytes(encoded.written()) catch unreachable;
     output.* = cursor;
     return encoded.written().len;
@@ -157,13 +157,13 @@ fn write_headers(
 /// beyond its name and value, more than the representation of a line ever adds, so it bounds the
 /// lines; the prefix and the frame header are added to it.
 fn frame_len_max(section: *const FieldSection) usize {
-    return constants.frame_header_len_max + constants.section_prefix_len_max + section.size;
+    return constants.protocol.frame_header_len_max + constants.protocol.section_prefix_len_max + section.size;
 }
 
 comptime {
     // A line's representation adds its pattern octet and two length prefixes to its name and
     // value (RFC 9204 §4.5.6), which `field_line_overhead` covers.
-    assert(core.constants.field_line_overhead >= constants.line_representation_len_max);
+    assert(core.constants.protocol.field_line_overhead >= constants.protocol.line_representation_len_max);
     // The longest section `frame_len_max` admits fits the scratch it is encoded into.
-    assert(constants.section_prefix_len_max + core.constants.field_section_size_max <= constants.scratch_len);
+    assert(constants.protocol.section_prefix_len_max + core.constants.limits.field_section_size_max <= constants.limits.scratch_len);
 }

@@ -141,7 +141,7 @@ test "§20.1: a lost range the full table cannot hold closes the connection with
     const lost = try sent_record(&body);
     // Another stream's ranges, a gap apart, fill the table.
     const gap: u64 = 2;
-    for (0..constants.stream_lost_ranges_max) |index| {
+    for (0..constants.limits.stream_lost_ranges_max) |index| {
         try send_test.client.streams.lost.add(.{ .stream_id = id.value + 4, .offset = gap * index, .len = 1, .fin = false });
     }
     try testing.expectError(error.Full, stream_recovery.on_packets_lost(&send_test.client, .application, &.{lost}));

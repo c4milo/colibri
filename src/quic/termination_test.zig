@@ -17,7 +17,7 @@ const millisecond_ns = constants.nanoseconds_per_millisecond;
 const test_pto_milliseconds = 100;
 const test_pto_ns = test_pto_milliseconds * millisecond_ns;
 /// Three probe timeouts, which is how long a closing or draining period lasts. Test-only.
-const closing_period_ns = constants.close_probe_timeouts * test_pto_ns;
+const closing_period_ns = constants.policy.close_probe_timeouts * test_pto_ns;
 
 test "§10.1: the effective timeout is the minimum of the two, or the one that is set" {
     const pto = 0;
@@ -30,7 +30,7 @@ test "§10.1: the effective timeout is the minimum of the two, or the one that i
     try testing.expectEqual(null, Termination.effective_idle_timeout_ns(0, 0, pto));
     // RFC 9000 §10.1: the period is raised to three PTOs when the advertised value is smaller.
     try testing.expectEqual(closing_period_ns, Termination.effective_idle_timeout_ns(1, 1, test_pto_ns).?);
-    const long_ms = 10 * constants.close_probe_timeouts * test_pto_milliseconds;
+    const long_ms = 10 * constants.policy.close_probe_timeouts * test_pto_milliseconds;
     try testing.expectEqual(long_ms * millisecond_ns, Termination.effective_idle_timeout_ns(long_ms, 0, test_pto_ns).?);
 }
 

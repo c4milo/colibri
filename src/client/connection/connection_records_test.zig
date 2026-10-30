@@ -10,7 +10,7 @@ const connection_tls = @import("connection_tls.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const header_len = tls_provider.constants.record_header_len;
+const header_len = tls_provider.constants.protocol.record_header_len;
 
 /// The provider the tests attach in place of a handshake's session. Test-only.
 var plain: plain_support.PlainProvider align(@alignOf(plain_support.PlainProvider)) = undefined;

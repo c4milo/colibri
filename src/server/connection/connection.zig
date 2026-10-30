@@ -107,12 +107,12 @@ pub const Connection = struct {
     tls_server: tls.record.Server,
     /// The protocol's octets opened from records and not yet read. Its first `plain_in_read`
     /// octets are what the last event pointed into, dropped at the next call.
-    plain_in: [constants.plaintext_in_len]u8,
+    plain_in: [constants.limits.plaintext_in_len]u8,
     plain_in_len: usize,
     plain_in_read: usize,
     /// What the connection wrote that `send` has not taken: the TLS flight's records first,
     /// `records_len` octets of them, then the protocol's octets, which `send` seals over TLS.
-    output: [constants.output_len]u8,
+    output: [constants.limits.output_len]u8,
     output_len: usize,
     records_len: usize,
     /// h2: the octets at the front of `output` that go out before the last WINDOW_UPDATE written
@@ -165,8 +165,8 @@ pub const Connection = struct {
         const choice = protocols_module.tcp_choice(config.protocols) orelse return error.NoVersion;
         assert((config.codings.len == 0) == (config.encoders == null));
         for (config.codings) |coding| assert(coding_pool.encodes(coding));
-        assert(config.limits.data_frame_len_min <= h2.constants.max_frame_size_initial);
-        assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.concurrent_streams_max);
+        assert(config.limits.data_frame_len_min <= h2.constants.protocol.max_frame_size_initial);
+        assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.limits.concurrent_streams_max);
         assert(config.limits.peer_resets_max > 0 and config.limits.resets_sent_max > 0);
         try config.timeouts.validate();
         if (connection_config.whole_units(config)) try config.timeouts.validate_units();

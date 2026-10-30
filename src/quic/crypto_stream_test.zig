@@ -80,12 +80,12 @@ test "consume slides the window, and what was buffered above it comes with it" {
 test "RFC 9000 §7.5: data past the window is CRYPTO_BUFFER_EXCEEDED, and the window itself is not" {
     test_stream.init();
     // The last octet the window holds is admitted, at the far end of a gap.
-    const last: u64 = constants.crypto_buffer_len - 1;
+    const last: u64 = constants.limits.crypto_buffer_len - 1;
     try test_stream.receive(last, "x");
     // One octet past it is more than §7.5 obliges colibri to buffer.
     try testing.expectError(
         error.CryptoBufferExceeded,
-        test_stream.receive(constants.crypto_buffer_len, "x"),
+        test_stream.receive(constants.limits.crypto_buffer_len, "x"),
     );
     // A frame that starts inside the window and ends past it is refused whole: §7.5 is about
     // what an endpoint buffers, and a partial write would leave a gap nothing will fill.
@@ -96,7 +96,7 @@ test "RFC 9000 §7.5: data past the window is CRYPTO_BUFFER_EXCEEDED, and the wi
     // The window moves with the reading, so the same offset is admitted once the base advances.
     try test_stream.receive(0, "a");
     test_stream.consume(1);
-    try test_stream.receive(constants.crypto_buffer_len, "x");
+    try test_stream.receive(constants.limits.crypto_buffer_len, "x");
 }
 
 test "a frame at the window's far end moves the held octets down, and only those" {
@@ -106,14 +106,14 @@ test "a frame at the window's far end moves the held octets down, and only those
     test_stream.consume(3);
     // "ghi" is held past a gap, so the window starts 3 octets into `buffer`. A frame at its far
     // end passes the end of `buffer`, and the held octets move down to make room.
-    const far: u64 = 3 + constants.crypto_buffer_len - 1;
+    const far: u64 = 3 + constants.limits.crypto_buffer_len - 1;
     try test_stream.receive(far, "z");
     try test_stream.receive(3, "def");
     try testing.expectEqualStrings("defghi", test_stream.readable());
     // Filling the rest makes the whole window readable, with "z" as its last octet.
     test_fill(9, far, 'm');
     const readable = test_stream.readable();
-    try testing.expectEqual(constants.crypto_buffer_len, readable.len);
+    try testing.expectEqual(constants.limits.crypto_buffer_len, readable.len);
     try testing.expectEqualStrings("defghim", readable[0..7]);
     try testing.expectEqual('m', readable[readable.len - 2]);
     try testing.expectEqual('z', readable[readable.len - 1]);
@@ -132,8 +132,8 @@ test "consume that leaves octets held keeps them, and a window read whole starts
     try testing.expectEqual(0, test_stream.readable().len);
     // The whole window is free from the new base: frames that fill it exactly are admitted,
     // and the octets are readable at once.
-    test_fill(6, 6 + constants.crypto_buffer_len, 'n');
-    try testing.expectEqual(constants.crypto_buffer_len, test_stream.readable().len);
+    test_fill(6, 6 + constants.limits.crypto_buffer_len, 'n');
+    try testing.expectEqual(constants.limits.crypto_buffer_len, test_stream.readable().len);
     try testing.expectEqual(6, test_stream.consumed_len());
 }
 
@@ -160,7 +160,7 @@ test "a frame carrying no octets is neither an error nor a change" {
     try testing.expectEqualStrings("ab", test_stream.readable());
     // RFC 9000 §19.6 does not forbid an empty CRYPTO frame, and one past the window carries
     // nothing to buffer, so it is not the overflow §7.5 names.
-    try test_stream.receive(constants.crypto_buffer_len * 2, "");
+    try test_stream.receive(constants.limits.crypto_buffer_len * 2, "");
     try testing.expectEqualStrings("ab", test_stream.readable());
 }
 
@@ -186,7 +186,7 @@ test "a whole window of octets arriving backwards is reassembled" {
     test_stream.init();
     // Every chunk out of order, the last one first, filling the window exactly.
     const chunk_len: usize = 256;
-    const chunks: usize = constants.crypto_buffer_len / chunk_len;
+    const chunks: usize = constants.limits.crypto_buffer_len / chunk_len;
     var payload: [chunk_len]u8 = undefined;
     var index = chunks;
     // Bounded by the chunk count, which the window and the chunk length fix.
@@ -195,7 +195,7 @@ test "a whole window of octets arriving backwards is reassembled" {
         @memset(&payload, @intCast(index));
         try test_stream.receive(index * chunk_len, &payload);
     }
-    try testing.expectEqual(constants.crypto_buffer_len, test_stream.readable().len);
+    try testing.expectEqual(constants.limits.crypto_buffer_len, test_stream.readable().len);
     // Every octet is the chunk it came from, so nothing was written at the wrong offset.
     const readable = test_stream.readable();
     for (0..chunks) |chunk| {
@@ -216,7 +216,7 @@ fn produce(stream: *CryptoStream, octet: u8, len: usize) void {
 test "RFC 9000 §19.6: the send window hands out what was produced and not yet framed" {
     test_stream.init();
     try testing.expectEqual(0, test_stream.unsent().len);
-    try testing.expectEqual(constants.crypto_send_buffer_len, test_stream.send_room().len);
+    try testing.expectEqual(constants.limits.crypto_send_buffer_len, test_stream.send_room().len);
 
     produce(&test_stream, first_octet, short_len);
     try testing.expectEqual(short_len, test_stream.unsent().len);
@@ -262,17 +262,17 @@ test "RFC 9000 §17.2.5.3: a flight that fits is not forgotten when more room is
 test "RFC 9000 §13.3: a flight larger than the window forgets only what it has framed" {
     test_stream.init();
     // Fill the window and frame all of it, which is the only state that may forget anything.
-    produce(&test_stream, first_octet, constants.crypto_send_buffer_len);
+    produce(&test_stream, first_octet, constants.limits.crypto_send_buffer_len);
     try testing.expectEqual(0, test_stream.send_room().len);
     try testing.expect(test_stream.can_rewind());
-    test_stream.framed(constants.crypto_send_buffer_len);
+    test_stream.framed(constants.limits.crypto_send_buffer_len);
 
     // Asking for room is what forgets, and only then.
-    try testing.expectEqual(constants.crypto_send_buffer_len, test_stream.send_room().len);
+    try testing.expectEqual(constants.limits.crypto_send_buffer_len, test_stream.send_room().len);
     try testing.expect(!test_stream.can_rewind());
     produce(&test_stream, second_octet, short_len);
     // The flow carries on at the offset it reached: §19.6 numbers the octets, not the window.
-    try testing.expectEqual(constants.crypto_send_buffer_len, test_stream.sent_len);
+    try testing.expectEqual(constants.limits.crypto_send_buffer_len, test_stream.sent_len);
     try testing.expectEqual(short_len, test_stream.unsent().len);
     try testing.expectEqual(second_octet, test_stream.unsent()[0]);
 }

@@ -146,7 +146,7 @@ fn text_or_octets(text: *TextWriter, comptime text_key: []const u8, comptime oct
 fn is_printable(octets: []const u8) bool {
     // Bounded by the octets.
     for (octets) |octet| {
-        if (octet < constants.printable_first or octet > constants.printable_last) return false;
+        if (octet < constants.protocol.printable_first or octet > constants.protocol.printable_last) return false;
     }
     return true;
 }

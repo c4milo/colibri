@@ -89,8 +89,8 @@ pub fn init(connection: *Connection, log: ?*Log, now_ns: u64) void {
 /// and the one it chose, each as the octets a QuicVersion hexstring shows (§8.1).
 fn log_versions(connection: *const Connection, held: *Log, now_ns: u64) void {
     const info = &connection.local_parameters.version_information.?;
-    var octets: [constants.version_information_versions_max][@sizeOf(u32)]u8 = undefined;
-    var listed: [constants.version_information_versions_max]quic_event.Hex = undefined;
+    var octets: [constants.limits.version_information_versions_max][@sizeOf(u32)]u8 = undefined;
+    var listed: [constants.limits.version_information_versions_max]quic_event.Hex = undefined;
     // Bounded by the versions the parameter keeps.
     for (info.available_slice(), 0..) |version, i| {
         std.mem.writeInt(u32, &octets[i], version, .big);
@@ -359,7 +359,7 @@ const Packet = struct {
 fn write_frames(text: *TextWriter, payload: []const u8, ack_delay_exponent: u64) qlog.Error!void {
     var reader = Reader.init(payload);
     // Bounded by the frames one packet can hold, as `connection_frames.process` is.
-    for (0..constants.frames_per_packet_max) |_| {
+    for (0..constants.limits.frames_per_packet_max) |_| {
         if (reader.remaining_len() == 0) return;
         const frame = frame_module.read(&reader) catch return;
         try write_frame(text, frame, ack_delay_exponent);

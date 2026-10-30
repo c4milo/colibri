@@ -96,7 +96,7 @@ pub const Storage = struct {
     network: sim.Network,
     clock: sim.Clock,
     peers: [Endpoint.count]Peer,
-    connection_id: [quic.constants.connection_id_len_max]u8,
+    connection_id: [quic.constants.protocol.connection_id_len_max]u8,
     connection_id_len: usize,
     payload: [constants.network_check_payload_len_max]u8,
     header: [constants.network_datagram_len_max]u8,
@@ -211,7 +211,7 @@ fn write_header(storage: *Storage, from: Endpoint, level: Level, truncated: pack
         .dcid = connection_id,
         .scid = connection_id,
         .packet_number = truncated,
-        .protected_payload_len = payload_len + quic.constants.aead_tag_len,
+        .protected_payload_len = payload_len + quic.constants.protocol.aead_tag_len,
     }) catch unreachable;
 }
 

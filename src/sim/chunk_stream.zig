@@ -78,17 +78,17 @@ fn draw_value(random: *Random) Value {
     var value: Value = .{ .format = formats[random.below(formats.len)] };
     switch (value.format) {
         .varint => {
-            const lens = wire_constants.varint_lens;
+            const lens = wire_constants.protocol.varint_lens;
             value.encoded_len = lens[random.below(lens.len)];
             value.integer = random.between(0, varint_value_max(value.encoded_len));
         },
         .prefixed_integer => {
-            value.prefix_size = draw_prefix_size(random, wire_constants.integer_prefix_bits_min);
+            value.prefix_size = draw_prefix_size(random, wire_constants.protocol.integer_prefix_bits_min);
             value.high_bits = draw_high_bits(random, value.prefix_size);
             value.integer = draw_integer(random);
         },
         .string_literal => {
-            value.prefix_size = draw_prefix_size(random, wire_constants.string_prefix_bits_min);
+            value.prefix_size = draw_prefix_size(random, wire_constants.protocol.string_prefix_bits_min);
             value.high_bits = draw_high_bits(random, value.prefix_size);
             const codings = std.enums.values(wire.string_literal.Coding);
             value.coding = codings[random.below(codings.len)];
@@ -100,7 +100,7 @@ fn draw_value(random: *Random) Value {
 }
 
 fn draw_prefix_size(random: *Random, min: u4) u4 {
-    return @intCast(random.between(min, wire_constants.integer_prefix_bits_max));
+    return @intCast(random.between(min, wire_constants.protocol.integer_prefix_bits_max));
 }
 
 /// Octet bits above the prefix, drawn: the bits a representation's type flags would occupy.
@@ -112,7 +112,7 @@ fn draw_high_bits(random: *Random, prefix_size: u4) u8 {
 
 /// A value of a drawn bit width from 0 to 62, so short and long encodings are both common.
 fn draw_integer(random: *Random) u64 {
-    const width_max = @bitSizeOf(u64) - @clz(wire_constants.integer_value_max);
+    const width_max = @bitSizeOf(u64) - @clz(wire_constants.protocol.integer_value_max);
     const width = random.between(0, width_max);
     if (width == 0) return 0;
     return random.next() >> @intCast(@bitSizeOf(u64) - width);
@@ -120,7 +120,7 @@ fn draw_integer(random: *Random) u64 {
 
 /// The largest value `encoded_len` octets of a QUIC variable-length integer carry (RFC 9000 §16).
 fn varint_value_max(encoded_len: u8) u64 {
-    const value_bits = @as(u8, @bitSizeOf(u8)) * encoded_len - wire_constants.varint_length_bits;
+    const value_bits = @as(u8, @bitSizeOf(u8)) * encoded_len - wire_constants.protocol.varint_length_bits;
     return (@as(u64, 1) << @intCast(value_bits)) - 1;
 }
 
@@ -128,7 +128,7 @@ fn write_value(value: *const Value, output: *Writer) core.writer.Error!void {
     switch (value.format) {
         .varint => try wire.varint.encode_with_len(output, value.integer, value.encoded_len),
         .prefixed_integer => switch (value.prefix_size) {
-            inline wire_constants.integer_prefix_bits_min...wire_constants.integer_prefix_bits_max,
+            inline wire_constants.protocol.integer_prefix_bits_min...wire_constants.protocol.integer_prefix_bits_max,
             => |size| try wire.prefixed_integer.encode(
                 size,
                 output,
@@ -138,7 +138,7 @@ fn write_value(value: *const Value, output: *Writer) core.writer.Error!void {
             else => unreachable,
         },
         .string_literal => switch (value.prefix_size) {
-            inline wire_constants.string_prefix_bits_min...wire_constants.integer_prefix_bits_max,
+            inline wire_constants.protocol.string_prefix_bits_min...wire_constants.protocol.integer_prefix_bits_max,
             => |size| try wire.string_literal.encode(
                 size,
                 output,
@@ -164,7 +164,7 @@ const eos_data_len = 4;
 /// no octet ends it. The Huffman literals set H and give their data length: data holding EOS, and
 /// one zero octet, whose five-bit `0` code leaves three zero bits of padding.
 const integer_too_long = [_]u8{std.math.maxInt(u8)} ++
-    [_]u8{continuation_flag} ** (wire_constants.integer_len_max - 1);
+    [_]u8{continuation_flag} ** (wire_constants.protocol.integer_len_max - 1);
 const huffman_eos_in_data = [_]u8{huffman_flag | eos_data_len} ++
     [_]u8{std.math.maxInt(u8)} ** eos_data_len;
 const huffman_padding_not_eos = [_]u8{ huffman_flag | 1, 0 };
@@ -178,7 +178,7 @@ fn write_refusal(refusal: Refusal, output: *Writer) core.writer.Error!void {
 }
 
 /// The prefix size every refusal is decoded at.
-const refusal_prefix_size = wire_constants.integer_prefix_bits_max;
+const refusal_prefix_size = wire_constants.protocol.integer_prefix_bits_max;
 
 /// Decodes a plan's stream in plan order, for `sim.pipe.run`.
 pub const Subject = struct {
@@ -230,7 +230,7 @@ pub const Subject = struct {
     fn decode_string(subject: *Subject, prefix_size: u4, reader: *Reader) anyerror!void {
         var output = Writer.init(&subject.decoded);
         const decoded = switch (prefix_size) {
-            inline wire_constants.string_prefix_bits_min...wire_constants.integer_prefix_bits_max,
+            inline wire_constants.protocol.string_prefix_bits_min...wire_constants.protocol.integer_prefix_bits_max,
             => |size| try wire.string_literal.decode(size, reader, &output),
             else => unreachable,
         };
@@ -242,7 +242,7 @@ pub const Subject = struct {
 
 fn decode_integer(prefix_size: u4, reader: *Reader) anyerror!u64 {
     return switch (prefix_size) {
-        inline wire_constants.integer_prefix_bits_min...wire_constants.integer_prefix_bits_max,
+        inline wire_constants.protocol.integer_prefix_bits_min...wire_constants.protocol.integer_prefix_bits_max,
         => |size| try wire.prefixed_integer.decode(size, reader),
         else => unreachable,
     };
@@ -266,10 +266,10 @@ comptime {
     // length prefix of at most two octets at the smallest prefix.
     const huffman_len_max = std.math.divCeil(
         u32,
-        constants.chunk_check_text_len_max * wire_constants.huffman_code_bits_max,
+        constants.chunk_check_text_len_max * wire_constants.protocol.huffman_code_bits_max,
         @bitSizeOf(u8),
     ) catch unreachable;
-    assert(huffman_len_max + wire_constants.integer_len_max <= constants.chunk_check_value_len_max);
+    assert(huffman_len_max + wire_constants.protocol.integer_len_max <= constants.chunk_check_value_len_max);
     assert(integer_too_long.len <= constants.chunk_check_value_len_max);
 }
 

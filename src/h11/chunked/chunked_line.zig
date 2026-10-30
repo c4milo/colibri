@@ -39,7 +39,7 @@ const backslash = '\\';
 
 /// The chunk-size of `line`, after checking the chunk extensions that follow it.
 pub fn parse(line: []const u8) Error!u64 {
-    assert(line.len <= constants.chunk_line_len_max);
+    assert(line.len <= constants.limits.chunk_line_len_max);
     var reader = Reader.init(line);
     const size = try parse_size(&reader);
     try check_extensions(&reader);
@@ -52,7 +52,7 @@ fn parse_size(reader: *Reader) Error!u64 {
     var size: u64 = 0;
     var digits: usize = 0;
     // Bounded by the line's length.
-    for (0..constants.chunk_line_len_max) |_| {
+    for (0..constants.limits.chunk_line_len_max) |_| {
         const octet = reader.peek_byte() catch break;
         const value = std.fmt.charToDigit(octet, hex_radix) catch break;
         _ = reader.read_byte() catch unreachable;
@@ -70,7 +70,7 @@ fn parse_size(reader: *Reader) Error!u64 {
 /// `chunk-ext-name = token` and `chunk-ext-val = token / quoted-string` (RFC 9112 §7.1.1).
 fn check_extensions(reader: *Reader) Error!void {
     // Bounded: each extension consumes at least its ";".
-    for (0..constants.chunk_line_len_max) |_| {
+    for (0..constants.limits.chunk_line_len_max) |_| {
         if (try at_end_after_whitespace(reader)) return;
         if (try check_extension(reader)) return;
     }
@@ -120,7 +120,7 @@ fn check_quoted_string(reader: *Reader) Error!void {
     assert((reader.peek_byte() catch unreachable) == double_quote);
     _ = reader.read_byte() catch unreachable;
     // Bounded by the line's length.
-    for (0..constants.chunk_line_len_max) |_| {
+    for (0..constants.limits.chunk_line_len_max) |_| {
         if (try quoted_octet(reader)) return;
     }
     unreachable;
@@ -156,7 +156,7 @@ const delete = 0x7f;
 fn take_token(reader: *Reader) []const u8 {
     const start = reader.offset;
     // Bounded by the line's length.
-    for (0..constants.chunk_line_len_max) |_| {
+    for (0..constants.limits.chunk_line_len_max) |_| {
         const octet = reader.peek_byte() catch break;
         if (!http.field.is_tchar(octet)) break;
         _ = reader.read_byte() catch unreachable;
@@ -167,7 +167,7 @@ fn take_token(reader: *Reader) []const u8 {
 /// BWS: SP and HTAB (RFC 9110 §5.6.3).
 fn skip_whitespace(reader: *Reader) void {
     // Bounded by the line's length.
-    for (0..constants.chunk_line_len_max) |_| {
+    for (0..constants.limits.chunk_line_len_max) |_| {
         const octet = reader.peek_byte() catch return;
         if (octet != ' ' and octet != '\t') return;
         _ = reader.read_byte() catch unreachable;

@@ -25,14 +25,14 @@ var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 /// (RFC 9113 §4.2). The second frame, or the second record, does not fit beside the first in
 /// `stream_input_len_min` octets.
 const frames_count: usize = 2;
-const content_len: usize = frames_count * h2.constants.frame_size_max;
+const content_len: usize = frames_count * h2.constants.limits.frame_size_max;
 const content_octet: u8 = 'c';
 var content: [content_len]u8 = @splat(content_octet);
 var body: [content_len]u8 = undefined;
 /// An h11 response head of the longest length h11 reads (RFC 9112 §2.1).
-var head: [h11.constants.head_len_max]u8 = undefined;
-var exchanges: [constants.requests_max]Exchange align(@alignOf(Exchange)) = undefined;
-var output: [constants.stream_output_len_min]u8 = undefined;
+var head: [h11.constants.limits.head_len_max]u8 = undefined;
+var exchanges: [constants.limits.requests_max]Exchange align(@alignOf(Exchange)) = undefined;
+var output: [constants.limits.stream_output_len_min]u8 = undefined;
 
 const ok: u16 = 200;
 /// RFC 9110 §4.2.1 and §4.2.2: the ports of an "http" and an "https" origin whose URI names none.
@@ -71,7 +71,7 @@ fn take(consumed: usize) void {
     support.to_client_len -= consumed;
 }
 
-/// A response head of `h11.constants.head_len_max` octets with no content. The whitespace before
+/// A response head of `h11.constants.limits.head_len_max` octets with no content. The whitespace before
 /// its last field value fills it: RFC 9112 §5 lets OWS stand there, and RFC 9110 §5.6.3 lets OWS
 /// hold any number of SP.
 fn head_at_limit() []u8 {
@@ -101,7 +101,7 @@ fn peer_write_content(out: []u8) !usize {
 /// The TLS server seals `plaintext` for the client: first one record of the most plaintext a record
 /// carries (RFC 9846 §5.1), then the rest. Returns the octets of that first record.
 fn seal_largest_first(plaintext: []const u8) !usize {
-    const largest = tls_provider.constants.record_plaintext_len_max;
+    const largest = tls_provider.constants.protocol.record_plaintext_len_max;
     const provider = tls_support.server.provider();
     const first = try provider.vtable.encrypt_record(provider.context, plaintext[0..largest], support.to_client[support.to_client_len..]);
     try testing.expectEqual(largest, first.consumed);
@@ -168,7 +168,7 @@ test "decision 124: Pool.receive_events_without_input_max bounds the events a po
     // and `closed`. The bound also counts the `close` of each transport and its connection's
     // `connected` and `ticket`. No run that a test makes holds them beside these.
     const transports_opened = 2;
-    try testing.expectEqual(@as(usize, transports_opened + constants.requests_max + 1), run.events);
+    try testing.expectEqual(@as(usize, transports_opened + constants.limits.requests_max + 1), run.events);
 }
 
 test {
@@ -204,7 +204,7 @@ fn Tests(comptime Pool: type) type {
             try start_cleartext(.h11, &exchange);
             send();
             const whole = head_at_limit();
-            try testing.expectEqual(h11.constants.head_len_max, whole.len);
+            try testing.expectEqual(h11.constants.limits.head_len_max, whole.len);
             // The program holds the head and, past it, octets of the next response.
             @memcpy(support.to_client[0..whole.len], whole);
             @memcpy(support.to_client[whole.len..][0..whole.len], whole);
@@ -214,7 +214,7 @@ fn Tests(comptime Pool: type) type {
             const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0 .. whole.len - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.stream_input_len_min] } }, support.now_ns);
+            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
             try testing.expectEqual(whole.len, taken.consumed);
             try testing.expectEqual(&exchange.response, taken.event.?.finished.response);
             try testing.expectEqual(.response, exchange.response.result);
@@ -240,11 +240,11 @@ fn Tests(comptime Pool: type) type {
             // RFC 9113 §4.2: the content goes in frames of the largest size the client advertised.
             support.to_client_len = try peer_write_content(&support.to_client);
             // RFC 9113 §4.1: h2 takes whole frames, so one octet less of the first takes nothing.
-            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0 .. constants.frame_len_max - 1] } }, support.now_ns);
+            const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0 .. constants.limits.frame_len_max - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.stream_input_len_min] } }, support.now_ns);
-            try testing.expectEqual(constants.frame_len_max, taken.consumed);
+            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
+            try testing.expectEqual(constants.limits.frame_len_max, taken.consumed);
             take(taken.consumed);
             try collect(&pool);
             try testing.expectEqual(.response, exchange.response.result);
@@ -295,7 +295,7 @@ fn Tests(comptime Pool: type) type {
             const short = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0 .. record_len - 1] } }, support.now_ns);
             try testing.expectEqual(0, short.consumed);
             try testing.expectEqual(null, short.event);
-            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.stream_input_len_min] } }, support.now_ns);
+            const taken = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = support.to_client[0..constants.limits.stream_input_len_min] } }, support.now_ns);
             try testing.expectEqual(record_len, taken.consumed);
             take(taken.consumed);
             try collect(&pool);
@@ -318,7 +318,7 @@ fn Tests(comptime Pool: type) type {
             const provider = tls_support.server.provider();
             const opened = try provider.vtable.decrypt_record(provider.context, output[0..written], &tls_support.peer_plain);
             try testing.expectEqual(.application_data, opened.content);
-            try testing.expectEqual(tls_provider.constants.record_plaintext_len_max, opened.plaintext_len);
+            try testing.expectEqual(tls_provider.constants.protocol.record_plaintext_len_max, opened.plaintext_len);
         }
     };
 }

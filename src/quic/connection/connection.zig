@@ -267,8 +267,8 @@ pub const Connection = struct {
     /// The stream table. What colibri may open starts at zero, because the peer has not said yet
     /// (RFC 9000 §18.2); what the peer may open is what colibri's own parameters grant.
     fn init_streams(connection: *Connection, parameters: Parameters) void {
-        const none: [constants.stream_directionalities]u64 = @splat(0);
-        var granted: [constants.stream_directionalities]u64 = undefined;
+        const none: [constants.protocol.stream_directionalities]u64 = @splat(0);
+        var granted: [constants.protocol.stream_directionalities]u64 = undefined;
         granted[@intFromEnum(stream_id.Directionality.bidirectional)] = parameters.initial_max_streams_bidi;
         granted[@intFromEnum(stream_id.Directionality.unidirectional)] = parameters.initial_max_streams_uni;
         connection.streams.init(initiator_of(connection.role), none, granted);
@@ -308,7 +308,7 @@ pub const Connection = struct {
         const idle = options.local_parameters.max_idle_timeout_ms;
         const idle_ns: ?u64 = if (idle == 0) null else idle * constants.nanoseconds_per_millisecond;
         connection.termination.init(idle_ns, options.now_ns);
-        connection.recovery.init(constants.datagram_len_min);
+        connection.recovery.init(constants.protocol.datagram_len_min);
     }
 
     /// Whether a packet whose Destination Connection ID is `dcid` belongs to this connection.
@@ -398,7 +398,7 @@ fn initiator_of(role: Role) stream_id.Initiator {
 
 comptime {
     // One space per encryption level, which is what lets `space_at` index by level.
-    assert(constants.packet_number_spaces == core.levels_count);
+    assert(constants.protocol.packet_number_spaces == core.levels_count);
 }
 
 test "decision 115: the connection's public functions are the calls a program makes" {

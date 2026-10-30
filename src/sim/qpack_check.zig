@@ -58,7 +58,7 @@ pub const Storage = struct {
     decoder_octets: [constants.qpack_check_decoder_stream_len_max]u8,
     written_section: FieldSection,
     decoded_section: FieldSection,
-    strings: [core.constants.field_section_size_max]u8,
+    strings: [core.constants.limits.field_section_size_max]u8,
     first: [constants.qpack_check_trace_len_max]u8,
     second: [constants.qpack_check_trace_len_max]u8,
 };

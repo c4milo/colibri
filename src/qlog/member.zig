@@ -40,7 +40,7 @@ pub fn boolean(text: *TextWriter, name: []const u8, value: bool) Error!void {
 /// The TupleID of tuple number `tuple` (main schema §7.2), written into `buffer`: "" for tuple 0,
 /// a connection's first, which quic-events §4.7 makes the default, and the number as text for
 /// each later one, as §4.7 allows.
-pub fn tuple_id(buffer: *[constants.tuple_id_len_max]u8, tuple: u32) []const u8 {
+pub fn tuple_id(buffer: *[constants.limits.tuple_id_len_max]u8, tuple: u32) []const u8 {
     if (tuple == 0) return "";
     // The constant's comptime assert holds the digits of the largest `u32`.
     return std.fmt.bufPrint(buffer, "{d}", .{tuple}) catch unreachable;
@@ -55,7 +55,7 @@ pub fn milliseconds(text: *TextWriter, name: []const u8, nanoseconds: u64) Error
     try text.decimal(.{
         .integer = nanoseconds / constants.nanoseconds_per_millisecond,
         .fraction = fraction,
-        .fraction_digits = constants.millisecond_fraction_digits,
+        .fraction_digits = constants.protocol.millisecond_fraction_digits,
     });
 }
 

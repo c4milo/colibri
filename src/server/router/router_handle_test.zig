@@ -121,7 +121,7 @@ test "RFC 9110 §15.5.1: a query that lacks a required pair gets 400, with no ca
 
 test "RFC 9110 §15.5.15: a query of more pairs than the router reads gets 414, with no call" {
     var fixture: Fixture = .{};
-    const pairs = "a&" ** (http.constants.query_parameters_max + 1);
+    const pairs = "a&" ** (http.constants.limits.query_parameters_max + 1);
     _ = fixture.request("GET", "/greetings/x?" ++ pairs);
     try testing.expectEqual(414, fixture.recorder.heads[0].status);
     try testing.expectEqual(0, fixture.app.calls);

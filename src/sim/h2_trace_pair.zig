@@ -117,7 +117,7 @@ pub const Pair = struct {
         pair.flush(.server);
         // RFC 9113 §3.4: the client's preface is 24 octets that are no frame and its SETTINGS
         // frame, and the server's is its SETTINGS frame.
-        pair.to_server.preface_left = h2.constants.client_preface_len + settings_len(pair.to_server.held()[h2.constants.client_preface_len..]);
+        pair.to_server.preface_left = h2.constants.protocol.client_preface_len + settings_len(pair.to_server.held()[h2.constants.protocol.client_preface_len..]);
         pair.to_client.preface_left = settings_len(pair.to_client.held());
     }
 
@@ -222,14 +222,14 @@ pub const Pair = struct {
 
     fn reset(pair: *Pair, side: sim.network.Endpoint, stream: u32) void {
         const connection = pair.endpoint(side);
-        connection.reset_stream(id_of(stream), h2.constants.error_cancel) catch return pair.note_refused();
+        connection.reset_stream(id_of(stream), h2.constants.protocol.error_cancel) catch return pair.note_refused();
         pair.flush(side);
     }
 
     fn goaway(pair: *Pair, plan: *const h2_trace_plan.Plan) void {
         // The model's server sends `MaxGoaways` GOAWAY frames at most.
         if (pair.seen.goaways_sent == plan.goaways) return;
-        pair.server.shutdown(h2.constants.error_no_error);
+        pair.server.shutdown(h2.constants.protocol.error_no_error);
         pair.seen.goaways_sent += 1;
         pair.flush(.server);
     }
@@ -329,19 +329,19 @@ pub const Pair = struct {
 fn settings_len(octets: []const u8) usize {
     var reader = h2.core.Reader.init(octets);
     const header = h2.frame.read_header(&reader) catch unreachable;
-    const len = h2.constants.frame_header_len + header.length;
-    assert(header.type == h2.constants.frame_type_settings and len <= octets.len);
+    const len = h2.constants.protocol.frame_header_len + header.length;
+    assert(header.type == h2.constants.protocol.frame_type_settings and len <= octets.len);
     return len;
 }
 
 /// RFC 9113 §5.1.1: the client's streams are the odd identifiers, the model's stream i being 2i - 1.
 pub fn id_of(stream: u32) u32 {
     assert(stream >= 1);
-    return h2.constants.stream_id_client_first + h2.constants.stream_id_step * (stream - 1);
+    return h2.constants.protocol.stream_id_client_first + h2.constants.protocol.stream_id_step * (stream - 1);
 }
 
 /// The index of the stream `id` names into the per-stream arrays: stream 1 at 0.
 pub fn index_of(id: u32) usize {
-    assert(id % h2.constants.stream_id_step == h2.constants.stream_id_client_first);
-    return (id - h2.constants.stream_id_client_first) / h2.constants.stream_id_step;
+    assert(id % h2.constants.protocol.stream_id_step == h2.constants.protocol.stream_id_client_first);
+    return (id - h2.constants.protocol.stream_id_client_first) / h2.constants.protocol.stream_id_step;
 }

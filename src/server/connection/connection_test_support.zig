@@ -27,8 +27,8 @@ pub const leaf = testdata.leaf;
 pub const root = testdata.root;
 pub const root_name = testdata.root_name;
 pub const root_spki = testdata.root_spki;
-pub const private_key: *const [tls.constants.p256_private_key_len]u8 = testdata.private_key;
-pub const public_key: *const [tls.constants.p256_public_key_len]u8 = testdata.public_key;
+pub const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = testdata.private_key;
+pub const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = testdata.public_key;
 
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
@@ -45,7 +45,7 @@ pub const now_ns: u64 = 1_000_000;
 
 pub const chain = [_][]const u8{ leaf, root };
 pub const anchors = [_]tls.Anchor{.{ .subject = root_name, .spki = root_spki }};
-pub const cookie_key: [tls.constants.server_key_len]u8 = @splat(cookie_key_octet);
+pub const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_key_octet);
 const cookie_key_octet: u8 = 0x07;
 
 /// The ALPN lists: the server's preference, h2 first (decision 88), and each a client offers.
@@ -114,9 +114,9 @@ pub var decoded: [coded_len_max]u8 = undefined;
 
 /// Content deflate cannot shrink, several rings long, so its coded octets pass the ring's end.
 pub var incompressible: [incompressible_len]u8 = undefined;
-pub const incompressible_len: usize = incompressible_rings * server_constants.encoder_ring_len;
+pub const incompressible_len: usize = incompressible_rings * server_constants.limits.encoder_ring_len;
 /// The most octets a coding test sends or decodes: the content and a ring more.
-pub const coded_len_max: usize = (incompressible_rings + 1) * server_constants.encoder_ring_len;
+pub const coded_len_max: usize = (incompressible_rings + 1) * server_constants.limits.encoder_ring_len;
 const incompressible_rings: usize = 3;
 
 /// `coded` decoded as `coding`, whole.
@@ -312,4 +312,4 @@ pub var client_saw_alert: bool = false;
 /// The content type of an alert record (RFC 9846 §5.1).
 pub const content_alert: u8 = 21;
 /// A TLS record's header: its content type, version and length (RFC 9846 §5.1).
-pub const record_header_len: usize = tls_provider.constants.record_header_len;
+pub const record_header_len: usize = tls_provider.constants.protocol.record_header_len;

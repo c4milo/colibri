@@ -47,8 +47,8 @@ pub const Settings = struct {
 
     /// The settings in the order they appear (RFC 9113 §6.5.3).
     pub fn iterator(settings: Settings) Iterator {
-        assert(settings.payload.len % constants.setting_len == 0);
-        assert(settings.payload.len <= constants.frame_size_max);
+        assert(settings.payload.len % constants.protocol.setting_len == 0);
+        assert(settings.payload.len <= constants.limits.frame_size_max);
         return .{ .reader = Reader.init(settings.payload) };
     }
 };
@@ -61,7 +61,7 @@ pub const Iterator = struct {
     /// The next setting, or null after the last. Never more than `settings_per_frame_max`.
     pub fn next(self: *Iterator) ?Setting {
         if (self.reader.remaining_len() == 0) return null;
-        assert(self.yielded < constants.settings_per_frame_max);
+        assert(self.yielded < constants.limits.settings_per_frame_max);
         // `iterator` asserted the payload is whole settings, so neither read can fall short.
         const id = self.reader.read_int(u16) catch unreachable;
         const value = self.reader.read_int(u32) catch unreachable;
@@ -72,30 +72,30 @@ pub const Iterator = struct {
 
 /// Parses the payload of a SETTINGS frame whose header the connection has read and sized.
 pub fn parse_settings(header: Header, payload: []const u8) Error!Settings {
-    assert(header.type == constants.frame_type_settings);
-    assert(payload.len == header.length and payload.len <= constants.frame_size_max);
+    assert(header.type == constants.protocol.frame_type_settings);
+    assert(payload.len == header.length and payload.len <= constants.limits.frame_size_max);
     // RFC 9113 §6.5: a SETTINGS frame whose Stream Identifier field is anything other than 0x00
     // is a connection error of PROTOCOL_ERROR.
-    if (header.stream_id != constants.connection_stream_id) return error.StreamIdNotZero;
-    const ack = frame_header.has_flag(header, constants.flag_ack);
+    if (header.stream_id != constants.protocol.connection_stream_id) return error.StreamIdNotZero;
+    const ack = frame_header.has_flag(header, constants.protocol.flag_ack);
     // RFC 9113 §6.5: a SETTINGS frame with the ACK flag set and a length other than 0 is a
     // connection error of FRAME_SIZE_ERROR.
     if (ack and payload.len != 0) return error.AckNotEmpty;
     // RFC 9113 §6.5: a length other than a multiple of 6 octets is a connection error of
     // FRAME_SIZE_ERROR.
-    if (payload.len % constants.setting_len != 0) return error.LengthInvalid;
+    if (payload.len % constants.protocol.setting_len != 0) return error.LengthInvalid;
     return .{ .payload = payload, .ack = ack };
 }
 
 /// Writes one SETTINGS frame carrying `settings` in order, all of it or nothing.
 pub fn write_settings(writer: *Writer, settings: []const Setting) core.writer.Error!void {
-    assert(settings.len <= constants.settings_per_frame_max);
+    assert(settings.len <= constants.limits.settings_per_frame_max);
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
-        .length = @intCast(settings.len * constants.setting_len),
-        .type = constants.frame_type_settings,
+        .length = @intCast(settings.len * constants.protocol.setting_len),
+        .type = constants.protocol.frame_type_settings,
         .flags = 0,
-        .stream_id = constants.connection_stream_id,
+        .stream_id = constants.protocol.connection_stream_id,
     });
     for (settings) |setting| {
         try cursor.write_int(u16, setting.id);
@@ -109,16 +109,16 @@ pub fn write_settings(writer: *Writer, settings: []const Setting) core.writer.Er
 pub fn write_settings_ack(writer: *Writer) core.writer.Error!void {
     try frame_header.write(writer, .{
         .length = 0,
-        .type = constants.frame_type_settings,
-        .flags = constants.flag_ack,
-        .stream_id = constants.connection_stream_id,
+        .type = constants.protocol.frame_type_settings,
+        .flags = constants.protocol.flag_ack,
+        .stream_id = constants.protocol.connection_stream_id,
     });
 }
 
 const testing = std.testing;
 
 fn settings_header(length: u32, flags: u8, stream_id: u32) Header {
-    return .{ .length = length, .type = constants.frame_type_settings, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = constants.protocol.frame_type_settings, .flags = flags, .stream_id = stream_id };
 }
 
 test "SETTINGS yields each setting in order and then null (RFC 9113 §6.5.1, §6.5.3)" {
@@ -126,8 +126,8 @@ test "SETTINGS yields each setting in order and then null (RFC 9113 §6.5.1, §6
     const settings = try parse_settings(settings_header(12, 0, 0), payload);
     try testing.expect(!settings.ack);
     var iterator = settings.iterator();
-    try testing.expectEqual(Setting{ .id = constants.setting_header_table_size, .value = 8192 }, iterator.next().?);
-    try testing.expectEqual(Setting{ .id = constants.setting_max_concurrent_streams, .value = 5000 }, iterator.next().?);
+    try testing.expectEqual(Setting{ .id = constants.protocol.setting_header_table_size, .value = 8192 }, iterator.next().?);
+    try testing.expectEqual(Setting{ .id = constants.protocol.setting_max_concurrent_streams, .value = 5000 }, iterator.next().?);
     try testing.expectEqual(null, iterator.next());
     try testing.expectEqual(2, iterator.yielded);
 }
@@ -135,7 +135,7 @@ test "SETTINGS yields each setting in order and then null (RFC 9113 §6.5.1, §6
 test "an empty SETTINGS frame and an ACK are legal and yield nothing" {
     var empty = (try parse_settings(settings_header(0, 0, 0), "")).iterator();
     try testing.expectEqual(null, empty.next());
-    const ack = try parse_settings(settings_header(0, constants.flag_ack, 0), "");
+    const ack = try parse_settings(settings_header(0, constants.protocol.flag_ack, 0), "");
     try testing.expect(ack.ack);
 }
 
@@ -144,7 +144,7 @@ test "SETTINGS on a stream other than 0 is StreamIdNotZero (RFC 9113 §6.5)" {
 }
 
 test "a SETTINGS ACK with a payload is AckNotEmpty (RFC 9113 §6.5)" {
-    try testing.expectError(error.AckNotEmpty, parse_settings(settings_header(6, constants.flag_ack, 0), "\xaa\xaa\xbb\xbb\xbb\xbb"));
+    try testing.expectError(error.AckNotEmpty, parse_settings(settings_header(6, constants.protocol.flag_ack, 0), "\xaa\xaa\xbb\xbb\xbb\xbb"));
 }
 
 test "a SETTINGS length that is not a multiple of 6 is LengthInvalid (RFC 9113 §6.5)" {
@@ -153,8 +153,8 @@ test "a SETTINGS length that is not a multiple of 6 is LengthInvalid (RFC 9113 �
 }
 
 test "the stream is checked before the ACK, and the ACK before the length" {
-    try testing.expectError(error.StreamIdNotZero, parse_settings(settings_header(1, constants.flag_ack, 1), "\x00"));
-    try testing.expectError(error.AckNotEmpty, parse_settings(settings_header(1, constants.flag_ack, 0), "\x00"));
+    try testing.expectError(error.StreamIdNotZero, parse_settings(settings_header(1, constants.protocol.flag_ack, 1), "\x00"));
+    try testing.expectError(error.AckNotEmpty, parse_settings(settings_header(1, constants.protocol.flag_ack, 0), "\x00"));
 }
 
 test "an unknown setting identifier is yielded, not refused (RFC 9113 §6.5.2 leaves ignoring it to the reader)" {
@@ -163,22 +163,22 @@ test "an unknown setting identifier is yielded, not refused (RFC 9113 §6.5.2 le
 }
 
 /// Octets of the largest SETTINGS payload colibri accepts: every setting zero. Test-only.
-const full_payload_len = constants.settings_per_frame_max * constants.setting_len;
+const full_payload_len = constants.limits.settings_per_frame_max * constants.protocol.setting_len;
 threadlocal var full_payload: [full_payload_len]u8 = @splat(0);
 
 test "the iterator walks a payload of the largest frame colibri accepts, bounded by settings_per_frame_max" {
     var iterator = (try parse_settings(settings_header(full_payload_len, 0, 0), &full_payload)).iterator();
     var count: u32 = 0;
     while (iterator.next()) |_| count += 1;
-    try testing.expectEqual(constants.settings_per_frame_max, count);
+    try testing.expectEqual(constants.limits.settings_per_frame_max, count);
 }
 
 test "write_settings and write_settings_ack write what parse_settings reads back" {
     var buffer: [32]u8 = @splat(0);
     var writer = Writer.init(&buffer);
     try write_settings(&writer, &.{
-        .{ .id = constants.setting_header_table_size, .value = 8192 },
-        .{ .id = constants.setting_max_concurrent_streams, .value = 5000 },
+        .{ .id = constants.protocol.setting_header_table_size, .value = 8192 },
+        .{ .id = constants.protocol.setting_max_concurrent_streams, .value = 5000 },
     });
     try testing.expectEqualSlices(u8, "\x00\x00\x0c\x04\x00\x00\x00\x00\x00\x00\x01\x00\x00\x20\x00\x00\x03\x00\x00\x13\x88", writer.written());
     var reader = Reader.init(writer.written());

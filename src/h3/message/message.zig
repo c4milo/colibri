@@ -112,7 +112,7 @@ pub fn verdict(reason: Error) u64 {
     return switch (reason) {
         // Every rule this file names is a malformed message, and §4.1.2 gives them all one
         // stream error. The switch is over the whole set so a new reason must be answered here.
-        else => constants.error_message_error,
+        else => constants.protocol.error_message_error,
     };
 }
 

@@ -186,7 +186,7 @@ test "a shut-down pool keeps a handshake while it holds an exchange, which could
 }
 
 /// The server's datagrams a test holds back before it delivers them. Test-only.
-var withheld: [withheld_max][quic.constants.datagram_len_max]u8 = undefined;
+var withheld: [withheld_max][quic.constants.protocol.datagram_len_max]u8 = undefined;
 var withheld_lens: [withheld_max]usize = undefined;
 const withheld_max: usize = 8;
 
@@ -240,7 +240,7 @@ test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the ne
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.response, first.response.result);
     // Holding no exchange, the connection retires at its idle deadline less the 1 s margin.
-    const acts_at = quic.connection_idle.deadline_ns(&pool.quic.transport).? - constants.quic_idle_margin_ns_min;
+    const acts_at = quic.connection_idle.deadline_ns(&pool.quic.transport).? - constants.policy.quic_idle_margin_ns_min;
     try testing.expect(pool.deadline_ns().? <= acts_at);
     quic_support.now_ns = acts_at;
     pool.on_instant(acts_at);

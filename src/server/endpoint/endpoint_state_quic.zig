@@ -24,7 +24,7 @@ const Entry = endpoint_requests.Entry;
 const Wait = endpoint_requests.Wait;
 
 /// A QUIC slot's open requests: as many as a QUIC connection holds at once.
-pub const QuicTable = endpoint_requests.Table(constants.quic_requests_max, constants.quic_request_number_step);
+pub const QuicTable = endpoint_requests.Table(constants.limits.quic_requests_max, constants.protocol.quic_request_number_step);
 
 /// A datagram the UDP socket read, which the suite opens in place, with its ECN codepoint and the
 /// address it came from (decision 72).
@@ -71,7 +71,7 @@ pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
 /// The next event of the connection in `slot` that a request of its table owns.
 fn connection_event(state: *State, slot: u32, connection: *QuicConnection, table: *QuicTable, now_ns: u64) ?Event {
     // Bounded: every event reads an octet the pool holds, or ends a request.
-    for (0..constants.quic_events_per_read_max) |_| {
+    for (0..constants.limits.quic_events_per_read_max) |_| {
         const received = connection.receive(now_ns) catch {
             state.failed[slot] = true;
             continue;

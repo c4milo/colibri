@@ -62,9 +62,9 @@ test {
 }
 
 test "the static table is exactly the 61 entries of RFC 7541 Appendix A, from :authority" {
-    try std.testing.expectEqual(constants.static_table_len, files.static_table.entries.len);
+    try std.testing.expectEqual(constants.protocol.static_table_len, files.static_table.entries.len);
     try std.testing.expectEqualStrings(":authority", files.static_table.entries[0].name);
-    try std.testing.expectEqualStrings("www-authenticate", files.static_table.entries[constants.static_table_len - 1].name);
+    try std.testing.expectEqualStrings("www-authenticate", files.static_table.entries[constants.protocol.static_table_len - 1].name);
     for (files.static_table.entries) |entry| {
         for (entry.name) |octet| try std.testing.expect(!std.ascii.isUpper(octet));
     }

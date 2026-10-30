@@ -42,7 +42,7 @@ const case_bytes_max = 1 << 20;
 
 /// The longest wire a case holds, in octets, and the longest frame the tool writes back: the
 /// header and the largest payload colibri accepts.
-const wire_len_max = constants.frame_header_len + constants.frame_size_max;
+const wire_len_max = constants.protocol.frame_header_len + constants.limits.frame_size_max;
 
 const exit_failure: u8 = 1;
 const exit_usage: u8 = 2;
@@ -80,7 +80,7 @@ var last_failure: LastFailure align(@alignOf(LastFailure)) = .{};
 /// The decoded wire and the frame written back, placed outside any stack frame.
 var wire_buffer: [wire_len_max]u8 = undefined;
 var round_trip_buffer: [wire_len_max]u8 = undefined;
-var settings_buffer: [constants.settings_per_frame_max]frame.Setting align(@alignOf(frame.Setting)) = undefined;
+var settings_buffer: [constants.limits.settings_per_frame_max]frame.Setting align(@alignOf(frame.Setting)) = undefined;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
@@ -169,8 +169,8 @@ fn decode(wire: []const u8) !Outcome {
     // RFC 9113 §4.2: a connection refuses a frame whose Length exceeds SETTINGS_MAX_FRAME_SIZE
     // with FRAME_SIZE_ERROR before it reads the payload, and a wire with fewer octets than its
     // Length declares is the corpus's frame too small for its mandatory data, the same error.
-    if (header.length > constants.frame_size_max or rest.len < header.length) {
-        return .{ .refused = .{ .kind = .connection, .code = constants.error_frame_size_error } };
+    if (header.length > constants.limits.frame_size_max or rest.len < header.length) {
+        return .{ .refused = .{ .kind = .connection, .code = constants.protocol.error_frame_size_error } };
     }
     if (rest.len > header.length) return error.CaseMalformed;
     const payload = frame.parse(header, rest) catch |failure| {
@@ -425,7 +425,7 @@ test "a field that differs, a parse where an error is listed, and an unlisted co
     try testing.expectError(error.CodeNotListed, run_case(try parse_case(arena,
         \\{"error": [1], "wire": "000004060000000000AAAAAAAA", "frame": null}
     ), &counts));
-    try testing.expectEqual(constants.error_frame_size_error, last_failure.code.?);
+    try testing.expectEqual(constants.protocol.error_frame_size_error, last_failure.code.?);
     try testing.expectError(error.Refused, run_case(try parse_case(arena,
         \\{"error": null, "wire": "000004060000000000AAAAAAAA",
         \\ "frame": {"length": 4, "type": 6, "flags": 0, "stream_identifier": 0, "frame_payload": {"opaque_data": "AAAA"}}}
@@ -464,8 +464,8 @@ test "each header field the case lists is compared: a wrong length, type, flags 
 
 test "a wire shorter than its Length, or longer than frame_size_max, is refused as FRAME_SIZE_ERROR (RFC 9113 §4.2)" {
     const short = try decode("\x00\x80\x00\x00\x08\x00\x00\x00\x02\x06Hello, world!howdy!");
-    try testing.expectEqual(frame.Verdict{ .kind = .connection, .code = constants.error_frame_size_error }, short.refused);
+    try testing.expectEqual(frame.Verdict{ .kind = .connection, .code = constants.protocol.error_frame_size_error }, short.refused);
     const promised = try decode("\x00\x00\x02\x08\x00\x00\x00\x00\x01\x55");
-    try testing.expectEqual(constants.error_frame_size_error, promised.refused.code);
+    try testing.expectEqual(constants.protocol.error_frame_size_error, promised.refused.code);
     try testing.expectError(error.CaseMalformed, decode("\x00\x00\x00\x08\x00\x00\x00\x00\x01\x55"));
 }

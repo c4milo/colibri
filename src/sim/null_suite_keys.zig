@@ -52,17 +52,17 @@ pub const Selection = struct {
 /// Key Phase bit picks the phase, and when it differs from the current one the packet number
 /// decides between the phase before and the phase after.
 pub fn key_set_of(selection: Selection) ?KeySet {
-    const bit = selection.first_octet & crypto.constants.key_phase_bit != 0;
+    const bit = selection.first_octet & crypto.constants.protocol.key_phase_bit != 0;
     if (bit == phase_bit(selection.phase)) return .current;
     const lowest = selection.current_phase_lowest orelse std.math.maxInt(u64);
     if (selection.packet_number >= lowest) return .next;
     return if (selection.previous_held and selection.phase > 0) .previous else null;
 }
 
-pub const tag_len = crypto.constants.aead_tag_len;
-pub const sample_len = crypto.constants.header_protection_sample_len;
-pub const sample_offset = crypto.constants.header_protection_sample_offset;
-pub const mask_len = crypto.constants.header_protection_mask_len;
+pub const tag_len = crypto.constants.protocol.aead_tag_len;
+pub const sample_len = crypto.constants.protocol.header_protection_sample_len;
+pub const sample_offset = crypto.constants.protocol.header_protection_sample_offset;
+pub const mask_len = crypto.constants.protocol.header_protection_mask_len;
 
 /// Four CRC-32s over the key's name, the packet number and the packet, each seeded differently.
 /// `header_len` is part of what is checked, so moving an octet across the boundary changes it.
@@ -95,8 +95,8 @@ pub fn mask_of(name: u32, packet: []const u8, offset: usize) [mask_len]u8 {
 /// RFC 9001 §5.4.1: header protection covers four bits of a long header's byte 0 and five of a
 /// short one's, and never the Header Form bit that says which.
 pub fn protected_bits_of(first_octet: u8) u8 {
-    const long = first_octet & crypto.constants.header_form_bit != 0;
-    return if (long) crypto.constants.long_header_protected_bits else crypto.constants.short_header_protected_bits;
+    const long = first_octet & crypto.constants.protocol.header_form_bit != 0;
+    return if (long) crypto.constants.protocol.long_header_protected_bits else crypto.constants.protocol.short_header_protected_bits;
 }
 
 /// Masks byte 0 and the Packet Number field in place.

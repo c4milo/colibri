@@ -50,7 +50,7 @@ pub const SpaceState = struct {
 
 /// Everything Appendix A.8 reads outside the round trip estimator.
 pub const State = struct {
-    spaces: [constants.packet_number_spaces]SpaceState,
+    spaces: [constants.protocol.packet_number_spaces]SpaceState,
     /// RFC 9002 Appendix A.3's `pto_count`: how many probes have been sent without hearing back.
     pto_count: u6 = 0,
     /// RFC 9001 §4.1.2: whether the handshake is confirmed, which is what lets the Application
@@ -161,7 +161,7 @@ fn probe_at(held: SpaceState, state: State, rtt: Rtt, duration_ns: u64, kind: Ki
 /// RFC 9002 §6.2.1: the timeout doubles for each probe sent without hearing back, which is what
 /// keeps a run of probes from filling a path that is not answering.
 fn backed_off(period_ns: u64, pto_count: u6) u64 {
-    const shift = @min(pto_count, constants.probe_timeout_backoff_max);
+    const shift = @min(pto_count, constants.limits.probe_timeout_backoff_max);
     return period_ns *| (@as(u64, 1) << shift);
 }
 
@@ -300,7 +300,7 @@ test "§6.2.1: the timeout doubles for each probe and stops doubling at a named 
     // Past the named limit the doubling stops rather than overflowing.
     reset();
     in_flight(.initial);
-    test_state.pto_count = constants.probe_timeout_backoff_max;
+    test_state.pto_count = constants.limits.probe_timeout_backoff_max;
     const capped = next(test_state, test_rtt).?.at_ns;
     test_state.pto_count = std.math.maxInt(u6);
     try testing.expectEqual(capped, next(test_state, test_rtt).?.at_ns);

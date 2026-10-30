@@ -21,7 +21,7 @@ const closing_rounds: usize = 128;
 /// An idle timeout short enough that half of it is less than `quic_idle_margin_ns_min`, in
 /// milliseconds, and the margin it leaves. Test-only.
 const short_idle_timeout_ms: u64 = 1_500;
-const short_margin_ns: u64 = short_idle_timeout_ms * quic.constants.nanoseconds_per_millisecond / constants.quic_idle_margin_timeout_divisor;
+const short_margin_ns: u64 = short_idle_timeout_ms * quic.constants.nanoseconds_per_millisecond / constants.policy.quic_idle_margin_timeout_divisor;
 
 fn get(body: []u8) Exchange {
     return .{ .request = .{ .method = "GET", .path = "/dns-query" }, .response = .{ .body = body } };
@@ -46,7 +46,7 @@ test "RFC 9114 §5.1: an idle connection near its idle timeout takes no new exch
     try answered_once();
     // Both sides advertise 30 s, and one PTO is far below 1 s, so the margin is 1 s.
     const idle_deadline = quic.connection_idle.deadline_ns(&connection.transport).?;
-    const acts_at = idle_deadline - constants.quic_idle_margin_ns_min;
+    const acts_at = idle_deadline - constants.policy.quic_idle_margin_ns_min;
     try testing.expect(connection.deadline_ns().? <= acts_at);
     fire_at(acts_at - 1);
     try testing.expect(!connection.draining);
@@ -70,7 +70,7 @@ test "RFC 9000 §10.1.2: a connection awaiting a response sends a PING near its 
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     const first_deadline = quic.connection_idle.deadline_ns(&connection.transport).?;
-    const acts_at = first_deadline - constants.quic_idle_margin_ns_min;
+    const acts_at = first_deadline - constants.policy.quic_idle_margin_ns_min;
     fire_at(acts_at);
     try testing.expect(quic.connection_idle.keep_alive_owed(&connection.transport));
     try testing.expect(!connection.retired and !connection.draining);
@@ -105,7 +105,7 @@ test "RFC 9114 §5.1: a connection already draining is not retired, and closes a
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     try answered_once();
     connection.shutdown();
-    const acts_at = quic.connection_idle.deadline_ns(&connection.transport).? - constants.quic_idle_margin_ns_min;
+    const acts_at = quic.connection_idle.deadline_ns(&connection.transport).? - constants.policy.quic_idle_margin_ns_min;
     fire_at(acts_at);
     try testing.expect(connection.draining and !connection.retired);
 }
@@ -113,9 +113,9 @@ test "RFC 9114 §5.1: a connection already draining is not retired, and closes a
 test "RFC 9114 §5.1: a connection whose handshake has not completed is not retired" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     // The server never hears the client, so the handshake never completes.
-    var datagram: [quic.constants.datagram_len_max]u8 = undefined;
+    var datagram: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     _ = connection.send(&datagram, support.now_ns);
-    const acts_at = quic.connection_idle.deadline_ns(&connection.transport).? - constants.quic_idle_margin_ns_min;
+    const acts_at = quic.connection_idle.deadline_ns(&connection.transport).? - constants.policy.quic_idle_margin_ns_min;
     fire_at(acts_at);
     try testing.expect(!connection.retired and !connection.draining);
 }
@@ -125,7 +125,7 @@ test "RFC 9114 §5.1: a connection that failed is not retired, though its close 
     try answered_once();
     internal.fail(connection);
     // The CONNECTION_CLOSE waits for the next send, so the idle timer still runs.
-    const acts_at = quic.connection_idle.deadline_ns(&connection.transport).? - constants.quic_idle_margin_ns_min;
+    const acts_at = quic.connection_idle.deadline_ns(&connection.transport).? - constants.policy.quic_idle_margin_ns_min;
     fire_at(acts_at);
     try testing.expect(!connection.retired and !connection.draining);
 }

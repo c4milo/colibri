@@ -15,7 +15,7 @@ const constants = @import("constants.zig");
 const values = @import("values.zig");
 
 pub const Error = error{
-    /// More anchors than `constants.anchors_max`.
+    /// More anchors than `constants.limits.anchors_max`.
     TooManyAnchors,
     /// More protocols than chapulin's `CH_ALPN_MAX`.
     TooManyProtocols,
@@ -34,14 +34,14 @@ pub fn ClientConfig(comptime chapulin: type) type {
     return struct {
         const Config = @This();
 
-        /// The most anchors and ALPN protocols the values may name, `constants.anchors_max` and
+        /// The most anchors and ALPN protocols the values may name, `constants.limits.anchors_max` and
         /// chapulin's `CH_ALPN_MAX`: `init` refuses more.
-        pub const anchors_max: usize = constants.anchors_max;
+        pub const anchors_max: usize = constants.limits.anchors_max;
         pub const protocols_max: usize = c.CH_ALPN_MAX;
 
         anchors: [anchors_max]c.ch_trust_anchor,
         alpn: [protocols_max]c.ch_alpn_protocol,
-        suites: [constants.cipher_suites_max]chapulin.Suite,
+        suites: [constants.limits.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock and the ticket.
         values: chapulin.Client,
 
@@ -70,7 +70,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
             switch (trust) {
                 .web_pki => |judged| {
                     // RFC 9846 §4.5.1.3: the trusted CAs a chain must reach, copied into a list of
-                    // `constants.anchors_max`.
+                    // `constants.limits.anchors_max`.
                     if (judged.anchors.len > config.anchors.len) return error.TooManyAnchors;
                     const anchors = config.anchors[0..judged.anchors.len];
                     for (judged.anchors, anchors) |anchor, *converted| converted.* = chapulin.trustAnchor(anchor.subject, anchor.spki);
@@ -86,10 +86,10 @@ pub fn ClientConfig(comptime chapulin: type) type {
 pub fn ServerConfig(comptime chapulin: type) type {
     const c = chapulin.c;
     comptime {
-        assert(constants.server_key_len == c.CH_SRV_COOKIE_KEY_LEN);
-        assert(constants.server_key_len == c.CH_SRV_TICKET_KEY_LEN);
-        assert(constants.sha256_len == c.SHA256_LEN);
-        assert(constants.ticket_identity_len_max == c.CH_TICKET_ID_MAX);
+        assert(constants.protocol.server_key_len == c.CH_SRV_COOKIE_KEY_LEN);
+        assert(constants.protocol.server_key_len == c.CH_SRV_TICKET_KEY_LEN);
+        assert(constants.protocol.sha256_len == c.SHA256_LEN);
+        assert(constants.limits.ticket_identity_len_max == c.CH_TICKET_ID_MAX);
     }
     return struct {
         const Config = @This();
@@ -98,10 +98,10 @@ pub fn ServerConfig(comptime chapulin: type) type {
         /// more.
         pub const protocols_max: usize = c.CH_ALPN_MAX;
 
-        ecdsa_chain: [constants.certificate_chain_len_max]c.ch_cert,
-        rsa_chain: [constants.certificate_chain_len_max]c.ch_cert,
+        ecdsa_chain: [constants.limits.certificate_chain_len_max]c.ch_cert,
+        rsa_chain: [constants.limits.certificate_chain_len_max]c.ch_cert,
         alpn: [protocols_max]c.ch_alpn_protocol,
-        suites: [constants.cipher_suites_max]chapulin.Suite,
+        suites: [constants.limits.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock.
         values: chapulin.Server,
 
@@ -201,7 +201,7 @@ fn cpu_of(comptime chapulin: type, cpu: values.Cpu) chapulin.Cpu {
 
 /// Copies a role's suite order into chapulin's list; an empty order keeps chapulin's own.
 /// chapulin's `init` refuses a suite the object does not hold and a suite named twice.
-fn suite_order(comptime chapulin: type, storage: *[constants.cipher_suites_max]chapulin.Suite, codes: []const u16) Error![]const chapulin.Suite {
+fn suite_order(comptime chapulin: type, storage: *[constants.limits.cipher_suites_max]chapulin.Suite, codes: []const u16) Error![]const chapulin.Suite {
     // RFC 9846 §9.1: the suites in the role's order, copied into a list as long as the three
     // colibri admits (decision 45).
     if (codes.len > storage.len) return error.TooManySuites;
@@ -220,7 +220,7 @@ fn protocols(comptime chapulin: type, storage: *[chapulin.c.CH_ALPN_MAX]chapulin
 }
 
 /// Copies a chain into chapulin's list, the end-entity first (RFC 9846 §4.5.1).
-fn certificates(comptime chapulin: type, storage: *[constants.certificate_chain_len_max]chapulin.c.ch_cert, chain: []const []const u8) Error![]const chapulin.c.ch_cert {
+fn certificates(comptime chapulin: type, storage: *[constants.limits.certificate_chain_len_max]chapulin.c.ch_cert, chain: []const []const u8) Error![]const chapulin.c.ch_cert {
     // RFC 9846 §4.5.1: the certificate_list, copied into a list of `certificate_chain_len_max`.
     if (chain.len > storage.len) return error.TooManyCertificates;
     for (chain, storage[0..chain.len]) |der, *certificate| certificate.* = chapulin.cert(der);

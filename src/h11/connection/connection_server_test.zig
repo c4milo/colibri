@@ -326,7 +326,7 @@ test "RFC 9110 §8.6: a Content-Length the body cannot count is refused first, u
 }
 
 /// A section as long as colibri's limit, whose lines are not valid.
-var test_many: [core.constants.field_count_max]Field align(@alignOf(Field)) = @splat(.{ .name = "a b", .value = "c" });
+var test_many: [core.constants.limits.field_count_max]Field align(@alignOf(Field)) = @splat(.{ .name = "a b", .value = "c" });
 
 test "RFC 9110 §5.4: a section with no room for the close option is refused before its lines are checked" {
     const target = server();
@@ -374,7 +374,7 @@ test "RFC 9112 §9.6: a head that adds the close option holds the lines written,
     };
     const expected = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\n";
     for (fills) |fill| {
-        var with_close: [core.constants.field_count_max]Field = undefined;
+        var with_close: [core.constants.limits.field_count_max]Field = undefined;
         @memset(std.mem.asBytes(&with_close), fill);
         const written = try connection_server.write_head_with_close(&test_output, 200, "OK", &fields, &checked_of(&fields), &with_close);
         try testing.expectEqualStrings(expected, test_output[0..written]);
@@ -383,8 +383,8 @@ test "RFC 9112 §9.6: a head that adds the close option holds the lines written,
 
 test "RFC 9110 §5.4: a head of field_count_max lines has no room for the close option, and is refused" {
     const line: Field = .{ .name = "a", .value = "b" };
-    const fields: [core.constants.field_count_max]Field = @splat(line);
-    var with_close: [core.constants.field_count_max]Field = undefined;
+    const fields: [core.constants.limits.field_count_max]Field = @splat(line);
+    var with_close: [core.constants.limits.field_count_max]Field = undefined;
     try testing.expectError(error.TooManyFields, connection_server.write_head_with_close(&test_output, 200, "OK", &fields, &checked_of(&fields), &with_close));
     // One line fewer leaves room for the close option, so the limit does not refuse it.
     if (connection_server.write_head_with_close(&test_output, 200, "OK", fields[0 .. fields.len - 1], &checked_of(fields[0 .. fields.len - 1]), &with_close)) |_| {} else |failure| {

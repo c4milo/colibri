@@ -17,12 +17,12 @@ const early_ns = deadline_support.early_ns;
 const Timeout = @import("../deadline.zig").Timeout;
 const ResponseBody = support.ResponseBody;
 
-const grace_ns = server_constants.rate_grace_ns;
-const window_ns = server_constants.rate_window_ns;
-const linger_ns = server_constants.close_linger_ns;
+const grace_ns = server_constants.policy.rate_grace_ns;
+const window_ns = server_constants.policy.rate_window_ns;
+const linger_ns = server_constants.policy.close_linger_ns;
 const first_end_ns = early_ns + grace_ns + window_ns;
 /// The octets each window owes at the default send rate.
-const quota: usize = server_constants.send_rate_min * (window_ns / server_constants.nanoseconds_per_second);
+const quota: usize = server_constants.policy.send_rate_min * (window_ns / server_constants.nanoseconds_per_second);
 
 const whole_request = "GET / HTTP/1.1\r\nHost: h\r\n\r\n";
 const head_begun = "GET / HT";
@@ -78,13 +78,13 @@ test "decision 110: a peer that takes the quota each window is not cut, and an e
     try testing.expectEqual(null, connection.close_reason());
     _ = send_at(first_end_ns + window_ns);
     // The response is out, and only the idle deadline runs.
-    try testing.expectEqual(first_end_ns + window_ns + server_constants.idle_timeout_ns, connection.deadline_ns().?);
+    try testing.expectEqual(first_end_ns + window_ns + server_constants.policy.idle_timeout_ns, connection.deadline_ns().?);
 }
 
 test "decision 110: a connection a deadline ended closes at its linger when the peer takes nothing, and at once when it takes all" {
     try support.start_cleartext(.h11);
     _ = try receive_at(head_begun, early_ns);
-    const ended_ns = server_constants.first_request_timeout_ns;
+    const ended_ns = server_constants.policy.first_request_timeout_ns;
     connection.on_instant(ended_ns);
     // The 408 waits: the peer's socket takes nothing.
     try testing.expectEqual(0, take(0, ended_ns));
@@ -135,9 +135,9 @@ fn answer_blocked(stream_window: u32) !void {
 /// At `now_ns`, the client of a started h2 connection asks for streams with a window of
 /// `stream_window` octets. Then the answer to its request on stream 1 waits on the window.
 fn block_first(stream_window: u32, now_ns: u64) !void {
-    var frame: [h2.constants.frame_header_len + h2.constants.setting_len]u8 = undefined;
+    var frame: [h2.constants.protocol.frame_header_len + h2.constants.protocol.setting_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
-    try h2.frame.write_settings(&writer, &.{.{ .id = h2.constants.setting_initial_window_size, .value = stream_window }});
+    try h2.frame.write_settings(&writer, &.{.{ .id = h2.constants.protocol.setting_initial_window_size, .value = stream_window }});
     _ = try receive_at(writer.written(), now_ns);
     _ = try receive_at(try h2_support.request_frame(1, "/", true), now_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
@@ -151,15 +151,15 @@ test "RFC 9113 §10.5: a stream whose window stays under the floor is reset with
     _ = send_at(early_ns);
     try testing.expectEqual(first_end_ns, connection.deadline_ns().?);
     // The client opens the window by less than the floor, so no frame goes out.
-    var frame: [h2.constants.frame_header_len + h2.constants.window_update_len]u8 = undefined;
+    var frame: [h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
-    try h2.frame.write_window_update(&writer, 1, server_constants.data_frame_len_min - 1);
+    try h2.frame.write_window_update(&writer, 1, server_constants.policy.data_frame_len_min - 1);
     _ = try receive_at(writer.written(), early_ns + 1);
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = &content, .end = true }));
     connection.on_instant(first_end_ns);
     // The stream ends, and the connection goes on.
     try testing.expectEqual(null, connection.close_reason());
-    try testing.expectEqual(h2.constants.error_cancel, try deadline_support.reset_code(send_at(first_end_ns), 1));
+    try testing.expectEqual(h2.constants.protocol.error_cancel, try deadline_support.reset_code(send_at(first_end_ns), 1));
     const cancelled = (try connection.receive(&.{}, first_end_ns)).event.?.cancelled;
     try testing.expectEqual(1, cancelled.id.number);
     try testing.expectEqual(Timeout.send_rate, cancelled.reason.timeout);
@@ -178,14 +178,14 @@ test "decision 110: a stream the connection's window holds ends the connection w
     try h2_support.start();
     _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
-    connection.session.h2.send_window = h2.Window.init(server_constants.data_frame_len_min - 1);
+    connection.session.h2.send_window = h2.Window.init(server_constants.policy.data_frame_len_min - 1);
     // As after an increment below the floor, which makes the floor apply.
     connection.session.h2.tiny_update_read = true;
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .bytes = &content, .end = true }));
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
     try testing.expectEqual(.send_rate, connection.close_reason().?.timeout);
-    try testing.expectEqual(h2.constants.error_enhance_your_calm, try deadline_support.goaway_code(send_at(first_end_ns)));
+    try testing.expectEqual(h2.constants.protocol.error_enhance_your_calm, try deadline_support.goaway_code(send_at(first_end_ns)));
 }
 
 /// Whether `receive` owes nothing more at `now_ns`.
@@ -204,9 +204,9 @@ test "decision 110: a stream held by its window that ends, or is cancelled, runs
     // The peer resets the stream.
     try answer_blocked(0);
     _ = send_at(early_ns);
-    var frame: [h2.constants.frame_header_len + h2.constants.rst_stream_len]u8 = undefined;
+    var frame: [h2.constants.protocol.frame_header_len + h2.constants.protocol.rst_stream_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
-    try h2.frame.write_rst_stream(&writer, 1, h2.constants.error_cancel);
+    try h2.frame.write_rst_stream(&writer, 1, h2.constants.protocol.error_cancel);
     try testing.expect((try receive_at(writer.written(), early_ns + 1)).event.?.cancelled.reason == .peer_reset);
     connection.on_instant(first_end_ns);
     try testing.expect(try nothing_owed(first_end_ns));
@@ -222,9 +222,9 @@ test "decision 110: a stream held by its window that ends, or is cancelled, runs
 /// whose content waits on the window.
 fn upload_blocked() !void {
     try h2_support.start();
-    var frame: [h2.constants.frame_header_len + h2.constants.setting_len]u8 = undefined;
+    var frame: [h2.constants.protocol.frame_header_len + h2.constants.protocol.setting_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
-    try h2.frame.write_settings(&writer, &.{.{ .id = h2.constants.setting_initial_window_size, .value = 0 }});
+    try h2.frame.write_settings(&writer, &.{.{ .id = h2.constants.protocol.setting_initial_window_size, .value = 0 }});
     _ = try receive_at(writer.written(), early_ns);
     _ = try receive_at(try h2_support.request_frame_with(1, "POST", "/u", &.{}, false), early_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
@@ -250,15 +250,15 @@ test "decision 110: a stream a send deadline ends owes one cancelled, not a seco
 }
 
 /// A WINDOW_UPDATE frame for `stream_id` adding `increment` octets.
-fn window_update(stream_id: u32, increment: u32) ![h2.constants.frame_header_len + h2.constants.window_update_len]u8 {
-    var frame: [h2.constants.frame_header_len + h2.constants.window_update_len]u8 = undefined;
+fn window_update(stream_id: u32, increment: u32) ![h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 {
+    var frame: [h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 = undefined;
     var writer = h2.core.Writer.init(&frame);
     try h2.frame.write_window_update(&writer, stream_id, increment);
     return frame;
 }
 
 const second_ns: u64 = server_constants.nanoseconds_per_second;
-const floor_len: u32 = server_constants.data_frame_len_min;
+const floor_len: u32 = server_constants.policy.data_frame_len_min;
 
 test "decision 110: a stream whose window opens a floor at a time, at the rate, is not cut" {
     try answer_blocked(0);
@@ -283,7 +283,7 @@ test "decision 110: a stream whose window lets a write through is held no more" 
     _ = send_at(early_ns);
     _ = try receive_at(&(try window_update(1, answer_len)), early_ns + 1);
     // One frame's octets go out, and the caller writes no more for a while.
-    const frame_octets = content[0..h2.constants.max_frame_size_initial];
+    const frame_octets = content[0..h2.constants.protocol.max_frame_size_initial];
     try testing.expectEqual(frame_octets.len, try connection.write_body(1, .{ .bytes = frame_octets, .end = false }));
     _ = send_at(early_ns + 1);
     connection.on_instant(first_end_ns + window_ns);
@@ -315,7 +315,7 @@ test "decision 110: a held stream takes a freed entry before it writes a new one
     connection.cancel(1);
     // More streams than the table holds, each held by its window until the client opens it.
     var stream_id: u32 = 3;
-    for (0..server_constants.bodies_max + 4) |_| {
+    for (0..server_constants.limits.bodies_max + 4) |_| {
         _ = try receive_at(try h2_support.request_frame(stream_id, "/", true), early_ns);
         try connection.respond(stream_id, .{ .status = ok_status, .end = false });
         const last: ResponseBody = .{ .bytes = content[0..1], .end = true };

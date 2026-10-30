@@ -105,7 +105,7 @@ fn read_kept(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usi
 
 pub var client: Endpoint align(@alignOf(Endpoint)) = undefined;
 pub var server: Endpoint align(@alignOf(Endpoint)) = undefined;
-var frame_octets: [quic.constants.datagram_len_min]u8 = undefined;
+var frame_octets: [quic.constants.protocol.datagram_len_min]u8 = undefined;
 var packet_number: u64 = 0;
 
 fn parameters() quic.transport_parameters.Parameters {
@@ -115,7 +115,7 @@ fn parameters() quic.transport_parameters.Parameters {
     granted.initial_max_stream_data_bidi_remote = window;
     granted.initial_max_stream_data_uni = window;
     granted.initial_max_streams_bidi = bidirectional_max;
-    granted.initial_max_streams_uni = constants.uni_streams_max;
+    granted.initial_max_streams_uni = constants.limits.uni_streams_max;
     return granted;
 }
 
@@ -268,7 +268,7 @@ test "§6.2.1, §7.2.4: each side opens its control stream with SETTINGS, and th
     const settings = server.h3.peer_settings.?;
     // §7.2.4.1: colibri advertises the field section size it accepts, and the reserved setting it
     // also sent is ignored.
-    try testing.expectEqual(core.constants.field_section_size_max, settings.max_field_section_size.?);
+    try testing.expectEqual(core.constants.limits.field_section_size_max, settings.max_field_section_size.?);
     try testing.expectEqual(null, settings.reserved);
     // RFC 9204 §5: a decoder left at the defaults advertises neither QPACK setting.
     try testing.expectEqual(null, settings.qpack_max_table_capacity);

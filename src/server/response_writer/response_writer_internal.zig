@@ -111,7 +111,7 @@ pub fn add_piece(response: *ResponseWriter, bytes: []const u8) Error!void {
         response.piece_sent = 0;
         response.piece_count = 0;
     }
-    if (response.piece_count == constants.response_pieces_max) return error.Full;
+    if (response.piece_count == constants.limits.response_pieces_max) return error.Full;
     response.pieces[response.piece_count] = bytes;
     response.piece_count += 1;
 }
@@ -125,7 +125,7 @@ pub fn close_body(response: *ResponseWriter) void {
 
 pub fn copy_trailers(response: *ResponseWriter, headers: []const http.Field) Error!void {
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
-    if (response.header_count + headers.len > constants.response_headers_max) return error.SectionTooLarge;
+    if (response.header_count + headers.len > constants.limits.response_headers_max) return error.SectionTooLarge;
     // The trailers' names and values go after the body, in the memory the writer has not used.
     const offset = @intFromPtr(response.writer.buffer.ptr) - @intFromPtr(response.memory.ptr);
     var first = offset;
@@ -166,7 +166,7 @@ pub fn end_wrapped(response: *ResponseWriter) Error!void {
 /// and keeps the body's writer before them.
 pub fn copy_trailers_last(response: *ResponseWriter, headers: []const http.Field) Error!void {
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
-    if (response.header_count + headers.len > constants.response_headers_max) return error.SectionTooLarge;
+    if (response.header_count + headers.len > constants.limits.response_headers_max) return error.SectionTooLarge;
     var total: usize = 0;
     for (headers) |line| total += line.name.len + line.value.len;
     // The writer's buffer ends where the memory ends, until the body closes.
@@ -188,7 +188,7 @@ pub fn add_content_length(response: *ResponseWriter) void {
     assert(!response.head_out and response.ended);
     // RFC 9110 §8.6: a server does not send Content-Length in a 1xx or 204 response.
     if (response.status < final_min or response.status == no_content) return;
-    if (response.header_count == constants.response_headers_max) return;
+    if (response.header_count == constants.limits.response_headers_max) return;
     for (response.lines[0..response.header_count]) |line| {
         if (std.ascii.eqlIgnoreCase(line.name, "content-length")) return;
     }

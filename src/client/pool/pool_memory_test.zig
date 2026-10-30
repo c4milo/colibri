@@ -40,11 +40,11 @@ test "decision 125: memory_bytes counts each TCP connection and each exchange, a
     const default_len = comptime ConnectionPool.memory_bytes(.{});
     try testing.expectEqual(default_len, TcpAlone.memory_bytes(.{}));
     // One TCP connection, its link, and `requests_max` entries after them.
-    try testing.expectEqual(@sizeOf(Connection) + @sizeOf(Link) + constants.requests_max * @sizeOf(Entry), default_len);
+    try testing.expectEqual(@sizeOf(Connection) + @sizeOf(Link) + constants.limits.requests_max * @sizeOf(Entry), default_len);
     // Each TCP connection and each exchange more adds its size.
     const counted_len = @as(usize, counted_tcp) * (@sizeOf(Connection) + @sizeOf(Link)) + @as(usize, few_requests) * @sizeOf(Entry);
     try testing.expectEqual(counted_len, ConnectionPool.memory_bytes(counted));
-    try testing.expectEqual(default_len + @sizeOf(Entry), ConnectionPool.memory_bytes(.{ .requests = constants.requests_max + 1 }));
+    try testing.expectEqual(default_len + @sizeOf(Entry), ConnectionPool.memory_bytes(.{ .requests = constants.limits.requests_max + 1 }));
     // The alignment serves both parts.
     try testing.expect(ConnectionPool.memory_alignment >= @alignOf(Connection) and ConnectionPool.memory_alignment >= @alignOf(Entry));
 }
@@ -71,11 +71,11 @@ test "decision 125: init keeps the TCP connection and the exchanges in the calle
 test "decision 125: receive_events_without_input_max counts each exchange and each transport" {
     // One `finished` for each exchange, the events of each transport, and one `closed`: the TCP
     // connections and the QUIC connection.
-    const per_transport = constants.transport_events_max;
+    const per_transport = constants.limits.transport_events_max;
     const closed = 1;
     const default_transports = 2;
-    try testing.expectEqual(constants.requests_max + default_transports * per_transport + closed, ConnectionPool.receive_events_without_input_max(.{}));
+    try testing.expectEqual(constants.limits.requests_max + default_transports * per_transport + closed, ConnectionPool.receive_events_without_input_max(.{}));
     // A pool with no QUIC has no QUIC transport.
-    try testing.expectEqual(constants.requests_max + per_transport + closed, TcpAlone.receive_events_without_input_max(.{}));
+    try testing.expectEqual(constants.limits.requests_max + per_transport + closed, TcpAlone.receive_events_without_input_max(.{}));
     try testing.expectEqual(@as(usize, few_requests) + (@as(usize, counted_tcp) + 1) * per_transport + closed, ConnectionPool.receive_events_without_input_max(counted));
 }

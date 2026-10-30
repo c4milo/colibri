@@ -90,7 +90,7 @@ pub fn step(connection: *Connection, now_ns: u64) void {
     const held = &connection.peer.connection;
     if (over_h3) {
         h3_side.step(held, now_ns) catch |failure| udp_run.fail("the h3 client failed: {t}", .{failure});
-        if (h3_side.is_done()) connection.peer.close(h3.constants.error_no_error);
+        if (h3_side.is_done()) connection.peer.close(h3.constants.protocol.error_no_error);
         return;
     }
     client.step(held) catch |failure| udp_run.fail("the client's streams failed: {t}", .{failure});
@@ -172,10 +172,10 @@ fn suite_ran(connection: *Connection) u16 {
 /// unidirectional streams (RFC 9114 §6.2), which an hq-interop server never opens.
 fn parameters() Parameters {
     var held = Parameters.initial();
-    held.initial_max_data = quic.constants.receive_pool_len_default;
-    held.initial_max_stream_data_bidi_local = quic.constants.receive_pool_len_default;
+    held.initial_max_data = quic.constants.limits.receive_pool_len_default;
+    held.initial_max_stream_data_bidi_local = quic.constants.limits.receive_pool_len_default;
     held.initial_max_stream_data_uni = constants.h3_stream_window;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = constants.quic_idle_timeout_ms;
     return held;
 }

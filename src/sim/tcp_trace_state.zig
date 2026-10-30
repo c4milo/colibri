@@ -84,7 +84,7 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     const held = world.server_connection();
     const server_h2 = direction_module.h2_of(&held.session);
     note_streams(client_h2, server_h2, n, &state);
-    const from_client = Written.of(&world.to_server, world.client_pending(), h2.constants.client_preface_len);
+    const from_client = Written.of(&world.to_server, world.client_pending(), h2.constants.protocol.client_preface_len);
     const from_server = Written.of(&world.to_client, pending(held), 0);
     try note_client_writes(from_client, &state);
     try note_server_writes(from_server, world.to_client.heads[0..world.to_client.heads_written], &state);
@@ -176,8 +176,8 @@ fn preface_len_of(start: []const u8, magic_len: usize) usize {
     if (start.len <= magic_len) return 0;
     var reader = h2.core.Reader.init(start[magic_len..]);
     const header = h2.frame.read_header(&reader) catch return 0;
-    const len = magic_len + h2.constants.frame_header_len + header.length;
-    if (header.type != h2.constants.frame_type_settings or len > start.len) return 0;
+    const len = magic_len + h2.constants.protocol.frame_header_len + header.length;
+    if (header.type != h2.constants.protocol.frame_type_settings or len > start.len) return 0;
     return len;
 }
 

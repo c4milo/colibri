@@ -39,11 +39,11 @@ pub const ResponseWriter = struct {
     /// Octets at the front of `memory` that header names and values hold.
     header_len: usize = 0,
     /// The headers, then the trailers.
-    lines: [constants.response_headers_max]http.Field = undefined,
+    lines: [constants.limits.response_headers_max]http.Field = undefined,
     header_count: u8 = 0,
     trailer_count: u8 = 0,
     /// The runs of body bytes, in order, and how far the endpoint took them.
-    pieces: [constants.response_pieces_max][]const u8 = undefined,
+    pieces: [constants.limits.response_pieces_max][]const u8 = undefined,
     piece_count: u8 = 0,
     piece_sent: u8 = 0,
     piece_offset: usize = 0,
@@ -67,7 +67,7 @@ pub const ResponseWriter = struct {
         // RFC 9110 §6.3: header fields go before the content.
         if (response.body_started) return error.SectionOutOfOrder;
         // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
-        if (response.header_count == constants.response_headers_max) return error.SectionTooLarge;
+        if (response.header_count == constants.limits.response_headers_max) return error.SectionTooLarge;
         const copied = try internal.copy_line(response, response.header_len, name, value);
         response.lines[response.header_count] = copied.field;
         response.header_count += 1;

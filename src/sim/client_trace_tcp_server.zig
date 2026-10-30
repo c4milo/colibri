@@ -23,7 +23,7 @@ const Direction = link_module.Direction;
 /// Octets of the records the client sent and the server has not opened, of the plaintext they
 /// opened, of what the server writes, and of one sealed write: each holds several records, and a
 /// provider opens a record only into room for all that follows its header (RFC 9846 §5.2).
-const record_len_max: usize = tls_provider.constants.record_ciphertext_len_max;
+const record_len_max: usize = tls_provider.constants.protocol.record_ciphertext_len_max;
 const input_len: usize = records_held * record_len_max;
 const plain_len: usize = records_held * record_len_max;
 const out_len: usize = records_held * record_len_max;
@@ -32,7 +32,7 @@ const records_held: usize = 8;
 /// A seal writes the records of all it holds, each a little longer than its plaintext.
 const records_sealed: usize = 10;
 /// Frames or records one call reads at most, each at least a header long.
-const reads_max: usize = input_len / h2.constants.frame_header_len + 1;
+const reads_max: usize = input_len / h2.constants.protocol.frame_header_len + 1;
 const requests_max: usize = limits.requests_max;
 const status_digits_len: usize = 3;
 const length_digits_max: usize = 20;
@@ -123,7 +123,7 @@ pub const TcpServer = struct {
     /// Queues the seed's GOAWAY (RFC 9113 §6.8), which the next `serve` sends.
     pub fn send_goaway(server: *TcpServer, ledger: *Ledger) bool {
         if (!server.running or !server.handshaken) return false;
-        server.h2.shutdown(h2.constants.error_no_error);
+        server.h2.shutdown(h2.constants.protocol.error_no_error);
         ledger.goaways += 1;
         return true;
     }
@@ -199,7 +199,7 @@ pub const TcpServer = struct {
         server.requests_len += 1;
         if (answer == .reject) {
             // RFC 9113 §8.7: REFUSED_STREAM says the server processed none of the request.
-            try server.h2.reset_stream(held.stream_id, h2.constants.error_refused_stream);
+            try server.h2.reset_stream(held.stream_id, h2.constants.protocol.error_refused_stream);
             return;
         }
         ledger.process(index, .{ .transport = .tcp, .generation = server.generation });
@@ -212,7 +212,7 @@ pub const TcpServer = struct {
             request.acted = true;
             switch (request.answer) {
                 .respond => try server.respond(request, plan),
-                .reset => try server.h2.reset_stream(request.stream_id, h2.constants.error_cancel),
+                .reset => try server.h2.reset_stream(request.stream_id, h2.constants.protocol.error_cancel),
                 .reject => unreachable,
             }
         }

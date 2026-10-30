@@ -24,10 +24,10 @@ pub const Truncated = struct {
 /// Rebuilds the full packet number (RFC 9000 Appendix A.3). `largest` is the largest packet
 /// number successfully processed in this packet number space, or null before any.
 pub fn decode(largest: ?u64, truncated: Truncated) u64 {
-    assert(truncated.len >= 1 and truncated.len <= constants.packet_number_len_max);
-    assert(largest == null or largest.? <= constants.packet_number_max);
+    assert(truncated.len >= 1 and truncated.len <= constants.protocol.packet_number_len_max);
+    assert(largest == null or largest.? <= constants.protocol.packet_number_max);
     const window = window_of(truncated.len);
-    const half_window = window / constants.packet_number_range_factor;
+    const half_window = window / constants.protocol.packet_number_range_factor;
     const mask = window - 1;
     assert(truncated.value <= mask);
     // RFC 9000 §17.1: the next expected packet is the highest received packet number plus one.
@@ -35,11 +35,11 @@ pub fn decode(largest: ?u64, truncated: Truncated) u64 {
     const candidate = (expected & ~mask) | truncated.value;
     // RFC 9000 §12.3: a packet number is at most 2^62-1. Appendix A.3's sample leaves out the one
     // case that goes past it: the number expected is 2^62, so every candidate is a window too high.
-    if (candidate > constants.packet_number_max) return candidate - window;
+    if (candidate > constants.protocol.packet_number_max) return candidate - window;
     // RFC 9000 Appendix A.3: the number is the one closest to `expected`, so a candidate half a
     // window or more below it is one window too low, unless the next window is past 2^62-1. The
     // comparison adds to the candidate because `expected - half_window` would go below zero.
-    if (candidate + half_window <= expected and candidate + window <= constants.packet_number_max) {
+    if (candidate + half_window <= expected and candidate + window <= constants.protocol.packet_number_max) {
         return candidate + window;
     }
     // And a candidate more than half a window above it is one window too high, unless that is
@@ -50,13 +50,13 @@ pub fn decode(largest: ?u64, truncated: Truncated) u64 {
 
 /// The count of values `len` octets carry.
 pub fn window_of(len: u8) u64 {
-    assert(len >= 1 and len <= constants.packet_number_len_max);
+    assert(len >= 1 and len <= constants.protocol.packet_number_len_max);
     return @as(u64, 1) << @intCast(@as(u8, @bitSizeOf(u8)) * len);
 }
 
 /// Reads a Packet Number field of `len` octets, which header protection has been removed from.
 pub fn read(reader: *Reader, len: u8) core.reader.Error!Truncated {
-    assert(len >= 1 and len <= constants.packet_number_len_max);
+    assert(len >= 1 and len <= constants.protocol.packet_number_len_max);
     const octets = try reader.take(len);
     var value: u32 = 0;
     for (octets) |octet| value = (value << @bitSizeOf(u8)) | octet;
@@ -86,7 +86,7 @@ test "Appendix A.3: the first window never goes below zero, and the last never p
     try testing.expectEqual(0, decode(null, .{ .value = 0, .len = 1 }));
     try testing.expectEqual(0xff, decode(null, .{ .value = 0xff, .len = 1 }));
     try testing.expectEqual(0xfe, decode(3, .{ .value = 0xfe, .len = 1 }));
-    const max = constants.packet_number_max;
+    const max = constants.protocol.packet_number_max;
     try testing.expectEqual(max, decode(max - 1, .{ .value = 0xff, .len = 1 }));
     // The window above the last one does not exist, so a number half a window below stays.
     try testing.expectEqual(max - 0xef, decode(max - 1, .{ .value = 0x10, .len = 1 }));

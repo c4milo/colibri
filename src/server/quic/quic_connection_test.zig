@@ -131,7 +131,7 @@ test "RFC 9114 §4.1.1: cancel resets the response with H3_REQUEST_CANCELLED, an
     connection.cancel(fetch.id);
     try testing.expectError(error.RequestUnknown, connection.write_body(fetch.id, .{ .bytes = "x", .end = true }));
     try support.pump(support.rounds_default);
-    try testing.expectEqual(h3.constants.error_request_cancelled, fetch.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_cancelled, fetch.reset.?);
     try testing.expectEqual(null, support.nth(.done, 0));
     try testing.expectEqual(null, support.nth(.cancelled, 0));
 }
@@ -178,7 +178,7 @@ test "RFC 9114 §4.1.1: a request no record can hold is rejected, which the clie
     }
     const second = try support.request("GET", "/second", "");
     try support.pump(support.rounds_default);
-    try testing.expectEqual(h3.constants.error_request_rejected, second.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_rejected, second.reset.?);
     try testing.expectEqual(null, support.nth(.request, 1));
 }
 
@@ -186,10 +186,10 @@ test "RFC 9000 §4.1: every window the server advertises fits its receive pool" 
     try support.start();
     try support.connect();
     const granted = connection.transport.local_parameters;
-    try testing.expectEqual(quic.constants.receive_pool_len_default, granted.initial_max_data);
-    try testing.expectEqual(constants.quic_stream_window, granted.initial_max_stream_data_bidi_remote);
-    try testing.expectEqual(constants.quic_stream_window, granted.initial_max_stream_data_uni);
-    try testing.expectEqual(constants.quic_requests_max, granted.initial_max_streams_bidi);
+    try testing.expectEqual(quic.constants.limits.receive_pool_len_default, granted.initial_max_data);
+    try testing.expectEqual(constants.policy.quic_stream_window, granted.initial_max_stream_data_bidi_remote);
+    try testing.expectEqual(constants.policy.quic_stream_window, granted.initial_max_stream_data_uni);
+    try testing.expectEqual(constants.limits.quic_requests_max, granted.initial_max_streams_bidi);
 }
 
 test "RFC 9114 §5.2: a shutdown sends GOAWAY, and QUIC closes once the last request is done" {

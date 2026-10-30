@@ -30,7 +30,7 @@ var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = u
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
 var scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
-var datagram: [constants.datagram_len_min]u8 = undefined;
+var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 /// A later instant, which the idle timer is seen to restart from. Test-only.
@@ -53,7 +53,7 @@ const token_octet: u8 = 0x7b;
 const token_len: usize = 8;
 const retry_token: [token_len]u8 = @splat(token_octet);
 const tag_octet: u8 = 0x11;
-const tag: [crypto.constants.aead_tag_len]u8 = @splat(tag_octet);
+const tag: [crypto.constants.protocol.aead_tag_len]u8 = @splat(tag_octet);
 /// A version other than 1, which a Version Negotiation packet can list alone (RFC 9000 §6.2).
 const other_version: u32 = 0xff00_001d;
 /// The seven bits of a Version Negotiation packet's first octet RFC 8999 §6 leaves free.
@@ -72,7 +72,7 @@ fn open_pair(levels: []const Level) void {
     open_one(&client, .client, levels);
     open_one(&server, .server, levels);
     // RFC 9000 §8.1: a server sends only after it has received.
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 fn open_one(connection: *Connection, role: connection_module.Role, levels: []const Level) void {
@@ -263,7 +263,7 @@ const Recorder = struct {
 
 var recorder: Recorder align(@alignOf(Recorder)) = .{};
 /// The client's transport parameters as its ClientHello would carry them (RFC 9001 §8.2).
-var client_body: [constants.datagram_len_min]u8 = undefined;
+var client_body: [constants.protocol.datagram_len_min]u8 = undefined;
 
 test "RFC 9001 §4.1.3, §8.2, §4.1.1: the provider takes what arrived and the handshake completes" {
     open_pair(&.{.initial});
@@ -358,7 +358,7 @@ test "RFC 9000 §6.2: a Version Negotiation packet is the whole datagram and goe
     open_pair(&.{.initial});
     var writer = Writer.init(&datagram);
     // The answer to the client's Initial, whose connection IDs RFC 8999 §6 swaps.
-    const answered: invariant.Long = .{ .first_octet = 0xc0, .version = constants.version_1, .dcid = &peer_id, .scid = &local_id, .rest = &.{} };
+    const answered: invariant.Long = .{ .first_octet = 0xc0, .version = constants.protocol.version_1, .dcid = &peer_id, .scid = &local_id, .rest = &.{} };
     try invariant.write_version_negotiation(&writer, unused_bits, answered, &.{other_version});
     const received = try receive(&client, writer.written().len);
     try testing.expectEqual(.abandon, received.version_negotiation.?);
@@ -385,7 +385,7 @@ const RetrySuite = struct {
         @memcpy(self.installed[0..dcid.len], dcid);
         self.installs += 1;
     }
-    fn tag_valid(context: *const anyopaque, version: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.aead_tag_len]u8) bool {
+    fn tag_valid(context: *const anyopaque, version: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.protocol.aead_tag_len]u8) bool {
         const self: *const RetrySuite = @ptrCast(@alignCast(context));
         return version == self.tag_version;
     }
@@ -402,7 +402,7 @@ const RetrySuite = struct {
     fn unreached_open(_: *anyopaque, _: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
         unreachable;
     }
-    fn unreached_tag_write(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *[crypto.constants.aead_tag_len]u8) crypto.suite.RetryTagError!void {
+    fn unreached_tag_write(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *[crypto.constants.protocol.aead_tag_len]u8) crypto.suite.RetryTagError!void {
         unreachable;
     }
     fn unreached_token_write(_: *anyopaque, _: crypto.suite.Version, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {

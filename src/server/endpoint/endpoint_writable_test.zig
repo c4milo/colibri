@@ -67,7 +67,7 @@ test "decision 119: content past a response's runs waits, and writable comes onc
     const id = try open_get(&.{});
     try endpoint.respond(id, .{ .status = ok, .end = false });
     // RFC 9000 §3.1: each DATA frame holds two runs until the client acknowledges them.
-    const blocked = for (0..server_constants.quic_response_pieces_max) |_| {
+    const blocked = for (0..server_constants.limits.quic_response_pieces_max) |_| {
         _ = endpoint.write_body(id, .{ .bytes = piece, .end = false }) catch |failure| break failure;
     } else return error.TestExpectedBlocked;
     try testing.expectEqual(error.Blocked, blocked);
@@ -88,7 +88,7 @@ test "decision 119: a head past a response's runs waits, and writable comes once
     const id = try open_get(&.{});
     // RFC 9110 §15.2: interim responses, each a HEADERS frame the response keeps until the client
     // acknowledges it, fill every run.
-    for (0..server_constants.quic_response_pieces_max) |_| {
+    for (0..server_constants.limits.quic_response_pieces_max) |_| {
         try endpoint.respond(id, .{ .status = early_hints, .end = false });
     }
     try testing.expectError(error.NoSpaceLeft, endpoint.respond(id, .{ .status = ok, .end = true }));
@@ -101,7 +101,7 @@ test "decision 119: trailers past a response's runs wait, and writable comes onc
     try support.start_endpoint(null);
     const id = try open_get(&.{});
     // RFC 9110 §15.2: interim responses and the final one fill every run but none.
-    for (0..server_constants.quic_response_pieces_max - 1) |_| {
+    for (0..server_constants.limits.quic_response_pieces_max - 1) |_| {
         try endpoint.respond(id, .{ .status = early_hints, .end = false });
     }
     try endpoint.respond(id, .{ .status = ok, .end = false });
@@ -169,7 +169,7 @@ test "decision 119: content that found room again before the next event leaves n
     try support.start_endpoint(null);
     const id = try open_get(&.{});
     try endpoint.respond(id, .{ .status = ok, .end = false });
-    const blocked = for (0..server_constants.quic_response_pieces_max) |_| {
+    const blocked = for (0..server_constants.limits.quic_response_pieces_max) |_| {
         _ = endpoint.write_body(id, .{ .bytes = piece, .end = false }) catch |failure| break failure;
     } else return error.TestExpectedBlocked;
     try testing.expectEqual(error.Blocked, blocked);
@@ -184,7 +184,7 @@ test "decision 119: a head or trailers that found room again before the next eve
         try support.start_endpoint(null);
         const id = try open_get(&.{});
         // RFC 9110 §15.2: interim responses fill every run but the one the final head takes.
-        for (0..server_constants.quic_response_pieces_max - 1) |_| {
+        for (0..server_constants.limits.quic_response_pieces_max - 1) |_| {
             try endpoint.respond(id, .{ .status = early_hints, .end = false });
         }
         if (trailers) {
@@ -209,7 +209,7 @@ test "decision 119: an answer's datagrams go out from send_datagram alone, every
     _ = try endpoint.write_body(id, .{ .bytes = &long_value, .end = true });
     // No `receive` comes between: the answer itself queued the slot to send, and a slot that
     // sent is asked again while it owes more.
-    var output: [@import("quic").constants.datagram_len_max]u8 = undefined;
+    var output: [@import("quic").constants.protocol.datagram_len_max]u8 = undefined;
     var datagrams: usize = 0;
     // Bounded: the response fits a few datagrams.
     for (0..rounds_max) |_| {

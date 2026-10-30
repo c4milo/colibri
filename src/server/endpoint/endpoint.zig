@@ -54,9 +54,9 @@ pub const StreamBytes = endpoint_state.StreamBytes;
 /// QUIC connections, either of which may be 0, and the octets each QUIC connection holds that it
 /// has not read (decision 61).
 pub const Capacity = struct {
-    tcp_connections: usize = constants.tcp_connections_default,
-    quic_connections: usize = constants.quic_connections_default,
-    receive_pool_len: usize = quic.constants.receive_pool_len_default,
+    tcp_connections: usize = constants.limits.tcp_connections_default,
+    quic_connections: usize = constants.limits.quic_connections_default,
+    receive_pool_len: usize = quic.constants.limits.receive_pool_len_default,
 };
 
 /// An endpoint of the default size: the server side of every connection one thread serves, over

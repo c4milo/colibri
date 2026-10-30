@@ -11,7 +11,7 @@ const constants = @import("constants.zig");
 
 /// The size of one entry: `name_len + value_len + 32` (RFC 7541 §4.1, RFC 9204 §3.2.1).
 pub fn entry_size(name_len: usize, value_len: usize) u64 {
-    return @as(u64, name_len) + value_len + constants.table_entry_overhead;
+    return @as(u64, name_len) + value_len + constants.protocol.table_entry_overhead;
 }
 
 const testing = std.testing;
@@ -21,5 +21,5 @@ test "RFC 7541 Appendix C.3.1's first entry measures 57" {
 }
 
 test "an entry with nothing in it still costs the overhead" {
-    try testing.expectEqual(constants.table_entry_overhead, entry_size(0, 0));
+    try testing.expectEqual(constants.protocol.table_entry_overhead, entry_size(0, 0));
 }

@@ -1,41 +1,11 @@
-//! Limits and format constants http owns (docs/design.md §7). Never written inline (CLAUDE.md
-//! non-negotiable 4). The field-length limits h2 and h3 share live in `core` and are imported from
-//! there.
-const std = @import("std");
-const assert = std.debug.assert;
+//! The constants of `http` (docs/design.md §7), never written inline (CLAUDE.md
+//! non-negotiable 4). Decision 137 puts each in a file by who sets it, and this file exports
+//! the files:
+//! - `protocol`: the values the RFCs fix, which no one may change.
+//! - `limits`: the bounds colibri chose, which size memory or bound a loop or a queue. Ask
+//!   the owner before changing one (CLAUDE.md).
+//!
+//! The field-length limits h2 and h3 share live in `core` and are imported from there.
 
-/// The lowest and highest valid status codes. RFC 9110 §15 states that all valid status codes are
-/// within 100 to 599 inclusive, and that values outside that range are invalid.
-pub const status_code_min: u16 = 100;
-pub const status_code_max: u16 = 599;
-
-/// Octets in a status code written as text: RFC 9110 §15 makes it a three-digit integer.
-pub const status_digits_len: u8 = 3;
-
-/// The base the status digits are written in: DIGIT is a decimal digit (RFC 5234 Appendix B.1).
-pub const status_digit_radix: u16 = 10;
-
-/// The base a Content-Length value is written in: `Content-Length = 1*DIGIT` (RFC 9110 §8.6), and
-/// DIGIT is a decimal digit (RFC 5234 Appendix B.1). It is the base of the status digits too.
-pub const content_length_radix: u64 = status_digit_radix;
-
-/// The step between status classes: the first digit is the class (RFC 9110 §15).
-pub const status_class_size: u16 = 100;
-
-comptime {
-    assert(status_code_min / status_class_size == 1);
-    assert(status_code_max / status_class_size == 5);
-    assert(std.math.pow(u16, status_digit_radix, status_digits_len - 1) == status_code_min);
-}
-
-test "the status range spans exactly five classes" {
-    try std.testing.expectEqual(5, (status_code_max + 1 - status_code_min) / status_class_size);
-}
-
-/// The pairs one query holds at most, which sizes `QueryParameters` (decision 127, the owner's
-/// ruling of 2026-10-25). `read` refuses a query of more.
-pub const query_parameters_max: usize = 32;
-
-comptime {
-    std.debug.assert(query_parameters_max > 0);
-}
+pub const protocol = @import("constants_protocol.zig");
+pub const limits = @import("constants_limits.zig");

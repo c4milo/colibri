@@ -49,14 +49,14 @@ pub fn write_module(writer: *Writer, name: []const u8, streams: u32, states: []c
 pub fn write_config(writer: *Writer, plan: *const Plan, world: *const World, steps_max: u64) Error!void {
     try writer.write_bytes("\\* expect: violated\nSPECIFICATION TraceSpec\nCONSTANTS\n");
     try print(writer, "    StreamCount = {d}\n    RequestBody = {d}\n    ResponseBody = {d}\n", .{ plan.streams, plan.request_body, plan.response_body });
-    try print(writer, "    ProduceStep = {d}\n    ConnectionWindow = {d}\n", .{ plan.produce_step, h2.constants.initial_window_size_initial });
-    try print(writer, "    LocalWindow = {d}\n    LocalThreshold = {d}\n", .{ world.endpoint.tcp[world.accepted.slot].session.h2.local.initial_window_size, h2.constants.window_update_threshold });
-    try print(writer, "    PeerWindow = {d}\n    PeerThreshold = {d}\n", .{ world.client.local.initial_window_size, h2.constants.window_update_threshold });
-    try print(writer, "    Floor = {d}\n    FrameMax = {d}\n", .{ world.endpoint_config.limits.data_frame_len_min, h2.constants.max_frame_size_initial });
-    try print(writer, "    HeaderLen = {d}\n    SettingsLen = {d}\n", .{ h2.constants.frame_header_len, world.settings_len });
-    try print(writer, "    UpdateLen = {d}\n    PrefaceLen = {d}\n", .{ h2.constants.window_update_len, world.preface_len });
+    try print(writer, "    ProduceStep = {d}\n    ConnectionWindow = {d}\n", .{ plan.produce_step, h2.constants.protocol.initial_window_size_initial });
+    try print(writer, "    LocalWindow = {d}\n    LocalThreshold = {d}\n", .{ world.endpoint.tcp[world.accepted.slot].session.h2.local.initial_window_size, h2.constants.policy.window_update_threshold });
+    try print(writer, "    PeerWindow = {d}\n    PeerThreshold = {d}\n", .{ world.client.local.initial_window_size, h2.constants.policy.window_update_threshold });
+    try print(writer, "    Floor = {d}\n    FrameMax = {d}\n", .{ world.endpoint_config.limits.data_frame_len_min, h2.constants.protocol.max_frame_size_initial });
+    try print(writer, "    HeaderLen = {d}\n    SettingsLen = {d}\n", .{ h2.constants.protocol.frame_header_len, world.settings_len });
+    try print(writer, "    UpdateLen = {d}\n    PrefaceLen = {d}\n", .{ h2.constants.protocol.window_update_len, world.preface_len });
     try print(writer, "    RequestHeadLen = {d}\n    ResponseHeadLen = {d}\n", .{ world.request_head_len orelse 0, world.response_head_len orelse 0 });
-    try print(writer, "    OutputLen = {d}\n    ChannelLen = {d}\n", .{ server.constants.output_len, plan.channel_len });
+    try print(writer, "    OutputLen = {d}\n    ChannelLen = {d}\n", .{ server.constants.limits.output_len, plan.channel_len });
     try print(writer, "    Pipelining = {s}\n    MaximalUploads = TRUE\n", .{boolean(plan.pipelining)});
     try writer.write_bytes("    IdleAfterOutput = TRUE\n    SettingsPause = TRUE\n    FloorOnlyAbove = TRUE\n");
     try writer.write_bytes("    FloorAfterSmall = TRUE\n    BodyPauseForUpdate = TRUE\n");

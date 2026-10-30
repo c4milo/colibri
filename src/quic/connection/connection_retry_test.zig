@@ -30,7 +30,7 @@ const Parameters = transport_parameters.Parameters;
 
 pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
 pub var checker: TagChecker align(@alignOf(TagChecker)) = undefined;
-pub var pseudo: [constants.retry_pseudo_packet_len_max]u8 = undefined;
+pub var pseudo: [constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
 
 pub const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
@@ -66,7 +66,7 @@ const filler: [datagram_len]u8 = @splat(filler_octet);
 /// The last pseudo-packet the suite was handed, which RFC 9001 §5.8 defines. It is a file
 /// variable and not a field because `retry_tag_valid` takes a `*const` context: a real suite
 /// reads its keys there and writes nothing.
-var seen: [constants.retry_pseudo_packet_len_max]u8 = @splat(0);
+var seen: [constants.limits.retry_pseudo_packet_len_max]u8 = @splat(0);
 var seen_len: usize = 0;
 
 /// How long a token this suite writes stays valid, which RFC 9000 §8.1.4 makes "a short time".
@@ -79,12 +79,12 @@ const token_head_len: usize = 1 + @sizeOf(u32) + @sizeOf(u64);
 
 /// Octets of the token this suite writes for `ids`.
 /// The most octets a token this suite writes can hold: two connection IDs of the longest length.
-pub const token_bytes_max: usize = token_head_len + (1 + crypto.constants.connection_id_len_max) + (1 + crypto.constants.connection_id_len_max);
+pub const token_bytes_max: usize = token_head_len + (1 + crypto.constants.protocol.connection_id_len_max) + (1 + crypto.constants.protocol.connection_id_len_max);
 
 pub fn suite_token_len(ids: crypto.suite.RetryConnectionIds) usize {
     return token_head_len + 1 + ids.original_destination_len + 1 + ids.retry_source_len;
 }
-const tag_len: usize = crypto.constants.retry_integrity_tag_len;
+const tag_len: usize = crypto.constants.protocol.retry_integrity_tag_len;
 
 /// A `crypto.Suite` that answers the Retry questions and nothing else. It holds no key: the tag
 /// and the token are checksums, which detect a changed octet and prove nothing else.
@@ -367,11 +367,11 @@ test "RFC 9000 §17.2.5: a server discards a Retry" {
 
 test "RFC 9000 §8.1.2: a token longer than colibri repeats is discarded" {
     open_as(.client);
-    const long_token: [constants.token_len_max + 1]u8 = @splat(token_octet);
+    const long_token: [constants.limits.token_len_max + 1]u8 = @splat(token_octet);
     const outcome = receive(try retry_packet(&s2, &long_token));
     try testing.expectEqual(retry.Discarded.token_too_long, outcome.discarded);
     // One octet shorter is held, so the refusal is the storage and not the Retry.
-    const held: [constants.token_len_max]u8 = @splat(token_octet);
+    const held: [constants.limits.token_len_max]u8 = @splat(token_octet);
     const taken = receive(try retry_packet(&s2, &held));
     try testing.expectEqualSlices(u8, &s2, taken.taken.destination);
     try testing.expectEqualSlices(u8, &held, test_connection.retry_token.slice());
@@ -435,8 +435,8 @@ fn crypto_frame_of(built: packet_build.Built) !frame_module.Frame {
     const parsed = (try header.read(output[0..built.len], test_connection.identity.local_len())).long;
     // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. `RoundTrip`
     // applies no header protection, so they are readable here.
-    const number_len: usize = (output[0] & constants.packet_number_len_mask) + 1;
-    const payload = output[parsed.packet_number_offset + number_len .. built.len - constants.aead_tag_len];
+    const number_len: usize = (output[0] & constants.protocol.packet_number_len_mask) + 1;
+    const payload = output[parsed.packet_number_offset + number_len .. built.len - constants.protocol.aead_tag_len];
     var reader = core.Reader.init(payload);
     return frame_module.read(&reader);
 }

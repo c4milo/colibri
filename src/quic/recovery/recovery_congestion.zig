@@ -70,7 +70,7 @@ pub const Congestion = struct {
     hystart: recovery_hystart.HyStart,
 
     pub fn init(congestion: *Congestion, max_datagram_len: u64) void {
-        assert(max_datagram_len >= constants.datagram_len_min);
+        assert(max_datagram_len >= constants.protocol.datagram_len_min);
         congestion.* = .{
             .max_datagram_len = max_datagram_len,
             .window = initial_window(max_datagram_len),
@@ -92,7 +92,7 @@ pub const Congestion = struct {
     /// RFC 9002 §7.2: the window is recalculated when the path's maximum datagram changes, and
     /// a decrease made to complete the handshake sets the window back to the initial one.
     pub fn set_max_datagram_len(congestion: *Congestion, max_datagram_len: u64) void {
-        assert(max_datagram_len >= constants.datagram_len_min);
+        assert(max_datagram_len >= constants.protocol.datagram_len_min);
         // §7.2 names one case: a decrease, which is what completing the handshake can force.
         // It says nothing about an increase, so an increase leaves the window where it is and
         // changes only what the initial and minimum windows would be.
@@ -163,8 +163,8 @@ pub const Congestion = struct {
     /// leaves carried to the next, as §4.4's increase carries it.
     fn grow_conservatively(congestion: *Congestion, sent_len: u64) void {
         congestion.growth_numerator +|= sent_len;
-        congestion.window +|= congestion.growth_numerator / constants.hystart.css_growth_divisor;
-        congestion.growth_numerator %= constants.hystart.css_growth_divisor;
+        congestion.window +|= congestion.growth_numerator / constants.recovery.hystart.css_growth_divisor;
+        congestion.growth_numerator %= constants.recovery.hystart.css_growth_divisor;
     }
 
     /// Moves the stage's start later by the span the sender was limited, which §4.2 leaves out.
@@ -251,14 +251,14 @@ pub const Congestion = struct {
 
 /// RFC 9002 §7.2: ten maximum datagrams, held to the larger of 14,720 octets and two of them.
 pub fn initial_window(max_datagram_len: u64) u64 {
-    assert(max_datagram_len >= constants.datagram_len_min);
-    const ten = max_datagram_len *| constants.congestion_window_initial_datagrams;
-    const floor = @max(constants.congestion_window_initial_len_max, minimum_window_of(max_datagram_len));
+    assert(max_datagram_len >= constants.protocol.datagram_len_min);
+    const ten = max_datagram_len *| constants.recovery.congestion_window_initial_datagrams;
+    const floor = @max(constants.recovery.congestion_window_initial_len_max, minimum_window_of(max_datagram_len));
     return @min(ten, floor);
 }
 
 fn minimum_window_of(max_datagram_len: u64) u64 {
-    return max_datagram_len *| constants.congestion_window_minimum_datagrams;
+    return max_datagram_len *| constants.recovery.congestion_window_minimum_datagrams;
 }
 
 const testing = std.testing;
@@ -267,9 +267,9 @@ const testing = std.testing;
 threadlocal var test_congestion: Congestion align(@alignOf(Congestion)) = undefined;
 /// The path's maximum datagram in these tests, which is RFC 9000 §14.1's floor, and the window
 /// ten of them come to.
-const test_datagram_len: u64 = constants.datagram_len_min;
-const test_initial_window: u64 = test_datagram_len * constants.congestion_window_initial_datagrams;
-const test_minimum_window: u64 = test_datagram_len * constants.congestion_window_minimum_datagrams;
+const test_datagram_len: u64 = constants.protocol.datagram_len_min;
+const test_initial_window: u64 = test_datagram_len * constants.recovery.congestion_window_initial_datagrams;
+const test_minimum_window: u64 = test_datagram_len * constants.recovery.congestion_window_minimum_datagrams;
 /// Instants the tests order by eye, and the round trip they pass.
 const test_early_ns: u64 = 1_000;
 const test_late_ns: u64 = 2_000;
@@ -286,7 +286,7 @@ test "§7.2: the initial window is ten datagrams, held to a floor and a ceiling"
     // At RFC 9000 §14.1's smallest datagram, ten of them are below 14,720, so ten is the window.
     try testing.expectEqual(test_initial_window, initial_window(test_datagram_len));
     // A larger datagram reaches the ceiling, and the window stops at it.
-    try testing.expectEqual(constants.congestion_window_initial_len_max, initial_window(1_500));
+    try testing.expectEqual(constants.recovery.congestion_window_initial_len_max, initial_window(1_500));
     // A datagram large enough that two of it exceed the ceiling raises the floor instead, which
     // is what keeps the window at two datagrams however large one is.
     const jumbo: u64 = 9_000;
@@ -443,17 +443,17 @@ fn hystart_round(now_ns: u64, rtt_ns: u64, count: u8) void {
 
 test "RFC 9406 §4.2, RFC 9438 §4.10: HyStart++ grows by a quarter in CSS, then hands over" {
     test_congestion.init(test_datagram_len);
-    const samples = constants.hystart.rtt_samples;
+    const samples = constants.recovery.hystart.rtt_samples;
     hystart_round(test_rtt_ns, test_rtt_ns, samples);
     // The round trip grows by 6.25 ms, past 50 ms over 8: CSS starts after the round's window grew.
     hystart_round(2 * test_rtt_ns, test_rtt_ns + 6_250_000, samples);
     try testing.expectEqual(.conservative, test_congestion.hystart.stage);
     const before = test_congestion.window;
     acknowledge(test_early_ns, 2 * test_rtt_ns);
-    try testing.expectEqual(before + test_datagram_len / constants.hystart.css_growth_divisor, test_congestion.window);
+    try testing.expectEqual(before + test_datagram_len / constants.recovery.hystart.css_growth_divisor, test_congestion.window);
     // The rounds of CSS, then the round that ends the last: ssthresh is the window, and the
     // same acknowledgment grows it along a curve that starts there.
-    for (2..constants.hystart.css_rounds + 2) |index| hystart_round(index * 2 * test_rtt_ns, 2 * test_rtt_ns, 1);
+    for (2..constants.recovery.hystart.css_rounds + 2) |index| hystart_round(index * 2 * test_rtt_ns, 2 * test_rtt_ns, 1);
     const handed = test_congestion.slow_start_threshold;
     try testing.expect(handed < std.math.maxInt(u64));
     try testing.expect(test_congestion.window > handed);

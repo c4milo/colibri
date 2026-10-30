@@ -52,7 +52,7 @@ pub fn check(provider: tls_provider.Provider) AttachError!void {
     if (provider.vtable.negotiated_alpn(provider.context)) |selected| {
         // RFC 7301 §3.2: the selected protocol is definitive for the connection, so any other
         // selection means h11 does not run here.
-        if (!std.mem.eql(u8, selected, tls_provider.constants.alpn_http_1_1)) return error.AlpnNotHttp11;
+        if (!std.mem.eql(u8, selected, tls_provider.constants.protocol.alpn_http_1_1)) return error.AlpnNotHttp11;
     }
     // A handshake that selected nothing runs h11 too: RFC 9846 §4.2.2 has a server ignore an
     // extension it does not recognise, and RFC 9112 §9.7 asks for no ALPN (decision 88).
@@ -61,7 +61,7 @@ pub fn check(provider: tls_provider.Provider) AttachError!void {
         // cannot check decision 45 against.
         return error.ParametersUnknown;
     // Decision 45: colibri admits TLS 1.3 alone (RFC 9846 Appendix B.1).
-    if (negotiated.version != tls_provider.constants.version_tls_1_3) return error.TlsVersionRefused;
+    if (negotiated.version != tls_provider.constants.protocol.version_tls_1_3) return error.TlsVersionRefused;
     // Decision 45: and three suites (RFC 9846 Appendix B.4).
     if (!tls_provider.provider.cipher_suite_admitted(negotiated.cipher_suite)) return error.CipherSuiteRefused;
 }
@@ -172,10 +172,10 @@ fn with_data(target: *Connection, opened: tls_provider.provider.Opened) Decrypte
 
 /// A whole record that yielded no application data. Each is legitimate on its own and an endless
 /// run of them is not, and the peer picks how long the run is, so one past the bound ends the
-/// connection (`core.constants.records_without_data_max`).
+/// connection (`core.constants.limits.records_without_data_max`).
 fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
     target.records_without_data += 1;
-    if (target.records_without_data > core.constants.records_without_data_max) {
+    if (target.records_without_data > core.constants.limits.records_without_data_max) {
         // The failure is the transport's and not a request's, so a server owes no response.
         return target.fail(error.RecordsWithoutData, null);
     }

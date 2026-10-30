@@ -220,8 +220,12 @@ is added to the root and to the list in its test, which prints the name that dif
 - The one edge that must never exist: **`quic` may not import `http`, `h2`, `h3`, `h11`, `hpack` or
   `qpack`.** QUIC knows nothing about HTTP (decision 5). The QUIC simulator runs with no HTTP module
   in the graph at all, and that is the check that proves the boundary.
-- Each module owns its `constants.zig`. A limit two modules share belongs in
-  `src/core/constants.zig`. A comptime assert stays with the constant it pins.
+- Each module owns its `constants.zig`, which exports one file for each group of decision 137:
+  `constants_protocol.zig` for what the RFCs fix, `constants_limits.zig` for the bounds colibri
+  chose, `constants_policy.zig` for the other values colibri chose, and one file for each
+  algorithm's parameters. A new constant goes into the file of its group. A limit two modules
+  share belongs in `src/core/constants_limits.zig`. A comptime assert stays with the constant it
+  pins.
 - Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.
   The one exception is the TLS test identity, which the tests of several modules and the examples
   over TLS read: it lives once in `src/testing/testdata/`, a test-only module no packaged module
@@ -274,7 +278,7 @@ tree. Design §11 holds the method and the numbers.
 
 ## Ask before
 
-- Changing a named limit.
+- Changing a named limit: a value in a `constants_limits.zig`, whose test pins it (decision 137).
 - Adding a dependency. The library has two: chapulin, which it links for TLS and packet
   protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports, whose zstd and
   brotli decoders the client imports, and whose JSON module qlog imports (decisions 90, 91, 101

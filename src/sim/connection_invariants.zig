@@ -30,11 +30,11 @@ pub const Violation = error{
 /// Invariant 14's bound on the octets one field block feeds the slot: the opening frame and at
 /// most `continuation_count_max` CONTINUATION frames, each at most `frame_size_max`.
 pub const field_block_octets_max: u64 =
-    (h2_constants.continuation_count_max + 1) * h2_constants.frame_size_max;
+    (h2_constants.limits.continuation_count_max + 1) * h2_constants.limits.frame_size_max;
 
 /// What invariants 13 and 16 compare the connection's values against, as of the frame before.
 pub const Invariants = struct {
-    watermark: [h2_constants.stream_id_parity_count]u64,
+    watermark: [h2_constants.protocol.stream_id_parity_count]u64,
     highest_peer_opened_id: u32,
     goaway_sent_last_id: ?u32,
     goaway_received_last_id: ?u32,

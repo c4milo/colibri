@@ -105,7 +105,7 @@ pub fn write_response_head_checked(output: []u8, status: u16, reason: []const u8
     const forbids_framing = code.is_interim() or status == @intFromEnum(http.status.Code.no_content);
     // RFC 9112 §6.1 and RFC 9110 §8.6: no Transfer-Encoding or Content-Length in a 1xx or 204.
     if (forbids_framing and checked.names_framing()) return error.FramingInvalid;
-    var digits: [http.constants.status_digits_len]u8 = undefined;
+    var digits: [http.constants.protocol.status_digits_len]u8 = undefined;
     var writer = Writer.init(output);
     // RFC 9112 §2.1: a head is its start line, field lines and empty line whole, so a buffer
     // that holds less holds no head at all.

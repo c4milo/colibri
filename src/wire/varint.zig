@@ -16,7 +16,7 @@ const Writer = core.Writer;
 
 /// The first octet's two most significant bits encode the base-2 logarithm of the length
 /// (RFC 9000 §16).
-const length_shift: u3 = @bitSizeOf(u8) - constants.varint_length_bits;
+const length_shift: u3 = @bitSizeOf(u8) - constants.protocol.varint_length_bits;
 const value_mask: u8 = 0x3f;
 
 pub const Decoded = struct {
@@ -34,14 +34,14 @@ pub fn decode(reader: *Reader) core.reader.Error!Decoded {
     const octets = try reader.take(encoded_len);
     var value: u64 = octets[0] & value_mask;
     for (octets[1..]) |octet| value = (value << @bitSizeOf(u8)) | octet;
-    assert(value <= constants.varint_value_max);
+    assert(value <= constants.protocol.varint_value_max);
     return .{ .value = value, .encoded_len = encoded_len };
 }
 
 /// The fewest octets that carry `value`.
 pub fn encoded_len_minimal(value: u64) u8 {
-    assert(value <= constants.varint_value_max);
-    for (constants.varint_lens) |len| {
+    assert(value <= constants.protocol.varint_value_max);
+    for (constants.protocol.varint_lens) |len| {
         if (value <= value_max(len)) return len;
     }
     unreachable;
@@ -50,13 +50,13 @@ pub fn encoded_len_minimal(value: u64) u8 {
 /// The largest value `encoded_len` octets carry: every bit but the length bits (RFC 9000 §16).
 fn value_max(encoded_len: u8) u64 {
     assert(is_length(encoded_len));
-    const value_bits = @as(u8, @bitSizeOf(u8)) * encoded_len - constants.varint_length_bits;
+    const value_bits = @as(u8, @bitSizeOf(u8)) * encoded_len - constants.protocol.varint_length_bits;
     return (@as(u64, 1) << @intCast(value_bits)) - 1;
 }
 
 /// True for one of the four lengths RFC 9000 §16 defines.
 fn is_length(encoded_len: u8) bool {
-    return std.mem.indexOfScalar(u8, &constants.varint_lens, encoded_len) != null;
+    return std.mem.indexOfScalar(u8, &constants.protocol.varint_lens, encoded_len) != null;
 }
 
 /// Encodes `value` in the fewest octets.
@@ -84,7 +84,7 @@ pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.writer
 const testing = std.testing;
 
 test "the lengths are exactly the four RFC 9000 §16 defines" {
-    for (0..constants.varint_len_max + 2) |len| {
+    for (0..constants.protocol.varint_len_max + 2) |len| {
         const defined = len == 1 or len == 2 or len == 4 or len == 8;
         try testing.expectEqual(defined, is_length(@intCast(len)));
     }
@@ -113,11 +113,11 @@ test "each length's largest value round-trips and one more needs the next length
         try testing.expectEqual(limit[1], encoded_len_minimal(limit[0]));
         try testing.expectEqual(limit[1] * 2, encoded_len_minimal(limit[0] + 1));
     }
-    try testing.expectEqual(8, encoded_len_minimal(constants.varint_value_max));
+    try testing.expectEqual(8, encoded_len_minimal(constants.protocol.varint_value_max));
     var buffer: [8]u8 = @splat(0);
     var writer = Writer.init(&buffer);
-    try encode(&writer, constants.varint_value_max);
-    try expect_decodes(writer.written(), constants.varint_value_max);
+    try encode(&writer, constants.protocol.varint_value_max);
+    try expect_decodes(writer.written(), constants.protocol.varint_value_max);
     try testing.expectEqualSlices(u8, &(.{0xff} ** 8), writer.written());
 }
 
@@ -164,7 +164,7 @@ fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
         return;
     };
     // Re-encoding at the decoded length reproduces the octets consumed, bit for bit.
-    var output: [constants.varint_len_max]u8 = @splat(0);
+    var output: [constants.protocol.varint_len_max]u8 = @splat(0);
     var writer = Writer.init(&output);
     try encode_with_len(&writer, decoded.value, decoded.encoded_len);
     try testing.expectEqualSlices(u8, reader.consumed(), writer.written());
@@ -186,7 +186,7 @@ test "sweep: every input of up to two octets decodes exactly or consumes nothing
 }
 
 /// The octets of one vector line, in hex, at most. Test-only.
-const vector_octets_max = constants.varint_len_max;
+const vector_octets_max = constants.protocol.varint_len_max;
 
 /// The base the vector lines write their numbers in. Test-only.
 const vector_radix = 10;

@@ -19,14 +19,14 @@ const testing = std.testing;
 pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
 
 /// Where the tests write frames. Test-only.
-pub var test_output: [constants.frame_header_len + constants.frame_size_max]u8 = @splat(0);
+pub var test_output: [constants.protocol.frame_header_len + constants.limits.frame_size_max]u8 = @splat(0);
 
 /// The encoder the tests build the peer's field blocks with, which is the peer's and not
 /// colibri's. Test-only.
 pub var test_encoder: hpack.Encoder align(@alignOf(hpack.Encoder)) = undefined;
 
 /// Where the tests build the frames they feed: one header and the largest payload. Test-only.
-pub var test_input: [constants.frame_header_len + constants.frame_size_max]u8 = @splat(0);
+pub var test_input: [constants.protocol.frame_header_len + constants.limits.frame_size_max]u8 = @splat(0);
 
 /// A SETTINGS frame with no settings in it, which RFC 9113 §3.4 lets an endpoint send. Test-only.
 pub const empty_settings = "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
@@ -46,7 +46,7 @@ pub fn frame_bytes(buffer: []u8, frame_type: u8, flags: u8, stream_id: u32, payl
 
 /// Encodes the field section of a GET request for `path` into `buffer`, as a peer would. Test-only.
 pub fn request_block(buffer: []u8, path: []const u8) ![]const u8 {
-    test_encoder.init(constants.header_table_size_initial, .never);
+    test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var writer = Writer.init(buffer);
     try test_encoder.begin_block(&writer);
     try test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
@@ -69,7 +69,7 @@ pub fn feed(input: []const u8) !?Event {
 pub fn start_server() !void {
     test_connection.init(.server);
     _ = test_connection.write_pending(&test_output, 0);
-    try testing.expectEqual(null, try feed(constants.client_preface));
+    try testing.expectEqual(null, try feed(constants.protocol.client_preface));
     try testing.expectEqual(Event.settings_applied, (try feed(empty_settings)).?);
     // The acknowledgment of that SETTINGS frame is written, so the queues start empty.
     _ = test_connection.write_pending(&test_output, 0);
@@ -88,7 +88,7 @@ pub fn start_client() !void {
 
 /// Encodes the field section of a response carrying `status`, as a peer would. Test-only.
 pub fn response_block(buffer: []u8, status: []const u8) ![]const u8 {
-    test_encoder.init(constants.header_table_size_initial, .never);
+    test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var writer = Writer.init(buffer);
     try test_encoder.begin_block(&writer);
     try test_encoder.write_field(&writer, ":status", status, .without_indexing);
@@ -98,19 +98,19 @@ pub fn response_block(buffer: []u8, status: []const u8) ![]const u8 {
 
 /// Feeds a HEADERS frame carrying a response with `status` on `stream_id`. Test-only.
 pub fn feed_response(stream_id: u32, status: []const u8, end_stream: bool) !?Event {
-    var block: [constants.frame_size_max]u8 = undefined;
+    var block: [constants.limits.frame_size_max]u8 = undefined;
     const fragment = try response_block(&block, status);
-    const flags = constants.flag_end_headers | @as(u8, if (end_stream) constants.flag_end_stream else 0);
-    const bytes = try frame_bytes(&test_input, constants.frame_type_headers, flags, stream_id, fragment);
+    const flags = constants.protocol.flag_end_headers | @as(u8, if (end_stream) constants.protocol.flag_end_stream else 0);
+    const bytes = try frame_bytes(&test_input, constants.protocol.frame_type_headers, flags, stream_id, fragment);
     return feed(bytes);
 }
 
 /// Feeds a HEADERS frame carrying a GET request for `path` on `stream_id`. Test-only.
 pub fn feed_request(stream_id: u32, path: []const u8, end_stream: bool) !?Event {
-    var block: [constants.frame_size_max]u8 = undefined;
+    var block: [constants.limits.frame_size_max]u8 = undefined;
     const fragment = try request_block(&block, path);
-    const flags = constants.flag_end_headers | @as(u8, if (end_stream) constants.flag_end_stream else 0);
-    const bytes = try frame_bytes(&test_input, constants.frame_type_headers, flags, stream_id, fragment);
+    const flags = constants.protocol.flag_end_headers | @as(u8, if (end_stream) constants.protocol.flag_end_stream else 0);
+    const bytes = try frame_bytes(&test_input, constants.protocol.frame_type_headers, flags, stream_id, fragment);
     return feed(bytes);
 }
 

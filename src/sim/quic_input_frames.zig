@@ -36,7 +36,7 @@ const ack_range_fields = 2;
 
 /// Octets one ACK frame's ranges after the first take at most.
 const ack_ranges_len_max = constants.quic_input_check_ack_ranges_max * ack_range_fields *
-    quic.wire.constants.varint_len_max;
+    quic.wire.constants.protocol.varint_len_max;
 
 pub const Storage = struct {
     payload: [constants.quic_input_check_input_len_max]u8,
@@ -47,7 +47,7 @@ pub const Storage = struct {
 };
 
 /// The bit length of the largest variable-length integer (RFC 9000 §16).
-const varint_value_bits = std.math.log2_int(u64, quic.wire.constants.varint_value_max + 1);
+const varint_value_bits = std.math.log2_int(u64, quic.wire.constants.protocol.varint_value_max + 1);
 
 /// How this check draws a value: variable-length integers, and a bound once in
 /// `quic_input_check_one_in`.
@@ -103,13 +103,13 @@ fn draw_frame(storage: *Storage, random: *Random, material: []const u8, last: bo
         .max_stream_data => .{ .max_stream_data = .{ .stream_id = draw_varint(random), .maximum = draw_varint(random) } },
         .max_streams => .{ .max_streams = .{
             .directionality = draw_directionality(random),
-            .maximum = draw_bounded(random, 0, limits.max_streams_max),
+            .maximum = draw_bounded(random, 0, limits.protocol.max_streams_max),
         } },
         .data_blocked => .{ .data_blocked = .{ .limit = draw_varint(random) } },
         .stream_data_blocked => .{ .stream_data_blocked = .{ .stream_id = draw_varint(random), .limit = draw_varint(random) } },
         .streams_blocked => .{ .streams_blocked = .{
             .directionality = draw_directionality(random),
-            .limit = draw_bounded(random, 0, limits.max_streams_max),
+            .limit = draw_bounded(random, 0, limits.protocol.max_streams_max),
         } },
         .new_connection_id => .{ .new_connection_id = draw_new_connection_id(random, material) },
         .retire_connection_id => .{ .retire_connection_id = .{ .sequence_number = draw_varint(random) } },
@@ -163,7 +163,7 @@ fn draw_ack(storage: *Storage, random: *Random) frame.Ack {
 /// `quic_input_check_one_in`.
 fn draw_offset(random: *Random, data_len: usize) u64 {
     if (chosen(random)) return 0;
-    return draw_bounded(random, 0, limits.stream_offset_max - data_len);
+    return draw_bounded(random, 0, limits.protocol.stream_offset_max - data_len);
 }
 
 fn draw_crypto(random: *Random, material: []const u8) frame.Crypto {
@@ -185,18 +185,18 @@ fn draw_stream(random: *Random, material: []const u8, last: bool) frame.Stream {
 /// A NEW_CONNECTION_ID frame that keeps RFC 9000 §19.15's two rules.
 fn draw_new_connection_id(random: *Random, material: []const u8) frame.frame_control.NewConnectionId {
     const sequence_number = draw_varint(random);
-    const token_start = random.below(material.len - limits.stateless_reset_token_len + 1);
+    const token_start = random.below(material.len - limits.protocol.stateless_reset_token_len + 1);
     return .{
         .sequence_number = sequence_number,
         .retire_prior_to = draw_bounded(random, 0, sequence_number),
-        .connection_id = draw_octets(random, material, limits.connection_id_len_min, limits.connection_id_len_max),
-        .stateless_reset_token = material[token_start..][0..limits.stateless_reset_token_len],
+        .connection_id = draw_octets(random, material, limits.protocol.connection_id_len_min, limits.protocol.connection_id_len_max),
+        .stateless_reset_token = material[token_start..][0..limits.protocol.stateless_reset_token_len],
     };
 }
 
-fn draw_path_data(random: *Random, material: []const u8) *const [limits.path_challenge_len]u8 {
-    const start = random.below(material.len - limits.path_challenge_len + 1);
-    return material[start..][0..limits.path_challenge_len];
+fn draw_path_data(random: *Random, material: []const u8) *const [limits.protocol.path_challenge_len]u8 {
+    const start = random.below(material.len - limits.protocol.path_challenge_len + 1);
+    return material[start..][0..limits.protocol.path_challenge_len];
 }
 
 /// A CONNECTION_CLOSE, which names a frame type when it speaks for the transport (§19.19).
@@ -235,14 +235,14 @@ fn check_writable(read: Frame) Violation!void {
     const writable = switch (read) {
         .padding => |padding| padding.len > 0,
         .ack => |ack| ranges_descend(ack.ranges),
-        .stream => |stream| stream.offset <= limits.stream_offset_max - stream.data.len,
-        .crypto => |crypto| crypto.offset <= limits.stream_offset_max - crypto.data.len,
+        .stream => |stream| stream.offset <= limits.protocol.stream_offset_max - stream.data.len,
+        .crypto => |crypto| crypto.offset <= limits.protocol.stream_offset_max - crypto.data.len,
         .new_token => |new_token| new_token.token.len > 0,
-        .max_streams => |max| max.maximum <= limits.max_streams_max,
-        .streams_blocked => |blocked| blocked.limit <= limits.max_streams_max,
+        .max_streams => |max| max.maximum <= limits.protocol.max_streams_max,
+        .streams_blocked => |blocked| blocked.limit <= limits.protocol.max_streams_max,
         .new_connection_id => |new| new.retire_prior_to <= new.sequence_number and
-            new.connection_id.len >= limits.connection_id_len_min and
-            new.connection_id.len <= limits.connection_id_len_max,
+            new.connection_id.len >= limits.protocol.connection_id_len_min and
+            new.connection_id.len <= limits.protocol.connection_id_len_max,
         .connection_close => |close| (close.layer == .transport) == (close.frame_type != null),
         else => true,
     };
@@ -273,7 +273,7 @@ fn ranges_descend(ranges: frame.AckRanges) bool {
 fn check_round_trip(storage: *Storage, read: Frame, read_type: u64) Violation!void {
     const first = try write_into(&storage.rewritten, read);
     const offset_dropped = read == .stream and read.stream.offset == 0;
-    const expected_type = if (offset_dropped) read_type & ~limits.stream_flag_off else read_type;
+    const expected_type = if (offset_dropped) read_type & ~limits.protocol.stream_flag_off else read_type;
     if (type_at(Reader.init(first)) != expected_type) return error.FrameChanged;
     var reader = Reader.init(first);
     const again = frame.read(&reader) catch return error.FrameChanged;

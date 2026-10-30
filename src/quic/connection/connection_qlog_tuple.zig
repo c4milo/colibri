@@ -21,7 +21,7 @@ const ipv6_len: usize = 16;
 
 pub const Tuples = struct {
     /// The addresses given a number last, oldest first.
-    known: [constants.qlog_tuples_max]Known = undefined,
+    known: [constants.limits.qlog_tuples_max]Known = undefined,
     len: u8 = 0,
     /// The number the next new address takes.
     next: u32 = 0,
@@ -132,12 +132,12 @@ test "with every entry taken, the oldest address lets go of its number" {
     try test_log(&log, &buffer);
     var tuples: Tuples = .{};
     // Bounded by the table, and one more.
-    for (0..constants.qlog_tuples_max + 1) |port_step| {
+    for (0..constants.limits.qlog_tuples_max + 1) |port_step| {
         const address = PeerAddress.of(&host, test_port + @as(u16, @intCast(port_step)));
         try testing.expectEqual(port_step, tuples.of(&log, &address, 0));
     }
     // The first address was let go, so it comes back as a new tuple; the last is still held.
-    try testing.expectEqual(constants.qlog_tuples_max + 1, tuples.of(&log, &PeerAddress.of(&host, test_port), 0));
-    const last_port = test_port + @as(u16, @intCast(constants.qlog_tuples_max));
-    try testing.expectEqual(constants.qlog_tuples_max, tuples.of(&log, &PeerAddress.of(&host, last_port), 0));
+    try testing.expectEqual(constants.limits.qlog_tuples_max + 1, tuples.of(&log, &PeerAddress.of(&host, test_port), 0));
+    const last_port = test_port + @as(u16, @intCast(constants.limits.qlog_tuples_max));
+    try testing.expectEqual(constants.limits.qlog_tuples_max, tuples.of(&log, &PeerAddress.of(&host, last_port), 0));
 }

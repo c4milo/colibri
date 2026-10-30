@@ -302,7 +302,7 @@ pub const qpack_check_values: u32 = 6;
 pub const qpack_check_value_len_max: u32 = 48;
 
 /// Table capacities a QPACK-check seed advertises, from none to colibri's largest, 16,384
-/// (`qpack.constants.dynamic_table_capacity_max`, which `sim` cannot import).
+/// (`qpack.constants.limits.dynamic_table_capacity_max`, which `sim` cannot import).
 pub const qpack_check_capacities = [_]u64{ 0, 64, 128, 220, 512, 1024, 4096, 16_384 };
 
 /// Blocked-stream counts a QPACK-check seed advertises, up to colibri's most, 100.

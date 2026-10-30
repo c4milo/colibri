@@ -339,7 +339,7 @@ fn decoded(parameters: *PathParameters, path: []const u8, first: usize, end: usi
 fn bind(parameters: *PathParameters, index: usize, name: []const u8, value: []const u8) void {
     // `router_pattern.refusal_of` passed each pattern, so a walk meets `path_parameters_max`
     // parameters at most, the wildcard included.
-    assert(index < constants.path_parameters_max);
+    assert(index < constants.limits.path_parameters_max);
     assert(value.len > 0);
     parameters.names[index] = name;
     parameters.values[index] = value;

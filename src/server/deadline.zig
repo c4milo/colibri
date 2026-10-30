@@ -41,26 +41,26 @@ pub const Timeout = enum {
 /// decision 110 as amended), and an h11 connection in cleartext, which reads a body octet by
 /// octet, keeps any rate.
 pub const Timeouts = struct {
-    first_request_ns: ?u64 = constants.first_request_timeout_ns,
-    idle_ns: ?u64 = constants.idle_timeout_ns,
-    head_ns: ?u64 = constants.head_timeout_ns,
+    first_request_ns: ?u64 = constants.policy.first_request_timeout_ns,
+    idle_ns: ?u64 = constants.policy.idle_timeout_ns,
+    head_ns: ?u64 = constants.policy.head_timeout_ns,
     /// The octets a second a request body brings at least, over each window.
-    body_rate_min: ?u32 = constants.body_rate_min,
+    body_rate_min: ?u32 = constants.policy.body_rate_min,
     /// The first window of a rate takes this more, and each window lasts this long.
-    rate_grace_ns: u64 = constants.rate_grace_ns,
-    rate_window_ns: u64 = constants.rate_window_ns,
+    rate_grace_ns: u64 = constants.policy.rate_grace_ns,
+    rate_window_ns: u64 = constants.policy.rate_window_ns,
     /// The longest a request body takes to arrive, from the end of its head.
-    body_ns: ?u64 = constants.body_timeout_ns,
+    body_ns: ?u64 = constants.policy.body_timeout_ns,
     /// The octets a second the peer takes of what the connection sends, at least, over each
     /// window, and in h2 of what a stream's window lets through.
-    send_rate_min: ?u32 = constants.send_rate_min,
+    send_rate_min: ?u32 = constants.policy.send_rate_min,
     /// How long a connection that has ended waits for its last octets to go out before it closes.
-    linger_ns: ?u64 = constants.close_linger_ns,
+    linger_ns: ?u64 = constants.policy.close_linger_ns,
     /// How long the requests a connection holds have after `shutdown` before it closes. Over
     /// QUIC it also bounds how long a connection its first-request or idle deadline ended waits
     /// for the client to acknowledge the GOAWAY. With null only QUIC's own idle timeout bounds
     /// that wait, and a client that sends a PING keeps that timeout away.
-    drain_ns: ?u64 = constants.drain_timeout_ns,
+    drain_ns: ?u64 = constants.policy.drain_timeout_ns,
 
     /// Refuses a limit of 0, which null says better, and a span past `timeout_ns_max`.
     pub fn validate(deadlines: Timeouts) error{TimeoutInvalid}!void {
@@ -73,7 +73,7 @@ pub const Timeouts = struct {
             const limit = span orelse continue;
             // RFC 9112 §9.5 leaves a server's timeout to the server, and decision 110 bounds it:
             // null turns a deadline off, and a limit stays within a day.
-            if (limit == 0 or limit > constants.timeout_ns_max) return error.TimeoutInvalid;
+            if (limit == 0 or limit > constants.limits.timeout_ns_max) return error.TimeoutInvalid;
         }
         // RFC 9112 §9.5 leaves a server's timeouts to the server, and decision 110 bounds its rates
         // too: a rate of 0 would check nothing, which null says.
@@ -127,8 +127,8 @@ pub fn quota(rate: u32, window_ns: u64) u64 {
 /// proves an honest peer never falls short in a window exactly when they do (`fitsUnit`).
 pub fn fits_unit(rate: u32, window_ns: u64) bool {
     assert(rate > 0 and window_ns > 0);
-    const brought = @as(u128, constants.honest_rate_factor) * rate * window_ns;
-    return brought >= @as(u128, constants.body_unit_len) * constants.nanoseconds_per_second;
+    const brought = @as(u128, constants.policy.honest_rate_factor) * rate * window_ns;
+    return brought >= @as(u128, constants.policy.body_unit_len) * constants.nanoseconds_per_second;
 }
 
 const testing = std.testing;
@@ -136,12 +136,12 @@ const testing = std.testing;
 test "decision 110: the defaults are valid, 0 and a limit past a day are refused, and null is off" {
     try (Timeouts{}).validate();
     try (Timeouts{ .first_request_ns = null, .idle_ns = null, .head_ns = null, .body_rate_min = null, .body_ns = null }).validate();
-    try (Timeouts{ .idle_ns = constants.timeout_ns_max }).validate();
+    try (Timeouts{ .idle_ns = constants.limits.timeout_ns_max }).validate();
     try testing.expectError(error.TimeoutInvalid, (Timeouts{ .head_ns = 0 }).validate());
-    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .first_request_ns = constants.timeout_ns_max + 1 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .first_request_ns = constants.limits.timeout_ns_max + 1 }).validate());
     try testing.expectError(error.TimeoutInvalid, (Timeouts{ .body_rate_min = 0 }).validate());
     try testing.expectError(error.TimeoutInvalid, (Timeouts{ .rate_grace_ns = 0 }).validate());
-    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .rate_window_ns = constants.timeout_ns_max + 1 }).validate());
+    try testing.expectError(error.TimeoutInvalid, (Timeouts{ .rate_window_ns = constants.limits.timeout_ns_max + 1 }).validate());
     try testing.expectError(error.TimeoutInvalid, (Timeouts{ .body_ns = 0 }).validate());
     try testing.expectError(error.TimeoutInvalid, (Timeouts{ .send_rate_min = 0 }).validate());
     try testing.expectError(error.TimeoutInvalid, (Timeouts{ .linger_ns = 0 }).validate());
@@ -161,8 +161,8 @@ test "decision 110: a window owes the rate times its length, rounded up" {
 test "decision 110 as amended: where bodies arrive in units, a rate an honest peer can fall short of is refused" {
     // Twice 819 octets a second over 10 s windows is 16,380 octets, under a unit of 16,384, and
     // twice 820 is over it.
-    try testing.expect(!fits_unit(819, constants.rate_window_ns));
-    try testing.expect(fits_unit(820, constants.rate_window_ns));
+    try testing.expect(!fits_unit(819, constants.policy.rate_window_ns));
+    try testing.expect(fits_unit(820, constants.policy.rate_window_ns));
     // A quota rounded up to half a unit falls short, and the bound itself does not.
     try testing.expect(!fits_unit(8_192, constants.nanoseconds_per_second - 1));
     try testing.expect(fits_unit(8_192, constants.nanoseconds_per_second));

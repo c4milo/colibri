@@ -29,7 +29,7 @@ const frames_len_max: usize = 512;
 /// A static-table-only encoder that writes whatever section a test gives it. Test-only.
 var raw_encoder: qpack.Encoder align(@alignOf(qpack.Encoder)) = undefined;
 var raw_section: FieldSection align(@alignOf(FieldSection)) = undefined;
-var raw_octets: [constants.frame_length_max]u8 = undefined;
+var raw_octets: [constants.limits.frame_length_max]u8 = undefined;
 
 /// Writes a HEADERS frame carrying `lines`, unchecked, into `output`.
 pub fn headers_frame(output: *Writer, lines: []const Line) !void {
@@ -37,7 +37,7 @@ pub fn headers_frame(output: *Writer, lines: []const Line) !void {
     var encoded = Writer.init(&raw_octets);
     var no_stream = Writer.init(raw_octets[0..0]);
     try raw_encoder.write_section(0, &encoded, &no_stream, try harness.section_of(&raw_section, lines), &.{});
-    try frame_write.write_header(output, constants.frame_headers, encoded.written().len);
+    try frame_write.write_header(output, constants.protocol.frame_headers, encoded.written().len);
     try output.write_bytes(encoded.written());
 }
 
@@ -67,11 +67,11 @@ test "§4.1: a DATA frame before any HEADERS frame is H3_FRAME_UNEXPECTED" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     _ = try raw_request(&.{ 0x00, 0x01, 'x' }, true);
     try exchange();
-    try expect_failure(server, constants.error_frame_unexpected);
+    try expect_failure(server, constants.protocol.error_frame_unexpected);
 }
 
 test "§4.1: a HEADERS or DATA frame after the trailers is H3_FRAME_UNEXPECTED" {
-    for ([_]u8{ constants.frame_headers, constants.frame_data }) |frame_type| {
+    for ([_]u8{ constants.protocol.frame_headers, constants.protocol.frame_data }) |frame_type| {
         try harness.pair(.{ .role = .client }, .{ .role = .server });
         var octets: [256]u8 = undefined;
         var writer = Writer.init(&octets);
@@ -81,33 +81,33 @@ test "§4.1: a HEADERS or DATA frame after the trailers is H3_FRAME_UNEXPECTED" 
         try exchange();
         _ = (try next(server)).?.request;
         try testing.expectEqual(Event{ .trailers = id }, (try next(server)).?);
-        try expect_failure(server, constants.error_frame_unexpected);
+        try expect_failure(server, constants.protocol.error_frame_unexpected);
     }
 }
 
 test "§7.2.4, §7.2.8: SETTINGS or an HTTP/2 frame type on a request stream is H3_FRAME_UNEXPECTED" {
-    for ([_]u8{ constants.frame_settings, 0x02 }) |frame_type| {
+    for ([_]u8{ constants.protocol.frame_settings, 0x02 }) |frame_type| {
         try harness.pair(.{ .role = .client }, .{ .role = .server });
         _ = try raw_request(&.{ frame_type, 0x00 }, false);
         try exchange();
-        try expect_failure(server, constants.error_frame_unexpected);
+        try expect_failure(server, constants.protocol.error_frame_unexpected);
     }
 }
 
 test "§7.2.5: a PUSH_PROMISE is H3_FRAME_UNEXPECTED at a server and H3_ID_ERROR at a client" {
-    const push_promise = [_]u8{ constants.frame_push_promise, 0x03, 0x00, 0x00, 0x00 };
+    const push_promise = [_]u8{ constants.protocol.frame_push_promise, 0x03, 0x00, 0x00, 0x00 };
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     _ = try get_then(&push_promise, false);
     try exchange();
     _ = (try next(server)).?.request;
-    try expect_failure(server, constants.error_frame_unexpected);
+    try expect_failure(server, constants.protocol.error_frame_unexpected);
     // colibri's client allowed no push ID (decision 17).
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const id = try harness.request(&harness.get_lines, "");
     try exchange();
     try server.send_raw(id, &push_promise, false);
     try exchange();
-    try expect_failure(client, constants.error_id_error);
+    try expect_failure(client, constants.protocol.error_id_error);
 }
 
 test "§4.1.2: a malformed request refuses its stream with H3_MESSAGE_ERROR, and nothing else" {
@@ -119,20 +119,20 @@ test "§4.1.2: a malformed request refuses its stream with H3_MESSAGE_ERROR, and
     // The request stream stays open, so the server has something to ask the client to stop.
     const id = try raw_request(writer.written(), false);
     try exchange();
-    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.error_message_error } }, (try next(server)).?);
+    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.protocol.error_message_error } }, (try next(server)).?);
     try testing.expectEqual(null, try next(server));
     // The server reset its side and asked the client to stop, both with H3_MESSAGE_ERROR.
     const refused = server.transport.streams.lookup(.{ .value = id }).live;
-    try testing.expectEqual(constants.error_message_error, refused.reset_error_code);
+    try testing.expectEqual(constants.protocol.error_message_error, refused.reset_error_code);
     try testing.expect(refused.stop_sending.owed);
-    try testing.expectEqual(constants.error_message_error, refused.stop_error_code);
+    try testing.expectEqual(constants.protocol.error_message_error, refused.stop_error_code);
     // Octets the client sends before it hears of the refusal are taken and dropped, so the
     // server's stream finishes, and the connection goes on with the next request.
     try client.send_raw(id, "more", true);
     try exchange();
     try testing.expectEqual(null, try next(server));
     try testing.expect(server.transport.streams.lookup(.{ .value = id }) != .live);
-    try testing.expectEqual(constants.error_message_error, quic.connection_stream_read.reset_code(&client.transport, .{ .value = id }).?);
+    try testing.expectEqual(constants.protocol.error_message_error, quic.connection_stream_read.reset_code(&client.transport, .{ .value = id }).?);
     const again = try harness.request(&harness.get_lines, "");
     try exchange();
     try testing.expectEqual(again, (try next(server)).?.request.stream_id);
@@ -157,12 +157,12 @@ fn five_octets_then(after: []const u8) !u64 {
 test "§4.1.2: content shorter than its content-length refuses the stream at its end" {
     const id = try five_octets_then(&.{ 0x00, 0x03, 'a', 'b', 'c' });
     try testing.expectEqualStrings("abc", (try next(server)).?.data.octets);
-    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.error_message_error } }, (try next(server)).?);
+    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.protocol.error_message_error } }, (try next(server)).?);
 }
 
 test "§4.1.2: content longer than its content-length refuses the stream at the DATA frame's header" {
     const id = try five_octets_then(&.{ 0x00, 0x06, 'a', 'b', 'c', 'd', 'e', 'f' });
-    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.error_message_error } }, (try next(server)).?);
+    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.protocol.error_message_error } }, (try next(server)).?);
 }
 
 test "§4.1.2: content short of its content-length when the trailers arrive refuses the stream" {
@@ -172,14 +172,14 @@ test "§4.1.2: content short of its content-length when the trailers arrive refu
     try headers_frame(&writer, &.{.{ "x-trailer", "1" }});
     const id = try five_octets_then(writer.written());
     _ = (try next(server)).?.data;
-    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.error_message_error } }, (try next(server)).?);
+    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.protocol.error_message_error } }, (try next(server)).?);
 }
 
 test "§4.1: a request stream that ends before its header section is H3_REQUEST_INCOMPLETE" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const id = try raw_request(&.{}, true);
     try exchange();
-    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.error_request_incomplete } }, (try next(server)).?);
+    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.protocol.error_request_incomplete } }, (try next(server)).?);
 }
 
 test "§7.1: a stream that ends inside a frame is H3_FRAME_ERROR" {
@@ -196,7 +196,7 @@ test "§7.1: a stream that ends inside a frame is H3_FRAME_ERROR" {
             event = next(server);
         } else |_| {}
         try testing.expectError(error.ConnectionFailed, event);
-        try testing.expectEqual(constants.error_frame_error, server.h3.failure.?);
+        try testing.expectEqual(constants.protocol.error_frame_error, server.h3.failure.?);
     }
 }
 
@@ -250,9 +250,9 @@ test "§4.1.1: a request the client cancels reaches the server as a reset with i
     try client.commit(id, writer.written(), false);
     try exchange();
     _ = (try next(server)).?.request;
-    client.h3.cancel(&client.transport, id, constants.error_request_cancelled);
+    client.h3.cancel(&client.transport, id, constants.protocol.error_request_cancelled);
     try exchange();
-    try testing.expectEqual(Event{ .reset = .{ .stream_id = id, .error_code = constants.error_request_cancelled } }, (try next(server)).?);
+    try testing.expectEqual(Event{ .reset = .{ .stream_id = id, .error_code = constants.protocol.error_request_cancelled } }, (try next(server)).?);
     try testing.expectEqual(null, try next(server));
 }
 
@@ -268,7 +268,7 @@ test "§5.2: after colibri's GOAWAY a server rejects later requests, and the cli
     try testing.expectEqual(Event{ .end = first }, (try next(server)).?);
     try testing.expectEqual(null, try next(server));
     try exchange();
-    try testing.expectEqual(constants.error_request_rejected, quic.connection_stream_read.reset_code(&client.transport, .{ .value = late }).?);
+    try testing.expectEqual(constants.protocol.error_request_rejected, quic.connection_stream_read.reset_code(&client.transport, .{ .value = late }).?);
     try testing.expectEqual(Event{ .goaway = late }, (try next(client)).?);
     try testing.expectError(error.GoawayReceived, harness.request(&harness.get_lines, ""));
 }

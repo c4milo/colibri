@@ -77,9 +77,9 @@ pub const Storage = struct {
     server: sim.NullSuite,
     plans: [constants.packet_check_packets_max]Plan,
     plans_len: usize,
-    dcid: [quic.constants.connection_id_len_max]u8,
+    dcid: [quic.constants.protocol.connection_id_len_max]u8,
     dcid_len: usize,
-    scid: [quic.constants.connection_id_len_max]u8,
+    scid: [quic.constants.protocol.connection_id_len_max]u8,
     scid_len: usize,
     payload: [constants.packet_check_payload_len_max]u8,
     token: [constants.packet_check_token_len_max]u8,
@@ -101,7 +101,7 @@ pub const Census = struct {
     packets: u64 = 0,
     octets: u64 = 0,
     /// Packets by the length of their Packet Number field, 1 to 4 octets.
-    by_packet_number_len: [quic.constants.packet_number_len_max]u64 = @splat(0),
+    by_packet_number_len: [quic.constants.protocol.packet_number_len_max]u64 = @splat(0),
     crc32: std.hash.Crc32 = std.hash.Crc32.init(),
 };
 
@@ -155,7 +155,7 @@ fn draw_plan(level: Level, random: *sim.Random) Plan {
         .largest_acked = if (acked) base else null,
         // The reader has processed the number it acknowledged, or one past it and below this one.
         .largest_processed = if (full == 0) null else random.between(lowest_processed, full - 1),
-        .payload_len = random.between(quic.constants.protected_len_min, constants.packet_check_payload_len_max),
+        .payload_len = random.between(quic.constants.protocol.protected_len_min, constants.packet_check_payload_len_max),
         .token_len = if (level == .initial) random.between(0, constants.packet_check_token_len_max) else 0,
     };
 }
@@ -165,8 +165,8 @@ fn draw_plan(level: Level, random: *sim.Random) Plan {
 /// as the others: a field of `len` octets serves while twice the distance is below its window
 /// (RFC 9000 §17.1).
 fn draw_distance(random: *sim.Random) u64 {
-    const factor = quic.constants.packet_number_range_factor;
-    const len: u8 = @intCast(random.between(1, quic.constants.packet_number_len_max));
+    const factor = quic.constants.protocol.packet_number_range_factor;
+    const len: u8 = @intCast(random.between(1, quic.constants.protocol.packet_number_len_max));
     const highest = crypto.packet_number.window_of(len) / factor - 1;
     const lowest = if (len == 1) 1 else crypto.packet_number.window_of(len - 1) / factor;
     return random.between(lowest, highest);
@@ -217,7 +217,7 @@ fn write_header(storage: *Storage, plan: Plan, truncated: packet_number.Truncate
         .scid = source,
         .token = storage.token[0..plan.token_len],
         .packet_number = truncated,
-        .protected_payload_len = plan.payload_len + quic.constants.aead_tag_len,
+        .protected_payload_len = plan.payload_len + quic.constants.protocol.aead_tag_len,
     }) catch unreachable;
 }
 

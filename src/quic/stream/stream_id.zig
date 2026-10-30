@@ -32,26 +32,26 @@ pub const StreamId = struct {
     /// RFC 9000 §2.1: the least significant bit identifies the initiator, and the second
     /// least significant distinguishes bidirectional from unidirectional.
     pub fn initiator(id: StreamId) Initiator {
-        return @enumFromInt(@as(u1, @truncate(id.value & constants.stream_id_initiator_bit)));
+        return @enumFromInt(@as(u1, @truncate(id.value & constants.protocol.stream_id_initiator_bit)));
     }
 
     pub fn directionality(id: StreamId) Directionality {
-        const bit = (id.value & constants.stream_id_directionality_bit) >> constants.stream_id_directionality_shift;
+        const bit = (id.value & constants.protocol.stream_id_directionality_bit) >> constants.protocol.stream_id_directionality_shift;
         return @enumFromInt(@as(u1, @truncate(bit)));
     }
 
     /// The stream's position among those of its own type, counting from 0. RFC 9000 §2.1: each
     /// type has its own space, beginning at its own low value and rising by four.
     pub fn index(id: StreamId) u64 {
-        return id.value >> constants.stream_id_type_bits;
+        return id.value >> constants.protocol.stream_id_type_bits;
     }
 
     /// The `index`th stream of its type (RFC 9000 §2.1).
     pub fn of(initiator_of: Initiator, directionality_of: Directionality, index_of: u64) StreamId {
-        assert(index_of <= constants.stream_index_max);
+        assert(index_of <= constants.protocol.stream_index_max);
         const bits = @as(u64, @intFromEnum(initiator_of)) |
-            (@as(u64, @intFromEnum(directionality_of)) << constants.stream_id_directionality_shift);
-        return .{ .value = (index_of << constants.stream_id_type_bits) | bits };
+            (@as(u64, @intFromEnum(directionality_of)) << constants.protocol.stream_id_directionality_shift);
+        return .{ .value = (index_of << constants.protocol.stream_id_type_bits) | bits };
     }
 
     /// Whether `role` opened this stream, which decides which half of it that endpoint sends on.
@@ -101,9 +101,9 @@ test "§2.1: each type has its own space, rising by four" {
         try testing.expectEqual(Directionality.unidirectional, id.directionality());
     }
     // The largest index a 62-bit identifier holds.
-    const largest = StreamId.of(.server, .unidirectional, constants.stream_index_max);
-    try testing.expectEqual(constants.stream_id_max, largest.value);
-    try testing.expectEqual(constants.stream_index_max, largest.index());
+    const largest = StreamId.of(.server, .unidirectional, constants.protocol.stream_index_max);
+    try testing.expectEqual(constants.protocol.stream_id_max, largest.value);
+    try testing.expectEqual(constants.protocol.stream_index_max, largest.index());
 }
 
 test "§3.1: a unidirectional stream carries data from its initiator alone" {

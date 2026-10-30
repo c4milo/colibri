@@ -11788,6 +11788,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `network` inputs measure BBRv3 against CUBIC, chi and axum, and the fairness run of 13k.
       The owner then rules on the default.
 
+- **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
+  module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
+  parameters, and keeps units in `constants.zig`. It comes before step 29b.
+  - Each module's `constants.zig` exports its files as namespaces, and every name that moves
+    takes its namespace: `quic.constants.frame_ack` becomes `quic.constants.protocol.frame_ack`.
+  - **Check.** Each `constants_limits.zig` holds a test that pins every limit's value. Each
+    module's tests, `zig build test` and `tools/ci.sh` pass with no other change, and `zig build
+    bench-memory` prints the same table.
+  - **30, 2026-10-30.** Of the 15 library modules' 544 constants, 536 moved into 35 files: 15 of
+    `protocol`, 12 of `limits`, 7 of `policy` and quic's `recovery`, which nests `cubic` and
+    `hystart`. Each `constants.zig` keeps its 8 units and one import for each file.
+    - The group of the values an RFC fixes is `protocol`, not `wire`, because `wire` is a module
+      the others import.
+    - Twelve `constants_limits.zig` files pin 143 limits. The `magic-numbers` rule skips the four
+      new basenames as it skips `constants.zig`.
+    - Earlier decisions and design records keep the names that held when they were written.
+      docs/usage.md and the examples use the new names.
+    - Mutations: `quic`'s `ack_ranges_max` at 31 and `server`'s `route_methods_max` at 9, each
+      CAUGHT by its pinning test.
+    - `zig build test`, `zig build examples`, `tools/doc_snippets.sh` and
+      `tools/consumer_check.sh` pass.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

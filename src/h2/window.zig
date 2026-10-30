@@ -23,7 +23,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 
 /// The largest window, as the signed quantity the counter holds (RFC 9113 §6.9.1).
-const available_max: i64 = constants.window_max;
+const available_max: i64 = constants.protocol.window_max;
 
 /// The floor of invariant 15's range. A window drops by at most the initial window it once held,
 /// so it never goes below minus `window_max` (RFC 9113 §6.9.2).
@@ -41,7 +41,7 @@ pub const Window = struct {
     /// settings codec refuses a larger SETTINGS_INITIAL_WINDOW_SIZE (RFC 9113 §6.5.2) before a
     /// window is made from it.
     pub fn init(initial: u32) Window {
-        assert(initial <= constants.window_max);
+        assert(initial <= constants.protocol.window_max);
         const window: Window = .{ .available = initial };
         assert(window.in_range());
         return window;
@@ -87,7 +87,7 @@ pub const Window = struct {
     /// connection with GOAWAY, either carrying FLOW_CONTROL_ERROR (§6.9.1).
     pub fn add(window: *Window, increment: u32) error{Overflow}!void {
         assert(window.in_range());
-        assert(increment >= 1 and increment <= constants.window_max);
+        assert(increment >= 1 and increment <= constants.protocol.window_max);
         // RFC 9113 §6.9.1: a sender MUST NOT allow a flow-control window to exceed 2^31-1 octets.
         if (window.available + increment > available_max) return error.Overflow;
         window.available += increment;
@@ -113,7 +113,7 @@ pub const Window = struct {
 /// changes from `old` to `new`: `new - old`, negative when the window shrank. Both values are at
 /// most `window_max`, which the settings codec checks (§6.5.2).
 pub fn initial_window_delta(old: u32, new: u32) i64 {
-    assert(old <= constants.window_max and new <= constants.window_max);
+    assert(old <= constants.protocol.window_max and new <= constants.protocol.window_max);
     const delta = @as(i64, new) - @as(i64, old);
     assert(delta >= available_min and delta <= available_max);
     return delta;
@@ -141,7 +141,7 @@ pub const Receiver = struct {
     /// A receiver whose window holds `initial` octets and whose application has freed nothing.
     /// `initial` is at least `window_update_threshold`, as the type's comment explains.
     pub fn init(initial: u32) Receiver {
-        assert(initial >= constants.window_update_threshold);
+        assert(initial >= constants.policy.window_update_threshold);
         const receiver: Receiver = .{
             .window = Window.init(initial),
             .unreleased = 0,
@@ -186,13 +186,13 @@ pub const Receiver = struct {
         assert(len <= receiver.unreleased);
         receiver.unreleased -= len;
         const released = @as(i64, receiver.released) + len;
-        if (released < constants.window_update_threshold) {
+        if (released < constants.policy.window_update_threshold) {
             receiver.released = @intCast(released);
             assert(receiver.in_range());
             return null;
         }
         const increment: u32 = @intCast(released);
-        assert(increment >= 1 and increment <= constants.window_max);
+        assert(increment >= 1 and increment <= constants.protocol.window_max);
         // `in_range` held on entry, so the credit fits back into the window: no overflow.
         receiver.window.add(increment) catch unreachable;
         receiver.released = 0;
@@ -216,32 +216,32 @@ test "a window consumes down to zero, and one octet more is Exceeded" {
 }
 
 test "a payload longer than the space available is Exceeded and the window does not move" {
-    var window = Window.init(constants.window_initial);
-    try testing.expectEqual(constants.window_initial, window.sendable());
-    try testing.expectError(error.Exceeded, window.consume(constants.window_initial + 1));
-    try testing.expectEqual(constants.window_initial, window.available);
+    var window = Window.init(constants.policy.window_initial);
+    try testing.expectEqual(constants.policy.window_initial, window.sendable());
+    try testing.expectError(error.Exceeded, window.consume(constants.policy.window_initial + 1));
+    try testing.expectEqual(constants.policy.window_initial, window.available);
 }
 
 test "a WINDOW_UPDATE may fill the window to exactly window_max" {
     var window = Window.init(1);
-    try window.add(constants.window_max - 1);
-    try testing.expectEqual(constants.window_max, window.available);
-    try testing.expectEqual(constants.window_max, window.sendable());
+    try window.add(constants.protocol.window_max - 1);
+    try testing.expectEqual(constants.protocol.window_max, window.available);
+    try testing.expectEqual(constants.protocol.window_max, window.sendable());
 }
 
 test "a WINDOW_UPDATE that would exceed window_max is Overflow and the window does not move" {
     var window = Window.init(2);
-    try testing.expectError(error.Overflow, window.add(constants.window_max - 1));
+    try testing.expectError(error.Overflow, window.add(constants.protocol.window_max - 1));
     try testing.expectEqual(2, window.available);
-    var full = Window.init(constants.window_max);
+    var full = Window.init(constants.protocol.window_max);
     try testing.expectError(error.Overflow, full.add(1));
-    try testing.expectEqual(constants.window_max, full.available);
+    try testing.expectEqual(constants.protocol.window_max, full.available);
 }
 
 test "RFC 9113 §6.9.2's example: 60 KB sent, then an initial window of 16 KB, leaves -44 KB" {
-    var window = Window.init(constants.initial_window_size_initial);
+    var window = Window.init(constants.protocol.initial_window_size_initial);
     try window.consume(60 * 1024);
-    try window.adjust(initial_window_delta(constants.initial_window_size_initial, 16 * 1024));
+    try window.adjust(initial_window_delta(constants.protocol.initial_window_size_initial, 16 * 1024));
     try testing.expectEqual(-44 * 1024, window.available);
     try testing.expectEqual(0, window.sendable());
     try testing.expectError(error.Exceeded, window.consume(1));
@@ -271,107 +271,107 @@ test "WINDOW_UPDATE frames bring a negative window back above zero, and sending 
 }
 
 test "the largest window fully sent, then an initial window of 0, reaches the floor -window_max" {
-    var window = Window.init(constants.window_max);
-    try window.consume(constants.window_max);
-    try window.adjust(initial_window_delta(constants.window_max, 0));
-    try testing.expectEqual(-@as(i64, constants.window_max), window.available);
+    var window = Window.init(constants.protocol.window_max);
+    try window.consume(constants.protocol.window_max);
+    try window.adjust(initial_window_delta(constants.protocol.window_max, 0));
+    try testing.expectEqual(-@as(i64, constants.protocol.window_max), window.available);
     try testing.expect(window.in_range());
     try testing.expectEqual(0, window.sendable());
-    try window.add(constants.window_max);
+    try window.add(constants.protocol.window_max);
     try testing.expectEqual(0, window.available);
 }
 
 test "a settings change past window_max is Overflow and the window does not move" {
-    var window = Window.init(constants.window_initial);
-    try testing.expectError(error.Overflow, window.adjust(constants.window_max));
-    try testing.expectEqual(constants.window_initial, window.available);
-    try window.adjust(initial_window_delta(constants.window_initial, constants.window_max));
-    try testing.expectEqual(constants.window_max, window.available);
+    var window = Window.init(constants.policy.window_initial);
+    try testing.expectError(error.Overflow, window.adjust(constants.protocol.window_max));
+    try testing.expectEqual(constants.policy.window_initial, window.available);
+    try window.adjust(initial_window_delta(constants.policy.window_initial, constants.protocol.window_max));
+    try testing.expectEqual(constants.protocol.window_max, window.available);
     try testing.expectError(error.Overflow, window.adjust(1));
-    try testing.expectEqual(constants.window_max, window.available);
+    try testing.expectEqual(constants.protocol.window_max, window.available);
 }
 
 test "the initial-window delta is the new value minus the old, in both directions" {
     try testing.expectEqual(-49_151, initial_window_delta(65_535, 16_384));
     try testing.expectEqual(49_151, initial_window_delta(16_384, 65_535));
     try testing.expectEqual(0, initial_window_delta(65_535, 65_535));
-    const largest_drop = -@as(i64, constants.window_max);
-    try testing.expectEqual(largest_drop, initial_window_delta(constants.window_max, 0));
+    const largest_drop = -@as(i64, constants.protocol.window_max);
+    try testing.expectEqual(largest_drop, initial_window_delta(constants.protocol.window_max, 0));
 }
 
 test "a receiver charges each DATA payload, and one past the window is Exceeded" {
-    var receiver = Receiver.init(constants.window_initial);
-    try receiver.receive(constants.window_update_threshold);
-    const rest = constants.window_initial - constants.window_update_threshold;
+    var receiver = Receiver.init(constants.policy.window_initial);
+    try receiver.receive(constants.policy.window_update_threshold);
+    const rest = constants.policy.window_initial - constants.policy.window_update_threshold;
     try testing.expectEqual(rest, receiver.window.available);
     try receiver.receive(rest);
     try testing.expectError(error.Exceeded, receiver.receive(1));
     try testing.expectEqual(0, receiver.window.available);
     try receiver.receive(0);
-    try testing.expectEqual(constants.window_initial, receiver.unreleased);
+    try testing.expectEqual(constants.policy.window_initial, receiver.unreleased);
     try testing.expectEqual(0, receiver.released);
 }
 
 test "a receive window reduced under RFC 9113 §6.9.3 goes negative and comes back on release" {
-    var receiver = Receiver.init(constants.window_initial);
-    try receiver.receive(constants.window_initial);
-    const reduced = constants.window_update_threshold;
-    try receiver.window.adjust(initial_window_delta(constants.window_initial, reduced));
-    const negative = @as(i64, reduced) - @as(i64, constants.window_initial);
+    var receiver = Receiver.init(constants.policy.window_initial);
+    try receiver.receive(constants.policy.window_initial);
+    const reduced = constants.policy.window_update_threshold;
+    try receiver.window.adjust(initial_window_delta(constants.policy.window_initial, reduced));
+    const negative = @as(i64, reduced) - @as(i64, constants.policy.window_initial);
     try testing.expectEqual(negative, receiver.window.available);
     try testing.expect(receiver.in_range());
     try receiver.receive(0);
     try testing.expectError(error.Exceeded, receiver.receive(1));
     try testing.expectEqual(negative, receiver.window.available);
-    try testing.expectEqual(constants.window_initial, receiver.release(constants.window_initial));
+    try testing.expectEqual(constants.policy.window_initial, receiver.release(constants.policy.window_initial));
     try testing.expectEqual(reduced, receiver.window.available);
     try testing.expectEqual(0, receiver.unreleased);
 }
 
 test "released credit below the threshold accumulates and sends no WINDOW_UPDATE" {
-    var receiver = Receiver.init(constants.window_initial);
-    try receiver.receive(constants.window_update_threshold);
+    var receiver = Receiver.init(constants.policy.window_initial);
+    try receiver.receive(constants.policy.window_update_threshold);
     try testing.expectEqual(null, receiver.release(1));
-    try testing.expectEqual(null, receiver.release(constants.window_update_threshold - 2));
-    try testing.expectEqual(constants.window_update_threshold - 1, receiver.released);
+    try testing.expectEqual(null, receiver.release(constants.policy.window_update_threshold - 2));
+    try testing.expectEqual(constants.policy.window_update_threshold - 1, receiver.released);
     try testing.expectEqual(1, receiver.unreleased);
-    const charged = constants.window_initial - constants.window_update_threshold;
+    const charged = constants.policy.window_initial - constants.policy.window_update_threshold;
     try testing.expectEqual(charged, receiver.window.available);
 }
 
 test "released credit at the threshold goes back into the window and out as a WINDOW_UPDATE" {
-    var receiver = Receiver.init(constants.window_initial);
-    try receiver.receive(constants.window_update_threshold);
-    try testing.expectEqual(null, receiver.release(constants.window_update_threshold - 1));
-    try testing.expectEqual(constants.window_update_threshold, receiver.release(1));
+    var receiver = Receiver.init(constants.policy.window_initial);
+    try receiver.receive(constants.policy.window_update_threshold);
+    try testing.expectEqual(null, receiver.release(constants.policy.window_update_threshold - 1));
+    try testing.expectEqual(constants.policy.window_update_threshold, receiver.release(1));
     try testing.expectEqual(0, receiver.released);
     try testing.expectEqual(0, receiver.unreleased);
-    try testing.expectEqual(constants.window_initial, receiver.window.available);
+    try testing.expectEqual(constants.policy.window_initial, receiver.window.available);
 }
 
 test "after a WINDOW_UPDATE the next release starts a new count" {
-    var receiver = Receiver.init(constants.window_initial);
-    try receiver.receive(constants.window_initial);
-    const threshold = constants.window_update_threshold;
+    var receiver = Receiver.init(constants.policy.window_initial);
+    try receiver.receive(constants.policy.window_initial);
+    const threshold = constants.policy.window_update_threshold;
     try testing.expectEqual(threshold, receiver.release(threshold));
     try testing.expectEqual(null, receiver.release(1));
     try testing.expectEqual(1, receiver.released);
-    try testing.expectEqual(constants.window_update_threshold, receiver.window.available);
+    try testing.expectEqual(constants.policy.window_update_threshold, receiver.window.available);
 }
 
 test "a release past the threshold returns all of the credit, not just the threshold" {
-    var receiver = Receiver.init(constants.window_initial);
-    try receiver.receive(constants.window_initial);
-    try testing.expectEqual(constants.window_initial, receiver.release(constants.window_initial));
+    var receiver = Receiver.init(constants.policy.window_initial);
+    try receiver.receive(constants.policy.window_initial);
+    try testing.expectEqual(constants.policy.window_initial, receiver.release(constants.policy.window_initial));
     try testing.expectEqual(0, receiver.released);
-    try testing.expectEqual(constants.window_initial, receiver.window.available);
+    try testing.expectEqual(constants.policy.window_initial, receiver.window.available);
 }
 
 test "the smallest window the contract admits, once filled and freed, earns a WINDOW_UPDATE" {
-    var receiver = Receiver.init(constants.window_update_threshold);
-    try receiver.receive(constants.window_update_threshold);
+    var receiver = Receiver.init(constants.policy.window_update_threshold);
+    try receiver.receive(constants.policy.window_update_threshold);
     try testing.expectEqual(0, receiver.window.available);
-    const threshold = constants.window_update_threshold;
-    try testing.expectEqual(threshold, receiver.release(constants.window_update_threshold));
-    try testing.expectEqual(constants.window_update_threshold, receiver.window.available);
+    const threshold = constants.policy.window_update_threshold;
+    try testing.expectEqual(threshold, receiver.release(constants.policy.window_update_threshold));
+    try testing.expectEqual(constants.policy.window_update_threshold, receiver.window.available);
 }

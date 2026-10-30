@@ -141,8 +141,8 @@ fn parameters_pattern(comptime count: usize) []const u8 {
 }
 
 test "refusal 9, parameters_too_many: a pattern holds path_parameters_max parameters at most" {
-    @setEvalBranchQuota(constants.path_parameters_max * branches_per_parameter);
-    const most = comptime parameters_pattern(constants.path_parameters_max);
+    @setEvalBranchQuota(constants.limits.path_parameters_max * branches_per_parameter);
+    const most = comptime parameters_pattern(constants.limits.path_parameters_max);
     try expect_pattern(.parameters_too_many, most ++ "/:extra");
     try expect_pattern(.parameters_too_many, most ++ "/a/:extra");
     try expect_pattern(null, most);
@@ -150,7 +150,7 @@ test "refusal 9, parameters_too_many: a pattern holds path_parameters_max parame
     try expect_pattern(null, most ++ "/extra");
     // Decision 122 ruling 10: the wildcard fills one entry of `PathParameters`.
     try expect_pattern(.parameters_too_many, most ++ "/*");
-    const fewer = comptime parameters_pattern(constants.path_parameters_max - 1);
+    const fewer = comptime parameters_pattern(constants.limits.path_parameters_max - 1);
     try expect_pattern(null, fewer ++ "/*");
     try expect_pattern(.parameters_too_many, fewer ++ "/:extra/*");
 }
@@ -419,7 +419,7 @@ test "docs/usage.md: each table of the Router section compiles or is refused as 
 }
 
 /// A segment of `path_len_max` octets, so a path of it is one octet too long.
-const long_segment = "a" ** constants.path_len_max;
+const long_segment = "a" ** constants.limits.path_len_max;
 
 test "refusal 21, route_unreachable: a pattern whose paths are longer than path_len_max" {
     const refusal = comptime layout_refusal(.{ .{ .get, "/", 0 }, .{ .get, "/" ++ long_segment, 1 } }).?;
@@ -439,7 +439,7 @@ fn repeated_pattern(comptime count: usize) []const u8 {
 
 /// A literal segment that fills a path of `path_len_max` octets beside `rest` octets.
 fn filler(comptime rest: usize) []const u8 {
-    return "L" ** (constants.path_len_max - rest);
+    return "L" ** (constants.limits.path_len_max - rest);
 }
 
 test "decision 122 ruling 12: \"other\" counts a literal that repeats once, at path_len_max" {
@@ -473,8 +473,8 @@ test "decision 122 ruling 12: \"other\" has two octets when the table holds each
     try expect_backs_up(alpha_digit.len - 1, "GET", "/9/b", "/:x/b", comptime one_octet_table(alpha_digit[0 .. alpha_digit.len - 1]));
 }
 
-test "refusal 22, allow_too_long: an Allow value fits core.constants.field_value_len_max" {
-    const most = core.constants.field_value_len_max;
+test "refusal 22, allow_too_long: an Allow value fits core.constants.limits.field_value_len_max" {
+    const most = core.constants.limits.field_value_len_max;
     try expect_layout(.allow_too_long, 1, .{ valid_entry, .{ "A" ** (most + 1), "/a", 1 } });
     try expect_layout(null, 0, .{ valid_entry, .{ "A" ** most, "/a", 1 } });
     // The Allow value "GET, HEAD, " and the token: HEAD counts.
@@ -494,7 +494,7 @@ test "decision 122: the compile error of an unreachable route names the patterns
     );
     try testing.expectEqualStrings(
         "server.router: route 1, \"/a\": allow_too_long: the Allow value of the routes of one pattern " ++
-            "holds core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
+            "holds core.constants.limits.field_value_len_max octets at most, because a 405 sends it as a field value",
         comptime router_trie.message(.{ .route = 1, .pattern = "/a", .reason = .allow_too_long }),
     );
 }

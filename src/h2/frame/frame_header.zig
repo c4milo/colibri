@@ -29,30 +29,30 @@ pub const Header = struct {
 pub fn read(reader: *Reader) core.reader.Error!Header {
     var cursor = reader.*;
     var length: u32 = 0;
-    for (0..constants.frame_length_len) |_| {
+    for (0..constants.protocol.frame_length_len) |_| {
         length = (length << @bitSizeOf(u8)) | try cursor.read_byte();
     }
     const frame_type = try cursor.read_byte();
     const flags = try cursor.read_byte();
     // RFC 9113 §4.1: the reserved bit MUST be ignored when receiving.
-    const stream_id = (try cursor.read_int(u32)) & ~constants.reserved_bit_mask;
-    assert(length <= constants.frame_length_max);
-    assert(stream_id <= constants.stream_id_max);
+    const stream_id = (try cursor.read_int(u32)) & ~constants.protocol.reserved_bit_mask;
+    assert(length <= constants.protocol.frame_length_max);
+    assert(stream_id <= constants.protocol.stream_id_max);
     reader.* = cursor;
     return .{ .length = length, .type = frame_type, .flags = flags, .stream_id = stream_id };
 }
 
 /// Writes one header, all nine octets or none, with the reserved bit unset (RFC 9113 §4.1).
 pub fn write(writer: *Writer, header: Header) core.writer.Error!void {
-    assert(header.length <= constants.frame_length_max);
-    assert(header.stream_id <= constants.stream_id_max);
+    assert(header.length <= constants.protocol.frame_length_max);
+    assert(header.stream_id <= constants.protocol.stream_id_max);
     var cursor = writer.*;
     // RFC 9113 §4.1: the 24-bit length, then the type, as the four octets of one integer.
     try cursor.write_int(u32, header.length << @bitSizeOf(u8) | header.type);
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
-    try cursor.write_int(u32, header.stream_id & ~constants.reserved_bit_mask);
-    assert(cursor.offset - writer.offset == constants.frame_header_len);
+    try cursor.write_int(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
+    assert(cursor.offset - writer.offset == constants.protocol.frame_header_len);
     writer.* = cursor;
 }
 
@@ -71,8 +71,8 @@ test "a header reads its four fields in network byte order and moves past nine o
     var reader = Reader.init(&.{ 0x00, 0x00, 0x14, 0x00, 0x08, 0x00, 0x00, 0x00, 0x02, 0xff });
     const header = try read(&reader);
     try testing.expectEqual(20, header.length);
-    try testing.expectEqual(constants.frame_type_data, header.type);
-    try testing.expectEqual(constants.flag_padded, header.flags);
+    try testing.expectEqual(constants.protocol.frame_type_data, header.type);
+    try testing.expectEqual(constants.protocol.flag_padded, header.flags);
     try testing.expectEqual(2, header.stream_id);
     try testing.expectEqual(1, reader.remaining_len());
 }
@@ -80,14 +80,14 @@ test "a header reads its four fields in network byte order and moves past nine o
 test "the reserved bit of the stream identifier is ignored on receipt (RFC 9113 §4.1)" {
     var reader = Reader.init(&.{ 0x00, 0x00, 0x00, 0x04, 0x00, 0xff, 0xff, 0xff, 0xff });
     const header = try read(&reader);
-    try testing.expectEqual(constants.stream_id_max, header.stream_id);
-    try testing.expectEqual(0, header.stream_id & constants.reserved_bit_mask);
+    try testing.expectEqual(constants.protocol.stream_id_max, header.stream_id);
+    try testing.expectEqual(0, header.stream_id & constants.protocol.reserved_bit_mask);
 }
 
 test "the length field is 24 bits wide" {
     var reader = Reader.init(&.{ 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 });
     const header = try read(&reader);
-    try testing.expectEqual(constants.frame_length_max, header.length);
+    try testing.expectEqual(constants.protocol.frame_length_max, header.length);
 }
 
 test "fewer than nine octets is Truncated and consumes nothing" {
@@ -97,27 +97,27 @@ test "fewer than nine octets is Truncated and consumes nothing" {
 }
 
 test "a header writes the nine octets read reads, with the reserved bit unset (RFC 9113 §4.1)" {
-    var buffer: [constants.frame_header_len]u8 = @splat(0);
+    var buffer: [constants.protocol.frame_header_len]u8 = @splat(0);
     var writer = Writer.init(&buffer);
     try write(&writer, .{
         .length = 0x010203,
-        .type = constants.frame_type_goaway,
+        .type = constants.protocol.frame_type_goaway,
         .flags = 0,
-        .stream_id = constants.stream_id_max,
+        .stream_id = constants.protocol.stream_id_max,
     });
     try testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03, 0x07, 0x00, 0x7f, 0xff, 0xff, 0xff }, &buffer);
     var reader = Reader.init(&buffer);
     const header = try read(&reader);
     try testing.expectEqual(0x010203, header.length);
-    try testing.expectEqual(constants.stream_id_max, header.stream_id);
+    try testing.expectEqual(constants.protocol.stream_id_max, header.stream_id);
 }
 
 test "a header write into a short buffer commits nothing" {
-    var buffer: [constants.frame_header_len - 1]u8 = @splat(0xee);
+    var buffer: [constants.protocol.frame_header_len - 1]u8 = @splat(0xee);
     var writer = Writer.init(&buffer);
     try testing.expectError(error.NoSpaceLeft, write(&writer, .{
         .length = 0,
-        .type = constants.frame_type_ping,
+        .type = constants.protocol.frame_type_ping,
         .flags = 0,
         .stream_id = 0,
     }));
@@ -127,9 +127,9 @@ test "a header write into a short buffer commits nothing" {
 
 test "has_flag reads one bit of the flags octet" {
     const header: Header = .{ .length = 0, .type = 0, .flags = 0x05, .stream_id = 1 };
-    try testing.expect(has_flag(header, constants.flag_end_stream));
-    try testing.expect(has_flag(header, constants.flag_end_headers));
-    try testing.expect(!has_flag(header, constants.flag_padded));
+    try testing.expect(has_flag(header, constants.protocol.flag_end_stream));
+    try testing.expect(has_flag(header, constants.protocol.flag_end_headers));
+    try testing.expect(!has_flag(header, constants.protocol.flag_padded));
 }
 
 // The test below holds `write` to the one it replaced, which wrote the length's three octets
@@ -140,17 +140,17 @@ test "has_flag reads one bit of the flags octet" {
 /// The reference: `write` as it was.
 fn write_by_parts(writer: *Writer, header: Header) core.writer.Error!void {
     var cursor = writer.*;
-    var length_octets: [constants.frame_length_len]u8 = @splat(0);
+    var length_octets: [constants.protocol.frame_length_len]u8 = @splat(0);
     var rest = header.length;
-    for (0..constants.frame_length_len) |index| {
-        length_octets[constants.frame_length_len - 1 - index] = @truncate(rest);
+    for (0..constants.protocol.frame_length_len) |index| {
+        length_octets[constants.protocol.frame_length_len - 1 - index] = @truncate(rest);
         rest >>= @bitSizeOf(u8);
     }
     try cursor.write_bytes(&length_octets);
     try cursor.write_byte(header.type);
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
-    try cursor.write_int(u32, header.stream_id & ~constants.reserved_bit_mask);
+    try cursor.write_int(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
     writer.* = cursor;
 }
 
@@ -159,8 +159,8 @@ const untouched: u8 = 0xee;
 
 /// Fails, printing both, when `write` and the reference differ for `header` in `room` octets.
 fn expect_same_header(header: Header, room: usize) !void {
-    var changed_buffer: [constants.frame_header_len + 1]u8 = @splat(untouched);
-    var reference_buffer: [constants.frame_header_len + 1]u8 = @splat(untouched);
+    var changed_buffer: [constants.protocol.frame_header_len + 1]u8 = @splat(untouched);
+    var reference_buffer: [constants.protocol.frame_header_len + 1]u8 = @splat(untouched);
     var changed = Writer.init(changed_buffer[0..room]);
     var reference = Writer.init(reference_buffer[0..room]);
     const changed_failed = if (write(&changed, header)) false else |_| true;
@@ -175,15 +175,15 @@ fn expect_same_header(header: Header, room: usize) !void {
 }
 
 test "write writes what the reference writes, for each length, type, flags and stream, in every room" {
-    const lengths = [_]u32{ 0, 1, 0xff, 0x100, 0x4000, 0x123456, constants.frame_length_max };
+    const lengths = [_]u32{ 0, 1, 0xff, 0x100, 0x4000, 0x123456, constants.protocol.frame_length_max };
     const octets = [_]u8{ 0, 1, 0x7f, 0x80, 0xff };
-    const streams = [_]u32{ 0, 1, 0x7f, 0x12345678, constants.stream_id_max };
+    const streams = [_]u32{ 0, 1, 0x7f, 0x12345678, constants.protocol.stream_id_max };
     for (lengths) |length| {
         for (octets) |kind| {
             for (octets) |flags| {
                 for (streams) |stream_id| {
                     const header: Header = .{ .length = length, .type = kind, .flags = flags, .stream_id = stream_id };
-                    for (0..constants.frame_header_len + 2) |room| try expect_same_header(header, room);
+                    for (0..constants.protocol.frame_header_len + 2) |room| try expect_same_header(header, room);
                 }
             }
         }

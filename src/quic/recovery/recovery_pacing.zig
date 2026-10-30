@@ -87,8 +87,8 @@ pub const Pacer = struct {
 /// an elapsed time in nanoseconds passes what 64 bits hold on an ordinary path.
 fn earned_len(elapsed_ns: u64, rate: Rate) u64 {
     if (rate.smoothed_rtt_ns == 0) return rate.burst_len;
-    const scaled: u128 = @as(u128, rate.window_len) * elapsed_ns * constants.pacing_rate_numerator;
-    const divisor: u128 = @as(u128, rate.smoothed_rtt_ns) * constants.pacing_rate_denominator;
+    const scaled: u128 = @as(u128, rate.window_len) * elapsed_ns * constants.recovery.pacing_rate_numerator;
+    const divisor: u128 = @as(u128, rate.smoothed_rtt_ns) * constants.recovery.pacing_rate_denominator;
     return @intCast(@min(scaled / divisor, rate.burst_len));
 }
 
@@ -97,8 +97,8 @@ fn earned_len(elapsed_ns: u64, rate: Rate) u64 {
 /// early, and time already spent rounds down, so nothing is charged twice.
 fn inverted_ns(wanted_len: u64, rate: Rate, round: Round) u64 {
     if (rate.window_len == 0) return std.math.maxInt(u64);
-    const scaled: u128 = @as(u128, wanted_len) * rate.smoothed_rtt_ns * constants.pacing_rate_denominator;
-    const divisor: u128 = @as(u128, rate.window_len) * constants.pacing_rate_numerator;
+    const scaled: u128 = @as(u128, wanted_len) * rate.smoothed_rtt_ns * constants.recovery.pacing_rate_denominator;
+    const divisor: u128 = @as(u128, rate.window_len) * constants.recovery.pacing_rate_numerator;
     const quotient: u128 = if (round == .up) (scaled + divisor - 1) / divisor else scaled / divisor;
     return @intCast(@min(quotient, std.math.maxInt(u64)));
 }

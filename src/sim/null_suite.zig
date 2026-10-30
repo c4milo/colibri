@@ -227,7 +227,7 @@ fn open(context: *anyopaque, opening: Opening) crypto.suite.OpenError!Opened {
     // The peer wrote the packet, so the mask and the tag are under the peer's names.
     const mask = self.mask_of(opening.level, self.role.peer(), opening.version, packet, offset);
     packet[0] ^= mask[0] & protected_bits_of(packet[0]);
-    const packet_number_len = (packet[0] & crypto.constants.packet_number_len_mask) + 1;
+    const packet_number_len = (packet[0] & crypto.constants.protocol.packet_number_len_mask) + 1;
     for (packet[offset..][0..packet_number_len], mask[1..][0..packet_number_len]) |*octet, mask_octet| {
         octet.* ^= mask_octet;
     }

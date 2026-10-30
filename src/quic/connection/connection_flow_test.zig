@@ -37,7 +37,7 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
-var datagram: [constants.datagram_len_min]u8 = undefined;
+var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 
@@ -102,7 +102,7 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
     keys.on_keys_installed(connection, .application, .write);
     connection.handshake_complete = true;
     // RFC 9000 §8.1: a server sends only after it has received.
-    if (role == .server) connection.path.on_datagram_received(constants.datagram_len_min);
+    if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 fn send_from(connection: *Connection) !?send.Sent {
@@ -114,7 +114,7 @@ fn deliver(sent: send.Sent, reader: *Connection) !void {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     // Bounded by what one datagram can hold (RFC 9000 §12.2).
-    for (0..constants.coalesced_packets_max) |_| {
+    for (0..constants.limits.coalesced_packets_max) |_| {
         const outcome = try receive.next(&walk, reader, suite_holder.suite()) orelse return;
         _ = try frames.process(reader, outcome.opened, test_now_ns, &recovery_scratch);
     }
@@ -209,7 +209,7 @@ test "decision 110: credit waits to be sent from the read that earns it to the p
     const fresh = [_]*flow.Receiver{ &server.receive_flow, &server.streams.peer_limit[0], &stream.receive_flow };
     const lost = [_]*bool{ &server.max_data.owed, &server.streams.max_streams[0].owed, &stream.max_stream_data.owed };
     for (fresh, lost) |receiver, owed| {
-        const gain = receiver.window / constants.flow_credit_fraction;
+        const gain = receiver.window / constants.policy.flow_credit_fraction;
         receiver.limit -= gain;
         try testing.expect(flow_frames.credit_owed(&server));
         receiver.limit += gain;
@@ -324,7 +324,7 @@ test "RFC 9000 §13.3: a limit frame with no room stays owed for the next packet
     try testing.expect(server.max_data.owed);
     try testing.expect(server_stream(id).max_stream_data.owed);
     // Below 1-RTT nothing is written at all (RFC 9000 §12.4, Table 3).
-    var room: [constants.datagram_len_min]u8 = undefined;
+    var room: [constants.protocol.datagram_len_min]u8 = undefined;
     var handshake_writer = Writer.init(&room);
     try testing.expect(!flow_frames.write_limits(&server, .handshake, &handshake_writer, 0, test_now_ns));
     try testing.expectEqual(0, handshake_writer.written().len);
@@ -345,7 +345,7 @@ test "RFC 9000 §4.1, §19.12, §19.13: a sender with octets held back by both l
     open_pair();
     const id = try fill_window(body_len, false);
     // Below 1-RTT nothing is written (RFC 9000 §12.4, Table 3).
-    var room: [constants.datagram_len_min]u8 = undefined;
+    var room: [constants.protocol.datagram_len_min]u8 = undefined;
     var handshake_writer = Writer.init(&room);
     try testing.expect(!flow_frames.write_blocked(&client, .handshake, &handshake_writer, 0));
     try testing.expectEqual(0, handshake_writer.written().len);

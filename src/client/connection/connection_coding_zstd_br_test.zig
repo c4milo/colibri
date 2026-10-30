@@ -145,7 +145,7 @@ test "decision 101 as amended: a head that waits for the stream limit offers aga
     support.peer_events_len = 0;
     try support.pump_h2();
     // RFC 9113 §5.1.2: one stream at a time, so the second head waits for the first to close.
-    try support.peer_setting(h2.constants.setting_max_concurrent_streams, 1);
+    try support.peer_setting(h2.constants.protocol.setting_max_concurrent_streams, 1);
     try support.client_receive();
     // Decision 101: a request that names Accept-Encoding takes no decoder. RFC 9113 §8.2: h2
     // field names are lowercase.

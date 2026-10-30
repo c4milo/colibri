@@ -204,7 +204,7 @@ pub const TupleAssigned = struct {
     tuple_remote: ?TupleEndpointInfo = null,
 
     pub fn write(event: TupleAssigned, text: *TextWriter) Error!void {
-        var digits: [constants.tuple_id_len_max]u8 = undefined;
+        var digits: [constants.limits.tuple_id_len_max]u8 = undefined;
         try member.string(text, "tuple_id", member.tuple_id(&digits, event.tuple));
         try field(text, "tuple_remote", event.tuple_remote);
     }

@@ -79,7 +79,7 @@ pub fn on_stream_frame(
 
 /// Finds the stream `id` names for a frame of `kind`, and applies RFC 9113 §5.1 and §5.1.1 to it.
 pub fn find(target: *Connection, id: u32, kind: stream.Kind, end_stream: bool, now_ns: u64) Error!Found {
-    assert(id != constants.connection_stream_id);
+    assert(id != constants.protocol.connection_stream_id);
     switch (target.streams.lookup(id)) {
         .live => |record| {
             const verdict = stream.on_receive(record.state, record.closed, kind, end_stream, target.role, record.peer_initiated);
@@ -101,7 +101,7 @@ pub fn find(target: *Connection, id: u32, kind: stream.Kind, end_stream: bool, n
         // discarded once the connection has done the minimal processing they ask for.
         .reset_and_dropped => return .discard,
         // The file header says why a forgotten identifier ends the connection.
-        .forgotten => return target.fail(constants.error_protocol_error),
+        .forgotten => return target.fail(constants.protocol.error_protocol_error),
     }
 }
 
@@ -132,7 +132,7 @@ fn verdict_without_record(target: *Connection, id: u32, verdict: stream.Verdict,
 /// Ends the stream `id` with a RST_STREAM carrying `code`, and returns the event that says so
 /// (RFC 9113 §5.4.2). The table keeps the record, so the frames still on their way are discarded.
 pub fn reset_stream(target: *Connection, id: u32, code: u32, now_ns: u64) Error!Event {
-    assert(id != constants.connection_stream_id);
+    assert(id != constants.protocol.connection_stream_id);
     try count_reset(target, now_ns);
     if (target.streams.lookup(id) == .live) {
         const record = target.streams.lookup(id).live;
@@ -157,7 +157,7 @@ pub fn refuse_stream(target: *Connection, id: u32, code: u32, now_ns: u64) Error
 /// colibri do a request's work for nothing.
 fn count_reset(target: *Connection, now_ns: u64) Error!void {
     assert(target.resets_sent_max > 0);
-    if (now_ns - target.rst_stream_period_start_ns >= constants.rst_stream_rate_period_ns) {
+    if (now_ns - target.rst_stream_period_start_ns >= constants.policy.rst_stream_rate_period_ns) {
         target.rst_stream_period_start_ns = now_ns;
         target.rst_stream_sent = 0;
     }
@@ -172,7 +172,7 @@ fn count_reset(target: *Connection, now_ns: u64) Error!void {
 /// work, which CVE-2023-44487 made the peer's to spend at line rate.
 fn count_peer_reset(target: *Connection, now_ns: u64) Error!void {
     assert(target.peer_resets_max > 0);
-    if (now_ns - target.peer_reset_period_start_ns >= constants.peer_reset_rate_period_ns) {
+    if (now_ns - target.peer_reset_period_start_ns >= constants.policy.peer_reset_rate_period_ns) {
         target.peer_reset_period_start_ns = now_ns;
         target.peer_resets = 0;
     }
@@ -228,7 +228,7 @@ fn on_window_update(target: *Connection, header: frame.Header, payload: frame.Wi
             acting.record.send_window.add(payload.increment) catch {
                 // RFC 9113 §6.9.1: an increment that takes a stream's window above 2^31 - 1 is a
                 // stream error of FLOW_CONTROL_ERROR.
-                return try reset_stream(target, header.stream_id, constants.error_flow_control_error, now_ns);
+                return try reset_stream(target, header.stream_id, constants.protocol.error_flow_control_error, now_ns);
             };
             target.streams.transition(acting.record, acting.verdict, .receive, .window_update, false);
             connection_send_window.note_increment(target, payload.increment);
@@ -249,7 +249,7 @@ const test_input = &support.test_input;
 
 /// The octets of a RST_STREAM frame for `stream_id` carrying `code`. Test-only.
 fn expect_rst_stream(written: []const u8, stream_id: u32, code: u32) !void {
-    var expected: [constants.frame_header_len + constants.rst_stream_len]u8 = undefined;
+    var expected: [constants.protocol.frame_header_len + constants.protocol.rst_stream_len]u8 = undefined;
     var writer = @import("core").Writer.init(&expected);
     try frame.write_rst_stream(&writer, stream_id, code);
     try testing.expectEqualSlices(u8, writer.written(), written);
@@ -257,9 +257,9 @@ fn expect_rst_stream(written: []const u8, stream_id: u32, code: u32) !void {
 
 /// A frame of each type §5.1 forbids on an idle stream, with a payload it may carry. Test-only.
 const idle_forbidden = [_]struct { frame_type: u8, payload: []const u8 }{
-    .{ .frame_type = constants.frame_type_data, .payload = "test" },
-    .{ .frame_type = constants.frame_type_rst_stream, .payload = "\x00\x00\x00\x08" },
-    .{ .frame_type = constants.frame_type_window_update, .payload = "\x00\x00\x00\x64" },
+    .{ .frame_type = constants.protocol.frame_type_data, .payload = "test" },
+    .{ .frame_type = constants.protocol.frame_type_rst_stream, .payload = "\x00\x00\x00\x08" },
+    .{ .frame_type = constants.protocol.frame_type_window_update, .payload = "\x00\x00\x00\x64" },
 };
 
 test "http2/5.1/1, /2 and /3: DATA, RST_STREAM and WINDOW_UPDATE on an idle stream end the connection" {
@@ -267,14 +267,14 @@ test "http2/5.1/1, /2 and /3: DATA, RST_STREAM and WINDOW_UPDATE on an idle stre
         try start_server();
         const bytes = try frame_bytes(test_input, case.frame_type, 0, 1, case.payload);
         try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
-        try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
+        try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);
     }
 }
 
 test "RFC 9113 §6.8: DATA, RST_STREAM and WINDOW_UPDATE above a GOAWAY colibri sent are ignored" {
     for (idle_forbidden) |case| {
         try start_server();
-        test_connection.shutdown(constants.error_no_error);
+        test_connection.shutdown(constants.protocol.error_no_error);
         _ = write_queued();
         // The peer opened stream 1 before it read the GOAWAY, which names no stream: the HEADERS
         // is dropped, and what follows on the stream is ignored, not a connection error.
@@ -288,13 +288,13 @@ test "RFC 9113 §6.8: DATA, RST_STREAM and WINDOW_UPDATE above a GOAWAY colibri 
 test "RFC 9113 §5.1: after a GOAWAY, a frame on an idle stream colibri would open ends the connection" {
     for (idle_forbidden) |case| {
         try start_server();
-        test_connection.shutdown(constants.error_no_error);
+        test_connection.shutdown(constants.protocol.error_no_error);
         _ = write_queued();
         // Stream 2 has the server's parity. §6.8 lets a GOAWAY's sender ignore only streams the
         // peer initiated, so §5.1 still makes this frame on an idle stream a connection error.
         const bytes = try frame_bytes(test_input, case.frame_type, 0, 2, case.payload);
         try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
-        try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
+        try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);
     }
 }
 
@@ -302,32 +302,32 @@ test "http2/5.1.1/2: a HEADERS frame on an identifier below the watermark ends t
     try start_server();
     _ = try feed_request(5, "/", true);
     try testing.expectEqual(5, test_connection.streams.highest_peer_opened_id);
-    var block: [constants.frame_size_max]u8 = undefined;
+    var block: [constants.limits.frame_size_max]u8 = undefined;
     const fragment = try support.request_block(&block, "/");
-    const flags = constants.flag_end_headers | constants.flag_end_stream;
-    const bytes = try frame_bytes(test_input, constants.frame_type_headers, flags, 3, fragment);
+    const flags = constants.protocol.flag_end_headers | constants.protocol.flag_end_stream;
+    const bytes = try frame_bytes(test_input, constants.protocol.frame_type_headers, flags, 3, fragment);
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
-    try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);
 }
 
 test "http2/5.1/5 and /6: DATA or a second HEADERS after END_STREAM is a stream error of STREAM_CLOSED" {
     try start_server();
     _ = try feed_request(1, "/", true);
-    const data = try frame_bytes(test_input, constants.frame_type_data, 0, 1, "test");
+    const data = try frame_bytes(test_input, constants.protocol.frame_type_data, 0, 1, "test");
     const event = (try feed(data)).?;
     try testing.expectEqual(1, event.stream_refused.stream_id);
-    try testing.expectEqual(constants.error_stream_closed, event.stream_refused.error_code);
-    try expect_rst_stream(write_queued(), 1, constants.error_stream_closed);
+    try testing.expectEqual(constants.protocol.error_stream_closed, event.stream_refused.error_code);
+    try expect_rst_stream(write_queued(), 1, constants.protocol.error_stream_closed);
 }
 
 test "http2/6.4: a RST_STREAM the peer sends closes the stream and is reported" {
     try start_server();
     _ = try feed_request(1, "/", false);
     try testing.expectEqual(1, test_connection.streams.peer_active);
-    const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 1, "\x00\x00\x00\x08");
+    const reset = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, 1, "\x00\x00\x00\x08");
     const event = (try feed(reset)).?;
     try testing.expectEqual(1, event.stream_reset.stream_id);
-    try testing.expectEqual(constants.error_cancel, event.stream_reset.error_code);
+    try testing.expectEqual(constants.protocol.error_cancel, event.stream_reset.error_code);
     try testing.expectEqual(0, test_connection.streams.peer_active);
     try testing.expect(!test_connection.has_pending());
 }
@@ -335,27 +335,27 @@ test "http2/6.4: a RST_STREAM the peer sends closes the stream and is reported" 
 test "http2/6.9/2: a WINDOW_UPDATE of 0 on a stream is a stream error, and http2/6.9.1/3 overflow is one too" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
+    const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
     const refused = (try feed(zero)).?;
-    try testing.expectEqual(constants.error_protocol_error, refused.stream_refused.error_code);
-    try expect_rst_stream(write_queued(), 1, constants.error_protocol_error);
+    try testing.expectEqual(constants.protocol.error_protocol_error, refused.stream_refused.error_code);
+    try expect_rst_stream(write_queued(), 1, constants.protocol.error_protocol_error);
     try start_server();
     _ = try feed_request(3, "/", false);
     // The stream window starts at the initial value, so one maximal increment already passes it.
-    const large = try frame_bytes(test_input, constants.frame_type_window_update, 0, 3, "\x7f\xff\xff\xff");
+    const large = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 3, "\x7f\xff\xff\xff");
     const overflow = (try feed(large)).?;
-    try testing.expectEqual(constants.error_flow_control_error, overflow.stream_refused.error_code);
-    try expect_rst_stream(write_queued(), 3, constants.error_flow_control_error);
+    try testing.expectEqual(constants.protocol.error_flow_control_error, overflow.stream_refused.error_code);
+    try expect_rst_stream(write_queued(), 3, constants.protocol.error_flow_control_error);
 }
 
 test "generic/2/1: a PRIORITY frame on any stream is parsed and changes nothing (decision 18)" {
     try start_server();
-    const idle = try frame_bytes(test_input, constants.frame_type_priority, 0, 1, "\x00\x00\x00\x00\xff");
+    const idle = try frame_bytes(test_input, constants.protocol.frame_type_priority, 0, 1, "\x00\x00\x00\x00\xff");
     try testing.expectEqual(null, try feed(idle));
     try testing.expect(!test_connection.has_pending());
     try testing.expectEqual(0, test_connection.streams.len());
     _ = try feed_request(1, "/", false);
-    const open = try frame_bytes(test_input, constants.frame_type_priority, 0, 1, "\x00\x00\x00\x00\x07");
+    const open = try frame_bytes(test_input, constants.protocol.frame_type_priority, 0, 1, "\x00\x00\x00\x00\x07");
     try testing.expectEqual(null, try feed(open));
     try testing.expectEqual(1, test_connection.streams.peer_active);
 }
@@ -363,13 +363,13 @@ test "generic/2/1: a PRIORITY frame on any stream is parsed and changes nothing 
 test "the frames that follow a RST_STREAM colibri sent are discarded (§5.1)" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
+    const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
     _ = try feed(zero);
     _ = write_queued();
     // The stream is closed by colibri's reset, and the peer is still sending on it.
-    const data = try frame_bytes(test_input, constants.frame_type_data, 0, 1, "test");
+    const data = try frame_bytes(test_input, constants.protocol.frame_type_data, 0, 1, "test");
     try testing.expectEqual(null, try feed(data));
-    const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 1, "\x00\x00\x00\x08");
+    const reset = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, 1, "\x00\x00\x00\x08");
     try testing.expectEqual(null, try feed(reset));
     try testing.expect(!test_connection.has_pending());
 }
@@ -377,62 +377,62 @@ test "the frames that follow a RST_STREAM colibri sent are discarded (§5.1)" {
 test "§10.5: more than rst_stream_rate_max resets in one period ends the connection" {
     try start_server();
     var id: u32 = 1;
-    for (0..constants.rst_stream_rate_max) |_| {
+    for (0..constants.policy.rst_stream_rate_max) |_| {
         _ = try feed_request(id, "/", false);
-        const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
+        const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
         _ = try feed(zero);
         _ = write_queued();
-        id += constants.stream_id_step;
+        id += constants.protocol.stream_id_step;
     }
-    try testing.expectEqual(constants.rst_stream_rate_max, test_connection.rst_stream_sent);
+    try testing.expectEqual(constants.policy.rst_stream_rate_max, test_connection.rst_stream_sent);
     _ = try feed_request(id, "/", false);
-    const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
+    const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(zero, 0));
-    try testing.expectEqual(constants.error_enhance_your_calm, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_enhance_your_calm, test_connection.failure.?);
     try testing.expectEqual(.resets_sent, test_connection.failure_limit.?);
 }
 
 test "§10.5: a peer that resets more than peer_reset_rate_max of its streams in one period ends the connection" {
     try start_server();
     var id: u32 = 1;
-    for (0..constants.peer_reset_rate_max) |index| {
+    for (0..constants.policy.peer_reset_rate_max) |index| {
         // CVE-2023-44487 ends each request with END_STREAM before it resets the stream.
         _ = try feed_request(id, "/", index % 2 == 0);
-        const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+        const reset = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
         try testing.expectEqual(id, (try feed(reset)).?.stream_reset.stream_id);
-        id += constants.stream_id_step;
+        id += constants.protocol.stream_id_step;
     }
-    try testing.expectEqual(constants.peer_reset_rate_max, test_connection.peer_resets);
+    try testing.expectEqual(constants.policy.peer_reset_rate_max, test_connection.peer_resets);
     _ = try feed_request(id, "/", false);
-    const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+    const reset = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
     try testing.expectError(error.ConnectionFailed, test_connection.receive(reset, 0));
-    try testing.expectEqual(constants.error_enhance_your_calm, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_enhance_your_calm, test_connection.failure.?);
     try testing.expectEqual(.peer_resets, test_connection.failure_limit.?);
 }
 
 test "the peer's reset count starts again in the next period, and a reset of a closed stream is not counted" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    const first = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 1, "\x00\x00\x00\x08");
+    const first = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, 1, "\x00\x00\x00\x08");
     _ = try test_connection.receive(first, 0);
     try testing.expectEqual(1, test_connection.peer_resets);
     // RFC 9113 §5.1: a RST_STREAM on a stream already closed changes nothing.
     try testing.expectEqual(null, try feed(first));
     try testing.expectEqual(1, test_connection.peer_resets);
     _ = try feed_request(3, "/", false);
-    const second = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 3, "\x00\x00\x00\x08");
-    _ = try test_connection.receive(second, constants.peer_reset_rate_period_ns);
+    const second = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, 3, "\x00\x00\x00\x08");
+    _ = try test_connection.receive(second, constants.policy.peer_reset_rate_period_ns);
     try testing.expectEqual(1, test_connection.peer_resets);
-    try testing.expectEqual(constants.peer_reset_rate_period_ns, test_connection.peer_reset_period_start_ns);
+    try testing.expectEqual(constants.policy.peer_reset_rate_period_ns, test_connection.peer_reset_period_start_ns);
 }
 
 test "a server's resets of the streams a client opened are not counted" {
     try support.start_client();
     const request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
-    for (0..constants.peer_reset_rate_max + 1) |_| {
+    for (0..constants.policy.peer_reset_rate_max + 1) |_| {
         const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, true);
         // RFC 9113 §8.7: REFUSED_STREAM tells the client it may send the request again.
-        const refused = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, sent.stream_id, "\x00\x00\x00\x07");
+        const refused = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, sent.stream_id, "\x00\x00\x00\x07");
         _ = try feed(refused);
     }
     try testing.expectEqual(0, test_connection.peer_resets);
@@ -442,15 +442,15 @@ test "a server's resets of the streams a client opened are not counted" {
 test "the reset count starts again in the next period" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
+    const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
     _ = try test_connection.receive(zero, 0);
     try testing.expectEqual(1, test_connection.rst_stream_sent);
     _ = write_queued();
     _ = try feed_request(3, "/", false);
-    const other = try frame_bytes(test_input, constants.frame_type_window_update, 0, 3, "\x00\x00\x00\x00");
-    _ = try test_connection.receive(other, constants.rst_stream_rate_period_ns);
+    const other = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 3, "\x00\x00\x00\x00");
+    _ = try test_connection.receive(other, constants.policy.rst_stream_rate_period_ns);
     try testing.expectEqual(1, test_connection.rst_stream_sent);
-    try testing.expectEqual(constants.rst_stream_rate_period_ns, test_connection.rst_stream_period_start_ns);
+    try testing.expectEqual(constants.policy.rst_stream_rate_period_ns, test_connection.rst_stream_period_start_ns);
 }
 
 test "§10.5: a connection ends past the reset limits set after init, and not before" {
@@ -459,14 +459,14 @@ test "§10.5: a connection ends past the reset limits set after init, and not be
     var id: u32 = 1;
     for (0..test_connection.resets_sent_max) |_| {
         _ = try feed_request(id, "/", false);
-        const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
+        const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
         _ = try feed(zero);
         _ = write_queued();
-        id += constants.stream_id_step;
+        id += constants.protocol.stream_id_step;
     }
     try testing.expect(!test_connection.has_failed());
     _ = try feed_request(id, "/", false);
-    const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
+    const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
     try testing.expectError(error.ConnectionFailed, test_connection.receive(zero, 0));
     try testing.expectEqual(.resets_sent, test_connection.failure_limit.?);
 
@@ -475,13 +475,13 @@ test "§10.5: a connection ends past the reset limits set after init, and not be
     id = 1;
     for (0..test_connection.peer_resets_max) |_| {
         _ = try feed_request(id, "/", false);
-        const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+        const reset = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
         _ = try feed(reset);
-        id += constants.stream_id_step;
+        id += constants.protocol.stream_id_step;
     }
     try testing.expect(!test_connection.has_failed());
     _ = try feed_request(id, "/", false);
-    const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+    const reset = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
     try testing.expectError(error.ConnectionFailed, test_connection.receive(reset, 0));
     try testing.expectEqual(.peer_resets, test_connection.failure_limit.?);
 }

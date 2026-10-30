@@ -37,7 +37,7 @@ pub const Fake = struct {
         return written;
     }
     fn alpn(_: *const anyopaque) ?[]const u8 {
-        return &tls_provider.constants.alpn_h3;
+        return &tls_provider.constants.protocol.alpn_h3;
     }
     fn complete(context: *const anyopaque) bool {
         const self: *const Fake = @ptrCast(@alignCast(context));

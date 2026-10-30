@@ -15,7 +15,7 @@ const endpoint = &support.endpoint;
 const ok: u16 = 200;
 const word: usize = 0x3a7e;
 /// More content than a connection's output holds.
-const long_content: [server_constants.output_len + 1]u8 = @splat('c');
+const long_content: [server_constants.limits.output_len + 1]u8 = @splat('c');
 
 test "decision 119: h11 content past the output is writable once send_stream empties it" {
     try support.start(null, .{});
@@ -39,7 +39,7 @@ test "decision 119: h11 content past the output is writable once send_stream emp
 /// The client preface with a SETTINGS frame whose SETTINGS_INITIAL_WINDOW_SIZE (0x4) is
 /// `small_window` (RFC 9113 §6.5.2), then the acknowledgment of the server's SETTINGS.
 const small_window: u32 = 100;
-const preface_small_window = h2.constants.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
+const preface_small_window = h2.constants.protocol.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
     "\x00\x04\x00\x00\x00\x64" ++ h2_support.settings_ack;
 
 test "RFC 9113 §6.9.1: h2 content a stream's window holds is writable once a WINDOW_UPDATE opens it" {
@@ -56,9 +56,9 @@ test "RFC 9113 §6.9.1: h2 content a stream's window holds is writable once a WI
     support.collect();
     try testing.expectEqual(null, support.nth(.writable, 0));
     // A PING is a read that opens no window: the stream still takes nothing (RFC 9113 §6.7).
-    _ = support.give(handle, "\x00\x00\x08\x06\x00\x00\x00\x00\x00" ++ "\x00" ** h2.constants.ping_len);
+    _ = support.give(handle, "\x00\x00\x08\x06\x00\x00\x00\x00\x00" ++ "\x00" ** h2.constants.protocol.ping_len);
     try testing.expectEqual(null, support.nth(.writable, 0));
-    var update: [h2.constants.frame_header_len + h2.constants.window_update_len]u8 = undefined;
+    var update: [h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 = undefined;
     var writer = h2.core.Writer.init(&update);
     try h2.frame.write_window_update(&writer, 1, small_window * 4);
     _ = support.give(handle, &update);
@@ -69,7 +69,7 @@ test "RFC 9113 §6.9.1: h2 content a stream's window holds is writable once a WI
 
 /// The client preface with a SETTINGS_INITIAL_WINDOW_SIZE of 0, so a stream's window opens only by
 /// WINDOW_UPDATE (RFC 9113 §6.9.2), then the acknowledgment of the server's SETTINGS.
-const preface_no_window = h2.constants.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
+const preface_no_window = h2.constants.protocol.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
     "\x00\x04\x00\x00\x00\x00" ++ h2_support.settings_ack;
 
 /// The seconds the peer below opens its window for at most: past decision 110's default grace
@@ -87,7 +87,7 @@ fn expect_cut_at_send_rate(writes_first: bool) !void {
     _ = support.give(handle, try h2_support.request_frame(1, "/", true));
     const id = support.id_of(handle, 1);
     try endpoint.respond(id, .{ .status = ok, .end = false });
-    var update: [h2.constants.frame_header_len + h2.constants.window_update_len]u8 = undefined;
+    var update: [h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len]u8 = undefined;
     var writer = h2.core.Writer.init(&update);
     try h2.frame.write_window_update(&writer, 1, 1);
     var taken: usize = 0;

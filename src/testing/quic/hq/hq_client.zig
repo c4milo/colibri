@@ -23,7 +23,7 @@ pub const Error = quic.connection_stream_send.Error || quic.connection_stream_re
 
 /// Reads one stream may take in one step: enough to empty the receive pool, which bounds what the
 /// server can have sent ahead of the client's reads (decision 61).
-const reads_per_step_max = quic.constants.receive_pool_len_default / constants.hq_read_len + 1;
+const reads_per_step_max = quic.constants.limits.receive_pool_len_default / constants.hq_read_len + 1;
 
 pub const Client = struct {
     downloads: []const u8,

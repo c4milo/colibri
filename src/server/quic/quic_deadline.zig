@@ -159,7 +159,7 @@ fn fire_heads(connection: *QuicConnection, now_ns: u64) void {
     // Decision 110 as amended: no head is late while colibri holds credit its client needs.
     if (connection.clock.credit_held_since_ns != null) return;
     // Bounded: each pass stops reading one stream, and h3 holds `request_streams_max` of them.
-    for (0..h3.constants.request_streams_max) |_| {
+    for (0..h3.constants.limits.request_streams_max) |_| {
         const wait = head_wait(connection) orelse return;
         if (!is_past(wait.since_ns, connection.timeouts.head_ns, now_ns)) return;
         refuse_head(connection, wait.stream_id);
@@ -173,7 +173,7 @@ fn fire_heads(connection: *QuicConnection, now_ns: u64) void {
 fn overload(connection: *QuicConnection, passed: Timeout) void {
     assert(running(connection));
     connection.clock.timed_out = passed;
-    const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
+    const failed = connection.h3.fail(&connection.transport, h3.constants.protocol.error_excessive_load);
     assert(failed == error.ConnectionFailed);
     internal.fail(connection);
 }
@@ -280,5 +280,5 @@ fn refuse_head(connection: *QuicConnection, stream_id: u64) void {
 /// RFC 9114 §4.1.1: a request the server cancels "without performing any application processing"
 /// is rejected, with H3_REQUEST_REJECTED. It is what a late head gets when no response fits.
 fn reject(connection: *QuicConnection, stream_id: u64) void {
-    connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_rejected);
+    connection.h3.cancel(&connection.transport, stream_id, h3.constants.protocol.error_request_rejected);
 }

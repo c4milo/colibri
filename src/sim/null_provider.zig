@@ -38,11 +38,11 @@ pub const NullProvider = struct {
     /// Flights the peer still owes, counted down as `handshake_read` consumes them.
     flights_expected: u8 = 0,
     /// What `negotiated_alpn` reports. Null reports no selection at all.
-    alpn: ?[]const u8 = &tls_provider.constants.alpn_h2,
+    alpn: ?[]const u8 = &tls_provider.constants.protocol.alpn_h2,
     /// What `negotiated_parameters` reports.
     parameters: ?tls_provider.Negotiated = .{
-        .version = tls_provider.constants.version_tls_1_3,
-        .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256,
+        .version = tls_provider.constants.protocol.version_tls_1_3,
+        .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256,
     },
     /// The alert held for the next `take_alert`, which the call clears (RFC 9846 §6).
     alert_held: ?tls_provider.AlertReport = null,
@@ -108,7 +108,7 @@ pub const NullProvider = struct {
     fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls_provider.provider.SealError!tls_provider.provider.Sealed {
         _ = context;
         // RFC 9846 §5.1: one record carries at most 2^14 octets of plaintext.
-        const body_len = @min(plaintext.len, tls_provider.constants.record_plaintext_len_max);
+        const body_len = @min(plaintext.len, tls_provider.constants.protocol.record_plaintext_len_max);
         const written = write_record(output, .application_data, plaintext[0..body_len]) catch
             return error.NoSpaceLeft;
         return .{ .consumed = body_len, .written = written };
@@ -168,9 +168,9 @@ pub const NullProvider = struct {
         output: []u8,
     ) tls_provider.provider.KeyUpdateError!usize {
         const self = of(context);
-        assert(self.key_updates_sent <= tls_provider.constants.key_updates_max);
+        assert(self.key_updates_sent <= tls_provider.constants.protocol.key_updates_max);
         // RFC 9846 §4.7.3: a sender MUST NOT let its count of key updates exceed 2^48-1.
-        if (self.key_updates_sent == tls_provider.constants.key_updates_max) return error.EpochExhausted;
+        if (self.key_updates_sent == tls_provider.constants.protocol.key_updates_max) return error.EpochExhausted;
         // RFC 9846 §4.7.3: the KeyUpdate message carries the request as its one octet.
         const body = [_]u8{ @intFromEnum(HandshakeType.key_update), @intFromEnum(request) };
         const written = write_record(output, .handshake, &body) catch return error.NoSpaceLeft;
@@ -195,7 +195,7 @@ pub const NullProvider = struct {
 };
 
 /// The ContentType, the legacy version and the length (RFC 9846 §5.1).
-const header_len: usize = tls_provider.constants.record_header_len;
+const header_len: usize = tls_provider.constants.protocol.record_header_len;
 
 /// What `read_record` found.
 const Record = struct {
@@ -232,7 +232,7 @@ fn read_record(input: []const u8) ?Record {
 fn write_record(output: []u8, content: ContentType, body: []const u8) error{NoSpaceLeft}!usize {
     const declared = body.len + constants.record_tag_len;
     const total = header_len + declared;
-    if (output.len < total or declared > tls_provider.constants.record_ciphertext_len_max) return error.NoSpaceLeft;
+    if (output.len < total or declared > tls_provider.constants.protocol.record_ciphertext_len_max) return error.NoSpaceLeft;
     output[constants.record_content_type_offset] = @intFromEnum(content);
     // RFC 9846 §5.1: legacy_record_version is 0x0303 on every record after the first flight.
     output[constants.record_version_offset] = constants.record_legacy_version_octet;
@@ -346,7 +346,7 @@ test "the handshake completes after the scripted flights, and nothing is negotia
     try testing.expect(view.is_complete());
     try testing.expect(view.speaks_h2());
     try testing.expectEqual(
-        tls_provider.constants.version_tls_1_3,
+        tls_provider.constants.protocol.version_tls_1_3,
         view.vtable.negotiated_parameters(view.context).?.version,
     );
 }
@@ -380,18 +380,18 @@ test "the exporter is the member a provider without one refuses" {
 
 test "§4.7.3: the last key update is written, and the one past the cap is refused" {
     NullProvider.install();
-    var endpoint: NullProvider = .{ .key_updates_sent = tls_provider.constants.key_updates_max - 1 };
+    var endpoint: NullProvider = .{ .key_updates_sent = tls_provider.constants.protocol.key_updates_max - 1 };
     const view = endpoint.provider();
-    var output: [tls_provider.constants.record_write_len_min]u8 = undefined;
+    var output: [tls_provider.constants.protocol.record_write_len_min]u8 = undefined;
     const written = try view.vtable.initiate_key_update(view.context, .update_not_requested, &output);
     try testing.expect(written > 0);
-    try testing.expectEqual(tls_provider.constants.key_updates_max, endpoint.key_updates_sent);
+    try testing.expectEqual(tls_provider.constants.protocol.key_updates_max, endpoint.key_updates_sent);
     try testing.expectError(
         error.EpochExhausted,
         view.vtable.initiate_key_update(view.context, .update_requested, &output),
     );
     // The refusal leaves the count and the connection as they were: records still go out.
-    try testing.expectEqual(tls_provider.constants.key_updates_max, endpoint.key_updates_sent);
+    try testing.expectEqual(tls_provider.constants.protocol.key_updates_max, endpoint.key_updates_sent);
     const sealed = try view.vtable.encrypt_record(view.context, "after", &output);
     try testing.expectEqual("after".len, sealed.consumed);
 }

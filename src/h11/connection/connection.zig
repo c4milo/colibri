@@ -159,7 +159,7 @@ pub const Connection = struct {
     answered: bool,
     responded: bool,
     /// A client: the requests sent with no final response, oldest first, in a ring.
-    outstanding: [constants.pipeline_depth_max]Outstanding,
+    outstanding: [constants.limits.pipeline_depth_max]Outstanding,
     outstanding_first: u32,
     outstanding_len: u32,
     retrying: bool,
@@ -168,7 +168,7 @@ pub const Connection = struct {
     /// The TLS provider the connection runs over, or null in cleartext.
     provider: ?tls_provider.Provider,
     /// Records in a row that carried no application data. The peer chooses how many it sends, so
-    /// the run is bounded (`core.constants.records_without_data_max`).
+    /// the run is bounded (`core.constants.limits.records_without_data_max`).
     records_without_data: u32,
     /// Whether the provider may owe the alert of a failure (RFC 9846 §6), which
     /// `connection_tls.encrypt` writes once. The answer to a KeyUpdate is the provider's (RFC 9846

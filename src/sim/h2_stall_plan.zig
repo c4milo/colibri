@@ -25,7 +25,7 @@ pub const Shape = enum { random, aligned };
 pub const Order = enum { owed_first, mixed, frames_first };
 
 /// Octets of an aligned body's first part: one short of h2's WINDOW_UPDATE threshold.
-pub const aligned_first_len: u32 = h2.constants.window_update_threshold - 1;
+pub const aligned_first_len: u32 = h2.constants.policy.window_update_threshold - 1;
 
 pub const Plan = struct {
     shape: Shape,
@@ -99,8 +99,8 @@ pub const Plan = struct {
         plan.chunk_len = @intCast(random.between(1, limits.aligned_chunk_len_max));
         // Each second part is at least one octet, which owes the receiver its WINDOW_UPDATE.
         for (0..plan.streams) |index| {
-            plan.request_len[index] = aligned_first_len + @as(u32, @intCast(random.between(1, h2.constants.window_update_threshold)));
-            plan.response_len[index] = aligned_first_len + @as(u32, @intCast(random.between(1, h2.constants.window_update_threshold)));
+            plan.request_len[index] = aligned_first_len + @as(u32, @intCast(random.between(1, h2.constants.policy.window_update_threshold)));
+            plan.response_len[index] = aligned_first_len + @as(u32, @intCast(random.between(1, h2.constants.policy.window_update_threshold)));
         }
     }
 };
@@ -108,10 +108,10 @@ pub const Plan = struct {
 comptime {
     // An aligned seed opens more streams than the reply queue holds, and every seed's streams fit
     // what a colibri server advertises as SETTINGS_MAX_CONCURRENT_STREAMS (RFC 9113 §5.1.2).
-    assert(limits.aligned_streams_min > h2.constants.stream_replies_max);
-    assert(limits.streams_max <= h2.constants.concurrent_streams_max);
+    assert(limits.aligned_streams_min > h2.constants.limits.stream_replies_max);
+    assert(limits.streams_max <= h2.constants.limits.concurrent_streams_max);
     // A chunk fits one frame colibri sends (RFC 9113 §4.2).
-    assert(limits.chunk_len_max <= h2.constants.frame_size_max);
+    assert(limits.chunk_len_max <= h2.constants.limits.frame_size_max);
 }
 
 const testing = std.testing;
@@ -129,7 +129,7 @@ test "an aligned plan opens more streams than the reply queue holds, each body o
         switch (plan.shape) {
             .aligned => {
                 aligned_seen = true;
-                try testing.expect(plan.streams > h2.constants.stream_replies_max);
+                try testing.expect(plan.streams > h2.constants.limits.stream_replies_max);
                 for (0..plan.streams) |index| try testing.expect(plan.request_len[index] > aligned_first_len);
             },
             .random => random_seen = true,

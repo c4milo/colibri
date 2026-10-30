@@ -300,7 +300,7 @@ test "RFC 9846 §4.1.2: the ClientHello goes out on the first send, before any r
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null, .{});
     support.to_peer_len = 0;
     support.client_send();
-    try testing.expect(support.to_peer_len > tls_provider.constants.record_header_len);
+    try testing.expect(support.to_peer_len > tls_provider.constants.protocol.record_header_len);
     try testing.expectEqual(content_handshake, support.to_peer[0]);
     connection.transport_closed();
     _ = h11;

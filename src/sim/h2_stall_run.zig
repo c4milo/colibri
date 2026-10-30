@@ -426,12 +426,12 @@ fn note_data(messages: *Messages, data: h2.connection.Data, plan: *const Plan) E
 /// RFC 9113 §5.1.1: the client's `index`th stream, counting from 0, has the odd identifier `2 *
 /// index + 1`.
 fn stream_id_of(index: usize) u32 {
-    return h2.constants.stream_id_client_first + h2.constants.stream_id_step * @as(u32, @intCast(index));
+    return h2.constants.protocol.stream_id_client_first + h2.constants.protocol.stream_id_step * @as(u32, @intCast(index));
 }
 
 fn index_of(stream_id: u32, plan: *const Plan) Error!usize {
-    if (stream_id % h2.constants.stream_id_step != h2.constants.stream_id_client_first) return error.EventUnexpected;
-    const index = (stream_id - h2.constants.stream_id_client_first) / h2.constants.stream_id_step;
+    if (stream_id % h2.constants.protocol.stream_id_step != h2.constants.protocol.stream_id_client_first) return error.EventUnexpected;
+    const index = (stream_id - h2.constants.protocol.stream_id_client_first) / h2.constants.protocol.stream_id_step;
     if (index >= plan.streams) return error.EventUnexpected;
     return index;
 }

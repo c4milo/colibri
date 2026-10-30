@@ -51,9 +51,9 @@ pub const Error = representation.Error || http.field_section.AppendError || erro
 /// What RFC 9204 §6 has HTTP/3 send for an error from here.
 pub fn error_code(failure: Error) u64 {
     return switch (failure) {
-        error.EncoderStreamError => constants.error_encoder_stream,
+        error.EncoderStreamError => constants.protocol.error_encoder_stream,
         // Everything else is a failure to interpret one field section.
-        else => constants.error_decompression_failed,
+        else => constants.protocol.error_decompression_failed,
     };
 }
 
@@ -100,20 +100,20 @@ pub const Decoder = struct {
     settings: Settings,
     table: dynamic_table.DynamicTable,
     /// The streams whose section waits for entries (RFC 9204 §2.2.1), in the order they blocked.
-    blocked: [constants.blocked_streams_max]Section,
+    blocked: [constants.limits.blocked_streams_max]Section,
     blocked_len: usize,
     /// The instructions owed, oldest first.
-    owed: [constants.decoder_instructions_owed_max]Owed,
+    owed: [constants.limits.decoder_instructions_owed_max]Owed,
     owed_len: usize,
     /// RFC 9204 §2.1.4's Known Received Count, as the encoder holds it once every instruction
     /// written so far has arrived.
     known_received: u64,
     /// Where an encoder instruction's strings are decoded before the table copies them.
-    scratch: [constants.encoder_instruction_len_max]u8,
+    scratch: [constants.limits.encoder_instruction_len_max]u8,
 
     pub fn init(decoder: *Decoder, settings: Settings) void {
-        assert(settings.max_table_capacity <= constants.dynamic_table_capacity_max);
-        assert(settings.blocked_streams <= constants.blocked_streams_max);
+        assert(settings.max_table_capacity <= constants.limits.dynamic_table_capacity_max);
+        assert(settings.blocked_streams <= constants.limits.blocked_streams_max);
         decoder.settings = settings;
         decoder.table.init(settings.max_table_capacity);
         decoder.blocked_len = 0;
@@ -313,7 +313,7 @@ const Resolved = struct {
 fn static_line(index: u64, literal_value: ?[]const u8) Error!Resolved {
     // RFC 9204 §3.1: an invalid static table index in a field line representation is
     // QPACK_DECOMPRESSION_FAILED.
-    if (index >= constants.static_table_entries) return Error.DecompressionFailed;
+    if (index >= constants.protocol.static_table_entries) return Error.DecompressionFailed;
     const entry = static_table.entries[@intCast(index)];
     return .{ .name = entry.name, .value = literal_value orelse entry.value };
 }
@@ -321,8 +321,8 @@ fn static_line(index: u64, literal_value: ?[]const u8) Error!Resolved {
 fn append(section: *FieldSection, name: []const u8, value: []const u8) Error!void {
     // RFC 9204 §7.4: a value larger than the decoder is able to decode is a stream error of
     // QPACK_DECOMPRESSION_FAILED.
-    if (name.len > core.constants.field_name_len_max) return Error.FieldTooLong;
-    if (value.len > core.constants.field_value_len_max) return Error.FieldTooLong;
+    if (name.len > core.constants.limits.field_name_len_max) return Error.FieldTooLong;
+    if (value.len > core.constants.limits.field_value_len_max) return Error.FieldTooLong;
     try section.append(name, value);
 }
 

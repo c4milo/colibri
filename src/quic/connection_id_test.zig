@@ -26,15 +26,15 @@ const issued_each = [_][]const u8{ &issued_a, &issued_b, &issued_c };
 var test_local: Local align(@alignOf(Local)) = undefined;
 /// The Stateless Reset Token every connection ID after the first carries in these tests.
 const test_token_octet: u8 = 0x7e;
-const test_token: [constants.stateless_reset_token_len]u8 = @splat(test_token_octet);
+const test_token: [constants.protocol.stateless_reset_token_len]u8 = @splat(test_token_octet);
 /// A limit a test measures against, at the floor RFC 9000 §18.2 puts under it. Test-only.
-const test_limit = constants.active_connection_id_limit_min;
+const test_limit = constants.protocol.active_connection_id_limit_min;
 
 /// Octets of the connection IDs the tests use. Test-only.
 const test_connection_id_len = 4;
 
 /// The sequence numbers retirements are owed or outstanding for, in order. Test-only.
-fn retiring_numbers(out: *[constants.connection_ids_max]u64) []u64 {
+fn retiring_numbers(out: *[constants.limits.connection_ids_max]u64) []u64 {
     const held = test_remote.retirements();
     for (held, 0..) |retirement, index| out[index] = retirement.sequence_number;
     return out[0..held.len];
@@ -87,7 +87,7 @@ test "§5.1.2: the ones below Retire Prior To go before the new one arrives" {
     try testing.expectEqual(1, test_remote.active_len());
     try testing.expectEqual(3, test_remote.active().?.sequence_number);
     // RFC 9000 §5.1.2: the retired ones are named in RETIRE_CONNECTION_ID frames, owed now.
-    var numbers: [constants.connection_ids_max]u64 = undefined;
+    var numbers: [constants.limits.connection_ids_max]u64 = undefined;
     try testing.expectEqualSlices(u64, &.{ 1, 2 }, retiring_numbers(&numbers));
     for (test_remote.retirements()) |retirement| try testing.expect(retirement.frame.owed);
     // RFC 9000 §19.15: one below the mark arriving late is retired rather than added back, and
@@ -111,7 +111,7 @@ test "§5.1.2: Retire Prior To retires below itself and keeps the one at it" {
     try test_remote.offer(entry_of(3, 0xa3), 2, test_limit);
     try testing.expectEqual(2, test_remote.active_len());
     try testing.expectEqual(2, test_remote.active().?.sequence_number);
-    var numbers: [constants.connection_ids_max]u64 = undefined;
+    var numbers: [constants.limits.connection_ids_max]u64 = undefined;
     try testing.expectEqualSlices(u64, &.{1}, retiring_numbers(&numbers));
 }
 
@@ -133,20 +133,20 @@ test "§5.1.2: a Retire Prior To above 0 retires the handshake's connection ID" 
     // corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames".
     try testing.expectEqual(1, test_remote.active_len());
     try testing.expectEqual(1, test_remote.active().?.sequence_number);
-    var numbers: [constants.connection_ids_max]u64 = undefined;
+    var numbers: [constants.limits.connection_ids_max]u64 = undefined;
     try testing.expectEqualSlices(u64, &.{0}, retiring_numbers(&numbers));
 }
 
 test "§5.1.2: a retirement past the queue closes the connection rather than being forgotten" {
     test_remote.init(false);
-    const limit: u64 = constants.connection_ids_max;
+    const limit: u64 = constants.limits.connection_ids_max;
     test_remote.hold_initial(&issued_a);
-    for (1..constants.connection_ids_max) |sequence_number| {
+    for (1..constants.limits.connection_ids_max) |sequence_number| {
         try test_remote.offer(entry_of(sequence_number, @intCast(sequence_number)), 0, limit);
     }
     // Retiring every one at once fills the queue of retirements awaiting acknowledgment.
     try test_remote.offer(entry_of(limit, 0xf0), limit, limit);
-    try testing.expectEqual(constants.connection_ids_max, test_remote.retirements().len);
+    try testing.expectEqual(constants.limits.connection_ids_max, test_remote.retirements().len);
     // "An endpoint MUST NOT forget a connection ID without retiring it, though it MAY choose to
     // treat having connection IDs in need of retirement that exceed this limit as a connection
     // error of type CONNECTION_ID_LIMIT_ERROR."

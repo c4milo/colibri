@@ -32,14 +32,14 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 
-pub const Token = [constants.stateless_reset_token_len]u8;
+pub const Token = [constants.protocol.stateless_reset_token_len]u8;
 
 /// The tokens a datagram is compared against (RFC 9000 §10.3.1). It is not every token the peer
 /// issued: §10.3.1 says an endpoint MUST NOT check tokens of connection IDs it has not used or
 /// that have been retired, so a token enters this set when its connection ID is first sent to
 /// and leaves when the ID is retired.
 pub const Tokens = struct {
-    held: [constants.connection_ids_max]Token,
+    held: [constants.limits.connection_ids_max]Token,
     len: usize,
 
     pub fn init(tokens: *Tokens) void {
@@ -82,8 +82,8 @@ pub const Tokens = struct {
     /// depends on how many tokens are held and not on which octets matched. §10.3.1 asks for
     /// that, and adds that an endpoint is not expected to hide the number of tokens it holds.
     pub fn matches(tokens: *const Tokens, datagram: []const u8) bool {
-        if (datagram.len < constants.stateless_reset_token_len) return false;
-        const trailing = datagram[datagram.len - constants.stateless_reset_token_len ..];
+        if (datagram.len < constants.protocol.stateless_reset_token_len) return false;
+        const trailing = datagram[datagram.len - constants.protocol.stateless_reset_token_len ..];
         var found = false;
         for (tokens.held[0..tokens.len]) |held| {
             found = equal_in_constant_time(&held, trailing) or found;
@@ -94,7 +94,7 @@ pub const Tokens = struct {
 
 /// Whether two tokens are equal, reading every octet whatever they hold (RFC 9000 §10.3.1).
 fn equal_in_constant_time(held: *const Token, trailing: []const u8) bool {
-    assert(trailing.len == constants.stateless_reset_token_len);
+    assert(trailing.len == constants.protocol.stateless_reset_token_len);
     var differences: u8 = 0;
     for (held, trailing) |left, right| differences |= left ^ right;
     return differences == 0;
@@ -143,18 +143,18 @@ pub const Answer = union(enum) {
 pub fn write(triggered_by_len: usize, unpredictable: []const u8, token: Token, output: []u8) Answer {
     const permitted = permitted_len(triggered_by_len) orelse
         return .{ .refused = .triggered_by_too_small };
-    const offered = unpredictable.len +| constants.stateless_reset_token_len;
+    const offered = unpredictable.len +| constants.protocol.stateless_reset_token_len;
     const len = @min(permitted.max, @min(output.len, offered));
     if (len < permitted.min) return .{ .refused = .too_short };
-    const bits_len = len - constants.stateless_reset_token_len;
+    const bits_len = len - constants.protocol.stateless_reset_token_len;
     @memcpy(output[0..bits_len], unpredictable[0..bits_len]);
     // §10.3's Figure 10: "Fixed Bits (2) = 1". Those two are RFC 8999 §5.1's Header Form and
     // RFC 9000 §17.2's Fixed Bit, so a Stateless Reset "will appear to be a packet with a short
     // header" to every entity but its intended recipient.
-    output[0] = (output[0] & ~header_bits) | constants.fixed_bit;
+    output[0] = (output[0] & ~header_bits) | constants.protocol.fixed_bit;
     // §10.3: "The last 16 bytes of the datagram contain a stateless reset token."
     @memcpy(output[bits_len..len], &token);
-    assert(output[0] & header_bits == constants.fixed_bit);
+    assert(output[0] & header_bits == constants.protocol.fixed_bit);
     // §10.3.3 and §10.3 again, as the two bounds `permitted_len` computed.
     assert(len < triggered_by_len);
     return .{ .written = len };
@@ -162,15 +162,15 @@ pub fn write(triggered_by_len: usize, unpredictable: []const u8, token: Token, o
 
 /// The two bits RFC 9000 §10.3's Figure 10 fixes, which every other bit of byte 0 is the
 /// caller's.
-const header_bits: u8 = constants.header_form_bit | constants.fixed_bit;
+const header_bits: u8 = constants.protocol.header_form_bit | constants.protocol.fixed_bit;
 
 pub fn permitted_len(triggered_by_len: usize) ?PermittedLen {
-    const min = constants.stateless_reset_len_min;
+    const min = constants.protocol.stateless_reset_len_min;
     // RFC 9000 §10.3.3: smaller than what triggered it, so `triggered_by_len` itself is out.
     if (triggered_by_len <= min) return null;
     // RFC 9000 §10.3: and never three times or more what it answers, so a datagram that cannot
     // be associated with a connection cannot be used for amplification either.
-    const amplification_max = triggered_by_len *| constants.stateless_reset_amplification_factor;
+    const amplification_max = triggered_by_len *| constants.protocol.stateless_reset_amplification_factor;
     return .{ .min = min, .max = @min(triggered_by_len - 1, amplification_max -| 1) };
 }
 
@@ -198,14 +198,14 @@ test "§10.3.1: a datagram ending in a held token is a Stateless Reset" {
     try testing.expect(test_tokens.matches(&token_a));
     try testing.expect(!test_tokens.matches(&token_c));
     // A datagram that begins with a token but does not end with one is not a reset.
-    const trailing_other = token_a ++ [_]u8{0x00} ** constants.stateless_reset_token_len;
+    const trailing_other = token_a ++ [_]u8{0x00} ** constants.protocol.stateless_reset_token_len;
     try testing.expect(!test_tokens.matches(&trailing_other));
 }
 
 test "§10.3.1: a datagram too short to hold a token is not one" {
     test_tokens.init();
     test_tokens.use(token_a);
-    for (0..constants.stateless_reset_token_len) |len| {
+    for (0..constants.protocol.stateless_reset_token_len) |len| {
         try testing.expect(!test_tokens.matches(token_a[0..len]));
     }
     try testing.expect(test_tokens.matches(&token_a));
@@ -256,16 +256,16 @@ test "§10.3.1: every held token is compared, so the time does not follow the ma
 
 test "§10.3.3: a Stateless Reset is smaller than what triggered it" {
     // RFC 9000 §10.3.3: smaller than the packet that triggered it, so a loop dies out.
-    const answering = permitted_len(constants.stateless_reset_len_min + 10).?;
-    try testing.expectEqual(constants.stateless_reset_len_min, answering.min);
-    try testing.expectEqual(constants.stateless_reset_len_min + 9, answering.max);
-    try testing.expect(answering.max < constants.stateless_reset_len_min + 10);
+    const answering = permitted_len(constants.protocol.stateless_reset_len_min + 10).?;
+    try testing.expectEqual(constants.protocol.stateless_reset_len_min, answering.min);
+    try testing.expectEqual(constants.protocol.stateless_reset_len_min + 9, answering.max);
+    try testing.expect(answering.max < constants.protocol.stateless_reset_len_min + 10);
     // A packet at or below the smallest reset leaves no room for one, which is how the loop
     // ends rather than continuing with ever smaller datagrams.
-    try testing.expectEqual(null, permitted_len(constants.stateless_reset_len_min));
+    try testing.expectEqual(null, permitted_len(constants.protocol.stateless_reset_len_min));
     try testing.expectEqual(null, permitted_len(0));
     // One octet above it admits exactly the smallest.
-    const tightest = permitted_len(constants.stateless_reset_len_min + 1).?;
+    const tightest = permitted_len(constants.protocol.stateless_reset_len_min + 1).?;
     try testing.expectEqual(tightest.min, tightest.max);
 }
 
@@ -287,7 +287,7 @@ test "§10.3: a Stateless Reset is a short header, unpredictable bits and the to
     try testing.expectEqual(triggering_len - 1, len);
     // Figure 10's "Fixed Bits (2) = 1": Header Form 0 and Fixed Bit 1, so it reads as a 1-RTT
     // packet to anything but its recipient.
-    try testing.expectEqual(constants.fixed_bit, reset_output[0] & header_bits);
+    try testing.expectEqual(constants.protocol.fixed_bit, reset_output[0] & header_bits);
     // The remainder of byte 0 is the caller's octets, untouched.
     try testing.expectEqual(bits_octet & ~header_bits, reset_output[0] & ~header_bits);
     // §10.3: "The last 16 bytes of the datagram contain a stateless reset token."
@@ -306,28 +306,28 @@ test "§10.3.3: the answer is bounded by what triggered it, and by what the call
     // loop ends there.
     try testing.expectEqual(
         Refused.triggered_by_too_small,
-        write(constants.stateless_reset_len_min, &bits_plenty, token_a, &reset_output).refused,
+        write(constants.protocol.stateless_reset_len_min, &bits_plenty, token_a, &reset_output).refused,
     );
     // One octet above it admits exactly the shortest Stateless Reset.
-    const tightest = write(constants.stateless_reset_len_min + 1, &bits_plenty, token_a, &reset_output);
-    try testing.expectEqual(constants.stateless_reset_len_min, tightest.written);
+    const tightest = write(constants.protocol.stateless_reset_len_min + 1, &bits_plenty, token_a, &reset_output);
+    try testing.expectEqual(constants.protocol.stateless_reset_len_min, tightest.written);
 
     // How many unpredictable octets the caller offered is what chooses the size under that bound.
     const offered_len: usize = 8;
     const shorter = write(triggering_len, bits_plenty[0..offered_len], token_a, &reset_output);
-    try testing.expectEqual(offered_len + constants.stateless_reset_token_len, shorter.written);
+    try testing.expectEqual(offered_len + constants.protocol.stateless_reset_token_len, shorter.written);
 }
 
 test "§10.3: a Stateless Reset that will not fit is not written" {
     // Fewer unpredictable octets than §10.3's shape needs. "the Unpredictable Bits field needs to
     // include at least 38 bits of data (or 5 bytes, less the two fixed bits)."
-    const bits_short = bits_plenty[0 .. constants.stateless_reset_unpredictable_len_min - 1];
+    const bits_short = bits_plenty[0 .. constants.protocol.stateless_reset_unpredictable_len_min - 1];
     try testing.expectEqual(
         Refused.too_short,
         write(triggering_len, bits_short, token_a, &reset_output).refused,
     );
     // And an output that cannot hold the shortest one.
-    var small: [constants.stateless_reset_len_min - 1]u8 = undefined;
+    var small: [constants.protocol.stateless_reset_len_min - 1]u8 = undefined;
     try testing.expectEqual(
         Refused.too_short,
         write(triggering_len, &bits_plenty, token_a, &small).refused,

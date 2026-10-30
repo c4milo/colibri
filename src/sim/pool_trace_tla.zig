@@ -55,13 +55,13 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State) Erro
     try writer.write_bytes("\\* expect: violated\nSPECIFICATION TraceSpec\nCONSTANTS\n");
     var opens: u64 = 1;
     for (last.opens[0..plan.slots]) |slot_opens| opens = @max(opens, slot_opens);
-    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.moves_max });
+    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.limits.moves_max });
     try writer.write_bytes("    QuicPolicy = \"never\"\n    TcpAllowed = TRUE\n");
     try write_slot_set(writer, "HandshakeFails", plan);
     try write_slot_set(writer, "Breaks", plan);
     try write_slot_set(writer, "Goaways", plan);
     // Each exchange's request may be read twice: once, and once more after it moved.
-    const goaways = plan.closes() * (@as(u32, client.constants.moves_max) + 1);
+    const goaways = plan.closes() * (@as(u32, client.constants.limits.moves_max) + 1);
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {{}}\n    Resets = {{}}\n", .{goaways});
     try write_idempotent(writer, plan);
     try write_slot_set(writer, "TcpSlots", plan);

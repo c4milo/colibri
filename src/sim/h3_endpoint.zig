@@ -331,7 +331,7 @@ fn parameters() quic.transport_parameters.Parameters {
     held.initial_max_stream_data_uni = stream_window;
     // Two rounds at once, so a long run's client waits on MAX_STREAMS (RFC 9000 §4.6).
     held.initial_max_streams_bidi = rounds_granted * constants.h3_check_round_len;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = idle_timeout_ms;
     return held;
 }

@@ -19,7 +19,7 @@ const http = h2.http;
 comptime {
     // The endpoint holds `tcp_requests_max` open requests of a connection and refuses one more
     // itself, so the queues below, which hold the open requests alone, always have room.
-    assert(constants.responses_owed_max > server.constants.tcp_requests_max);
+    assert(constants.responses_owed_max > server.constants.limits.tcp_requests_max);
 }
 
 /// A request read or being read, and whether its response carries content: a response to HEAD

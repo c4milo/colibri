@@ -17,7 +17,7 @@ const Writer = tls_provider.core.Writer;
 const Reader = tls_provider.core.Reader;
 
 /// The suite the tests' server selects, whose AEAD and hash this file seals with.
-const chacha = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256;
+const chacha = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256;
 const secret_len = Hkdf.prk_length;
 
 /// The application traffic secrets of the connection the tests ran last (RFC 9846 §7.1).
@@ -113,7 +113,7 @@ const Opened = struct { content_type: u8, content: []const u8 };
 /// Opens `sealed`, or answers null when it does not authenticate under `keys` at `sequence`.
 fn open(keys: Keys, sequence: u64, sealed: []const u8, output: []u8) ?Opened {
     var reader = Reader.init(sealed);
-    const header = reader.take(tls_provider.constants.record_header_len) catch return null;
+    const header = reader.take(tls_provider.constants.protocol.record_header_len) catch return null;
     const body = reader.take_rest();
     if (body.len < Aead.tag_length + 1 or body.len - Aead.tag_length > output.len) return null;
     const inner_len = body.len - Aead.tag_length;

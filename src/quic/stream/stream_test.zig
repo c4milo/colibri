@@ -269,7 +269,7 @@ const stream_lost = @import("stream_lost.zig");
 /// A table whose streams this endpoint opens, as a client. Test-only.
 var test_streams: stream_table.Streams align(@alignOf(stream_table.Streams)) = undefined;
 const test_stream_limit: u64 = 4;
-const test_stream_limits: [constants.stream_directionalities]u64 = @splat(test_stream_limit);
+const test_stream_limits: [constants.protocol.stream_directionalities]u64 = @splat(test_stream_limit);
 /// A stream's octets, sent in two frames of half each. Test-only.
 const test_body_len: u64 = 1_000;
 const test_half_len: u64 = 500;
@@ -347,7 +347,7 @@ test "§13.3: a range of a stream that has since closed counts toward nothing" {
 test "§13.3: a lost range the full table cannot hold is refused, not dropped" {
     const stream = try sent_stream();
     const far_offset = 4 * test_body_len;
-    for (0..constants.stream_lost_ranges_max) |index| {
+    for (0..constants.limits.stream_lost_ranges_max) |index| {
         // Another stream's ranges, a gap apart, so the stream's own range joins none of them.
         const other: stream_lost.Range = .{ .stream_id = stream.id + 4, .offset = far_offset * index, .len = 1, .fin = false };
         try test_streams.lost.add(other);

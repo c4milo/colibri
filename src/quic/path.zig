@@ -55,11 +55,11 @@ const Challenge = struct {
     /// The data of each one sent. RFC 9000 §13.3 sends one "periodically until a matching
     /// PATH_RESPONSE frame is received", each with "a different payload", and §8.2.3 validates
     /// the path on a response carrying "the data that was sent in a previous PATH_CHALLENGE".
-    data: [constants.path_challenge_attempts][constants.path_challenge_len]u8,
+    data: [constants.policy.path_challenge_attempts][constants.protocol.path_challenge_len]u8,
     /// RFC 9000 §8.2.1: whether the datagram each went out in reached the 1,200 octets the
     /// section asks for. §8.2.3 reads it when the response arrives, because a challenge sent in
     /// a smaller datagram validates the address and not the path MTU.
-    expanded: [constants.path_challenge_attempts]bool,
+    expanded: [constants.policy.path_challenge_attempts]bool,
     count: u8,
     /// When the first went out, which §8.2.4's timeout runs from, and the last, which the next
     /// is spaced from.
@@ -82,11 +82,11 @@ pub const Path = struct {
     /// RFC 9000 §8.2.2: the PATH_CHALLENGE data this endpoint must echo, or null when it owes
     /// none. Only the last is kept: a peer that challenges twice before colibri answers gets one
     /// response, and §8.2.1 lets it challenge again to evoke another.
-    response_owed: ?[constants.path_challenge_len]u8,
+    response_owed: ?[constants.protocol.path_challenge_len]u8,
     /// RFC 9000 §8.2.1: the PATH_CHALLENGE this endpoint means to send, or null when it means to
     /// send none. The data is the caller's: §8.2.1 wants it unpredictable and invariant 5 forbids
     /// colibri a random number.
-    challenge_owed: ?[constants.path_challenge_len]u8,
+    challenge_owed: ?[constants.protocol.path_challenge_len]u8,
     /// Whether the last attempt ran out of time (§8.2.4). It is read only while no probe is
     /// outstanding, so a new one needs no clearing: the probe itself is what `state` reports.
     abandoned: bool,
@@ -112,7 +112,7 @@ pub const Path = struct {
     /// RFC 9000 §8.2.2: "On receiving a PATH_CHALLENGE frame, an endpoint MUST respond by echoing
     /// the data contained in the PATH_CHALLENGE frame in a PATH_RESPONSE frame." The octets are
     /// kept rather than the packet they arrived in, and the send path writes them.
-    pub fn take_challenge(path: *Path, data: [constants.path_challenge_len]u8) void {
+    pub fn take_challenge(path: *Path, data: [constants.protocol.path_challenge_len]u8) void {
         path.response_owed = data;
     }
 
@@ -120,13 +120,13 @@ pub const Path = struct {
     /// is why the caller draws it: §8.2.1 says "The endpoint MUST use unpredictable data in every
     /// PATH_CHALLENGE frame so that it can associate the peer's response with the corresponding
     /// PATH_CHALLENGE", and invariant 5 forbids colibri a random number.
-    pub fn owe_challenge(path: *Path, data: [constants.path_challenge_len]u8) void {
+    pub fn owe_challenge(path: *Path, data: [constants.protocol.path_challenge_len]u8) void {
         path.challenge_owed = data;
     }
 
     /// Takes the PATH_RESPONSE this endpoint owes, leaving none. §8.2.2: "An endpoint MUST NOT
     /// send more than one PATH_RESPONSE frame in response to one PATH_CHALLENGE frame."
-    pub fn take_response_owed(path: *Path) ?[constants.path_challenge_len]u8 {
+    pub fn take_response_owed(path: *Path) ?[constants.protocol.path_challenge_len]u8 {
         const owed = path.response_owed orelse return null;
         path.response_owed = null;
         return owed;
@@ -134,7 +134,7 @@ pub const Path = struct {
 
     /// Takes the PATH_CHALLENGE this endpoint means to send, leaving none. §8.2.1 lets an
     /// endpoint send more to guard against loss, which is another call to `owe_challenge`.
-    pub fn take_challenge_owed(path: *Path) ?[constants.path_challenge_len]u8 {
+    pub fn take_challenge_owed(path: *Path) ?[constants.protocol.path_challenge_len]u8 {
         const owed = path.challenge_owed orelse return null;
         path.challenge_owed = null;
         return owed;
@@ -165,7 +165,7 @@ pub const Path = struct {
     /// validated path has no such limit.
     pub fn send_allowance(path: *const Path) u64 {
         if (path.validated) return std.math.maxInt(u64);
-        const permitted = path.received *| constants.anti_amplification_factor;
+        const permitted = path.received *| constants.protocol.anti_amplification_factor;
         return permitted -| path.sent;
     }
 
@@ -181,7 +181,7 @@ pub const Path = struct {
     /// Probe Timeout and the new path's.
     pub fn on_challenge_sent(
         path: *Path,
-        data: [constants.path_challenge_len]u8,
+        data: [constants.protocol.path_challenge_len]u8,
         datagram_len: usize,
         now_ns: u64,
         timeout_ns: u64,
@@ -190,11 +190,11 @@ pub const Path = struct {
         // least the smallest allowed maximum datagram size of 1200 bytes." The caller says how
         // long the datagram was and the comparison is colibri's, so the threshold is written
         // once, here, and never at a call site.
-        const expanded = datagram_len >= constants.datagram_len_min;
+        const expanded = datagram_len >= constants.protocol.datagram_len_min;
         if (path.challenge) |*held| {
             // RFC 9000 §13.3: the same attempt, sent again with new data, which keeps the time
             // §8.2.4 gives it.
-            if (held.count < constants.path_challenge_attempts) {
+            if (held.count < constants.policy.path_challenge_attempts) {
                 held.data[held.count] = data;
                 held.expanded[held.count] = expanded;
                 held.count += 1;
@@ -228,7 +228,7 @@ pub const Path = struct {
     /// Takes a PATH_RESPONSE. RFC 9000 §8.2.3: validation succeeds when the frame carries the
     /// data of a PATH_CHALLENGE sent before, and a response arriving on any path validates the
     /// one its challenge went out on.
-    pub fn on_response(path: *Path, data: [constants.path_challenge_len]u8) bool {
+    pub fn on_response(path: *Path, data: [constants.protocol.path_challenge_len]u8) bool {
         const outstanding = path.challenge orelse return false;
         // Bounded by the attempts one challenge holds, a named limit.
         for (outstanding.data[0..outstanding.count], outstanding.expanded[0..outstanding.count]) |sent, expanded| {
@@ -253,7 +253,7 @@ pub const Path = struct {
 
     /// Echoes a PATH_CHALLENGE this endpoint received (RFC 9000 §8.2.2): an endpoint MUST
     /// respond by echoing the data, on the path the challenge arrived on.
-    pub fn response_for(data: [constants.path_challenge_len]u8) [constants.path_challenge_len]u8 {
+    pub fn response_for(data: [constants.protocol.path_challenge_len]u8) [constants.protocol.path_challenge_len]u8 {
         return data;
     }
 
@@ -285,15 +285,15 @@ const testing = std.testing;
 
 /// RFC 9000 §8.2.1's expansion, as the two answers a datagram can give to it: one that reached
 /// "the smallest allowed maximum datagram size of 1200 bytes" and one that fell an octet short.
-const expanded_len: usize = constants.datagram_len_min;
-const small_len: usize = constants.datagram_len_min - 1;
+const expanded_len: usize = constants.protocol.datagram_len_min;
+const small_len: usize = constants.protocol.datagram_len_min - 1;
 
 /// The path the tests drive, and what they measure against. Test-only.
 threadlocal var test_path: Path align(@alignOf(Path)) = undefined;
 const challenge_octet_a = 0xa5;
 const challenge_octet_b = 0x5a;
-const challenge_a: [constants.path_challenge_len]u8 = @splat(challenge_octet_a);
-const challenge_b: [constants.path_challenge_len]u8 = @splat(challenge_octet_b);
+const challenge_a: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet_a);
+const challenge_b: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet_b);
 const test_timeout_ns = 300_000_000;
 const test_datagram = 100;
 
@@ -303,7 +303,7 @@ test "§8: an unvalidated path takes three times what it gave, and no more" {
     try testing.expectEqual(0, test_path.send_allowance());
     try testing.expect(test_path.is_amplification_limited(1));
     test_path.on_datagram_received(test_datagram);
-    const allowance = constants.anti_amplification_factor * test_datagram;
+    const allowance = constants.protocol.anti_amplification_factor * test_datagram;
     try testing.expectEqual(allowance, test_path.send_allowance());
     // RFC 9000 §8: three times what arrived may be sent, so exactly that much is permitted.
     try testing.expect(!test_path.is_amplification_limited(allowance));
@@ -315,7 +315,7 @@ test "§8: an unvalidated path takes three times what it gave, and no more" {
     try testing.expect(test_path.is_amplification_limited(1));
     // More arriving gives more room, in the same proportion.
     test_path.on_datagram_received(test_datagram);
-    try testing.expectEqual(constants.anti_amplification_factor * test_datagram, test_path.send_allowance());
+    try testing.expectEqual(constants.protocol.anti_amplification_factor * test_datagram, test_path.send_allowance());
 }
 
 test "§21.1.1.1: a path that begins validated is unlimited from its first octet" {
@@ -333,7 +333,7 @@ test "§8: a validated path has no limit" {
     test_path.on_datagram_received(test_datagram);
     test_path.on_challenge_sent(challenge_a, expanded_len, 0, test_timeout_ns);
     // While the challenge is outstanding the limit still holds.
-    try testing.expect(test_path.is_amplification_limited(constants.datagram_len_min));
+    try testing.expect(test_path.is_amplification_limited(constants.protocol.datagram_len_min));
     try testing.expect(test_path.on_response(challenge_a));
     try testing.expectEqual(State.validated, test_path.state());
     try testing.expect(!test_path.is_amplification_limited(std.math.maxInt(u32)));

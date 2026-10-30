@@ -93,8 +93,8 @@ pub fn parse(words: []const []const u8) ?Command {
             .blocked_streams = number(words[word_blocked]) orelse return null,
         };
         // colibri's decoder holds at most these (decision 35 and decision 74).
-        if (settings.max_table_capacity > qpack.constants.dynamic_table_capacity_max) return null;
-        if (settings.blocked_streams > qpack.constants.blocked_streams_max) return null;
+        if (settings.max_table_capacity > qpack.constants.limits.dynamic_table_capacity_max) return null;
+        if (settings.blocked_streams > qpack.constants.limits.blocked_streams_max) return null;
         return .{ .decode = .{ .input = words[word_input], .output = words[word_output], .settings = settings } };
     }
     return null;
@@ -112,7 +112,7 @@ fn usage() noreturn {
     std.debug.print(
         "usage: qif encode <input.qif> <output> <capacity> <blocked-streams> <acknowledgment 0|1>\n" ++
             "       qif decode <input> <output.qif> <capacity up to {d}> <blocked-streams up to {d}>\n",
-        .{ qpack.constants.dynamic_table_capacity_max, qpack.constants.blocked_streams_max },
+        .{ qpack.constants.limits.dynamic_table_capacity_max, qpack.constants.limits.blocked_streams_max },
     );
     std.process.exit(check_file.exit_usage);
 }

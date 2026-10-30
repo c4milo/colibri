@@ -106,7 +106,7 @@ pub const Retry = struct {
     dcid: []const u8,
     scid: []const u8,
     token: []const u8,
-    integrity_tag: *const [constants.retry_integrity_tag_len]u8,
+    integrity_tag: *const [constants.protocol.retry_integrity_tag_len]u8,
     /// The packet less its tag, which the Retry Pseudo-Packet of RFC 9001 §5.8 is built from.
     without_tag: []const u8,
 };
@@ -131,7 +131,7 @@ pub const Packet = union(enum) {
 /// after the packets before. `short_dcid_len` is the length of the connection IDs this endpoint
 /// issued, which a short header does not carry (RFC 8999 §5.2).
 pub fn read(datagram: []const u8, short_dcid_len: usize) Error!Packet {
-    assert(short_dcid_len <= constants.connection_id_len_max);
+    assert(short_dcid_len <= constants.protocol.connection_id_len_max);
     if (datagram.len == 0) return error.Truncated;
     if (invariant.form_of(datagram[0]) == .short) {
         return .{ .short = try read_short(datagram, short_dcid_len) };
@@ -148,12 +148,12 @@ pub fn read(datagram: []const u8, short_dcid_len: usize) Error!Packet {
     const version = std.enums.fromInt(Version, header.version) orelse return .{ .other_version = header };
     // RFC 9000 §17.2, which RFC 9369 §3 keeps for version 2: packets containing a zero value for
     // the Fixed Bit MUST be discarded.
-    if (header.first_octet & constants.fixed_bit == 0) return error.FixedBitClear;
+    if (header.first_octet & constants.protocol.fixed_bit == 0) return error.FixedBitClear;
     const longest = @max(header.dcid.len, header.scid.len);
     // RFC 9000 §17.2, which RFC 9369 §3 keeps for version 2: neither connection ID length may
     // exceed 20 octets, and an endpoint that receives a larger value MUST drop the packet.
-    if (longest > constants.connection_id_len_max) return error.ConnectionIdTooLong;
-    const bits: u2 = @intCast((header.first_octet & constants.long_packet_type_mask) >> constants.long_packet_type_shift);
+    if (longest > constants.protocol.connection_id_len_max) return error.ConnectionIdTooLong;
+    const bits: u2 = @intCast((header.first_octet & constants.protocol.long_packet_type_mask) >> constants.protocol.long_packet_type_shift);
     const long_type = type_of(version, bits);
     if (long_type == .retry) return .{ .retry = try read_retry(datagram, header, version) };
     return .{ .long = try read_long(long_type, header, version) };
@@ -162,7 +162,7 @@ pub fn read(datagram: []const u8, short_dcid_len: usize) Error!Packet {
 fn read_short(datagram: []const u8, dcid_len: usize) Error!Short {
     const header = try invariant.read_short(datagram, dcid_len);
     // RFC 9000 §17.3.1: packets containing a zero value for the Fixed Bit MUST be discarded.
-    if (header.first_octet & constants.fixed_bit == 0) return error.FixedBitClear;
+    if (header.first_octet & constants.protocol.fixed_bit == 0) return error.FixedBitClear;
     return .{
         .first_octet = header.first_octet,
         .dcid = header.dcid,
@@ -203,7 +203,7 @@ fn read_long(long_type: LongType, header: invariant.Long, version: Version) Erro
 
 /// The fields after the Source Connection ID of a Retry packet (RFC 9000 §17.2.5).
 fn read_retry(datagram: []const u8, header: invariant.Long, version: Version) Error!Retry {
-    const tag_len = constants.retry_integrity_tag_len;
+    const tag_len = constants.protocol.retry_integrity_tag_len;
     // RFC 9000 §17.2.5: the Retry Token, then the 128-bit Retry Integrity Tag, and no Length: the
     // tag is the last 16 octets of the datagram.
     if (header.rest.len < tag_len) return error.RetryTagMissing;
@@ -229,7 +229,7 @@ pub const UnprotectedError = error{ReservedBitsSet};
 /// What byte 0 of a long header says once header protection is removed.
 pub fn unprotected_long(first_octet: u8) UnprotectedError!u8 {
     // RFC 9000 §17.2: the value of the Reserved Bits MUST be 0 prior to protection.
-    if (first_octet & constants.long_reserved_bits != 0) return error.ReservedBitsSet;
+    if (first_octet & constants.protocol.long_reserved_bits != 0) return error.ReservedBitsSet;
     return packet_number_len_of(first_octet);
 }
 
@@ -242,22 +242,22 @@ pub const UnprotectedShort = struct {
 
 pub fn unprotected_short(first_octet: u8) UnprotectedError!UnprotectedShort {
     // RFC 9000 §17.3.1: the value of the Reserved Bits MUST be 0 prior to protection.
-    if (first_octet & constants.short_reserved_bits != 0) return error.ReservedBitsSet;
+    if (first_octet & constants.protocol.short_reserved_bits != 0) return error.ReservedBitsSet;
     return .{
         .packet_number_len = packet_number_len_of(first_octet),
-        .key_phase = first_octet & constants.key_phase_bit != 0,
-        .spin = first_octet & constants.spin_bit != 0,
+        .key_phase = first_octet & constants.protocol.key_phase_bit != 0,
+        .spin = first_octet & constants.protocol.spin_bit != 0,
     };
 }
 
 /// RFC 9000 §17.2: the Packet Number Length is one less than the field's length in octets.
 fn packet_number_len_of(first_octet: u8) u8 {
-    return (first_octet & constants.packet_number_len_mask) + 1;
+    return (first_octet & constants.protocol.packet_number_len_mask) + 1;
 }
 
 /// Occurrences of `needle` in `source`. Comptime-only.
 fn occurrences(comptime source: []const u8, comptime needle: []const u8) usize {
-    @setEvalBranchQuota(source.len * needle.len * constants.comptime_scan_branches_per_octet);
+    @setEvalBranchQuota(source.len * needle.len * constants.limits.comptime_scan_branches_per_octet);
     return std.mem.count(u8, source, needle);
 }
 
@@ -316,7 +316,7 @@ test "RFC 9369 §3.2: version 2's Long Packet Type bits, and each version's bits
 
 test "§17.2.5: a Retry too short for its tag, or with no token before it, is discarded" {
     const header_len = 15;
-    for (header_len..header_len + constants.retry_integrity_tag_len) |len| {
+    for (header_len..header_len + constants.protocol.retry_integrity_tag_len) |len| {
         try testing.expectError(error.RetryTagMissing, read(sample_retry[0..len], 0));
     }
     // Sixteen octets after the connection IDs are all tag, which leaves a zero-length token.
@@ -331,7 +331,7 @@ test "§17.2.1: a long header of another version is handed over whatever its con
     try testing.expectEqual(21, packet.other_version.dcid.len);
     // The same octets under version 1 are dropped, by either connection ID.
     var version_1 = other;
-    version_1[0] |= constants.fixed_bit;
+    version_1[0] |= constants.protocol.fixed_bit;
     @memcpy(version_1[1..5], &[_]u8{ 0, 0, 0, 1 });
     try testing.expectError(error.ConnectionIdTooLong, read(&version_1, 0));
     const long_scid = [_]u8{ 0xc0, 0, 0, 0, 1, 0, 21 } ++ [_]u8{0x5c} ** 21 ++ [_]u8{ 0, 1, 0 };
@@ -343,7 +343,7 @@ test "§17.2.1: a long header of another version is handed over whatever its con
 
 test "§17.2, §17.3.1: a zero Fixed Bit is discarded in both header forms, and only in version 1" {
     var long = sample_handshake.*;
-    long[0] &= ~constants.fixed_bit;
+    long[0] &= ~constants.protocol.fixed_bit;
     try testing.expectError(error.FixedBitClear, read(&long, 0));
     try testing.expectError(error.FixedBitClear, read(&.{ 0x00, 0xaa, 0x01 }, 1));
     // RFC 8999 §6: the bit is one of the seven a Version Negotiation packet leaves unused.
@@ -395,7 +395,7 @@ const fuzz_input_len_max = 600;
 
 fn fuzz_read(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
-    const dcid_len = smith.valueRangeAtMost(u8, 0, constants.connection_id_len_max);
+    const dcid_len = smith.valueRangeAtMost(u8, 0, constants.protocol.connection_id_len_max);
     const datagram = input[0..smith.slice(&input)];
     const packet = read(datagram, dcid_len) catch return;
     // Whatever was read lies inside the datagram, and a protected packet has room for the
@@ -404,7 +404,7 @@ fn fuzz_read(_: void, smith: *testing.Smith) anyerror!void {
         .long => |long| {
             try testing.expect(long.packet_number_offset <= long.packet_len);
             try testing.expect(long.packet_len <= datagram.len);
-            try testing.expect(@max(long.dcid.len, long.scid.len) <= constants.connection_id_len_max);
+            try testing.expect(@max(long.dcid.len, long.scid.len) <= constants.protocol.connection_id_len_max);
         },
         .short => |short| {
             try testing.expectEqual(1 + @as(usize, dcid_len), short.packet_number_offset);
@@ -412,7 +412,7 @@ fn fuzz_read(_: void, smith: *testing.Smith) anyerror!void {
         },
         .retry => |retry| {
             try testing.expect(retry.token.len > 0);
-            try testing.expectEqual(datagram.len, retry.without_tag.len + constants.retry_integrity_tag_len);
+            try testing.expectEqual(datagram.len, retry.without_tag.len + constants.protocol.retry_integrity_tag_len);
         },
         .version_negotiation => |negotiation| try testing.expect(negotiation.supported.count() > 0),
         .other_version => |other| try testing.expectEqual(null, std.enums.fromInt(Version, other.version)),

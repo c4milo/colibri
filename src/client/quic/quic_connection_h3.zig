@@ -28,7 +28,7 @@ const StreamProvider = quic.stream.StreamProvider;
 /// The frames of one request stream the connection keeps (decision 79).
 pub const RequestStream = struct {
     /// The HEADERS frame, then the DATA frame's header when the request has content.
-    prefix: [constants.request_prefix_len_max]u8,
+    prefix: [constants.limits.request_prefix_len_max]u8,
     prefix_len: usize,
 };
 
@@ -36,7 +36,7 @@ pub const RequestStream = struct {
 /// order `request` took them (RFC 9000 §2.1).
 pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: each pass writes or ends an exchange, or stops.
-    for (0..constants.requests_max) |_| {
+    for (0..constants.limits.requests_max) |_| {
         const slot = connection.slots.oldest(.queued) orelse return;
         if (!open(connection, slot, now_ns)) return;
     }
@@ -47,7 +47,7 @@ pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
 /// server's stream limit (RFC 9000 §4.6).
 fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     const content = slot.request.body;
-    var indexing: [constants.request_fields_max + pseudo_fields]Indexing = undefined;
+    var indexing: [constants.limits.request_fields_max + pseudo_fields]Indexing = undefined;
     const lines = build_section(connection, slot, &indexing) orelse {
         slots_module.end(slot, .invalid);
         return true;
@@ -96,14 +96,14 @@ const pseudo_fields: usize = 4;
 /// pseudo-header fields first (RFC 9114 §4.3), then the caller's lines and the content-length and
 /// accept-encoding the client adds (decision 101). Returns the line count, or null when the
 /// section does not fit.
-fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants.request_fields_max + pseudo_fields]Indexing) ?usize {
+fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants.limits.request_fields_max + pseudo_fields]Indexing) ?usize {
     const request = slot.request;
     const section = &connection.section;
     section.init();
     append_pseudo(connection, request, indexing) orelse return null;
     append_fields(section, request, indexing) orelse return null;
     var count = pseudo_fields + request.headers.len;
-    var digits: [constants.content_length_digits_max]u8 = undefined;
+    var digits: [constants.limits.content_length_digits_max]u8 = undefined;
     if (event_internal.content_length(request, &digits)) |value| {
         section.append("content-length", value) catch return null;
         indexing[count] = .no_insert;
@@ -212,18 +212,18 @@ pub fn note_heads(connection: *QuicConnection) void {
 /// Whether stream `stream_id` holds the header of a HEADERS frame first (RFC 9114 §7.1): its type
 /// and its length.
 fn headers_first(connection: *QuicConnection, stream_id: u64) bool {
-    var window: [h3.constants.frame_header_len_max]u8 = undefined;
+    var window: [h3.constants.protocol.frame_header_len_max]u8 = undefined;
     const peeked = quic.connection_stream_read.peek(&connection.transport, .{ .value = stream_id }, &window) catch return false;
     var reader = h3.core.Reader.init(window[0..peeked.len]);
     const frame_type = h3.wire.varint.decode(&reader) catch return false;
     _ = h3.wire.varint.decode(&reader) catch return false;
-    return frame_type.value == h3.constants.frame_headers;
+    return frame_type.value == h3.constants.protocol.frame_headers;
 }
 
 /// Reads every event h3 has at `now_ns`, and records what each means for the exchange it names.
 pub fn read_events(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: every event reads at least one octet the pool holds, or ends a stream.
-    for (0..constants.h3_events_per_read_max) |_| {
+    for (0..constants.limits.h3_events_per_read_max) |_| {
         const read = connection.h3.receive(&connection.transport, &connection.body, now_ns) catch {
             // RFC 9114 §8: h3 failed the connection, and QUIC owes the CONNECTION_CLOSE.
             internal.fail(connection);
@@ -281,7 +281,7 @@ fn end_response(connection: *QuicConnection, stream_id: u64) void {
 fn on_reset(connection: *QuicConnection, ended: h3.connection.Ended) void {
     // RFC 9114 §4.1.1: H3_REQUEST_REJECTED says the server processed none of the request, which
     // "can be retried".
-    if (ended.error_code == h3.constants.error_request_rejected) return end_stream(connection, ended.stream_id, .refused);
+    if (ended.error_code == h3.constants.protocol.error_request_rejected) return end_stream(connection, ended.stream_id, .refused);
     const slot = connection.slots.of_stream(ended.stream_id) orelse return;
     slot.response.error_code = @truncate(ended.error_code);
     slots_module.end(slot, .reset);
@@ -311,7 +311,7 @@ fn refuse(connection: *QuicConnection, slot: *Slot, outcome: event.Result) void 
 
 /// Resets the stream of a request the client no longer needs (RFC 9114 §4.1.1).
 pub fn cancel_stream(connection: *QuicConnection, stream_id: u64) void {
-    connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
+    connection.h3.cancel(&connection.transport, stream_id, h3.constants.protocol.error_request_cancelled);
 }
 
 /// The index of the first regular field line of `section`, past the pseudo-header fields RFC

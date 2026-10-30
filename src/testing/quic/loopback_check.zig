@@ -44,9 +44,9 @@ const go_chain_len: usize = 2;
 var chain: [go_chain_len][]const u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
-var private_storage: [tls.constants.p256_private_key_len]u8 = undefined;
-var public_storage: [tls.constants.p256_public_key_len]u8 = undefined;
-var cookie_storage: [tls.constants.server_key_len]u8 = undefined;
+var private_storage: [tls.constants.protocol.p256_private_key_len]u8 = undefined;
+var public_storage: [tls.constants.protocol.p256_public_key_len]u8 = undefined;
+var cookie_storage: [tls.constants.protocol.server_key_len]u8 = undefined;
 
 const Arguments = struct {
     /// The prefix of the files `tools/h2_interop/tls_identity.go` wrote.
@@ -119,7 +119,7 @@ fn configure(asked: Arguments) !void {
 
 /// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
 fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
-    var read_storage: [tls.constants.p256_public_key_len + 1]u8 = undefined;
+    var read_storage: [tls.constants.protocol.p256_public_key_len + 1]u8 = undefined;
     const read = try check_file.read_part(prefix, suffix, &read_storage);
     if (read.len != into.len) fail("{s}{s} is {d} octets, not {d}", .{ prefix, suffix, read.len, into.len });
     @memcpy(into, read);

@@ -14,8 +14,8 @@ var test_space: Space align(@alignOf(Space)) = undefined;
 /// A draw whose first two octets are 0 and 1, so the first skip comes after the fewest packets and
 /// the second after one more. Test-only.
 const intervals: u64 = 0x0100;
-const first_interval: u64 = constants.packet_number_skip_interval_min;
-const second_interval: u64 = constants.packet_number_skip_interval_min + 1;
+const first_interval: u64 = constants.policy.packet_number_skip_interval_min;
+const second_interval: u64 = constants.policy.packet_number_skip_interval_min + 1;
 /// Packets sent after the first skip, and how far above it `ack_below`'s first range ends.
 /// Test-only.
 const after_skip: u64 = 8;

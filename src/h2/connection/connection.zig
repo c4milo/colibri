@@ -143,7 +143,7 @@ pub const Event = union(enum) {
     /// The peer's SETTINGS frame was applied; colibri owes the acknowledgment (§6.5.3).
     settings_applied,
     /// The peer sent a PING carrying the ACK flag, with this Opaque Data (§6.7). colibri sends no PING of its own, so it never asked for one.
-    ping_acknowledged: [constants.ping_len]u8,
+    ping_acknowledged: [constants.protocol.ping_len]u8,
     request: Request,
     response: Response,
     trailers: Trailers,
@@ -222,7 +222,7 @@ pub const Connection = struct {
     /// Where a field section colibri sends is encoded before it is cut into frames
     /// (`connection_send.zig`). Each use writes a block from the first octet and reads only what
     /// it wrote, so `init` leaves these octets as they are.
-    send_block: [constants.send_block_len_max]u8,
+    send_block: [constants.limits.send_block_len_max]u8,
     /// The TLS provider this connection runs over, or null for the cleartext prior-knowledge
     /// endpoint of §3.3 (decision 44, `connection_tls.zig`).
     provider: ?tls_provider.Provider,
@@ -281,16 +281,16 @@ pub const Connection = struct {
         connection.block.init();
         // RFC 9113 §6.9.2: the connection's flow-control window starts at the initial value and
         // SETTINGS_INITIAL_WINDOW_SIZE never changes it; only stream windows move with it.
-        connection.send_window = window.Window.init(constants.initial_window_size_initial);
-        connection.receive_window = window.Receiver.init(constants.initial_window_size_initial);
+        connection.send_window = window.Window.init(constants.protocol.initial_window_size_initial);
+        connection.receive_window = window.Receiver.init(constants.protocol.initial_window_size_initial);
         connection.replies.init();
         connection.block_discarded = false;
         connection.provider = null;
         connection.records_without_data = 0;
         connection.handshake_owed = false;
         connection.tls_failed = false;
-        connection.resets_sent_max = constants.rst_stream_rate_max;
-        connection.peer_resets_max = constants.peer_reset_rate_max;
+        connection.resets_sent_max = constants.policy.rst_stream_rate_max;
+        connection.peer_resets_max = constants.policy.peer_reset_rate_max;
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
         connection.peer_resets = 0;
@@ -387,7 +387,7 @@ pub const Connection = struct {
     /// the first stream (§5.1.2). A server's call, before the preface is written.
     pub fn limit_peer_streams(connection: *Connection, max: u32) void {
         assert(connection.role == .server and !connection.settings_written);
-        assert(max > 0 and max <= constants.concurrent_streams_max);
+        assert(max > 0 and max <= constants.limits.concurrent_streams_max);
         connection.local.max_concurrent_streams = max;
         connection.streams.peer_active_max = max;
     }

@@ -93,7 +93,7 @@ pub const FieldBlock = struct {
     in_progress: ?InProgress,
     /// The octets kept from the line the last fragment cut, then the fragment being decoded;
     /// `buffer[0..buffer_len]` is in use.
-    buffer: [constants.field_block_buffer_len]u8,
+    buffer: [constants.limits.field_block_buffer_len]u8,
     /// Octets of `buffer` in use.
     buffer_len: u32,
     /// The decoded lines, in arrival order.
@@ -162,7 +162,7 @@ pub const FieldBlock = struct {
         end_headers: bool,
     ) Error!?Done {
         assert(block.is_in_progress());
-        assert(fragment.len <= constants.frame_size_max);
+        assert(fragment.len <= constants.limits.frame_size_max);
         errdefer block.abandon();
         try field_block_limit.count_fragment(block, fragment.len);
         block.append(fragment);
@@ -193,7 +193,7 @@ pub const FieldBlock = struct {
     /// Appends the fragment after the kept octets. Those are at most `representation_len_max` and
     /// the fragment at most `frame_size_max`, which is how `field_block_buffer_len` was sized.
     fn append(block: *FieldBlock, fragment: []const u8) void {
-        assert(block.buffer_len <= constants.representation_len_max);
+        assert(block.buffer_len <= constants.limits.representation_len_max);
         const offset: usize = block.buffer_len;
         const end = offset + fragment.len;
         assert(end <= block.buffer.len);
@@ -282,7 +282,7 @@ test "a HEADERS fragment and a 4000-octet CONTINUATION decode to one section (ht
     try testing.expectEqual(null, try test_block.feed(test_decoder, "\x82\x86\x84", false));
     var output = Writer.init(test_frame);
     try output.write_bytes("\x00\x07x-dummy");
-    try wire.prefixed_integer.encode(hpack.constants.string_prefix_bits - 1, &output, 0, 3988);
+    try wire.prefixed_integer.encode(hpack.constants.protocol.string_prefix_bits - 1, &output, 0, 3988);
     try output.write_bytes(long_value[0..3988]);
     try testing.expectEqual(4000, output.written().len);
     const done = try test_block.feed(test_decoder, output.written(), true);
@@ -325,11 +325,11 @@ threadlocal var whole_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = un
 /// Feeds a fuzzed block once whole and once cut in two where the fuzzer says, and requires the
 /// two to end the same way (RFC 9113 §4.3: a field block is logically equivalent to one frame).
 fn fuzz_feed(_: void, smith: *testing.Smith) anyerror!void {
-    const cut_wanted = smith.valueRangeAtMost(u32, 0, hpack.constants.fuzz_block_len_max);
-    var input: [hpack.constants.fuzz_block_len_max]u8 = @splat(0);
+    const cut_wanted = smith.valueRangeAtMost(u32, 0, hpack.constants.limits.fuzz_block_len_max);
+    var input: [hpack.constants.limits.fuzz_block_len_max]u8 = @splat(0);
     const octets = input[0..smith.slice(&input)];
     const cut = @min(cut_wanted, octets.len);
-    whole_decoder.init(constants.header_table_size_initial);
+    whole_decoder.init(constants.protocol.header_table_size_initial);
     whole_block.init();
     whole_block.begin(1, .headers, false);
     const whole = whole_block.feed(&whole_decoder, octets, true);
@@ -340,7 +340,7 @@ fn fuzz_feed(_: void, smith: *testing.Smith) anyerror!void {
         return expect_cleared();
     };
     try testing.expectEqual(null, first);
-    try testing.expect(test_block.buffer_len <= constants.representation_len_max);
+    try testing.expect(test_block.buffer_len <= constants.limits.representation_len_max);
     try expect_same(whole, test_block.feed(test_decoder, octets[cut..], true), octets.len);
 }
 

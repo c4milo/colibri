@@ -54,19 +54,19 @@ fn expect_writable(read: Frame) !void {
         .padding => |padding| try testing.expect(padding.len > 0),
         .ack => |ack| try expect_ranges(ack.ranges),
         // RFC 9000 §19.8, §19.6: the offset and the length together stay at or below 2^62-1.
-        .stream => |stream| try testing.expect(stream.offset + stream.data.len <= constants.stream_offset_max),
-        .crypto => |crypto| try testing.expect(crypto.offset + crypto.data.len <= constants.stream_offset_max),
+        .stream => |stream| try testing.expect(stream.offset + stream.data.len <= constants.protocol.stream_offset_max),
+        .crypto => |crypto| try testing.expect(crypto.offset + crypto.data.len <= constants.protocol.stream_offset_max),
         // RFC 9000 §19.7: a NEW_TOKEN's token is never empty.
         .new_token => |new_token| try testing.expect(new_token.token.len > 0),
         // RFC 9000 §19.11, §19.14: a stream limit is 2^60 at most.
-        .max_streams => |max| try testing.expect(max.maximum <= constants.max_streams_max),
-        .streams_blocked => |blocked| try testing.expect(blocked.limit <= constants.max_streams_max),
+        .max_streams => |max| try testing.expect(max.maximum <= constants.protocol.max_streams_max),
+        .streams_blocked => |blocked| try testing.expect(blocked.limit <= constants.protocol.max_streams_max),
         .new_connection_id => |new| {
             // RFC 9000 §19.15: Retire Prior To is at most the Sequence Number, and a connection
             // ID is 1 to 20 octets.
             try testing.expect(new.retire_prior_to <= new.sequence_number);
-            try testing.expect(new.connection_id.len >= constants.connection_id_len_min);
-            try testing.expect(new.connection_id.len <= constants.connection_id_len_max);
+            try testing.expect(new.connection_id.len >= constants.protocol.connection_id_len_min);
+            try testing.expect(new.connection_id.len <= constants.protocol.connection_id_len_max);
         },
         // RFC 9000 §19.19: a transport close names a frame type and an application close does not.
         .connection_close => |close| try testing.expectEqual(close.layer == .transport, close.frame_type != null),
@@ -98,7 +98,7 @@ fn expect_round_trip(read: Frame, read_type: u64) !void {
     var writer = Writer.init(&fuzz_written);
     try frame.write(&writer, read);
     const offset_dropped = read == .stream and read.stream.offset == 0;
-    const expected_type = if (offset_dropped) read_type & ~constants.stream_flag_off else read_type;
+    const expected_type = if (offset_dropped) read_type & ~constants.protocol.stream_flag_off else read_type;
     try testing.expectEqual(expected_type, try type_at(Reader.init(writer.written())));
     var reader = Reader.init(writer.written());
     const again = try frame.read(&reader);

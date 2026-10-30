@@ -17,7 +17,7 @@ const testing = std.testing;
 
 /// RFC 9000 §18.2's default max_ack_delay, in the unit RFC 9002 counts in. §13.2.1 makes it the
 /// deadline every ack-eliciting packet must be acknowledged by.
-const test_max_ack_delay_ns: u64 = constants.max_ack_delay_default_ns;
+const test_max_ack_delay_ns: u64 = constants.protocol.max_ack_delay_default_ns;
 /// An instant inside that delay, so a case about §13.2.2's count is not answered by the deadline.
 const before_delay_milliseconds: u64 = 5;
 const before_delay_ns: u64 = before_delay_milliseconds * millisecond_ns;
@@ -58,8 +58,8 @@ test "§12.3: numbers start at 0, rise by one, and are never reused" {
     try testing.expectEqual(1, try test_space.next_number());
     try testing.expectEqual(2, try test_space.next_number());
     // RFC 9000 §12.3: at 2^62-1 the sender stops rather than reusing a number.
-    test_space.next_packet_number = constants.packet_number_max;
-    try testing.expectEqual(constants.packet_number_max, try test_space.next_number());
+    test_space.next_packet_number = constants.protocol.packet_number_max;
+    try testing.expectEqual(constants.protocol.packet_number_max, try test_space.next_number());
     try testing.expectError(error.PacketNumbersExhausted, test_space.next_number());
 }
 
@@ -123,7 +123,7 @@ test "§13.4.1: the counts rise per codepoint, once per packet, and never for a 
     try testing.expectEqual(frame.EcnCounts{ .ect_0 = 1, .ect_1 = 1, .ecn_ce = 1 }, ack.ecn.?);
     var writer = Writer.init(&buffer);
     _ = try test_space.write_ack(&writer, 4 * millisecond_ns, no_exponent, true);
-    try testing.expectEqual(constants.frame_ack_ecn, writer.written()[0]);
+    try testing.expectEqual(constants.protocol.frame_ack_ecn, writer.written()[0]);
 }
 
 test "§13.2.1, §13.2.2: an ACK is owed after two, at once when out of order or marked" {

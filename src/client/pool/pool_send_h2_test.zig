@@ -122,7 +122,7 @@ test "decision 125: a cancel gives a blocked h2 connection its next send, for it
 
 /// More requests than the slots of one connection hold, their memory and their bodies.
 /// Test-only.
-const many_count: u16 = constants.requests_max + many_waiting;
+const many_count: u16 = constants.limits.requests_max + many_waiting;
 const many_waiting: u16 = 4;
 var many_memory: [ConnectionPool.memory_bytes(.{ .requests = many_count })]u8 align(ConnectionPool.memory_alignment) = undefined;
 var many_bodies: [many_count][body_len]u8 = undefined;
@@ -149,10 +149,10 @@ test "decision 125: exchanges past an h2 connection's slots wait for a slot, and
     try collect();
     // RFC 9113 §9.1: one h2 connection, whose slots take `requests_max` requests.
     try testing.expectEqual(1, count(.open));
-    try testing.expectEqual(many_count - constants.requests_max, waiting());
+    try testing.expectEqual(many_count - constants.limits.requests_max, waiting());
     // A cancel frees a slot, which the oldest waiting exchange takes.
     pool.cancel(first);
     try collect();
-    try testing.expectEqual(many_count - constants.requests_max - 1, waiting());
+    try testing.expectEqual(many_count - constants.limits.requests_max - 1, waiting());
     try testing.expectEqual(1, count(.open));
 }

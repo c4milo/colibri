@@ -31,16 +31,16 @@ const QuicConnection = quic.Connection;
 
 /// The octets one QPACK insert takes at most (decision 76), which is the room the encoder
 /// stream's buffer is cleared for before a section is encoded.
-const insert_len_max: usize = qpack.constants.dynamic_table_capacity_max / qpack.constants.insert_size_divisor;
+const insert_len_max: usize = qpack.constants.limits.dynamic_table_capacity_max / qpack.constants.policy.insert_size_divisor;
 
 pub const Local = struct {
     /// The three streams, once `start` opened them.
     control_id: ?u64,
     encoder_id: ?u64,
     decoder_id: ?u64,
-    control: send_buffer.SendBuffer(constants.control_buffer_len),
-    encoder: send_buffer.SendBuffer(constants.encoder_buffer_len),
-    decoder: send_buffer.SendBuffer(constants.decoder_buffer_len),
+    control: send_buffer.SendBuffer(constants.limits.control_buffer_len),
+    encoder: send_buffer.SendBuffer(constants.limits.encoder_buffer_len),
+    decoder: send_buffer.SendBuffer(constants.limits.decoder_buffer_len),
 
     pub fn init(local: *Local) void {
         local.control_id = null;
@@ -101,11 +101,11 @@ fn open(connection: *Connection, transport: *QuicConnection) Error!u64 {
     const id = quic.connection_stream_send.open(transport, .unidirectional) catch
         // RFC 9114 §6.2: "the transport parameters sent by both clients and servers MUST allow
         // the peer to create at least three unidirectional streams".
-        return connection.fail(transport, constants.error_general_protocol);
+        return connection.fail(transport, constants.protocol.error_general_protocol);
     // The three go out before any request stream: an insert on the encoder stream then leaves
     // before the field sections that reference it, so fewer of them block (RFC 9204 §2.1.2), and
     // SETTINGS before the first request's response.
-    quic.connection_stream_send.set_priority(transport, id, constants.local_stream_priority) catch unreachable;
+    quic.connection_stream_send.set_priority(transport, id, constants.policy.local_stream_priority) catch unreachable;
     return id.value;
 }
 
@@ -120,9 +120,9 @@ fn write_header(buffer: anytype, kind: stream.Kind) void {
 /// setting drawn from the caller's grease value.
 fn settings_of(connection: *const Connection) frame.Settings {
     const qpack_settings = connection.options.qpack;
-    const n = connection.options.grease % constants.grease_range;
+    const n = connection.options.grease % constants.protocol.grease_range;
     return .{
-        .max_field_section_size = core.constants.field_section_size_max,
+        .max_field_section_size = core.constants.limits.field_section_size_max,
         .qpack_max_table_capacity = if (qpack_settings.max_table_capacity == 0) null else qpack_settings.max_table_capacity,
         .qpack_blocked_streams = if (qpack_settings.blocked_streams == 0) null else qpack_settings.blocked_streams,
         // §7.2.4.1: "Endpoints SHOULD include at least one such setting", and its value "can be
@@ -137,7 +137,7 @@ fn supply(connection: *Connection, transport: *QuicConnection, id: u64, end: u64
     quic.connection_stream_send.supply(transport, .{ .value = id }, end, false) catch |failure| switch (failure) {
         // The peer's STOP_SENDING reset it, though §6.2.1 says "the receiver MUST NOT request
         // that the sender close the control stream", and RFC 9204 §4.2 says the same of QPACK's.
-        error.NotWritable => return connection.fail(transport, constants.error_closed_critical_stream),
+        error.NotWritable => return connection.fail(transport, constants.protocol.error_closed_critical_stream),
         // A buffer never holds more than 2^62 octets over a connection's life.
         error.OffsetTooLarge, error.NotReadable => unreachable,
     };
@@ -150,7 +150,7 @@ fn make_room(connection: *Connection, transport: *QuicConnection, buffer: anytyp
     // Null means `quic` reads none of the stream again: it was reset, which only a peer's
     // STOP_SENDING does to these three, and §6.2.1 and RFC 9204 §4.2 forbid it.
     const end = quic.connection_stream_acknowledged.acknowledged_end(transport, .{ .value = id }) orelse
-        return connection.fail(transport, constants.error_closed_critical_stream);
+        return connection.fail(transport, constants.protocol.error_closed_critical_stream);
     buffer.drop_acknowledged(end);
 }
 
@@ -159,7 +159,7 @@ pub fn flush_decoder(connection: *Connection, transport: *QuicConnection) Error!
     const local = &connection.local;
     const id = local.decoder_id orelse return;
     if (!connection.decoder.owes()) return;
-    const wanted = (connection.decoder.owed_len + 1) * constants.decoder_instruction_len_max;
+    const wanted = (connection.decoder.owed_len + 1) * constants.protocol.decoder_instruction_len_max;
     try make_room(connection, transport, &local.decoder, id, wanted);
     var writer = local.decoder.free();
     connection.decoder.write_decoder_stream(&writer);
@@ -181,7 +181,7 @@ pub fn encoder_room(connection: *Connection, transport: *QuicConnection) Error!W
     // writes an instruction whole or not at all, so a writer no longer than the credit is enough.
     // Null means the peer's STOP_SENDING reset the stream, which RFC 9204 §4.2 forbids.
     const credit = quic.connection_stream_credit.send_credit(transport, .{ .value = id }) orelse
-        return connection.fail(transport, constants.error_closed_critical_stream);
+        return connection.fail(transport, constants.protocol.error_closed_critical_stream);
     const free = local.encoder.free();
     return Writer.init(free.buffer[0..@intCast(@min(free.remaining_len(), credit))]);
 }
@@ -210,9 +210,9 @@ pub fn write_goaway(connection: *Connection, transport: *QuicConnection) connect
     };
     // §5.2: an identifier "MUST NOT be greater than the identifier in any previous frame".
     const value = if (connection.goaway_sent) |previous| @min(previous, named) else named;
-    try make_room(connection, transport, &local.control, id, constants.frame_header_len_max);
+    try make_room(connection, transport, &local.control, id, constants.protocol.frame_header_len_max);
     var writer = local.control.free();
-    try frame_write.write_single(&writer, constants.frame_goaway, value);
+    try frame_write.write_single(&writer, constants.protocol.frame_goaway, value);
     local.control.commit(writer.written());
     connection.goaway_sent = value;
     connection_qlog.frame_event(connection, .created, id, .{ .goaway = .{ .id = value, .payload_len = wire.varint.encoded_len_minimal(value) } });

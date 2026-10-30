@@ -44,7 +44,7 @@ const static_prefix_len: usize = 2;
 fn write(stream_id: u64, lines: []const Line, indexing: Indexing) !void {
     test_section.init();
     for (lines) |line| try test_section.append(line[0], line[1]);
-    var choices: [core.constants.field_count_max]Indexing = undefined;
+    var choices: [core.constants.limits.field_count_max]Indexing = undefined;
     @memset(choices[0..lines.len], indexing);
     var output = Writer.init(&section_octets);
     var encoder_stream = Writer.init(&stream_octets);
@@ -280,10 +280,10 @@ test "a section that does not fit writes nothing, and its inserts are still owed
 }
 
 test "colibri's bound on outstanding sections: past it a section references nothing dynamic" {
-    start_pair(.{ .max_table_capacity = example_capacity, .blocked_streams = constants.blocked_streams_max });
+    start_pair(.{ .max_table_capacity = example_capacity, .blocked_streams = constants.limits.blocked_streams_max });
     try write(stream_zero, &.{.{ "x-a", "1" }}, .may_insert);
-    for (0..constants.outstanding_sections_max - 1) |step| try write(step + 1, &.{.{ "x-a", "1" }}, .may_insert);
-    try testing.expectEqual(constants.outstanding_sections_max, test_encoder.state.len);
+    for (0..constants.limits.outstanding_sections_max - 1) |step| try write(step + 1, &.{.{ "x-a", "1" }}, .may_insert);
+    try testing.expectEqual(constants.limits.outstanding_sections_max, test_encoder.state.len);
     try write(stream_zero, &.{.{ "x-a", "1" }}, .may_insert);
     try testing.expectEqualSlices(u8, &.{ 0x00, 0x00 }, written_section[0..2]);
 }
@@ -347,8 +347,8 @@ test "§4.5.1.1: the Required Insert Count is encoded against the peer's maximum
     // A peer maximum of 32,768 gives MaxEntries 1,024 and a full range of 2,048, where colibri's
     // own 16,384 would give 1,024.
     test_encoder.init(.never);
-    test_encoder.on_settings(.{ .max_table_capacity = 2 * constants.dynamic_table_capacity_max, .blocked_streams = 1 });
-    try testing.expectEqual(constants.dynamic_table_capacity_max, test_encoder.capacity());
+    test_encoder.on_settings(.{ .max_table_capacity = 2 * constants.limits.dynamic_table_capacity_max, .blocked_streams = 1 });
+    try testing.expectEqual(constants.limits.dynamic_table_capacity_max, test_encoder.capacity());
     var value: [8]u8 = undefined;
     // Bounded: one insert per section, each acknowledged at once.
     for (0..insert_count_past_range) |step| {
@@ -382,7 +382,7 @@ test "§2.1.1: an entry is not evicted before its insertion is acknowledged, ref
 }
 
 fn fuzz_decoder_stream(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [constants.fuzz_input_len_max]u8 = @splat(0);
+    var input: [constants.limits.fuzz_input_len_max]u8 = @splat(0);
     const octets = input[0..smith.slice(&input)];
     // One section outstanding on stream 0, which references one insert.
     start_pair(.{ .max_table_capacity = example_capacity, .blocked_streams = 1 });

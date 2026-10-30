@@ -81,7 +81,7 @@ pub fn validate_name(name: []const u8) NameError!void {
     // RFC 9110 §5.6.2: a token is one or more tchar, so an empty name is not a token.
     if (name.len == 0) return error.FieldNameEmpty;
     // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
-    if (name.len > limits.field_name_len_max) return error.FieldNameTooLong;
+    if (name.len > limits.limits.field_name_len_max) return error.FieldNameTooLong;
     for (name) |octet| {
         // RFC 9110 §5.1: field-name = token; RFC 9110 §5.6.2: token = 1*tchar.
         if (!is_tchar(octet)) return error.FieldNameNotToken;
@@ -91,7 +91,7 @@ pub fn validate_name(name: []const u8) NameError!void {
 /// Checks that `value` is a field value (RFC 9110 §5.5) no longer than colibri accepts.
 pub fn validate_value(value: []const u8) ValueError!void {
     // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
-    if (value.len > limits.field_value_len_max) return error.FieldValueTooLong;
+    if (value.len > limits.limits.field_value_len_max) return error.FieldValueTooLong;
     // A value of `word_len` octets or more in which `field_value.has_control` finds no control
     // octet holds no class, and the loop is skipped. Otherwise every octet's class is read and no
     // octet ends the loop, so a pass is a table read and an OR. Which octet held a class does not
@@ -192,9 +192,9 @@ test "a field name is a non-empty token within the limit" {
     try testing.expectError(error.FieldNameNotToken, validate_name(":path"));
     try testing.expectError(error.FieldNameNotToken, validate_name("bad name"));
     try testing.expectError(error.FieldNameNotToken, validate_name("caf\xc3\xa9"));
-    const too_long: [limits.field_name_len_max + 1]u8 = @splat('a');
+    const too_long: [limits.limits.field_name_len_max + 1]u8 = @splat('a');
     try testing.expectError(error.FieldNameTooLong, validate_name(&too_long));
-    try validate_name(too_long[0..limits.field_name_len_max]);
+    try validate_name(too_long[0..limits.limits.field_name_len_max]);
 }
 
 test "a field value admits VCHAR, obs-text and inner whitespace" {
@@ -203,12 +203,12 @@ test "a field value admits VCHAR, obs-text and inner whitespace" {
     try validate_value("a\tb c");
     try validate_value("\x80\xff");
     try validate_value("x");
-    const at_limit: [limits.field_value_len_max]u8 = @splat('v');
+    const at_limit: [limits.limits.field_value_len_max]u8 = @splat('v');
     try validate_value(&at_limit);
 }
 
 test "a field value is refused in check order" {
-    const too_long: [limits.field_value_len_max + 1]u8 = @splat(0);
+    const too_long: [limits.limits.field_value_len_max + 1]u8 = @splat(0);
     try testing.expectError(error.FieldValueTooLong, validate_value(&too_long));
     try testing.expectError(error.FieldValueNulCarriageReturnOrLineFeed, validate_value("a\x00b"));
     try testing.expectError(error.FieldValueNulCarriageReturnOrLineFeed, validate_value("a\rb"));
@@ -253,7 +253,7 @@ test "field names compare case-insensitively" {
 }
 
 fn fuzz_validate(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [limits.field_name_len_max + 1]u8 = @splat(0);
+    var input: [limits.limits.field_name_len_max + 1]u8 = @splat(0);
     const input_len = smith.slice(&input);
     const bytes = input[0..input_len];
     if (validate_name(bytes)) {
@@ -315,7 +315,7 @@ test "sweep: every name or value of up to two octets that validates holds no for
 /// The reference: `validate_value` as it was, octet by octet.
 fn validate_value_by_octet(value: []const u8) ValueError!void {
     // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
-    if (value.len > limits.field_value_len_max) return error.FieldValueTooLong;
+    if (value.len > limits.limits.field_value_len_max) return error.FieldValueTooLong;
     var control_seen = false;
     for (value) |octet| {
         const forbidden = octet == 0x00 or octet == '\r' or octet == '\n';
@@ -430,9 +430,9 @@ test "validate_value reports the reason the reference reports when two octets ar
 }
 
 test "validate_value gives the reference's verdict at the longest value and one octet past it" {
-    var buffer: [limits.field_value_len_max + 1]u8 = @splat('v');
+    var buffer: [limits.limits.field_value_len_max + 1]u8 = @splat('v');
     try expect_same(&buffer);
-    const longest = buffer[0..limits.field_value_len_max];
+    const longest = buffer[0..limits.limits.field_value_len_max];
     try expect_same(longest);
     // A control octet at the last place the loop reads, and NUL there.
     longest[longest.len - 1] = 0x7f;
@@ -444,7 +444,7 @@ test "validate_value gives the reference's verdict at the longest value and one 
 }
 
 test "validate_value gives the reference's verdict for an octet far inside the longest value" {
-    var buffer: [limits.field_value_len_max]u8 = @splat('v');
+    var buffer: [limits.limits.field_value_len_max]u8 = @splat('v');
     // Places the sweeps above do not reach: each power of two below the length.
     for (0..std.math.log2_int(usize, buffer.len)) |bit| {
         const position = @as(usize, 1) << @intCast(bit);
@@ -457,7 +457,7 @@ test "validate_value gives the reference's verdict for an octet far inside the l
 }
 
 test "validate_value gives the reference's verdict for a control octet at every offset of the longest value" {
-    var buffer: [limits.field_value_len_max]u8 = @splat('v');
+    var buffer: [limits.limits.field_value_len_max]u8 = @splat('v');
     for (0..buffer.len) |position| {
         buffer[position] = 0x01;
         try expect_same(&buffer);

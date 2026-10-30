@@ -132,7 +132,7 @@ pub fn write_blocked(connection: *Connection, level: Level, writer: *Writer, num
 /// frames.
 pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Record) void {
     if (level != .application) return;
-    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    // Bounded by the slice the caller placed, which `constants.limits.sent_packets_max` sizes.
     for (lost) |record| {
         connection.max_data.on_lost(record.number);
         connection.data_blocked.on_lost(record.number);
@@ -201,7 +201,7 @@ pub fn blocked_deadline_ns(connection: *Connection) ?u64 {
     if (ack_eliciting_in_flight(connection)) return null;
     if (!is_flow_limited(connection)) return null;
     const probe_timeout_ns = connection.recovery.rtt.probe_timeout_ns(true);
-    return since_ns +| constants.blocked_repeat_probe_timeouts *| probe_timeout_ns;
+    return since_ns +| constants.policy.blocked_repeat_probe_timeouts *| probe_timeout_ns;
 }
 
 /// Owes again each DATA_BLOCKED and STREAM_DATA_BLOCKED frame whose limit still holds octets back,

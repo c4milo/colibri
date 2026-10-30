@@ -14,7 +14,7 @@ const Error = connection_module.Error;
 const Protocol = event.Protocol;
 const ConnectionResult = event.ConnectionResult;
 
-const preface = h2.constants.client_preface;
+const preface = h2.constants.protocol.client_preface;
 
 /// Chooses the protocol from the octets `input` holds, and then reads it from them. Until they
 /// choose, nothing is consumed: the caller passes them again with what it reads next.

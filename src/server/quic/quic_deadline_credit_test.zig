@@ -31,7 +31,7 @@ const content: [content_len]u8 = @splat('c');
 const idle_short_seconds: u64 = 5;
 const idle_short_ns: u64 = idle_short_seconds * constants.nanoseconds_per_second;
 /// From the start of a body's wait to the end of its first window.
-const first_window_ns: u64 = constants.rate_grace_ns + constants.rate_window_ns;
+const first_window_ns: u64 = constants.policy.rate_grace_ns + constants.policy.rate_window_ns;
 
 /// A connected pair whose server grants windows of `pool_len` octets and goes idle after
 /// `idle_ns`.
@@ -95,7 +95,7 @@ fn expect_idle_at(at_ns: u64) !void {
 }
 
 test "decision 110 as amended: a head waits while the server holds credit, and its deadline moves by the time it was held" {
-    try connected(constants.idle_timeout_ns);
+    try connected(constants.policy.idle_timeout_ns);
     // No body deadline runs, so none comes before the head's.
     try connection.set_timeouts(.{ .body_rate_min = null, .body_ns = null });
     const open = try post_holding();
@@ -107,10 +107,10 @@ test "decision 110 as amended: a head waits while the server holds credit, and i
     try support.pump(rounds_few);
     const held_ns = connection.clock.credit_held_since_ns.?;
     try testing.expectEqual(null, quic_deadline.soonest(connection));
-    server_at(since_ns + constants.head_timeout_ns);
+    server_at(since_ns + constants.policy.head_timeout_ns);
     try testing.expectEqual(late.id, connection.h3.oldest_head_wait().?.stream_id);
     const released_ns = try empty_window(window);
-    const at_ns = since_ns + (released_ns - held_ns) + constants.head_timeout_ns;
+    const at_ns = since_ns + (released_ns - held_ns) + constants.policy.head_timeout_ns;
     try testing.expectEqual(at_ns, quic_deadline.soonest(connection).?);
     server_at(at_ns - 1);
     try testing.expectEqual(late.id, connection.h3.oldest_head_wait().?.stream_id);
@@ -157,7 +157,7 @@ test "decision 110 as amended: a connection that goes idle while the server hold
 }
 
 test "decision 110 as amended: a body's rate waits while the server holds credit, and starts again with a grace period" {
-    try connected(constants.idle_timeout_ns);
+    try connected(constants.policy.idle_timeout_ns);
     const fetch = try post_holding();
     const record = connection.requests.of(fetch.id).?;
     const since_ns = connection.bodies.entries[connection.requests.index_of(record)].since_ns;
@@ -166,7 +166,7 @@ test "decision 110 as amended: a body's rate waits while the server holds credit
     try support.pump(rounds_few);
     try testing.expect(connection.clock.credit_held_since_ns != null);
     // The meters wait, and the cap goes on.
-    try testing.expectEqual(since_ns + constants.body_timeout_ns, quic_deadline.soonest(connection).?);
+    try testing.expectEqual(since_ns + constants.policy.body_timeout_ns, quic_deadline.soonest(connection).?);
     server_at(since_ns + first_window_ns);
     const released_ns = try empty_window(window);
     const at_ns = released_ns + first_window_ns;

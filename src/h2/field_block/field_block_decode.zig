@@ -35,8 +35,8 @@ const Error = field_block.Error;
 
 comptime {
     // A decoded name or value fits the lengths `FieldSection.append` asserts.
-    assert(hpack.constants.name_len_max <= core.constants.field_name_len_max);
-    assert(hpack.constants.value_len_max <= core.constants.field_value_len_max);
+    assert(hpack.constants.limits.name_len_max <= core.constants.limits.field_name_len_max);
+    assert(hpack.constants.limits.value_len_max <= core.constants.limits.field_value_len_max);
 }
 
 /// Decodes every whole representation in the buffer and returns the octets they took.
@@ -46,7 +46,7 @@ pub fn decode_whole(block: *FieldBlock, decoder: *hpack.Decoder) Error!usize {
     walk.fields = block.lines_decoded;
     walk.updates = block.size_updates;
     // A buffer of n octets holds at most n representations, and one more call finds the end.
-    for (0..constants.field_block_buffer_len + 1) |_| {
+    for (0..constants.limits.field_block_buffer_len + 1) |_| {
         const line = walk.next() catch |failure| {
             if (failure == error.Truncated) break;
             // RFC 9113 §4.3: a decoding error in a field block is a connection error of type
@@ -115,7 +115,7 @@ test "a representation cut by a fragment is kept as the tail, at the front, and 
 
 test "one literal cut twice, in its name and in its value, decodes once whole and is inserted once" {
     start(1, .headers, false);
-    test_encoder.init(constants.header_table_size_initial, .never);
+    test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var output = Writer.init(&support.test_frame);
     try test_encoder.write_field(&output, "custom-key", long_value[0..300], .incremental);
     const literal = output.written();
@@ -144,12 +144,12 @@ const refused_blocks = [_][]const u8{
     "\x82\x20",
     "\x3f\xe2\x1f",
     "\x20\x20\x20",
-    "\x40\x7f\x82\x01" ++ [_]u8{'a'} ** (hpack.constants.name_len_max + 1),
+    "\x40\x7f\x82\x01" ++ [_]u8{'a'} ** (hpack.constants.limits.name_len_max + 1),
     "\x40\x01a\x81\xff",
     "\x40\x01a\x81\x00",
     "\x40\x01a\x84\xff\xff\xff\xff",
-    "\xff" ++ "\x80" ** (wire.constants.integer_len_max - 1),
-    "\xff" ** (wire.constants.integer_len_max - 1) ++ "\x7f",
+    "\xff" ++ "\x80" ** (wire.constants.protocol.integer_len_max - 1),
+    "\xff" ** (wire.constants.protocol.integer_len_max - 1) ++ "\x7f",
 };
 
 test "every decoding error is refused as DecodeFailed and clears the slot" {
@@ -201,7 +201,7 @@ test "both counts are carried when a fragment ends inside a representation (RFC 
 
 test "a section past its size keeps decoding, and the later inserts are made in the dynamic table (invariant 10)" {
     start(1, .headers, false);
-    test_encoder.init(constants.header_table_size_initial, .never);
+    test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var output = Writer.init(&support.test_frame);
     try test_encoder.write_field(&output, "a", &long_value, .incremental);
     try testing.expectEqual(null, try test_block.feed(test_decoder, output.written(), false));
@@ -229,9 +229,9 @@ test "a section past its line count keeps decoding and reports too_large" {
     start(1, .headers, false);
     var output = Writer.init(&support.test_frame);
     // Three lines past the limit: the first is refused, and the two after it are still decoded.
-    for (0..core.constants.field_count_max + 3) |_| try output.write_bytes("\x00\x01n\x01v");
+    for (0..core.constants.limits.field_count_max + 3) |_| try output.write_bytes("\x00\x01n\x01v");
     const done = try test_block.feed(test_decoder, output.written(), true);
     try expect_done(done, .{ .stream_id = 1, .origin = .headers, .end_stream = false, .too_large = true });
-    try testing.expectEqual(core.constants.field_count_max, test_block.section.len());
-    try testing.expectEqual(core.constants.field_count_max + 3, test_block.lines_decoded);
+    try testing.expectEqual(core.constants.limits.field_count_max, test_block.section.len());
+    try testing.expectEqual(core.constants.limits.field_count_max + 3, test_block.lines_decoded);
 }

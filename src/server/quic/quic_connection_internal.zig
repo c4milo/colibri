@@ -106,7 +106,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
 /// RFC 9001 §8.2: the transport parameters travel in the handshake. `transport.init` wrote the
 /// connection IDs into them (RFC 9000 §7.3).
 fn hand_over_parameters(connection: *QuicConnection) StartError!void {
-    var encoded: [constants.quic_transport_parameters_len_max]u8 = undefined;
+    var encoded: [constants.limits.quic_transport_parameters_len_max]u8 = undefined;
     var writer = quic.core.Writer.init(&encoded);
     // RFC 9000 §18: the parameters are encoded before the handshake carries them.
     quic.transport_parameters.write(&writer, &connection.transport.local_parameters, .server) catch return error.TlsRefused;
@@ -236,11 +236,11 @@ fn issue_spare_ids(connection: *QuicConnection) void {
     if (connection.spare_ids_issued or !connection.transport.handshake_confirmed) return;
     const peer = connection.transport.peer_parameters orelse return;
     connection.spare_ids_issued = true;
-    const limit = @min(peer.active_connection_id_limit, quic.constants.connection_ids_max);
+    const limit = @min(peer.active_connection_id_limit, quic.constants.limits.connection_ids_max);
     // Bounded by `connection_ids_max`, a named limit.
     for (1..limit) |_| {
-        var id: [constants.quic_id_len]u8 = undefined;
-        var token: [quic.constants.stateless_reset_token_len]u8 = undefined;
+        var id: [constants.policy.quic_id_len]u8 = undefined;
+        var token: [quic.constants.protocol.stateless_reset_token_len]u8 = undefined;
         // RFC 9000 §5.1: an ID unlinkable to the others; §10.3: a token no one can guess.
         connection.random.bytes(&id);
         connection.random.bytes(&token);
@@ -295,13 +295,13 @@ fn parameters(config: *const Config, capacity: u64) Parameters {
     // RFC 9000 §4.1: flow control keeps a sender within "a receiver's buffer capacity", and the
     // pool is all the server holds (decision 61), so no window grants more than it.
     held.initial_max_data = capacity;
-    held.initial_max_stream_data_bidi_remote = @min(constants.quic_stream_window, capacity);
-    held.initial_max_stream_data_uni = @min(constants.quic_stream_window, capacity);
+    held.initial_max_stream_data_bidi_remote = @min(constants.policy.quic_stream_window, capacity);
+    held.initial_max_stream_data_uni = @min(constants.policy.quic_stream_window, capacity);
     // RFC 9000 §4.6: the client opens no more request streams at once than the server allows,
     // and a connection holds a record for each.
-    assert(config.requests_max > 0 and config.requests_max <= constants.quic_requests_max);
+    assert(config.requests_max > 0 and config.requests_max <= constants.limits.quic_requests_max);
     held.initial_max_streams_bidi = config.requests_max;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = config.idle_timeout_ms;
     return held;
 }

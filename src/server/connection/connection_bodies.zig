@@ -48,7 +48,7 @@ pub const Bodies = struct {
     /// Only the first `written` entries hold what a body wrote. `init` writes none of them, and a
     /// body writes the next entry when no freed entry is left. A connection seldom holds more than
     /// a few bodies, so `init` does not write all `bodies_max` entries on every connection.
-    entries: [constants.bodies_max]Body,
+    entries: [constants.limits.bodies_max]Body,
     /// The count of entries written since `init`.
     written: u32,
     /// The entries in use: those whose `id` is not 0. While it is 0 a lookup or a sweep reads no
@@ -60,7 +60,7 @@ pub const Bodies = struct {
     together: rate.Meter,
     /// The requests an h2 body deadline ended, oldest first, which `receive` reports before it
     /// reads more.
-    cancelled: [constants.bodies_max]Owed,
+    cancelled: [constants.limits.bodies_max]Owed,
     cancelled_first: u32,
     cancelled_len: u32,
 
@@ -240,7 +240,7 @@ fn cancel_stream(connection: *Connection, id: Number, passed: Timeout) void {
     // prepared to wait answers 408. RFC 9113 §8.1: after a complete response, RST_STREAM with
     // NO_ERROR asks the client to stop sending the request; a response that began, or found no
     // room, is cut short with CANCEL (RFC 9113 §6.4).
-    const code = if (write_timeout(connection, stream_id)) h2.constants.error_no_error else h2.constants.error_cancel;
+    const code = if (write_timeout(connection, stream_id)) h2.constants.protocol.error_no_error else h2.constants.protocol.error_cancel;
     session.reset_stream(stream_id, code) catch |failure| {
         assert(failure == error.StreamNotSendable);
     };

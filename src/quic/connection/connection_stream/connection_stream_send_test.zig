@@ -38,7 +38,7 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 pub var client: Connection align(@alignOf(Connection)) = undefined;
 pub var server: Connection align(@alignOf(Connection)) = undefined;
 pub var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
-pub var datagram: [constants.datagram_len_min]u8 = undefined;
+pub var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 pub var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 pub var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 
@@ -244,12 +244,12 @@ test "INV-33: each record names the ring position its own ranges start at" {
 }
 
 test "decision 131: a packet carries at most stream_frames_per_packet_max STREAM frames" {
-    const streams = constants.stream_frames_per_packet_max + 1;
+    const streams = constants.limits.stream_frames_per_packet_max + 1;
     open_pair(.{ .streams = streams });
     var body: Body = .{ .len = tiny_body_len };
     for (0..streams) |_| _ = try open_supplied(tiny_body_len, true);
     const first = (try send_from(&body, datagram.len)).?;
-    try testing.expectEqual(constants.stream_frames_per_packet_max, stream_ranges.count(try record_kept(first)));
+    try testing.expectEqual(constants.limits.stream_frames_per_packet_max, stream_ranges.count(try record_kept(first)));
     const second = (try send_from(&body, datagram.len)).?;
     try testing.expectEqual(1, stream_ranges.count(try record_kept(second)));
 }
@@ -260,7 +260,7 @@ test "INV-33: a ring with no room left sends one STREAM frame a packet" {
     _ = try open_supplied(tiny_body_len, true);
     const held = try record_kept((try send_from(&body, datagram.len)).?);
     // The held record is the ring's tail, and the head stands a whole ring past it.
-    client.stream_ranges.head = held.ranges_from +% @as(u32, constants.stream_ranges_max);
+    client.stream_ranges.head = held.ranges_from +% @as(u32, constants.limits.stream_ranges_max);
     _ = try open_supplied(tiny_body_len, true);
     _ = try open_supplied(tiny_body_len, true);
     const sent = (try send_from(&body, datagram.len)).?;
@@ -426,7 +426,7 @@ test "§2.1, §3.1: octets are supplied only on a stream this endpoint may still
     // Once ended, the final size is fixed (§4.5).
     try testing.expectError(stream_send.Error.NotWritable, stream_send.supply(&client, id, long_body_len, false));
     const other = try stream_send.open(&client, .bidirectional);
-    try testing.expectError(stream_send.Error.OffsetTooLarge, stream_send.supply(&client, other, constants.stream_offset_max + 1, false));
+    try testing.expectError(stream_send.Error.OffsetTooLarge, stream_send.supply(&client, other, constants.protocol.stream_offset_max + 1, false));
     // A stream the caller reset takes no more (§3.1: "Reset Sent" originates nothing).
     _ = stream_of(other).sending.on(.sent_reset);
     try testing.expectError(stream_send.Error.NotWritable, stream_send.supply(&client, other, 1, false));

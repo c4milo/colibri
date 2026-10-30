@@ -74,7 +74,7 @@ pub const Checked = struct {
         }
         if (checked.content_length.value) |value| {
             // RFC 9110 §8.6: Content-Length = 1*DIGIT, and colibri counts a length a u64 holds.
-            checked.content_length_octets = std.fmt.parseUnsigned(u64, value, http.constants.content_length_radix) catch null;
+            checked.content_length_octets = std.fmt.parseUnsigned(u64, value, http.constants.protocol.content_length_radix) catch null;
         }
         assert(checked.content_length_octets == null or checked.content_length.value != null);
     }

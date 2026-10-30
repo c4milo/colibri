@@ -210,7 +210,7 @@ fn is_lowercase_token(name: []const u8) bool {
     // RFC 9110 §5.6.2: a token is one or more tchar.
     if (name.len == 0) return false;
     // RFC 9110 §5.4 sets no limit on a field line, so colibri's name limit applies to what it sends.
-    if (name.len > core.constants.field_name_len_max) return false;
+    if (name.len > core.constants.limits.field_name_len_max) return false;
     for (name) |octet| {
         // RFC 9113 §8.2.1: a field name containing 0x41-0x5a, or an octet outside a token, is
         // malformed.
@@ -277,9 +277,9 @@ test "§8.3.1: a client opens stream 1 and writes the request pseudo-header fiel
     try start_client();
     const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     try testing.expectEqual(1, sent.stream_id);
-    try testing.expectEqual(constants.frame_type_headers, test_output[3]);
-    try testing.expectEqual(constants.flag_end_stream | constants.flag_end_headers, test_output[4]);
-    try testing.expect(sent.written > constants.frame_header_len);
+    try testing.expectEqual(constants.protocol.frame_type_headers, test_output[3]);
+    try testing.expectEqual(constants.protocol.flag_end_stream | constants.protocol.flag_end_headers, test_output[4]);
+    try testing.expect(sent.written > constants.protocol.frame_header_len);
     const record = test_connection.streams.lookup(1).live;
     // RFC 9113 §5.1: HEADERS with END_STREAM opens the stream and half-closes it at once.
     try testing.expectEqual(stream.State.half_closed_local, record.state);
@@ -354,7 +354,7 @@ test "§8.2 and §8.2.2: an uppercase name and a connection-specific line are re
 
 test "§6.8: no stream opens after a GOAWAY the peer sent" {
     try start_client();
-    const goaway = try support.frame_bytes(&support.test_input, constants.frame_type_goaway, 0, 0, "\x00\x00\x00\x00\x00\x00\x00\x00");
+    const goaway = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_goaway, 0, 0, "\x00\x00\x00\x00\x00\x00\x00\x00");
     _ = try support.feed(goaway);
     try testing.expectEqual(
         error.AfterGoawayReceived,
@@ -381,14 +381,14 @@ test "§8.1: the trailer section is the one after the final response" {
     const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     _ = try feed_response(sent.stream_id, "103", false);
     _ = try feed_response(sent.stream_id, "200", false);
-    var block: [constants.frame_size_max]u8 = undefined;
-    support.test_encoder.init(constants.header_table_size_initial, .never);
+    var block: [constants.limits.frame_size_max]u8 = undefined;
+    support.test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var writer = Writer.init(&block);
     try support.test_encoder.begin_block(&writer);
     try support.test_encoder.write_field(&writer, "grpc-status", "0", .without_indexing);
     support.test_encoder.commit_block();
-    const flags = constants.flag_end_headers | constants.flag_end_stream;
-    const bytes = try support.frame_bytes(&support.test_input, constants.frame_type_headers, flags, sent.stream_id, writer.written());
+    const flags = constants.protocol.flag_end_headers | constants.protocol.flag_end_stream;
+    const bytes = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_headers, flags, sent.stream_id, writer.written());
     const event = (try support.feed(bytes)).?;
     try testing.expectEqual(sent.stream_id, event.trailers.stream_id);
 }
@@ -398,20 +398,20 @@ test "§8.1.1: an interim response does not set the content-length the DATA is c
     const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // An interim response carrying content-length: its value belongs to no message, because the
     // message the final response begins is the one §8.1.1 compares.
-    var block: [constants.frame_size_max]u8 = undefined;
-    support.test_encoder.init(constants.header_table_size_initial, .never);
+    var block: [constants.limits.frame_size_max]u8 = undefined;
+    support.test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var writer = Writer.init(&block);
     try support.test_encoder.begin_block(&writer);
     try support.test_encoder.write_field(&writer, ":status", "103", .without_indexing);
     try support.test_encoder.write_field(&writer, "content-length", "5", .without_indexing);
     support.test_encoder.commit_block();
-    const interim = try support.frame_bytes(&support.test_input, constants.frame_type_headers, constants.flag_end_headers, sent.stream_id, writer.written());
+    const interim = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_headers, constants.protocol.flag_end_headers, sent.stream_id, writer.written());
     _ = try support.feed(interim);
     try testing.expectEqual(null, test_connection.streams.lookup(sent.stream_id).live.content_length);
     _ = try feed_response(sent.stream_id, "200", false);
     // Three octets end the stream, which a content-length of 5 left over from the interim
     // response would refuse.
-    const data = try support.frame_bytes(&support.test_input, constants.frame_type_data, constants.flag_end_stream, sent.stream_id, "abc");
+    const data = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_data, constants.protocol.flag_end_stream, sent.stream_id, "abc");
     const event = (try support.feed(data)).?;
     try testing.expectEqual(3, event.data.payload.len);
 }
@@ -420,9 +420,9 @@ test "§8.3: the block carries the pseudo-header fields, then the regular field 
     try start_client();
     const lines = [_]hpack.Field{.{ .name = "accept", .value = "*/*" }};
     const sent = try write_request(test_connection, test_output, test_request, &lines, &.{}, true);
-    hpack.decoder.test_decoder().init(constants.header_table_size_initial);
+    hpack.decoder.test_decoder().init(constants.protocol.header_table_size_initial);
     // RFC 9113 §8.3: all pseudo-header fields appear before the regular field lines.
-    try hpack.decoder.expect_lines(test_output[constants.frame_header_len..sent.written], &.{
+    try hpack.decoder.expect_lines(test_output[constants.protocol.frame_header_len..sent.written], &.{
         .{ .name = ":method", .value = "GET" },
         .{ .name = ":scheme", .value = "https" },
         .{ .name = ":authority", .value = "example.com" },
@@ -433,7 +433,7 @@ test "§8.3: the block carries the pseudo-header fields, then the regular field 
 
 /// The lines of one HEADERS block the tests wrote, with whether each is never indexed. Test-only.
 fn expect_never_indexed(block: []const u8, expected: []const bool) !void {
-    hpack.decoder.test_decoder().init(constants.header_table_size_initial);
+    hpack.decoder.test_decoder().init(constants.protocol.header_table_size_initial);
     var lines = hpack.decoder.test_decoder().block(block);
     for (expected) |never_indexed| {
         const line = (try lines.next()) orelse return error.TestUnexpectedResult;
@@ -454,7 +454,7 @@ test "RFC 7541 §6.2.3: the lines a caller marks go out never indexed, and no ot
     const sent = try write_request(test_connection, test_output, marked, &lines, &.{ .without_indexing, .never_indexed }, true);
     // RFC 7541 §7.1.3: an intermediary MUST NOT index a line sent in this representation, so the
     // DoH query in :path and the credential stay out of every table on the path.
-    try expect_never_indexed(test_output[constants.frame_header_len..sent.written], &.{ false, false, false, true, false, true });
+    try expect_never_indexed(test_output[constants.protocol.frame_header_len..sent.written], &.{ false, false, false, true, false, true });
     // `Indexing`: no choice a request offers inserts, so the block leaves the tables as they were.
     try testing.expectEqual(0, test_connection.encoder.table.count);
 }
@@ -463,7 +463,7 @@ test "RFC 7541 §6.2.2: a request the caller marks nothing on writes every line 
     try start_client();
     const lines = [_]hpack.Field{.{ .name = "accept", .value = "*/*" }};
     const sent = try write_request(test_connection, test_output, test_request, &lines, &.{}, true);
-    try expect_never_indexed(test_output[constants.frame_header_len..sent.written], &.{ false, false, false, false, false });
+    try expect_never_indexed(test_output[constants.protocol.frame_header_len..sent.written], &.{ false, false, false, false, false });
     try testing.expectEqual(0, test_connection.encoder.table.count);
 }
 
@@ -471,9 +471,9 @@ test "§8.5: a CONNECT block carries :method and :authority alone" {
     try start_client();
     const connect: Request = .{ .method = "CONNECT", .authority = "example.com:443" };
     const sent = try write_request(test_connection, test_output, connect, &.{}, &.{}, false);
-    hpack.decoder.test_decoder().init(constants.header_table_size_initial);
+    hpack.decoder.test_decoder().init(constants.protocol.header_table_size_initial);
     // RFC 9113 §8.5: the :scheme and :path pseudo-header fields are omitted.
-    try hpack.decoder.expect_lines(test_output[constants.frame_header_len..sent.written], &.{
+    try hpack.decoder.expect_lines(test_output[constants.protocol.frame_header_len..sent.written], &.{
         .{ .name = ":method", .value = "CONNECT" },
         .{ .name = ":authority", .value = "example.com:443" },
     });
@@ -482,16 +482,16 @@ test "§8.5: a CONNECT block carries :method and :authority alone" {
 test "RFC 7541 §4.2: a table-size change is declared once and not repeated on the next request" {
     try start_client();
     // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
-    const settings = try support.frame_bytes(&support.test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
+    const settings = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
     _ = try support.feed(settings);
     const first = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // RFC 7541 §4.2: the block opens with the size update the change owes.
-    try testing.expectEqual(0x3f, test_output[constants.frame_header_len]);
-    try testing.expectEqual(0x45, test_output[constants.frame_header_len + 1]);
+    try testing.expectEqual(0x3f, test_output[constants.protocol.frame_header_len]);
+    try testing.expectEqual(0x45, test_output[constants.protocol.frame_header_len + 1]);
     _ = first;
     _ = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // The first block reached the peer, so the second owes nothing.
-    try testing.expect(test_output[constants.frame_header_len] != 0x3f);
+    try testing.expect(test_output[constants.protocol.frame_header_len] != 0x3f);
 }
 
 test {

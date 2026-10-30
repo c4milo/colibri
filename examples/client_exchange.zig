@@ -90,7 +90,7 @@ const now_seconds = identity.now_seconds;
 comptime {
     // The link's queue holds what the program read of the TCP socket. It holds the octets of each
     // unit that the pool takes whole.
-    std.debug.assert(link_module.queue_len_max >= client.constants.stream_input_len_min);
+    std.debug.assert(link_module.queue_len_max >= client.constants.limits.stream_input_len_min);
 }
 
 pub const Error = error{
@@ -106,7 +106,7 @@ var link: Link align(@alignOf(Link)) = undefined;
 var datagram_link: DatagramLink align(@alignOf(DatagramLink)) = undefined;
 /// What `send_stream` writes, which the link then sends. It holds the largest TLS record, so the
 /// TLS stack never refuses it for its length.
-var output: [client.constants.stream_output_len_min]u8 = undefined;
+var output: [client.constants.limits.stream_output_len_min]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 
 // The client: one configuration for the origin, the receive pool where its QUIC connection holds

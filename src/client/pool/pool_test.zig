@@ -251,9 +251,9 @@ fn Tests(comptime Pool: type) type {
 
         test "a pool holds requests_max requests at once, and refuses one more" {
             try start_tcp_only();
-            var exchanges: [constants.requests_max + 1]Exchange = @splat(get(&bodies[0]));
-            for (exchanges[0..constants.requests_max]) |*exchange| _ = try pool.request(&exchange.request, &exchange.response);
-            try testing.expectError(error.Full, pool.request(&exchanges[constants.requests_max].request, &exchanges[constants.requests_max].response));
+            var exchanges: [constants.limits.requests_max + 1]Exchange = @splat(get(&bodies[0]));
+            for (exchanges[0..constants.limits.requests_max]) |*exchange| _ = try pool.request(&exchange.request, &exchange.response);
+            try testing.expectError(error.Full, pool.request(&exchanges[constants.limits.requests_max].request, &exchanges[constants.limits.requests_max].response));
         }
 
         test "what a transport with no running connection read is dropped" {
@@ -362,7 +362,7 @@ fn Tests(comptime Pool: type) type {
         /// then `payload`, which is the frame's payload or the first octets of it.
         fn peer_headers(payload_len: u32, payload: []const u8) !void {
             var frame = h2.core.Writer.init(support.to_client[support.to_client_len..]);
-            try h2.frame.write_header(&frame, .{ .length = payload_len, .type = h2.constants.frame_type_headers, .flags = h2.constants.flag_end_headers, .stream_id = 1 });
+            try h2.frame.write_header(&frame, .{ .length = payload_len, .type = h2.constants.protocol.frame_type_headers, .flags = h2.constants.protocol.flag_end_headers, .stream_id = 1 });
             try frame.write_bytes(payload);
             support.to_client_len += frame.written().len;
         }
@@ -409,7 +409,7 @@ fn Tests(comptime Pool: type) type {
         /// 9113 §6.8). The pool reads it, and the connection's `close` and the next `open`
         /// follow.
         fn goaway_first() !void {
-            support.peer_h2.shutdown(h2.constants.error_no_error);
+            support.peer_h2.shutdown(h2.constants.protocol.error_no_error);
             support.peer_h2_owe();
             try collect(&pool);
             // The draining connection writes what it owes, its GOAWAY last, and no request.

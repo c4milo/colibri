@@ -65,7 +65,7 @@ const version_dot = '.';
 
 /// `request-line = method SP request-target SP HTTP-version` (RFC 9112 §3).
 pub fn parse_request_line(line: []const u8) Error!RequestLine {
-    assert(line.len <= constants.start_line_len_max);
+    assert(line.len <= constants.limits.start_line_len_max);
     // RFC 9112 §3: the method ends at the first SP.
     const method, const rest = std.mem.cutScalar(u8, line, separator) orelse
         return error.StartLineInvalid;
@@ -83,14 +83,14 @@ pub fn parse_request_line(line: []const u8) Error!RequestLine {
 
 /// `status-line = HTTP-version SP status-code SP [ reason-phrase ]` (RFC 9112 §4).
 pub fn parse_status_line(line: []const u8) Error!StatusLine {
-    assert(line.len <= constants.start_line_len_max);
+    assert(line.len <= constants.limits.start_line_len_max);
     var reader = Reader.init(line);
     // RFC 9112 §4: a status line starts with the HTTP-version.
-    const version_octets = reader.take(constants.version_len) catch return error.StartLineInvalid;
+    const version_octets = reader.take(constants.protocol.version_len) catch return error.StartLineInvalid;
     const version = try parse_version(version_octets);
     try expect_separator(&reader);
     // RFC 9112 §4: status-code = 3DIGIT, after the first SP.
-    const digits = reader.take(http.constants.status_digits_len) catch return error.StartLineInvalid;
+    const digits = reader.take(http.constants.protocol.status_digits_len) catch return error.StartLineInvalid;
     // RFC 9112 §4: status-code = 3DIGIT; RFC 9110 §15: from 100 to 599.
     const status = http.Status.from_digits(digits) catch return error.StatusInvalid;
     // RFC 9112 §4: a server MUST send the SP after the status code even when the reason phrase
@@ -115,11 +115,11 @@ fn expect_separator(reader: *Reader) Error!void {
 /// `%s` marks a string that matches only as written (RFC 7405 §2.1).
 fn parse_version(octets: []const u8) Error!Version {
     // RFC 9112 §2.3: exactly the name, a slash, a digit, a dot and a digit.
-    if (octets.len != constants.version_len) return error.VersionInvalid;
+    if (octets.len != constants.protocol.version_len) return error.VersionInvalid;
     var reader = Reader.init(octets);
-    const name = reader.take(constants.version_name.len) catch unreachable;
+    const name = reader.take(constants.protocol.version_name.len) catch unreachable;
     // RFC 9112 §2.3: HTTP-version is case-sensitive, so "http/1.1" is not one.
-    if (!std.mem.eql(u8, name, constants.version_name)) return error.VersionInvalid;
+    if (!std.mem.eql(u8, name, constants.protocol.version_name)) return error.VersionInvalid;
     const major = reader.read_byte() catch unreachable;
     const dot = reader.read_byte() catch unreachable;
     const minor = reader.read_byte() catch unreachable;
@@ -130,7 +130,7 @@ fn parse_version(octets: []const u8) Error!Version {
     const version: Version = .{ .major = major - '0', .minor = minor - '0' };
     // RFC 9110 §2.5: a different major version is a different protocol, which this module does
     // not speak.
-    if (version.major != constants.version_major) return error.VersionUnsupported;
+    if (version.major != constants.protocol.version_major) return error.VersionUnsupported;
     return version;
 }
 

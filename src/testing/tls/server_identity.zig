@@ -18,9 +18,9 @@ const chain_len: usize = 2;
 pub const Storage = struct {
     leaf: [constants.tls_der_len_max]u8,
     issuer: [constants.tls_der_len_max]u8,
-    private_key: [tls.constants.p256_private_key_len]u8,
-    public_key: [tls.constants.p256_public_key_len]u8,
-    cookie_key: [tls.constants.server_key_len]u8,
+    private_key: [tls.constants.protocol.p256_private_key_len]u8,
+    public_key: [tls.constants.protocol.p256_public_key_len]u8,
+    cookie_key: [tls.constants.protocol.server_key_len]u8,
     /// The end-entity first, then the root that signed it (RFC 9846 §4.4.2).
     chain: [chain_len][]const u8,
 };
@@ -56,7 +56,7 @@ pub fn load(prefix: []const u8, storage: *Storage, protocols: []const []const u8
 
 /// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
 fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
-    var read_storage: [tls.constants.p256_public_key_len + 1]u8 = undefined;
+    var read_storage: [tls.constants.protocol.p256_public_key_len + 1]u8 = undefined;
     const read = try check_file.read_part(prefix, suffix, &read_storage);
     if (read.len != into.len) return LoadError.KeyLengthWrong;
     @memcpy(into, read);

@@ -141,7 +141,7 @@ test "a connection holds no key and no socket, which is what makes it the caller
     }
     // And the whole thing is one struct the caller places, whose size colibri states (decision 35).
     try testing.expect(@sizeOf(Connection) > 0);
-    try testing.expect(constants.packet_number_spaces == core.levels_count);
+    try testing.expect(constants.protocol.packet_number_spaces == core.levels_count);
 }
 
 test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not" {
@@ -150,7 +150,7 @@ test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not
     // establishing a new connection".
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectEqual(0, test_connection.path.received);
-    try testing.expect(!test_connection.path.is_amplification_limited(constants.datagram_len_min));
+    try testing.expect(!test_connection.path.is_amplification_limited(constants.protocol.datagram_len_min));
 
     // A server has received nothing either, and §8.1 is exactly the rule that stops it answering:
     // three times nothing is nothing.
@@ -159,8 +159,8 @@ test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not
     try testing.expect(test_connection.path.is_amplification_limited(1));
 
     // And the server's exemption arrives with the client's octets, not with its role.
-    test_connection.path.on_datagram_received(constants.datagram_len_min);
-    const allowance = constants.anti_amplification_factor * constants.datagram_len_min;
+    test_connection.path.on_datagram_received(constants.protocol.datagram_len_min);
+    const allowance = constants.protocol.anti_amplification_factor * constants.protocol.datagram_len_min;
     try testing.expectEqual(allowance, test_connection.path.send_allowance());
 }
 
@@ -205,7 +205,7 @@ test "RFC 9000 §5.2: a packet belongs to the connection its Destination Connect
     const issued: [test_id_len]u8 = @splat(0x52);
     try testing.expect(!test_connection.addressed_by(&issued));
     // §10.3: every ID after the first carries a Stateless Reset Token.
-    const token: [constants.stateless_reset_token_len]u8 = @splat(0x7e);
+    const token: [constants.protocol.stateless_reset_token_len]u8 = @splat(0x7e);
     try testing.expect(test_connection.local_ids.issue(&issued, &token) != null);
     try testing.expect(test_connection.addressed_by(&issued));
     // §7.2: the ID the client chose, which its Initial packets carry until the server answers.

@@ -118,7 +118,7 @@ pub const Connection = struct {
     session: Session,
     tls_client: tls.record.Client,
     /// The protocol's octets opened from records and not yet read.
-    plain_in: [constants.plaintext_in_len]u8,
+    plain_in: [constants.limits.plaintext_in_len]u8,
     plain_in_len: usize,
     /// h11: the octets of the last call's input that h11 did not consume, such as half a head or
     /// half a chunk-size line. h11 needs them again at the start of the next call's input, so a
@@ -127,7 +127,7 @@ pub const Connection = struct {
     unread_len: usize,
     /// What the connection wrote that `send` has not taken: the TLS flight's records first,
     /// `records_len` octets of them, then the protocol's octets, which `send` seals over TLS.
-    output: [constants.output_len]u8,
+    output: [constants.limits.output_len]u8,
     output_len: usize,
     records_len: usize,
     /// The peer's `close_notify` ended its data (RFC 9846 §6.1).
@@ -349,7 +349,7 @@ pub const Connection = struct {
     fn finish_draining(connection: *Connection) void {
         assert(connection.draining and connection.slots.idle());
         switch (connection.session) {
-            .h2 => connection.session.h2.shutdown(h2.constants.error_no_error),
+            .h2 => connection.session.h2.shutdown(h2.constants.protocol.error_no_error),
             .h11 => {},
             .none => unreachable,
         }

@@ -26,7 +26,7 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const bit_runs = @import("../bit_runs.zig");
 
-pub const block_len: usize = constants.stream_receive_block_len;
+pub const block_len: usize = constants.limits.stream_receive_block_len;
 
 /// Blocks a span of offsets may touch beyond those its length fills: it may start and end inside
 /// one.
@@ -68,7 +68,7 @@ pub const Header = struct {
 /// it (decision 35).
 pub fn Pool(comptime capacity: usize) type {
     comptime assert(capacity > 0 and capacity % block_len == 0);
-    const count = capacity / block_len + span_edges * constants.streams_per_connection_max;
+    const count = capacity / block_len + span_edges * constants.limits.streams_per_connection_max;
     comptime assert(count < no_block);
     return struct {
         header: Header = undefined,
@@ -83,7 +83,7 @@ pub fn Pool(comptime capacity: usize) type {
 }
 
 /// The pool a caller gets by asking for no size in particular (decision 61).
-pub const DefaultPool = Pool(constants.receive_pool_len_default);
+pub const DefaultPool = Pool(constants.limits.receive_pool_len_default);
 
 /// A pool as the connection holds it, whatever its capacity.
 pub const Storage = struct {

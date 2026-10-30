@@ -101,7 +101,7 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
 fn carried_done(connection: *const Connection, level: Level, records: []const Record) bool {
     if (level != .application) return false;
     const number = connection.handshake_done.sent_in orelse return false;
-    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    // Bounded by the slice the caller placed, which `constants.limits.sent_packets_max` sizes.
     for (records) |record| {
         if (record.number == number) return true;
     }

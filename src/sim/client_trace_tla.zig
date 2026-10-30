@@ -44,7 +44,7 @@ pub fn write_module(writer: *Writer, name: []const u8, plan: *const Plan, states
 pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaways: u32, steps_max: u64) Error!void {
     try writer.write_bytes("\\* expect: violated\nSPECIFICATION TraceSpec\nCONSTANTS\n");
     const opens = @max(1, @max(last.opens[0], last.opens[1]));
-    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.moves_max });
+    try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.limits.moves_max });
     // The run's client speaks h2 over TCP, so TCP is allowed in every seed.
     try print(writer, "    QuicPolicy = \"{t}\"\n    TcpAllowed = TRUE\n", .{plan.policy});
     const all = "{\"quic\", \"tcp\"}";

@@ -10,7 +10,7 @@ const connection = &support.connection;
 
 const ok: u16 = 200;
 /// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4).
-const client_preface = h2.constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
+const client_preface = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 /// A HEADERS frame on stream 1 ending it, whose block is the static table's `:method: GET` (2),
 /// `:scheme: https` (7) and `:path: /` (4), each an indexed field line (RFC 7541 §6.1, Appendix A).
 const get_frame = "\x00\x00\x03\x01\x05\x00\x00\x00\x01\x82\x87\x84";
@@ -32,9 +32,9 @@ fn data_frame(frames: []const u8) ?[]const u8 {
     var rest = frames;
     // Bounded: each pass drops a frame's header at least.
     for (0..frames.len) |_| {
-        if (rest.len < h2.constants.frame_header_len) return null;
-        const frame_len = h2.constants.frame_header_len + std.mem.readInt(u24, rest[0..length_len], .big);
-        if (rest[type_index] == h2.constants.frame_type_data) return rest[0..frame_len];
+        if (rest.len < h2.constants.protocol.frame_header_len) return null;
+        const frame_len = h2.constants.protocol.frame_header_len + std.mem.readInt(u24, rest[0..length_len], .big);
+        if (rest[type_index] == h2.constants.protocol.frame_type_data) return rest[0..frame_len];
         rest = rest[frame_len..];
     }
     return null;
@@ -53,8 +53,8 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and a response comes back
     const data = data_frame(try support.open_sent()).?;
     // The connection goes on, so no close_notify follows the response.
     try testing.expect(!support.client_saw_alert);
-    try testing.expectEqual(h2.constants.flag_end_stream, data[flags_index]);
-    try testing.expectEqualStrings("hello", data[h2.constants.frame_header_len..]);
+    try testing.expectEqual(h2.constants.protocol.flag_end_stream, data[flags_index]);
+    try testing.expectEqualStrings("hello", data[h2.constants.protocol.frame_header_len..]);
 }
 
 test "RFC 9113 §3.4: the SETTINGS goes first when a request comes in the flight of the client's Finished" {
@@ -80,7 +80,7 @@ test "RFC 9113 §3.4: the SETTINGS goes first when a request comes in the flight
     try connection.respond(1, .{ .status = ok, .end = true });
     const opened = try support.open_sent();
     // RFC 9113 §3.4: the SETTINGS frame "MUST be the first frame the server sends".
-    try testing.expectEqual(h2.constants.frame_type_settings, opened[type_index]);
+    try testing.expectEqual(h2.constants.protocol.frame_type_settings, opened[type_index]);
     try testing.expectEqual(0, opened[flags_index]);
 }
 
@@ -212,7 +212,7 @@ test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answe
     try testing.expectError(error.RequestUnknown, connection.write_trailers(1, &.{}));
     try support.client.start(&support.client_config, support.stream.random(), support.now_seconds, null);
     const hello = try support.client.handshake(&.{}, &support.input);
-    connection.output_len = support.server_constants.output_len - support.server_constants.flight_len_max + 1;
+    connection.output_len = support.server_constants.limits.output_len - support.server_constants.limits.flight_len_max + 1;
     const waiting = try connection.receive(support.input[0..hello.written], support.now_ns);
     try testing.expectEqual(0, waiting.consumed);
     connection.output_len = 0;
@@ -240,7 +240,7 @@ test "RFC 9846 §6.1: a transport that closed ends the connection, and its secre
 /// straddle the client's records, each of the largest plaintext. Test-only.
 const upload_frames: usize = 3;
 var upload: [upload_len]u8 = undefined;
-const upload_len: usize = upload_frames * (h2.constants.frame_header_len + h2.constants.frame_size_max);
+const upload_len: usize = upload_frames * (h2.constants.protocol.frame_header_len + h2.constants.limits.frame_size_max);
 /// A HEADERS frame on stream 1 that leaves it open, whose block is the static table's
 /// `:method: POST` (3), `:scheme: https` (7) and `:path: /` (4) (RFC 7541 Appendix A).
 const post_frame = "\x00\x00\x03\x01\x04\x00\x00\x00\x01\x83\x87\x84";
@@ -251,7 +251,7 @@ test "RFC 9846 §5.2: records open while a frame waits for its last octets, so c
     // octets, and the next record opens only into room for what follows its header.
     var sealed_len = try support.seal_all(0, client_preface ++ post_frame);
     var writer = h2.core.Writer.init(&upload);
-    var content: [h2.constants.frame_size_max]u8 = @splat('u');
+    var content: [h2.constants.limits.frame_size_max]u8 = @splat('u');
     for (0..upload_frames) |index| try h2.frame.write_data(&writer, 1, &content, index + 1 == upload_frames, 0);
     sealed_len = try support.seal_all(sealed_len, writer.written());
     var consumed: usize = 0;
@@ -272,7 +272,7 @@ test "RFC 9846 §5.2: records open while a frame waits for its last octets, so c
         }
     }
     try testing.expectEqual(sealed_len, consumed);
-    try testing.expectEqual(upload_frames * h2.constants.frame_size_max, received_len);
+    try testing.expectEqual(upload_frames * h2.constants.limits.frame_size_max, received_len);
     try testing.expect(ended);
 }
 

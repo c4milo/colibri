@@ -99,7 +99,7 @@ fn unreachable_tag_valid(
     _: *const anyopaque,
     _: crypto.suite.Version,
     _: []const u8,
-    _: *const [crypto.constants.retry_integrity_tag_len]u8,
+    _: *const [crypto.constants.protocol.retry_integrity_tag_len]u8,
 ) bool {
     unreachable;
 }
@@ -113,7 +113,7 @@ fn unreachable_tag_write(
     _: *const anyopaque,
     _: crypto.suite.Version,
     _: []const u8,
-    _: *[crypto.constants.retry_integrity_tag_len]u8,
+    _: *[crypto.constants.protocol.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {
     unreachable;
 }

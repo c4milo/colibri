@@ -11,7 +11,7 @@ const Number = quic_connection.Number;
 
 /// Octets of a DATA frame's header at most: its type, one octet, and its length's variable-length
 /// integer (RFC 9114 §7.1, RFC 9000 §16).
-const data_header_len_max: usize = 1 + h3.wire.constants.varint_len_max;
+const data_header_len_max: usize = 1 + h3.wire.constants.protocol.varint_len_max;
 
 /// Whether the response to request `id` has room for a head: a run for its frame (decision 119's
 /// `writable`).

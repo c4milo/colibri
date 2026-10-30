@@ -34,7 +34,7 @@ pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
 /// walking a packet into the space that sent it would see its own number as a duplicate.
 pub var peer_connection: Connection align(@alignOf(Connection)) = undefined;
 var scratch: packet_build.DefaultScratch align(@alignOf(packet_build.DefaultScratch)) = .{};
-pub var datagram: [constants.datagram_len_min]u8 = undefined;
+pub var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 pub var fake: Fake align(@alignOf(Fake)) = undefined;
 var round_trip: RoundTrip align(@alignOf(RoundTrip)) = undefined;
 
@@ -106,12 +106,12 @@ pub const RoundTrip = struct {
             if (left == 0) return error.ConfidentialityLimitReached;
             held.seals_left = left - 1;
         }
-        const total = sealing.header.len + sealing.payload.len + constants.aead_tag_len;
+        const total = sealing.header.len + sealing.payload.len + constants.protocol.aead_tag_len;
         // RFC 9001 §5.3: a real suite would refuse here too, because the tag has nowhere to go.
         if (total > output.len) return error.NoSpaceLeft;
         @memcpy(output[0..sealing.header.len], sealing.header);
         @memcpy(output[sealing.header.len..][0..sealing.payload.len], sealing.payload);
-        @memset(output[sealing.header.len + sealing.payload.len ..][0..constants.aead_tag_len], 0);
+        @memset(output[sealing.header.len + sealing.payload.len ..][0..constants.protocol.aead_tag_len], 0);
         return total;
     }
 
@@ -125,10 +125,10 @@ pub const RoundTrip = struct {
         if (opening.level == .application) held.phase_lowest_given = opening.current_phase_lowest;
         // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. A real
         // suite reads them after removing header protection (RFC 9001 §5.4); this one has none.
-        const number_len: u8 = (opening.packet[0] & constants.packet_number_len_mask) + 1;
+        const number_len: u8 = (opening.packet[0] & constants.protocol.packet_number_len_mask) + 1;
         const protected = opening.packet.len - opening.packet_number_offset;
         // RFC 9001 §5.5: a packet too short to hold the number and a tag cannot authenticate.
-        if (protected < number_len + constants.aead_tag_len) return error.Discarded;
+        if (protected < number_len + constants.protocol.aead_tag_len) return error.Discarded;
         var number: u64 = 0;
         // Bounded by the field, which RFC 9000 §17.1 caps at four octets. The wire is network
         // byte order (§1.3), so the octets are read most significant first.
@@ -138,7 +138,7 @@ pub const RoundTrip = struct {
         return .{
             .packet_number = number,
             .packet_number_len = number_len,
-            .payload_len = protected - number_len - constants.aead_tag_len,
+            .payload_len = protected - number_len - constants.protocol.aead_tag_len,
             // RFC 9001 §6.5: only a 1-RTT packet has a phase to be read under, which
             // `crypto.Suite.open` asserts.
             .key_set = if (opening.level == .application) held.opens_with else .current,
@@ -201,7 +201,7 @@ fn unreachable_tag_valid(
     _: *const anyopaque,
     _: crypto.suite.Version,
     _: []const u8,
-    _: *const [crypto.constants.retry_integrity_tag_len]u8,
+    _: *const [crypto.constants.protocol.retry_integrity_tag_len]u8,
 ) bool {
     unreachable;
 }
@@ -215,7 +215,7 @@ fn unreachable_tag_write(
     _: *const anyopaque,
     _: crypto.suite.Version,
     _: []const u8,
-    _: *[crypto.constants.retry_integrity_tag_len]u8,
+    _: *[crypto.constants.protocol.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {
     unreachable;
 }
@@ -357,26 +357,26 @@ test "RFC 9001 §5.4.2, decision 54: a short packet widens its number rather tha
     // A one-octet payload under a one-octet number is two, and the sample needs four.
     const narrow: packet_number.Truncated = .{ .value = 7, .len = 1 };
     const widened = packet_build.widen_for_sample(7, narrow, 1);
-    try testing.expectEqual(constants.protected_len_min - 1, widened.len);
+    try testing.expectEqual(constants.protocol.protected_len_min - 1, widened.len);
     try testing.expectEqual(7, widened.value);
 
     // A payload that already reaches the floor is left alone, so an ordinary packet pays nothing.
-    const untouched = packet_build.widen_for_sample(7, narrow, constants.protected_len_min);
+    const untouched = packet_build.widen_for_sample(7, narrow, constants.protocol.protected_len_min);
     try testing.expectEqual(1, untouched.len);
     // And a number already wide enough is not narrowed: §17.1's width is a floor, not a target.
-    const wide: packet_number.Truncated = .{ .value = 7, .len = constants.packet_number_len_max };
-    try testing.expectEqual(constants.packet_number_len_max, packet_build.widen_for_sample(7, wide, 1).len);
+    const wide: packet_number.Truncated = .{ .value = 7, .len = constants.protocol.packet_number_len_max };
+    try testing.expectEqual(constants.protocol.packet_number_len_max, packet_build.widen_for_sample(7, wide, 1).len);
 }
 
 test "decision 35: the scratch is the caller's and its size is a comptime parameter" {
     // §14.1's smallest allowed maximum datagram is what a caller gets by asking for no size.
-    try testing.expectEqual(constants.datagram_len_min, packet_build.DefaultScratch.payload_len_max);
-    const Small = packet_build.Scratch(constants.protected_len_min);
-    try testing.expectEqual(constants.protected_len_min, Small.payload_len_max);
+    try testing.expectEqual(constants.protocol.datagram_len_min, packet_build.DefaultScratch.payload_len_max);
+    const Small = packet_build.Scratch(constants.protocol.protected_len_min);
+    try testing.expectEqual(constants.protocol.protected_len_min, Small.payload_len_max);
     // The header buffer is the same whatever the payload's size, because RFC 9000 §17.2 fixes
     // what a header can hold and only the frames vary.
     try testing.expectEqual(
-        @sizeOf([constants.packet_header_len_max]u8),
+        @sizeOf([constants.limits.packet_header_len_max]u8),
         @sizeOf(@FieldType(Small, "header")),
     );
 }
@@ -398,7 +398,7 @@ test "RFC 9000 §17.2: a long flight fills the datagram exactly and never past i
 }
 
 /// Longer than the smallest allowed maximum datagram, so one packet cannot hold it.
-pub const long_flight: [constants.datagram_len_min]u8 = @splat(handshake_octet);
+pub const long_flight: [constants.protocol.datagram_len_min]u8 = @splat(handshake_octet);
 
 /// Storage for the small-scratch case, which is what shows the comptime parameter binds.
 const small_payload_len: usize = 16;
@@ -447,7 +447,7 @@ test "decision 35: a smaller scratch bounds the packet, not the datagram" {
     )).?;
     const header_and_tag = built.len - small_payload_len;
     try testing.expect(built.len < datagram.len);
-    try testing.expect(header_and_tag > constants.aead_tag_len);
+    try testing.expect(header_and_tag > constants.protocol.aead_tag_len);
 
     // And what it carried still reads back, so the Length field matched the smaller payload.
     const opened = try walk_back(built);

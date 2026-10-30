@@ -21,17 +21,17 @@ const next = harness.next;
 
 /// A section of one line more than colibri holds: `:method: GET`, static entry 17 (RFC 9204
 /// Appendix A), again and again. Test-only.
-const lines_past: usize = core.constants.field_count_max + 1;
+const lines_past: usize = core.constants.limits.field_count_max + 1;
 const static_method_get: u8 = 0xd1;
 /// A value past `field_value_len_max`, 127 plus 8873, which a 7-bit prefix and the two octets
 /// 0xa9 0x45 carry (RFC 9204 §4.1.1). Its line takes the prefix's two octets, the name's two and
 /// the length's three. Test-only.
 const long_value_len: usize = 9000;
 const long_line_overhead: usize = 7;
-const long_frame_len: usize = long_value_len + constants.frame_header_len_max;
+const long_frame_len: usize = long_value_len + constants.protocol.frame_header_len_max;
 
 comptime {
-    std.debug.assert(long_value_len > core.constants.field_value_len_max);
+    std.debug.assert(long_value_len > core.constants.limits.field_value_len_max);
 }
 
 fn refused(id: u64, code: u64) Event {
@@ -42,9 +42,9 @@ test "§10.5.1: a HEADERS frame longer than colibri accepts refuses the stream" 
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     // A Length of 0x5000 in four octets, past `frame_length_max`.
     const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
-    try client.send_raw(id.value, &.{ constants.frame_headers, 0x80, 0x00, 0x50, 0x00 }, false);
+    try client.send_raw(id.value, &.{ constants.protocol.frame_headers, 0x80, 0x00, 0x50, 0x00 }, false);
     try exchange();
-    try testing.expectEqual(refused(id.value, constants.error_message_error), (try next(server)).?);
+    try testing.expectEqual(refused(id.value, constants.protocol.error_message_error), (try next(server)).?);
 }
 
 test "§4.2.2: a section of more lines than colibri holds refuses the stream" {
@@ -53,12 +53,12 @@ test "§4.2.2: a section of more lines than colibri holds refuses the stream" {
     var writer = Writer.init(&octets);
     // The Length is the prefix's two octets and one octet a line, in a two-octet varint.
     const length: u16 = @intCast(lines_past + 2);
-    try writer.write_bytes(&.{ constants.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00 });
+    try writer.write_bytes(&.{ constants.protocol.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00 });
     for (0..lines_past) |_| try writer.write_byte(static_method_get);
     const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
     try client.send_raw(id.value, writer.written(), false);
     try exchange();
-    try testing.expectEqual(refused(id.value, constants.error_message_error), (try next(server)).?);
+    try testing.expectEqual(refused(id.value, constants.protocol.error_message_error), (try next(server)).?);
 }
 
 test "RFC 9204 §7.4: a value longer than colibri accepts refuses the stream with QPACK_DECOMPRESSION_FAILED" {
@@ -68,12 +68,12 @@ test "RFC 9204 §7.4: a value longer than colibri accepts refuses the stream wit
     // A literal line named `x` (RFC 9204 §4.5.6) whose value is `long_value_len` octets, past
     // `field_value_len_max`: the value's length in a 7-bit prefix and two more octets.
     const length: u16 = @intCast(long_value_len + long_line_overhead);
-    try writer.write_bytes(&.{ constants.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00, 0x21, 'x', 0x7f, 0xa9, 0x45 });
+    try writer.write_bytes(&.{ constants.protocol.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00, 0x21, 'x', 0x7f, 0xa9, 0x45 });
     for (0..long_value_len) |_| try writer.write_byte('a');
     const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
     try client.send_raw(id.value, writer.written(), false);
     try exchange();
-    try testing.expectEqual(refused(id.value, qpack.constants.error_decompression_failed), (try next(server)).?);
+    try testing.expectEqual(refused(id.value, qpack.constants.protocol.error_decompression_failed), (try next(server)).?);
 }
 
 test "§4.1.2: a response stream that ends after an interim response is malformed at a client" {
@@ -85,7 +85,7 @@ test "§4.1.2: a response stream that ends after an interim response is malforme
     try server.commit(id, writer.written(), true);
     try exchange();
     try testing.expectEqual(103, (try next(client)).?.response.response.status.code);
-    try testing.expectEqual(refused(id, constants.error_message_error), (try next(client)).?);
+    try testing.expectEqual(refused(id, constants.protocol.error_message_error), (try next(client)).?);
 }
 
 test "§7.1: a DATA frame cut short after the server's side of the stream has finished" {
@@ -100,10 +100,10 @@ test "§7.1: a DATA frame cut short after the server's side of the stream has fi
     try harness.respond(id, &harness.ok_lines, "");
     try exchange();
     // A DATA frame whose header promises five octets, and then the stream's end.
-    try client.send_raw(id, &.{ constants.frame_data, 0x05 }, true);
+    try client.send_raw(id, &.{ constants.protocol.frame_data, 0x05 }, true);
     try exchange();
     try testing.expectError(error.ConnectionFailed, next(server));
-    try testing.expectEqual(constants.error_frame_error, server.h3.failure.?);
+    try testing.expectEqual(constants.protocol.error_frame_error, server.h3.failure.?);
 }
 
 test "§4.1.2: colibri sends no malformed request, and opens no stream for it" {
@@ -145,6 +145,6 @@ test "§5.2: a second GOAWAY names no higher stream than the first" {
     try testing.expectEqual(Event{ .goaway = 0 }, (try next(client)).?);
     try testing.expectEqual(Event{ .goaway = 0 }, (try next(client)).?);
     // §4.1.1: the rejected request's stream is reset with H3_REQUEST_REJECTED.
-    try testing.expectEqual(Event{ .reset = .{ .stream_id = late, .error_code = constants.error_request_rejected } }, (try next(client)).?);
+    try testing.expectEqual(Event{ .reset = .{ .stream_id = late, .error_code = constants.protocol.error_request_rejected } }, (try next(client)).?);
     try testing.expectEqual(null, try next(client));
 }

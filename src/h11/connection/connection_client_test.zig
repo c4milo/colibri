@@ -77,7 +77,7 @@ test "RFC 9112 §9.3.2: a connection opened to retry pipelines only after its fi
 
 test "the queue holds pipeline_depth_max requests, and a body goes out before the next head" {
     var target = client(.{});
-    for (0..constants.pipeline_depth_max) |_| try get(target, "GET");
+    for (0..constants.limits.pipeline_depth_max) |_| try get(target, "GET");
     try testing.expectError(error.PipelineFull, target.write_request(&test_output, "GET", "/", host));
     target = client(.{});
     _ = try target.write_request(&test_output, "PUT", "/", &.{ host[0], .{ .name = "Content-Length", .value = "2" } });

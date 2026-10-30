@@ -9,13 +9,13 @@ const constants = @import("constants.zig");
 pub const PeerAddress = struct {
     /// The address's octets: 4 for IPv4 and 16 for IPv6, or none for a caller that names no
     /// address. The rest stay zero, so two equal addresses are equal octet for octet.
-    octets: [constants.peer_address_len_max]u8 = @splat(0),
+    octets: [constants.limits.peer_address_len_max]u8 = @splat(0),
     len: u8 = 0,
     port: u16 = 0,
 
     /// The address `octets` and `port` name. The caller's octets must fit.
     pub fn of(octets: []const u8, port: u16) PeerAddress {
-        assert(octets.len <= constants.peer_address_len_max);
+        assert(octets.len <= constants.limits.peer_address_len_max);
         var held: PeerAddress = .{ .len = @intCast(octets.len), .port = port };
         @memcpy(held.octets[0..octets.len], octets);
         return held;
@@ -54,7 +54,7 @@ test "decision 72: two addresses are equal when their octets and their port are"
     try testing.expect(!address.eql(&PeerAddress.of(&loopback, other_port)));
     try testing.expect(!address.eql(&PeerAddress.of(&other_host, test_port)));
     // An IPv6 address is not an IPv4 one with the same leading octets.
-    var longer: [constants.peer_address_len_max]u8 = @splat(0);
+    var longer: [constants.limits.peer_address_len_max]u8 = @splat(0);
     @memcpy(longer[0..loopback.len], &loopback);
     try testing.expect(!address.eql(&PeerAddress.of(&longer, test_port)));
 }

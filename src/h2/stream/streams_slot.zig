@@ -23,8 +23,8 @@ const Lookup = table.Lookup;
 /// above its parity's watermark was never opened, so the pool holds no record of it (invariant
 /// 13). That answer comes first, because it reads no record and every new stream gets it.
 pub fn lookup(streams: *Streams, id: u32) Lookup {
-    assert(id != constants.connection_stream_id);
-    assert(id <= constants.stream_id_max);
+    assert(id != constants.protocol.connection_stream_id);
+    assert(id <= constants.protocol.stream_id_max);
     if (streams.pool.is_above_watermark(id)) return .{ .idle = open.initiated_by_peer(streams, id) };
     if (streams.pool.get(id)) |record| return .{ .live = record };
     return if (was_reset_and_dropped(streams, id)) .reset_and_dropped else .forgotten;
@@ -59,7 +59,7 @@ fn record_forgotten_reset(streams: *Streams, id: u32) void {
 /// Whether the pool has a free slot, after dropping the oldest closed record when it had none.
 pub fn ensure_free_slot(streams: *Streams) bool {
     // The pool's capacity is `concurrent_streams_max` (`streams.zig`'s `Pool`).
-    if (streams.pool.len() < constants.concurrent_streams_max) return true;
+    if (streams.pool.len() < constants.limits.concurrent_streams_max) return true;
     return drop_oldest_closed(streams);
 }
 
@@ -76,13 +76,13 @@ fn drop_oldest_closed(streams: *Streams) bool {
         assert(record.closed_at < streams.sequence);
         // Decision 113: the record holds the RST_STREAM the caller asked for until it is written.
         if (record.reset_owed != null) continue;
-        assert(record.id <= constants.stream_id_max);
+        assert(record.id <= constants.protocol.stream_id_max);
         // RFC 9113 §5.1: frames are discarded after the record is gone only for a stream colibri
         // reset.
         if (record.closed == .rst_stream_sent) record_forgotten_reset(streams, @intCast(record.id));
         forget_closed(streams, @intCast(position));
         streams.pool.close_at(index);
-        assert(streams.pool.len() < constants.concurrent_streams_max);
+        assert(streams.pool.len() < constants.limits.concurrent_streams_max);
         return true;
     }
     return false;
@@ -90,7 +90,7 @@ fn drop_oldest_closed(streams: *Streams) bool {
 
 comptime {
     // A slot's number fits one octet of `closed_slots`.
-    assert(constants.concurrent_streams_max <= std.math.maxInt(u8) + 1);
+    assert(constants.limits.concurrent_streams_max <= std.math.maxInt(u8) + 1);
 }
 
 /// Empties the closed records, for a table that holds no record.
@@ -104,8 +104,8 @@ pub fn forget_all_closed(streams: *Streams) void {
 /// and so does this.
 pub fn note_closed(streams: *Streams, record: *const Stream) void {
     assert(record.state == .closed and record.closed != null);
-    assert(streams.closed_len < constants.concurrent_streams_max);
-    const place = (streams.closed_first + streams.closed_len) % constants.concurrent_streams_max;
+    assert(streams.closed_len < constants.limits.concurrent_streams_max);
+    const place = (streams.closed_first + streams.closed_len) % constants.limits.concurrent_streams_max;
     streams.closed_slots[place] = @intCast(streams.pool.index_of(record));
     streams.closed_len += 1;
 }
@@ -119,14 +119,14 @@ pub fn assert_closed_count(streams: *const Streams) void {
 /// The slot of the closed record `position` places after the oldest.
 fn closed_slot(streams: *const Streams, position: u32) u32 {
     assert(position < streams.closed_len);
-    return streams.closed_slots[(streams.closed_first + position) % constants.concurrent_streams_max];
+    return streams.closed_slots[(streams.closed_first + position) % constants.limits.concurrent_streams_max];
 }
 
 /// Takes the record `position` places after the oldest out of the closed records. Each older one
 /// moves a place toward it, so the rest keep their order.
 fn forget_closed(streams: *Streams, position: u32) void {
     assert(position < streams.closed_len);
-    const capacity = constants.concurrent_streams_max;
+    const capacity = constants.limits.concurrent_streams_max;
     // Bounded by `position`: the older records, each of which owes a RST_STREAM.
     for (0..position) |step| {
         const to = (streams.closed_first + position - @as(u32, @intCast(step))) % capacity;
@@ -151,7 +151,7 @@ fn lookup_scan_first(streams: *Streams, id: u32) Lookup {
 
 /// The identifiers the comparison asks for: every one a full table has seen, and some past them.
 /// Test-only.
-const compared_ids: u32 = open.client_id(constants.concurrent_streams_max + compared_ids_past);
+const compared_ids: u32 = open.client_id(constants.limits.concurrent_streams_max + compared_ids_past);
 const compared_ids_past: u32 = 8;
 
 /// Requires `lookup` to find what the reference finds in the tests' table, for each identifier of
@@ -179,14 +179,14 @@ test "lookup finds what a scan of the pool before the watermark finds, as a serv
     try open.fill_with_peer_streams();
     try expect_same_lookups();
     // A stream past the limit is refused, and the watermark moves past it with no record.
-    const refused = open.client_id(constants.concurrent_streams_max);
+    const refused = open.client_id(constants.limits.concurrent_streams_max);
     try testing.expectError(error.Refused, open.test_table.open_peer(refused, open.test_send_window));
     try expect_same_lookups();
     // Two closes give way to two opens: one record is forgotten, and one reset is remembered.
     try finish(try open.expect_live(open.client_id(0)));
     try open.reset(try open.expect_live(open.client_id(1)));
-    _ = try open.test_table.open_peer(open.client_id(constants.concurrent_streams_max + 1), open.test_send_window);
-    _ = try open.test_table.open_peer(open.client_id(constants.concurrent_streams_max + 2), open.test_send_window);
+    _ = try open.test_table.open_peer(open.client_id(constants.limits.concurrent_streams_max + 1), open.test_send_window);
+    _ = try open.test_table.open_peer(open.client_id(constants.limits.concurrent_streams_max + 2), open.test_send_window);
     try expect_same_lookups();
 }
 
@@ -195,7 +195,7 @@ test "lookup finds what a scan of the pool before the watermark finds in a clien
     try expect_same_lookups();
     _ = try open.test_table.open_local(null, open.test_send_window);
     _ = try open.test_table.open_local(null, open.test_send_window);
-    try open.test_table.reserve_peer(constants.stream_id_server_first + constants.stream_id_step);
+    try open.test_table.reserve_peer(constants.protocol.stream_id_server_first + constants.protocol.stream_id_step);
     try expect_same_lookups();
 }
 
@@ -233,7 +233,7 @@ fn expect_closed_as_swept() !void {
 }
 
 test "the closed records keep the order of their closes, around the ring's end, and an open drops the one a sweep would" {
-    const max = constants.concurrent_streams_max;
+    const max = constants.limits.concurrent_streams_max;
     open.test_table.init(.server);
     try expect_closed_as_swept();
     try open.fill_with_peer_streams();
@@ -252,8 +252,8 @@ test "the closed records keep the order of their closes, around the ring's end, 
     // 113): an open drops neither, and passes over them for the oldest that owes nothing.
     const second_closed = try open.expect_live(open.client_id(max - 2));
     const fourth_closed = try open.expect_live(open.client_id(max - 5));
-    open.test_table.owe_reset(second_closed, constants.error_cancel);
-    open.test_table.owe_reset(fourth_closed, constants.error_cancel);
+    open.test_table.owe_reset(second_closed, constants.protocol.error_cancel);
+    open.test_table.owe_reset(fourth_closed, constants.protocol.error_cancel);
     try expect_closed_as_swept();
     // Each open drops one closed record, and each new stream's own close goes after the rest:
     // more closes than the ring has places, so they go around its end.
@@ -278,10 +278,10 @@ test "the closed records keep the order of their closes, around the ring's end, 
 test "an identifier at or below the highest reset colibri dropped is reset_and_dropped, and a record still held answers for its own" {
     open.test_table.init(.server);
     try open.fill_with_peer_streams();
-    const refused = open.client_id(constants.concurrent_streams_max);
+    const refused = open.client_id(constants.limits.concurrent_streams_max);
     try testing.expectError(error.Refused, open.test_table.open_peer(refused, open.test_send_window));
     try open.apply_frame(try open.expect_live(1), .receive, .rst_stream, false);
-    const above = open.client_id(constants.concurrent_streams_max + 1);
+    const above = open.client_id(constants.limits.concurrent_streams_max + 1);
     const record = try open.test_table.open_peer(above, open.test_send_window);
     try open.apply_frame(record, .receive, .data, true);
     try open.apply_frame(record, .send, .data, true);
@@ -301,28 +301,28 @@ fn finish(record: *Stream) !void {
 test "a pool full of streams closed by END_STREAM gives way too, and a dropped identifier is forgotten, not reset" {
     open.test_table.init(.server);
     try open.fill_with_peer_streams();
-    const last_index = constants.concurrent_streams_max - 1;
+    const last_index = constants.limits.concurrent_streams_max - 1;
     // Closing from the highest identifier down puts the oldest close in the last slot.
-    for (0..constants.concurrent_streams_max) |index| try finish(try open.expect_live(open.client_id(last_index - @as(u32, @intCast(index)))));
+    for (0..constants.limits.concurrent_streams_max) |index| try finish(try open.expect_live(open.client_id(last_index - @as(u32, @intCast(index)))));
     try testing.expectEqual(0, open.test_table.peer_active);
-    try testing.expectEqual(constants.concurrent_streams_max, open.test_table.len());
+    try testing.expectEqual(constants.limits.concurrent_streams_max, open.test_table.len());
     _ = try open.test_table.open_peer(open.client_id(last_index + 1), open.test_send_window);
     // The oldest close was the highest identifier, and nothing colibri reset was dropped.
     try testing.expectEqual(Lookup.forgotten, open.test_table.lookup(open.client_id(last_index)));
     try testing.expectEqual([_]?u32{ null, null }, open.test_table.highest_forgotten_reset_id);
     try testing.expectEqual(stream.State.closed, (try open.expect_live(open.client_id(last_index - 1))).state);
-    try testing.expectEqual(constants.concurrent_streams_max, open.test_table.len());
+    try testing.expectEqual(constants.limits.concurrent_streams_max, open.test_table.len());
     try testing.expectEqual(1, open.test_table.peer_active);
 }
 
 test "a pool full of streams closed by a RST_STREAM colibri sent gives way to new streams, oldest close first" {
     open.test_table.init(.server);
     try open.fill_with_peer_streams();
-    const last_index = constants.concurrent_streams_max - 1;
+    const last_index = constants.limits.concurrent_streams_max - 1;
     // Closing from the highest identifier down puts the oldest close in the last slot.
-    for (0..constants.concurrent_streams_max) |index| try open.reset(try open.expect_live(open.client_id(last_index - @as(u32, @intCast(index)))));
+    for (0..constants.limits.concurrent_streams_max) |index| try open.reset(try open.expect_live(open.client_id(last_index - @as(u32, @intCast(index)))));
     try testing.expectEqual(0, open.test_table.peer_active);
-    try testing.expectEqual(constants.concurrent_streams_max, open.test_table.len());
+    try testing.expectEqual(constants.limits.concurrent_streams_max, open.test_table.len());
     _ = try open.test_table.open_peer(open.client_id(last_index + 1), open.test_send_window);
     try testing.expectEqual(Lookup.reset_and_dropped, open.test_table.lookup(open.client_id(last_index)));
     try testing.expectEqual(stream.State.closed, (try open.expect_live(open.client_id(last_index - 1))).state);
@@ -331,7 +331,7 @@ test "a pool full of streams closed by a RST_STREAM colibri sent gives way to ne
     try testing.expectEqual(open.client_id(last_index), open.test_table.highest_forgotten_reset_id[1]);
     try testing.expectEqual(stream.State.closed, (try open.expect_live(open.client_id(0))).state);
     try testing.expectEqual(2, open.test_table.peer_active);
-    try testing.expectEqual(constants.concurrent_streams_max, open.test_table.len());
+    try testing.expectEqual(constants.limits.concurrent_streams_max, open.test_table.len());
 }
 
 test "a record closed by a RST_STREAM colibri sent stays while the pool has a free slot" {

@@ -44,11 +44,11 @@ pub const CryptoStream = struct {
     /// The index in `buffer` of the octet at `base`.
     head: usize,
     /// The window of octets at and above `base` (RFC 9000 §7.5), from `buffer[head]`.
-    buffer: [constants.crypto_buffer_len]u8,
+    buffer: [constants.limits.crypto_buffer_len]u8,
     /// Which octets of `buffer` a frame has delivered, by their index in `buffer`. A bit rather
     /// than a byte each, because the byte would cost eight times the window per level and hold
     /// one answer. A bit below `head` is stale, and no scan reads it.
-    present: std.StaticBitSet(constants.crypto_buffer_len),
+    present: std.StaticBitSet(constants.limits.crypto_buffer_len),
     /// Octets colibri has sent on this level, which is the Offset the next CRYPTO frame it writes
     /// carries (RFC 9000 §19.6). The two directions are separate flows at one level, so the
     /// sending side sits beside the receiving window rather than in a struct of its own.
@@ -60,7 +60,7 @@ pub const CryptoStream = struct {
     /// What was produced and not yet forgotten. RFC 9000 §13.3 retransmits a lost frame's octets
     /// under a new packet number, and §17.2.5.3 has a client repeat its first flight after a
     /// Retry; both read this rather than asking the provider, which has given the octets up.
-    send_buffer: [constants.crypto_send_buffer_len]u8,
+    send_buffer: [constants.limits.crypto_send_buffer_len]u8,
 
     /// A stream with nothing received. RFC 9000 §19.6: each level starts at an offset of 0.
     pub fn init(stream: *CryptoStream) void {
@@ -163,7 +163,7 @@ pub const CryptoStream = struct {
     pub fn receive(stream: *CryptoStream, offset: u64, data: []const u8) Error!void {
         // RFC 9000 §19.6: the sum of the offset and the length cannot exceed 2^62-1, which the
         // frame reader has already refused, so this addition cannot wrap.
-        assert(offset <= constants.stream_offset_max - data.len);
+        assert(offset <= constants.protocol.stream_offset_max - data.len);
         if (data.len == 0) return;
         const end = offset + data.len;
         // Wholly below the window: every octet was read already, which a retransmission of an
@@ -239,7 +239,7 @@ pub const CryptoStream = struct {
 /// The three streams of a connection, one per encryption level (RFC 9000 §19.6). 0-RTT is not one
 /// of them: decision 20 refuses it, and RFC 9000 §19.6 forbids a CRYPTO frame in a 0-RTT packet.
 pub const Levels = struct {
-    streams: [constants.packet_number_spaces]CryptoStream,
+    streams: [constants.protocol.packet_number_spaces]CryptoStream,
 
     pub fn init(levels: *Levels) void {
         for (&levels.streams) |*stream| stream.init();
@@ -257,7 +257,7 @@ pub const Levels = struct {
 
 comptime {
     // One stream per encryption level, and `Level` is what names them.
-    assert(constants.packet_number_spaces == @typeInfo(crypto.suite.Level).@"enum".fields.len);
+    assert(constants.protocol.packet_number_spaces == @typeInfo(crypto.suite.Level).@"enum".fields.len);
 }
 
 test {

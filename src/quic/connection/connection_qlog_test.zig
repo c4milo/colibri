@@ -36,7 +36,7 @@ var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = u
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
 var scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
-var datagram: [constants.datagram_len_min]u8 = undefined;
+var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
@@ -58,7 +58,7 @@ const ack_read_ns: u64 = 12_500_000;
 /// Past RFC 9002 §6.1.2's time threshold for the probes, 9/8 of that round trip. Test-only.
 const past_loss_time_ns: u64 = 22_500_000;
 /// A frame type RFC 9000 §12.4 does not define: the one after the last of Table 3.
-const unknown_frame_type: u8 = constants.frame_handshake_done + 1;
+const unknown_frame_type: u8 = constants.protocol.frame_handshake_done + 1;
 
 fn parameters() Parameters {
     var held = Parameters.initial();
@@ -73,7 +73,7 @@ fn open_pair(levels: []const Level) !void {
     try open_one(&client, &client_log, &client_log_buffer, .client, levels);
     try open_one(&server, &server_log, &server_log_buffer, .server, levels);
     // RFC 9000 §8.1: a server sends only after it has received.
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 fn open_one(connection: *Connection, log: *qlog.Log, buffer: []u8, role: connection_module.Role, levels: []const Level) !void {
@@ -328,7 +328,7 @@ test "a log changes nothing the connection sends" {
     try open_pair(&.{ .initial, .handshake });
     send.owe_probes(&client, .initial, 1);
     const logged = try send_from(&client, later_ns);
-    var logged_datagram: [constants.datagram_len_min]u8 = undefined;
+    var logged_datagram: [constants.protocol.datagram_len_min]u8 = undefined;
     @memcpy(logged_datagram[0..logged.len], datagram[0..logged.len]);
     suite_holder.init();
     open_connection(&client, .client, null, &.{ .initial, .handshake });

@@ -60,7 +60,7 @@ pub const Worker = struct {
     decoders: h11.coding.Pool(constants.h11_decoders_per_worker),
     decoded: [constants.h11_decoded_len]u8,
     /// The encoders the worker's connections code responses with under `--coded` (decision 101).
-    encoders: server.EncoderPool(constants.encoders_per_worker, server.constants.encoder_level_default),
+    encoders: server.EncoderPool(constants.encoders_per_worker, server.constants.policy.encoder_level_default),
     /// What the worker's endpoint serves under: the identity or none, the versions, and the
     /// decoders.
     config: server.Config,

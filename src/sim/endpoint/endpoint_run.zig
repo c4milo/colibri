@@ -86,7 +86,7 @@ pub const Storage = struct {
     quic_known: [limits.quic_slots]?server.ConnectionHandle,
     /// The TCP peers in the order they arrive, which the endpoint accepts them in.
     arrival: [limits.tcp_peers]u8,
-    datagram: [quic.constants.datagram_len_max]u8,
+    datagram: [quic.constants.protocol.datagram_len_max]u8,
     record: Record,
     server_random: Random,
     program_random: Random,

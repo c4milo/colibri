@@ -29,7 +29,7 @@ const Slot = slots_module.Slot;
 pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usize {
     const session = &connection.session.h2;
     var consumed: usize = 0;
-    for (0..constants.frames_per_receive_max) |_| {
+    for (0..constants.limits.frames_per_receive_max) |_| {
         note_head(connection, plaintext[consumed..]);
         const received = session.receive(plaintext[consumed..], now_ns) catch {
             // RFC 9113 §5.4.1: a connection error ends every exchange, and h2's GOAWAY goes out.
@@ -55,7 +55,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
 fn note_head(connection: *Connection, octets: []const u8) void {
     var reader = h2.core.Reader.init(octets);
     const header = h2.frame.read_header(&reader) catch return;
-    if (header.type != h2.constants.frame_type_headers) return;
+    if (header.type != h2.constants.protocol.frame_type_headers) return;
     const slot = connection.slots.of_stream(header.stream_id) orelse return;
     slot.response_began = true;
 }
@@ -86,7 +86,7 @@ fn record(connection: *Connection, h2_event: h2.Event) bool {
 fn on_alt_svc(connection: *Connection, advertised: h2.connection.AltSvc) bool {
     // RFC 9114 §3.1.2: h3 cannot reach an "http" origin, which a cleartext connection serves.
     if (connection.config.tls == null) return false;
-    const on_connection = advertised.stream_id == h2.constants.connection_stream_id;
+    const on_connection = advertised.stream_id == h2.constants.protocol.connection_stream_id;
     // RFC 7838 §4: "An association with an origin that the client does not consider
     // authoritative for the current connection MUST be ignored."
     if (on_connection and !alt_svc.names_origin(advertised.origin, connection.config.authority)) return false;
@@ -122,7 +122,7 @@ fn on_reset(connection: *Connection, reset: h2.connection.StreamReset) bool {
     const slot = connection.slots.of_stream(reset.stream_id) orelse return false;
     // RFC 9113 §8.7: REFUSED_STREAM says the server processed none of the request, which may then
     // be sent again.
-    if (reset.error_code == h2.constants.error_refused_stream) {
+    if (reset.error_code == h2.constants.protocol.error_refused_stream) {
         slots_module.end(slot, .refused);
         return true;
     }
@@ -181,7 +181,7 @@ pub fn cancel(connection: *Connection, slot: *Slot) void {
 fn cancel_stream(connection: *Connection, stream_id: u64) void {
     // RFC 9113 §6.4: CANCEL says the stream is no longer needed. A stream h2 already closed needs
     // no reset.
-    connection.session.h2.reset_stream(@intCast(stream_id), h2.constants.error_cancel) catch |failure| {
+    connection.session.h2.reset_stream(@intCast(stream_id), h2.constants.protocol.error_cancel) catch |failure| {
         assert(failure == error.StreamNotSendable);
     };
 }
@@ -205,7 +205,7 @@ fn first_regular(section: *const http.FieldSection) u32 {
 /// request's content as the windows and the room allow.
 pub fn write_requests(connection: *Connection) void {
     // Bounded: each pass writes or ends an exchange, or stops.
-    for (0..constants.requests_max) |_| {
+    for (0..constants.limits.requests_max) |_| {
         const slot = connection.slots.oldest(.queued) orelse break;
         if (!open(connection, slot)) break;
     }
@@ -218,9 +218,9 @@ pub fn write_requests(connection: *Connection) void {
 /// may be written: false when this one waits for room or for the server's stream limit.
 fn open(connection: *Connection, slot: *Slot) bool {
     const request = slot.request;
-    var lines: [constants.request_fields_max]h2.hpack.Field = undefined;
-    var indexing: [constants.request_fields_max]h2.connection.RequestIndexing = undefined;
-    var digits: [constants.content_length_digits_max]u8 = undefined;
+    var lines: [constants.limits.request_fields_max]h2.hpack.Field = undefined;
+    var indexing: [constants.limits.request_fields_max]h2.connection.RequestIndexing = undefined;
+    var digits: [constants.limits.content_length_digits_max]u8 = undefined;
     var offer: [coding.offer_len_max]u8 = undefined;
     const fields = request_fields(connection, slot, &lines, &indexing, &digits, &offer) orelse {
         slots_module.end(slot, .invalid);
@@ -278,13 +278,13 @@ fn refused(connection: *Connection, slot: *Slot, failure: h2.connection.RequestE
 fn request_fields(
     connection: *const Connection,
     slot: *Slot,
-    lines: *[constants.request_fields_max]h2.hpack.Field,
-    indexing: *[constants.request_fields_max]h2.connection.RequestIndexing,
-    digits: *[constants.content_length_digits_max]u8,
+    lines: *[constants.limits.request_fields_max]h2.hpack.Field,
+    indexing: *[constants.limits.request_fields_max]h2.connection.RequestIndexing,
+    digits: *[constants.limits.content_length_digits_max]u8,
     offer: *[coding.offer_len_max]u8,
 ) ?[]const h2.hpack.Field {
     const request = slot.request;
-    if (request.headers.len + constants.added_fields_max > lines.len) return null;
+    if (request.headers.len + constants.limits.added_fields_max > lines.len) return null;
     const marked = request.never_indexed.headers;
     for (request.headers, lines[0..request.headers.len], indexing[0..request.headers.len], 0..) |field, *line, *how, index| {
         line.* = .{ .name = field.name, .value = field.value };

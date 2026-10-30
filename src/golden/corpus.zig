@@ -26,9 +26,9 @@ const Writer = core.Writer;
 const Case = cases.Case;
 const Format = cases.Format;
 
-const prefix_bits_min = wire.constants.integer_prefix_bits_min;
-const prefix_bits_max = wire.constants.integer_prefix_bits_max;
-const string_prefix_bits_min = wire.constants.string_prefix_bits_min;
+const prefix_bits_min = wire.constants.protocol.integer_prefix_bits_min;
+const prefix_bits_max = wire.constants.protocol.integer_prefix_bits_max;
+const string_prefix_bits_min = wire.constants.protocol.string_prefix_bits_min;
 
 /// Every error a corpus decode can return. A rejection outside this set does not compile.
 pub const DecodeError = core.reader.Error || wire.string_literal.DecodeError || hpack.decoder.Error ||

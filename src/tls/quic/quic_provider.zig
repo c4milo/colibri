@@ -42,9 +42,9 @@ pub const State = struct {
     /// §8.2).
     local_parameters: [c.CH_TRANSPORT_PARAMS_MAX]u8 = undefined,
     /// The peer's, which chapulin copies here as they arrive.
-    peer_parameters: [constants.transport_parameters_len_max]u8 = undefined,
+    peer_parameters: [constants.limits.transport_parameters_len_max]u8 = undefined,
     /// The handshake octets at each level that colibri has not taken yet, and how many it took.
-    outgoing: [level_count][constants.crypto_out_len]u8 = undefined,
+    outgoing: [level_count][constants.limits.crypto_out_len]u8 = undefined,
     outgoing_len: [level_count]usize = @splat(0),
     outgoing_taken: [level_count]usize = @splat(0),
     /// Whether chapulin's session started, which it does when it is given the parameters.

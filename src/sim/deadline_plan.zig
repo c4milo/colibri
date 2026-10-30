@@ -163,17 +163,17 @@ fn draw_deadlines(random: *Random) server.Timeouts {
 
 fn draw_short_deadlines(random: *Random) server.Timeouts {
     const defaults = server.constants;
-    const body_rate: u32 = @intCast(random.between(defaults.body_rate_min, limits.short_rate_max));
+    const body_rate: u32 = @intCast(random.between(defaults.policy.body_rate_min, limits.short_rate_max));
     return .{
-        .first_request_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.first_request_timeout_ns),
-        .idle_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.idle_timeout_ns),
-        .head_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.head_timeout_ns),
+        .first_request_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.policy.first_request_timeout_ns),
+        .idle_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.policy.idle_timeout_ns),
+        .head_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.policy.head_timeout_ns),
         .body_rate_min = body_rate,
-        .rate_grace_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.rate_grace_ns),
-        .rate_window_ns = shorter_ns(random, window_ms_min(body_rate), defaults.rate_window_ns),
-        .body_ns = shorter_ns(random, limits.short_body_ms_min, defaults.body_timeout_ns),
-        .send_rate_min = @intCast(random.between(defaults.send_rate_min, limits.short_rate_max)),
-        .linger_ns = shorter_ns(random, limits.short_linger_ms_min, defaults.close_linger_ns),
+        .rate_grace_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.policy.rate_grace_ns),
+        .rate_window_ns = shorter_ns(random, window_ms_min(body_rate), defaults.policy.rate_window_ns),
+        .body_ns = shorter_ns(random, limits.short_body_ms_min, defaults.policy.body_timeout_ns),
+        .send_rate_min = @intCast(random.between(defaults.policy.send_rate_min, limits.short_rate_max)),
+        .linger_ns = shorter_ns(random, limits.short_linger_ms_min, defaults.policy.close_linger_ns),
     };
 }
 
@@ -190,8 +190,8 @@ fn long_body_deadlines(random: *Random, protocol: Protocol) server.Timeouts {
 
 /// The shortest window over which twice `rate` octets a second bring a whole unit of a body.
 fn unit_window_ns(rate: u32) u64 {
-    const unit_ns = server.constants.body_unit_len * server.constants.nanoseconds_per_second;
-    const rate_twice = server.constants.honest_rate_factor * rate;
+    const unit_ns = server.constants.policy.body_unit_len * server.constants.nanoseconds_per_second;
+    const rate_twice = server.constants.policy.honest_rate_factor * rate;
     return (unit_ns + rate_twice - 1) / rate_twice;
 }
 
@@ -323,11 +323,11 @@ comptime {
     // A slow hostile reader's first window falls short under any limits a plan draws: over the
     // longest grace period and a piece more, it reads less than the quota the lowest minimum send
     // rate, the default, leaves over the shortest window once its own reading within it counts.
-    const grace_ms_max = server.constants.rate_grace_ns / limits.ns_per_ms;
+    const grace_ms_max = server.constants.policy.rate_grace_ns / limits.ns_per_ms;
     const read_ms = grace_ms_max + limits.hostile_gap_ms_max;
-    const left = (server.constants.send_rate_min - limits.slow_read_rate_max) * window_ms_min(limits.short_rate_max);
+    const left = (server.constants.policy.send_rate_min - limits.slow_read_rate_max) * window_ms_min(limits.short_rate_max);
     assert(limits.slow_read_rate_max * read_ms < left);
     // A body's cap stays past the longest honest upload, at twice the lowest minimum rate.
-    const upload_ms_max = limits.upload_len_max * limits.ms_per_s / (limits.upload_rate_factor_min * server.constants.body_rate_min);
+    const upload_ms_max = limits.upload_len_max * limits.ms_per_s / (limits.upload_rate_factor_min * server.constants.policy.body_rate_min);
     assert(limits.short_body_ms_min > upload_ms_max);
 }

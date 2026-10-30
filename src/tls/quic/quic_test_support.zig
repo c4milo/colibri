@@ -120,7 +120,7 @@ pub fn initial_header(packet_number: u32, payload_len: usize, output: []u8) ![]c
     try writer.write_bytes(&source_id);
     // RFC 9000 §17.2.2: no token.
     try writer.write_byte(0);
-    const length = packet_number_len + payload_len + crypto.constants.aead_tag_len;
+    const length = packet_number_len + payload_len + crypto.constants.protocol.aead_tag_len;
     try writer.write_int(u16, varint_two_octets | @as(u16, @intCast(length)));
     try writer.write_int(u32, packet_number);
     return writer.written();

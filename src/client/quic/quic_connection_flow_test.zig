@@ -181,7 +181,7 @@ test "RFC 9000 §10.2: the server's CONNECTION_CLOSE ends the exchange awaiting 
     var exchange = get(&bodies[0]);
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    quic.connection_close.owe(&support.server, .{ .layer = .application, .error_code = h3.constants.error_internal, .frame_type = null, .reason = "" });
+    quic.connection_close.owe(&support.server, .{ .layer = .application, .error_code = h3.constants.protocol.error_internal, .frame_type = null, .reason = "" });
     try support.pump(support.rounds_default);
     try testing.expectEqual(.closed, exchange.response.result);
     try testing.expect(support.find(.closed) != null);

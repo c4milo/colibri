@@ -22,9 +22,9 @@ pub var test_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 /// The encoder those tests build fragments with. Test-only.
 pub var test_encoder: hpack.Encoder align(@alignOf(hpack.Encoder)) = undefined;
 /// One frame of octets the tests write fragments into. Test-only.
-pub var test_frame: [constants.frame_size_max]u8 = @splat('v');
+pub var test_frame: [constants.limits.frame_size_max]u8 = @splat('v');
 /// A value as long as a value may be. Test-only.
-pub const long_value: [core.constants.field_value_len_max]u8 = @splat('v');
+pub const long_value: [core.constants.limits.field_value_len_max]u8 = @splat('v');
 
 /// RFC 7541 Appendix C.3.1: the first request, raw. Test-only.
 pub const request_raw = "\x82\x86\x84\x41\x0fwww.example.com";
@@ -40,7 +40,7 @@ pub const request_lines = [_]hpack.Field{
 
 /// Begins a block on a fresh slot over a fresh decoder. Test-only.
 pub fn start(identifier: u32, origin: Origin, end_stream: bool) void {
-    test_decoder.init(constants.header_table_size_initial);
+    test_decoder.init(constants.protocol.header_table_size_initial);
     test_block.init();
     test_block.begin(identifier, origin, end_stream);
 }

@@ -14,7 +14,7 @@ const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const header_len = tls_provider.constants.record_header_len;
+const header_len = tls_provider.constants.protocol.record_header_len;
 
 /// The provider the tests attach in place of a handshake's session. Test-only.
 var plain: plain_support.PlainProvider align(@alignOf(plain_support.PlainProvider)) = undefined;
@@ -164,7 +164,7 @@ test "decision 110: a run of records carrying no data ends the connection, and t
         try attach_plain_with(.{ .alpn = alpn });
         // An empty record of application data carries no data, as a ticket does.
         var sealed: usize = 0;
-        for (0..h2.core.constants.records_without_data_max + 1) |_| {
+        for (0..h2.core.constants.limits.records_without_data_max + 1) |_| {
             sealed += try record_at(sealed, plain_support.content_application_data, "");
         }
         try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..sealed], support.now_ns));
@@ -186,7 +186,7 @@ test "RFC 9846 §6: a record the provider will not seal ends the connection, and
 
 test "RFC 9113 §9.2: a handshake below TLS 1.3 serves no HTTP, and the connection closes" {
     support.config = .{ .protocols = support.only(.h11) };
-    try testing.expectError(error.ConnectionFailed, attach_plain_with(.{ .alpn = "h2", .version = tls_provider.constants.version_tls_1_2 }));
+    try testing.expectError(error.ConnectionFailed, attach_plain_with(.{ .alpn = "h2", .version = tls_provider.constants.protocol.version_tls_1_2 }));
     try testing.expect(connection.should_close());
     // Nothing is sealed after the connection closed.
     try testing.expectEqual(0, connection.send(&support.output, support.now_ns));
@@ -220,12 +220,12 @@ test "RFC 9846 §5.1: a record that has not all arrived waits for its last octet
 /// A request whose content is more than `plaintext_in_len` holds at once: records of the largest
 /// plaintext, then a record one octet longer than the room they leave in `plaintext_in_len`.
 /// Test-only.
-const upload_records: usize = constants.plaintext_in_len / tls_provider.constants.record_plaintext_len_max;
-const upload_tail_len: usize = constants.plaintext_in_len % tls_provider.constants.record_plaintext_len_max + 1;
+const upload_records: usize = constants.limits.plaintext_in_len / tls_provider.constants.protocol.record_plaintext_len_max;
+const upload_tail_len: usize = constants.limits.plaintext_in_len % tls_provider.constants.protocol.record_plaintext_len_max + 1;
 const upload_head = std.fmt.comptimePrint("POST / HTTP/1.1\r\nHost: a\r\nContent-Length: {d}\r\n\r\n", .{
-    upload_records * tls_provider.constants.record_plaintext_len_max + upload_tail_len,
+    upload_records * tls_provider.constants.protocol.record_plaintext_len_max + upload_tail_len,
 });
-var upload_content: [tls_provider.constants.record_plaintext_len_max]u8 = @splat('u');
+var upload_content: [tls_provider.constants.protocol.record_plaintext_len_max]u8 = @splat('u');
 
 test "RFC 9846 §5.1: records open while the protocol's octets have room, and the rest wait" {
     try attach_plain();

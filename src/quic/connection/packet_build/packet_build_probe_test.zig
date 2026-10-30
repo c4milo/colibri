@@ -22,7 +22,7 @@ const testing = std.testing;
 const Connection = connection_module.Connection;
 const test_now_ns: u64 = 1_000_000;
 const challenge_octet: u8 = 0x3d;
-const challenge_data: [constants.path_challenge_len]u8 = @splat(challenge_octet);
+const challenge_data: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet);
 /// A handshake message that fits one packet, such as a client's Finished. Test-only.
 const message_octet: u8 = 0x14;
 const message_len: u16 = 36;
@@ -33,7 +33,7 @@ const flight_len: usize = 2_400;
 const flight: [flight_len]u8 = @splat(message_octet);
 
 comptime {
-    std.debug.assert(flight_len > constants.datagram_len_min);
+    std.debug.assert(flight_len > constants.protocol.datagram_len_min);
 }
 const handshake_at = @intFromEnum(core.Level.handshake);
 
@@ -61,8 +61,8 @@ test "RFC 9002 §6.2.4: a probe with nothing to send is a PING, and each owed pr
     open_application();
     // Nothing is owed, so nothing is built.
     try testing.expectEqual(null, try fixture.build_at(.application));
-    send.owe_probes(&fixture.test_connection, .application, constants.probe_packets);
-    for (0..constants.probe_packets) |_| {
+    send.owe_probes(&fixture.test_connection, .application, constants.recovery.probe_packets);
+    for (0..constants.recovery.probe_packets) |_| {
         const built = (try fixture.build_at(.application)).?;
         // "All probe packets sent on a PTO MUST be ack-eliciting."
         try testing.expect(built.ack_eliciting);
@@ -101,9 +101,9 @@ test "RFC 9002 §6.2.4: a probe owed at one level is sent at that level alone" {
     try testing.expect(built.ack_eliciting);
     try testing.expectEqual(core.Level.initial, built.level);
     // Owing fewer than already owed leaves the larger count.
-    send.owe_probes(&fixture.test_connection, .application, constants.probe_packets);
+    send.owe_probes(&fixture.test_connection, .application, constants.recovery.probe_packets);
     send.owe_probes(&fixture.test_connection, .application, 1);
-    try testing.expectEqual(constants.probe_packets, fixture.test_connection.probes_owed[@intFromEnum(core.Level.application)]);
+    try testing.expectEqual(constants.recovery.probe_packets, fixture.test_connection.probes_owed[@intFromEnum(core.Level.application)]);
 }
 
 /// Records `built` in flight at `sent_at_ns`, as `connection_send` does once it is sealed.
@@ -136,10 +136,10 @@ test "decision 64 as amended: the second probe repeats the first one's CRYPTO oc
     fixture.fake = .{ .owed = &message, .owed_level = .handshake };
     try record((try fixture.build_at(.handshake)).?, test_now_ns);
     try fire_probe_timeout();
-    try testing.expectEqual(constants.probe_packets, fixture.test_connection.probes_owed[handshake_at]);
+    try testing.expectEqual(constants.recovery.probe_packets, fixture.test_connection.probes_owed[handshake_at]);
     // RFC 9002 §6.2.4: "Previously sent data MAY be sent", so both probes carry the message the
     // PTO declared lost, and either one arriving delivers it.
-    for (0..constants.probe_packets) |_| {
+    for (0..constants.recovery.probe_packets) |_| {
         const probe = (try fixture.build_at(.handshake)).?;
         try testing.expectEqual(Carries.crypto, probe.carries);
         try testing.expectEqual(message_len, probe.data_offset);

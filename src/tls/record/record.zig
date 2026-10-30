@@ -54,7 +54,7 @@ pub const Progress = struct {
 };
 
 pub const Client = struct {
-    session: chapulin.record.Client(constants.receive_len),
+    session: chapulin.record.Client(constants.limits.receive_len),
     /// The ticket this connection offers, in chapulin's form; the session points at its PSK.
     offered: chapulin.Ticket,
     /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
@@ -191,9 +191,9 @@ pub const Client = struct {
 };
 
 pub const Server = struct {
-    session: chapulin.record.Server(constants.receive_len),
+    session: chapulin.record.Server(constants.limits.receive_len),
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
-    server_name: [constants.server_name_len_max]u8,
+    server_name: [constants.limits.server_name_len_max]u8,
     /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
     instant: u64,
     state: State,

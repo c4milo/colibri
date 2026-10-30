@@ -40,7 +40,7 @@ pub const Long = struct {
 pub fn write_long(writer: *Writer, header: Long) core.writer.Error!void {
     assert(header.type != .retry);
     assert(header.type == .initial or header.token.len == 0);
-    assert(@max(header.dcid.len, header.scid.len) <= constants.connection_id_len_max);
+    assert(@max(header.dcid.len, header.scid.len) <= constants.protocol.connection_id_len_max);
     var copy = writer.*;
     // RFC 9000 §17.2: Header Form 1, Fixed Bit 1, the type, Reserved Bits 0, and the Packet
     // Number Length as one less than the field's octets.
@@ -64,8 +64,8 @@ pub fn write_long(writer: *Writer, header: Long) core.writer.Error!void {
 /// Byte 0 of a long header of `long_type` in `version`, less its Packet Number Length (RFC 9000
 /// §17.2, RFC 9369 §3.2).
 fn long_first_octet(version: Version, long_type: LongType) u8 {
-    const form_and_fixed = invariant_long_form | constants.fixed_bit;
-    return form_and_fixed | (@as(u8, packet_header.type_bits(version, long_type)) << constants.long_packet_type_shift);
+    const form_and_fixed = invariant_long_form | constants.protocol.fixed_bit;
+    return form_and_fixed | (@as(u8, packet_header.type_bits(version, long_type)) << constants.protocol.long_packet_type_shift);
 }
 
 /// RFC 8999 §5.1: the Header Form bit of a long header.
@@ -80,12 +80,12 @@ pub const Short = struct {
 };
 
 pub fn write_short(writer: *Writer, header: Short) core.writer.Error!void {
-    assert(header.dcid.len <= constants.connection_id_len_max);
+    assert(header.dcid.len <= constants.protocol.connection_id_len_max);
     var copy = writer.*;
     // RFC 9000 §17.3.1: Header Form 0, Fixed Bit 1, Reserved Bits 0.
-    var first_octet: u8 = constants.fixed_bit | (header.packet_number.len - 1);
-    if (header.spin) first_octet |= constants.spin_bit;
-    if (header.key_phase) first_octet |= constants.key_phase_bit;
+    var first_octet: u8 = constants.protocol.fixed_bit | (header.packet_number.len - 1);
+    if (header.spin) first_octet |= constants.protocol.spin_bit;
+    if (header.key_phase) first_octet |= constants.protocol.key_phase_bit;
     try copy.write_byte(first_octet);
     // RFC 8999 §5.2: the connection ID follows byte 0 with no length before it.
     try copy.write_bytes(header.dcid);
@@ -105,7 +105,7 @@ pub const Retry = struct {
 };
 
 pub fn write_retry(writer: *Writer, retry: Retry) core.writer.Error!void {
-    assert(@max(retry.dcid.len, retry.scid.len) <= constants.connection_id_len_max);
+    assert(@max(retry.dcid.len, retry.scid.len) <= constants.protocol.connection_id_len_max);
     // RFC 9000 §17.2.5.2: a client discards a Retry with a zero-length token, so none is sent.
     assert(retry.token.len > 0);
     var copy = writer.*;
@@ -126,7 +126,7 @@ pub fn write_retry_pseudo_packet(
     original_dcid: []const u8,
     retry_without_tag: []const u8,
 ) core.writer.Error!void {
-    assert(original_dcid.len <= constants.connection_id_len_max);
+    assert(original_dcid.len <= constants.protocol.connection_id_len_max);
     var copy = writer.*;
     try invariant.write_connection_id(&copy, original_dcid);
     try copy.write_bytes(retry_without_tag);
@@ -152,7 +152,7 @@ test "RFC 9001 and RFC 9369 Appendix A.2: the client Initial's unprotected heade
             .dcid = &client_dcid,
             .scid = &.{},
             .packet_number = .{ .value = 2, .len = 4 },
-            .protected_payload_len = 1162 + constants.aead_tag_len,
+            .protected_payload_len = 1162 + constants.protocol.aead_tag_len,
             .length_len = 2,
         });
         const expected = head ++ client_dcid ++ [_]u8{ 0x00, 0x00, 0x44, 0x9e, 0x00, 0x00, 0x00, 0x02 };
@@ -172,7 +172,7 @@ test "RFC 9001 and RFC 9369 Appendix A.3: the server Initial's unprotected heade
             .dcid = &.{},
             .scid = &server_scid,
             .packet_number = .{ .value = 1, .len = 2 },
-            .protected_payload_len = 99 + constants.aead_tag_len,
+            .protected_payload_len = 99 + constants.protocol.aead_tag_len,
             .length_len = 2,
         });
         const expected = head ++ server_scid ++ [_]u8{ 0x00, 0x40, 0x75, 0x00, 0x01 };

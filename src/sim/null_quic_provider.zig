@@ -350,7 +350,7 @@ pub const NullQuicProvider = struct {
         // there is no selection to report before one of those has been read.
         if (!self.alpn_selected) return null;
         // RFC 9001 §8.1: "endpoints MUST use ALPN", and h3 is what QUIC carries here.
-        return &tls_provider.constants.alpn_h3;
+        return &tls_provider.constants.protocol.alpn_h3;
     }
 
     fn handshake_complete(context: *const anyopaque) bool {

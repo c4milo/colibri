@@ -27,7 +27,7 @@ fn open_and_reset(id: u32) !void {
     const opened = try support.receive_copy(try h2_support.request_frame(id, "/", true));
     try testing.expectEqual(id, opened.event.?.request.id.number);
     var writer = h2.core.Writer.init(frames);
-    try h2.frame.write_rst_stream(&writer, id, constants.error_cancel);
+    try h2.frame.write_rst_stream(&writer, id, constants.protocol.error_cancel);
     _ = try support.receive_copy(writer.written());
 }
 
@@ -38,8 +38,8 @@ fn open_and_break(id: u32) !void {
     // `write_window_update` writes no increment of 0, so the frame is built by hand.
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
-        .length = constants.window_update_len,
-        .type = constants.frame_type_window_update,
+        .length = constants.protocol.window_update_len,
+        .type = constants.protocol.frame_type_window_update,
         .flags = 0,
         .stream_id = id,
     });
@@ -75,6 +75,6 @@ test "decision 110 as amended: Limits.resets_sent_max is where a peer whose stre
 
 test "decision 110 as amended: the default Limits leave h2's constants in place" {
     try start_with(.{});
-    try testing.expectEqual(constants.peer_reset_rate_max, connection.session.h2.peer_resets_max);
-    try testing.expectEqual(constants.rst_stream_rate_max, connection.session.h2.resets_sent_max);
+    try testing.expectEqual(constants.policy.peer_reset_rate_max, connection.session.h2.peer_resets_max);
+    try testing.expectEqual(constants.policy.rst_stream_rate_max, connection.session.h2.resets_sent_max);
 }

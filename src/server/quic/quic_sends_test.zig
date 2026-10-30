@@ -63,7 +63,7 @@ fn cancelled_for(n: usize) ?Timeout {
 
 fn closing_for_load() bool {
     const close = connection.transport.pending_close orelse return false;
-    return close.layer == .application and close.error_code == h3.constants.error_excessive_load;
+    return close.layer == .application and close.error_code == h3.constants.protocol.error_excessive_load;
 }
 
 test "RFC 9114 §4.1.1: a response its stream's credit holds under the rate is reset, and the connection goes on" {
@@ -85,7 +85,7 @@ test "RFC 9114 §4.1.1: a response its stream's credit holds under the rate is r
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);
     support.client_reads = true;
     try support.pump(support.rounds_default);
-    try testing.expectEqual(h3.constants.error_request_cancelled, fetch.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_cancelled, fetch.reset.?);
     try testing.expect(!connection.sends.metered);
     try testing.expectEqual(null, support.nth(.done, 0));
 }
@@ -102,12 +102,12 @@ test "decision 110: a stream whose credit grows by the quota each window is not 
     // The client reads once, so its credit grows by one window's octets.
     try support.client_read();
     try support.pump(support.rounds_default);
-    const second_end_ns = first_end_ns + constants.rate_window_ns;
+    const second_end_ns = first_end_ns + constants.policy.rate_window_ns;
     server_at(second_end_ns);
     try testing.expectEqual(null, cancelled_for(0));
-    server_at(second_end_ns + constants.rate_window_ns - 1);
+    server_at(second_end_ns + constants.policy.rate_window_ns - 1);
     try testing.expectEqual(null, cancelled_for(0));
-    server_at(second_end_ns + constants.rate_window_ns);
+    server_at(second_end_ns + constants.policy.rate_window_ns);
     try testing.expectEqual(Timeout.send_rate, cancelled_for(0).?);
 }
 
@@ -118,7 +118,7 @@ test "decision 110: credit that grows under the rate does not start a stream's w
     try support.pump(support.rounds_default);
     const end_ns = entry_of(fetch).meter.window_end_ns.?;
     // Part of the way, the client reads once: its credit grows by a tenth of the quota.
-    server_at(end_ns - constants.rate_window_ns);
+    server_at(end_ns - constants.policy.rate_window_ns);
     try support.client_read();
     try support.pump(support.rounds_default);
     try testing.expect(entry_of(fetch).acknowledged_len > window_small);
@@ -153,8 +153,8 @@ test "decision 110: a peer that acknowledges the quota each window is not closed
     // The client reads once, so its connection's credit grows by two quotas.
     try support.client_read();
     try support.pump(support.rounds_default);
-    const third_end_ns = first_end_ns + 2 * constants.rate_window_ns;
-    server_at(first_end_ns + constants.rate_window_ns);
+    const third_end_ns = first_end_ns + 2 * constants.policy.rate_window_ns;
+    server_at(first_end_ns + constants.policy.rate_window_ns);
     try testing.expectEqual(1, connection.sends.busy);
     server_at(third_end_ns - 1);
     try testing.expect(connection.clock.timed_out == null and !support.server_failed);

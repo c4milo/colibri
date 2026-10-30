@@ -163,4 +163,4 @@ test "https://github.com/c4milo/colibri/issues/85: endpoints that write their ow
 }
 
 /// Octets of one WINDOW_UPDATE frame: a header and an increment (RFC 9113 §6.9). Test-only.
-const window_update_frame_len: u32 = h2.constants.frame_header_len + h2.constants.window_update_len;
+const window_update_frame_len: u32 = h2.constants.protocol.frame_header_len + h2.constants.protocol.window_update_len;

@@ -69,15 +69,15 @@ pub const Continuation = struct {
 
 /// Parses the payload of a HEADERS frame whose header the connection has read and sized.
 pub fn parse_headers(header: Header, payload: []const u8) Error!Headers {
-    assert(header.type == constants.frame_type_headers);
+    assert(header.type == constants.protocol.frame_type_headers);
     assert(payload.len == header.length);
     // RFC 9113 §6.2: a HEADERS frame whose Stream Identifier field is 0x00 is a connection error
     // of PROTOCOL_ERROR.
-    if (header.stream_id == constants.connection_stream_id) return error.StreamIdZero;
+    if (header.stream_id == constants.protocol.connection_stream_id) return error.StreamIdZero;
     const unpadded = try frame_padding.strip(header, payload);
     var reader = Reader.init(unpadded.payload);
     var priority: ?Priority = null;
-    if (frame_header.has_flag(header, constants.flag_priority)) {
+    if (frame_header.has_flag(header, constants.protocol.flag_priority)) {
         // RFC 9113 §4.2: a HEADERS frame too small for the Exclusive, Stream Dependency and
         // Weight fields its PRIORITY flag announces (§6.2) is a connection error of
         // FRAME_SIZE_ERROR.
@@ -87,28 +87,28 @@ pub fn parse_headers(header: Header, payload: []const u8) Error!Headers {
         .fragment = reader.take_rest(),
         .priority = priority,
         .padding_len = unpadded.padding_len,
-        .end_stream = frame_header.has_flag(header, constants.flag_end_stream),
-        .end_headers = frame_header.has_flag(header, constants.flag_end_headers),
+        .end_stream = frame_header.has_flag(header, constants.protocol.flag_end_stream),
+        .end_headers = frame_header.has_flag(header, constants.protocol.flag_end_headers),
     };
 }
 
 /// Parses the payload of a PUSH_PROMISE frame whose header the connection has read and sized.
 pub fn parse_push_promise(header: Header, payload: []const u8) Error!PushPromise {
-    assert(header.type == constants.frame_type_push_promise);
+    assert(header.type == constants.protocol.frame_type_push_promise);
     assert(payload.len == header.length);
     // RFC 9113 §6.6: a PUSH_PROMISE frame whose Stream Identifier field is 0x00 is a connection
     // error of PROTOCOL_ERROR.
-    if (header.stream_id == constants.connection_stream_id) return error.StreamIdZero;
+    if (header.stream_id == constants.protocol.connection_stream_id) return error.StreamIdZero;
     const unpadded = try frame_padding.strip(header, payload);
     var reader = Reader.init(unpadded.payload);
     // RFC 9113 §4.2: a PUSH_PROMISE frame too small for its Promised Stream ID (§6.6) is a
     // connection error of FRAME_SIZE_ERROR.
     const promised_field = reader.read_int(u32) catch return error.LengthInvalid;
     // RFC 9113 §6.6: a reserved bit precedes the 31-bit Promised Stream ID; §4.1: ignored.
-    const promised_stream_id = promised_field & ~constants.reserved_bit_mask;
+    const promised_stream_id = promised_field & ~constants.protocol.reserved_bit_mask;
     // RFC 9113 §6.6: a promise of an illegal stream identifier is a connection error of
     // PROTOCOL_ERROR; RFC 9113 §5.1.1: the identifier 0 cannot establish a new stream.
-    if (promised_stream_id == constants.connection_stream_id) return error.PromisedStreamIdInvalid;
+    if (promised_stream_id == constants.protocol.connection_stream_id) return error.PromisedStreamIdInvalid;
     // RFC 9113 §5.1.1: a server, the only endpoint that promises (§8.4), initiates even-numbered
     // streams, so an odd promise is the illegal identifier §6.6 refuses.
     if (promised_stream_id & 1 != 0) return error.PromisedStreamIdInvalid;
@@ -116,21 +116,21 @@ pub fn parse_push_promise(header: Header, payload: []const u8) Error!PushPromise
         .promised_stream_id = promised_stream_id,
         .fragment = reader.take_rest(),
         .padding_len = unpadded.padding_len,
-        .end_headers = frame_header.has_flag(header, constants.flag_end_headers),
+        .end_headers = frame_header.has_flag(header, constants.protocol.flag_end_headers),
     };
 }
 
 /// Parses the payload of a CONTINUATION frame whose header the connection has read and sized:
 /// the whole payload is the fragment.
 pub fn parse_continuation(header: Header, payload: []const u8) Error!Continuation {
-    assert(header.type == constants.frame_type_continuation);
+    assert(header.type == constants.protocol.frame_type_continuation);
     assert(payload.len == header.length);
     // RFC 9113 §6.10: a CONTINUATION frame with a Stream Identifier field of 0x00 is a connection
     // error of PROTOCOL_ERROR.
-    if (header.stream_id == constants.connection_stream_id) return error.StreamIdZero;
+    if (header.stream_id == constants.protocol.connection_stream_id) return error.StreamIdZero;
     return .{
         .fragment = payload,
-        .end_headers = frame_header.has_flag(header, constants.flag_end_headers),
+        .end_headers = frame_header.has_flag(header, constants.protocol.flag_end_headers),
     };
 }
 
@@ -146,17 +146,17 @@ pub fn write_headers(
     padding_len: u8,
     priority: ?Priority,
 ) core.writer.Error!void {
-    assert(stream_id != constants.connection_stream_id and stream_id <= constants.stream_id_max);
-    const priority_len: usize = if (priority == null) 0 else constants.priority_fields_len;
+    assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
+    const priority_len: usize = if (priority == null) 0 else constants.protocol.priority_fields_len;
     const length = frame_padding.padded_len(fragment.len + priority_len, padding_len);
     var flags: u8 = frame_padding.flag(padding_len);
-    if (end_stream) flags |= constants.flag_end_stream;
-    if (end_headers) flags |= constants.flag_end_headers;
-    if (priority != null) flags |= constants.flag_priority;
+    if (end_stream) flags |= constants.protocol.flag_end_stream;
+    if (end_headers) flags |= constants.protocol.flag_end_headers;
+    if (priority != null) flags |= constants.protocol.flag_priority;
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = length,
-        .type = constants.frame_type_headers,
+        .type = constants.protocol.frame_type_headers,
         .flags = flags,
         .stream_id = stream_id,
     });
@@ -164,7 +164,7 @@ pub fn write_headers(
     if (priority) |fields| try frame_control.write_priority_fields(&cursor, fields);
     try cursor.write_bytes(fragment);
     try frame_padding.write_padding(&cursor, padding_len);
-    assert(cursor.offset - writer.offset == constants.frame_header_len + length);
+    assert(cursor.offset - writer.offset == constants.protocol.frame_header_len + length);
     writer.* = cursor;
 }
 
@@ -178,24 +178,24 @@ pub fn write_push_promise(
     end_headers: bool,
     padding_len: u8,
 ) core.writer.Error!void {
-    assert(stream_id != constants.connection_stream_id and stream_id <= constants.stream_id_max);
-    assert(promised_stream_id != constants.connection_stream_id and promised_stream_id & 1 == 0);
-    assert(promised_stream_id <= constants.stream_id_max);
-    const length = frame_padding.padded_len(fragment.len + constants.promised_stream_id_len, padding_len);
-    const end_headers_flag: u8 = if (end_headers) constants.flag_end_headers else 0;
+    assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
+    assert(promised_stream_id != constants.protocol.connection_stream_id and promised_stream_id & 1 == 0);
+    assert(promised_stream_id <= constants.protocol.stream_id_max);
+    const length = frame_padding.padded_len(fragment.len + constants.protocol.promised_stream_id_len, padding_len);
+    const end_headers_flag: u8 = if (end_headers) constants.protocol.flag_end_headers else 0;
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = length,
-        .type = constants.frame_type_push_promise,
+        .type = constants.protocol.frame_type_push_promise,
         .flags = end_headers_flag | frame_padding.flag(padding_len),
         .stream_id = stream_id,
     });
     try frame_padding.write_pad_length(&cursor, padding_len);
     // RFC 9113 §4.1: the reserved bit above the Promised Stream ID stays unset when sending.
-    try cursor.write_int(u32, promised_stream_id & ~constants.reserved_bit_mask);
+    try cursor.write_int(u32, promised_stream_id & ~constants.protocol.reserved_bit_mask);
     try cursor.write_bytes(fragment);
     try frame_padding.write_padding(&cursor, padding_len);
-    assert(cursor.offset - writer.offset == constants.frame_header_len + length);
+    assert(cursor.offset - writer.offset == constants.protocol.frame_header_len + length);
     writer.* = cursor;
 }
 
@@ -206,13 +206,13 @@ pub fn write_continuation(
     fragment: []const u8,
     end_headers: bool,
 ) core.writer.Error!void {
-    assert(stream_id != constants.connection_stream_id and stream_id <= constants.stream_id_max);
-    assert(fragment.len <= constants.frame_length_max);
+    assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
+    assert(fragment.len <= constants.protocol.frame_length_max);
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = @intCast(fragment.len),
-        .type = constants.frame_type_continuation,
-        .flags = if (end_headers) constants.flag_end_headers else 0,
+        .type = constants.protocol.frame_type_continuation,
+        .flags = if (end_headers) constants.protocol.flag_end_headers else 0,
         .stream_id = stream_id,
     });
     try cursor.write_bytes(fragment);
@@ -226,7 +226,7 @@ fn header_of(frame_type: u8, length: u32, flags: u8, stream_id: u32) Header {
 }
 
 test "HEADERS yields its fragment and flags, with no priority when the flag is unset" {
-    const flags = constants.flag_end_headers | constants.flag_end_stream;
+    const flags = constants.protocol.flag_end_headers | constants.protocol.flag_end_stream;
     const headers = try parse_headers(header_of(1, 3, flags, 1), "abc");
     try testing.expectEqualStrings("abc", headers.fragment);
     try testing.expectEqual(null, headers.priority);
@@ -235,14 +235,14 @@ test "HEADERS yields its fragment and flags, with no priority when the flag is u
 }
 
 test "HEADERS reads END_HEADERS and END_STREAM from their own bits (RFC 9113 §6.2)" {
-    const only_end_headers = try parse_headers(header_of(1, 3, constants.flag_end_headers, 1), "abc");
+    const only_end_headers = try parse_headers(header_of(1, 3, constants.protocol.flag_end_headers, 1), "abc");
     try testing.expect(only_end_headers.end_headers and !only_end_headers.end_stream);
-    const only_end_stream = try parse_headers(header_of(1, 3, constants.flag_end_stream, 1), "abc");
+    const only_end_stream = try parse_headers(header_of(1, 3, constants.protocol.flag_end_stream, 1), "abc");
     try testing.expect(only_end_stream.end_stream and !only_end_stream.end_headers);
 }
 
 test "HEADERS under PRIORITY and PADDED yields the priority fields, then the fragment (RFC 9113 §6.2)" {
-    const flags = constants.flag_priority | constants.flag_padded;
+    const flags = constants.protocol.flag_priority | constants.protocol.flag_padded;
     const headers = try parse_headers(header_of(1, 10, flags, 3), "\x02\x80\x00\x00\x14\x09ab\xaa\xaa");
     try testing.expectEqualStrings("ab", headers.fragment);
     try testing.expect(headers.priority.?.exclusive);
@@ -257,23 +257,23 @@ test "HEADERS on stream 0 is StreamIdZero (RFC 9113 §6.2)" {
 }
 
 test "HEADERS on stream 0 is refused before its padding is read (invariant 7)" {
-    try testing.expectError(error.StreamIdZero, parse_headers(header_of(1, 4, constants.flag_padded, 0), "\x04\xaa\xaa\xaa"));
+    try testing.expectError(error.StreamIdZero, parse_headers(header_of(1, 4, constants.protocol.flag_padded, 0), "\x04\xaa\xaa\xaa"));
 }
 
 test "HEADERS with padding of the payload length is PaddingTooLong (RFC 9113 §6.2)" {
-    try testing.expectError(error.PaddingTooLong, parse_headers(header_of(1, 4, constants.flag_padded, 1), "\x04\xaa\xaa\xaa"));
+    try testing.expectError(error.PaddingTooLong, parse_headers(header_of(1, 4, constants.protocol.flag_padded, 1), "\x04\xaa\xaa\xaa"));
 }
 
 test "HEADERS under PRIORITY with fewer than five octets after the padding is LengthInvalid (RFC 9113 §4.2)" {
-    try testing.expectError(error.LengthInvalid, parse_headers(header_of(1, 4, constants.flag_priority, 1), "\x00\x00\x00\x01"));
-    const flags = constants.flag_priority | constants.flag_padded;
+    try testing.expectError(error.LengthInvalid, parse_headers(header_of(1, 4, constants.protocol.flag_priority, 1), "\x00\x00\x00\x01"));
+    const flags = constants.protocol.flag_priority | constants.protocol.flag_padded;
     try testing.expectError(error.LengthInvalid, parse_headers(header_of(1, 7, flags, 1), "\x02\x00\x00\x00\x01\x00\x00"));
-    const exact = try parse_headers(header_of(1, 5, constants.flag_priority, 1), "\x00\x00\x00\x01\x00");
+    const exact = try parse_headers(header_of(1, 5, constants.protocol.flag_priority, 1), "\x00\x00\x00\x01\x00");
     try testing.expectEqual(0, exact.fragment.len);
 }
 
 test "PUSH_PROMISE yields the promised identifier, the fragment and END_HEADERS (RFC 9113 §6.6)" {
-    const flags = constants.flag_end_headers | constants.flag_padded;
+    const flags = constants.protocol.flag_end_headers | constants.protocol.flag_padded;
     const promise = try parse_push_promise(header_of(5, 9, flags, 10), "\x02\x80\x00\x00\x0cab\x00\x00");
     try testing.expectEqual(12, promise.promised_stream_id);
     try testing.expectEqualStrings("ab", promise.fragment);
@@ -289,18 +289,18 @@ test "PUSH_PROMISE on stream 0 is StreamIdZero (RFC 9113 §6.6)" {
 }
 
 test "PUSH_PROMISE on stream 0 is refused before its padding is read (invariant 7)" {
-    try testing.expectError(error.StreamIdZero, parse_push_promise(header_of(5, 4, constants.flag_padded, 0), "\x04\xaa\xaa\xaa"));
+    try testing.expectError(error.StreamIdZero, parse_push_promise(header_of(5, 4, constants.protocol.flag_padded, 0), "\x04\xaa\xaa\xaa"));
 }
 
 test "PUSH_PROMISE with padding of the payload length is PaddingTooLong (RFC 9113 §6.6)" {
-    try testing.expectError(error.PaddingTooLong, parse_push_promise(header_of(5, 4, constants.flag_padded, 1), "\x04\xaa\xaa\xaa"));
+    try testing.expectError(error.PaddingTooLong, parse_push_promise(header_of(5, 4, constants.protocol.flag_padded, 1), "\x04\xaa\xaa\xaa"));
 }
 
 test "PUSH_PROMISE shorter than its Promised Stream ID is LengthInvalid (RFC 9113 §4.2)" {
     try testing.expectError(error.LengthInvalid, parse_push_promise(header_of(5, 3, 0, 1), "\x00\x00\x02"));
     try testing.expectError(error.LengthInvalid, parse_push_promise(header_of(5, 0, 0, 1), ""));
     // Five octets, but two of them are padding: the fields left are too short for the identifier.
-    try testing.expectError(error.LengthInvalid, parse_push_promise(header_of(5, 5, constants.flag_padded, 1), "\x02\x00\x00\x00\x02"));
+    try testing.expectError(error.LengthInvalid, parse_push_promise(header_of(5, 5, constants.protocol.flag_padded, 1), "\x02\x00\x00\x00\x02"));
 }
 
 test "PUSH_PROMISE promising stream 0 or an odd stream is PromisedStreamIdInvalid (RFC 9113 §6.6, §5.1.1)" {
@@ -310,7 +310,7 @@ test "PUSH_PROMISE promising stream 0 or an odd stream is PromisedStreamIdInvali
 }
 
 test "CONTINUATION yields its fragment and END_HEADERS; stream 0 is StreamIdZero (RFC 9113 §6.10)" {
-    const continuation = try parse_continuation(header_of(9, 2, constants.flag_end_headers, 50), "ab");
+    const continuation = try parse_continuation(header_of(9, 2, constants.protocol.flag_end_headers, 50), "ab");
     try testing.expectEqualStrings("ab", continuation.fragment);
     try testing.expect(continuation.end_headers);
     const empty = try parse_continuation(header_of(9, 0, 0, 50), "");

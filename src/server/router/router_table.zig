@@ -93,14 +93,14 @@ test "decision 122: a table's type exports Match and match alone" {
 fn methods_refusal(comptime table: anytype) ?router_trie.Refusal {
     @setEvalBranchQuota(router_trie.quota_of(table));
     const routes = router_trie.routes_of(table);
-    var seen: [constants.route_methods_max][]const u8 = undefined;
+    var seen: [constants.limits.route_methods_max][]const u8 = undefined;
     var count: usize = 0;
     for (routes.tokens, routes.patterns, 0..) |token, pattern, route| {
         const held = for (seen[0..count]) |method| {
             if (std.mem.eql(u8, method, token)) break true;
         } else false;
         if (held) continue;
-        if (count == constants.route_methods_max) return .{ .route = route, .pattern = pattern, .reason = .methods_too_many };
+        if (count == constants.limits.route_methods_max) return .{ .route = route, .pattern = pattern, .reason = .methods_too_many };
         seen[count] = token;
         count += 1;
     }

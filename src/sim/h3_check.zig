@@ -343,7 +343,7 @@ test "decision 102: the h3 check gives the same census when both endpoints write
 test "decision 102: an event that does not fit in a step's log is reported" {
     test_storage.shape = .normal;
     test_storage.logged = true;
-    test_storage.log_len = quic.qlog.constants.log_len_min;
+    test_storage.log_len = quic.qlog.constants.limits.log_len_min;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     try testing.expectError(error.QlogEventDropped, run_check(&test_storage, 1, &census, &failed_seed));

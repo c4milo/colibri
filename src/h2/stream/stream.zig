@@ -99,12 +99,12 @@ pub const Verdict = union(enum) {
 };
 
 /// The connection error of PROTOCOL_ERROR that RFC 9113 §5.1 gives a frame a state forbids.
-pub const protocol_error: Verdict = .{ .connection_error = constants.error_protocol_error };
+pub const protocol_error: Verdict = .{ .connection_error = constants.protocol.error_protocol_error };
 /// The connection error of STREAM_CLOSED that RFC 9113 §5.1 gives a frame on a closed stream.
-pub const stream_closed_connection_error: Verdict = .{ .connection_error = constants.error_stream_closed };
+pub const stream_closed_connection_error: Verdict = .{ .connection_error = constants.protocol.error_stream_closed };
 /// The stream error of STREAM_CLOSED that RFC 9113 §5.1 gives a frame on a half-closed (remote)
 /// stream.
-pub const stream_closed_stream_error: Verdict = .{ .stream_error = constants.error_stream_closed };
+pub const stream_closed_stream_error: Verdict = .{ .stream_error = constants.protocol.error_stream_closed };
 
 /// The verdict for a frame the peer sent on a stream in `state`. `closed` is set exactly when the
 /// state is closed. `end_stream` is the END_STREAM flag of a DATA or HEADERS frame and false for

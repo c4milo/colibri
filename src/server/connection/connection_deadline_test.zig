@@ -18,9 +18,9 @@ const ping_frame = deadline_support.ping_frame;
 const early_ns = deadline_support.early_ns;
 const no_content = deadline_support.no_content;
 
-const first_request_ns = server_constants.first_request_timeout_ns;
-const idle_ns = server_constants.idle_timeout_ns;
-const head_ns = server_constants.head_timeout_ns;
+const first_request_ns = server_constants.policy.first_request_timeout_ns;
+const idle_ns = server_constants.policy.idle_timeout_ns;
+const head_ns = server_constants.policy.head_timeout_ns;
 
 /// The request a test's h11 peer sends whole.
 const whole_request = "GET / HTTP/1.1\r\nHost: h\r\n\r\n";
@@ -128,7 +128,7 @@ test "decision 110: the idle deadline starts once the last response's octets are
     // The peer's socket takes a few octets, and the rest wait in the output: only the send
     // deadline runs.
     try testing.expect(connection.send(support.output[0..partial_len], early_ns) == partial_len);
-    const rate_first_end_ns = early_ns + server_constants.rate_grace_ns + server_constants.rate_window_ns;
+    const rate_first_end_ns = early_ns + server_constants.policy.rate_grace_ns + server_constants.policy.rate_window_ns;
     try testing.expectEqual(rate_first_end_ns, connection.deadline_ns().?);
     _ = send_at(early_ns + 1);
     try testing.expectEqual(early_ns + 1 + idle_ns, connection.deadline_ns().?);
@@ -174,7 +174,7 @@ test "decision 110: an h2 peer that sends only PINGs gets a GOAWAY with NO_ERROR
     try testing.expectEqual(first_request_ns, connection.deadline_ns().?);
     connection.on_instant(first_request_ns);
     try testing.expectEqual(.first_request, connection.close_reason().?.timeout);
-    try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(first_request_ns)));
+    try testing.expectEqual(h2.constants.protocol.error_no_error, try goaway_code(send_at(first_request_ns)));
     try testing.expect(connection.should_close());
 }
 
@@ -185,13 +185,13 @@ test "RFC 9113 §6.10: an h2 field block left unfinished ends the connection wit
     const frame = try h2_support.request_frame(3, "/b", true);
     var open_block: [h2_support.frames.len]u8 = undefined;
     @memcpy(open_block[0..frame.len], frame);
-    open_block[h2_support.flags_index] &= ~h2.constants.flag_end_headers;
+    open_block[h2_support.flags_index] &= ~h2.constants.protocol.flag_end_headers;
     const began_ns = early_ns + idle_ns / 2;
     _ = try receive_at(open_block[0..frame.len], began_ns);
     try testing.expectEqual(began_ns + head_ns, connection.deadline_ns().?);
     connection.on_instant(began_ns + head_ns);
     try testing.expectEqual(.head, connection.close_reason().?.timeout);
-    try testing.expectEqual(h2.constants.error_enhance_your_calm, try goaway_code(send_at(began_ns + head_ns)));
+    try testing.expectEqual(h2.constants.protocol.error_enhance_your_calm, try goaway_code(send_at(began_ns + head_ns)));
 }
 
 test "decision 110: an idle h2 connection gets a GOAWAY with NO_ERROR at the idle deadline" {
@@ -204,7 +204,7 @@ test "decision 110: an idle h2 connection gets a GOAWAY with NO_ERROR at the idl
     try testing.expectEqual(early_ns + idle_ns, connection.deadline_ns().?);
     connection.on_instant(early_ns + idle_ns);
     try testing.expectEqual(.idle, connection.close_reason().?.timeout);
-    try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(early_ns + idle_ns)));
+    try testing.expectEqual(h2.constants.protocol.error_no_error, try goaway_code(send_at(early_ns + idle_ns)));
 }
 
 test "decision 110: a TLS handshake that does not end in time closes the connection with nothing sent" {
@@ -271,13 +271,13 @@ test "RFC 9113 §6.5.3: a peer that never acknowledges the server's SETTINGS get
     _ = try receive_at(preface, early_ns);
     _ = send_at(early_ns);
     _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
-    const overdue_ns = early_ns + h2.constants.settings_timeout_ns;
+    const overdue_ns = early_ns + h2.constants.policy.settings_timeout_ns;
     try testing.expectEqual(overdue_ns, connection.deadline_ns().?);
     connection.on_instant(overdue_ns - 1);
     try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(overdue_ns);
     try testing.expectEqual(.settings, connection.close_reason().?.timeout);
-    try testing.expectEqual(h2.constants.error_settings_timeout, try goaway_code(send_at(overdue_ns)));
+    try testing.expectEqual(h2.constants.protocol.error_settings_timeout, try goaway_code(send_at(overdue_ns)));
 }
 
 test "decision 110 as amended: a SETTINGS deadline pauses while a body arrives, and resumes once none does" {
@@ -286,9 +286,9 @@ test "decision 110 as amended: a SETTINGS deadline pauses while a body arrives, 
     _ = try receive_at(preface, early_ns);
     _ = send_at(early_ns);
     _ = try receive_at(try h2_support.request_frame_with(1, "POST", "/u", &.{}, false), early_ns);
-    const overdue_ns = early_ns + h2.constants.settings_timeout_ns;
+    const overdue_ns = early_ns + h2.constants.policy.settings_timeout_ns;
     // The body's first window ends after the acknowledgment is overdue, and holds its quota.
-    const quota = server_constants.body_rate_min * (server_constants.rate_window_ns / server_constants.nanoseconds_per_second);
+    const quota = server_constants.policy.body_rate_min * (server_constants.policy.rate_window_ns / server_constants.nanoseconds_per_second);
     var data: [quota]u8 = @splat('b');
     _ = try receive_at(try deadline_support.data_frame(1, &data, false, 0), early_ns + 1);
     connection.on_instant(overdue_ns);
@@ -310,7 +310,7 @@ test "decision 110: an acknowledged SETTINGS runs no deadline" {
     try testing.expectEqual(null, connection.deadline_ns());
 }
 
-const drain_ns = server_constants.drain_timeout_ns;
+const drain_ns = server_constants.policy.drain_timeout_ns;
 
 test "decision 110: requests a shutdown leaves open end with the connection when the drain passes" {
     // h11: the application holds its request.
@@ -328,7 +328,7 @@ test "decision 110: requests a shutdown leaves open end with the connection when
     try h2_support.start();
     _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
     connection.shutdown();
-    try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(early_ns + 1)));
+    try testing.expectEqual(h2.constants.protocol.error_no_error, try goaway_code(send_at(early_ns + 1)));
     connection.on_instant(early_ns + 1 + drain_ns);
     try testing.expectEqual(.drain, connection.close_reason().?.timeout);
     try testing.expect(connection.should_close());

@@ -31,9 +31,9 @@ const ok: u16 = 200;
 /// What `send_block` holds before a response that must not write it.
 const sentinel: u8 = 0xa5;
 /// Room for more than the largest block, so that only `send_block_len_max` refuses one.
-const output_len_max = constants.send_block_len_max + constants.send_block_len_max;
+const output_len_max = constants.limits.send_block_len_max + constants.limits.send_block_len_max;
 /// A frame size larger than the initial one, which the peer may set (RFC 9113 §6.5.2).
-const frame_size_large: u32 = frame_size_factor * constants.frame_size_max;
+const frame_size_large: u32 = frame_size_factor * constants.limits.frame_size_max;
 const frame_size_factor = 4;
 /// Where each octet of the input's head sits.
 const at_count = 0;
@@ -43,7 +43,7 @@ const at_end_stream = 3;
 
 var fuzz_output: [output_len_max]u8 = undefined;
 var values: [fields_max][value_len_max]u8 = undefined;
-var block_octets: [constants.send_block_len_max]u8 = undefined;
+var block_octets: [constants.limits.send_block_len_max]u8 = undefined;
 
 const Case = struct {
     fields: [fields_max]hpack.Field = undefined,
@@ -57,7 +57,7 @@ fn case_of(input: *const [fuzz_input_len]u8) Case {
     var case: Case = .{
         .count = input[at_count] % (fields_max + 1),
         .room = (@as(usize, input[at_room]) * output_len_max) / std.math.maxInt(u8),
-        .frame_size = if (input[at_frame_size] & 1 == 0) constants.frame_size_max else frame_size_large,
+        .frame_size = if (input[at_frame_size] & 1 == 0) constants.limits.frame_size_max else frame_size_large,
         .end_stream = input[at_end_stream] & 1 == 1,
     };
     const pool = input[head_octets + fields_max * field_octets ..];
@@ -79,7 +79,7 @@ fn fuzz_response(_: void, smith: *Smith) anyerror!void {
 
 fn start(case: Case) !void {
     try support.start_server();
-    if (case.frame_size != constants.frame_size_max) try feed_frame_size(case.frame_size);
+    if (case.frame_size != constants.limits.frame_size_max) try feed_frame_size(case.frame_size);
     _ = try support.feed_request(1, "/", true);
     @memset(&test_connection.send_block, sentinel);
 }
@@ -111,7 +111,7 @@ fn expect_frames(octets: []const u8, case: Case) !usize {
     // Bounded by the octets: every frame takes at least its header.
     while (reader.remaining_len() > 0) : (count += 1) {
         const header = try frame.read_header(&reader);
-        const expected_type = if (count == 0) constants.frame_type_headers else constants.frame_type_continuation;
+        const expected_type = if (count == 0) constants.protocol.frame_type_headers else constants.protocol.frame_type_continuation;
         try testing.expectEqual(expected_type, header.type);
         try testing.expectEqual(1, header.stream_id);
         // RFC 9113 §4.2: no frame is longer than the peer's SETTINGS_MAX_FRAME_SIZE.
@@ -121,11 +121,11 @@ fn expect_frames(octets: []const u8, case: Case) !usize {
         block_len += fragment.len;
         // RFC 9113 §6.10: END_HEADERS on the last frame alone, and END_STREAM on the HEADERS.
         const last = reader.remaining_len() == 0;
-        try testing.expectEqual(last, frame.has_flag(header, constants.flag_end_headers));
+        try testing.expectEqual(last, frame.has_flag(header, constants.protocol.flag_end_headers));
         const end_stream = count == 0 and case.end_stream;
-        try testing.expectEqual(end_stream, frame.has_flag(header, constants.flag_end_stream));
+        try testing.expectEqual(end_stream, frame.has_flag(header, constants.protocol.flag_end_stream));
     }
-    hpack.decoder.test_decoder().init(constants.header_table_size_initial);
+    hpack.decoder.test_decoder().init(constants.protocol.header_table_size_initial);
     var expected: [fields_max + 1]hpack.Field = undefined;
     expected[0] = .{ .name = ":status", .value = "200" };
     @memcpy(expected[1..][0..case.count], case.fields[0..case.count]);
@@ -135,11 +135,11 @@ fn expect_frames(octets: []const u8, case: Case) !usize {
 
 /// Feeds the peer's SETTINGS frame setting SETTINGS_MAX_FRAME_SIZE.
 fn feed_frame_size(size: u32) !void {
-    var payload: [constants.setting_len]u8 = undefined;
+    var payload: [constants.protocol.setting_len]u8 = undefined;
     var writer = core.Writer.init(&payload);
-    try writer.write_int(u16, constants.setting_max_frame_size);
+    try writer.write_int(u16, constants.protocol.setting_max_frame_size);
     try writer.write_int(u32, size);
-    const settings = try support.frame_bytes(&support.test_input, constants.frame_type_settings, 0, 0, writer.written());
+    const settings = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_settings, 0, 0, writer.written());
     _ = try support.feed(settings);
 }
 

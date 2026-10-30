@@ -67,7 +67,7 @@ pub const Queue = struct {
 pub fn frame_len(octets: []const u8) usize {
     var reader = h2.core.Reader.init(octets);
     const header = h2.frame.read_header(&reader) catch return 0;
-    const len = h2.constants.frame_header_len + header.length;
+    const len = h2.constants.protocol.frame_header_len + header.length;
     return if (len <= octets.len) len else 0;
 }
 
@@ -86,7 +86,7 @@ pub const Connection = std.meta.Elem(@FieldType(Endpoint, "tcp"));
 
 comptime {
     // One offer can write a DATA frame of one octet into every part of colibri's output.
-    assert(limits.writes_per_offer_max * (h2.constants.frame_header_len + 1) >= server.constants.output_len);
+    assert(limits.writes_per_offer_max * (h2.constants.protocol.frame_header_len + 1) >= server.constants.limits.output_len);
 }
 
 pub const World = struct {
@@ -161,7 +161,7 @@ pub const World = struct {
         const held = world.server_connection();
         const settings_frame_len = frame_len(held.output[0..held.output_len]);
         assert(settings_frame_len == held.output_len);
-        world.settings_len = @intCast(settings_frame_len - h2.constants.frame_header_len);
+        world.settings_len = @intCast(settings_frame_len - h2.constants.protocol.frame_header_len);
     }
 
     /// The connection the endpoint holds, for the fields a program has no call for.
@@ -387,7 +387,7 @@ pub const World = struct {
 
     /// Notes a HEADERS frame's payload octets, which every request, or every response, repeats.
     fn note_head_len(world: *World, head_len: *?u32, written: usize) void {
-        const payload_len: u32 = @intCast(written - h2.constants.frame_header_len);
+        const payload_len: u32 = @intCast(written - h2.constants.protocol.frame_header_len);
         if (head_len.*) |known| {
             if (known != payload_len) world.broken = true;
         } else {
@@ -403,11 +403,11 @@ fn fill(random: *Random, buffer: []u8) void {
 /// RFC 9113 §5.1.1: the client's streams are the odd identifiers, the model's stream index i being
 /// 2i + 1.
 pub fn id_of(index: u32) u32 {
-    return h2.constants.stream_id_client_first + h2.constants.stream_id_step * index;
+    return h2.constants.protocol.stream_id_client_first + h2.constants.protocol.stream_id_step * index;
 }
 
 /// The index of the stream `id` names into the per-stream arrays: stream 1 at 0.
 pub fn index_of(id: u32) usize {
-    assert(id % h2.constants.stream_id_step == h2.constants.stream_id_client_first);
-    return (id - h2.constants.stream_id_client_first) / h2.constants.stream_id_step;
+    assert(id % h2.constants.protocol.stream_id_step == h2.constants.protocol.stream_id_client_first);
+    return (id - h2.constants.protocol.stream_id_client_first) / h2.constants.protocol.stream_id_step;
 }

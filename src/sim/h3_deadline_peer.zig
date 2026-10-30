@@ -53,7 +53,7 @@ const body_len: usize = 16_384;
 /// The credit the peer gives the server's unidirectional streams, and each of its own streams
 /// when it reads at once.
 const uni_window: u64 = 65_536;
-const window: u64 = quic.constants.receive_pool_len_default;
+const window: u64 = quic.constants.limits.receive_pool_len_default;
 /// The field lines of a request, and the events one read takes at most.
 const request_lines: usize = 4;
 const Line = struct { name: []const u8, value: []const u8 };
@@ -336,7 +336,7 @@ pub const Peer = struct {
 
     /// Cancels the request of `fetch` (RFC 9114 §4.1.1).
     pub fn cancel(peer: *Peer, fetch: *const Fetch) void {
-        peer.h3.cancel(&peer.connection, fetch.id, h3.constants.error_request_cancelled);
+        peer.h3.cancel(&peer.connection, fetch.id, h3.constants.protocol.error_request_cancelled);
     }
 
     /// Owes a PING, which keeps QUIC's idle timeout away and is no request (RFC 9000 §10.1.2).
@@ -353,7 +353,7 @@ fn parameters(plan: *const Plan) quic.transport_parameters.Parameters {
     held.initial_max_data = if (plan.small_connection_window()) limits.reader_stream_window else window;
     held.initial_max_stream_data_bidi_local = if (plan.small_window()) limits.reader_stream_window else window;
     held.initial_max_stream_data_uni = uni_window;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = limits.quic_idle_timeout_ms;
     return held;
 }
@@ -363,7 +363,7 @@ const content_letters = "abcdefghijklmnopqrstuvwxyz";
 
 comptime {
     // RFC 9000 §18.2: the delay of a peer that names none.
-    assert(limits.close_after_goaway_ms_max * limits.ns_per_ms == quic.constants.max_ack_delay_default_ns);
+    assert(limits.close_after_goaway_ms_max * limits.ns_per_ms == quic.constants.protocol.max_ack_delay_default_ns);
 }
 
 const vtable: quic.stream.stream_provider.VTable = .{ .read = read_fetch };

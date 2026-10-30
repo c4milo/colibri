@@ -25,7 +25,7 @@ const testing = std.testing;
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
-var datagram: [constants.datagram_len_min]u8 = undefined;
+var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
@@ -76,7 +76,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, flags: Flags)
     keys.on_keys_installed(connection, .application, .write);
     connection.handshake_complete = true;
     // RFC 9000 §8.1: a server sends only after it has received.
-    if (role == .server) connection.path.on_datagram_received(constants.datagram_len_min);
+    if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 var nothing_context: u8 = 0;
@@ -201,11 +201,11 @@ test "RFC 9000 §13.4.2.1: a packet of ACK frames alone counts among the packets
 test "decision 69: past ten marked packets a datagram is Not-ECT until an ACK shows a marked one arrived" {
     open_pair(both, reads_only);
     // Bounded by the test's packet count.
-    for (0..constants.ecn_testing_packets) |_| {
+    for (0..constants.policy.ecn_testing_packets) |_| {
         try testing.expectEqual(Ecn.ect_0, (try ping_server(.ect_0)).ecn);
     }
     try testing.expectEqual(Ecn.not_ect, (try ping_server(.not_ect)).ecn);
     // The server's ACK reports ten ECT(0) packets, which passes and makes the path capable.
-    try testing.expectEqual(constants.ecn_testing_packets, ((try acknowledge_client()).ecn orelse return error.NoCounts).ect_0);
+    try testing.expectEqual(constants.policy.ecn_testing_packets, ((try acknowledge_client()).ecn orelse return error.NoCounts).ect_0);
     try testing.expectEqual(Ecn.ect_0, (try ping_server(.ect_0)).ecn);
 }

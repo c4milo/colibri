@@ -40,20 +40,20 @@ fn gather(sent: []const u8, stream_id: u32) !Gathered {
     var gathered: Gathered = .{};
     var content_len: usize = 0;
     var at: usize = 0;
-    test_decoder.init(constants.header_table_size_initial);
+    test_decoder.init(constants.protocol.header_table_size_initial);
     // Bounded: each pass steps over a whole frame.
     for (0..sent.len) |_| {
         if (at == sent.len) break;
         const frame = sent[at..][0..h2_support.frame_len(sent[at..])];
         at += frame.len;
-        const payload = frame[constants.frame_header_len..];
-        const on_stream = std.mem.readInt(u32, frame[stream_id_at..constants.frame_header_len], .big) & constants.stream_id_max;
+        const payload = frame[constants.protocol.frame_header_len..];
+        const on_stream = std.mem.readInt(u32, frame[stream_id_at..constants.protocol.frame_header_len], .big) & constants.protocol.stream_id_max;
         // Every head decodes, whatever its stream, so the decoder's table stays the encoder's.
-        if (frame[h2_support.type_index] == constants.frame_type_headers) try read_head(payload, on_stream == stream_id, &gathered);
-        if (on_stream != stream_id or frame[h2_support.type_index] != constants.frame_type_data) continue;
+        if (frame[h2_support.type_index] == constants.protocol.frame_type_headers) try read_head(payload, on_stream == stream_id, &gathered);
+        if (on_stream != stream_id or frame[h2_support.type_index] != constants.protocol.frame_type_data) continue;
         @memcpy(test_content[content_len..][0..payload.len], payload);
         content_len += payload.len;
-        gathered.ended = frame[h2_support.flags_index] & constants.flag_end_stream != 0;
+        gathered.ended = frame[h2_support.flags_index] & constants.protocol.flag_end_stream != 0;
         gathered.last_len = payload.len;
     }
     gathered.content = test_content[0..content_len];
@@ -73,7 +73,7 @@ fn read_head(payload: []const u8, keep: bool, gathered: *Gathered) !void {
 }
 
 /// Where a frame header's stream identifier starts: its last four octets (RFC 9113 §4.1).
-const stream_id_at: usize = constants.frame_header_len - @sizeOf(u32);
+const stream_id_at: usize = constants.protocol.frame_header_len - @sizeOf(u32);
 
 /// Everything the connection owes, sent after what `test_sent` holds from `sent_len`.
 fn send_more(sent_len: *usize) void {
@@ -150,7 +150,7 @@ test "decision 101: a stream the peer resets gives its encoder back, and its oct
     _ = try connection.write_body(1, .{ .bytes = support.incompressible[0..], .end = false });
     try testing.expectEqual(encoders_all - 1, support.pool.free_count());
     var writer = h2.core.Writer.init(&h2_support.frames);
-    try h2.frame.write_rst_stream(&writer, 1, constants.error_cancel);
+    try h2.frame.write_rst_stream(&writer, 1, constants.protocol.error_cancel);
     const received = try support.receive_copy(writer.written());
     try testing.expectEqual(1, received.event.?.cancelled.id.number);
     try testing.expectEqual(encoders_all, support.pool.free_count());
@@ -176,7 +176,7 @@ test "RFC 9113 §5.4.1: a connection that failed writes no coded octets after it
     var writer = h2.core.Writer.init(&h2_support.frames);
     // RFC 9113 §6.1: a DATA frame on stream 0 is a connection error. h2's writer sends none, so
     // the test writes its header itself.
-    try h2.frame.write_header(&writer, .{ .length = 1, .type = constants.frame_type_data, .flags = 0, .stream_id = 0 });
+    try h2.frame.write_header(&writer, .{ .length = 1, .type = constants.protocol.frame_type_data, .flags = 0, .stream_id = 0 });
     try writer.write_bytes("x");
     try testing.expectError(error.ConnectionFailed, support.receive_copy(writer.written()));
     var sent_len: usize = 0;
@@ -199,8 +199,8 @@ fn data_after_goaway(sent: []const u8) bool {
     for (0..sent.len) |_| {
         if (at == sent.len) break;
         const frame_type = sent[at + h2_support.type_index];
-        if (goaway_seen and frame_type == constants.frame_type_data) return true;
-        if (frame_type == constants.frame_type_goaway) goaway_seen = true;
+        if (goaway_seen and frame_type == constants.protocol.frame_type_data) return true;
+        if (frame_type == constants.protocol.frame_type_goaway) goaway_seen = true;
         at += h2_support.frame_len(sent[at..]);
     }
     return false;

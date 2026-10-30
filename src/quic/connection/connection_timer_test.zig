@@ -33,7 +33,7 @@ const default_max_ack_delay_ms: u64 = 25;
 /// A PATH_CHALLENGE timeout short enough to be the nearest deadline (RFC 9000 §8.2.4).
 const challenge_timeout_ns: u64 = 5_000_000;
 const challenge_octet: u8 = 0x9c;
-const challenge_data: [constants.path_challenge_len]u8 = @splat(challenge_octet);
+const challenge_data: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet);
 
 const local_octet: u8 = 0xc1;
 const peer_octet: u8 = 0x51;
@@ -74,7 +74,7 @@ fn acknowledge_handshake(number: ?u64) void {
 
 /// RFC 9001 §6.5's period, which the key update's own deadline is measured in.
 fn three_probe_timeouts_ns() u64 {
-    return constants.key_update_probe_timeouts * test_connection.recovery.rtt.probe_timeout_ns(true);
+    return constants.policy.key_update_probe_timeouts * test_connection.recovery.rtt.probe_timeout_ns(true);
 }
 
 test "RFC 9002 Appendix A.8: a client arms a probe until the peer has validated its address" {
@@ -86,7 +86,7 @@ test "RFC 9002 Appendix A.8: a client arms a probe until the peer has validated 
     try test_connection.recovery.on_packet_sent(.initial, .{
         .number = 0,
         .sent_at_ns = test_now_ns,
-        .sent_len = @intCast(constants.datagram_len_min),
+        .sent_len = @intCast(constants.protocol.datagram_len_min),
         .ack_eliciting = false,
         .in_flight = true,
     }, test_now_ns);
@@ -127,7 +127,7 @@ test "RFC 9000 §8.2.4: an outstanding PATH_CHALLENGE is the nearer deadline" {
     // §21.1.1.1 exempts a client establishing a connection, so its path begins validated; this
     // case is about a path being probed, which is the state §8.2 measures.
     test_connection.path.init(.unvalidated);
-    test_connection.path.on_challenge_sent(challenge_data, constants.datagram_len_min, test_now_ns, challenge_timeout_ns);
+    test_connection.path.on_challenge_sent(challenge_data, constants.protocol.datagram_len_min, test_now_ns, challenge_timeout_ns);
     const deadline = next().?;
     // §8.2.4's timer is shorter than §10.1's, so it is what colibri wants to be called at.
     try testing.expectEqual(timer.Kind.path, deadline.kind);
@@ -150,7 +150,7 @@ test "RFC 9000 §10.2: the closing period replaces the idle timeout" {
     const deadline = next().?;
     try testing.expectEqual(timer.Kind.period, deadline.kind);
     // §10.2: the period is three times the Probe Timeout.
-    try testing.expectEqual(test_now_ns + constants.close_probe_timeouts * probe_timeout_ns, deadline.at_ns);
+    try testing.expectEqual(test_now_ns + constants.policy.close_probe_timeouts * probe_timeout_ns, deadline.at_ns);
     // §10.1's timer belongs to an active connection, and this one is closing.
     try testing.expectEqual(null, test_connection.termination.idle_deadline_ns(0));
 
@@ -186,7 +186,7 @@ test "RFC 9002 Appendix A.9, decision 59: a packet in flight arms the loss timer
     try test_connection.recovery.on_packet_sent(.initial, .{
         .number = 0,
         .sent_at_ns = test_now_ns,
-        .sent_len = @intCast(constants.datagram_len_min),
+        .sent_len = @intCast(constants.protocol.datagram_len_min),
         .ack_eliciting = true,
         .in_flight = true,
     }, test_now_ns);
@@ -198,12 +198,12 @@ test "RFC 9002 Appendix A.9, decision 59: a packet in flight arms the loss timer
     try testing.expect(fired.loss);
     // Decision 59: Appendix A.9's `OnLossDetectionTimeout` ran. Nothing was old enough to be lost,
     // so it was the Probe Timeout, and §6.2.4 owes two probes while a packet is in flight.
-    try testing.expectEqual(constants.probe_packets, test_connection.probes_owed[@intFromEnum(core.Level.initial)]);
+    try testing.expectEqual(constants.recovery.probe_packets, test_connection.probes_owed[@intFromEnum(core.Level.initial)]);
 }
 
 test "design §4.2: more than one deadline can come due at one instant" {
     open_connection(idle_timeout_ms);
-    test_connection.path.on_challenge_sent(challenge_data, constants.datagram_len_min, test_now_ns, idle_timeout_ns);
+    test_connection.path.on_challenge_sent(challenge_data, constants.protocol.datagram_len_min, test_now_ns, idle_timeout_ns);
     test_connection.key_phase.previous_held = true;
     test_connection.key_phase.previous_since_ns = test_now_ns;
 
@@ -239,7 +239,7 @@ test "RFC 9000 §13.2.1: an unacknowledged ack-eliciting packet is a deadline of
 test "RFC 9000 §10.2.1: a closing connection owes no ACK and no PATH_CHALLENGE, so its period is next" {
     open_connection(idle_timeout_ms);
     _ = connection_module.space_at(&test_connection, .application).receive(0, test_now_ns, true, .not_ect);
-    test_connection.path.on_challenge_sent(challenge_data, constants.datagram_len_min, test_now_ns, challenge_timeout_ns);
+    test_connection.path.on_challenge_sent(challenge_data, constants.protocol.datagram_len_min, test_now_ns, challenge_timeout_ns);
     try testing.expectEqual(timer.Kind.path, next().?.kind);
     const probe_timeout_ns = test_connection.recovery.rtt.probe_timeout_ns(true);
     test_connection.termination.on_close_sent(test_now_ns, probe_timeout_ns);
@@ -254,7 +254,7 @@ test "RFC 9000 §10.1: an idle timeout shorter than three Probe Timeouts waits f
     const deadline = next().?;
     try testing.expectEqual(timer.Kind.idle, deadline.kind);
     const probe_timeout_ns = test_connection.recovery.rtt.probe_timeout_ns(true);
-    try testing.expectEqual(test_now_ns + constants.close_probe_timeouts * probe_timeout_ns, deadline.at_ns);
+    try testing.expectEqual(test_now_ns + constants.policy.close_probe_timeouts * probe_timeout_ns, deadline.at_ns);
     try testing.expect(!(try fire(deadline.at_ns - 1)).idle);
     try testing.expect((try fire(deadline.at_ns)).idle);
 }

@@ -28,9 +28,9 @@ fn cancel_batch(count: usize) !void {
 test "RFC 9114 §10.5: a client that cancels more requests in one period than the limit closes the connection with H3_EXCESSIVE_LOAD" {
     try support.start();
     try support.connect();
-    for (0..constants.peer_resets_max / batch_len) |_| try cancel_batch(batch_len);
+    for (0..constants.policy.peer_resets_max / batch_len) |_| try cancel_batch(batch_len);
     // The limit's worth of cancelled requests is not past it.
-    try testing.expectEqual(constants.peer_resets_max, connection.peer_resets);
+    try testing.expectEqual(constants.policy.peer_resets_max, connection.peer_resets);
     try testing.expect(!support.server_failed);
     try testing.expectEqual(null, connection.close_reason());
     try cancel_batch(1);
@@ -38,7 +38,7 @@ test "RFC 9114 §10.5: a client that cancels more requests in one period than th
     try testing.expectEqual(.peer_resets, connection.close_reason().?.limit);
     const close = connection.transport.pending_close.?;
     try testing.expectEqual(.application, close.layer);
-    try testing.expectEqual(h3.constants.error_excessive_load, close.error_code);
+    try testing.expectEqual(h3.constants.protocol.error_excessive_load, close.error_code);
 }
 
 test "RFC 9114 §4.1.1: a STOP_SENDING, a RESET_STREAM, or both cancel a request, and each request counts once" {
@@ -75,7 +75,7 @@ test "decision 110: the count of cancelled requests starts again each period" {
     try testing.expectEqual(batch_len, connection.peer_resets);
     // The server reads a cancel one round before the period ends, which counts in it, and the
     // next at the instant it ends, which starts the next period.
-    const period_end_ns = connection.peer_reset_period_start_ns + constants.quic_peer_reset_rate_period_ns;
+    const period_end_ns = connection.peer_reset_period_start_ns + constants.policy.quic_peer_reset_rate_period_ns;
     support.now_ns = period_end_ns - support.round_ns - support.round_ns;
     try cancel_batch(1);
     try testing.expectEqual(period_end_ns - support.round_ns, support.now_ns);
@@ -136,7 +136,7 @@ test "decision 110 as amended: h3 counts each request it refuses, and past the l
     try testing.expectEqual(.resets_sent, connection.close_reason().?.limit);
     const close = connection.transport.pending_close.?;
     try testing.expectEqual(.application, close.layer);
-    try testing.expectEqual(h3.constants.error_excessive_load, close.error_code);
+    try testing.expectEqual(h3.constants.protocol.error_excessive_load, close.error_code);
 }
 
 test "decision 110 as amended: the count of refused requests starts again each period, apart from the client's cancels" {
@@ -146,7 +146,7 @@ test "decision 110 as amended: the count of refused requests starts again each p
     try cancel_batch(1);
     try testing.expectEqual(batch_len, connection.resets_sent);
     try testing.expectEqual(1, connection.peer_resets);
-    const period_end_ns = connection.resets_sent_period_start_ns + constants.quic_resets_sent_period_ns;
+    const period_end_ns = connection.resets_sent_period_start_ns + constants.policy.quic_resets_sent_period_ns;
     support.now_ns = period_end_ns - support.round_ns;
     try broken_batch(1);
     try testing.expectEqual(period_end_ns, support.now_ns);
@@ -170,8 +170,8 @@ test "decision 110 as amended: a request refused before the caller heard of it c
 test "decision 110 as amended: by default h3 closes the connection past Limits' default of refused requests" {
     try support.start();
     try support.connect();
-    for (0..constants.resets_sent_max / batch_len) |_| try broken_batch(batch_len);
-    try testing.expectEqual(constants.resets_sent_max, connection.resets_sent);
+    for (0..constants.policy.resets_sent_max / batch_len) |_| try broken_batch(batch_len);
+    try testing.expectEqual(constants.policy.resets_sent_max, connection.resets_sent);
     try testing.expect(!support.server_failed);
     try broken_batch(1);
     try testing.expectEqual(.resets_sent, connection.close_reason().?.limit);

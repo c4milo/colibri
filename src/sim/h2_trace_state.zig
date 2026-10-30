@@ -85,7 +85,7 @@ const length_len: usize = 3;
 const type_offset: usize = 3;
 const flags_offset: usize = 4;
 const stream_offset: usize = 5;
-const header_len: usize = h2.constants.frame_header_len;
+const header_len: usize = h2.constants.protocol.frame_header_len;
 /// Octets of a GOAWAY's Last-Stream-ID (RFC 9113 §6.8).
 const last_stream_id_len: usize = 4;
 

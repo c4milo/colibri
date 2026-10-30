@@ -26,14 +26,14 @@ const step_mask: u8 = step_values - 1;
 
 /// Internal nodes of the code tree: one fewer than its leaves. The root, state 0, is where each
 /// symbol starts.
-const state_count = constants.huffman_symbol_count - 1;
+const state_count = constants.protocol.huffman_symbol_count - 1;
 const State = u8;
 const root: State = 0;
 
 comptime {
     assert(state_count == std.math.maxInt(State) + 1);
     // Four bits complete one symbol at most.
-    assert(constants.huffman_code_bits_min > step_bits);
+    assert(constants.protocol.huffman_code_bits_min > step_bits);
     assert(@bitSizeOf(u8) % step_bits == 0);
 }
 
@@ -108,7 +108,7 @@ fn walk(children: *const [state_count][branches]Child, state: State, value: u8) 
         switch (children[node][bit]) {
             .node => |child| node = child,
             .leaf => |symbol| {
-                if (symbol == constants.huffman_eos_symbol) {
+                if (symbol == constants.protocol.huffman_eos_symbol) {
                     result.eos = true;
                     return result;
                 }
@@ -132,7 +132,7 @@ pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
         state = try step(state, octet & step_mask, &cursor);
     }
     // RFC 7541 §5.2: padding strictly longer than 7 bits is a decoding error.
-    if (machine.depth[state] > constants.huffman_padding_bits_max) return error.HuffmanPaddingTooLong;
+    if (machine.depth[state] > constants.protocol.huffman_padding_bits_max) return error.HuffmanPaddingTooLong;
     // RFC 7541 §5.2: padding that is not the most significant bits of EOS is a decoding error.
     if (!machine.all_ones[state]) return error.HuffmanPaddingNotEos;
     output.* = cursor;

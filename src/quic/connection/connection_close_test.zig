@@ -48,7 +48,7 @@ const peer_id: [id_len]u8 = @splat(peer_octet);
 /// A code and a triggering frame type that are not colibri's defaults, so a test that reads them
 /// back is reading what was written. Test-only.
 const test_error_code: u64 = error_code.protocol_violation;
-const test_frame_type: u64 = constants.frame_ping;
+const test_frame_type: u64 = constants.protocol.frame_ping;
 /// A reason phrase, which RFC 9000 §19.19 makes diagnostic and optional. Test-only.
 const test_reason = "no";
 /// Handshake octets a fake provider owes, so a packet would carry a CRYPTO frame if it could.
@@ -84,7 +84,7 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
     }
     // RFC 9000 §8.1: a server may send three times what it received, and §10.2.1 has it close in
     // response to an incoming packet, so one datagram has always arrived by the time it closes.
-    if (role == .server) connection.path.on_datagram_received(constants.datagram_len_min);
+    if (role == .server) connection.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 /// Installs the application keys on both sides, which is what lets a 1-RTT packet be sealed.
@@ -121,7 +121,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !Read {
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     var seen: Read = .{ .packets = 0, .closes = 0 };
     // Bounded by what one datagram can hold (RFC 9000 §12.2).
-    while (seen.packets < constants.coalesced_packets_max) {
+    while (seen.packets < constants.limits.coalesced_packets_max) {
         const outcome = try receive.next(&walk, reader, suite_holder.suite()) orelse break;
         const opened = switch (outcome) {
             .opened => |one| one,
@@ -221,7 +221,7 @@ test "RFC 9000 §10.2.3, §12.5: an application close becomes a transport close 
         try testing.expectEqual(error_code.application_error, shaped.error_code);
         try testing.expectEqual(0, shaped.reason.len);
         // §19.19: a transport close carries the Frame Type field, and 0 says it is unknown.
-        try testing.expectEqual(constants.frame_padding, shaped.frame_type.?);
+        try testing.expectEqual(constants.protocol.frame_padding, shaped.frame_type.?);
         // §12.5: what goes out is permitted at the level it goes out at, which the original
         // frame was not.
         try testing.expect(frame_module.Frame.permitted_at(.{ .connection_close = shaped }, level));
@@ -308,7 +308,7 @@ test "RFC 9000 §19.19: a reason phrase that will not fit gives way rather than 
         .layer = .transport,
         .error_code = test_error_code,
         // §19.19: a 0x1c frame always carries the field, and 0 says the frame is unknown.
-        .frame_type = constants.frame_padding,
+        .frame_type = constants.protocol.frame_padding,
         .reason = &long_reason,
     });
     // "Because a CONNECTION_CLOSE frame cannot be split between packets, any limits on packet
@@ -349,7 +349,7 @@ test "RFC 9000 §19.19: a transport close with no triggering frame names frame t
     // "A value of 0 (equivalent to the mention of the PADDING frame) is used when the frame type
     // is unknown", and unlike a 0x1d frame a 0x1c frame always carries the field.
     const unknown = close_module.transport(test_error_code, null);
-    try testing.expectEqual(constants.frame_padding, unknown.frame_type.?);
+    try testing.expectEqual(constants.protocol.frame_padding, unknown.frame_type.?);
     try testing.expectEqual(
         test_frame_type,
         close_module.transport(test_error_code, test_frame_type).frame_type.?,
@@ -360,7 +360,7 @@ test "RFC 9000 §19.19: a transport close with no triggering frame names frame t
     const written = close_module.write(&client, .handshake, &buffer);
     var reader = core.Reader.init(buffer[0..written]);
     const read_back = (try frame_module.read(&reader)).connection_close;
-    try testing.expectEqual(constants.frame_padding, read_back.frame_type.?);
+    try testing.expectEqual(constants.protocol.frame_padding, read_back.frame_type.?);
     try testing.expectEqual(test_error_code, read_back.error_code);
 }
 
@@ -388,7 +388,7 @@ test "RFC 9000 §8.1, §10.2.1: a server that has received nothing sends no clos
     close_module.owe(&server, close_module.transport(test_error_code, null));
     try testing.expectEqual(null, try send_from(&server));
     // One datagram in and the close goes out, inside what §8.1 allows.
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
     const allowance = server.path.send_allowance();
     const sent = (try send_from(&server)).?;
     try testing.expect(sent.len <= allowance);

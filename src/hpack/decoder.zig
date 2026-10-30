@@ -76,13 +76,13 @@ pub const Decoder = struct {
     /// The smallest limit set since the peer's capacity last fit under it, if any. The next block
     /// must start with a size update at or below it (RFC 9113 §4.3.1).
     lowered_limit: ?u64,
-    name_scratch: [constants.name_len_max]u8,
-    value_scratch: [constants.value_len_max]u8,
+    name_scratch: [constants.limits.name_len_max]u8,
+    value_scratch: [constants.limits.value_len_max]u8,
 
     /// A decoder whose table's capacity and limit are both `capacity`: the protocol's initial
     /// value, 4,096 in h2 (RFC 9113 §6.5.2).
     pub fn init(decoder: *Decoder, capacity: u64) void {
-        assert(capacity <= constants.dynamic_table_capacity_max);
+        assert(capacity <= constants.limits.dynamic_table_capacity_max);
         decoder.table.init(capacity);
         decoder.capacity_limit = capacity;
         decoder.lowered_limit = null;
@@ -92,7 +92,7 @@ pub const Decoder = struct {
     /// The protocol changed the limit, and the peer has acknowledged it. A lower limit than the
     /// table's capacity obliges the peer to open its next block with a size update.
     pub fn set_capacity_limit(decoder: *Decoder, limit: u64) void {
-        assert(limit <= constants.dynamic_table_capacity_max);
+        assert(limit <= constants.limits.dynamic_table_capacity_max);
         decoder.capacity_limit = limit;
         if (limit < decoder.table.capacity) {
             decoder.lowered_limit = @min(decoder.lowered_limit orelse limit, limit);

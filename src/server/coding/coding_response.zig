@@ -108,8 +108,8 @@ threadlocal var test_coded_octets: [test_coded_len]u8 = undefined;
 threadlocal var test_decoded: [test_input_len]u8 = undefined;
 threadlocal var test_input: [test_input_len]u8 = undefined;
 /// Three rings of input, which deflate cannot shrink, so the coded octets pass the ring's end.
-const test_input_len: usize = test_input_rings * constants.encoder_ring_len;
-const test_coded_len: usize = (test_input_rings + 1) * constants.encoder_ring_len;
+const test_input_len: usize = test_input_rings * constants.limits.encoder_ring_len;
+const test_coded_len: usize = (test_input_rings + 1) * constants.limits.encoder_ring_len;
 const test_input_rings: usize = 3;
 
 /// Fills the test input with SplitMix64's output, which deflate cannot shrink.
@@ -164,7 +164,7 @@ test "decision 101: content past the ring's room waits for the ring to empty, an
         if (coded.finished) break;
     }
     try testing.expect(coded.finished and coded.ring.held() == 0);
-    try testing.expect(coded.ring.written > constants.encoder_ring_len);
+    try testing.expect(coded.ring.written > constants.limits.encoder_ring_len);
     gzip.init(&test_decoder, .none());
     const decoded = try gzip.decode_all(&test_decoder, test_coded_octets[0..copied], &test_decoded);
     try testing.expectEqualSlices(u8, &test_input, test_decoded[0..decoded.written]);

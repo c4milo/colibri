@@ -126,8 +126,8 @@ pub const Frame = union(enum) {
     streams_blocked: struct { directionality: Directionality, limit: u64 },
     new_connection_id: frame_control.NewConnectionId,
     retire_connection_id: struct { sequence_number: u64 },
-    path_challenge: struct { data: *const [constants.path_challenge_len]u8 },
-    path_response: struct { data: *const [constants.path_challenge_len]u8 },
+    path_challenge: struct { data: *const [constants.protocol.path_challenge_len]u8 },
+    path_response: struct { data: *const [constants.protocol.path_challenge_len]u8 },
     connection_close: frame_control.ConnectionClose,
     handshake_done,
 
@@ -229,15 +229,15 @@ pub fn read(reader: *Reader) Error!Frame {
 
 fn read_at(reader: *Reader) Error!Frame {
     const frame_type = (wire.varint.decode(reader) catch return error.Truncated).value;
-    if (frame_type >= constants.frame_stream_first and frame_type <= constants.frame_stream_last) {
+    if (frame_type >= constants.protocol.frame_stream_first and frame_type <= constants.protocol.frame_stream_last) {
         return .{ .stream = try frame_stream.read_stream(reader, frame_type) };
     }
     return switch (frame_type) {
-        constants.frame_padding => .{ .padding = .{ .len = frame_stream.read_padding(reader) } },
-        constants.frame_ping => .ping,
-        constants.frame_ack, constants.frame_ack_ecn => .{ .ack = try frame_ack.read(reader, frame_type) },
-        constants.frame_crypto => .{ .crypto = try frame_stream.read_crypto(reader) },
-        constants.frame_new_token => .{ .new_token = .{ .token = try frame_stream.read_token(reader) } },
+        constants.protocol.frame_padding => .{ .padding = .{ .len = frame_stream.read_padding(reader) } },
+        constants.protocol.frame_ping => .ping,
+        constants.protocol.frame_ack, constants.protocol.frame_ack_ecn => .{ .ack = try frame_ack.read(reader, frame_type) },
+        constants.protocol.frame_crypto => .{ .crypto = try frame_stream.read_crypto(reader) },
+        constants.protocol.frame_new_token => .{ .new_token = .{ .token = try frame_stream.read_token(reader) } },
         else => frame_control.read(reader, frame_type),
     };
 }
@@ -252,12 +252,12 @@ pub fn write(writer: *Writer, frame: Frame) core.writer.Error!void {
 fn write_at(writer: *Writer, frame: Frame) core.writer.Error!void {
     switch (frame) {
         .padding => |padding| try frame_stream.write_padding(writer, padding.len),
-        .ping => try write_type(writer, constants.frame_ping),
+        .ping => try write_type(writer, constants.protocol.frame_ping),
         .ack => |ack| try frame_ack.write(writer, ack),
         .crypto => |crypto| try frame_stream.write_crypto(writer, crypto),
         .new_token => |new_token| try frame_stream.write_token(writer, new_token.token),
         .stream => |stream| try frame_stream.write_stream(writer, stream),
-        .handshake_done => try write_type(writer, constants.frame_handshake_done),
+        .handshake_done => try write_type(writer, constants.protocol.frame_handshake_done),
         else => try frame_control.write(writer, frame),
     }
 }
@@ -266,7 +266,7 @@ fn write_at(writer: *Writer, frame: Frame) core.writer.Error!void {
 /// §12.4 requires the Frame Type field to be encoded as minimally as possible, and §16 admits a
 /// longer encoding everywhere else.
 pub fn write_type(writer: *Writer, frame_type: u64) core.writer.Error!void {
-    assert(frame_type <= constants.frame_handshake_done);
+    assert(frame_type <= constants.protocol.frame_handshake_done);
     try wire.varint.encode(writer, frame_type);
 }
 

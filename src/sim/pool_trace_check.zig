@@ -163,7 +163,7 @@ fn check_processed(state: *const State, index: usize, idempotent: bool) Violatio
     if (refused and state.seen[index]) return error.RefusedProcessed;
     if (refused and state.stage[index] == .reported and state.processed[index] > 0) return error.RefusedProcessed;
     if (state.processed[index] > 1 and !idempotent) return error.ProcessedTwice;
-    if (state.moved[index] > client.constants.moves_max) return error.MovedTooOften;
+    if (state.moved[index] > client.constants.limits.moves_max) return error.MovedTooOften;
 }
 
 fn check_end(world: *const World) Violation!void {

@@ -37,8 +37,8 @@ pub const Decoded = struct {
 
 /// The H flag: the highest of the N prefix bits.
 fn huffman_flag(comptime prefix_size: u4) u8 {
-    comptime assert(prefix_size >= constants.string_prefix_bits_min);
-    comptime assert(prefix_size <= constants.integer_prefix_bits_max);
+    comptime assert(prefix_size >= constants.protocol.string_prefix_bits_min);
+    comptime assert(prefix_size <= constants.protocol.integer_prefix_bits_max);
     return @as(u8, 1) << (prefix_size - 1);
 }
 
@@ -171,8 +171,8 @@ const fuzz_input_len_max = 64;
 fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
     const prefix_size: u4 = smith.valueRangeAtMost(
         u4,
-        constants.string_prefix_bits_min,
-        constants.integer_prefix_bits_max,
+        constants.protocol.string_prefix_bits_min,
+        constants.protocol.integer_prefix_bits_max,
     );
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const input_len = smith.slice(&input);
@@ -180,7 +180,7 @@ fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
     var buffer: [huffman.decoded_len_max(fuzz_input_len_max)]u8 = @splat(0);
     var output = Writer.init(&buffer);
     const decoded = switch (prefix_size) {
-        inline constants.string_prefix_bits_min...constants.integer_prefix_bits_max,
+        inline constants.protocol.string_prefix_bits_min...constants.protocol.integer_prefix_bits_max,
         => |size| decode(size, &reader, &output),
         else => unreachable,
     } catch |err| {
@@ -193,7 +193,7 @@ fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
     if (decoded.coding == .huffman) {
         try testing.expect(output.offset <= huffman.decoded_len_max(decoded.encoded_len));
     }
-    comptime assert(constants.integer_len_max < fuzz_input_len_max);
+    comptime assert(constants.protocol.integer_len_max < fuzz_input_len_max);
 }
 
 test "fuzz: a literal consumes its whole length or nothing" {

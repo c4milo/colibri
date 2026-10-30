@@ -153,7 +153,7 @@ pub const Error = error{
 
 /// The verdict every `Error` carries: a malformed message is a stream error of type
 /// PROTOCOL_ERROR (RFC 9113 §8.1.1).
-pub const verdict: stream.Verdict = .{ .stream_error = constants.error_protocol_error };
+pub const verdict: stream.Verdict = .{ .stream_error = constants.protocol.error_protocol_error };
 
 /// A request the section holds. Every slice points into the section and stays valid until the
 /// section's next `append`, `clear` or `init`.

@@ -55,7 +55,7 @@ fn one_exchange() !void {
 fn closing_with_no_error() bool {
     const close = connection.transport.pending_close orelse return false;
     if (close.layer != .application) return false;
-    return close.error_code == h3.constants.error_no_error or h3.constants.is_reserved(close.error_code);
+    return close.error_code == h3.constants.protocol.error_no_error or h3.constants.protocol.is_reserved(close.error_code);
 }
 
 test "RFC 9114 §5.2: a connection its idle deadline ends sends a GOAWAY, takes no new request, and closes once the client acknowledged it" {
@@ -147,7 +147,7 @@ test "decision 110: a connection that is shutting down runs no first-request and
     support.client_mute = true;
     try support.pump(rounds_few);
     const drain_end_ns = connection.clock.drain_since_ns.? + short_ns;
-    try testing.expect(drain_end_ns < connection.clock.opened_ns + constants.first_request_timeout_ns);
+    try testing.expect(drain_end_ns < connection.clock.opened_ns + constants.policy.first_request_timeout_ns);
     try testing.expectEqual(drain_end_ns, quic_deadline.soonest(connection).?);
     server_at(drain_end_ns);
     try testing.expectEqual(Timeout.drain, connection.close_reason().?.timeout);
@@ -165,8 +165,8 @@ test "RFC 9114 §4.1.1: a connection its idle deadline ends rejects each request
     try testing.expectEqual(Timeout.idle, connection.close_reason().?.timeout);
     try testing.expectEqual(null, connection.h3.oldest_head_wait());
     try support.pump(support.rounds_default);
-    try testing.expectEqual(h3.constants.error_request_rejected, late.reset.?);
-    try testing.expectEqual(h3.constants.error_request_rejected, later.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_rejected, late.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_rejected, later.reset.?);
     try testing.expectEqual(0, late.status + later.status);
     try testing.expect(closing_with_no_error() and !support.server_failed);
     // The client resets its side because the server asked it to, which is no cancel of its own.
@@ -181,7 +181,7 @@ test "RFC 9114 §4.1.1: a shutdown rejects the request whose head is not whole, 
     try support.pump(rounds_few);
     connection.shutdown(support.now_ns);
     try support.pump(rounds_few);
-    try testing.expectEqual(h3.constants.error_request_rejected, late.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_rejected, late.reset.?);
     try testing.expectEqual(null, connection.transport.pending_close);
     try connection.respond(held.id, .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
@@ -224,6 +224,6 @@ test "decision 110: a close waits for the client's acknowledgment of every rejec
     // colibri sends the rejection again once it learns of the loss (RFC 9002 §6), and closes
     // only once the client acknowledged it.
     try support.pump(rounds_lost);
-    try testing.expectEqual(@as(?u64, h3.constants.error_request_rejected), late.reset);
+    try testing.expectEqual(@as(?u64, h3.constants.protocol.error_request_rejected), late.reset);
     try testing.expect(closing_with_no_error() and !support.server_failed);
 }

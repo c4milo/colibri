@@ -48,7 +48,7 @@ pub const Verdict = enum {
 pub const Received = struct {
     /// Descending by `largest`, with no two touching: a run that would touch the next is merged
     /// into it, so the ranges are the fewest that describe what was received.
-    ranges: [constants.ack_ranges_max]Range,
+    ranges: [constants.limits.ack_ranges_max]Range,
     len: usize,
 
     pub const empty: Received = .{ .ranges = @splat(.{ .smallest = 0, .largest = 0 }), .len = 0 };
@@ -85,7 +85,7 @@ pub const Received = struct {
     /// contained in the packet have been processed." Nothing between the two calls changes this
     /// structure, so the answer holds.
     pub fn verdict_for(received: *const Received, packet_number: u64) Verdict {
-        assert(packet_number <= constants.packet_number_max);
+        assert(packet_number <= constants.protocol.packet_number_max);
         for (received.ranges[0..received.len]) |range| {
             // RFC 9000 §12.3: a number inside a range was processed before.
             if (range.contains(packet_number)) return .duplicate;
@@ -243,15 +243,15 @@ test "§13.2.3: past the limit the oldest range is dropped, and what it held is 
     test_received.reset();
     // Every other number, so each is a range of its own: 0, 2, 4, ... in ascending order, which
     // fills the array from the bottom.
-    for (0..constants.ack_ranges_max) |index| {
+    for (0..constants.limits.ack_ranges_max) |index| {
         try testing.expectEqual(Verdict.new, test_received.receive(index * 2));
     }
-    try testing.expectEqual(constants.ack_ranges_max, test_received.len);
+    try testing.expectEqual(constants.limits.ack_ranges_max, test_received.len);
     try testing.expectEqual(0, test_received.floor().?);
     // One more range at the top drops the range holding 0.
-    const above = constants.ack_ranges_max * 2;
+    const above = constants.limits.ack_ranges_max * 2;
     try testing.expectEqual(Verdict.new, test_received.receive(above));
-    try testing.expectEqual(constants.ack_ranges_max, test_received.len);
+    try testing.expectEqual(constants.limits.ack_ranges_max, test_received.len);
     try testing.expectEqual(2, test_received.floor().?);
     // RFC 9000 §12.3: 0 is below what is remembered, so it is discarded and not processed twice.
     try testing.expectEqual(Verdict.forgotten, test_received.receive(0));
@@ -260,7 +260,7 @@ test "§13.2.3: past the limit the oldest range is dropped, and what it held is 
     // extending downward would then take a number this endpoint had already processed.
     try testing.expectEqual(Verdict.forgotten, test_received.receive(1));
     try testing.expectEqual(2, test_received.floor().?);
-    try testing.expectEqual(constants.ack_ranges_max, test_received.len);
+    try testing.expectEqual(constants.limits.ack_ranges_max, test_received.len);
     // A number above the floor is still new, and merging there drops no certainty.
     try testing.expectEqual(Verdict.new, test_received.receive(3));
     try testing.expectEqual(Range{ .smallest = 2, .largest = 4 }, test_received.range_at(test_received.len - 1));
@@ -268,7 +268,7 @@ test "§13.2.3: past the limit the oldest range is dropped, and what it held is 
 
 test "§12.3: the largest packet number is received like any other" {
     test_received.reset();
-    const max = constants.packet_number_max;
+    const max = constants.protocol.packet_number_max;
     try receive_all(&.{ max, max - 1 }, .new);
     try testing.expectEqualSlices(Range, &.{.{ .smallest = max - 1, .largest = max }}, ranges());
     try receive_all(&.{max}, .duplicate);
@@ -318,7 +318,7 @@ test "RFC 9000 §12.3: the read-only answer is the one recording would have give
     var number: u64 = 0;
     // Bounded: two numbers per range, so every range is used and none can merge with the next.
     // One past the limit is what makes §13.2.3 drop the smallest and lift the floor off zero.
-    const beyond_capacity = (constants.ack_ranges_max + 1) * 2;
+    const beyond_capacity = (constants.limits.ack_ranges_max + 1) * 2;
     while (number < beyond_capacity) : (number += 2) {
         try testing.expectEqual(Verdict.new, test_received.receive(number));
     }

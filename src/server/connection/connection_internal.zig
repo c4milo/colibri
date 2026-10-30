@@ -83,7 +83,7 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
 pub fn shut_session(connection: *Connection) void {
     assert(connection.phase == .open);
     switch (connection.session) {
-        .h2 => connection.session.h2.shutdown(h2.constants.error_no_error),
+        .h2 => connection.session.h2.shutdown(h2.constants.protocol.error_no_error),
         .h11 => connection_h11.shutdown(connection),
         // An open connection has a protocol.
         .none => unreachable,

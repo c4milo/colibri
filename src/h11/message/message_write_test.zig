@@ -53,7 +53,7 @@ pub const reference = struct {
         const framed = find(fields, content_length_name) != null or find(fields, transfer_encoding_name) != null;
         // RFC 9112 §6.1 and RFC 9110 §8.6: no Transfer-Encoding or Content-Length in a 1xx or 204.
         if (forbids_framing and framed) return error.FramingInvalid;
-        var digits: [http.constants.status_digits_len]u8 = undefined;
+        var digits: [http.constants.protocol.status_digits_len]u8 = undefined;
         var writer = Writer.init(output);
         // RFC 9112 §2.1: a buffer that holds less than the whole head holds no head at all.
         write_head(&writer, fields, .{ version, " ", code.write_digits(&digits), " ", reason }) catch return error.OutputTooSmall;
@@ -80,7 +80,7 @@ pub const reference = struct {
             // RFC 9110 §8.6: Content-Length = 1*DIGIT.
             if (value.len == 0 or !http.uri.is_port(value)) return error.FramingInvalid;
             // RFC 9110 §8.6: a length colibri can count, which a u64 holds.
-            _ = std.fmt.parseUnsigned(u64, value, http.constants.content_length_radix) catch return error.FramingInvalid;
+            _ = std.fmt.parseUnsigned(u64, value, http.constants.protocol.content_length_radix) catch return error.FramingInvalid;
         }
         // RFC 9112 §6.1: colibri applies chunked, once, as the only coding it writes.
         if (count_named(fields, transfer_encoding_name) > 1) return error.FramingInvalid;
@@ -115,7 +115,7 @@ pub const reference = struct {
     fn declares_content(fields: []const Field) bool {
         if (find(fields, transfer_encoding_name) != null) return true;
         const length = find(fields, content_length_name) orelse return false;
-        return (std.fmt.parseUnsigned(u64, length, http.constants.content_length_radix) catch unreachable) > 0;
+        return (std.fmt.parseUnsigned(u64, length, http.constants.protocol.content_length_radix) catch unreachable) > 0;
     }
 
     pub fn find(fields: []const Field, name: []const u8) ?[]const u8 {

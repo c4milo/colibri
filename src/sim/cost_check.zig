@@ -107,11 +107,11 @@ fn drive(storage: *Storage, input: []const u8, cost: *Cost) !void {
 /// stream (RFC 9113 §3.4, §6.5, §8.3.1).
 fn client_octets(storage: *Storage) []const u8 {
     var writer = sim.core.Writer.init(&storage.scratch);
-    writer.write_bytes(h2_constants.client_preface) catch unreachable;
-    write_frame(&writer, h2_constants.frame_type_settings, 0, 0, &.{});
+    writer.write_bytes(h2_constants.protocol.client_preface) catch unreachable;
+    write_frame(&writer, h2_constants.protocol.frame_type_settings, 0, 0, &.{});
     var block: [constants.cost_check_buffer_len]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(h2_constants.header_table_size_initial, .never);
+    encoder.init(h2_constants.protocol.header_table_size_initial, .never);
     var block_writer = sim.core.Writer.init(&block);
     encoder.begin_block(&block_writer) catch unreachable;
     encoder.write_field(&block_writer, ":method", "GET", .without_indexing) catch unreachable;
@@ -119,24 +119,24 @@ fn client_octets(storage: *Storage) []const u8 {
     encoder.write_field(&block_writer, ":path", "/", .without_indexing) catch unreachable;
     encoder.write_field(&block_writer, ":authority", "example.com", .without_indexing) catch unreachable;
     encoder.commit_block();
-    const flags = h2_constants.flag_end_headers | h2_constants.flag_end_stream;
-    write_frame(&writer, h2_constants.frame_type_headers, flags, 1, block_writer.written());
+    const flags = h2_constants.protocol.flag_end_headers | h2_constants.protocol.flag_end_stream;
+    write_frame(&writer, h2_constants.protocol.frame_type_headers, flags, 1, block_writer.written());
     return writer.written();
 }
 
 /// Builds the octets a server sends back: its SETTINGS and one response that ends the stream.
 fn server_octets(storage: *Storage) []const u8 {
     var writer = sim.core.Writer.init(&storage.scratch);
-    write_frame(&writer, h2_constants.frame_type_settings, 0, 0, &.{});
+    write_frame(&writer, h2_constants.protocol.frame_type_settings, 0, 0, &.{});
     var block: [constants.cost_check_buffer_len]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(h2_constants.header_table_size_initial, .never);
+    encoder.init(h2_constants.protocol.header_table_size_initial, .never);
     var block_writer = sim.core.Writer.init(&block);
     encoder.begin_block(&block_writer) catch unreachable;
     encoder.write_field(&block_writer, ":status", "200", .without_indexing) catch unreachable;
     encoder.commit_block();
-    const flags = h2_constants.flag_end_headers | h2_constants.flag_end_stream;
-    write_frame(&writer, h2_constants.frame_type_headers, flags, 1, block_writer.written());
+    const flags = h2_constants.protocol.flag_end_headers | h2_constants.protocol.flag_end_stream;
+    write_frame(&writer, h2_constants.protocol.frame_type_headers, flags, 1, block_writer.written());
     return writer.written();
 }
 

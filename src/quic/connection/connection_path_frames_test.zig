@@ -16,8 +16,8 @@ const connection_recovery = @import("connection_recovery.zig");
 const testing = std.testing;
 
 /// RFC 9000 §8.2.1's expansion, as the two answers a datagram can give to it.
-const expanded_len: usize = constants.datagram_len_min;
-const small_len: usize = constants.datagram_len_min - 1;
+const expanded_len: usize = constants.protocol.datagram_len_min;
+const small_len: usize = constants.protocol.datagram_len_min - 1;
 
 /// RFC 9000 §19.16's rule turns on which connection ID a packet was addressed to, and a case
 /// that is not about that rule says the packet named none this endpoint issued.
@@ -45,12 +45,12 @@ const peer_id: [id_len]u8 = @splat(peer_octet);
 const offered_octet: u8 = 0x2f;
 const offered_id: [id_len]u8 = @splat(offered_octet);
 const reset_token_octet: u8 = 0x9b;
-const reset_token: [constants.stateless_reset_token_len]u8 = @splat(reset_token_octet);
+const reset_token: [constants.protocol.stateless_reset_token_len]u8 = @splat(reset_token_octet);
 
 const challenge_octet: u8 = 0x7e;
-const challenge_data: [constants.path_challenge_len]u8 = @splat(challenge_octet);
+const challenge_data: [constants.protocol.path_challenge_len]u8 = @splat(challenge_octet);
 const other_challenge_octet: u8 = 0x1d;
-const other_challenge: [constants.path_challenge_len]u8 = @splat(other_challenge_octet);
+const other_challenge: [constants.protocol.path_challenge_len]u8 = @splat(other_challenge_octet);
 
 const token_octet: u8 = 0xab;
 const token_len: usize = 12;

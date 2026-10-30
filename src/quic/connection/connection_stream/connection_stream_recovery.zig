@@ -59,7 +59,7 @@ pub fn on_packets_acknowledged(
     var held: Acknowledged = .{};
     // RFC 9000 §12.4, Table 3: every frame this file answers for travels in 1-RTT packets.
     if (level != .application) return held;
-    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    // Bounded by the slice the caller placed, which `constants.limits.sent_packets_max` sizes.
     for (acknowledged) |record| {
         acknowledge_reset(connection, record.number);
         // Bounded by `stream_frames_per_packet_max`.
@@ -91,7 +91,7 @@ fn acknowledge_range(connection: *Connection, range: Range, completed: []StreamI
 /// which `connection_error_code` closes on.
 pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Record) Error!void {
     if (level != .application) return;
-    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    // Bounded by the slice the caller placed, which `constants.limits.sent_packets_max` sizes.
     for (lost) |record| {
         owe_endings(connection, record.number);
         // Bounded by `stream_frames_per_packet_max`.

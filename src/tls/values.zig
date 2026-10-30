@@ -55,7 +55,7 @@ pub const Anchor = struct {
 };
 
 /// The SHA-256 of a DER SubjectPublicKeyInfo.
-pub const Pin = [constants.sha256_len]u8;
+pub const Pin = [constants.protocol.sha256_len]u8;
 
 /// How a client judges the server.
 pub const Trust = union(enum) {
@@ -98,15 +98,15 @@ pub const Client = struct {
 /// A NewSessionTicket a client kept (RFC 9846 §4.7.1), in fixed-size fields, so a program keeps it
 /// as long as it likes: across connections, and across h2 and h3 of one server.
 pub const Ticket = struct {
-    identity: [constants.ticket_identity_len_max]u8,
+    identity: [constants.limits.ticket_identity_len_max]u8,
     identity_len: u16,
-    psk: [constants.ticket_psk_len_max]u8,
+    psk: [constants.limits.ticket_psk_len_max]u8,
     psk_len: u8,
     age_add: u32,
     /// ticket_lifetime, in seconds (RFC 9846 §4.7.1).
     lifetime_s: u32,
     /// The hash of the trust the ticket was issued under (chapulin's `webpki_ticket.h`).
-    binding: [constants.sha256_len]u8,
+    binding: [constants.protocol.sha256_len]u8,
     /// The QUIC version of the connection that issued it, or 0 for one a TCP connection issued.
     /// RFC 9369 §5 makes a ticket specific to that version, and chapulin's decision 79 keeps a
     /// ticket to its transport, so a client offers it to a connection of that version alone.
@@ -129,9 +129,9 @@ pub const EcdsaP256Identity = struct {
     /// DER certificates, the end-entity first (RFC 9846 §4.5.1).
     chain: []const []const u8,
     /// The end-entity's point, X||Y.
-    public_key: *const [constants.p256_public_key_len]u8,
+    public_key: *const [constants.protocol.p256_public_key_len]u8,
     /// The private scalar, big-endian. colibri passes the pointer to chapulin and never reads it.
-    private_key: *const [constants.p256_private_key_len]u8,
+    private_key: *const [constants.protocol.p256_private_key_len]u8,
 };
 
 /// An rsa_pss_rsae_sha256 identity.
@@ -150,9 +150,9 @@ pub const Server = struct {
     ecdsa_p256: ?EcdsaP256Identity = null,
     rsa_pss: ?RsaPssIdentity = null,
     /// RFC 9846 §4.3.2's cookie key, which chapulin requires of every server.
-    cookie_key: *const [constants.server_key_len]u8,
+    cookie_key: *const [constants.protocol.server_key_len]u8,
     /// The key tickets are sealed under, or null to issue none.
-    ticket_key: ?*const [constants.server_key_len]u8 = null,
+    ticket_key: ?*const [constants.protocol.server_key_len]u8 = null,
     /// Protocols this server selects from, in its order (RFC 7301 §3.2). Empty for a server's
     /// endpoint, which names the protocols its versions allow (decision 119).
     alpn: []const []const u8 = &.{},

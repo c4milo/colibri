@@ -167,7 +167,7 @@ const Codings = struct {
 };
 
 /// Most members one field value holds: every member but the last takes a comma.
-const members_max = core.constants.field_value_len_max + 1;
+const members_max = core.constants.limits.field_value_len_max + 1;
 
 /// The codings every Transfer-Encoding line of `section` names, or null when there is none.
 fn transfer_codings(section: *const FieldSection) Error!?Codings {

@@ -25,10 +25,10 @@ const frame_latest = @import("frame/frame_latest.zig");
 pub const Entry = struct {
     sequence_number: u64,
     len: u8,
-    octets: [constants.connection_id_len_max]u8,
+    octets: [constants.protocol.connection_id_len_max]u8,
     /// RFC 9000 §19.15: the token that resets a connection this ID names, invalidated when the
     /// ID is retired (§19.16).
-    stateless_reset_token: [constants.stateless_reset_token_len]u8,
+    stateless_reset_token: [constants.protocol.stateless_reset_token_len]u8,
 
     pub fn value(entry: *const Entry) []const u8 {
         return entry.octets[0..entry.len];
@@ -62,17 +62,17 @@ pub fn connection_error_code(failure: Error) u64 {
 pub const Remote = struct {
     /// Active entries, by the order they were offered. RFC 9000 §5.1.1: every one is valid for
     /// use at any time, in any packet type, until it is retired.
-    entries: [constants.connection_ids_max]Entry,
+    entries: [constants.limits.connection_ids_max]Entry,
     len: usize,
     /// The largest Retire Prior To the peer has sent, below which nothing is active (§5.1.2).
     retire_prior_to: u64,
     /// Connection IDs retired and owed a RETIRE_CONNECTION_ID frame, until the peer acknowledges
     /// one (§5.1.2, §13.3).
-    retiring: [constants.connection_ids_max]Retirement,
+    retiring: [constants.limits.connection_ids_max]Retirement,
     retiring_len: usize,
     /// Sequence numbers a RETIRE_CONNECTION_ID frame was already owed for, so §19.15's "unless
     /// it has already done so" holds after the queue above has drained.
-    reported: [constants.connection_ids_max]u64,
+    reported: [constants.limits.connection_ids_max]u64,
     reported_len: usize,
     /// Whether the peer gave this endpoint a zero-length connection ID, which RFC 9000 §19.15
     /// and §19.16 make frames about connection IDs impossible under.
@@ -100,7 +100,7 @@ pub const Remote = struct {
     /// parameters (§18.2).
     pub fn hold_initial(remote: *Remote, octets: []const u8) void {
         assert(remote.len == 0);
-        assert(octets.len <= constants.connection_id_len_max);
+        assert(octets.len <= constants.protocol.connection_id_len_max);
         if (octets.len == 0) {
             remote.zero_length = true;
             return;
@@ -120,7 +120,7 @@ pub const Remote = struct {
     /// `active_connection_id_limit` (§18.2), which §5.1.1 measures the result against.
     pub fn offer(remote: *Remote, entry: Entry, retire_prior_to: u64, limit: u64) Error!void {
         assert(retire_prior_to <= entry.sequence_number);
-        assert(entry.len >= constants.connection_id_len_min and entry.len <= constants.connection_id_len_max);
+        assert(entry.len >= constants.protocol.connection_id_len_min and entry.len <= constants.protocol.connection_id_len_max);
         // RFC 9000 §19.15: an endpoint sending packets with a zero-length Destination Connection
         // ID treats receipt of a NEW_CONNECTION_ID frame as a connection error.
         if (remote.zero_length) return error.ZeroLengthConnectionId;
@@ -255,10 +255,10 @@ pub const Retirement = struct {
 pub const Issued = struct {
     sequence_number: u64,
     len: u8,
-    octets: [constants.connection_id_len_max]u8,
+    octets: [constants.protocol.connection_id_len_max]u8,
     /// The Stateless Reset Token its NEW_CONNECTION_ID frame carries (RFC 9000 §19.15), which the
     /// caller derives: §10.3.2 derives one from a key, and colibri holds none (non-negotiable 2).
-    stateless_reset_token: [constants.stateless_reset_token_len]u8,
+    stateless_reset_token: [constants.protocol.stateless_reset_token_len]u8,
     /// The NEW_CONNECTION_ID frame that tells the peer of it. §13.3: "New connection IDs are sent
     /// in NEW_CONNECTION_ID frames and retransmitted if the packet containing them is lost."
     new_frame: frame_latest.Latest,
@@ -274,7 +274,7 @@ pub const Local = struct {
     /// MUST increase by 1.
     next_sequence_number: u64,
     /// Those issued and not retired, with their octets.
-    active: [constants.connection_ids_max]Issued,
+    active: [constants.limits.connection_ids_max]Issued,
     len: usize,
     /// Whether this endpoint issued a zero-length connection ID, under which RFC 9000 §19.16
     /// makes a RETIRE_CONNECTION_ID frame impossible.
@@ -297,8 +297,8 @@ pub const Local = struct {
     /// octets are the caller's: §5.1 wants a connection ID unpredictable and invariant 5 forbids
     /// colibri a random number. Every one after the first owes a NEW_CONNECTION_ID frame carrying
     /// `token`; the first went out in the handshake's Source Connection ID field (§5.1.1).
-    pub fn issue(local: *Local, octets: []const u8, token: ?*const [constants.stateless_reset_token_len]u8) ?u64 {
-        assert(octets.len <= constants.connection_id_len_max);
+    pub fn issue(local: *Local, octets: []const u8, token: ?*const [constants.protocol.stateless_reset_token_len]u8) ?u64 {
+        assert(octets.len <= constants.protocol.connection_id_len_max);
         // RFC 9000 §5.1: a zero-length connection ID is issued once, by an endpoint that uses no
         // connection ID at all, and it is never one a RETIRE_CONNECTION_ID can name (§19.16).
         assert((octets.len == 0) == local.zero_length);

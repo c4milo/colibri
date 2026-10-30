@@ -70,7 +70,7 @@ test "RFC 9000 §8.1.2: with Retry set, the Initial that returns the Retry's tok
 
 /// A long header under a reserved version, padded to the smallest datagram that may start a
 /// connection (RFC 9000 §14.1). Test-only.
-threadlocal var probe: [quic.constants.datagram_len_min]u8 = undefined;
+threadlocal var probe: [quic.constants.protocol.datagram_len_min]u8 = undefined;
 /// RFC 9000 §15: a version of the reserved pattern 0x?a?a?a?a, which no endpoint speaks.
 const reserved_version: u32 = 0x1a2a_3a4a;
 const probe_id_len: u8 = 8;
@@ -87,7 +87,7 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     const from = support.client_address();
     try testing.expectEqual(null, give(&probe, from));
     try testing.expectEqual(null, endpoint_support.live_connection());
-    var output: [quic.constants.datagram_len_max]u8 = undefined;
+    var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     const reply = endpoint.send_datagram(&output, support.now_ns).?;
     try testing.expect((try quic.packet.invariant.read_long(reply.bytes)).is_version_negotiation());
     try testing.expect(reply.to.eql(&from));
@@ -142,7 +142,7 @@ test "RFC 9368 §2: a client's first Initial in version 2 starts a connection th
         .protected_payload_len = short_payload_len,
     });
     _ = give(&probe, support.client_address());
-    var output: [quic.constants.datagram_len_max]u8 = undefined;
+    var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     try testing.expectEqual(null, endpoint.state.connections.replies.take(&output));
 }
 
@@ -220,7 +220,7 @@ test "RFC 9000 §8.1.2: a Retry token returned from another address starts no co
 threadlocal var short_initial: [short_initial_len_max]u8 = undefined;
 const short_initial_len_max: usize = 64;
 const short_payload_len: usize = 20;
-const short_id: [constants.quic_id_len]u8 = @splat(short_id_octet);
+const short_id: [constants.policy.quic_id_len]u8 = @splat(short_id_octet);
 const short_id_octet: u8 = 0x5a;
 
 test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets starts no connection" {
@@ -242,8 +242,8 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
 
 /// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets. Test-only.
 threadlocal var padded_initial: [padded_initial_len]u8 = undefined;
-const padded_initial_len: usize = quic.constants.datagram_len_max;
-const padded_payload_len: usize = quic.constants.datagram_len_min;
+const padded_initial_len: usize = quic.constants.protocol.datagram_len_max;
+const padded_payload_len: usize = quic.constants.protocol.datagram_len_min;
 
 test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8 octets starts no connection" {
     for ([_]bool{ false, true }) |with_retry| {
@@ -265,7 +265,7 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
             try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
             try testing.expectEqual(null, endpoint_support.live_connection());
             // With Retry set, no Retry is owed for it either.
-            var output: [quic.constants.datagram_len_max]u8 = undefined;
+            var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
             try testing.expectEqual(null, endpoint.state.connections.replies.take(&output));
         }
     }
@@ -273,9 +273,9 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
 
 /// The share of the test endpoint's QUIC slots that one connection reaches. The next percent is
 /// one it does not reach. Test-only.
-const share_of_one: u8 = constants.retry_from_percent_max / endpoint_support.connections;
+const share_of_one: u8 = constants.limits.retry_from_percent_max / endpoint_support.connections;
 comptime {
-    std.debug.assert(@as(u32, share_of_one + 1) * endpoint_support.connections > constants.retry_from_percent_max);
+    std.debug.assert(@as(u32, share_of_one + 1) * endpoint_support.connections > constants.limits.retry_from_percent_max);
 }
 
 /// Whether the endpoint answers a new client's first Initial, from another port than the test
@@ -295,9 +295,9 @@ fn answers_with_retry() !bool {
     support.client_port_now = support.client_port + 1;
     defer support.client_port_now = support.client_port;
     _ = give(padded_initial[0..len], support.client_address());
-    var output: [quic.constants.datagram_len_max]u8 = undefined;
+    var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
     const sent = endpoint.state.connections.replies.take(&output) orelse return false;
-    return (try quic.packet.header.read(sent.bytes, constants.quic_id_len)) == .retry;
+    return (try quic.packet.header.read(sent.bytes, constants.policy.quic_id_len)) == .retry;
 }
 
 test "decision 110 as amended: with retry_from_percent, a client gets a Retry only once that share of QUIC slots hold a connection" {
@@ -322,7 +322,7 @@ test "decision 110 as amended: at the default of 0 percent, every client gets a 
 }
 
 /// The Source Connection ID of a Retry an earlier build sent, which its client addresses next.
-const retry_source_id: [constants.quic_id_len]u8 = @splat(retry_source_octet);
+const retry_source_id: [constants.policy.quic_id_len]u8 = @splat(retry_source_octet);
 const retry_source_octet: u8 = 0x6b;
 
 test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID under 8 octets starts nothing" {
@@ -382,7 +382,7 @@ test "decision 110 as amended: under the share, a client that returns with a Ret
 fn old_token(original_destination: []const u8) ![]const u8 {
     var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
     const address = endpoint_stateless.token_address(support.client_address(), &address_storage);
-    var pseudo: [quic.constants.retry_pseudo_packet_len_max]u8 = undefined;
+    var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
     const answered = quic.connection_retry.answer(retry.suite(), .{
         .version = .v1,
         .client_source = &short_id,
@@ -395,9 +395,9 @@ fn old_token(original_destination: []const u8) ![]const u8 {
         .written => |len| len,
         .refused => return error.TestUnexpectedResult,
     };
-    return (try quic.packet.header.read(old_retry[0..len], constants.quic_id_len)).retry.token;
+    return (try quic.packet.header.read(old_retry[0..len], constants.policy.quic_id_len)).retry.token;
 }
-threadlocal var old_retry: [quic.constants.datagram_len_min]u8 = undefined;
+threadlocal var old_retry: [quic.constants.protocol.datagram_len_min]u8 = undefined;
 
 /// A log provider for the tests below: one log, given to the connection that asks when `giving`
 /// is set, and what the provider was asked. Test-only.
@@ -407,7 +407,7 @@ const TestLogs = struct {
     giving: bool,
     opened: u32,
     closed: u32,
-    original_destination: [quic.constants.connection_id_len_max]u8,
+    original_destination: [quic.constants.protocol.connection_id_len_max]u8,
     original_destination_len: usize,
 };
 threadlocal var test_logs: TestLogs align(@alignOf(TestLogs)) = undefined;

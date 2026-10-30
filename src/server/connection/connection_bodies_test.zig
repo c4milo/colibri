@@ -15,11 +15,11 @@ const send_at = deadline_support.send_at;
 const early_ns = deadline_support.early_ns;
 const Timeout = @import("../deadline.zig").Timeout;
 
-const grace_ns = server_constants.rate_grace_ns;
-const window_ns = server_constants.rate_window_ns;
-const idle_ns = server_constants.idle_timeout_ns;
+const grace_ns = server_constants.policy.rate_grace_ns;
+const window_ns = server_constants.policy.rate_window_ns;
+const idle_ns = server_constants.policy.idle_timeout_ns;
 /// The octets each window owes at the default rate.
-const quota: usize = server_constants.body_rate_min * (window_ns / server_constants.nanoseconds_per_second);
+const quota: usize = server_constants.policy.body_rate_min * (window_ns / server_constants.nanoseconds_per_second);
 const first_end_ns = early_ns + grace_ns + window_ns;
 
 /// A request whose Content-Length is more than any test sends, one with a body of five octets,
@@ -144,7 +144,7 @@ test "RFC 9113 §8.1: an h2 body under the rate gets a 408 and RST_STREAM with N
     try testing.expectEqual(null, connection.close_reason());
     const sent = send_at(first_end_ns);
     try testing.expectEqual(timeout_status, try deadline_support.response_status(sent, 1));
-    try testing.expectEqual(h2.constants.error_no_error, try deadline_support.reset_code(sent, 1));
+    try testing.expectEqual(h2.constants.protocol.error_no_error, try deadline_support.reset_code(sent, 1));
     const cancelled = (try connection.receive(&.{}, first_end_ns)).event.?.cancelled;
     try testing.expectEqual(1, cancelled.id.number);
     try testing.expectEqual(Timeout.body_rate, cancelled.reason.timeout);
@@ -159,8 +159,8 @@ test "RFC 9113 §6.4: an h2 body that falls short after its response began is re
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
     const sent = send_at(first_end_ns);
-    try testing.expectEqual(null, deadline_support.find_frame(sent, h2.constants.frame_type_headers, 1));
-    try testing.expectEqual(h2.constants.error_cancel, try deadline_support.reset_code(sent, 1));
+    try testing.expectEqual(null, deadline_support.find_frame(sent, h2.constants.protocol.frame_type_headers, 1));
+    try testing.expectEqual(h2.constants.protocol.error_cancel, try deadline_support.reset_code(sent, 1));
     try testing.expectEqual(Timeout.body_rate, (try connection.receive(&.{}, first_end_ns)).event.?.cancelled.reason.timeout);
 }
 
@@ -186,7 +186,7 @@ test "decision 110: h2 bodies that together fall under the rate end the connecti
     try testing.expectEqual(together_end_ns, connection.deadline_ns().?);
     connection.on_instant(together_end_ns);
     try testing.expectEqual(.body_rate, connection.close_reason().?.timeout);
-    try testing.expectEqual(h2.constants.error_enhance_your_calm, try deadline_support.goaway_code(send_at(together_end_ns)));
+    try testing.expectEqual(h2.constants.protocol.error_enhance_your_calm, try deadline_support.goaway_code(send_at(together_end_ns)));
 }
 
 test "decision 110: only a body's own octets count, not an h2 DATA frame's padding or a PING" {
@@ -214,7 +214,7 @@ test "decision 110: a body ended by trailers, or a request the peer resets or th
     try testing.expectEqual(1, (try receive_at(try trailers_frame(1, &trailer), early_ns + 1)).event.?.trailers.id.number);
     try open_upload(3, early_ns + 2);
     var writer = h2.core.Writer.init(&deadline_support.data_frames);
-    try h2.frame.write_rst_stream(&writer, 3, h2.constants.error_cancel);
+    try h2.frame.write_rst_stream(&writer, 3, h2.constants.protocol.error_cancel);
     try testing.expect((try receive_at(writer.written(), early_ns + 3)).event.?.cancelled.reason == .peer_reset);
     try open_upload(5, early_ns + 4);
     connection.cancel(5);
@@ -227,9 +227,9 @@ test "decision 110: a body ended by trailers, or a request the peer resets or th
 
 /// A HEADERS frame carrying `fields` as a trailer section on `stream_id`, ending the stream.
 fn trailers_frame(stream_id: u32, fields: []const support.Field) ![]const u8 {
-    var block: [h2.constants.frame_size_max]u8 = undefined;
+    var block: [h2.constants.limits.frame_size_max]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(h2.constants.header_table_size_initial, .never);
+    encoder.init(h2.constants.protocol.header_table_size_initial, .never);
     var block_writer = h2.core.Writer.init(&block);
     try encoder.begin_block(&block_writer);
     for (fields) |field| try encoder.write_field(&block_writer, field.name, field.value, .without_indexing);
@@ -241,7 +241,7 @@ fn trailers_frame(stream_id: u32, fields: []const support.Field) ![]const u8 {
 
 /// DATA frames of the largest size that bring enough of a body for colibri to owe a WINDOW_UPDATE
 /// (RFC 9113 §6.9).
-const update_frames: usize = h2.constants.window_update_threshold / h2.constants.frame_size_max + 1;
+const update_frames: usize = h2.constants.policy.window_update_threshold / h2.constants.limits.frame_size_max + 1;
 
 /// Opens an h2 upload at `early_ns` and reads enough of its body, a nanosecond later, for colibri
 /// to owe a WINDOW_UPDATE on the stream and on the connection. Test-only.
@@ -249,7 +249,7 @@ fn upload_until_update() !void {
     try h2_support.start();
     try open_upload(1, early_ns);
     for (0..update_frames) |_| {
-        _ = try receive_at(try deadline_support.data_frame(1, filler[0..h2.constants.frame_size_max], false, 0), early_ns + 1);
+        _ = try receive_at(try deadline_support.data_frame(1, filler[0..h2.constants.limits.frame_size_max], false, 0), early_ns + 1);
     }
     try testing.expect(connection.session.h2.owes_window_update());
 }
@@ -257,7 +257,7 @@ fn upload_until_update() !void {
 test "decision 110 as amended: a body's rate waits while colibri owes a WINDOW_UPDATE, and its cap does not" {
     try upload_until_update();
     // The rate waits, so only the cap runs.
-    try testing.expectEqual(early_ns + server_constants.body_timeout_ns, connection.deadline_ns().?);
+    try testing.expectEqual(early_ns + server_constants.policy.body_timeout_ns, connection.deadline_ns().?);
     // Once the WINDOW_UPDATE is out, the rate starts again with a grace period.
     _ = send_at(early_ns + 2);
     try testing.expectEqual(early_ns + 2 + grace_ns + window_ns, connection.deadline_ns().?);
@@ -278,7 +278,7 @@ test "decision 110 as amended: while the output holds the WINDOW_UPDATE, the sen
 test "decision 110: a body takes a freed entry before it writes a new one, so a long connection keeps one" {
     try support.start_cleartext(.h11);
     // More requests with a body than the table holds, each answered before the next.
-    for (0..server_constants.bodies_max + 4) |_| {
+    for (0..server_constants.limits.bodies_max + 4) |_| {
         const received = try receive_at(short_head, early_ns);
         try feed(filler[0..short_body_len], early_ns);
         try testing.expect((try connection.receive(&.{}, early_ns)).event.?.body.end);

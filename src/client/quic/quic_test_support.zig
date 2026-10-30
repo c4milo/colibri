@@ -120,8 +120,8 @@ pub var answer_coding: ?[]const u8 = null;
 pub var client_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
 
 /// Where a datagram crosses from one side to the other.
-var datagram: [quic.constants.datagram_len_max]u8 = undefined;
-var crossing: [quic.constants.datagram_len_max]u8 = undefined;
+var datagram: [quic.constants.protocol.datagram_len_max]u8 = undefined;
+var crossing: [quic.constants.protocol.datagram_len_max]u8 = undefined;
 
 /// A client offering `client_protocols` to a server selecting from `server_protocols`, which
 /// issues tickets when `tickets`. Nothing has been sent.
@@ -301,7 +301,7 @@ fn server_parameters() quic.transport_parameters.Parameters {
     held.initial_max_stream_data_bidi_local = server_stream_window;
     held.initial_max_stream_data_uni = server_stream_window;
     held.initial_max_streams_bidi = server_streams_bidi;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = idle_timeout_ms;
     return held;
 }

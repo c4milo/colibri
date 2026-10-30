@@ -41,7 +41,7 @@ pub fn on_data(target: *Connection, header: frame.Header, payload: frame.Data, n
             // PROTOCOL_ERROR. Both windows have counted it by now, as §6.9 requires of every DATA
             // frame.
             if (record.sections_received != .final) {
-                return try stream_frames.reset_stream(target, header.stream_id, constants.error_protocol_error, now_ns);
+                return try stream_frames.reset_stream(target, header.stream_id, constants.protocol.error_protocol_error, now_ns);
             }
             record.data_received_len += payload.data.len;
             if (try check_content_length(target, header.stream_id, record, payload.end_stream, now_ns)) |refused| {
@@ -65,7 +65,7 @@ fn count_connection_window(target: *Connection, payload_len: u32) Error!void {
     target.receive_window.receive(payload_len) catch {
         // RFC 9113 §6.9.1: a receiver that is sent more than its connection window is a connection
         // error of FLOW_CONTROL_ERROR.
-        return target.fail(constants.error_flow_control_error);
+        return target.fail(constants.protocol.error_flow_control_error);
     };
     // RFC 9113 §6.9.1: the receiver gives the space back with a WINDOW_UPDATE once enough has been
     // consumed to be worth a frame, which `window.Receiver` decides.
@@ -80,7 +80,7 @@ fn count_stream_window(target: *Connection, header: frame.Header, record: *Strea
     record.receive.receive(header.length) catch {
         // RFC 9113 §6.9.1: a stream sent more than its window is a stream error of
         // FLOW_CONTROL_ERROR.
-        return try stream_frames.reset_stream(target, header.stream_id, constants.error_flow_control_error, now_ns);
+        return try stream_frames.reset_stream(target, header.stream_id, constants.protocol.error_flow_control_error, now_ns);
     };
     if (record.receive.release(header.length)) |increment| {
         target.replies.push_stream_reply(.{
@@ -106,7 +106,7 @@ fn check_content_length(
     if (declared == record.data_received_len) return null;
     // RFC 9113 §8.1.1: a message whose content-length does not equal the sum of its DATA payload
     // lengths is malformed, and a malformed message is a stream error of PROTOCOL_ERROR.
-    return try stream_frames.reset_stream(target, id, constants.error_protocol_error, now_ns);
+    return try stream_frames.reset_stream(target, id, constants.protocol.error_protocol_error, now_ns);
 }
 
 const testing = std.testing;
@@ -126,8 +126,8 @@ const test_input = &support.test_input;
 
 /// Feeds a POST request declaring `content_length` on `stream_id`. Test-only.
 fn feed_post(stream_id: u32, content_length: []const u8) !?Event {
-    var block: [constants.frame_size_max]u8 = undefined;
-    support.test_encoder.init(constants.header_table_size_initial, .never);
+    var block: [constants.limits.frame_size_max]u8 = undefined;
+    support.test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var writer = Writer.init(&block);
     try support.test_encoder.begin_block(&writer);
     try support.test_encoder.write_field(&writer, ":method", "POST", .without_indexing);
@@ -136,14 +136,14 @@ fn feed_post(stream_id: u32, content_length: []const u8) !?Event {
     try support.test_encoder.write_field(&writer, ":authority", "example.com", .without_indexing);
     try support.test_encoder.write_field(&writer, "content-length", content_length, .without_indexing);
     support.test_encoder.commit_block();
-    const bytes = try frame_bytes(test_input, constants.frame_type_headers, constants.flag_end_headers, stream_id, writer.written());
+    const bytes = try frame_bytes(test_input, constants.protocol.frame_type_headers, constants.protocol.flag_end_headers, stream_id, writer.written());
     return feed(bytes);
 }
 
 /// Feeds one DATA frame of `payload` on `stream_id`. Test-only.
 fn feed_data(stream_id: u32, payload: []const u8, end_stream: bool) !?Event {
-    const flags: u8 = if (end_stream) constants.flag_end_stream else 0;
-    const bytes = try frame_bytes(test_input, constants.frame_type_data, flags, stream_id, payload);
+    const flags: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
+    const bytes = try frame_bytes(test_input, constants.protocol.frame_type_data, flags, stream_id, payload);
     return feed(bytes);
 }
 
@@ -166,16 +166,16 @@ test "a WINDOW_UPDATE goes back to the peer once half the window has been consum
     try start_server();
     _ = try feed_request(1, "/", false);
     // The threshold is more than one frame carries, so it takes two frames to reach it.
-    var payload: [constants.frame_size_max]u8 = @splat('x');
+    var payload: [constants.limits.frame_size_max]u8 = @splat('x');
     _ = try feed_data(1, &payload, false);
     try testing.expectEqual(0, write_queued().len);
     _ = try feed_data(1, &payload, false);
     const queued = write_queued();
-    const credited = 2 * constants.frame_size_max;
-    try testing.expect(credited >= constants.window_update_threshold);
-    var expected: [2 * (constants.frame_header_len + constants.window_update_len)]u8 = undefined;
+    const credited = 2 * constants.limits.frame_size_max;
+    try testing.expect(credited >= constants.policy.window_update_threshold);
+    var expected: [2 * (constants.protocol.frame_header_len + constants.protocol.window_update_len)]u8 = undefined;
     var writer = Writer.init(&expected);
-    try frame.write_window_update(&writer, constants.connection_stream_id, credited);
+    try frame.write_window_update(&writer, constants.protocol.connection_stream_id, credited);
     try frame.write_window_update(&writer, 1, credited);
     try testing.expectEqualSlices(u8, writer.written(), queued);
 }
@@ -184,28 +184,28 @@ test "§6.9.1: DATA past the connection window ends the connection, and past a s
     try start_server();
     _ = try feed_request(1, "/", false);
     // The window is set to what the peer has left to fill, so the next frame passes it.
-    test_connection.receive_window = window.Receiver.init(constants.window_update_threshold);
-    var payload: [constants.frame_size_max]u8 = @splat('x');
+    test_connection.receive_window = window.Receiver.init(constants.policy.window_update_threshold);
+    var payload: [constants.limits.frame_size_max]u8 = @splat('x');
     // The first frame fits in what is left of that window and the second does not.
     _ = try feed_data(1, &payload, false);
-    const bytes = try frame_bytes(test_input, constants.frame_type_data, 0, 1, &payload);
+    const bytes = try frame_bytes(test_input, constants.protocol.frame_type_data, 0, 1, &payload);
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
-    try testing.expectEqual(constants.error_flow_control_error, test_connection.failure.?);
+    try testing.expectEqual(constants.protocol.error_flow_control_error, test_connection.failure.?);
     try start_server();
     _ = try feed_request(1, "/", false);
     const record = test_connection.streams.lookup(1).live;
-    record.receive = window.Receiver.init(constants.window_update_threshold);
+    record.receive = window.Receiver.init(constants.policy.window_update_threshold);
     _ = try feed_data(1, &payload, false);
     const refused = (try feed_data(1, &payload, false)).?;
     try testing.expectEqual(1, refused.stream_refused.stream_id);
-    try testing.expectEqual(constants.error_flow_control_error, refused.stream_refused.error_code);
+    try testing.expectEqual(constants.protocol.error_flow_control_error, refused.stream_refused.error_code);
 }
 
 test "http2/8.1.1: a content-length that differs from the DATA received is a stream error" {
     try start_server();
     _ = try feed_post(1, "5");
     const refused = (try feed_data(1, "test", true)).?;
-    try testing.expectEqual(constants.error_protocol_error, refused.stream_refused.error_code);
+    try testing.expectEqual(constants.protocol.error_protocol_error, refused.stream_refused.error_code);
     // The same request whose octets match is reported and ends the stream.
     try start_server();
     _ = try feed_post(1, "4");
@@ -217,7 +217,7 @@ test "http2/8.1.1: a content-length that differs from the DATA received is a str
 test "§5.1: DATA on a stream colibri reset still costs the connection window" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
+    const zero = try frame_bytes(test_input, constants.protocol.frame_type_window_update, 0, 1, "\x00\x00\x00\x00");
     _ = try feed(zero);
     _ = write_queued();
     const released = test_connection.receive_window.released;
@@ -229,7 +229,7 @@ test "the padding of a DATA frame costs window and is not part of the payload (�
     try start_server();
     _ = try feed_request(1, "/", false);
     // Pad Length 4, then "ab", then four padding octets.
-    const padded = try frame_bytes(test_input, constants.frame_type_data, constants.flag_padded, 1, "\x04ab\x00\x00\x00\x00");
+    const padded = try frame_bytes(test_input, constants.protocol.frame_type_data, constants.protocol.flag_padded, 1, "\x04ab\x00\x00\x00\x00");
     const event = (try feed(padded)).?;
     try testing.expectEqualStrings("ab", event.data.payload);
     try testing.expectEqual(7, test_connection.receive_window.released);
@@ -250,7 +250,7 @@ test "§8.1: DATA before the response's field section is a stream error of PROTO
     const released = test_connection.receive_window.released;
     const event = (try feed_data(1, "test", true)).?;
     try testing.expectEqual(1, event.stream_refused.stream_id);
-    try testing.expectEqual(constants.error_protocol_error, event.stream_refused.error_code);
+    try testing.expectEqual(constants.protocol.error_protocol_error, event.stream_refused.error_code);
     // RFC 9113 §6.9: the refused frame still cost the connection window, and gave it back.
     try testing.expectEqual(released + "test".len, test_connection.receive_window.released);
     try testing.expect(!test_connection.has_failed());
@@ -260,7 +260,7 @@ test "§8.1: DATA after an interim response alone is refused, and after the fina
     try open_stream_1();
     _ = try feed_response(1, "103", false);
     const early = (try feed_data(1, "test", false)).?;
-    try testing.expectEqual(constants.error_protocol_error, early.stream_refused.error_code);
+    try testing.expectEqual(constants.protocol.error_protocol_error, early.stream_refused.error_code);
 
     try open_stream_1();
     _ = try feed_response(1, "103", false);
@@ -274,7 +274,7 @@ test "§8.1: DATA after an interim response alone is refused, and after the fina
 fn owe_stream_credit() !void {
     try start_server();
     _ = try feed_request(1, "/", false);
-    var payload: [constants.frame_size_max]u8 = @splat('x');
+    var payload: [constants.limits.frame_size_max]u8 = @splat('x');
     _ = try feed_data(1, &payload, false);
     _ = try feed_data(1, &payload, false);
 }
@@ -287,21 +287,21 @@ fn updates_on(queued: []const u8, stream_id: u32) !usize {
         if (reader.remaining_len() == 0) return count;
         const header = try frame.frame_header.read(&reader);
         _ = try reader.take(header.length);
-        if (header.type == constants.frame_type_window_update and header.stream_id == stream_id) count += 1;
+        if (header.type == constants.protocol.frame_type_window_update and header.stream_id == stream_id) count += 1;
     }
     return count;
 }
 
 /// A trailer section of one field, which ends the request (RFC 9113 §8.1). Test-only.
 fn trailers_frame() ![]const u8 {
-    var block: [constants.frame_size_max]u8 = undefined;
-    support.test_encoder.init(constants.header_table_size_initial, .never);
+    var block: [constants.limits.frame_size_max]u8 = undefined;
+    support.test_encoder.init(constants.protocol.header_table_size_initial, .never);
     var writer = Writer.init(&block);
     try support.test_encoder.begin_block(&writer);
     try support.test_encoder.write_field(&writer, "x-checked", "yes", .without_indexing);
     support.test_encoder.commit_block();
-    const flags = constants.flag_end_headers | constants.flag_end_stream;
-    return frame_bytes(test_input, constants.frame_type_headers, flags, 1, writer.written());
+    const flags = constants.protocol.flag_end_headers | constants.protocol.flag_end_stream;
+    return frame_bytes(test_input, constants.protocol.frame_type_headers, flags, 1, writer.written());
 }
 
 test "§5.1: once the peer ends a stream, or either side resets it, its owed WINDOW_UPDATE is dropped" {
@@ -311,25 +311,25 @@ test "§5.1: once the peer ends a stream, or either side resets it, its owed WIN
     var queued = write_queued();
     try testing.expectEqual(0, try updates_on(queued, 1));
     // The connection's credit is still owed: the connection goes on.
-    try testing.expectEqual(1, try updates_on(queued, constants.connection_stream_id));
+    try testing.expectEqual(1, try updates_on(queued, constants.protocol.connection_stream_id));
     try owe_stream_credit();
     _ = try feed(try trailers_frame());
     try testing.expectEqual(0, try updates_on(write_queued(), 1));
     // RFC 9113 §6.4: a RST_STREAM from the peer closes the stream at once.
     try owe_stream_credit();
-    const cancel = [_]u8{ 0, 0, 0, @intCast(constants.error_cancel) };
-    _ = try feed(try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 1, &cancel));
+    const cancel = [_]u8{ 0, 0, 0, @intCast(constants.protocol.error_cancel) };
+    _ = try feed(try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, 1, &cancel));
     try testing.expectEqual(0, try updates_on(write_queued(), 1));
     // colibri's own reset closes it too, and its RST_STREAM still goes out.
     try owe_stream_credit();
-    try test_connection.reset_stream(1, constants.error_cancel);
+    try test_connection.reset_stream(1, constants.protocol.error_cancel);
     queued = write_queued();
     try testing.expectEqual(0, try updates_on(queued, 1));
-    try testing.expect(std.mem.indexOfScalar(u8, queued, constants.frame_type_rst_stream) != null);
+    try testing.expect(std.mem.indexOfScalar(u8, queued, constants.protocol.frame_type_rst_stream) != null);
     // colibri's own refusal of the stream resets it too, here DATA past its window (§6.9.1).
     try owe_stream_credit();
-    test_connection.streams.lookup(1).live.receive = window.Receiver.init(constants.window_update_threshold);
-    var payload: [constants.frame_size_max]u8 = @splat('x');
+    test_connection.streams.lookup(1).live.receive = window.Receiver.init(constants.policy.window_update_threshold);
+    var payload: [constants.limits.frame_size_max]u8 = @splat('x');
     _ = try feed_data(1, &payload, false);
     try testing.expectEqual(1, (try feed_data(1, &payload, false)).?.stream_refused.stream_id);
     try testing.expectEqual(0, try updates_on(write_queued(), 1));
@@ -343,16 +343,16 @@ test "a DATA frame that owes credit and then breaks its content-length takes one
     _ = try feed_request(1, "/", false);
     _ = try feed_post(3, "5");
     // Every second full frame owes stream 1 a WINDOW_UPDATE, until one slot is left.
-    var payload: [constants.frame_size_max]u8 = @splat('x');
-    for (0..2 * (constants.stream_replies_max - 1)) |_| _ = try feed_data(1, &payload, false);
-    try testing.expectEqual(constants.stream_replies_max - 1, test_connection.replies.stream_reply_count);
+    var payload: [constants.limits.frame_size_max]u8 = @splat('x');
+    for (0..2 * (constants.limits.stream_replies_max - 1)) |_| _ = try feed_data(1, &payload, false);
+    try testing.expectEqual(constants.limits.stream_replies_max - 1, test_connection.replies.stream_reply_count);
     // Stream 3's second frame owes a WINDOW_UPDATE, then ends past its content-length (§8.1.1). The
     // reset drops the credit before it queues the RST_STREAM, so the frame owes one reply.
     _ = try feed_data(3, &payload, false);
     const refused = (try feed_data(3, &payload, true)).?;
-    try testing.expectEqual(constants.error_protocol_error, refused.stream_refused.error_code);
+    try testing.expectEqual(constants.protocol.error_protocol_error, refused.stream_refused.error_code);
     try testing.expect(test_connection.replies.is_full());
     const queued = write_queued();
     try testing.expectEqual(0, try updates_on(queued, 3));
-    try testing.expectEqual(constants.stream_replies_max - 1, try updates_on(queued, 1));
+    try testing.expectEqual(constants.limits.stream_replies_max - 1, try updates_on(queued, 1));
 }

@@ -160,20 +160,20 @@ test "§2.2.1: a stream whose entries arrived no longer counts as blocked, befor
 test "decision 74: a list full of ready streams stops the reading until they are read" {
     // Each stream blocks on the next insert, which then arrives, so every held stream but the
     // newest is ready and the one blocked stream allowed is never passed.
-    test_decoder.init(.{ .max_table_capacity = constants.dynamic_table_capacity_max, .blocked_streams = example_blocked_streams });
+    test_decoder.init(.{ .max_table_capacity = constants.limits.dynamic_table_capacity_max, .blocked_streams = example_blocked_streams });
     try encoder_stream(&.{ 0x3f, 0xe1, 0x7f });
     var section: [3]u8 = .{ 0x00, 0x00, 0x80 };
-    for (0..constants.blocked_streams_max) |step| {
+    for (0..constants.limits.blocked_streams_max) |step| {
         // Required Insert Count step + 1, which encodes as step + 2 below 255.
         section[0] = @intCast(step + 2);
         try testing.expectEqual(Outcome.blocked, try decode_on(step * stream_four, &section));
         try encoder_stream(&.{ 0x41, 'a', 0x01, 'b' });
     }
-    section[0] = @intCast(constants.blocked_streams_max + 2);
-    try testing.expectEqual(Outcome.read_ready_first, try decode_on(constants.blocked_streams_max * stream_four, &section));
+    section[0] = @intCast(constants.limits.blocked_streams_max + 2);
+    try testing.expectEqual(Outcome.read_ready_first, try decode_on(constants.limits.blocked_streams_max * stream_four, &section));
     // Reading one ready stream makes room.
     try testing.expectEqual(Outcome.decoded, try decode_on(test_decoder.ready_stream().?, &.{ 0x02, 0x00, 0x80 }));
-    try testing.expectEqual(Outcome.blocked, try decode_on(constants.blocked_streams_max * stream_four, &section));
+    try testing.expectEqual(Outcome.blocked, try decode_on(constants.limits.blocked_streams_max * stream_four, &section));
 }
 
 test "§2.2.3: a reference at or above the Required Insert Count, or evicted, fails" {
@@ -210,14 +210,14 @@ test "decision 74: a full queue of owed instructions stops the reading until it 
     test_decoder.init(example_settings);
     try encoder_stream(&.{ 0x3f, 0xbd, 0x01, 0xc0, 0x01, 'a' });
     const section = [_]u8{ 0x02, 0x00, 0x80 };
-    for (0..constants.decoder_instructions_owed_max) |_| {
+    for (0..constants.limits.decoder_instructions_owed_max) |_| {
         try testing.expectEqual(Outcome.decoded, try decode_on(stream_four, &section));
     }
     try testing.expectEqual(Outcome.owes_instructions, try decode_on(stream_four, &section));
     try testing.expectEqual(decoder_module.Abandoned.owes_instructions, test_decoder.abandon_stream(stream_eight));
     var writer = Writer.init(&test_octets);
     test_decoder.write_decoder_stream(&writer);
-    try testing.expectEqual(constants.decoder_instructions_owed_max, writer.written().len);
+    try testing.expectEqual(constants.limits.decoder_instructions_owed_max, writer.written().len);
     try testing.expectEqual(Outcome.decoded, try decode_on(stream_four, &section));
 }
 
@@ -231,7 +231,7 @@ test "§7.4: a name or value longer than colibri accepts fails the section, not 
     var octets: [test_room]u8 = undefined;
     // A literal name of field_name_len_max + 1 octets: 0x27 fills the 3-bit prefix with 7, and
     // 0xfa 0x01 add 122 and 128.
-    const name_len = core.constants.field_name_len_max + 1;
+    const name_len = core.constants.limits.field_name_len_max + 1;
     octets[0] = 0x00;
     octets[1] = 0x00;
     octets[2] = 0x27;
@@ -246,11 +246,11 @@ test "§7.4: a name or value longer than colibri accepts fails the section, not 
     octets[4 + name_len] = 0x01;
     octets[5 + name_len] = 'v';
     try decode(octets[0 .. 6 + name_len]);
-    try testing.expectEqual(core.constants.field_name_len_max, test_section.get(0).name.len);
+    try testing.expectEqual(core.constants.limits.field_name_len_max, test_section.get(0).name.len);
 }
 
 /// Room for a literal value one octet past `field_value_len_max`, and its framing. Test-only.
-const long_value_room: usize = core.constants.field_value_len_max + test_room;
+const long_value_room: usize = core.constants.limits.field_value_len_max + test_room;
 var long_octets: [long_value_room]u8 = undefined;
 var long_strings: [long_value_room]u8 = undefined;
 
@@ -258,7 +258,7 @@ test "§7.4: a value longer than colibri accepts fails the section" {
     var writer = Writer.init(&long_octets);
     try writer.write_bytes(&.{ 0x00, 0x00 });
     // A literal with a name reference to static `:path`, and a value one octet too long.
-    const value: [core.constants.field_value_len_max + 1]u8 = @splat('v');
+    const value: [core.constants.limits.field_value_len_max + 1]u8 = @splat('v');
     try representation_write.write(&writer, .{ .literal_name_reference = .{
         .never_indexed = false,
         .table = .static,
@@ -275,7 +275,7 @@ test "§7.4: a value longer than colibri accepts fails the section" {
 
 test "a line decoded from the dynamic table outlives the entry it came from" {
     // A table that holds one entry of a one-octet name and value.
-    const one_entry: u64 = constants.entry_overhead_len + 2;
+    const one_entry: u64 = constants.protocol.entry_overhead_len + 2;
     test_decoder.init(.{ .max_table_capacity = one_entry, .blocked_streams = example_blocked_streams });
     var capacity: [test_room]u8 = undefined;
     var writer = Writer.init(&capacity);
@@ -320,12 +320,12 @@ test "§4.5.1: with no dynamic table, a prefix naming dynamic state is refused" 
 }
 
 test "§6: an encoder stream failure has its own code, and every other failure one code" {
-    try testing.expectEqual(constants.error_encoder_stream, decoder_module.error_code(Error.EncoderStreamError));
-    try testing.expectEqual(constants.error_decompression_failed, decoder_module.error_code(Error.DecompressionFailed));
-    try testing.expectEqual(constants.error_decompression_failed, decoder_module.error_code(Error.FieldTooLong));
-    try testing.expectEqual(constants.error_decompression_failed, decoder_module.error_code(Error.Truncated));
-    try testing.expectEqual(0x0200, constants.error_decompression_failed);
-    try testing.expectEqual(0x0201, constants.error_encoder_stream);
+    try testing.expectEqual(constants.protocol.error_encoder_stream, decoder_module.error_code(Error.EncoderStreamError));
+    try testing.expectEqual(constants.protocol.error_decompression_failed, decoder_module.error_code(Error.DecompressionFailed));
+    try testing.expectEqual(constants.protocol.error_decompression_failed, decoder_module.error_code(Error.FieldTooLong));
+    try testing.expectEqual(constants.protocol.error_decompression_failed, decoder_module.error_code(Error.Truncated));
+    try testing.expectEqual(0x0200, constants.protocol.error_decompression_failed);
+    try testing.expectEqual(0x0201, constants.protocol.error_encoder_stream);
 }
 
 test "what the encoder writes is what the decoder reads, coded and not" {
@@ -363,7 +363,7 @@ test "a field section cut short is refused rather than half accepted" {
 const fuzz_setup = "\x3f\xbd\x01\xc0\x01a\x41x\x01y";
 
 fn fuzz_section(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [constants.fuzz_input_len_max]u8 = @splat(0);
+    var input: [constants.limits.fuzz_input_len_max]u8 = @splat(0);
     const octets = input[0..smith.slice(&input)];
     test_decoder.init(example_settings);
     var setup = Reader.init(fuzz_setup);
@@ -379,7 +379,7 @@ fn fuzz_section(_: void, smith: *testing.Smith) anyerror!void {
         .owes_instructions, .read_ready_first => return error.TestUnexpectedResult,
     }
     for (0..test_section.len()) |index| {
-        try testing.expect(test_section.get(@intCast(index)).name.len <= core.constants.field_name_len_max);
+        try testing.expect(test_section.get(@intCast(index)).name.len <= core.constants.limits.field_name_len_max);
     }
 }
 

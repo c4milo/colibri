@@ -95,7 +95,7 @@ const Fake = struct {
     }
     fn alpn(context: *const anyopaque) ?[]const u8 {
         _ = context;
-        return &tls_provider.constants.alpn_h3;
+        return &tls_provider.constants.protocol.alpn_h3;
     }
     fn complete(context: *const anyopaque) bool {
         _ = context;
@@ -261,16 +261,16 @@ test "RFC 9368 §4: a Chosen Version the endpoint cannot accept closes the conne
     test_connection.identity.on_peer_initial(&peer_id);
     var client = Parameters.initial();
     client.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
-    client.version_information = .of(version_2, &.{ version_2, constants.version_1 });
+    client.version_information = .of(version_2, &.{ version_2, constants.protocol.version_1 });
     try testing.expectError(error.VersionNegotiationFailed, take_written(&client, .client, &body));
     // §4 closes with a version negotiation error, which §10.2 numbers 0x11.
     try testing.expectEqual(0x11, connection_crypto.connection_error_code(error.VersionNegotiationFailed));
     // The Chosen Version the connection runs is accepted.
     fresh(.client);
     test_connection.identity.on_peer_initial(&peer_id);
-    server.version_information = .of(constants.version_1, &.{ constants.version_1, version_2 });
+    server.version_information = .of(constants.protocol.version_1, &.{ constants.protocol.version_1, version_2 });
     try testing.expect(try take_written(&server, .server, &body));
-    try testing.expectEqual(constants.version_1, test_connection.peer_parameters.?.version_information.?.chosen_version);
+    try testing.expectEqual(constants.protocol.version_1, test_connection.peer_parameters.?.version_information.?.chosen_version);
 }
 
 test "RFC 9368 §4: a client holds the server to the Negotiated Version, a server the client to the first flight's" {
@@ -280,7 +280,7 @@ test "RFC 9368 §4: a client holds the server to the Negotiated Version, a serve
     test_connection.identity.on_peer_initial(&peer_id);
     test_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
     var server = authentic_parameters();
-    server.version_information = .of(version_2, &.{ constants.version_1, version_2 });
+    server.version_information = .of(version_2, &.{ constants.protocol.version_1, version_2 });
     try testing.expect(try take_written(&server, .server, &body));
     // A server that chose version 2 for a first flight of version 1 holds the client's Chosen
     // Version to version 1.
@@ -289,7 +289,7 @@ test "RFC 9368 §4: a client holds the server to the Negotiated Version, a serve
     test_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
     var client = Parameters.initial();
     client.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
-    client.version_information = .of(constants.version_1, &.{ version_2, constants.version_1 });
+    client.version_information = .of(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 });
     try testing.expect(try take_written(&client, .client, &body));
 }
 

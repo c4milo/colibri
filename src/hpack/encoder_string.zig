@@ -10,18 +10,18 @@ const constants = @import("constants.zig");
 const Writer = core.Writer;
 
 /// The H flag of a string literal: the highest bit of its prefix (RFC 7541 §5.2).
-const huffman_flag: u8 = 1 << (constants.string_prefix_bits - 1);
+const huffman_flag: u8 = 1 << (constants.protocol.string_prefix_bits - 1);
 
 /// Writes `octets` as a string literal, Huffman-coded when the code is shorter than the octets and
 /// raw otherwise. All of the octets are written, or none.
 pub fn write_shorter(output: *Writer, octets: []const u8) core.writer.Error!void {
     const coded_len = wire.huffman.encoded_len(octets);
-    if (coded_len >= octets.len) return wire.string_literal.encode(constants.string_prefix_bits, output, 0, octets, .raw);
+    if (coded_len >= octets.len) return wire.string_literal.encode(constants.protocol.string_prefix_bits, output, 0, octets, .raw);
     assert(coded_len < octets.len);
     var cursor = output.*;
     // RFC 7541 §5.2: the H flag set, then the length of the Huffman code as an integer with a
     // prefix of the seven bits below the flag (§5.1), then the code.
-    try wire.prefixed_integer.encode(constants.string_prefix_bits - 1, &cursor, huffman_flag, coded_len);
+    try wire.prefixed_integer.encode(constants.protocol.string_prefix_bits - 1, &cursor, huffman_flag, coded_len);
     try wire.huffman.encode(octets, &cursor);
     // The literal is its length's octets and then the code.
     assert(cursor.offset - output.offset > coded_len);
@@ -34,7 +34,7 @@ pub fn write_shorter(output: *Writer, octets: []const u8) core.writer.Error!void
 /// The reference: the string as the encoder wrote it before.
 fn write_by_two_measures(output: *Writer, octets: []const u8) core.writer.Error!void {
     const coding: wire.string_literal.Coding = if (wire.huffman.encoded_len(octets) < octets.len) .huffman else .raw;
-    try wire.string_literal.encode(constants.string_prefix_bits, output, 0, octets, coding);
+    try wire.string_literal.encode(constants.protocol.string_prefix_bits, output, 0, octets, coding);
 }
 
 /// The longest string the tests vary, and the longest run of one octet: a run of a 5-bit code

@@ -72,7 +72,7 @@ pub const Encoder = struct {
     /// An encoder whose table's capacity and limit are both `capacity`: the protocol's initial
     /// value, 4,096 in h2 (RFC 9113 §6.5.2).
     pub fn init(encoder: *Encoder, capacity: u64, huffman: HuffmanUse) void {
-        assert(capacity <= constants.dynamic_table_capacity_max);
+        assert(capacity <= constants.limits.dynamic_table_capacity_max);
         encoder.table.init(capacity);
         encoder.capacity_limit = capacity;
         encoder.chosen = capacity;
@@ -86,7 +86,7 @@ pub const Encoder = struct {
     /// The peer changed its limit and this endpoint has acknowledged it.
     pub fn set_capacity_limit(encoder: *Encoder, limit: u64) void {
         encoder.capacity_limit = limit;
-        encoder.chosen = @min(limit, constants.dynamic_table_capacity_max);
+        encoder.chosen = @min(limit, constants.limits.dynamic_table_capacity_max);
         encoder.chosen_min = @min(encoder.chosen_min, encoder.chosen);
         assert(encoder.chosen <= encoder.capacity_limit);
     }
@@ -137,13 +137,13 @@ pub const Encoder = struct {
         value: []const u8,
         indexing: Indexing,
     ) Error!void {
-        assert(name.len <= constants.name_len_max and value.len <= constants.value_len_max);
+        assert(name.len <= constants.limits.name_len_max and value.len <= constants.limits.value_len_max);
         var cursor = output.*;
         const match = encoder.find(name, value);
         if (indexing != .never_indexed) {
             if (match.exact) |index| {
                 // RFC 7541 §6.1: a line both tables hold is sent as its index.
-                try prefixed_integer.encode(constants.indexed_prefix_bits, &cursor, constants.indexed_pattern, index);
+                try prefixed_integer.encode(constants.protocol.indexed_prefix_bits, &cursor, constants.protocol.indexed_pattern, index);
                 output.* = cursor;
                 return;
             }
@@ -154,21 +154,21 @@ pub const Encoder = struct {
         const name_index = match.name orelse 0;
         switch (kind) {
             .incremental => try prefixed_integer.encode(
-                constants.incremental_prefix_bits,
+                constants.protocol.incremental_prefix_bits,
                 &cursor,
-                constants.incremental_pattern,
+                constants.protocol.incremental_pattern,
                 name_index,
             ),
             .without_indexing => try prefixed_integer.encode(
-                constants.literal_prefix_bits,
+                constants.protocol.literal_prefix_bits,
                 &cursor,
-                constants.without_indexing_pattern,
+                constants.protocol.without_indexing_pattern,
                 name_index,
             ),
             .never_indexed => try prefixed_integer.encode(
-                constants.literal_prefix_bits,
+                constants.protocol.literal_prefix_bits,
                 &cursor,
-                constants.never_indexed_pattern,
+                constants.protocol.never_indexed_pattern,
                 name_index,
             ),
         }
@@ -189,10 +189,10 @@ pub const Encoder = struct {
         const dynamic = encoder.table.find(name, value);
         var match: Match = static;
         if (match.exact == null) {
-            if (dynamic.exact) |index| match.exact = index + constants.static_table_len;
+            if (dynamic.exact) |index| match.exact = index + constants.protocol.static_table_len;
         }
         if (match.name == null) {
-            if (dynamic.name) |index| match.name = index + constants.static_table_len;
+            if (dynamic.name) |index| match.name = index + constants.protocol.static_table_len;
         }
         return match;
     }
@@ -203,13 +203,13 @@ pub const Encoder = struct {
             .always => .huffman,
             .when_shorter => return encoder_string.write_shorter(output, octets),
         };
-        try string_literal.encode(constants.string_prefix_bits, output, 0, octets, coding);
+        try string_literal.encode(constants.protocol.string_prefix_bits, output, 0, octets, coding);
     }
 };
 
 /// A size update (RFC 7541 §6.3).
 fn write_size_update(output: *Writer, capacity: u64) Error!void {
-    try prefixed_integer.encode(constants.size_update_prefix_bits, output, constants.size_update_pattern, capacity);
+    try prefixed_integer.encode(constants.protocol.size_update_prefix_bits, output, constants.protocol.size_update_pattern, capacity);
 }
 
 /// The lowest static indices holding the line and its name (RFC 7541 Appendix A). The name finds

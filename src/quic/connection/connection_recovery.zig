@@ -63,9 +63,9 @@ pub const Acknowledged = stream_recovery.Acknowledged;
 /// passes it with every packet `connection_frames.process` reads. Each list holds a whole table,
 /// so nothing is left out.
 pub const Scratch = struct {
-    acknowledged: [constants.sent_packets_max]Record,
-    lost: [constants.sent_packets_max]Record,
-    completed: [constants.streams_per_connection_max]StreamId,
+    acknowledged: [constants.limits.sent_packets_max]Record,
+    lost: [constants.limits.sent_packets_max]Record,
+    completed: [constants.limits.streams_per_connection_max]StreamId,
 };
 
 /// RFC 9002 Appendix A.7's `OnAckReceived` for one ACK frame read at `level`, and what its
@@ -184,7 +184,7 @@ pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, receiv
     // server's.
     if (connection_module.crypto_at(connection, .initial).received_len() != received_len_before) return;
     // RFC 9002 §6.2.3: "for a limited number of times per connection".
-    if (connection.early_crypto_resends == constants.early_crypto_resends_max) return;
+    if (connection.early_crypto_resends == constants.policy.early_crypto_resends_max) return;
     // RFC 9002 §6.2.3: what is sent early is "unacknowledged CRYPTO data", so without any there
     // is nothing to send and the limit is not spent.
     if (!crypto_in_flight(connection, .initial)) return;
@@ -204,7 +204,7 @@ pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, receiv
 /// Whether a packet in flight in `kind`'s space carries CRYPTO octets.
 fn crypto_in_flight(connection: *Connection, kind: space_module.Kind) bool {
     var records = connection.recovery.table_of(kind).iterator();
-    // Bounded by the table, which `constants.sent_packets_max` sizes.
+    // Bounded by the table, which `constants.limits.sent_packets_max` sizes.
     while (records.next()) |record| {
         if (record.carries == .crypto) return true;
     }
@@ -228,7 +228,7 @@ fn sync_timer(connection: *Connection) void {
     timer.peer_completed_address_validation = peer_completed_address_validation(connection);
     // RFC 9002 Appendix A.8: "The server's timer is not set if nothing can be sent", which is
     // when `connection_send.send` would refuse any datagram (RFC 9000 §8.1).
-    timer.at_anti_amplification_limit = connection.path.send_allowance() < constants.packet_header_len_max;
+    timer.at_anti_amplification_limit = connection.path.send_allowance() < constants.limits.packet_header_len_max;
 }
 
 /// RFC 9002 Appendix A.8's `PeerCompletedAddressValidation`.
@@ -307,7 +307,7 @@ fn check_application_limited(connection: *Connection) void {
 /// connection credit holds the sender as the window does. A full table and §8's limit do too.
 pub fn on_nothing_planned(connection: *Connection) void {
     const table_full = connection.recovery.table_of(.application).is_full();
-    const at_amplification_limit = connection.path.send_allowance() < constants.packet_header_len_max;
+    const at_amplification_limit = connection.path.send_allowance() < constants.limits.packet_header_len_max;
     const held = connection.window_limited or table_full or connection.send_flow.is_blocked() or at_amplification_limit;
     connection.ran_out_of_data = !held;
 }

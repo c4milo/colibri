@@ -92,7 +92,7 @@ pub const Encoder = struct {
 
     /// The capacity the encoder uses: the peer's maximum, or colibri's, whichever is lower.
     pub fn capacity(encoder: *const Encoder) u64 {
-        return @min(encoder.peer.max_table_capacity, constants.dynamic_table_capacity_max);
+        return @min(encoder.peer.max_table_capacity, constants.limits.dynamic_table_capacity_max);
     }
 
     /// Writes a whole encoded field section for stream `stream_id` into `output`, and any
@@ -165,7 +165,7 @@ pub const Encoder = struct {
         assert(required <= base);
         // §4.5.1.1: `MaxEntries` is the decoder's maximum capacity over 32, the peer's setting
         // and not the capacity this encoder chose.
-        const max_entries = encoder.peer.max_table_capacity / constants.entry_overhead_len;
+        const max_entries = encoder.peer.max_table_capacity / constants.protocol.entry_overhead_len;
         return .{
             .encoded_insert_count = insert_count.encode(required, max_entries),
             // §4.5.1.2: a Base at or above the Required Insert Count has a Sign bit of 0.

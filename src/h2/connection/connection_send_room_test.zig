@@ -25,16 +25,16 @@ const ok: u16 = 200;
 /// Feeds the peer's SETTINGS frame setting HEADER_TABLE_SIZE to `size`, after which colibri's
 /// encoder owes a size update (RFC 7541 §4.2). Test-only.
 fn feed_table_size(size: u32) !void {
-    return feed_setting(constants.setting_header_table_size, size);
+    return feed_setting(constants.protocol.setting_header_table_size, size);
 }
 
 /// Feeds the peer's SETTINGS frame with one setting. Test-only.
 fn feed_setting(identifier: u16, value: u32) !void {
-    var payload: [constants.setting_len]u8 = undefined;
+    var payload: [constants.protocol.setting_len]u8 = undefined;
     var writer = core.Writer.init(&payload);
     try writer.write_int(u16, identifier);
     try writer.write_int(u32, value);
-    const settings = try support.frame_bytes(&support.test_input, constants.frame_type_settings, 0, 0, writer.written());
+    const settings = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_settings, 0, 0, writer.written());
     _ = try support.feed(settings);
 }
 
@@ -42,7 +42,7 @@ fn feed_setting(identifier: u16, value: u32) !void {
 /// update. An empty block opens with nothing. Test-only.
 fn opens_with_size_update(frames: []const u8) bool {
     const block_len = std.mem.readInt(u24, frames[0..frame_length_len], .big);
-    return block_len > 0 and frames[constants.frame_header_len] & size_update_mask == size_update_pattern;
+    return block_len > 0 and frames[constants.protocol.frame_header_len] & size_update_mask == size_update_pattern;
 }
 
 /// Octets of a frame header's Length field (RFC 9113 §4.1). Test-only.
@@ -72,7 +72,7 @@ test "RFC 7541 §4.2: a response or a trailer section refused for room leaves it
     _ = try test_connection.write_response(test_output, 1, ok, &.{}, false);
     try testing.expect(opens_with_size_update(test_output));
     // The response declared its block, so a new limit makes the trailer section owe an update.
-    try feed_table_size(core.constants.field_value_len_max);
+    try feed_table_size(core.constants.limits.field_value_len_max);
     try testing.expectError(error.OutputTooSmall, test_connection.write_trailers(short, 1, &trailers));
     _ = try test_connection.write_trailers(test_output, 1, &trailers);
     try testing.expect(opens_with_size_update(test_output));
@@ -89,13 +89,13 @@ test "a response whose block fits one frame is encoded in place, and send_block 
     try testing.expect(std.mem.allEqual(u8, &test_connection.send_block, sentinel));
     // One HEADERS frame that ends the block and the stream, and holds the whole block.
     const block_len = std.mem.readInt(u24, test_output[0..frame_length_len], .big);
-    try testing.expectEqual(written - constants.frame_header_len, block_len);
-    try testing.expectEqual(constants.frame_type_headers, test_output[3]);
-    try testing.expectEqual(constants.flag_end_stream | constants.flag_end_headers, test_output[4]);
+    try testing.expectEqual(written - constants.protocol.frame_header_len, block_len);
+    try testing.expectEqual(constants.protocol.frame_type_headers, test_output[3]);
+    try testing.expectEqual(constants.protocol.flag_end_stream | constants.protocol.flag_end_headers, test_output[4]);
 }
 
 /// Room for a block longer than `send_block_len_max` in one frame: twice that. Test-only.
-const huge_output_len: usize = constants.send_block_len_max + constants.send_block_len_max;
+const huge_output_len: usize = constants.limits.send_block_len_max + constants.limits.send_block_len_max;
 var test_huge_output: [huge_output_len]u8 = undefined;
 /// Values Huffman coding would not shorten, longer together than `send_block_len_max`. Test-only.
 const huge_value_len = 4000;
@@ -103,7 +103,7 @@ const huge_values_count = 9;
 
 test "design §7: a block longer than send_block_len_max is refused, though the peer's frames allow it" {
     try support.start_server();
-    try feed_setting(constants.setting_max_frame_size, constants.max_frame_size_max);
+    try feed_setting(constants.protocol.setting_max_frame_size, constants.protocol.max_frame_size_max);
     _ = try support.feed_request(1, "/", true);
     var values: [huge_values_count][huge_value_len]u8 = undefined;
     var fields: [huge_values_count]@import("hpack").Field = undefined;
@@ -111,7 +111,7 @@ test "design §7: a block longer than send_block_len_max is refused, though the 
         value.* = @splat(@intCast(0x80 + index));
         field_line.* = .{ .name = "x-a", .value = value };
     }
-    comptime std.debug.assert(huge_value_len * huge_values_count > constants.send_block_len_max);
+    comptime std.debug.assert(huge_value_len * huge_values_count > constants.limits.send_block_len_max);
     try testing.expectError(error.OutputTooSmall, test_connection.write_response(&test_huge_output, 1, ok, &fields, false));
 }
 
@@ -127,7 +127,7 @@ const indexed_block_len: usize = 1 + indexed_lines.len;
 /// The field block of the HEADERS frame at the front of `frames`. Test-only.
 fn block_of(frames: []const u8) []const u8 {
     const block_len = std.mem.readInt(u24, frames[0..frame_length_len], .big);
-    return frames[constants.frame_header_len..][0..block_len];
+    return frames[constants.protocol.frame_header_len..][0..block_len];
 }
 
 /// Requires the peer's decoder, which reads every block colibri sent, to read `:status` 200 and
@@ -141,7 +141,7 @@ fn expect_decoded(frames: []const u8, lines: []const @import("hpack").Field) !vo
 
 test "decision 132: a response's lines go into the table, so the next response sends each as one octet" {
     try support.start_server();
-    @import("hpack").decoder.test_decoder().init(constants.header_table_size_initial);
+    @import("hpack").decoder.test_decoder().init(constants.protocol.header_table_size_initial);
     _ = try support.feed_request(1, "/", true);
     _ = try support.feed_request(3, "/", true);
     _ = try test_connection.write_response(test_output, 1, ok, &indexed_lines, true);
@@ -155,12 +155,12 @@ test "decision 132: a response's lines go into the table, so the next response s
 /// second: `:status` 200 is one octet, and "x-new: 1" with its name and value as literals nine.
 /// Test-only.
 const block_one_line_len: usize = 12;
-const room_one_line: usize = constants.frame_header_len + block_one_line_len;
+const room_one_line: usize = constants.protocol.frame_header_len + block_one_line_len;
 const long_value_len = 100;
 
 test "decision 132: a response refused after its block inserted makes the next block empty both tables" {
     try support.start_server();
-    @import("hpack").decoder.test_decoder().init(constants.header_table_size_initial);
+    @import("hpack").decoder.test_decoder().init(constants.protocol.header_table_size_initial);
     _ = try support.feed_request(1, "/", true);
     _ = try support.feed_request(3, "/", true);
     _ = try test_connection.write_response(test_output, 1, ok, indexed_lines[1..2], true);
@@ -184,7 +184,7 @@ const created: u16 = 201;
 
 test "decision 132: a status the static table lacks goes into the table too" {
     try support.start_server();
-    @import("hpack").decoder.test_decoder().init(constants.header_table_size_initial);
+    @import("hpack").decoder.test_decoder().init(constants.protocol.header_table_size_initial);
     const status = [_]@import("hpack").Field{.{ .name = ":status", .value = "201" }};
     for ([_]u32{ 1, 3 }) |stream_id| {
         _ = try support.feed_request(stream_id, "/", true);

@@ -25,7 +25,7 @@ var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = u
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
 var scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
-var datagram: [constants.datagram_len_min]u8 = undefined;
+var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
@@ -49,7 +49,7 @@ fn open_pair(levels: []const Level) void {
     open_one(&client, .client, levels);
     open_one(&server, .server, levels);
     // RFC 9000 §8.1: a server sends only after it has received.
-    server.path.on_datagram_received(constants.datagram_len_min);
+    server.path.on_datagram_received(constants.protocol.datagram_len_min);
 }
 
 fn open_one(connection: *Connection, role: connection_module.Role, levels: []const Level) void {
@@ -101,7 +101,7 @@ test "RFC 9001 §4.8: TLS failing while send writes its octets owes the alert's 
 test "RFC 9000 §12.3: a space out of packet numbers closes with no frame and sends nothing after" {
     open_pair(&.{.initial});
     provider_holder = .{ .owed = &flight };
-    connection_module.space_at(&client, .initial).next_packet_number = constants.packet_number_max + 1;
+    connection_module.space_at(&client, .initial).next_packet_number = constants.protocol.packet_number_max + 1;
     try testing.expectError(error.PacketNumbersExhausted, send_raw(&client));
     try testing.expectEqual(null, client.pending_close);
     try testing.expectEqual(.closed, client.termination.state);

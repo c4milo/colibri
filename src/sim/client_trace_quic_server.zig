@@ -122,7 +122,7 @@ pub const QuicServer = struct {
     /// Closes the connection with an error, as a server that failed does (RFC 9000 §10.2).
     pub fn close_with_error(server: *QuicServer) void {
         if (server.connection.termination.state != .active) return;
-        quic.connection_close.owe(&server.connection, .{ .layer = .application, .error_code = h3.constants.error_internal, .frame_type = null, .reason = "" });
+        quic.connection_close.owe(&server.connection, .{ .layer = .application, .error_code = h3.constants.protocol.error_internal, .frame_type = null, .reason = "" });
     }
 
     /// Writes the next datagram the server owes into `output`, and returns its length, or null.
@@ -207,7 +207,7 @@ pub const QuicServer = struct {
         server.requests_len += 1;
         if (answer == .reject) {
             // RFC 9114 §4.1.1: a request the server rejects is one it did not process.
-            server.h3.cancel(&server.connection, held.stream_id, h3.constants.error_request_rejected);
+            server.h3.cancel(&server.connection, held.stream_id, h3.constants.protocol.error_request_rejected);
             return;
         }
         ledger.process(index, .{ .transport = .quic, .generation = server.generation });
@@ -222,7 +222,7 @@ pub const QuicServer = struct {
             request.acted = true;
             switch (request.answer) {
                 .respond => try server.respond(request, now_ns),
-                .reset => server.h3.cancel(&server.connection, request.stream_id, h3.constants.error_request_cancelled),
+                .reset => server.h3.cancel(&server.connection, request.stream_id, h3.constants.protocol.error_request_cancelled),
                 .reject => unreachable,
             }
         }
@@ -272,7 +272,7 @@ fn parameters() quic.transport_parameters.Parameters {
     held.initial_max_stream_data_bidi_local = stream_window;
     held.initial_max_stream_data_uni = stream_window;
     held.initial_max_streams_bidi = requests_max;
-    held.initial_max_streams_uni = h3.constants.uni_streams_max;
+    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
     held.max_idle_timeout_ms = idle_timeout_ms;
     return held;
 }

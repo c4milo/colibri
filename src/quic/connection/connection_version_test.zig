@@ -18,9 +18,9 @@ const Connection = connection_module.Connection;
 const testing = std.testing;
 
 /// A datagram long enough for RFC 9000 §5.2.2, and one octet short of it. Test-only.
-var datagram: [constants.datagram_len_min]u8 = @splat(0);
+var datagram: [constants.protocol.datagram_len_min]u8 = @splat(0);
 /// Where a Version Negotiation packet is written. Test-only.
-var output: [constants.datagram_len_min]u8 = @splat(0);
+var output: [constants.protocol.datagram_len_min]u8 = @splat(0);
 /// The connection the client tests drive. Test-only.
 var test_connection: Connection align(@alignOf(Connection)) = undefined;
 
@@ -58,7 +58,7 @@ const invariant_scid_len = 21;
 fn write_long(packet_version: u32, dcid: []const u8, scid: []const u8) usize {
     var writer = core.Writer.init(&datagram);
     // RFC 8999 §5.1: the Header Form bit is set, then the Version and both connection IDs.
-    writer.write_byte(header_form_bit | constants.fixed_bit) catch unreachable;
+    writer.write_byte(header_form_bit | constants.protocol.fixed_bit) catch unreachable;
     writer.write_int(u32, packet_version) catch unreachable;
     invariant.write_connection_id(&writer, dcid) catch unreachable;
     invariant.write_connection_id(&writer, scid) catch unreachable;
@@ -84,7 +84,7 @@ fn init_client() void {
 /// Test-only.
 fn negotiation_of(dcid: []const u8, scid: []const u8, supported: []const u32) header.VersionNegotiation {
     var writer = core.Writer.init(&output);
-    writer.write_byte(header_form_bit | constants.fixed_bit) catch unreachable;
+    writer.write_byte(header_form_bit | constants.protocol.fixed_bit) catch unreachable;
     writer.write_int(u32, invariant.version_negotiation) catch unreachable;
     invariant.write_connection_id(&writer, dcid) catch unreachable;
     invariant.write_connection_id(&writer, scid) catch unreachable;
@@ -107,13 +107,13 @@ test "RFC 9000 §5.2.2, §17.2.1: a server answers an unsupported version with t
     const read_back = (try header.read(output[0..written], 0)).version_negotiation;
     // RFC 9000 §6.1: the versions the server accepts, which are both (decision 108).
     try testing.expectEqual(2, read_back.supported.count());
-    try testing.expectEqual(constants.version_1, read_back.supported.at(0));
+    try testing.expectEqual(constants.protocol.version_1, read_back.supported.at(0));
     try testing.expectEqual(version_2, read_back.supported.at(1));
     // RFC 8999 §6: the connection IDs are the received packet's, swapped.
     try testing.expectEqualSlices(u8, &client_source, read_back.dcid);
     try testing.expectEqualSlices(u8, &client_destination, read_back.scid);
     // §17.2.1: "servers SHOULD set the most significant bit of this field (0x40) to 1".
-    try testing.expectEqual(constants.fixed_bit, output[0] & constants.fixed_bit);
+    try testing.expectEqual(constants.protocol.fixed_bit, output[0] & constants.protocol.fixed_bit);
     // The Version field is 0, which is what identifies the packet at all.
     try testing.expectEqual(0, std.mem.readInt(u32, output[1..5], .big));
     // Every octet the packet occupies was written and no more, which `version_negotiation_len`
@@ -126,7 +126,7 @@ test "RFC 9000 §5.2.2: a datagram below the minimum size is dropped rather than
     const header_len = write_long(other_version, &client_destination, &client_source);
     // "Servers MUST drop smaller packets that specify unsupported versions." §14.1 puts the size
     // at 1200 octets, so 1199 is dropped and 1200 is answered.
-    const short = datagram[0 .. constants.datagram_len_min - 1];
+    const short = datagram[0 .. constants.protocol.datagram_len_min - 1];
     try testing.expectEqual(version.Silence.datagram_too_small, version.answer(.server, short, &output).none);
     try testing.expect(version.answer(.server, &datagram, &output) == .written);
     // A datagram no longer than its own header is short for the same reason, not another.
@@ -153,7 +153,7 @@ test "RFC 9000 §6.1, §17.2.1, RFC 8999 §6: the four datagrams a server answer
     _ = write_long(other_version, &client_destination, &client_source);
     try testing.expectEqual(version.Silence.not_a_server, version.answer(.client, &datagram, &output).none);
     // A version the server speaks belongs to a connection instead.
-    _ = write_long(constants.version_1, &client_destination, &client_source);
+    _ = write_long(constants.protocol.version_1, &client_destination, &client_source);
     try testing.expectEqual(version.Silence.version_supported, version.answer(.server, &datagram, &output).none);
     // RFC 9000 §6.1: "An endpoint MUST NOT send a Version Negotiation packet in response to
     // receiving a Version Negotiation packet."
@@ -180,7 +180,7 @@ test "RFC 9000 §17.2.1: no version 1 rule reaches the decision to send one" {
     try testing.expectEqualSlices(u8, &long_scid, read_back.dcid);
     try testing.expectEqualSlices(u8, &long_dcid, read_back.scid);
     // The same octets read as version 1 are refused for exactly the rule §17.2.1 holds off.
-    _ = write_long(constants.version_1, &long_dcid, &long_scid);
+    _ = write_long(constants.protocol.version_1, &long_dcid, &long_scid);
     try testing.expectError(error.ConnectionIdTooLong, header.read(&datagram, 0));
 }
 
@@ -203,7 +203,7 @@ test "RFC 9000 §6.2: a packet listing the version the client selected is discar
     init_client();
     // "A client MUST discard a Version Negotiation packet that lists the QUIC version selected by
     // the client", wherever in the list it sits.
-    const listed = [_]u32{ other_version, reserved_version, constants.version_1 };
+    const listed = [_]u32{ other_version, reserved_version, constants.protocol.version_1 };
     try testing.expectEqual(
         version.Reaction.lists_selected_version,
         version.on_version_negotiation(&test_connection, addressed_negotiation(&listed)),
@@ -220,7 +220,7 @@ test "RFC 9000 §6.2: a packet listing the version the client selected is discar
     init_client();
     test_connection.versions = .init(.client, .v2, null);
     const lists_2 = [_]u32{ other_version, version_2 };
-    const lists_1 = [_]u32{ other_version, constants.version_1 };
+    const lists_1 = [_]u32{ other_version, constants.protocol.version_1 };
     try testing.expectEqual(
         version.Reaction.lists_selected_version,
         version.on_version_negotiation(&test_connection, addressed_negotiation(&lists_2)),
@@ -291,7 +291,7 @@ test "RFC 9000 §17.2.1: a server receiving a Version Negotiation packet discard
 
 test "RFC 9000 §6.1: colibri lists the two versions it speaks" {
     try testing.expectEqualSlices(u32, &.{ 0x0000_0001, 0x6b33_43cf }, &version.supported_versions);
-    try testing.expect(version.speaks(constants.version_1) and version.speaks(version_2));
+    try testing.expect(version.speaks(constants.protocol.version_1) and version.speaks(version_2));
     try testing.expect(!version.speaks(other_version));
     // RFC 8999 §5.4 reserves 0 for version negotiation, so it is no version to speak.
     try testing.expect(!version.speaks(invariant.version_negotiation));
@@ -300,25 +300,25 @@ test "RFC 9000 §6.1: colibri lists the two versions it speaks" {
 test "RFC 9368 §4: a server holds the client's Chosen Version to the version in use" {
     // A server phasing version 1 out lists version 2 alone (§3), so its list decides nothing: what
     // decides is the version the client's first flight carried.
-    const local: transport_parameters.VersionInformation = .of(constants.version_1, &.{version_2});
-    try version.check_information(.server, &local, .of(constants.version_1, &.{ version_2, constants.version_1 }), constants.version_1);
+    const local: transport_parameters.VersionInformation = .of(constants.protocol.version_1, &.{version_2});
+    try version.check_information(.server, &local, .of(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 }), constants.protocol.version_1);
     try testing.expectError(
         error.VersionNegotiation,
-        version.check_information(.server, &local, .of(version_2, &.{ version_2, constants.version_1 }), constants.version_1),
+        version.check_information(.server, &local, .of(version_2, &.{ version_2, constants.protocol.version_1 }), constants.protocol.version_1),
     );
     // "Servers MAY complete the handshake even if the Version Information is missing."
-    try version.check_information(.server, &local, null, constants.version_1);
+    try version.check_information(.server, &local, null, constants.protocol.version_1);
 }
 
 test "RFC 9368 §4: a client holds the server's Chosen Version to the Negotiated Version and its list" {
-    const local: transport_parameters.VersionInformation = .of(constants.version_1, &.{ constants.version_1, version_2 });
-    try version.check_information(.client, &local, .of(constants.version_1, &.{}), constants.version_1);
+    const local: transport_parameters.VersionInformation = .of(constants.protocol.version_1, &.{ constants.protocol.version_1, version_2 });
+    try version.check_information(.client, &local, .of(constants.protocol.version_1, &.{}), constants.protocol.version_1);
     // A server that switched the client to version 2, which the client listed, chose it.
     try version.check_information(.client, &local, .of(version_2, &.{}), version_2);
     // A Chosen Version the client listed that is not the version its packets carried fails.
     try testing.expectError(
         error.VersionNegotiation,
-        version.check_information(.client, &local, .of(version_2, &.{constants.version_1}), constants.version_1),
+        version.check_information(.client, &local, .of(version_2, &.{constants.protocol.version_1}), constants.protocol.version_1),
     );
     // And so does one the client never listed, even when its packets carried it.
     try testing.expectError(
@@ -327,7 +327,7 @@ test "RFC 9368 §4: a client holds the server's Chosen Version to the Negotiated
     );
     // A client that did not react to a Version Negotiation packet may complete the handshake
     // without it.
-    try version.check_information(.client, &local, null, constants.version_1);
+    try version.check_information(.client, &local, null, constants.protocol.version_1);
 }
 
 /// A server's connection whose client's first Initial carried `original`, and which switches a
@@ -375,7 +375,7 @@ test "decision 111: a server switches a client that lists version 2, and its par
     init_server(.v1, .v2);
     const own = try own_parameters();
     const own_len = own.len;
-    const chosen = version.choose(&test_connection, try client_parameters(constants.version_1, &.{ version_2, constants.version_1 }), own);
+    const chosen = version.choose(&test_connection, try client_parameters(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 }), own);
     try testing.expectEqual(.v2, chosen);
     try testing.expect(test_connection.versions.negotiated == .v2 and test_connection.versions.original == .v1);
     // RFC 9368 §3: the octets the session sends name version 2 as the Chosen Version, and are as
@@ -391,8 +391,8 @@ test "decision 111: a client that does not list version 2, or whose parameters d
     const own = try own_parameters();
     var kept: [parameters_len_max]u8 = undefined;
     @memcpy(kept[0..own.len], own);
-    try testing.expectEqual(.v1, version.choose(&test_connection, try client_parameters(constants.version_1, &.{constants.version_1}), own));
-    try testing.expectEqual(.v1, version.choose(&test_connection, try client_parameters(constants.version_1, null), own));
+    try testing.expectEqual(.v1, version.choose(&test_connection, try client_parameters(constants.protocol.version_1, &.{constants.protocol.version_1}), own));
+    try testing.expectEqual(.v1, version.choose(&test_connection, try client_parameters(constants.protocol.version_1, null), own));
     // RFC 9000 §7.4: parameters that do not read close the connection when they are taken.
     try testing.expectEqual(.v1, version.choose(&test_connection, "\x04\x08\x01", own));
     try testing.expectEqual(.v1, test_connection.versions.negotiated);
@@ -402,16 +402,16 @@ test "decision 111: a client that does not list version 2, or whose parameters d
 test "decision 111: a server whose options name no version to switch to keeps every client" {
     init_server(.v1, null);
     const own = try own_parameters();
-    const listed = try client_parameters(constants.version_1, &.{ version_2, constants.version_1 });
+    const listed = try client_parameters(constants.protocol.version_1, &.{ version_2, constants.protocol.version_1 });
     try testing.expectEqual(.v1, version.choose(&test_connection, listed, own));
     try testing.expectEqual(.v1, test_connection.versions.negotiated);
-    try testing.expectEqual(constants.version_1, test_connection.local_parameters.version_information.?.chosen_version);
+    try testing.expectEqual(constants.protocol.version_1, test_connection.local_parameters.version_information.?.chosen_version);
 }
 
 test "RFC 9368 §2.3: a first flight in version 2 stays in version 2" {
     init_server(.v2, .v2);
     const own = try own_parameters();
-    const chosen = version.choose(&test_connection, try client_parameters(version_2, &.{ version_2, constants.version_1 }), own);
+    const chosen = version.choose(&test_connection, try client_parameters(version_2, &.{ version_2, constants.protocol.version_1 }), own);
     try testing.expectEqual(.v2, chosen);
     try testing.expect(test_connection.versions.negotiated == .v2 and test_connection.versions.original == .v2);
 }

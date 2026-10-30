@@ -69,7 +69,7 @@ pub const Server = struct {
     started: bool,
     /// The code the connection closed with, once `h3` closed it.
     failure: ?u64,
-    responses: [h3.constants.request_streams_max]?Response,
+    responses: [h3.constants.limits.request_streams_max]?Response,
     body: [constants.hq_read_len]u8,
     section: FieldSection,
     /// Responses answered with a file or the root body, which the endpoint reports.

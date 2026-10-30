@@ -81,7 +81,7 @@ pub const Transport = files.pool.Transport;
 pub const Phase = files.pool.Phase;
 /// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
 /// places: `ReceivePool(capacity)` for `capacity` octets, a whole number of
-/// `quic.constants.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
+/// `quic.constants.limits.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
 /// capacity bounds every window the client advertises, and so how fast one connection receives.
 pub const ReceivePool = quic.stream.stream_incoming.Pool;
 pub const DefaultReceivePool = quic.stream.stream_incoming.DefaultPool;

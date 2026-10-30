@@ -197,7 +197,7 @@ fn leaf_verdicts(
     _ = Value;
     const at = layout.leaves[leaf];
     const entries = verdicts[at.entries_first..][0..at.entries_count];
-    var reached: [constants.route_methods_max]bool = @splat(false);
+    var reached: [constants.limits.route_methods_max]bool = @splat(false);
     var too_long = false;
     var first_patterns: []const u8 = "";
     // Claim 7: when no leaf before T matches a path of T, the walk on each path of T stops at T,
@@ -210,7 +210,7 @@ fn leaf_verdicts(
         if (canonical.leaf != leaf) continue;
         const path = router_hidden_canonical.canonical_path(shapes[leaf], shapes[leaf], canonical.segments, other);
         // Claim 8: `match` gives `not_found` for a longer path.
-        if (path.len > constants.path_len_max) {
+        if (path.len > constants.limits.path_len_max) {
             too_long = true;
             continue;
         }
@@ -231,7 +231,7 @@ fn walk_entries(
     leaf: usize,
     path: []const u8,
     alone: bool,
-    reached: *[constants.route_methods_max]bool,
+    reached: *[constants.limits.route_methods_max]bool,
     first_patterns: *[]const u8,
 ) void {
     const at = layout.leaves[leaf];

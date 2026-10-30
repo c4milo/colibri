@@ -182,8 +182,8 @@ test "RFC 9114 §4.3: a trailer section carries no pseudo-header" {
 }
 
 test "RFC 9114 §4.1.2: every malformed message is one stream error, H3_MESSAGE_ERROR" {
-    try testing.expectEqual(constants.error_message_error, message.verdict(error.MethodMissing));
-    try testing.expectEqual(constants.error_message_error, message.verdict(error.AuthorityMissing));
+    try testing.expectEqual(constants.protocol.error_message_error, message.verdict(error.MethodMissing));
+    try testing.expectEqual(constants.protocol.error_message_error, message.verdict(error.AuthorityMissing));
     // RFC 9114 §8.1 assigns H3_MESSAGE_ERROR the value 0x010e.
-    try testing.expectEqual(0x010e, constants.error_message_error);
+    try testing.expectEqual(0x010e, constants.protocol.error_message_error);
 }

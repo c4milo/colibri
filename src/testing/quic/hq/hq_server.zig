@@ -22,7 +22,7 @@ pub const Error = quic.connection_stream_send.Error;
 comptime {
     // A slot per stream the client may have open at once, which the server's own
     // `initial_max_streams_bidi` sets and colibri's stream table bounds.
-    assert(constants.hq_requests_max <= quic.constants.streams_per_connection_max);
+    assert(constants.hq_requests_max <= quic.constants.limits.streams_per_connection_max);
 }
 
 /// One stream the client opened.

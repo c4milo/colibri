@@ -86,7 +86,7 @@ test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no
     try testing.expectError(error.KeysUnavailable, server_suite.vtable.open(server_suite.context, .{
         .level = .handshake,
         .version = .v1,
-        .packet = support.packet[0 .. header.len + payload.len + crypto.constants.aead_tag_len],
+        .packet = support.packet[0 .. header.len + payload.len + crypto.constants.protocol.aead_tag_len],
         .packet_number_offset = header.len - support.packet_number_len,
         .largest_packet_number = null,
     }));
@@ -227,7 +227,7 @@ test "a level's octets that do not fit its buffer fail the handshake, and nothin
     // Nearly full with octets colibri has not taken, the server's Initial level cannot hold its
     // ServerHello.
     const initial = @intFromEnum(tls_provider.Level.initial);
-    server.state.outgoing_len[initial] = constants.crypto_out_len - 1;
+    server.state.outgoing_len[initial] = constants.limits.crypto_out_len - 1;
     try testing.expectError(error.NoSpaceLeft, support.move(client.provider(), server.provider()));
     const provider = server.provider();
     try testing.expectError(error.NoSpaceLeft, provider.vtable.write_handshake(provider.context, .initial, &support.scratch));
@@ -235,7 +235,7 @@ test "a level's octets that do not fit its buffer fail the handshake, and nothin
     server.close();
     // A client whose level is as full cannot stage its ClientHello there.
     try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
-    client.state.outgoing_len[initial] = constants.crypto_out_len - 1;
+    client.state.outgoing_len[initial] = constants.limits.crypto_out_len - 1;
     try client.provider().set_transport_params(support.client_parameters);
     try testing.expectError(error.NoSpaceLeft, client.provider().vtable.write_handshake(client.provider().context, .initial, &support.scratch));
     client.close();
@@ -280,7 +280,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     try testing.expectError(error.KeysUnavailable, suite.vtable.update_keys(suite.context));
     suite.vtable.discard_keys(suite.context, .initial);
     suite.vtable.discard_previous_keys(suite.context);
-    var tag: [crypto.constants.retry_integrity_tag_len]u8 = @splat(0);
+    var tag: [crypto.constants.protocol.retry_integrity_tag_len]u8 = @splat(0);
     try testing.expect(!suite.vtable.retry_tag_valid(suite.context, .v1, "a pseudo-packet", &tag));
     var header_storage: [64]u8 = undefined;
     const header = try support.short_header(0, false, &header_storage);
@@ -411,7 +411,7 @@ test "decision 55: a Retry token gives both connection IDs back, and the Retry t
     // RFC 9001 §5.8: a client's session verifies the tag any suite writes, and no other.
     try support.configure(support.web_pki, .{});
     try support.start_both(null);
-    var tag: [crypto.constants.retry_integrity_tag_len]u8 = undefined;
+    var tag: [crypto.constants.protocol.retry_integrity_tag_len]u8 = undefined;
     try suite.vtable.retry_tag_write(suite.context, .v1, "a pseudo-packet", &tag);
     const client_suite = client.suite();
     try testing.expect(client_suite.vtable.retry_tag_valid(client_suite.context, .v1, "a pseudo-packet", &tag));
@@ -431,9 +431,9 @@ test {
 /// What a QUIC client and server whose sources start at one seed write first at the Initial level:
 /// the ClientHello, and the ServerHello that answers it.
 const InitialFlights = struct {
-    hello: [constants.crypto_out_len]u8 = undefined,
+    hello: [constants.limits.crypto_out_len]u8 = undefined,
     hello_len: usize = 0,
-    answer: [constants.crypto_out_len]u8 = undefined,
+    answer: [constants.limits.crypto_out_len]u8 = undefined,
     answer_len: usize = 0,
 };
 

@@ -83,9 +83,9 @@ test "RFC 9204 §2.2.2.2: a stream reset while its section waits is cancelled on
     try server.commit(id, writer.written(), false);
     try harness.transfer_frames(server, client, 1);
     try testing.expectEqual(null, try next(client));
-    server.h3.cancel(&server.transport, id, constants.error_request_cancelled);
+    server.h3.cancel(&server.transport, id, constants.protocol.error_request_cancelled);
     try exchange();
-    try testing.expectEqual(Event{ .reset = .{ .stream_id = id, .error_code = constants.error_request_cancelled } }, (try next(client)).?);
+    try testing.expectEqual(Event{ .reset = .{ .stream_id = id, .error_code = constants.protocol.error_request_cancelled } }, (try next(client)).?);
     // The client's decoder no longer holds the stream, and its cancellation went out.
     try testing.expectEqual(0, client.h3.decoder.blocked_len);
     try testing.expectEqual(null, try next(client));
@@ -137,7 +137,7 @@ test "RFC 9204 §4.2: a peer that stops colibri's encoder stream has closed it" 
     try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
     try exchange();
     try testing.expectError(error.ConnectionFailed, harness.respond(id, &custom_lines, ""));
-    try testing.expectEqual(constants.error_closed_critical_stream, server.h3.failure.?);
+    try testing.expectEqual(constants.protocol.error_closed_critical_stream, server.h3.failure.?);
 }
 
 test "a trailer section inserts nothing into the dynamic table" {
@@ -157,7 +157,7 @@ test "decision 78: h3's encoder stream drops what the peer acknowledged when roo
     const local = &server.h3.local;
     const id = local.encoder_id.?;
     // Fill the buffer until less than one insert's room is left, and send it all.
-    var filler: [constants.encoder_buffer_len]u8 = @splat(0);
+    var filler: [constants.limits.encoder_buffer_len]u8 = @splat(0);
     const fill_len = local.encoder.free().remaining_len() - 1;
     try local.encoder.write(filler[0..fill_len]);
     try quic.connection_stream_send.supply(&server.transport, .{ .value = id }, local.encoder.end_offset(), false);
@@ -167,5 +167,5 @@ test "decision 78: h3's encoder stream drops what the peer acknowledged when roo
     // No packet carried the octets here, so `quic` counts every framed one acknowledged.
     const room = try connection_local.encoder_room(&server.h3, &server.transport);
     try testing.expectEqual(framed, local.encoder.start_offset);
-    try testing.expectEqual(constants.encoder_buffer_len, room.remaining_len());
+    try testing.expectEqual(constants.limits.encoder_buffer_len, room.remaining_len());
 }

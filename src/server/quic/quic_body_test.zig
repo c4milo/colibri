@@ -25,7 +25,7 @@ const quota: usize = 10_240;
 const windows: usize = 4;
 const content: [windows * quota]u8 = @splat('c');
 /// From the start of a body's wait to the end of its first window.
-const first_window_ns: u64 = constants.rate_grace_ns + constants.rate_window_ns;
+const first_window_ns: u64 = constants.policy.rate_grace_ns + constants.policy.rate_window_ns;
 /// A cap that passes inside a body's second window.
 const cap_seconds: u64 = 25;
 const cap_ns: u64 = cap_seconds * constants.nanoseconds_per_second;
@@ -73,7 +73,7 @@ fn cancelled_for(n: usize) ?Timeout {
 }
 
 fn is_no_error(code: u64) bool {
-    return code == h3.constants.error_no_error or h3.constants.is_reserved(code);
+    return code == h3.constants.protocol.error_no_error or h3.constants.protocol.is_reserved(code);
 }
 
 test "RFC 9110 §15.5.9: a body under the minimum rate gets a 408 when its first window ends, and the connection goes on" {
@@ -113,12 +113,12 @@ test "decision 110: a body that brings its quota each window is not cut, and one
     server_at(first_end_ns);
     try send_content(fetch, 2 * quota);
     try support.pump(rounds_few);
-    server_at(first_end_ns + constants.rate_window_ns);
+    server_at(first_end_ns + constants.policy.rate_window_ns);
     try testing.expectEqual(null, cancelled_for(0));
     // The third window brings one octet less than it owes.
     try send_content(fetch, 3 * quota - 1);
     try support.pump(rounds_few);
-    const third_end_ns = first_end_ns + 2 * constants.rate_window_ns;
+    const third_end_ns = first_end_ns + 2 * constants.policy.rate_window_ns;
     try testing.expectEqual(third_end_ns, quic_deadline.soonest(connection).?);
     server_at(third_end_ns - 1);
     try testing.expectEqual(null, cancelled_for(0));
@@ -170,7 +170,7 @@ test "RFC 9114 §4.1.1: a body that falls short after its response began is rese
     server_at(at_ns);
     try testing.expectEqual(Timeout.body_rate, cancelled_for(0).?);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(h3.constants.error_request_cancelled, fetch.reset.?);
+    try testing.expectEqual(h3.constants.protocol.error_request_cancelled, fetch.reset.?);
     try testing.expectEqual(ok, fetch.status);
     try testing.expectEqual(null, support.nth(.done, 0));
 }
@@ -233,7 +233,7 @@ test "RFC 9114 §10.5: bodies that together fall under the rate close the connec
     server_at(since + first_window_ns);
     try testing.expectEqual(Timeout.body_rate, connection.clock.timed_out.?);
     const close = connection.transport.pending_close.?;
-    try testing.expect(close.layer == .application and close.error_code == h3.constants.error_excessive_load);
+    try testing.expect(close.layer == .application and close.error_code == h3.constants.protocol.error_excessive_load);
     try testing.expect(support.server_failed);
 }
 

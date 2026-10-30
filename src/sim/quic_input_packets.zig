@@ -55,13 +55,13 @@ const Kind = enum { initial, zero_rtt, handshake, retry, short, version_negotiat
 
 /// The versions a drawn Version Negotiation packet offers: version 1, and two of the form
 /// 0x?a?a?a?a that RFC 9000 §15 reserves so that negotiation is exercised.
-const supported_versions = [_]u32{ limits.version_1, reserved_version_first, reserved_version_second };
+const supported_versions = [_]u32{ limits.protocol.version_1, reserved_version_first, reserved_version_second };
 const reserved_version_first: u32 = 0x1a2a3a4a;
 const reserved_version_second: u32 = 0x5a6a7a8a;
 
 /// Writes a datagram of drawn packets and returns it.
 pub fn draw_datagram(storage: *Storage, random: *Random, material: []const u8) []const u8 {
-    storage.short_dcid_len = random.between(0, limits.connection_id_len_max);
+    storage.short_dcid_len = random.between(0, limits.protocol.connection_id_len_max);
     var writer = Writer.init(&storage.datagram);
     for (0..random.between(1, constants.quic_input_check_packets_max)) |_| {
         const kind: Kind = @enumFromInt(random.below(std.meta.fields(Kind).len));
@@ -72,8 +72,8 @@ pub fn draw_datagram(storage: *Storage, random: *Random, material: []const u8) [
 }
 
 fn draw_packet(storage: *Storage, random: *Random, material: []const u8, kind: Kind, writer: *Writer) !void {
-    const dcid = draw_octets(random, material, 0, limits.connection_id_len_max);
-    const scid = draw_octets(random, material, 0, limits.connection_id_len_max);
+    const dcid = draw_octets(random, material, 0, limits.protocol.connection_id_len_max);
+    const scid = draw_octets(random, material, 0, limits.protocol.connection_id_len_max);
     const payload = draw_octets(random, material, 0, constants.quic_input_check_octets_len_max);
     var copy = writer.*;
     switch (kind) {
@@ -81,7 +81,7 @@ fn draw_packet(storage: *Storage, random: *Random, material: []const u8, kind: K
         .retry => {
             const token = draw_octets(random, material, 1, constants.quic_input_check_octets_len_max);
             try header_write.write_retry(&copy, .{ .version = .v1, .dcid = dcid, .scid = scid, .token = token });
-            try copy.write_bytes(draw_octets(random, material, limits.retry_integrity_tag_len, limits.retry_integrity_tag_len));
+            try copy.write_bytes(draw_octets(random, material, limits.protocol.retry_integrity_tag_len, limits.protocol.retry_integrity_tag_len));
             writer.* = copy;
             return;
         },
@@ -92,7 +92,7 @@ fn draw_packet(storage: *Storage, random: *Random, material: []const u8, kind: K
             .spin = chosen(random),
         }),
         .version_negotiation => {
-            const received: invariant.Long = .{ .first_octet = 0, .version = limits.version_1, .dcid = dcid, .scid = scid, .rest = &.{} };
+            const received: invariant.Long = .{ .first_octet = 0, .version = limits.protocol.version_1, .dcid = dcid, .scid = scid, .rest = &.{} };
             const count = random.between(1, supported_versions.len);
             try invariant.write_version_negotiation(&copy, @truncate(random.next()), received, supported_versions[0..count]);
             writer.* = copy;
@@ -127,12 +127,12 @@ fn write_long(
         .token = token,
         .packet_number = draw_packet_number(random),
         .protected_payload_len = payload_len,
-        .length_len = if (chosen(random)) 0 else quic.wire.constants.varint_len_max,
+        .length_len = if (chosen(random)) 0 else quic.wire.constants.protocol.varint_len_max,
     });
 }
 
 fn draw_packet_number(random: *Random) quic.packet.packet_number.Truncated {
-    const len: u8 = @intCast(random.between(1, limits.packet_number_len_max));
+    const len: u8 = @intCast(random.between(1, limits.protocol.packet_number_len_max));
     return .{ .value = @truncate(random.below(@as(u64, 1) << @intCast(len * @bitSizeOf(u8)))), .len = len };
 }
 
@@ -155,11 +155,11 @@ fn packet_len_of(packet: header.Packet, rest_len: usize, short_dcid_len: usize) 
     const inside = switch (packet) {
         // RFC 9000 §12.2: the Length ends a long packet, which may be followed by another.
         .long => |long| long.packet_number_offset <= long.packet_len and long.packet_len <= rest_len and
-            @max(long.dcid.len, long.scid.len) <= limits.connection_id_len_max and fixed(long.first_octet),
+            @max(long.dcid.len, long.scid.len) <= limits.protocol.connection_id_len_max and fixed(long.first_octet),
         .short => |short| short.packet_number_offset == 1 + short_dcid_len and short.packet_len == rest_len and
             fixed(short.first_octet),
         .retry => |retry| retry.token.len > 0 and fixed(retry.first_octet) and
-            retry.without_tag.len + limits.retry_integrity_tag_len == rest_len,
+            retry.without_tag.len + limits.protocol.retry_integrity_tag_len == rest_len,
         .version_negotiation => |negotiation| negotiation.supported.count() > 0,
         .other_version => |other| std.enums.fromInt(quic.packet.header.Version, other.version) == null,
     };
@@ -169,7 +169,7 @@ fn packet_len_of(packet: header.Packet, rest_len: usize, short_dcid_len: usize) 
 
 /// RFC 9000 §17.2, §17.3.1: a version 1 packet whose Fixed Bit is 0 is discarded.
 fn fixed(first_octet: u8) bool {
-    return first_octet & limits.fixed_bit != 0;
+    return first_octet & limits.protocol.fixed_bit != 0;
 }
 
 /// Writes a drawn set of transport parameters as `sender` sends it, and returns the octets.
@@ -185,7 +185,7 @@ pub fn draw_parameters(storage: *Storage, random: *Random, material: []const u8,
 
 /// Sets each integer parameter, or leaves its default, inside the bounds of RFC 9000 §18.2.
 fn draw_integers(parameters: *Parameters, random: *Random) void {
-    const varint_max = quic.wire.constants.varint_value_max;
+    const varint_max = quic.wire.constants.protocol.varint_value_max;
     const integers = [_]struct { slot: *u64, min: u64, max: u64 }{
         .{ .slot = &parameters.max_idle_timeout_ms, .min = 0, .max = varint_max },
         .{ .slot = &parameters.max_udp_payload_size, .min = transport_parameters.max_udp_payload_size_min, .max = varint_max },
@@ -193,8 +193,8 @@ fn draw_integers(parameters: *Parameters, random: *Random) void {
         .{ .slot = &parameters.initial_max_stream_data_bidi_local, .min = 0, .max = varint_max },
         .{ .slot = &parameters.initial_max_stream_data_bidi_remote, .min = 0, .max = varint_max },
         .{ .slot = &parameters.initial_max_stream_data_uni, .min = 0, .max = varint_max },
-        .{ .slot = &parameters.initial_max_streams_bidi, .min = 0, .max = limits.max_streams_max },
-        .{ .slot = &parameters.initial_max_streams_uni, .min = 0, .max = limits.max_streams_max },
+        .{ .slot = &parameters.initial_max_streams_bidi, .min = 0, .max = limits.protocol.max_streams_max },
+        .{ .slot = &parameters.initial_max_streams_uni, .min = 0, .max = limits.protocol.max_streams_max },
         .{ .slot = &parameters.ack_delay_exponent, .min = 0, .max = transport_parameters.ack_delay_exponent_max },
         .{ .slot = &parameters.max_ack_delay_ms, .min = 0, .max = transport_parameters.max_ack_delay_ms_max - 1 },
         .{ .slot = &parameters.active_connection_id_limit, .min = transport_parameters.active_connection_id_limit_min, .max = varint_max },
@@ -208,7 +208,7 @@ fn draw_integers(parameters: *Parameters, random: *Random) void {
 /// (RFC 9000 §18.2).
 fn draw_connection_ids(parameters: *Parameters, random: *Random, material: []const u8, sender: Role) void {
     const ConnectionId = transport_parameters.ConnectionId;
-    const cid_max = limits.connection_id_len_max;
+    const cid_max = limits.protocol.connection_id_len_max;
     if (chosen(random)) parameters.initial_source_connection_id = ConnectionId.of(draw_octets(random, material, 0, cid_max));
     if (sender == .client) return;
     if (chosen(random)) parameters.original_destination_connection_id = ConnectionId.of(draw_octets(random, material, 0, cid_max));
@@ -245,14 +245,14 @@ fn within_bounds(parameters: Parameters) bool {
     };
     for (connection_ids) |connection_id| {
         // RFC 9000 §17.2: a version 1 connection ID is at most 20 octets.
-        if (connection_id) |id| if (id.len > limits.connection_id_len_max) return false;
+        if (connection_id) |id| if (id.len > limits.protocol.connection_id_len_max) return false;
     }
     return parameters.max_udp_payload_size >= transport_parameters.max_udp_payload_size_min and
         parameters.ack_delay_exponent <= transport_parameters.ack_delay_exponent_max and
         parameters.max_ack_delay_ms < transport_parameters.max_ack_delay_ms_max and
         parameters.active_connection_id_limit >= transport_parameters.active_connection_id_limit_min and
-        parameters.initial_max_streams_bidi <= limits.max_streams_max and
-        parameters.initial_max_streams_uni <= limits.max_streams_max;
+        parameters.initial_max_streams_bidi <= limits.protocol.max_streams_max and
+        parameters.initial_max_streams_uni <= limits.protocol.max_streams_max;
 }
 
 fn has_server_only(parameters: Parameters) bool {
