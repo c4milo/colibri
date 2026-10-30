@@ -5003,6 +5003,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           - colibri's rate divided by axum's at 80,000 offered went from 1.06 and 1.05 to 1.10
             and 1.09.
         - `docs/performance.md` holds run 40526708637 as 13f's baseline.
+        - The owner asked where v0.10.0 stands. The judge's run
+          [41043528714](https://github.com/c4milo/colibri/actions/runs/41043528714), on the tag
+          v0.10.0 (`a23be1b2`), gave each server the highest rate of the baseline, in both jobs.
+          Against axum, in each job:
+          - h11: the two match. At 80,000 req/s colibri's p99 was 4.82 ms and 5.13 ms, and axum's
+            5.21 ms and 4.82 ms.
+          - h2: colibri holds 80,000 req/s, at a p99 of 6.40 ms and 9.05 ms, and axum holds
+            40,000. At 40,000 colibri's p99 was 1.02 ms and 1.16 ms, and axum's 1.83 ms and 1.84 ms.
+          - h2-tls: colibri's p99 divided by axum's at 40,000 req/s was 1.29 and 1.00, where the
+            baseline gave 1.34 and 1.27.
+          - h3: colibri's p99 divided by axum's at 40,000 req/s was 0.87 and 0.96. Its rate
+            divided by axum's at 80,000 offered was 1.03 and 1.01, where the baseline gave 1.10
+            and 1.09. Steps 27 and 28 changed how colibri's QUIC connections send, and the owner
+            asked to find whether they moved that rate.
   - **13h**, a profile of the server on the judge, which the owner ruled on 2026-10-27, to find
     where colibri spends its time. `bench/run.sh --profile` runs each input once after the
     warm-up, under `perf record` at 1,999 Hz with the call stacks, in place of `perf stat`. Each
@@ -5482,6 +5496,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   h11 is still where colibri loses, to nginx and hyper alone. The h11 head scan and the 64-bit
   quota came after the run of 2026-10-27.
+
+  **The competitors on 0.10.0, 2026-10-30.** The owner asked where 0.10.0 stands. [Run
+  41043519893](https://github.com/c4milo/colibri/actions/runs/41043519893), on the tag v0.10.0
+  (`a23be1b2`), ran `--competitors --h11 --h3`. Its two jobs give the same verdict on 27 of the 28
+  ratios. On h11-one against hyper, job 1 stays within the noise and job 2 wins. The ratios that
+  moved, job 1 and then job 2, against the run on 0.9.0:
+  - h3-many takes 0.52 of quic-go's instructions in both jobs, where it took 0.66 and 0.65.
+  - h2-one takes 0.91 and 0.92 of nginx's, and 0.92 and 0.93 of h2o's.
+  - h11-one takes 1.23 and 1.15 times nginx's, where it took 1.28 and 1.32. It takes 1.01 and
+    0.95 of hyper's.
+  - h11-tls-one takes 1.16 times hyper's in both jobs.
+
+  h11 is still where colibri loses, to nginx and hyper alone: 1.12 to 1.16 times theirs with many
+  requests, and 1.20 times hyper's over TLS.
 
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
