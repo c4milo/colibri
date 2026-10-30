@@ -11615,6 +11615,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Next.** HyStart++ (RFC 9406), which RFC 9438 §4.10 says CUBIC SHOULD use, and BBRv3
     beside CUBIC ([decision 134](decisions.md)).
 
+- **Step 28 — HyStart++.** [Decision 135](decisions.md) runs RFC 9406's HyStart++ in CUBIC's first
+  slow start, in `recovery_hystart.zig`, as RFC 9438 §4.10 asks. It adds one public name,
+  `quic.constants.hystart`, which holds RFC 9406 §4.3's constants.
+  - **Check.** Tests drive each move of RFC 9406 §4.2: the exit to CSS when a round's minimum
+    round trip grows by the threshold, the return to slow start when it falls below the
+    baseline, the entry to congestion avoidance after CSS_ROUNDS rounds, the end at a congestion
+    event, and no HyStart++ after the first slow start. `spec/lean/Colibri/Quic/HyStart.lean`
+    proves the threshold's bounds and that CSS ends within CSS_ROUNDS rounds, and its vectors
+    hold the Zig to the proved steps. `spec/tla/hystart` checks the moves in every order. In the
+    Linux container of step 13i, colibri's p99 under each profile comes no worse than with step
+    27. The judge's `network` run then measures it.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

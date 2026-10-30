@@ -48,6 +48,7 @@ rule or none at all.
 | [9369](rfc9369.txt) | QUIC Version 2 | Version 2 beside version 1, for [#54](https://github.com/c4milo/colibri/issues/54), copied on 2026-09-29 |
 | [9368](rfc9368.txt) | Compatible Version Negotiation for QUIC | The version_information transport parameter RFC 9369 §4 requires, copied on 2026-09-29 |
 | [9438](rfc9438.txt) | CUBIC for Fast and Long-Distance Networks | The congestion controller, in place of RFC 9002 §7's NewReno (decision 133), copied on 2026-10-29; it obsoletes RFC 8312, which colibri never reads |
+| [9406](rfc9406.txt) | HyStart++: Modified Slow Start for TCP | CUBIC's first slow start (decision 135), copied on 2026-10-29 |
 
 ## TLS
 
