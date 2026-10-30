@@ -5228,13 +5228,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     request than hyper, on which axum runs, so the loss is in when the server runs and not in how
     much it does.
     - `bench/run.sh --latency --waits`, which the workflow's `waits` input runs, loads colibri and
-      axum over h2 and h2-tls at 40,000 and 80,000 req/s. One second into each load,
-      `perf sched record` records the server's core for 3 s. `perf sched timehist` then gives each
+      axum over h2 and h2-tls at 40,000 and 80,000 req/s, for 8 s each. One second into each load,
+      tcpdump captures the heads of the packets the server sends for 0.7 s, on core 0. The report
+      divides the segments with data by the rate oha reached, and gives their octets of data each.
+    - Then `perf sched record` records the server's core for 3 s. `perf sched timehist` gives each
       run of the server: how long it ran, how long it waited for the core once woken, and how
       long it slept before.
-    - After the record, tcpdump captures the heads of the packets the server sends for 0.7 s, on
-      core 0. The report divides the segments with data by the rate oha reached, and gives their
-      octets of data each.
     - The report gives the median over the rounds of the runs a second, the p50, p99 and longest
       run, the p99 and longest wait for the core, and the p50 and p99 sleep, beside the latency
       of the same loads.
@@ -5262,6 +5261,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       axum's rounds spread as colibri's had: in job 2 over h2 its p50 reached 186 ms. So the loss
       is not a stall in colibri. One reading is that colibri's smaller writes cost oha more
       records to read, and the capture of segments a response tests it.
+    - Judge run [40990531680](https://github.com/c4milo/colibri/actions/runs/40990531680), on
+      `1014dd32`, captured the segments, and does not support that reading. At 40,000 req/s over
+      h2-tls, colibri sent 0.32 segments a response in both jobs and axum 0.29. Over h2 the two
+      sent 0.32 and 0.31, and there colibri's p99 was 1.30 ms and 1.31 ms against axum's 1.94 ms
+      and 1.92 ms.
+    - The same run, with decision 132 and Rotor's clock fix, gave colibri's p99 over h2-tls at
+      40,000 req/s as 3.20 ms and 3.28 ms, against axum's 2.72 ms and 2.97 ms. The owner closed
+      https://github.com/c4milo/colibri/issues/113 on 2026-10-29 with that gap of about 0.4 ms
+      left, since neither the server's runs nor its segments explain it.
 
 
     **Check:** the judge's report gives colibri's ratio to each competitor on each input it
