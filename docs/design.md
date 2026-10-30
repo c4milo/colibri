@@ -11595,6 +11595,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     sender was limited left out of `t`, and K = 0 after persistent congestion. In the Linux
     container of step 13i, colibri's p99 under `lossy` and `mobile` comes no worse than with
     NewReno, and nearer quinn's with CUBIC. The judge's `network` run then measures it.
+
+    **Check met in the container, 2026-10-29.** The container of step 26 ran the tree before and
+    after this step, two runs each. Under `mobile` at 4,000 req/s colibri reached 2,931 and 2,919
+    req/s where it reached 2,680 and 2,597, with p99 from 3,150 and 3,468 ms to 2,734 and 2,763
+    ms. The other rows moved less than the runs differ. The full `zig build test` passed 3,377 of
+    3,377. Nine pinned censuses moved, the same in Debug and ReleaseSafe. `zig build lean` proves
+    the cube root exact and the target between the window and 1.5 times it. TLC holds
+    `spec/tla/cubic_congestion` over 1,958,541 states, and finds each of its six mutants.
+
+    **The judge, 2026-10-29.** [Run 40976209928](https://github.com/c4milo/colibri/actions/runs/40976209928)
+    measured `cfded975` against main `087939dc` with `h3`: every h2 and h3 input is within the
+    noise. [Run 40976195250](https://github.com/c4milo/colibri/actions/runs/40976195250), the
+    `network` input on `cfded975`, gives colibri's p99 over h3 at 4,000 req/s, job 1 and then job 2:
+    - `lossy`: 106.68 and 109.48 ms, where step 26 gave 116 ms. chi gave 106.64 and 106.95 ms.
+    - `mobile`: colibri reaches 3,223 and 3,211 req/s, where step 26 reached 3,082. chi reaches
+      3,284 and 3,274, and axum 3,102. colibri's p99 is 1,973 and 2,054 ms, and chi's 1,856 and
+      1,885 ms.
   - **Next.** HyStart++ (RFC 9406), which RFC 9438 §4.10 says CUBIC SHOULD use, and BBRv3
     beside CUBIC ([decision 134](decisions.md)).
 
