@@ -24,12 +24,11 @@
 #
 # With --waits it records where a server spends the time between its requests (design §8 step
 # 13j, https://github.com/c4milo/colibri/issues/113), in place of the inputs above. colibri and
-# axum serve h2 and h2-tls at `waits_rates`, and 1 s into each load `perf sched record` records the
-# server's core for 3 s. `perf sched timehist` then gives each time the server ran: how long it ran,
-# how long it waited for the core once woken, and how long it slept before. After the record,
-# tcpdump captures the head of each packet the server sends for 0.7 s, so the report gives the
-# server's segments for each response and its octets in each segment. It needs sudo -n, perf and
-# tcpdump.
+# axum serve h2 and h2-tls at `waits_rates` for 8 s. 1 s into each load tcpdump captures the head
+# of each packet the server sends for 0.7 s, so the report gives the server's segments for each
+# response and its octets in each segment. Then `perf sched record` records the server's core for
+# 3 s, and `perf sched timehist` gives each time the server ran: how long it ran, how long it
+# waited for the core once woken, and how long it slept before. It needs sudo -n, perf and tcpdump.
 #
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset, as the judge
 # runs bench/run.sh (decision 33 as amended). Round 0 is a warm-up that the report discards. A time
@@ -119,11 +118,14 @@ fi
 readonly waits_rates=(40000 80000)
 readonly waits_delay_seconds=1
 readonly waits_record_seconds=3
-# The capture after the record: 0.7 s, of each packet's Ethernet, IP and TCP headers, on a core
-# apart from the server's and oha's, before the load ends a second after the record.
+readonly waits_seconds=8
+# The capture before the record: 0.7 s, of each packet's Ethernet, IP and TCP headers, on a core
+# apart from the server's and oha's. The load runs 8 s, so the record ends before the load does
+# whatever perf takes to start and to write.
 readonly capture_seconds=0.7
 readonly capture_snap_len=96
 readonly capture_core=0
+readonly pcap_header_len=24
 if [ "$waits" = true ]; then
   if [ "$network" = true ]; then
     echo "run_latency.sh: --network and --waits are two runs" >&2
@@ -132,6 +134,7 @@ if [ "$waits" = true ]; then
   servers=(colibri axum)
   protocols=(h2 h2-tls)
   rates=("${waits_rates[@]}")
+  seconds="$waits_seconds"
 fi
 # Whether the run builds and names http.zig and Fastify, which --network and --waits leave out.
 every_server=true
@@ -314,11 +317,17 @@ load_with_waits() {  # load_with_waits <protocol> <rate> <out>
   load "$1" "$2" "$3.json" &
   local load_pid=$!
   sleep "$waits_delay_seconds"
-  sudo -n perf sched record -C "$server_core" -o "$3.data" -- sleep "$waits_record_seconds" >/dev/null 2>&1
   # tcpdump drops root for its own user before it opens a file, and that user cannot write into
   # this script's scratch directory, so tcpdump writes to its output and this shell writes the file.
   sudo -n taskset -c "$capture_core" timeout "$capture_seconds" tcpdump -U -i lo -s "$capture_snap_len" \
-    -w - "tcp src port $port" >"$3.pcap" 2>/dev/null || true
+    -w - "tcp src port $port" >"$3.pcap" 2>"$3.tcpdump" || true
+  # A capture with no packet holds its file header alone: the job's log says so, with tcpdump's
+  # own words.
+  if [ "$(wc -c <"$3.pcap")" -le "$pcap_header_len" ]; then
+    echo "run_latency.sh: the capture of $3 holds no packet" >&2
+    cat "$3.tcpdump" >&2
+  fi
+  sudo -n perf sched record -C "$server_core" -o "$3.data" -- sleep "$waits_record_seconds" >/dev/null 2>&1
   wait "$load_pid"
   sudo -n perf sched timehist -i "$3.data" --pid "$server_pid" >"$3.waits" 2>/dev/null
   sudo -n rm -f "$3.data"
