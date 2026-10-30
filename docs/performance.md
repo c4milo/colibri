@@ -224,23 +224,23 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 51310368 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.Endpoint` | 51802528 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
 | `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 340480 | an endpoint that holds one TCP connection |
-| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2891168 | an endpoint that holds one QUIC connection, with its receive pool |
+| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2921920 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 323392 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1367104 | the connection each QUIC slot of an endpoint holds, without its receive pool |
+| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1397864 | the connection each QUIC slot of an endpoint holds, without its receive pool |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp"))` | 306264 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp_links"))` | 48 | what a pool tracks of each TCP slot's connection |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))` | 40 | each exchange a pool holds at once |
-| `@FieldType(client.ConnectionPool, "quic")` | 745672 | a pool's QUIC connection, without its receive pool |
-| `client.ConnectionPool` | 747640 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
+| `@FieldType(client.ConnectionPool, "quic")` | 776432 | a pool's QUIC connection, without its receive pool |
+| `client.ConnectionPool` | 778400 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
 | `client.ConnectionPoolOf(.{ .quic = false })` | 1040 | the fixed part of a pool with no QUIC state |
 | `client.ConnectionPool.memory_bytes(.{})` | 306952 | the memory a pool takes at the default counts: one TCP connection, its link and 16 requests |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163520 | the h2 state inside a TCP connection |
 | `h3.Connection` | 146312 | the h3 state inside a QUIC connection |
-| `quic.Connection` | 176888 | the QUIC state inside an h3 connection |
+| `quic.Connection` | 195360 | the QUIC state inside an h3 connection |
 | `tls.record.Client` | 40968 | a TLS client session over TCP |
 | `tls.record.Server` | 40328 | a TLS server session over TCP |
 | `tls.quic.Client` | 92472 | a TLS client session inside QUIC |

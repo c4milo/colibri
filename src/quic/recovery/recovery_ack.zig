@@ -18,6 +18,7 @@ const recovery_congestion = @import("recovery_congestion.zig");
 const recovery_loss = @import("recovery_loss.zig");
 const recovery_sent = @import("recovery_sent.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
+const recovery_delivery = @import("recovery_delivery.zig");
 
 const Kind = space.Kind;
 const Record = recovery_sent.Record;
@@ -46,6 +47,9 @@ pub const Outcome = struct {
     rtt_sampled: bool,
     /// What the detection pass it triggered found.
     lost: recovery_loss.Detected,
+    /// draft-ietf-ccwg-bbr-06 §4.1.2.3's rate sample, or null when the frame gave no reliable
+    /// one. CUBIC reads none (design §8 step 29a).
+    rate: ?recovery_delivery.Sample,
 };
 
 /// RFC 9002 Appendix A.7's `OnAckReceived`. `used` is RFC 9002 §7.8's judgement, which only the
@@ -84,11 +88,15 @@ pub fn on_ack_received(
         .unwritten = removed.unwritten,
         .rtt_sampled = false,
         .lost = recovery_loss.Detected.none(),
+        .rate = null,
     };
     // RFC 9002 Appendix A.7: nothing to do when the ACK named only packets already accounted for.
     if (removed.count == 0) return outcome;
 
     outcome.rtt_sampled = sample(held, ack, removed, now_ns);
+    // draft-ietf-ccwg-bbr-06 §4.1.2.3 compares the interval with C.min_rtt, which this frame's
+    // own round trip sample may just have lowered.
+    outcome.rate = held.delivery.on_ack(removed.record.?, removed.in_flight_len, now_ns, held.rtt.min_ns);
     process_ecn(held, kind, ack, removed, largest_is_new, now_ns);
     outcome.lost = held.detect(kind, now_ns, lost);
     grow(held, removed, used, now_ns, outcome.rtt_sampled);
@@ -288,4 +296,18 @@ test "RFC 9406 §4.2: the round trip sample an ACK gives reaches HyStart++" {
     // RFC 9002 §5.1's latest_rtt: packet 0 went out one interval before the ACK.
     try testing.expectEqual(test_interval_ns, test_recovery.congestion.hystart.round_min_ns.?);
     try testing.expectEqual(1, test_recovery.congestion.hystart.samples);
+}
+
+test "draft-ietf-ccwg-bbr-06 §4.1.2.3: an ACK gives the rate its packets were delivered at" {
+    test_recovery.init(test_datagram_len);
+    try send_numbered(split_largest + 1);
+    const at_ns = test_start_ns + test_interval_ns * (split_largest + 1);
+    const outcome = on_ack_received(&test_recovery, .application, split_ack(), .full, at_ns, &test_acknowledged, &test_lost);
+    // Packet 0 went out on an empty path, so every packet's interval starts at its instant. The
+    // newest acknowledged, packet 4, recorded nothing delivered, and the ACK interval is longer.
+    const rate = outcome.rate.?;
+    try testing.expectEqual(split_acknowledged * test_datagram_len, rate.delivered_len);
+    try testing.expectEqual(at_ns - test_start_ns, rate.interval_ns);
+    try testing.expect(!rate.application_limited);
+    try testing.expectEqual(split_acknowledged * test_datagram_len, test_recovery.delivery.delivered_len);
 }

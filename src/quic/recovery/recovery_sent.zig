@@ -90,6 +90,13 @@ pub const Record = struct {
     /// one is the ring's tail (INV-33).
     ranges_from: u32 = 0,
     ranges_len: u8 = 0,
+    /// draft-ietf-ccwg-bbr-06 §4.1.2.1.2's `P.delivered`, `P.delivered_time`,
+    /// `P.first_send_time` and `P.is_app_limited`: what `recovery_delivery.zig` held when the
+    /// packet went out. `Recovery.on_packet_sent` writes them, so a caller leaves them unset.
+    delivered_len: u64 = 0,
+    delivered_at_ns: u64 = 0,
+    first_sent_at_ns: u64 = 0,
+    application_limited: bool = false,
 };
 
 /// Whether a packet the sender just framed counts toward the bytes in flight. RFC 9002 §2:

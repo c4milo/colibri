@@ -82,6 +82,8 @@ pub fn on_ack_received(
     const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
     // RFC 9002 Appendix A.7 reads `PeerCompletedAddressValidation` and the handshake's state.
     sync_timer(connection);
+    // draft-ietf-ccwg-bbr-06 §4.1.2.4: before the ACK changes the octets in flight.
+    check_application_limited(connection);
     // RFC 9002 Appendix A.7 asks `PeerCompletedAddressValidation` once the ACK is taken, and for
     // a client "has received Handshake ACK" is this ACK.
     if (level == .handshake) connection.recovery.timer.peer_completed_address_validation = true;
@@ -113,6 +115,8 @@ pub fn loss_deadline_ns(connection: *Connection) ?u64 {
 pub fn on_loss_timer(connection: *Connection, now_ns: u64, scratch: *Scratch) Error!bool {
     const at_ns = loss_deadline_ns(connection) orelse return false;
     if (now_ns < at_ns) return false;
+    // draft-ietf-ccwg-bbr-06 §4.1.2.4: at the start of a timer that may send.
+    check_application_limited(connection);
     switch (connection.recovery.on_timeout(now_ns, &scratch.lost)) {
         .none => {},
         .lost => |lost| {
@@ -250,6 +254,62 @@ fn ack_delay_ns(connection: *const Connection, level: Level, delay: u64) u64 {
 /// which the send path records.
 fn utilization(connection: *const Connection) recovery_congestion.Utilization {
     return if (connection.window_limited) .full else .limited;
+}
+
+/// What RFC 9002 §7's congestion window leaves one datagram `send` builds.
+pub const Window = struct {
+    /// Octets the packets of the datagram may add to the bytes in flight.
+    len: u64,
+    /// Whether that is §7.3.2's one datagram past the window, which sending it spends.
+    past_window: bool,
+};
+
+/// What the window and the pacer leave a datagram of at most `ceiling` octets at `now_ns`, which
+/// `send` asks first. A call to `send` is the application asking to send more, so it is also
+/// where draft-ietf-ccwg-bbr-06 §4.1.2.4 checks for an application limit.
+pub fn window_of(connection: *Connection, ceiling: usize, now_ns: u64) Window {
+    check_application_limited(connection);
+    const recovery = &connection.recovery;
+    const datagram_len = @min(ceiling, recovery.congestion.max_datagram_len);
+    const window_len = recovery.congestion.available_len(recovery.in_flight_len());
+    // RFC 9002 §7.7: "A sender SHOULD pace sending of all in-flight packets based on input from
+    // the congestion controller." The pacer's credit is brought up to this instant first.
+    recovery.pacer.refill(now_ns, recovery.rate());
+    const available_len = recovery.available_len();
+    const congestion_limited = window_len < datagram_len;
+    connection.pacing_limited = !congestion_limited and available_len < datagram_len;
+    // RFC 9002 §7.8: the window is underused only when "sending is not pacing limited", so a
+    // sender the pacer holds is using its window as fully as one the window holds.
+    connection.window_limited = congestion_limited or connection.pacing_limited;
+    // RFC 9002 §7.3.2: on entering recovery "a single packet can be sent prior to reduction".
+    const past_window = congestion_limited and recovery.congestion.past_window_allowed;
+    return .{ .len = if (past_window) datagram_len else available_len, .past_window = past_window };
+}
+
+/// What `send` notes once its datagram's packets are recorded, when `recorded` says any were.
+/// RFC 9002 §7.3.2's one datagram past the window is spent, and the sender has data again.
+pub fn on_datagram_recorded(connection: *Connection, window: Window, recorded: bool) void {
+    if (!recorded) return;
+    if (window.past_window) connection.recovery.congestion.past_window_allowed = false;
+    connection.ran_out_of_data = false;
+}
+
+/// draft-ietf-ccwg-bbr-06 §4.1.2.4's `CheckIfApplicationLimited`. The draft runs it when the
+/// application asks to send, at the start of ACK processing and at the start of a timer. colibri
+/// holds no send buffer, so the connection reads whether its last `send` ran out of data.
+fn check_application_limited(connection: *Connection) void {
+    const recovery = &connection.recovery;
+    recovery.delivery.check_application_limited(!connection.ran_out_of_data, recovery.in_flight_len(), recovery.congestion.window);
+}
+
+/// What `send` notes when it planned no packet: it ran out of data, unless a limit held it.
+/// draft-ietf-ccwg-bbr-06 §4.1.1.3.1 treats a receiver's limit like the network's, so the peer's
+/// connection credit holds the sender as the window does. A full table and §8's limit do too.
+pub fn on_nothing_planned(connection: *Connection) void {
+    const table_full = connection.recovery.table_of(.application).is_full();
+    const at_amplification_limit = connection.path.send_allowance() < constants.packet_header_len_max;
+    const held = connection.window_limited or table_full or connection.send_flow.is_blocked() or at_amplification_limit;
+    connection.ran_out_of_data = !held;
 }
 
 /// Hands the packets an acknowledgment took out of `level`'s space to every piece that keeps a

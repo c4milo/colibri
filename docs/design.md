@@ -11740,6 +11740,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **Check.** Tests drive each rule of §4.1.2: a sample from the newest acknowledged packet, a
       sample held at the send rate, no sample for an interval shorter than min_rtt, and the mark of
       an application limit. Lean proves the sample never above the send rate or the ACK rate.
+      `spec/tla/rate_sample` checks, in every order of ACKs, losses and writes, that the mark of
+      an application limit clears once its packets are delivered, and that a sample comes from
+      the newest acknowledged packet.
+    - The owner ruled on 2026-10-30:
+      - Every record in each packet number space holds the four fields of §4.1.2.1.2 that 29a
+        reads: `delivered`, `delivered_time`, `first_send_time` and `is_app_limited`. They add
+        about 24 octets a record, so about 18 KB to each connection.
+      - `tx_in_flight` and `lost` come with 29b, the first part that reads them.
+      - 29a brings the TLA+ model above beside its Lean proof.
+    - **29a, 2026-10-30.** `recovery_delivery.zig` holds the state of §4.1.2.1.1, and
+      `Recovery.on_packet_sent` writes each record's snapshot. Each ACK frame's sample comes from
+      the largest packet it took, which went out last, and `recovery_ack.Outcome.rate` returns it.
+      - colibri holds no send buffer, so `send` notes `ran_out_of_data` when it plans no packet
+        and no limit held it. The window, the pacer, a full table, the peer's connection credit
+        and RFC 9000 §8's limit each hold it (§4.1.1.3.1). The mark is checked at the start of
+        `send`, of each ACK frame and of the loss timer (§4.1.2.4).
+      - §4.1.2.2 reads `C.inflight` after the packet counts, which is never 0. colibri reads it
+        before, as the sentence above the pseudocode means.
+      - `window_of` moved to `connection_recovery.zig`, since `connection_send.zig` was at 500
+        lines.
+      - The record grew from 48 to 72 octets, and `quic.Connection` from 176,888 to 195,360
+        octets. docs/performance.md lists each size.
+      - `spec/lean/Colibri/Quic/DeliveryRate.lean` proves a sample never above the send rate or the
+        ACK rate, its interval never shorter than min_rtt, and when the mark clears.
+        `src/quic/recovery/delivery_vectors.txt` holds 903 of its answers, and a Zig test reads them.
+      - `zig build tla` on `spec/tla/rate_sample` with 5 packets and a window of 3: the properties
+        hold over 232,913 distinct states. Its three mutants are violated: a sample from the oldest
+        packet, a mark without the octets in flight, and a mark never cleared.
+      - Mutations, against `zig build test-quic`, each CAUGHT: no reset on an empty path, the send
+        interval alone, no min_rtt test, a clear at `>=`, no window test, a mark without the
+        octets in flight, no snapshot, nothing delivered, `first_sent_at_ns` kept, no check at
+        `send`, at an ACK frame or at the timer, `ran_out_of_data` kept after a packet went out,
+        and the window, the credit, a full table or §8's limit not counted as a limit.
   - **29b, the model and the states.** §5: BBR.max_bw over a window of 2 bandwidth probe cycles,
     BBR.min_rtt over 10 s, and Startup, Drain, ProbeBW's four phases and ProbeRTT, with their
     pacing and window gains. `recovery_bbr.zig` holds them, and `recovery_congestion` calls BBRv3

@@ -373,3 +373,75 @@ test "RFC 9002 §7.7: an ACK alone is not paced" {
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expect(!sent.packets[0].ack_eliciting);
 }
+
+test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender that ran out of data is marked when it asks again" {
+    open(.server);
+    // The peer's credit, which would otherwise hold the sender (§4.1.1.3.1).
+    _ = endpoint.send_flow.raise(test_max_data);
+    provider_holder = .{ .owed = &flight, .owed_level = .handshake };
+    const sent = try send_now() orelse return error.NothingSent;
+    // Nothing is left to send and the window has room: the sender ran out of data.
+    try testing.expectEqual(null, try send_now());
+    try testing.expect(endpoint.ran_out_of_data);
+    // The next call is the application asking to send more, which marks the limit at the octets
+    // delivered and in flight (§4.1.2.4's `MarkConnectionAppLimited`).
+    provider_holder = .{ .owed = &flight, .owed_level = .handshake };
+    _ = try send_now() orelse return error.NothingSent;
+    try testing.expectEqual(sent.len, endpoint.recovery.delivery.application_limited_until);
+    try testing.expect(!endpoint.ran_out_of_data);
+    // The packet that went out after the mark carries it, for the sample it gives.
+    var records = endpoint.recovery.table_of(.handshake).iterator();
+    try testing.expect(!records.next().?.application_limited);
+    try testing.expect(records.next().?.application_limited);
+}
+
+test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender the window holds back is not marked" {
+    open(.server);
+    // The peer's credit, which would otherwise hold the sender (§4.1.1.3.1).
+    _ = endpoint.send_flow.raise(test_max_data);
+    provider_holder = .{ .owed = &flight, .owed_level = .handshake };
+    leave_window(partial_window_len / 2);
+    try testing.expectEqual(null, try send_now());
+    try testing.expect(endpoint.window_limited);
+    try testing.expect(!endpoint.ran_out_of_data);
+    _ = try send_now();
+    try testing.expectEqual(0, endpoint.recovery.delivery.application_limited_until);
+}
+
+test "draft-ietf-ccwg-bbr-06 §4.1.1.3.1: a sender the peer's credit holds back is not marked" {
+    open(.server);
+    provider_holder = .{ .owed = &flight, .owed_level = .handshake };
+    _ = try send_now() orelse return error.NothingSent;
+    // RFC 9000 §4.1: no MAX_DATA has arrived, so the connection's credit is 0.
+    try testing.expect(endpoint.send_flow.is_blocked());
+    try testing.expectEqual(null, try send_now());
+    try testing.expect(!endpoint.ran_out_of_data);
+}
+
+test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a full table or RFC 9000 §8's limit is not a lack of data" {
+    open(.server);
+    _ = endpoint.send_flow.raise(test_max_data);
+    // RFC 9000 §8: the server has sent three times what it received, so it may send nothing.
+    endpoint.path.sent = endpoint.path.received * constants.anti_amplification_factor;
+    try testing.expectEqual(null, try send_now());
+    try testing.expect(!endpoint.ran_out_of_data);
+    // `constants.sent_packets_max`: the application space's table holds every packet it may.
+    open(.server);
+    _ = endpoint.send_flow.raise(test_max_data);
+    for (0..constants.sent_packets_max) |number| {
+        try endpoint.recovery.on_packet_sent(.application, .{
+            .number = number,
+            .sent_at_ns = test_now_ns,
+            .sent_len = 1,
+            .ack_eliciting = false,
+            .in_flight = false,
+        }, test_now_ns);
+    }
+    try testing.expectEqual(null, try send_now());
+    try testing.expect(!endpoint.ran_out_of_data);
+    // With neither, the same call runs out of data.
+    open(.server);
+    _ = endpoint.send_flow.raise(test_max_data);
+    try testing.expectEqual(null, try send_now());
+    try testing.expect(endpoint.ran_out_of_data);
+}

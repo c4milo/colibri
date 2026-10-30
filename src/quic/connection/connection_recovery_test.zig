@@ -454,3 +454,23 @@ test "RFC 9002 §5.3: once the handshake is confirmed the ACK Delay counts up to
     try testing.expect(server.recovery.rtt.smoothed_ns > round_trip_ns);
     try testing.expect(server.recovery.rtt.smoothed_ns < slower_round_trip_ns);
 }
+
+test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender that ran out of data is marked as an ACK arrives" {
+    open_server();
+    try record_sent(.application, .none, 0, 0, sent_at_ns);
+    server.ran_out_of_data = true;
+    _ = try take_ack(.application, 0, 0, 0, sent_at_ns + round_trip_ns);
+    // The mark came before the ACK took the packet out, so it counts the packet in flight, and
+    // delivering that packet alone does not pass it.
+    try testing.expectEqual(range_len, server.recovery.delivery.application_limited_until);
+}
+
+test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender that ran out of data is marked as a timer fires" {
+    open_server();
+    server.path.on_datagram_received(constants.datagram_len_min);
+    try record_sent(.application, .none, 0, 0, sent_at_ns);
+    connection_module.confirm_handshake(&server);
+    server.ran_out_of_data = true;
+    try testing.expect(try fire_loss_timer());
+    try testing.expectEqual(range_len, server.recovery.delivery.application_limited_until);
+}

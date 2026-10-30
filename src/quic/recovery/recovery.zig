@@ -24,6 +24,7 @@ const recovery_pacing = @import("recovery_pacing.zig");
 const recovery_sent = @import("recovery_sent.zig");
 const recovery_timer = @import("recovery_timer.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
+const recovery_delivery = @import("recovery_delivery.zig");
 
 const Congestion = recovery_congestion.Congestion;
 const Kind = space.Kind;
@@ -70,6 +71,9 @@ pub const Recovery = struct {
     /// (decision 69). §13.4.2 validates "for each network path", and a connection holds one path
     /// here, so one answer covers the three spaces.
     ecn_path: recovery_ecn.Path,
+    /// draft-ietf-ccwg-bbr-06 §4.1's delivery rate samples, over the three spaces. CUBIC reads
+    /// none of it (design §8 step 29a).
+    delivery: recovery_delivery.Delivery,
 
     pub fn init(recovery: *Recovery, max_datagram_len: u64) void {
         recovery.rtt.init();
@@ -80,6 +84,7 @@ pub const Recovery = struct {
         recovery.largest_acknowledged = @splat(null);
         for (&recovery.ecn) |*state| state.init();
         recovery.ecn_path.init();
+        recovery.delivery.init();
     }
 
     /// RFC 9000 §9.4: the peer's new address is validated, so the congestion controller and the
@@ -149,7 +154,11 @@ pub const Recovery = struct {
 
     /// RFC 9002 Appendix A.5's `OnPacketSent`.
     pub fn on_packet_sent(recovery: *Recovery, kind: Kind, sent: Record, now_ns: u64) Error!void {
-        try recovery.table_of(kind).record(sent);
+        if (recovery.table_of(kind).is_full()) return Error.Full;
+        // draft-ietf-ccwg-bbr-06 §4.1.2.2: the record keeps what was delivered when it went out.
+        var snapshot = sent;
+        recovery.delivery.on_packet_sent(&snapshot, recovery.in_flight_len());
+        try recovery.table_of(kind).record(snapshot);
         recovery.count_marked(kind, sent.ecn, now_ns);
         if (!sent.in_flight) return;
         // RFC 9002 Appendix A.5: a packet in flight sets the timer again.

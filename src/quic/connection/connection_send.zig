@@ -40,6 +40,7 @@ const connection_handshake = @import("connection_handshake.zig");
 const space_module = @import("../space/space.zig");
 const connection_expand = @import("connection_expand.zig");
 const connection_qlog = @import("connection_qlog.zig");
+const connection_recovery = @import("connection_recovery.zig");
 const migration = @import("connection_migration.zig");
 const path_module = @import("../path.zig");
 const PeerAddress = @import("../peer_address.zig").PeerAddress;
@@ -164,7 +165,7 @@ pub fn send(
     var plans: [core.levels_count]packet_build.Planned = undefined;
     var count: usize = 0;
     var planned_len: usize = 0;
-    const window = window_of(connection, ceiling, now_ns);
+    const window = connection_recovery.window_of(connection, ceiling, now_ns);
     // RFC 9000 §12.2: "Coalescing packets in order of increasing encryption levels ... makes it
     // more likely that the receiver will be able to process all the packets in a single pass",
     // and a short header carries no Length so §12.2 makes it the last packet anyway.
@@ -182,13 +183,16 @@ pub fn send(
         count += 1;
         planned_len += packet_len_of(connection, planned);
     }
-    if (count == 0) return null;
+    if (count == 0) {
+        connection_recovery.on_nothing_planned(connection);
+        return null;
+    }
     connection_expand.expand_last(connection, plans[0..count], planned_len, ceiling);
     var sent = try seal_all(connection, suite, scratch, plans[0..count], output, now_ns);
     sent.ecn = codepoint_of(connection, now_ns);
     sent.to = connection.path.address;
     const recorded = record_all(connection, plans[0..count], &sent, now_ns);
-    if (window.past_window and recorded) connection.recovery.congestion.past_window_allowed = false;
+    connection_recovery.on_datagram_recorded(connection, window, recorded);
     // After the records, because discarding the Initial keys discards the Initial space's records
     // too (RFC 9002 §6.4), and an Initial packet coalesced ahead of this one is among them.
     note_handshake_sent(connection, suite, plans[0..count]);
@@ -241,32 +245,6 @@ fn note_handshake_complete(connection: *Connection, provider: tls_provider.QuicP
         // `complete` refuses nothing else: it reads the provider and changes no flow.
         else => unreachable,
     };
-}
-
-/// What RFC 9002 §7's congestion window leaves this datagram.
-const Window = struct {
-    /// Octets the packets of the datagram may add to the bytes in flight.
-    len: u64,
-    /// Whether that is §7.3.2's one datagram past the window, which sending it spends.
-    past_window: bool,
-};
-
-fn window_of(connection: *Connection, ceiling: usize, now_ns: u64) Window {
-    const recovery = &connection.recovery;
-    const datagram_len = @min(ceiling, recovery.congestion.max_datagram_len);
-    const window_len = recovery.congestion.available_len(recovery.in_flight_len());
-    // RFC 9002 §7.7: "A sender SHOULD pace sending of all in-flight packets based on input from
-    // the congestion controller." The pacer's credit is brought up to this instant first.
-    recovery.pacer.refill(now_ns, recovery.rate());
-    const available_len = recovery.available_len();
-    const congestion_limited = window_len < datagram_len;
-    connection.pacing_limited = !congestion_limited and available_len < datagram_len;
-    // RFC 9002 §7.8: the window is underused only when "sending is not pacing limited", so a
-    // sender the pacer holds is using its window as fully as one the window holds.
-    connection.window_limited = congestion_limited or connection.pacing_limited;
-    // RFC 9002 §7.3.2: on entering recovery "a single packet can be sent prior to reduction".
-    const past_window = congestion_limited and recovery.congestion.past_window_allowed;
-    return .{ .len = if (past_window) datagram_len else available_len, .past_window = past_window };
 }
 
 /// `room_at`, on a path that may be waiting for validation. Decision 72: until a path the peer

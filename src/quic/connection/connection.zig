@@ -179,6 +179,9 @@ pub const Connection = struct {
     /// Whether the pacer of RFC 9002 §7.7, and not the window, held the last datagram back, which
     /// `connection_timer` turns into the instant the caller calls `send` again.
     pacing_limited: bool,
+    /// Whether the last `send` planned no packet while no limit held it: the sender ran out of
+    /// data, which draft-ietf-ccwg-bbr-06 §4.1.2.4 marks as an application limit.
+    ran_out_of_data: bool,
     /// The pool the peer's stream octets wait in, or null when the caller reads no stream
     /// (decision 61).
     receive_storage: ?stream_incoming.Storage,
@@ -231,6 +234,7 @@ pub const Connection = struct {
         connection.ack_only_since_eliciting = 0;
         connection.window_limited = false;
         connection.pacing_limited = false;
+        connection.ran_out_of_data = false;
         connection.max_data = .{};
         connection.data_blocked = .{};
         connection.key_phase.init();

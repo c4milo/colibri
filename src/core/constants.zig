@@ -54,6 +54,10 @@ pub const connections_max: u32 = 1024;
 /// `initial_max_streams_bidi` and `initial_max_streams_uni` (RFC 9000 §18.2).
 pub const streams_per_connection_max: u32 = 128;
 
+/// Nanoseconds in a second. QUIC gives a delivery rate in octets a second
+/// (draft-ietf-ccwg-bbr-06 §4.1).
+pub const nanoseconds_per_second: u64 = 1_000_000_000;
+
 comptime {
     // A field section that could not hold one maximal field line would make the two limits
     // disagree, and the peer would see the disagreement as a refusal it cannot diagnose.
