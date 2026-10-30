@@ -18,6 +18,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const recovery_cubic = @import("recovery_cubic.zig");
+const recovery_hystart = @import("recovery_hystart.zig");
 
 /// What §7.8 calls underutilizing the window: the sender had less to send than the window
 /// allowed, so an acknowledgment says nothing about what the path can carry and the window
@@ -65,6 +66,8 @@ pub const Congestion = struct {
     /// When the acknowledgments started to say the sender was limited, which §4.2 leaves out of
     /// the stage's time, or null while they say it was not.
     limited_since_ns: ?u64,
+    /// HyStart++, which runs the first slow start (RFC 9438 §4.10, decision 135).
+    hystart: recovery_hystart.HyStart,
 
     pub fn init(congestion: *Congestion, max_datagram_len: u64) void {
         assert(max_datagram_len >= constants.datagram_len_min);
@@ -81,7 +84,9 @@ pub const Congestion = struct {
             .estimate_len = 0,
             .growth_numerator = 0,
             .limited_since_ns = null,
+            .hystart = undefined,
         };
+        congestion.hystart.init();
     }
 
     /// RFC 9002 §7.2: the window is recalculated when the path's maximum datagram changes, and
@@ -112,8 +117,16 @@ pub const Congestion = struct {
 
     /// Takes the acknowledgment of `sent_len` octets, the largest of them sent at `sent_at_ns`
     /// (RFC 9002 Appendix B.5's `OnPacketAcked`), at `now_ns`, with the connection's smoothed
-    /// round trip, which RFC 9438 §4.2 reads.
-    pub fn on_ack(congestion: *Congestion, sent_at_ns: u64, sent_len: u64, used: Utilization, now_ns: u64, smoothed_rtt_ns: u64) void {
+    /// round trip, which RFC 9438 §4.2 reads, and the sample the ACK gave, if any, which RFC 9406
+    /// §4.2 reads.
+    pub fn on_ack(congestion: *Congestion, sent_at_ns: u64, sent_len: u64, used: Utilization, now_ns: u64, smoothed_rtt_ns: u64, latest_rtt_ns: ?u64) void {
+        // RFC 9406 §4.2 counts rounds and samples over every ACK in slow start, and an exit from
+        // CSS needs no growth to happen.
+        const growth: recovery_hystart.Growth = if (congestion.window < congestion.slow_start_threshold)
+            congestion.hystart.on_ack(sent_at_ns, latest_rtt_ns, now_ns)
+        else
+            .full;
+        if (growth == .avoidance) congestion.leave_slow_start();
         // RFC 9002 §7.8: an acknowledgment of a packet sent while the sender had less to send
         // than the window allowed says nothing about the path, so the window does not grow.
         // RFC 9438 §4.2: "The elapsed time t ... MUST NOT include periods during which cwnd has
@@ -126,11 +139,32 @@ pub const Congestion = struct {
         // RFC 9002 Appendix B.5: the window does not grow inside a recovery period either.
         if (congestion.in_recovery(sent_at_ns)) return;
         if (congestion.window < congestion.slow_start_threshold) {
-            // RFC 9002 §7.3.1: in slow start the window grows by what was acknowledged.
+            // RFC 9002 §7.3.1: in slow start the window grows by what was acknowledged, and RFC
+            // 9406 §4.2 divides that by CSS_GROWTH_DIVISOR in CSS.
+            if (growth == .conservative) return congestion.grow_conservatively(sent_len);
             congestion.window +|= sent_len;
             return;
         }
         congestion.grow_in_avoidance(sent_len, now_ns, smoothed_rtt_ns);
+    }
+
+    /// RFC 9406 §4.2: "enter congestion avoidance by setting the ssthresh to the current cwnd".
+    /// RFC 9438 §4.10: with no loss W_max is undefined, so cwnd_prior is the window, and the
+    /// stage's curve starts at the window with K = 0, which `start_epoch` gives when W_max is 0.
+    fn leave_slow_start(congestion: *Congestion) void {
+        congestion.slow_start_threshold = congestion.window;
+        congestion.prior_len = congestion.window;
+        congestion.w_max = 0;
+        congestion.epoch_ns = null;
+        assert(congestion.hystart.stage == .done);
+    }
+
+    /// RFC 9406 §4.2: `cwnd + (min(N, L * SMSS) / CSS_GROWTH_DIVISOR)`, with what each division
+    /// leaves carried to the next, as §4.4's increase carries it.
+    fn grow_conservatively(congestion: *Congestion, sent_len: u64) void {
+        congestion.growth_numerator +|= sent_len;
+        congestion.window +|= congestion.growth_numerator / constants.hystart.css_growth_divisor;
+        congestion.growth_numerator %= constants.hystart.css_growth_divisor;
     }
 
     /// Moves the stage's start later by the span the sender was limited, which §4.2 leaves out.
@@ -183,6 +217,9 @@ pub const Congestion = struct {
         // does not start a second one, which is what keeps one round trip of loss to one decrease.
         if (congestion.in_recovery(sent_at_ns)) return;
         congestion.recovery_started_at_ns = now_ns;
+        // RFC 9406 §4.2 and §4.3: a loss or an ECN mark ends HyStart++ for good, and the decrease
+        // below sets ssthresh.
+        congestion.hystart.finish();
         // RFC 9438 §4.7, §4.6: W_max and cwnd_prior first, then the decrease of Figure 5, which
         // RFC 9002 §7.2's minimum holds up.
         congestion.w_max = recovery_cubic.w_max_after(congestion.window, congestion.w_max);
@@ -242,7 +279,7 @@ const test_limited_round_trips: u64 = 20;
 
 /// Acknowledges one full datagram sent at `sent_at_ns`, at `now_ns`. Test-only.
 fn acknowledge(sent_at_ns: u64, now_ns: u64) void {
-    test_congestion.on_ack(sent_at_ns, test_datagram_len, .full, now_ns, test_rtt_ns);
+    test_congestion.on_ack(sent_at_ns, test_datagram_len, .full, now_ns, test_rtt_ns, null);
 }
 
 test "§7.2: the initial window is ten datagrams, held to a floor and a ceiling" {
@@ -275,7 +312,7 @@ test "§7.3.1: in slow start the window grows by what was acknowledged" {
 
 test "§7.8: an acknowledgment of what the window did not bound does not grow it" {
     test_congestion.init(test_datagram_len);
-    test_congestion.on_ack(test_early_ns, test_datagram_len, .limited, test_late_ns, test_rtt_ns);
+    test_congestion.on_ack(test_early_ns, test_datagram_len, .limited, test_late_ns, test_rtt_ns, null);
     try testing.expectEqual(test_initial_window, test_congestion.window);
 }
 
@@ -362,7 +399,7 @@ test "RFC 9438 §4.2: time the sender was limited does not count toward the curv
     acknowledge(test_late_ns + 1, test_late_ns + 1);
     const epoch_ns = test_congestion.epoch_ns.?;
     const limited_ns: u64 = test_rtt_ns * test_limited_round_trips;
-    test_congestion.on_ack(test_late_ns + 1, test_datagram_len, .limited, epoch_ns + 1, test_rtt_ns);
+    test_congestion.on_ack(test_late_ns + 1, test_datagram_len, .limited, epoch_ns + 1, test_rtt_ns, null);
     acknowledge(test_late_ns + 1, epoch_ns + 1 + limited_ns);
     try testing.expectEqual(epoch_ns + limited_ns, test_congestion.epoch_ns.?);
 }
@@ -393,4 +430,40 @@ test "§7.2: a smaller datagram puts the window back to the initial one" {
     try testing.expectEqual(larger, test_congestion.max_datagram_len);
     test_congestion.set_max_datagram_len(test_datagram_len);
     try testing.expectEqual(test_initial_window, test_congestion.window);
+}
+
+/// Acknowledges `count` full datagrams of one round of HyStart++ at `now_ns`, each with
+/// `rtt_ns` as its sample: the first one sent at `now_ns`, so it ends the round before it.
+fn hystart_round(now_ns: u64, rtt_ns: u64, count: u8) void {
+    for (0..count) |index| {
+        const sent_at_ns = if (index == 0) now_ns else now_ns - 1;
+        test_congestion.on_ack(sent_at_ns, test_datagram_len, .full, now_ns, test_rtt_ns, rtt_ns);
+    }
+}
+
+test "RFC 9406 §4.2, RFC 9438 §4.10: HyStart++ grows by a quarter in CSS, then hands over" {
+    test_congestion.init(test_datagram_len);
+    const samples = constants.hystart.rtt_samples;
+    hystart_round(test_rtt_ns, test_rtt_ns, samples);
+    // The round trip grows by 6.25 ms, past 50 ms over 8: CSS starts after the round's window grew.
+    hystart_round(2 * test_rtt_ns, test_rtt_ns + 6_250_000, samples);
+    try testing.expectEqual(.conservative, test_congestion.hystart.stage);
+    const before = test_congestion.window;
+    acknowledge(test_early_ns, 2 * test_rtt_ns);
+    try testing.expectEqual(before + test_datagram_len / constants.hystart.css_growth_divisor, test_congestion.window);
+    // The rounds of CSS, then the round that ends the last: ssthresh is the window, and the
+    // same acknowledgment grows it along a curve that starts there.
+    for (2..constants.hystart.css_rounds + 2) |index| hystart_round(index * 2 * test_rtt_ns, 2 * test_rtt_ns, 1);
+    const handed = test_congestion.slow_start_threshold;
+    try testing.expect(handed < std.math.maxInt(u64));
+    try testing.expect(test_congestion.window > handed);
+    try testing.expectEqual(handed, test_congestion.prior_len);
+    try testing.expectEqual(handed, test_congestion.curve.w_max);
+    try testing.expectEqual(0, test_congestion.curve.k_us);
+}
+
+test "RFC 9406 §4.2: a loss in slow start ends HyStart++ for the connection" {
+    test_congestion.init(test_datagram_len);
+    test_congestion.on_congestion_event(test_early_ns, test_late_ns);
+    try testing.expectEqual(.done, test_congestion.hystart.stage);
 }

@@ -91,7 +91,7 @@ pub fn on_ack_received(
     outcome.rtt_sampled = sample(held, ack, removed, now_ns);
     process_ecn(held, kind, ack, removed, largest_is_new, now_ns);
     outcome.lost = held.detect(kind, now_ns, lost);
-    grow(held, removed, used, now_ns);
+    grow(held, removed, used, now_ns, outcome.rtt_sampled);
 
     // RFC 9002 Appendix A.7: the backoff starts again once the peer has validated the address,
     // because a probe that was answered is no longer evidence of a path that will not answer.
@@ -182,7 +182,7 @@ fn process_ecn(
 }
 
 /// RFC 9002 Appendix B.5's `OnPacketsAcked`, over what this frame took out of flight.
-fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization, now_ns: u64) void {
+fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization, now_ns: u64, sampled: bool) void {
     // Appendix B.5 walks the packets one at a time and each one asks the same two questions of
     // the same instant, so the octets are added once. The record kept is the largest, which is
     // the one whose send instant decides whether the recovery period still holds, and the caller
@@ -192,7 +192,9 @@ fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization, now_
     const largest = removed.record.?;
     // RFC 9438 §4.2 reads the smoothed round trip, which is 0 until the first sample.
     const smoothed_rtt_ns = if (held.rtt.has_sample()) held.rtt.smoothed_ns else 0;
-    held.congestion.on_ack(largest.sent_at_ns, removed.in_flight_len, used, now_ns, smoothed_rtt_ns);
+    // RFC 9406 §4.2 reads this frame's own sample, which is RFC 9002 §5.1's latest_rtt.
+    const latest_rtt_ns: ?u64 = if (sampled) held.rtt.latest_ns else null;
+    held.congestion.on_ack(largest.sent_at_ns, removed.in_flight_len, used, now_ns, smoothed_rtt_ns, latest_rtt_ns);
 }
 
 const testing = std.testing;
@@ -268,4 +270,22 @@ test "A.7: a slice too short for the acknowledgment is told how many records did
     try testing.expectEqual(1, outcome.written);
     try testing.expectEqual(split_acknowledged - 1, outcome.unwritten);
     try testing.expectEqual(3, test_acknowledged[0].number);
+}
+
+test "RFC 9406 §4.2: the round trip sample an ACK gives reaches HyStart++" {
+    test_recovery.init(test_datagram_len);
+    try send_numbered(1);
+    // One range of packet 0 alone, so no packet is left behind to be declared lost, which would
+    // end HyStart++ before the sample reached it.
+    const ack: Ack = .{
+        .ranges = .{ .largest_acknowledged = 0, .first_range = 0, .octets = &.{}, .count = 0 },
+        .delay_ns = 0,
+        .ecn = null,
+    };
+    const at_ns = test_start_ns + test_interval_ns;
+    const outcome = on_ack_received(&test_recovery, .application, ack, .full, at_ns, &test_acknowledged, &test_lost);
+    try testing.expect(outcome.rtt_sampled);
+    // RFC 9002 §5.1's latest_rtt: packet 0 went out one interval before the ACK.
+    try testing.expectEqual(test_interval_ns, test_recovery.congestion.hystart.round_min_ns.?);
+    try testing.expectEqual(1, test_recovery.congestion.hystart.samples);
 }

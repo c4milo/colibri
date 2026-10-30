@@ -42,6 +42,7 @@ const files = struct {
     pub const recovery_ecn = @import("recovery/recovery_ecn.zig");
     pub const recovery_ranges = @import("recovery/recovery_ranges.zig");
     pub const recovery_cubic = @import("recovery/recovery_cubic.zig");
+    pub const recovery_hystart = @import("recovery/recovery_hystart.zig");
     pub const stream = @import("stream/stream.zig");
     pub const connection = @import("connection/connection.zig");
     pub const connection_identity = @import("connection/connection_identity.zig");
