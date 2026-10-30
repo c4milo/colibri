@@ -11627,6 +11627,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Linux container of step 13i, colibri's p99 under each profile comes no worse than with step
     27. The judge's `network` run then measures it.
 
+    **Check met, 2026-10-30.** The full `zig build test` passed 3,388 of 3,388, in Debug and in
+    ReleaseSafe; the endpoint check's two censuses moved, and `quic.Connection` grew by 72
+    octets. `zig build lean` proves the five theorems of `HyStart.lean`, and its 613 vector lines
+    match the Zig. TLC holds `spec/tla/hystart` over 6,367 states and finds each of its five
+    mutants. `tools/ci.sh` passed 37 of 37 on `b35a12b0`. In the container, eight rounds of
+    `far` at 4,000 req/s gave p99s from 63 to 111 ms before this step and from 66 to 140 ms
+    after it; `lossy` and `mobile` moved less than the rounds differ.
+
+    **The judge, 2026-10-30.** [Run 40995852953](https://github.com/c4milo/colibri/actions/runs/40995852953)
+    measured `b35a12b0` against main `1014dd32` with `h3`: every h2 and h3 input is within the
+    noise. [Run 40995845275](https://github.com/c4milo/colibri/actions/runs/40995845275), the
+    `network` input on `b35a12b0`, gives colibri's p99 over h3 at 4,000 req/s, job 1 and then
+    job 2, beside step 27's:
+    - `far`: 61.64 and 61.66 ms, where step 27 gave 61.46 ms in job 2.
+    - `lossy`: 109.94 and 107.92 ms, where step 27 gave 106.68 and 109.48 ms.
+    - `mobile`: 3,232 and 3,246 req/s, and 1,988 and 1,991 ms, where step 27 gave 3,223 and
+      3,211 req/s, and 1,973 and 2,054 ms.
+    - Every round of every rate answered 200 to every request. With step 27, one round of
+      `mobile` at 4,000 did not: a client's first key update came before the server opened any
+      1-RTT packet, and `cd131e39` fixed it (RFC 9001 §6.1, §6.2).
+
+    The loads above are application-limited, so the window rarely grows and HyStart++ has little
+    to act on. It costs nothing measurable there.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
