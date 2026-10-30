@@ -330,7 +330,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
 The events, which a program that answers requests itself reads:
 
 - `request` carries the method, the target and the headers, which `headers.find` and
-  `headers.iterator` read. Its `end` says the head ended the request, so no body follows.
+  `headers.iterator` read. Its `end` says the head ended the request, so no body follows. The
+  method is its token as it arrived, and `http.method.standard(request.method)` gives one of
+  RFC 9110 §9.1's eight methods, or null for another token (decision 122).
 - `body` carries bytes of the request's body, and its `end` marks the last of them. A request with
   no body may end this way too, in a `body` event with no bytes, as a GET over h3 often does. A
   program that waits for a request's end reads `end` in both events.

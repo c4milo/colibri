@@ -4731,6 +4731,22 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        The wildcard would then match an empty segment, which no parameter matches. The check of
        unreachable routes would need a new claim. A later ruling can widen the rule.
 
+     **Amended by the owner on 2026-10-30, for
+     [#101](https://github.com/c4milo/colibri/issues/101): `Request.method` stays text.** Ruling 9
+     kept the typed method out of step 21e, and left the form open. The owner withdrew the sentence
+     of [#96](https://github.com/c4milo/colibri/issues/96) that gives the `request` event a method
+     "as one of the eight or the token".
+     - `server.Request.method` is the method's token as it arrived, in h11, h2 and h3.
+     - A program that needs the enum calls `http.method.standard(request.method)`, which the root of
+       `http` exports. It returns one of RFC 9110 §9.1's eight methods, or null for another token.
+     - A program that routes does not call it, because `match` compares the method's token.
+     - No name is added or removed, and no program breaks.
+
+     The alternative refused: `Request.method` as a union of `Standard` and a token, in a step of
+     its own. It breaks each program that reads `request.method`. Each request then pays for a
+     comparison with the eight tokens, though most programs route or print the token and never
+     read the enum.
+
 123. **QUIC skips packet numbers in its 1-RTT space to catch an optimistic ACK.** Ruled by the
      owner on 2026-10-17, after the review of design §8 step 20e.
 
