@@ -5295,16 +5295,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
     path, so the controller sets the rate.
     - `bench/run.sh --latency --bulk`, which the workflow's `bulk` input runs, holds the path
-      with netem on the loopback device in two profiles:
+      with tc on the loopback device in two profiles:
       - `bottleneck`: 25 ms each way and a rate of 20 Mbit/s, with a queue of 1,000 packets. The
         path holds about 125,000 octets, and the queue about 12 times that.
       - `bottleneck-lossy`: the same, and 1% of packets lost each way.
-    - The server serves one file of 8 MiB. oha downloads it over h3 and over h2-tls, from 1 and
-      then 4 connections, each one download after the other, for 30 s.
+    - A prio qdisc puts the packets the server sends through the bottleneck, by their source
+      port, and every other packet through a netem with the delay alone. So the client's
+      acknowledgments wait in no queue behind the data, as on a real path.
+    - The servers serve one file of 2 MiB, which takes 0.84 s at 20 Mbit/s. oha downloads it
+      again and again for 30 s, from 1 and then 4 connections, one download at a time on each.
+      It downloads over h3 from colibri, chi and axum, and over h2-tls from chi and axum, whose
+      TCP is the kernel's, as the baseline.
     - A second oha sends one small GET each 100 ms on a connection of its own. Its p50 and p99
       give the delay the queue adds.
-    - colibri, chi and axum serve it. The report gives, for each server, profile and protocol, the
-      p50 and p99 download time, the goodput, and the p50 and p99 delay of the small GETs.
+    - The report gives, for each server, profile, protocol and count of connections, the p50 and
+      p90 download time, the goodput, and the p50 and p99 delay of the small GETs. 30 s holds
+      about 35 downloads, too few for a p99.
+    - One round in a Linux container on a laptop ran every load to its end, with every download and
+      every GET answered 200. Under `bottleneck-lossy` colibri's goodput was the lowest of the h3
+      servers. The judge's `bulk` input measures it.
     - Step 29 adds a run where a colibri server with CUBIC and one with BBRv3 share the
       bottleneck, each with 2 connections. The report gives each one's goodput and Jain's index
       of the two.

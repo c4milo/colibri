@@ -5,15 +5,18 @@
 //! over the TLS identity whose <prefix>.chain.pem and <prefix>.key.pem --tls names; each request
 //! goes to the same axum router. With --tls alone it serves h2 over TLS on TCP, and h11 to a
 //! client that offers no h2 in ALPN, through hyper and tokio-rustls. With --no-gso, quinn sends
-//! each datagram in a send of its own, for a path with loss under netem (design §8 step 13i).
+//! each datagram in a send of its own, for a path with loss under netem (design §8 step 13i). With
+//! --www in place of --routes it serves each file of a directory at "/<name>" instead, read into
+//! memory at start, for the bulk downloads of bench/run_bulk.sh (design §8 step 13k).
 //!
-//!   colibri-bench-axum --port <port> --routes <routes file> [--h3] [--no-gso] [--tls <prefix>]
+//!   colibri-bench-axum --port <port> (--routes <routes file> | --www <directory>) [--h3] [--no-gso] [--tls <prefix>]
 
 mod h3_server;
 mod tls_server;
 
 use std::collections::BTreeMap;
 
+use axum::body::Bytes;
 use axum::http::header;
 use axum::routing::{MethodFilter, MethodRouter};
 use axum::Router;
@@ -41,8 +44,36 @@ fn filter(method: &str) -> MethodFilter {
     }
 }
 
+/// The router of `routes`, each route answered by ok.
+fn routed(routes: &str) -> Router {
+    // axum takes one handler for each method of a path, so the routes are grouped by path.
+    let mut paths: BTreeMap<String, MethodRouter> = BTreeMap::new();
+    for line in std::fs::read_to_string(routes).expect("the routes read").lines() {
+        let (method, path) = line.split_once(' ').expect("a route is \"METHOD /path\"");
+        let held = paths.remove(path).unwrap_or_default();
+        paths.insert(path.to_string(), held.on(filter(method), ok));
+    }
+    let mut router = Router::new();
+    for (path, methods) in paths {
+        router = router.route(&braces(&path), methods);
+    }
+    router
+}
+
+/// The router that answers a GET of "/<name>" with the file `name` of `www`.
+fn files(www: &str) -> Router {
+    let mut router = Router::new();
+    for entry in std::fs::read_dir(www).expect("the directory reads") {
+        let path = entry.expect("the entry reads").path();
+        let name = path.file_name().expect("a file has a name").to_string_lossy().into_owned();
+        let content = Bytes::from(std::fs::read(&path).expect("the file reads"));
+        router = router.route(&format!("/{name}"), axum::routing::get(move || async move { content }));
+    }
+    router
+}
+
 fn usage() -> ! {
-    eprintln!("usage: colibri-bench-axum --port <port> --routes <routes file> [--h3] [--no-gso] [--tls <prefix>]");
+    eprintln!("usage: colibri-bench-axum --port <port> (--routes <routes file> | --www <directory>) [--h3] [--no-gso] [--tls <prefix>]");
     std::process::exit(2);
 }
 
@@ -52,6 +83,7 @@ fn main() {
     let mut h3 = false;
     let mut segments = true;
     let mut tls = None;
+    let mut www = None;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
@@ -60,21 +92,16 @@ fn main() {
             "--h3" => h3 = true,
             "--no-gso" => segments = false,
             "--tls" => tls = arguments.next(),
+            "--www" => www = arguments.next(),
             _ => usage(),
         }
     }
-    let (port, routes) = (port.unwrap_or_else(|| usage()), routes.unwrap_or_else(|| usage()));
-    // axum takes one handler for each method of a path, so the routes are grouped by path.
-    let mut paths: BTreeMap<String, MethodRouter> = BTreeMap::new();
-    for line in std::fs::read_to_string(&routes).expect("the routes read").lines() {
-        let (method, path) = line.split_once(' ').expect("a route is \"METHOD /path\"");
-        let held = paths.remove(path).unwrap_or_default();
-        paths.insert(path.to_string(), held.on(filter(method), ok));
-    }
-    let mut router = Router::new();
-    for (path, methods) in paths {
-        router = router.route(&braces(&path), methods);
-    }
+    let port = port.unwrap_or_else(|| usage());
+    let router = match (routes, www) {
+        (Some(routes), None) => routed(&routes),
+        (None, Some(www)) => files(&www),
+        _ => usage(),
+    };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("the runtime starts");
     if h3 {
         let prefix = tls.unwrap_or_else(|| usage());

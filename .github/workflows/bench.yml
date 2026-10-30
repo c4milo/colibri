@@ -12,7 +12,9 @@
 # `network`, bench/run.sh --latency --network measures colibri, chi and axum over h2 over TLS and
 # h3 on a loopback path that tc netem gives delay and loss (design §8 step 13i). With `waits`,
 # bench/run.sh --latency --waits records how colibri's and axum's servers run and sleep on their
-# core under the latency load, with perf sched (design §8 step 13j). With
+# core under the latency load, with perf sched (design §8 step 13j). With `bulk`, bench/run.sh
+# --latency --bulk measures downloads of one file at a bottleneck that tc netem holds (design §8
+# step 13k). With
 # `profile`, perf record samples colibri's server and its call stacks under each input, and the
 # artifact holds the folded stacks (design §8 step 13h). The work is bench/run.sh, which a person on
 # Linux with perf runs for the same answer; this file only installs what it needs.
@@ -52,6 +54,10 @@ on:
         description: "Record how colibri's and axum's servers run and sleep under the latency load, in place of the other inputs"
         type: boolean
         default: false
+      bulk:
+        description: "Measure downloads at a bottleneck over h3 and h2 over TLS, in place of the other inputs"
+        type: boolean
+        default: false
       profile:
         description: "Sample colibri's server and its call stacks under each input, in place of the counts"
         type: boolean
@@ -84,6 +90,7 @@ jobs:
       LATENCY: ${{ inputs.latency }}
       NETWORK: ${{ inputs.network }}
       WAITS: ${{ inputs.waits }}
+      BULK: ${{ inputs.bulk }}
       PROFILE: ${{ inputs.profile }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -121,7 +128,7 @@ jobs:
       # bench/competitors/hyper/rust-toolchain.toml names on the first call. It builds http.zig
       # with Zig 0.17.0, which no other step uses.
       - name: Install Rust and Zig 0.17.0
-        if: env.COMPETITORS == 'true' || env.LATENCY == 'true' || env.NETWORK == 'true'
+        if: env.COMPETITORS == 'true' || env.LATENCY == 'true' || env.NETWORK == 'true' || env.BULK == 'true'
         run: |
           command -v rustup >/dev/null ||
             curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
@@ -168,9 +175,12 @@ jobs:
           if [ "${H11}" = true ]; then arguments+=(--h11); fi
           if [ "${H3}" = true ]; then arguments+=(--h3); fi
           # --latency runs bench/run_latency.sh in place of the other inputs.
-          if [ "${LATENCY}" = true ] || [ "${NETWORK}" = true ] || [ "${WAITS}" = true ]; then arguments+=(--latency); fi
+          if [ "${LATENCY}" = true ] || [ "${NETWORK}" = true ] || [ "${WAITS}" = true ] || [ "${BULK}" = true ]; then
+            arguments+=(--latency)
+          fi
           if [ "${NETWORK}" = true ]; then arguments+=(--network); fi
           if [ "${WAITS}" = true ]; then arguments+=(--waits); fi
+          if [ "${BULK}" = true ]; then arguments+=(--bulk); fi
           if [ "${PROFILE}" = true ]; then arguments+=(--profile); fi
           bench/run.sh "${arguments[@]}" bench-report.md
       - name: Publish the report
