@@ -5311,9 +5311,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The report gives, for each server, profile, protocol and count of connections, the p50 and
       p90 download time, the goodput, and the p50 and p99 delay of the small GETs. 30 s holds
       about 35 downloads, too few for a p99.
-    - One round in a Linux container on a laptop ran every load to its end, with every download and
-      every GET answered 200. Under `bottleneck-lossy` colibri's goodput was the lowest of the h3
-      servers. The judge's `bulk` input measures it.
+    - The judge ran it on 23ea296, with 3 rounds in each of two jobs
+      ([run 41071340342](https://github.com/c4milo/colibri/actions/runs/41071340342)). Every
+      download and every GET was answered 200. The figures below give each job's median:
+      - `bottleneck`: every server and protocol fills the path, at 16.78 to 18.45 Mbit/s. With 1
+        connection colibri's GET p99 is 127 ms, the lowest. With 4 it is 509 and 598 ms, against
+        385 and 392 ms for chi over h3.
+      - `bottleneck-lossy`, 4 connections: colibri's goodput is 8.39 and 8.95 Mbit/s, the lowest.
+        chi over h3 gives 12.86 and 13.42, axum over h3 9.51 and 10.07, and h2-tls 11.74 to 12.86.
+      - `bottleneck-lossy`, 1 connection: colibri gives 1.68 and 2.24 Mbit/s, chi over h3 3.36 and
+        3.91, axum over h3 2.24, and h2-tls 2.80 to 3.36.
+      - So CUBIC loses about a third of chi's goodput under 1% loss. Step 29 measures BBRv3 on the
+        same input.
     - Step 29 adds a run where a colibri server with CUBIC and one with BBRv3 share the
       bottleneck, each with 2 connections. The report gives each one's goodput and Jain's index
       of the two.
