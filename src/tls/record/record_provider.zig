@@ -213,7 +213,10 @@ fn selected_protocol(role: anytype) ?[]const u8 {
 fn parameters(role: anytype) ?tls_provider.Negotiated {
     if (!role.state.completed) return null;
     const suite = role.session.suite() orelse if (aes_gcm) return null else chapulin.Suite.chacha20_poly1305_sha256;
-    return .{ .version = tls_1_3, .cipher_suite = @intFromEnum(suite) };
+    // RFC 9846 §4.3.8: the server's KeyShareEntry names the group, which chapulin holds once the
+    // handshake completed.
+    const group = role.session.group() orelse return null;
+    return .{ .version = tls_1_3, .cipher_suite = @intFromEnum(suite), .group = @intFromEnum(group) };
 }
 
 /// Whether the object holds the AES-GCM suites beside ChaCha20: a server's suite order exists in

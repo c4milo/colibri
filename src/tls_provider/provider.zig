@@ -152,6 +152,10 @@ pub const Negotiated = struct {
     version: u16,
     /// The cipher suite codepoint (RFC 9846 Appendix B.4).
     cipher_suite: u16,
+    /// The NamedGroup codepoint of the key exchange: the group of the server's KeyShareEntry (RFC
+    /// 9846 §4.3.8), such as 0x11EC for X25519MLKEM768, 0x001D for x25519 and 0x0017 for
+    /// secp256r1 (RFC 9846 §4.3.7).
+    group: u16,
 };
 
 /// Whether `suite` is one of the three colibri admits (RFC 9846 Appendix B.4, decision 45).

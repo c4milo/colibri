@@ -207,7 +207,7 @@ pub const PlainProvider = struct {
     }
 
     fn negotiated_parameters(context: *const anyopaque) ?tls_provider.Negotiated {
-        return .{ .version = held_const(context).version, .cipher_suite = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256 };
+        return .{ .version = held_const(context).version, .cipher_suite = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256, .group = tls_provider.constants.protocol.group_x25519 };
     }
 
     fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) provider_module.HandshakeReadError!usize {

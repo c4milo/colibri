@@ -29,10 +29,31 @@ test "RFC 9001 §4.1: a client and a server complete the handshake and read each
     try testing.expectEqualStrings(support.client_parameters, server.provider().vtable.peer_transport_params(server.provider().context).?);
     try testing.expectEqualStrings("localhost", server.sni().?);
     try testing.expect(!client.resumed() and !server.resumed());
+    // RFC 9846 §4.3.8: the client reports the group the server's key share named, the hybrid a
+    // Web PKI client of chapulin offers first.
+    const chosen = client.negotiated().?;
+    try testing.expectEqual(tls_provider.constants.protocol.version_tls_1_3, chosen.version);
+    try testing.expect(tls_provider.provider.cipher_suite_admitted(chosen.cipher_suite));
+    try testing.expectEqual(tls_provider.constants.protocol.group_x25519_mlkem768, chosen.group);
     // chapulin has no QUIC exporter.
     var exported: [32]u8 = undefined;
     const provider = client.provider();
     try testing.expectError(error.Unsupported, provider.vtable.export_keying_material(provider.context, "EXPORTER-test", null, &exported));
+    client.close();
+    server.close();
+}
+
+test "RFC 9001 §4.1.1: a client reports what was negotiated only once its handshake completed" {
+    try support.configure(support.web_pki, .{});
+    try support.start_both(null);
+    try support.move(client.provider(), server.provider());
+    // The ServerHello alone: the client knows the suite and the group, and has not completed.
+    const server_provider = server.provider();
+    const client_provider = client.provider();
+    const written = try server_provider.vtable.write_handshake(server_provider.context, .initial, &support.scratch);
+    try client_provider.vtable.provide_handshake(client_provider.context, .initial, support.scratch[0..written]);
+    try testing.expect(!support.complete(client_provider));
+    try testing.expectEqual(null, client.negotiated());
     client.close();
     server.close();
 }
@@ -270,6 +291,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     try testing.expectEqual(null, provider.vtable.peer_transport_params(provider.context));
     try testing.expectEqual(null, provider.vtable.negotiated_alpn(provider.context));
     try testing.expect(!provider.vtable.handshake_complete(provider.context));
+    try testing.expectEqual(null, client.negotiated());
     try testing.expectEqual(null, provider.vtable.take_alert(provider.context));
     try testing.expectEqual(0, try provider.vtable.write_handshake(provider.context, .initial, &support.scratch));
     try testing.expectEqual(null, client.take_ticket());

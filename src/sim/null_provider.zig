@@ -43,6 +43,7 @@ pub const NullProvider = struct {
     parameters: ?tls_provider.Negotiated = .{
         .version = tls_provider.constants.protocol.version_tls_1_3,
         .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256,
+        .group = tls_provider.constants.protocol.group_x25519,
     },
     /// The alert held for the next `take_alert`, which the call clears (RFC 9846 §6).
     alert_held: ?tls_provider.AlertReport = null,

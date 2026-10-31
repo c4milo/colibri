@@ -25,6 +25,7 @@ const Fake = struct {
     parameters: ?tls_provider.Negotiated = .{
         .version = tls_provider.constants.protocol.version_tls_1_3,
         .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256,
+        .group = tls_provider.constants.protocol.group_x25519,
     },
     /// What the next `decrypt_record` reports. Test-only.
     content: tls_provider.Content = .application_data,
@@ -144,7 +145,7 @@ test "§3.3 and §9.2: h2 runs only on a complete handshake that chose h2 at TLS
     try testing.expectEqual(error.AlpnNotH2, check(state.provider()));
 
     // Decision 45: TLS 1.3 alone, which is inside RFC 9113 §9.2's floor of 1.2.
-    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_2, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256 } };
+    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_2, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256, .group = tls_provider.constants.protocol.group_x25519 } };
     try testing.expectEqual(error.TlsVersionRefused, check(state.provider()));
     state = .{ .parameters = null };
     try testing.expectEqual(error.ParametersUnknown, check(state.provider()));
@@ -156,7 +157,7 @@ test "decision 45: the three suites of RFC 9846 §9.1 are admitted and nothing e
     // RFC 9846 Appendix B.4: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and
     // TLS_CHACHA20_POLY1305_SHA256.
     for (tls_provider.constants.policy.cipher_suites_admitted) |suite| {
-        state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = suite } };
+        state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = suite, .group = tls_provider.constants.protocol.group_x25519 } };
         try check(state.provider());
     }
     // RFC 9001 §5.3 excludes TLS_AES_128_CCM_8_SHA256 by name, and RFC 9846 §9.1 makes neither
@@ -165,7 +166,7 @@ test "decision 45: the three suites of RFC 9846 §9.1 are admitted and nothing e
         tls_provider.constants.protocol.cipher_suite_aes_128_ccm_sha256,
         tls_provider.constants.protocol.cipher_suite_aes_128_ccm_8_sha256,
     }) |suite| {
-        state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = suite } };
+        state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = suite, .group = tls_provider.constants.protocol.group_x25519 } };
         try testing.expectEqual(error.CipherSuiteRefused, check(state.provider()));
     }
 }

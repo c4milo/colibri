@@ -25,6 +25,9 @@ test "a client and a server complete the handshake and report what they chose" {
         const chosen = provider.vtable.negotiated_parameters(provider.context).?;
         try testing.expectEqual(tls_provider.constants.protocol.version_tls_1_3, chosen.version);
         try testing.expect(tls_provider.provider.cipher_suite_admitted(chosen.cipher_suite));
+        // RFC 9846 §4.3.8: a Web PKI client of chapulin offers the hybrid group first, which the
+        // server selects.
+        try testing.expectEqual(tls_provider.constants.protocol.group_x25519_mlkem768, chosen.group);
     }
     try testing.expectEqualStrings("localhost", server.sni().?);
     try testing.expect(!client.resumed() and !server.resumed());

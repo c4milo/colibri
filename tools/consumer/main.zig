@@ -146,6 +146,12 @@ fn check_tls() !void {
     try tls_client.start(&tls_config, entropy, now_seconds, null);
     const hello = try tls_client.handshake(&.{}, &output);
     if (hello.written == 0 or output[0] != handshake_record) return error.HelloWrong;
+    // What the handshake selected, the key-exchange group among it, is null until it completes.
+    const provider = tls_client.provider();
+    if (provider.vtable.negotiated_parameters(provider.context)) |chosen| {
+        std.debug.print("consumer: group 0x{x:0>4}\n", .{chosen.group});
+        return error.NegotiatedWrong;
+    }
     // A program that finds an error in what it read, such as a record longer than RFC 9846 §5.2
     // allows, sends the alert that names it, then closes. A session whose handshake has not
     // completed sends none.

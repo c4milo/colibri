@@ -6619,6 +6619,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     h11-tls-one at 0.9833 and 0.9847, h2-tls-one at 0.9873 and 0.9880, and h3-one at 0.9905 and
     0.9879.
 
+  **The key-exchange group, 2026-10-31.** cocuyo reports which group protected each DNS
+  connection, beside the cipher suite. The owner ruled the form on 2026-10-31 (decision 140), and
+  chapulin's sessions already answer `group()` at colibri's pin.
+  - `tls_provider.Negotiated.group` holds the codepoint, and `tls_provider.constants.protocol`
+    names X25519MLKEM768, x25519 and secp256r1.
+  - Public names: `tls.quic.Client.negotiated`. A test beside `tls.quic.Client` and
+    `tls.quic.Server` now lists their calls, `is_client` among them, which the module's files read.
+  - tools/consumer and docs/usage.md show the read through a record session's provider.
+  - 4 mutations **CAUGHT**: the record group, the QUIC group, the QUIC version, and a QUIC report
+    before the handshake completed, which a new test of a client that read only the ServerHello
+    catches.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27

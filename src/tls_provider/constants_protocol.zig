@@ -33,6 +33,14 @@ pub const cipher_suite_chacha20_poly1305_sha256: u16 = 0x1303;
 pub const cipher_suite_aes_128_ccm_sha256: u16 = 0x1304;
 pub const cipher_suite_aes_128_ccm_8_sha256: u16 = 0x1305;
 
+/// The key-exchange groups chapulin's sessions negotiate, by their NamedGroup codepoints.
+/// secp256r1 and x25519 are RFC 9846 §4.3.7's. X25519MLKEM768 is the hybrid a Web PKI client of
+/// chapulin offers first (chapulin's decisions 53 and 54), 0x11EC in the TLS Supported Groups
+/// registry.
+pub const group_secp256r1: u16 = 0x0017;
+pub const group_x25519: u16 = 0x001D;
+pub const group_x25519_mlkem768: u16 = 0x11EC;
+
 /// RFC 7301 §3.1: a ProtocolName is `opaque ProtocolName<1..2^8-1>`, so it is at most 255 octets.
 pub const alpn_protocol_name_len_max: u32 = 255;
 

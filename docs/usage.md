@@ -1483,6 +1483,19 @@ if (tls_client.fail(.record_overflow, &output)) |_| return error.FailWrong else 
 }
 ```
 
+What a handshake selected is a `tls_provider.Negotiated`: the version, the cipher suite and the
+key-exchange group, each as its codepoint, such as 0x11EC for X25519MLKEM768 ([decision
+140](decisions.md)). A record session's provider answers `negotiated_parameters`, and a
+`tls.quic.Client` answers `negotiated()`. Each is null until the handshake completed:
+
+```zig
+const provider = tls_client.provider();
+if (provider.vtable.negotiated_parameters(provider.context)) |chosen| {
+    std.debug.print("consumer: group 0x{x:0>4}\n", .{chosen.group});
+    return error.NegotiatedWrong;
+}
+```
+
 For QUIC, a `tls.quic.Client` or `tls.quic.Server` hands `provider()` and `suite()` to the
 `quic.Connection`, which starts chapulin's session when it sets its transport parameters. A server
 that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.

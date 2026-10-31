@@ -23,6 +23,7 @@ const Fake = struct {
     parameters: ?tls_provider.Negotiated = .{
         .version = tls_provider.constants.protocol.version_tls_1_3,
         .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256,
+        .group = tls_provider.constants.protocol.group_x25519,
     },
     /// What the next `decrypt_record` reports. Test-only.
     content: tls_provider.Content = .application_data,
@@ -158,11 +159,11 @@ test "decision 88: h11 runs on a finished TLS 1.3 handshake that selected http/1
 
 test "decision 45: TLS 1.3 alone, and the three suites of RFC 9846 §9.1" {
     Fake.init_table();
-    var state: Fake = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_2, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256 } };
+    var state: Fake = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_2, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_gcm_sha256, .group = tls_provider.constants.protocol.group_x25519 } };
     try testing.expectEqual(error.TlsVersionRefused, check(state.provider()));
-    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_ccm_8_sha256 } };
+    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = tls_provider.constants.protocol.cipher_suite_aes_128_ccm_8_sha256, .group = tls_provider.constants.protocol.group_x25519 } };
     try testing.expectEqual(error.CipherSuiteRefused, check(state.provider()));
-    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256 } };
+    state = .{ .parameters = .{ .version = tls_provider.constants.protocol.version_tls_1_3, .cipher_suite = tls_provider.constants.protocol.cipher_suite_chacha20_poly1305_sha256, .group = tls_provider.constants.protocol.group_x25519 } };
     try check(state.provider());
 }
 

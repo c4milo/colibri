@@ -118,6 +118,21 @@ pub const Client = struct {
         return client.state.started and client.session.pskSelected();
     }
 
+    /// What the handshake selected, as a record session's provider reports it: TLS 1.3, the
+    /// cipher suite and the key-exchange group (RFC 9846 §4.3.8), or null before the handshake
+    /// completed (RFC 9001 §4.1.1).
+    pub fn negotiated(client: *const Client) ?tls_provider.Negotiated {
+        if (!client.state.started or client.session.state() != .connected) return null;
+        const suite_chosen = client.session.suite() orelse return null;
+        const group = client.session.group() orelse return null;
+        return .{
+            // RFC 9001 §4.2: QUIC runs TLS 1.3 alone.
+            .version = tls_provider.constants.protocol.version_tls_1_3,
+            .cipher_suite = @intFromEnum(suite_chosen),
+            .group = @intFromEnum(group),
+        };
+    }
+
     /// Wipes every key the session holds, the offered ticket's copy included, and ends it.
     pub fn close(client: *Client) void {
         if (client.state.started) client.session.close();
@@ -204,6 +219,19 @@ pub const Server = struct {
         if (server.state.started) server.session.close();
     }
 };
+
+test "decision 115: a client's and a server's public calls are these" {
+    const public_names = @import("crypto").core.public_names;
+    // `is_client` is what the module's files read to tell the two roles apart.
+    try public_names.expect(Client, &.{
+        "is_client",        "start",       "provider", "suite",      "set_keylog_context",
+        "original_version", "take_ticket", "resumed",  "negotiated", "close",
+    });
+    try public_names.expect(Server, &.{
+        "is_client",           "start", "provider", "suite", "set_keylog_context", "original_version",
+        "set_version_chooser", "sni",   "resumed",  "close",
+    });
+}
 
 test {
     _ = @import("quic_test.zig");
