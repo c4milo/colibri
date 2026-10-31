@@ -1,8 +1,8 @@
 /-!
 # BBRv3's model of the path (draft-ietf-ccwg-bbr-06 §5.5, design §8 step 29b.1)
 
-`src/quic/recovery/recovery_bbr_model.zig` keeps BBR's estimates of the path, and
-`src/quic/recovery/recovery_bbr_filter.zig` the windowed maximum two of them are kept over. The
+`src/quic/recovery/recovery_bbr/recovery_bbr_model.zig` keeps BBR's estimates of the path, and
+`src/quic/recovery/recovery_bbr/recovery_bbr_filter.zig` the windowed maximum two of them are kept over. The
 definitions follow the Zig; the theorems are about them:
 
 - `windowMax_ge` and `windowMax_le`: the filter's answer is the largest value taken within the
@@ -14,7 +14,7 @@ definitions follow the Zig; the theorems are about them:
   than the window, and after the interval starts again they are the frame's own (§5.5.9).
 
 The Zig adds with saturation, near 2^64, which no connection reaches; these definitions add
-without it. `spec/lean/Vectors.lean` writes `src/quic/recovery/bbr_model_vectors.txt` from them,
+without it. `spec/lean/Vectors.lean` writes `src/quic/recovery/recovery_bbr/bbr_model_vectors.txt` from them,
 and a Zig test requires the two files to give the same answers (decision 77).
 -/
 

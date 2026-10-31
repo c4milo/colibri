@@ -11822,6 +11822,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         list of lost packets that the owner rules on before it is written.
       - The offload budget is the send quantum alone (§5.5.8.2). colibri owns no socket, so it
         cannot know whether the caller's sends offload pacing.
+    - The owner ruled on 2026-10-31:
+      - 29b.2 builds the states with what they read: `BBR.inflight_longterm`, its headroom and the
+        2% loss check of §5.5.10, and `BBR.bdp` with `Inflight()` of §5.6.4.2. 29b.3 keeps the
+        short-term model, the loss of each packet, Startup's exit on high loss and §5.5.11. 29b.4
+        keeps the pacing rate, the send quantum and the window.
+      - Each probe wait mixes `bandwidth_probe_waits` with the count of waits so far through the
+        SplitMix64 finalizer (decision 136).
+      - 29b.3 detects a spurious loss episode from a list of the packet numbers the episode
+        declared lost, at most 32 of them, a new limit in `constants_limits.zig`. An episode that
+        declares more is never undone, and the next episode replaces the list.
+      - The undo of §5.5.11 is BBRv3's alone. CUBIC's, which RFC 9438 §4.9.2 permits, is not
+        part of step 29.
     - **29b.1, the model of the path, 2026-10-30.** `recovery_bbr_model.zig` keeps §5.5.1's round
       count, §5.5.5's BBR.max_bw, §5.3.4.3's BBR.min_rtt and §5.5.9's BBR.extra_acked. Nothing
       calls it before 29b.4, so no census moves.
@@ -11840,7 +11852,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - `spec/lean/Colibri/Quic/BbrModel.lean` proves the filter's answer the largest value of its
         window, the round count rising by at most 1, BBR.min_rtt never above
         BBR.probe_rtt_min_delay, and the extra octets never above the window.
-        `src/quic/recovery/bbr_model_vectors.txt` holds 738 lines of its answers, and a Zig test
+        `src/quic/recovery/recovery_bbr/bbr_model_vectors.txt` holds 738 lines of its answers, and a Zig test
         reads them.
       - The record's two fields grew `quic.Connection` from 195,360 to 207,656 octets.
         docs/performance.md lists each size.
@@ -11853,6 +11865,46 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         `P.lost` not kept, `RS.rtt` from the first send, `RS.prior_delivered` as `C.delivered`, and
         a rate from an interval below min_rtt. The application-limited sample counted was NOT
         CAUGHT at first; a test that drops the larger sample two cycles later now catches it.
+    - **29b.2, the states, 2026-10-31.** `recovery_bbr/recovery_bbr.zig` holds `Bbr`, which
+      moves through Startup, Drain, ProbeBW's four phases and ProbeRTT on each ACK frame, and
+      handles the restart after an idle period before a send (§5.3, §5.4). One file holds each
+      state's moves, `recovery_bbr_inflight.zig` the volumes they compare with, and
+      `recovery_bbr_wait.zig` the draws. Nothing calls `Bbr` before 29b.4, so no census moves.
+      - The BBR files moved into `src/quic/recovery/recovery_bbr/`, as CLAUDE.md asks of four or
+        more files with one prefix.
+      - Every gain is a count of hundredths: 2.77 is 277 (§5.6.1's table).
+      - §5.3.3.8.2's Reno bound compares round trips with `TargetInflight`, which is a volume. A
+        Reno flow grows by one datagram a round trip, so colibri divides the volume by the maximum
+        datagram size before it takes the smaller of it and 63.
+      - Each wait draws from `mix(bandwidth_probe_waits + count × 0x9e3779b97f4a7c15)`, the
+        SplitMix64 finalizer: bit 0 is the round trip start, and the rest give the wait.
+      - `C.cwnd` is `Bbr.window_len`, which ProbeRTT saves and restores and 29b.4 sets. Until then
+        it holds the initial window.
+      - §5.4 also paces at the estimate after an idle period in ProbeBW. That is pacing, so 29b.4
+        adds it.
+      - `spec/lean/Colibri/Quic/BbrStates.lean` proves each wall clock wait at least 2 s and below
+        3 s, each round trip start 0 or 1, so a wait lasts 63 or 62 rounds once the Reno bound is
+        63, the volume with headroom never below `BBR.MinPipeCwnd` nor above
+        `BBR.inflight_longterm`, and no compared volume below the floor.
+        `src/quic/recovery/recovery_bbr/bbr_states_vectors.txt` holds 142 lines of its answers, the
+        draws among them, and a Zig test reads them.
+      - `zig build tla` on `spec/tla/bbr`: the properties hold over 9,437 distinct states. They are
+        ProbeRTT at most once each `BBR.ProbeRTTInterval`, its 200 ms and a round, its end in CRUISE
+        or Startup, Drain bounded, and ProbeBW only after a full pipe. Each state must also end at
+        the first ACK frame its rules allow. A liveness property cost TLC about a thousand times
+        the time, so these safety properties stand in for it. Its six mutants are violated.
+      - Mutations, against `zig build test-quic`, 42 of 42 CAUGHT. They cover each move of each
+        state, each gain, each volume, each draw, and the idle restart. Twelve were NOT CAUGHT at
+        first, and `recovery_bbr_probe_test.zig` now guards each of them:
+        - a full pipe at exactly 1.25 times;
+        - the cap of 63 Reno rounds;
+        - the headroom before CRUISE;
+        - REFILL's round;
+        - UP held by a full window;
+        - ProbeRTT's round and its 200 ms boundary;
+        - the larger saved window and its restore;
+        - the doubled slope and the growth of `BBR.inflight_longterm`;
+        - ProbeRTT's pacing gain.
   - **29c, the configuration and the measurement.** `quic.CongestionController`,
     `congestion_controller` in `quic.Connection`'s options, `server.Config` and `client.Config`,
     and `bandwidth_probe_waits`, which the server and the client draw. `examples/` and

@@ -1,10 +1,10 @@
 //! Tests of `recovery_bbr_model.zig`, one for each estimate of draft-ietf-ccwg-bbr-06 §5.5.
 const std = @import("std");
 const testing = std.testing;
-const constants = @import("../constants.zig");
+const constants = @import("../../constants.zig");
 const recovery_bbr_filter = @import("recovery_bbr_filter.zig");
 const recovery_bbr_model = @import("recovery_bbr_model.zig");
-const recovery_delivery = @import("recovery_delivery.zig");
+const recovery_delivery = @import("../recovery_delivery.zig");
 
 const Model = recovery_bbr_model.Model;
 const Sample = recovery_delivery.Sample;

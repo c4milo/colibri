@@ -138,7 +138,12 @@ pub const Delivery = struct {
     pub fn check_application_limited(delivery: *Delivery, unsent: bool, in_flight_len: u64, window_len: u64) void {
         if (unsent) return;
         if (in_flight_len >= window_len) return;
-        // §4.1.2.4's `MarkConnectionAppLimited`: "C.app_limited = max(C.delivered + C.inflight, 1)".
+        delivery.mark_application_limited(in_flight_len);
+    }
+
+    /// §4.1.2.4's `MarkConnectionAppLimited`: "C.app_limited = max(C.delivered + C.inflight, 1)".
+    /// BBR's ProbeRTT calls it too, so the samples it takes are not counted (§5.3.4.3).
+    pub fn mark_application_limited(delivery: *Delivery, in_flight_len: u64) void {
         delivery.application_limited_until = @max(delivery.delivered_len +| in_flight_len, 1);
         assert(delivery.application_limited_until != 0);
     }

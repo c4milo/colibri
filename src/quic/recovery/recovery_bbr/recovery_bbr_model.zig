@@ -15,9 +15,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const constants = @import("../constants.zig");
+const constants = @import("../../constants.zig");
 const recovery_bbr_filter = @import("recovery_bbr_filter.zig");
-const recovery_delivery = @import("recovery_delivery.zig");
+const recovery_delivery = @import("../recovery_delivery.zig");
 
 const Sample = recovery_delivery.Sample;
 const bbr = constants.recovery.bbr;
@@ -85,6 +85,14 @@ pub const Model = struct {
             model.round_start = false;
         }
         assert(model.next_round_delivered_len >= sample.prior_delivered_len);
+    }
+
+    /// §5.5.1's `StartRound`: the round in progress ends once `delivered_len`, `C.delivered`, is
+    /// delivered. §5.3's states start a round this way when they move.
+    pub fn start_round(model: *Model, delivered_len: u64) void {
+        // `C.delivered` only rises, and the round in progress ends at an earlier value of it.
+        assert(delivered_len >= model.next_round_delivered_len);
+        model.next_round_delivered_len = delivered_len;
     }
 
     /// §5.5.5's `UpdateMaxBw`, which runs `UpdateRound` first.
