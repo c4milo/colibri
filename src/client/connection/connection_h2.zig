@@ -201,14 +201,18 @@ fn first_regular(section: *const http.FieldSection) u32 {
     return first;
 }
 
-/// Writes the heads of the exchanges waiting, oldest first, then as much of each written
-/// request's content as the windows and the room allow.
+/// Writes the heads of the exchanges waiting, oldest first, then, over TLS, as much of each
+/// written request's content as the windows and the room allow. In cleartext `send_content`
+/// writes the content.
 pub fn write_requests(connection: *Connection) void {
     // Bounded: each pass writes or ends an exchange, or stops.
     for (0..constants.limits.requests_max) |_| {
         const slot = connection.slots.oldest(.queued) orelse break;
         if (!open(connection, slot)) break;
     }
+    // The provider seals one slice, so over TLS a frame's header and its data go through the
+    // output together until chapulin seals two (https://github.com/c4milo/chapulin/issues/212).
+    if (connection.config.tls == null) return;
     for (&connection.slots.slots) |*slot| {
         if (slot.stage == .sent and !slot.content_done()) write_content(connection, slot);
     }
@@ -323,4 +327,43 @@ fn write_content(connection: *Connection, slot: *Slot) void {
         // RFC 9113 §6.9: no window, or no room for a frame.
         if (sent.written == 0) return;
     }
+}
+
+/// Writes the content of each request going out into `output` in cleartext, as the windows and
+/// the room allow, once the connection's own output is empty. h2 writes each DATA frame's header,
+/// and the data follows it from the caller's memory (decision 138). Returns the octets written.
+pub fn send_content(connection: *Connection, output: []u8) usize {
+    assert(connection.output_len == 0);
+    if (connection.stopped or connection.config.tls != null) return 0;
+    var written: usize = 0;
+    for (&connection.slots.slots) |*slot| {
+        if (slot.stage == .sent and !slot.content_done()) written += send_frames(connection, slot, output[written..]);
+    }
+    assert(written <= output.len);
+    return written;
+}
+
+/// Writes DATA frames of `slot`'s content into `output`, each one's data copied from the caller's
+/// memory after the header h2 wrote. Returns the octets written.
+fn send_frames(connection: *Connection, slot: *Slot, output: []u8) usize {
+    const content = slot.request.body;
+    const response = slot.response;
+    var written: usize = 0;
+    // Bounded: each pass writes a frame, or stops.
+    for (0..content.len + 1) |_| {
+        if (slot.content_done()) return written;
+        const left = content[response.body_sent..];
+        const sent = connection.session.h2.write_data_header(output[written..], @intCast(slot.stream_id), left.len, true) catch {
+            // RFC 9113 §5.1: the stream is no longer one the client may send on.
+            slot.content_stopped = true;
+            return written;
+        };
+        // RFC 9113 §6.9: no window, or no room for a frame.
+        if (sent.written == 0) return written;
+        // Decision 138: the frame's data follows its header, before any other octet.
+        @memcpy(output[written + sent.written ..][0..sent.consumed], left[0..sent.consumed]);
+        written += sent.written + sent.consumed;
+        response.body_sent += sent.consumed;
+    }
+    return written;
 }

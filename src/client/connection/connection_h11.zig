@@ -321,7 +321,8 @@ fn record_fill(connection: *const Connection) usize {
 /// Returns the octets written into `output` (https://github.com/c4milo/colibri/issues/105).
 pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
     assert(connection.output_len == 0);
-    if (connection.stopped or connection.session != .h11) return 0;
+    assert(connection.session == .h11);
+    if (connection.stopped) return 0;
     const slot = writing(connection) orelse return 0;
     const response = slot.response;
     const content = slot.request.body[response.body_sent..];

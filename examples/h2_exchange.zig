@@ -4,7 +4,7 @@
 //! per `receive`, then write what colibri owes with `write_pending` and send it. What colibri owes
 //! on its own is the connection preface, its SETTINGS, and the acknowledgment of the peer's
 //! (RFC 9113 §3.4, §6.5.3). What the application sends goes through `write_request`,
-//! `write_response` and `write_data`. Every call that needs the instant takes the one the side's
+//! `write_response` and `write_data_header`. Every call that needs the instant takes the one the side's
 //! loop read. Both run over `link.zig`, which stands where a program's sockets would be.
 //!
 //! The program checks what arrived: the client must see 200 and the greeting, octet for octet.
@@ -157,7 +157,8 @@ fn keep_body(state: *State, payload: []const u8) void {
 }
 
 /// Writes the server's response: a HEADERS frame, then the content in a DATA frame that ends the
-/// stream.
+/// stream. colibri writes the frame's header, and the server writes the content after it from its
+/// own memory, with no copy through colibri (decision 138).
 fn answer(buffer: []u8, stream_id: u32) !usize {
     const head_len = try server.write_response(buffer, stream_id, 200, &.{
         .{ .name = "content-length", .value = std.fmt.comptimePrint("{d}", .{greeting.len}) },
@@ -166,7 +167,9 @@ fn answer(buffer: []u8, stream_id: u32) !usize {
     // written. A program with more content than they hold writes what it says, and the rest after
     // the peer's WINDOW_UPDATE.
     std.debug.assert(server.sendable_len(stream_id, buffer.len - head_len, greeting.len) == greeting.len);
-    const data = try server.write_data(buffer[head_len..], stream_id, greeting, true);
+    const data = try server.write_data_header(buffer[head_len..], stream_id, greeting.len, true);
     std.debug.assert(data.consumed == greeting.len);
-    return head_len + data.written;
+    // The frame's data follows its header, before any other octet of the connection.
+    @memcpy(buffer[head_len + data.written ..][0..data.consumed], greeting[0..data.consumed]);
+    return head_len + data.written + data.consumed;
 }

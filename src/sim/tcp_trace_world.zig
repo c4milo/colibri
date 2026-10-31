@@ -229,7 +229,7 @@ pub const World = struct {
         const staged = world.client_pending();
         world.to_server.stage(staged);
         const written = world.pool.send_stream(world.connection, world.to_server.room(), world.now_ns);
-        world.to_server.note_send(staged.len, written, world.client_pending());
+        world.to_server.note_send(world.tls, staged.len, written, world.client_pending());
     }
 
     /// The server's caller hands the socket what the server wrote, as `client_send` does.
@@ -239,7 +239,7 @@ pub const World = struct {
         const staged = connection.output[connection.records_len..connection.output_len];
         world.to_client.stage(staged);
         const written = world.endpoint.send_stream(world.accepted, world.to_client.room(), world.now_ns);
-        world.to_client.note_send(staged.len, written, connection.output[connection.records_len..connection.output_len]);
+        world.to_client.note_send(world.tls, staged.len, written, connection.output[connection.records_len..connection.output_len]);
     }
 
     fn request(world: *World, plan: *const Plan) void {

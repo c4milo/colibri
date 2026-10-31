@@ -6,7 +6,8 @@
 //!      PROTOCOL_ERROR (§6.1);
 //!   2. the padding rule of frame_padding.zig (§6.1).
 //! Whether the stream is open is the connection's check, not the codec's. `write_data` writes the
-//! whole frame or nothing and sets only the two flags §6.1 defines.
+//! whole frame or nothing and sets only the two flags §6.1 defines. `write_data_header` writes the
+//! header alone, for data the caller writes after it.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -72,6 +73,19 @@ pub fn write_data(
     try frame_padding.write_padding(&cursor, padding_len);
     assert(cursor.offset - writer.offset == constants.protocol.frame_header_len + length);
     writer.* = cursor;
+}
+
+/// Writes the header of a DATA frame with no padding whose `length` octets of data the caller
+/// writes after it itself (RFC 9113 §4.1, §6.1). The header is written whole or not at all.
+pub fn write_data_header(writer: *Writer, stream_id: u32, length: u32, end_stream: bool) core.writer.Error!void {
+    assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
+    const end_stream_flag: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
+    try frame_header.write(writer, .{
+        .length = length,
+        .type = constants.protocol.frame_type_data,
+        .flags = end_stream_flag,
+        .stream_id = stream_id,
+    });
 }
 
 const testing = std.testing;
@@ -149,4 +163,18 @@ test "write_data into a short buffer commits nothing" {
     try testing.expectError(error.NoSpaceLeft, write_data(&writer, 1, "abcd", false, 0));
     try testing.expectEqual(0, writer.offset);
     try testing.expectEqual(0, writer.written().len);
+}
+
+test "write_data_header writes the header write_data writes for the same data" {
+    var whole: [16]u8 = undefined;
+    var whole_writer = Writer.init(&whole);
+    try write_data(&whole_writer, 5, "abc", true, 0);
+    var head: [constants.protocol.frame_header_len]u8 = undefined;
+    var head_writer = Writer.init(&head);
+    try write_data_header(&head_writer, 5, 3, true);
+    try testing.expectEqualSlices(u8, whole_writer.written()[0..head.len], head_writer.written());
+    var short: [constants.protocol.frame_header_len - 1]u8 = undefined;
+    var short_writer = Writer.init(&short);
+    try testing.expectError(error.NoSpaceLeft, write_data_header(&short_writer, 5, 3, false));
+    try testing.expectEqual(0, short_writer.written().len);
 }

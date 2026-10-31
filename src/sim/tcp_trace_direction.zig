@@ -61,14 +61,22 @@ pub const Direction = struct {
 
     /// Notes a send that handed out `written` octets, after which the writer holds `left`, the
     /// end of what `stage` copied when the send wrote nothing else. Over TLS the send sealed the
-    /// staged octets before `left`; in cleartext it handed those octets out as they were.
-    pub fn note_send(direction: *Direction, staged_len: usize, written: usize, left: []const u8) void {
+    /// staged octets before `left`. In cleartext the octets it handed out are the protocol's,
+    /// among them a request's content that h2 wrote from the program's memory and never staged
+    /// (decision 138).
+    pub fn note_send(direction: *Direction, tls: bool, staged_len: usize, written: usize, left: []const u8) void {
         assert(direction.send_ends_len < direction.send_ends.len);
-        const staged = direction.plaintext[direction.plaintext_len..][0..staged_len];
-        if (left.len > staged.len or !std.mem.eql(u8, staged[staged.len - left.len ..], left)) {
-            direction.unplaced = true;
+        if (!tls) {
+            const sent = direction.octets[direction.handed..][0..written];
+            @memcpy(direction.plaintext[direction.plaintext_len..][0..written], sent);
+            direction.plaintext_len += written;
         } else {
-            direction.plaintext_len += staged.len - left.len;
+            const staged = direction.plaintext[direction.plaintext_len..][0..staged_len];
+            if (left.len > staged.len or !std.mem.eql(u8, staged[staged.len - left.len ..], left)) {
+                direction.unplaced = true;
+            } else {
+                direction.plaintext_len += staged.len - left.len;
+            }
         }
         direction.handed += written;
         direction.send_ends[direction.send_ends_len] = .{ .handed = direction.handed, .plaintext_len = direction.plaintext_len };
@@ -107,9 +115,9 @@ pub fn h2_of(session: anytype) ?*h2.Connection {
 test "a reader that consumed whole sends over TLS opened what they sealed, and one inside a send is not placed" {
     var direction: Direction = .{};
     direction.stage("abc");
-    direction.note_send(3, 10, "");
+    direction.note_send(true, 3, 10, "");
     direction.stage("defg");
-    direction.note_send(4, 12, "g");
+    direction.note_send(true, 4, 12, "g");
     try testing.expectEqualStrings("abcdef", direction.handed_plaintext());
     direction.consumed = 10;
     try testing.expectEqual(3, direction.opened_plaintext(true).?);
@@ -119,6 +127,16 @@ test "a reader that consumed whole sends over TLS opened what they sealed, and o
     try testing.expectEqual(null, direction.opened_plaintext(true));
     // A send that left octets it had not staged wrote after it sealed.
     direction.stage("h");
-    direction.note_send(1, 0, "xy");
+    direction.note_send(true, 1, 0, "xy");
     try testing.expectEqual(null, direction.opened_plaintext(false));
+}
+
+test "decision 138: a send in cleartext hands out the protocol's octets, staged or not" {
+    var direction: Direction = .{};
+    direction.stage("HEAD");
+    @memcpy(direction.room()[0..5], "HEADx");
+    direction.note_send(false, 4, 5, "");
+    try testing.expectEqualStrings("HEADx", direction.handed_plaintext());
+    direction.consumed = 5;
+    try testing.expectEqual(5, direction.opened_plaintext(false).?);
 }

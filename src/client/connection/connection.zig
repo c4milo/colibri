@@ -241,9 +241,9 @@ pub const Connection = struct {
     }
 
     /// Writes the requests waiting and what the protocol owes into `output`, sealed over TLS, and
-    /// returns the octets written. What does not fit waits for the next call. h11 writes a
-    /// request's content from the caller's memory, with no copy into the connection's output
-    /// (https://github.com/c4milo/colibri/issues/105).
+    /// returns the octets written. What does not fit waits for the next call. h11, and h2 in
+    /// cleartext, write a request's content from the caller's memory, with no copy into the
+    /// connection's output (https://github.com/c4milo/colibri/issues/105).
     pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
         var written: usize = 0;
         // Bounded: each pass after the first follows a pass that wrote some content, and each
@@ -252,11 +252,22 @@ pub const Connection = struct {
             if (connection.phase == .open) connection.write_protocol(now_ns);
             written += connection.send_output(output[written..], now_ns);
             if (connection.output_len > 0) return written;
-            const content = connection_h11.send_content(connection, output[written..], now_ns);
+            const content = connection.send_content(output[written..], now_ns);
             if (content == 0) return written;
             written += content;
         }
         return written;
+    }
+
+    /// Writes the content of the requests going out from the caller's memory into `output`, once
+    /// the connection's own output is empty. Returns the octets written.
+    fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
+        return switch (connection.session) {
+            .h11 => connection_h11.send_content(connection, output, now_ns),
+            .h2 => connection_h2.send_content(connection, output),
+            // No protocol runs before the handshake completes.
+            .none => 0,
+        };
     }
 
     /// Writes what the connection's output holds into `output`, sealed over TLS.

@@ -5435,3 +5435,28 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        side, and each module would break its dependents in a release of its own.
      - The file by itself as the guard of the limits. A changed value would pass every check,
        and the ruling would rest on a reader who noticed it.
+
+138. **h2 writes a DATA frame's header for data the caller writes after it.** Ruled by the owner
+     on 2026-10-30, for https://github.com/c4milo/colibri/issues/105: the client sends a
+     request's content from the program's memory, as decision 95 lets h11 do.
+     - `Connection.write_data_header(output, stream_id, payload_len, end_stream)` writes the
+       header of the DATA frame that `write_data` would write into `output`, and charges both
+       flow-control windows (RFC 9113 §6.9.1). It returns the octets of the payload the frame
+       carries in `consumed`, and the header's octets in `written`.
+     - The caller writes those `consumed` octets right after the header, in `output`, before any
+       other octet of the connection. END_STREAM is on the frame of the last octet (RFC 9113
+       §6.1), and the frame has no padding.
+     - The client uses it in cleartext. Over TLS, a frame's header and its data go through the
+       client's output together, because the provider seals one slice. chapulin's
+       `writeParts` will seal the two, and `tls_provider` takes it then
+       (https://github.com/c4milo/chapulin/issues/212).
+
+     The alternatives refused:
+     - `write_data` alone, which copies every octet of the content into the output.
+     - A call that counts octets and writes nothing, as h11's `count_body` does. h2 frames its
+       data, so the header must be written in front of each frame's octets.
+     - The header of each frame in a TLS record of its own. Each 16 KiB frame then costs one more
+       record and one more seal. The owner chose chapulin's call over two slices.
+
+     Cost: colibri cannot check that the octets the caller writes after the header are the ones
+     the header counts. A caller that writes others frames the stream wrongly.

@@ -40,6 +40,8 @@ const connection_request = @import("connection_request.zig");
 const connection_tls = @import("connection_tls.zig");
 const reply = @import("connection_reply.zig");
 const connection_altsvc = @import("connection_altsvc.zig");
+const connection_event = @import("connection_event.zig");
+const connection_send_data = @import("connection_send_data.zig");
 const internal = @import("connection_internal.zig");
 
 const Role = @import("../role.zig").Role;
@@ -86,97 +88,16 @@ pub const PseudoIndexing = connection_request.PseudoIndexing;
 /// What `write_request` opened and wrote (`connection_request.zig`).
 pub const Sent = connection_request.Sent;
 
-/// A request the peer sent, at a server: its pseudo-header fields, and the field section it came
-/// from, which `field_section` returns until the next call (RFC 9113 §8.3.1).
-pub const Request = struct {
-    stream_id: u32,
-    request: message.Request,
-    end_stream: bool,
-};
-
-/// A response the peer sent, at a client (RFC 9113 §8.3.2).
-pub const Response = struct {
-    stream_id: u32,
-    response: message.Response,
-    end_stream: bool,
-};
-
-/// A trailer section the peer sent, which ends the stream (RFC 9113 §8.1).
-pub const Trailers = struct {
-    stream_id: u32,
-};
-
-/// DATA the peer sent. `payload` points into the caller's input and is valid until the next call.
-pub const Data = struct {
-    stream_id: u32,
-    payload: []const u8,
-    end_stream: bool,
-};
-
-/// A stream that ended with a RST_STREAM: the peer's (`stream_reset`) or colibri's
-/// (`stream_refused`), carrying the code the frame names (RFC 9113 §6.4).
-pub const StreamReset = struct {
-    stream_id: u32,
-    error_code: u32,
-};
-
-/// The GOAWAY the peer sent (RFC 9113 §6.8). Its Additional Debug Data carries no semantic value
-/// and is not reported.
-pub const PeerGoaway = struct {
-    last_stream_id: u32,
-    error_code: u32,
-};
-
-/// An ALTSVC frame the server sent, at a client (RFC 7838 §4): the Alt-Svc field value `value`
-/// names alternatives for the origin of stream `stream_id`, or, on stream 0, for `origin`. Both
-/// slices point into the input `receive` read.
-pub const AltSvc = struct {
-    stream_id: u32,
-    origin: []const u8,
-    value: []const u8,
-};
-
-/// What one frame meant to the caller, at most one per `receive` (decision 39).
-pub const Event = union(enum) {
-    /// The peer acknowledged the SETTINGS colibri sent, which are now in force (RFC 9113 §6.5.3).
-    settings_acknowledged,
-    /// The peer's SETTINGS frame was applied; colibri owes the acknowledgment (§6.5.3).
-    settings_applied,
-    /// The peer sent a PING carrying the ACK flag, with this Opaque Data (§6.7). colibri sends no PING of its own, so it never asked for one.
-    ping_acknowledged: [constants.protocol.ping_len]u8,
-    request: Request,
-    response: Response,
-    trailers: Trailers,
-    data: Data,
-    /// The peer ended a stream (§6.4).
-    stream_reset: StreamReset,
-    /// colibri ended a stream and queued the RST_STREAM (§5.4.2).
-    stream_refused: StreamReset,
-    goaway: PeerGoaway,
-    alt_svc: AltSvc,
-
-    /// The stream whose peer side the event ended (RFC 9113 §8.1), or null: a request, a response
-    /// or DATA that carried END_STREAM, and every trailer section, which always carries it. One
-    /// call answers what three kinds of event say.
-    pub fn ended_stream(event: Event) ?u32 {
-        return switch (event) {
-            .request => |request| if (request.end_stream) request.stream_id else null,
-            .response => |response| if (response.end_stream) response.stream_id else null,
-            .data => |data| if (data.end_stream) data.stream_id else null,
-            .trailers => |trailers| trailers.stream_id,
-            else => null,
-        };
-    }
-};
-
-/// What one `receive` call consumed and produced.
-pub const Received = struct {
-    /// Octets of the caller's slice the connection took. 0 when no whole frame was there, or when
-    /// the replies must be written first.
-    consumed: usize,
-    /// What the frame meant, when it meant anything to the caller.
-    event: ?Event,
-};
+/// The events `receive` returns, in `connection_event.zig`.
+pub const Request = connection_event.Request;
+pub const Response = connection_event.Response;
+pub const Trailers = connection_event.Trailers;
+pub const Data = connection_event.Data;
+pub const StreamReset = connection_event.StreamReset;
+pub const PeerGoaway = connection_event.PeerGoaway;
+pub const AltSvc = connection_event.AltSvc;
+pub const Event = connection_event.Event;
+pub const Received = connection_event.Received;
 
 /// One connection, in storage the caller places (decision 35).
 pub const Connection = struct {
@@ -352,6 +273,20 @@ pub const Connection = struct {
         return connection_send.write_data(connection, output, stream_id, payload, end_stream);
     }
 
+    /// Writes the header of the DATA frame that carries the next `consumed` octets of a payload
+    /// `payload_len` long, which the caller writes after it from its own buffer (decision 138):
+    /// see `connection_send_data.zig`.
+    pub fn write_data_header(
+        connection: *Connection,
+        output: []u8,
+        stream_id: u32,
+        payload_len: usize,
+        end_stream: bool,
+    ) SendError!DataWritten {
+        connection.assert_preface_written();
+        return connection_send_data.write_data_header(connection, output, stream_id, payload_len, end_stream);
+    }
+
     /// The octets of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
     /// `room_len` octets: what both flow-control windows (RFC 9113 §6.9.1), the largest frame
     /// (§4.2) and the floor of decision 110 allow. 0 for a stream that takes no DATA frame now.
@@ -480,16 +415,18 @@ pub const Connection = struct {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        // Design §8 step 21b.4 adds `sendable_len` (decision 119).
-        "init",               "receive",      "write_response", "attach_tls",    "write_request",
-        "write_data",         "sendable_len", "write_trailers", "write_alt_svc", "limit_peer_streams",
-        "reset_stream",       "shutdown",     "write_pending",  "write_replies", "has_pending",
-        "owes_window_update", "has_failed",   "field_section",  "fail",          "settings_deadline_ns",
-        "preface_done",
+        // Design §8 step 21b.4 adds `sendable_len` (decision 119), and step 17c adds
+        // `write_data_header` (decision 138).
+        "init",                 "receive",            "write_response", "attach_tls",     "write_request",
+        "write_data",           "write_data_header",  "sendable_len",   "write_trailers", "write_alt_svc",
+        "limit_peer_streams",   "reset_stream",       "shutdown",       "write_pending",  "write_replies",
+        "has_pending",          "owes_window_update", "has_failed",     "field_section",  "fail",
+        "settings_deadline_ns", "preface_done",
     });
 }
 
 test {
     _ = @import("connection_test.zig");
     _ = @import("connection_internal.zig");
+    _ = @import("connection_send_data.zig");
 }

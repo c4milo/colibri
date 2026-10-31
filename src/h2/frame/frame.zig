@@ -44,6 +44,7 @@ pub const Settings = frame_settings.Settings;
 pub const Setting = frame_settings.Setting;
 
 pub const write_data = frame_data.write_data;
+pub const write_data_header = frame_data.write_data_header;
 pub const write_headers = frame_headers.write_headers;
 pub const write_push_promise = frame_headers.write_push_promise;
 pub const write_continuation = frame_headers.write_continuation;

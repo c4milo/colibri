@@ -4,6 +4,7 @@
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("connection_test_support.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -20,6 +21,13 @@ const bodies_count: usize = 2;
 const body_len: usize = 64;
 /// RFC 9113 §6.9.2: past the 65,535 octets a stream's window starts with. Test-only.
 const upload_len: usize = 196_605;
+/// Longer than the connection's own output, and within the 65,535 octets a stream's window starts
+/// with (RFC 9113 §6.9.2). Test-only.
+const direct_len: usize = 60_000;
+
+comptime {
+    std.debug.assert(direct_len > constants.limits.output_len);
+}
 
 fn start() !void {
     try support.start_cleartext(.h2);
@@ -169,4 +177,27 @@ test "RFC 7541 §7.1.3: the path and a marked field line go out never-indexed, a
     try testing.expect(sent_holds(try representation(":path", exchange.request.path, .never_indexed)));
     try testing.expect(sent_holds(try representation("authorization", "secret", .never_indexed)));
     try testing.expect(sent_holds(try representation("accept", "application/dns-message", .without_indexing)));
+}
+
+test "decision 138: a content longer than the connection's output goes out in cleartext in one send" {
+    try start();
+    @memset(&upload, 'x');
+    var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/", .body = upload[0..direct_len] }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&put.request, &put.response);
+    support.client_send();
+    // https://github.com/c4milo/colibri/issues/105: the content is not copied through the
+    // connection's output, which holds less than it.
+    try testing.expectEqual(direct_len, put.response.body_sent);
+    try support.peer_h2_read();
+    var received: usize = 0;
+    var ended = false;
+    for (support.peer_events[0..support.peer_events_len]) |peer_event| {
+        if (peer_event != .data) continue;
+        for (peer_event.data.payload) |octet| try testing.expectEqual('x', octet);
+        received += peer_event.data.payload.len;
+        ended = peer_event.data.end_stream;
+    }
+    try testing.expectEqual(direct_len, received);
+    // RFC 9113 §8.1: the frame of the last octet ends the request.
+    try testing.expect(ended);
 }

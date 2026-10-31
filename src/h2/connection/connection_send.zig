@@ -179,7 +179,7 @@ pub fn shutdown(target: *Connection, error_code: u32) void {
 }
 
 /// The record of `stream_id`, when RFC 9113 §5.1 lets colibri send a frame of `kind` on it.
-fn sendable(target: *Connection, stream_id: u32, kind: stream.Kind, end_stream: bool) Error!*Stream {
+pub fn sendable(target: *Connection, stream_id: u32, kind: stream.Kind, end_stream: bool) Error!*Stream {
     const found = target.streams.lookup(stream_id);
     // RFC 9113 §5.1: a stream the table holds no record for is idle or closed, and colibri sends
     // nothing on either; a stream it opens goes through the table first.
@@ -296,7 +296,7 @@ pub fn write_block(target: *Connection, output: []u8, stream_id: u32, block: []c
 }
 
 /// Takes `len` octets out of both send windows (RFC 9113 §6.9.1).
-fn spend_windows(target: *Connection, record: *Stream, len: u32) void {
+pub fn spend_windows(target: *Connection, record: *Stream, len: u32) void {
     // `sendable` took the smaller of the two windows, so neither can be exceeded here.
     target.send_window.consume(len) catch unreachable;
     record.send_window.consume(len) catch unreachable;

@@ -6788,13 +6788,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Over TLS, the octets that fill the head's record are still copied, so a small content goes out
     in the record of its head.
   - h11 counts the octets with `count_body` (decision 95), and the body ends after its last octet.
-  - h2 still copies a DATA frame's content into the output. Each frame needs its header, and flow
-    control decides its length.
+  - h2 in cleartext does the same through `h2.Connection.write_data_header` (decision 138), a
+    new public name the client needs: h2 writes each DATA frame's header, and the data follows it
+    from the program's memory. Over TLS, h2 copies a frame's header and data into the output
+    until chapulin seals two slices (https://github.com/c4milo/chapulin/issues/212). h3 needs no
+    change: QUIC reads the content from the program's memory into each packet (decision 57).
+  - The TCP trace run took a cleartext send's plaintext from what the client staged in its
+    output. It now takes the octets the send handed out, which hold the content too.
   - The change removes a copy of each content octet in cleartext. Over TLS it also removes the
     move of the output's rest after each record that `send` sealed. A probe sent a 4 MiB PUT under
     callgrind and counted fewer instructions both ways. Its numbers are a laptop's and are not
     published (decision 32).
-  - Three new tests and six mutations, each CAUGHT.
+  - For h11, three new tests and six mutations, each CAUGHT. For h2, six new tests and nine
+    mutations. One was NOT CAUGHT until a test of a DATA header before the final response was
+    added, and then all nine were CAUGHT.
 
   **17d, the client over QUIC and the choice, 2026-09-28.**
   - `QuicConnection` (`35dfbde`) carries exchanges over h3 on QUIC with the TCP connection's calls
