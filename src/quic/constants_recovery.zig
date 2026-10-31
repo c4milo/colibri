@@ -42,9 +42,11 @@ pub const congestion_window_initial_len_max: u64 = 14_720;
 /// ECN-CE count, or on persistent congestion, which §7.2 recommends at two maximum datagrams.
 pub const congestion_window_minimum_datagrams: u64 = 2;
 
-/// The constants of CUBIC (RFC 9438, decision 133) and of HyStart++ (RFC 9406, decision 135).
+/// The constants of CUBIC (RFC 9438, decision 133), of HyStart++ (RFC 9406, decision 135) and of
+/// BBRv3 (draft-ietf-ccwg-bbr-06, decision 134).
 pub const cubic = @import("constants_cubic.zig");
 pub const hystart = @import("constants_hystart.zig");
+pub const bbr = @import("constants_bbr.zig");
 
 /// RFC 9002 Appendix A.9: a Probe Timeout sends one or two ack-eliciting packets, and two is
 /// what recovers a tail of exactly one lost packet in one round trip rather than two.

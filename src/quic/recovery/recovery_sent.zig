@@ -91,11 +91,14 @@ pub const Record = struct {
     ranges_from: u32 = 0,
     ranges_len: u8 = 0,
     /// draft-ietf-ccwg-bbr-06 §4.1.2.1.2's `P.delivered`, `P.delivered_time`,
-    /// `P.first_send_time` and `P.is_app_limited`: what `recovery_delivery.zig` held when the
-    /// packet went out. `Recovery.on_packet_sent` writes them, so a caller leaves them unset.
+    /// `P.first_send_time`, `P.tx_in_flight`, `P.lost` and `P.is_app_limited`: what
+    /// `recovery_delivery.zig` held when the packet went out. `Recovery.on_packet_sent` writes
+    /// them, so a caller leaves them unset.
     delivered_len: u64 = 0,
     delivered_at_ns: u64 = 0,
     first_sent_at_ns: u64 = 0,
+    tx_in_flight_len: u64 = 0,
+    lost_len: u64 = 0,
     application_limited: bool = false,
 };
 

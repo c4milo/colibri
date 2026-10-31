@@ -262,6 +262,10 @@ pub const Recovery = struct {
         const held = &recovery.timer.spaces[@intFromEnum(kind)];
         held.loss_time_ns = found.loss_time_ns;
         held.ack_eliciting_in_flight = recovery.table_of(kind).ack_eliciting_count() > 0;
+        // draft-ietf-ccwg-bbr-06 §2.2's `C.lost` counts what §6.1 declares lost. Decisions 64
+        // and 66 declare packets lost to resend their frames, which is no congestion event, so
+        // they do not count.
+        recovery.delivery.on_lost(found.in_flight_len);
         // RFC 9002 Appendix B.8: losing packets that were in flight is a congestion event.
         const sent_at_ns = found.latest_sent_at_ns orelse return;
         recovery.congestion.on_congestion_event(sent_at_ns, now_ns);

@@ -11795,6 +11795,46 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **Check.** Tests drive each move of §5.3. Lean proves the filters' bounds, each probe wait
       between 2 and 3 s, and each round bound 62 or 63. `spec/tla/bbr` checks the moves in every
       order: ProbeRTT comes at most each 5 s and ends, and the state never stops in Drain.
+    - The owner ruled on 2026-10-30:
+      - 29b comes in four parts, each with its own commit, record and rulings: 29b.1 the model
+        of the path (§5.5.1 to §5.5.9), 29b.2 the states (§5.3, §5.4), 29b.3 the model upon loss
+        (§5.5.10, §5.5.11), and 29b.4 the pacing rate, the send quantum and the window (§5.6).
+      - Each gain and factor of the draft is a numerator and a denominator, as for CUBIC.
+      - §5.5.11 comes too. RFC 9002 does not detect a spurious loss, so 29b.3 first does, from a
+        list of lost packets that the owner rules on before it is written.
+      - The offload budget is the send quantum alone (§5.5.8.2). colibri owns no socket, so it
+        cannot know whether the caller's sends offload pacing.
+    - **29b.1, the model of the path, 2026-10-30.** `recovery_bbr_model.zig` keeps §5.5.1's round
+      count, §5.5.5's BBR.max_bw, §5.3.4.3's BBR.min_rtt and §5.5.9's BBR.extra_acked. Nothing
+      calls it before 29b.4, so no census moves.
+      - `recovery_bbr_filter.zig` keeps the largest value of each time in a slot of its own, so
+        its answer is exact. The draft names Kathleen Nichols' filter, which keeps three samples
+        and gives an estimate. The windows are 2 and 10 times long, so the slots are few.
+      - Each record also holds `tx_in_flight` and `lost` (§4.1.2.1.2), so it grew from 72 to 88
+        octets. `C.lost` counts what RFC 9002 §6.1 declares lost. Decisions 64 and 66 declare
+        packets lost only to send their frames again, so those do not count.
+      - Each ACK frame that takes a packet out of flight gives a sample. Its rate is 0 when the
+        interval is not reliable, as in the draft, because §5.5.1 reads the sample's other fields.
+        Losses that a frame reveals count in later samples, because the sample comes first.
+      - `RS.rtt` runs from the newest packet's send to the frame, ACK delay included (§5.5.7.1).
+        BBR.min_rtt starts at the draft's "Infinity", the largest `u64`, since a connection starts
+        with no round trip sample.
+      - `spec/lean/Colibri/Quic/BbrModel.lean` proves the filter's answer the largest value of its
+        window, the round count rising by at most 1, BBR.min_rtt never above
+        BBR.probe_rtt_min_delay, and the extra octets never above the window.
+        `src/quic/recovery/bbr_model_vectors.txt` holds 738 lines of its answers, and a Zig test
+        reads them.
+      - The record's two fields grew `quic.Connection` from 195,360 to 207,656 octets.
+        docs/performance.md lists each size.
+      - Mutations, against `zig build test-quic`, each CAUGHT: no slot cleared, a window one time
+        wider, a round at `>`, a round that ends at `RS.prior_delivered`, an application-limited
+        sample always or never counted, no cycle advance, the probe's expiry at `>=`, a probe or a
+        BBR.min_rtt that never expires, BBR.min_rtt's instant taken as now, no new interval, extra
+        octets not held at the window, a window of 10 in Startup, `expected_delivered` in
+        milliseconds, `tx_in_flight` without its packet, `RS.lost` as `C.lost`, no loss counted,
+        `P.lost` not kept, `RS.rtt` from the first send, `RS.prior_delivered` as `C.delivered`, and
+        a rate from an interval below min_rtt. The application-limited sample counted was NOT
+        CAUGHT at first; a test that drops the larger sample two cycles later now catches it.
   - **29c, the configuration and the measurement.** `quic.CongestionController`,
     `congestion_controller` in `quic.Connection`'s options, `server.Config` and `client.Config`,
     and `bandwidth_probe_waits`, which the server and the client draw. `examples/` and

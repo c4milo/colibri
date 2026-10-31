@@ -189,6 +189,8 @@ test "A.7, RFC 9438 §4.6: an acknowledgment that reveals loss reduces the windo
     try testing.expectEqual(4, outcome.lost.count);
     try testing.expectEqual(4 * test_datagram_len, outcome.lost.in_flight_len);
     try testing.expectEqual(0, test_recovery.in_flight_len());
+    // draft-ietf-ccwg-bbr-06 §2.2's `C.lost` counts them.
+    try testing.expectEqual(4 * test_datagram_len, test_recovery.delivery.lost_len);
     // RFC 9002 Appendix B.8: losing packets in flight is a congestion event, and B.6 halves the
     // window. The acknowledged packet does not grow it, because it went out before the period.
     try testing.expectEqual(window / 10 * 7, test_recovery.congestion.window);
@@ -472,8 +474,10 @@ test "decision 66: a PTO takes the oldest ack-eliciting packets in flight, and n
     try testing.expectEqual(2, table.count());
     try testing.expect(table.remove(3) != null);
     try testing.expect(test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
-    // RFC 9002 §6.2.4 names "an unnecessary rate reduction" as the risk, and colibri takes none.
+    // RFC 9002 §6.2.4 names "an unnecessary rate reduction" as the risk, and colibri takes none,
+    // and draft-ietf-ccwg-bbr-06 §2.2's `C.lost` does not count them.
     try testing.expectEqual(window, test_recovery.congestion.window);
+    try testing.expectEqual(0, test_recovery.delivery.lost_len);
 }
 
 test "decision 66: with every ack-eliciting packet taken, the timer waits on none" {

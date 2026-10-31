@@ -217,7 +217,7 @@ test "RFC 9002 Appendix A.1.1: a record stays small, because 256 of them sit in 
     // Decision 57's stream range costs one identifier: the offset and length are the ones CRYPTO
     // already used, because a packet carries one or the other. Decision 131's ring position and
     // count take 5 octets, which round the record up by 8. draft-ietf-ccwg-bbr-06 §4.1.2.1.2's
-    // three instants and counts take 24, and its flag fits in the padding (the owner's ruling of
-    // 2026-10-30, design §8 step 29a).
-    try testing.expectEqual(72, @sizeOf(Record));
+    // instants and counts take 40, and its flag fits in the padding (the owner's rulings of
+    // 2026-10-30, design §8 steps 29a and 29b.1).
+    try testing.expectEqual(88, @sizeOf(Record));
 }

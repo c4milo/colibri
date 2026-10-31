@@ -18,16 +18,28 @@ const recovery_sent = @import("recovery_sent.zig");
 
 const Record = recovery_sent.Record;
 
-/// draft-ietf-ccwg-bbr-06 §4.1.2.1.3's rate sample `RS`, for one ACK frame that gave one.
+/// draft-ietf-ccwg-bbr-06 §2.3's and §4.1.2.1.3's rate sample `RS`, for one ACK frame that took
+/// packets out of flight. Its fields come from the newest of those packets, which went out last.
 pub const Sample = struct {
-    /// `RS.delivery_rate`: octets a second.
+    /// `RS.delivery_rate`: octets a second, or 0 when the frame gave no reliable rate (§4.1.2.3).
     rate: u64,
     /// `RS.delivered`: the octets delivered over the interval.
     delivered_len: u64,
-    /// `RS.interval`: the longer of the send interval and the ACK interval.
+    /// `RS.interval`: the longer of the send interval and the ACK interval, or 0 when the newest
+    /// packet went out before anything was sent.
     interval_ns: u64,
     /// `RS.is_app_limited`: whether the application, and not the path, bounded the sample.
     application_limited: bool,
+    /// `RS.prior_delivered`: the octets delivered when the newest packet went out (§5.5.1).
+    prior_delivered_len: u64,
+    /// `RS.newly_acked`: the octets in flight that this frame acknowledged.
+    acknowledged_len: u64,
+    /// `RS.rtt`: the time from when the newest packet went out to this frame (§5.5.7.1).
+    rtt_ns: u64,
+    /// `RS.tx_in_flight`: the octets in flight just after the newest packet went out.
+    tx_in_flight_len: u64,
+    /// `RS.lost`: the octets declared lost between when the newest packet went out and this frame.
+    lost_len: u64,
 };
 
 /// draft-ietf-ccwg-bbr-06 §4.1.2.1.1's per-connection state.
@@ -42,9 +54,17 @@ pub const Delivery = struct {
     /// `C.app_limited`: the value of `delivered_len` past which the application no longer limits
     /// the samples, or 0 when it does not limit them.
     application_limited_until: u64,
+    /// `C.lost`: the octets in flight that RFC 9002 §6.1 declared lost over the connection.
+    lost_len: u64,
 
     pub fn init(delivery: *Delivery) void {
-        delivery.* = .{ .delivered_len = 0, .delivered_at_ns = 0, .first_sent_at_ns = 0, .application_limited_until = 0 };
+        delivery.* = .{
+            .delivered_len = 0,
+            .delivered_at_ns = 0,
+            .first_sent_at_ns = 0,
+            .application_limited_until = 0,
+            .lost_len = 0,
+        };
     }
 
     /// draft-ietf-ccwg-bbr-06 §4.1.2.2's `OnPacketSent`: writes the connection's state into the
@@ -64,15 +84,23 @@ pub const Delivery = struct {
         sent.delivered_at_ns = delivery.delivered_at_ns;
         sent.delivered_len = delivery.delivered_len;
         sent.application_limited = delivery.application_limited_until != 0;
+        // §4.1.2.2: "P.tx_in_flight = C.inflight /* includes data in P */".
+        sent.tx_in_flight_len = in_flight_len +| (if (sent.in_flight) sent.sent_len else 0);
+        sent.lost_len = delivery.lost_len;
+    }
+
+    /// RFC 9002 §6.1 declared packets lost, `lost_len` octets of them in flight: §2.2's `C.lost`.
+    pub fn on_lost(delivery: *Delivery, lost_len: u64) void {
+        delivery.lost_len +|= lost_len;
     }
 
     /// draft-ietf-ccwg-bbr-06 §4.1.2.3: `UpdateRateSample` over the packets one ACK frame took
     /// out of flight, then `GenerateRateSample`. `newest` is the largest of them, which went out
-    /// last (RFC 9000 §12.3), and `acknowledged_len` is their octets in flight. Null when the
-    /// ACK frame gives no reliable sample.
-    pub fn on_ack(delivery: *Delivery, newest: Record, acknowledged_len: u64, now_ns: u64, min_rtt_ns: u64) ?Sample {
+    /// last (RFC 9000 §12.3), and `acknowledged_len` is their octets in flight.
+    pub fn on_ack(delivery: *Delivery, newest: Record, acknowledged_len: u64, now_ns: u64, min_rtt_ns: u64) Sample {
         assert(now_ns >= newest.sent_at_ns);
         assert(newest.sent_at_ns >= newest.first_sent_at_ns);
+        assert(delivery.lost_len >= newest.lost_len);
         // `UpdateRateSample`: each packet adds its octets, and the newest one gives the sample.
         // A frame's newest packet is the newest of all the frame took, so one test does for each.
         delivery.delivered_len +|= acknowledged_len;
@@ -82,20 +110,26 @@ pub const Delivery = struct {
         if (delivery.application_limited_until != 0 and delivery.delivered_len > delivery.application_limited_until) {
             delivery.application_limited_until = 0;
         }
+        var taken: Sample = .{
+            .rate = 0,
+            .delivered_len = delivery.delivered_len - newest.delivered_len,
+            .interval_ns = 0,
+            .application_limited = newest.application_limited,
+            .prior_delivered_len = newest.delivered_len,
+            .acknowledged_len = acknowledged_len,
+            .rtt_ns = now_ns - newest.sent_at_ns,
+            .tx_in_flight_len = newest.tx_in_flight_len,
+            .lost_len = delivery.lost_len - newest.lost_len,
+        };
         // §4.1.2.3: a packet sent before anything was delivered or sent has no prior instant.
-        if (newest.delivered_at_ns == 0) return null;
+        if (newest.delivered_at_ns == 0) return taken;
         const send_elapsed_ns = newest.sent_at_ns - newest.first_sent_at_ns;
         const ack_elapsed_ns = now_ns - newest.delivered_at_ns;
-        const interval_ns = @max(send_elapsed_ns, ack_elapsed_ns);
+        taken.interval_ns = @max(send_elapsed_ns, ack_elapsed_ns);
         // §4.1.2.3: "if (RS.interval < C.min_rtt) return /* no reliable rate sample */".
-        if (interval_ns < min_rtt_ns or interval_ns == 0) return null;
-        const delivered_len = delivery.delivered_len - newest.delivered_len;
-        return .{
-            .rate = rate_of(delivered_len, interval_ns),
-            .delivered_len = delivered_len,
-            .interval_ns = interval_ns,
-            .application_limited = newest.application_limited,
-        };
+        if (taken.interval_ns < min_rtt_ns or taken.interval_ns == 0) return taken;
+        taken.rate = rate_of(taken.delivered_len, taken.interval_ns);
+        return taken;
     }
 
     /// draft-ietf-ccwg-bbr-06 §4.1.2.4's `CheckIfApplicationLimited`, at an instant the sender
@@ -158,7 +192,7 @@ test "§4.1.2.3: the sample spans from the newest packet's snapshot to the ACK" 
         newest = test_send(&delivery, number, test_start_ns + number * test_millisecond_ns, number * test_datagram_len);
     }
     const ack_ns = newest.sent_at_ns + 50 * test_millisecond_ns;
-    const sample = delivery.on_ack(newest, 10 * test_datagram_len, ack_ns, 40 * test_millisecond_ns).?;
+    const sample = delivery.on_ack(newest, 10 * test_datagram_len, ack_ns, 40 * test_millisecond_ns);
     // The ACK interval, 59 ms, is longer than the send interval, 9 ms, so it bounds the rate.
     try testing.expectEqual(59 * test_millisecond_ns, sample.interval_ns);
     try testing.expectEqual(10 * test_datagram_len, sample.delivered_len);
@@ -182,7 +216,7 @@ test "§4.1.1.2.4: compressed ACKs are held at the send rate" {
         .first_sent_at_ns = test_start_ns,
         .delivered_at_ns = ack_ns - test_millisecond_ns,
     };
-    const sample = delivery.on_ack(newest, 10 * test_datagram_len, ack_ns, 0).?;
+    const sample = delivery.on_ack(newest, 10 * test_datagram_len, ack_ns, 0);
     try testing.expectEqual(100 * test_millisecond_ns, sample.interval_ns);
     try testing.expectEqual(rate_of(10 * test_datagram_len, 100 * test_millisecond_ns), sample.rate);
 }
@@ -192,9 +226,29 @@ test "§4.1.2.3: an interval shorter than min_rtt gives no sample" {
     delivery.init();
     const sent = test_send(&delivery, 0, test_start_ns, 0);
     const ack_ns = test_start_ns + 10 * test_millisecond_ns;
-    try testing.expectEqual(null, delivery.on_ack(sent, test_datagram_len, ack_ns, 20 * test_millisecond_ns));
+    try testing.expectEqual(0, delivery.on_ack(sent, test_datagram_len, ack_ns, 20 * test_millisecond_ns).rate);
     // The octets still count as delivered: only the sample is withheld.
     try testing.expectEqual(test_datagram_len, delivery.delivered_len);
+}
+
+test "§4.1.2.2: a record keeps the octets in flight with it and the octets lost before it" {
+    var delivery: Delivery = undefined;
+    delivery.init();
+    const first = test_send(&delivery, 0, test_start_ns, 0);
+    try testing.expectEqual(test_datagram_len, first.tx_in_flight_len);
+    delivery.on_lost(2 * test_datagram_len);
+    const second = test_send(&delivery, 1, test_start_ns + test_millisecond_ns, 3 * test_datagram_len);
+    try testing.expectEqual(4 * test_datagram_len, second.tx_in_flight_len);
+    try testing.expectEqual(2 * test_datagram_len, second.lost_len);
+    // §2.3's `RS.lost` counts what was lost after the newest packet went out, and `RS.rtt` runs
+    // from when it went out.
+    delivery.on_lost(test_datagram_len);
+    const ack_ns = test_start_ns + 30 * test_millisecond_ns;
+    const sample = delivery.on_ack(second, test_datagram_len, ack_ns, 0);
+    try testing.expectEqual(test_datagram_len, sample.lost_len);
+    try testing.expectEqual(4 * test_datagram_len, sample.tx_in_flight_len);
+    try testing.expectEqual(29 * test_millisecond_ns, sample.rtt_ns);
+    try testing.expectEqual(0, sample.prior_delivered_len);
 }
 
 test "§4.1.2.4: the mark of an application limit holds until its packets are delivered" {
@@ -213,11 +267,11 @@ test "§4.1.2.4: the mark of an application limit holds until its packets are de
     try testing.expect(!first.application_limited);
     // Delivering the first packet reaches the mark but does not pass it.
     const ack_ns = test_start_ns + 50 * test_millisecond_ns;
-    const sample = delivery.on_ack(first, test_datagram_len, ack_ns, 0).?;
+    const sample = delivery.on_ack(first, test_datagram_len, ack_ns, 0);
     try testing.expect(!sample.application_limited);
     try testing.expectEqual(test_datagram_len, delivery.application_limited_until);
     // Delivering the second passes it, and its sample is marked.
-    const later = delivery.on_ack(second, test_datagram_len, ack_ns + test_millisecond_ns, 0).?;
+    const later = delivery.on_ack(second, test_datagram_len, ack_ns + test_millisecond_ns, 0);
     try testing.expect(later.application_limited);
     try testing.expectEqual(0, delivery.application_limited_until);
 }
@@ -243,7 +297,7 @@ fn field(fields: *Tokens) !u64 {
 
 /// The sample `on_ack` gives for one vector line, from a record whose send interval and ACK
 /// interval are the line's. Test-only.
-fn vector_sample(delivered_len: u64, send_elapsed_ns: u64, ack_elapsed_ns: u64, min_rtt_ns: u64) ?Sample {
+fn vector_sample(delivered_len: u64, send_elapsed_ns: u64, ack_elapsed_ns: u64, min_rtt_ns: u64) Sample {
     var delivery: Delivery = undefined;
     delivery.init();
     const newest: Record = .{
@@ -258,7 +312,7 @@ fn vector_sample(delivered_len: u64, send_elapsed_ns: u64, ack_elapsed_ns: u64, 
     return delivery.on_ack(newest, delivered_len, newest.delivered_at_ns + ack_elapsed_ns, min_rtt_ns);
 }
 
-/// One `sample` line: the sample, or `none`.
+/// One `sample` line: the sample, or `none`, which the Zig gives as a rate of 0.
 fn expect_sample_line(fields: *Tokens) !void {
     const delivered_len = try field(fields);
     const send_elapsed_ns = try field(fields);
@@ -266,11 +320,10 @@ fn expect_sample_line(fields: *Tokens) !void {
     const min_rtt_ns = try field(fields);
     const taken = vector_sample(delivered_len, send_elapsed_ns, ack_elapsed_ns, min_rtt_ns);
     const first = fields.peek() orelse return error.TestVectorShort;
-    if (std.mem.eql(u8, first, "none")) return testing.expectEqual(null, taken);
-    const sample = taken orelse return error.TestExpectedSample;
-    try testing.expectEqual(try field(fields), sample.rate);
-    try testing.expectEqual(try field(fields), sample.interval_ns);
-    try testing.expectEqual(delivered_len, sample.delivered_len);
+    if (std.mem.eql(u8, first, "none")) return testing.expectEqual(0, taken.rate);
+    try testing.expectEqual(try field(fields), taken.rate);
+    try testing.expectEqual(try field(fields), taken.interval_ns);
+    try testing.expectEqual(delivered_len, taken.delivered_len);
 }
 
 /// One `mark` line: the mark a sender that ran out of data sets.

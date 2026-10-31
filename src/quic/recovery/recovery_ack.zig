@@ -47,9 +47,9 @@ pub const Outcome = struct {
     rtt_sampled: bool,
     /// What the detection pass it triggered found.
     lost: recovery_loss.Detected,
-    /// draft-ietf-ccwg-bbr-06 §4.1.2.3's rate sample, or null when the frame gave no reliable
-    /// one. CUBIC reads none (design §8 step 29a).
-    rate: ?recovery_delivery.Sample,
+    /// draft-ietf-ccwg-bbr-06 §4.1.2.3's rate sample, or null when the frame took nothing out of
+    /// flight. CUBIC reads none (design §8 step 29a).
+    sample: ?recovery_delivery.Sample,
 };
 
 /// RFC 9002 Appendix A.7's `OnAckReceived`. `used` is RFC 9002 §7.8's judgement, which only the
@@ -88,7 +88,7 @@ pub fn on_ack_received(
         .unwritten = removed.unwritten,
         .rtt_sampled = false,
         .lost = recovery_loss.Detected.none(),
-        .rate = null,
+        .sample = null,
     };
     // RFC 9002 Appendix A.7: nothing to do when the ACK named only packets already accounted for.
     if (removed.count == 0) return outcome;
@@ -96,7 +96,7 @@ pub fn on_ack_received(
     outcome.rtt_sampled = sample(held, ack, removed, now_ns);
     // draft-ietf-ccwg-bbr-06 §4.1.2.3 compares the interval with C.min_rtt, which this frame's
     // own round trip sample may just have lowered.
-    outcome.rate = held.delivery.on_ack(removed.record.?, removed.in_flight_len, now_ns, held.rtt.min_ns);
+    outcome.sample = held.delivery.on_ack(removed.record.?, removed.in_flight_len, now_ns, held.rtt.min_ns);
     process_ecn(held, kind, ack, removed, largest_is_new, now_ns);
     outcome.lost = held.detect(kind, now_ns, lost);
     grow(held, removed, used, now_ns, outcome.rtt_sampled);
@@ -305,9 +305,16 @@ test "draft-ietf-ccwg-bbr-06 §4.1.2.3: an ACK gives the rate its packets were d
     const outcome = on_ack_received(&test_recovery, .application, split_ack(), .full, at_ns, &test_acknowledged, &test_lost);
     // Packet 0 went out on an empty path, so every packet's interval starts at its instant. The
     // newest acknowledged, packet 4, recorded nothing delivered, and the ACK interval is longer.
-    const rate = outcome.rate.?;
+    const rate = outcome.sample.?;
     try testing.expectEqual(split_acknowledged * test_datagram_len, rate.delivered_len);
     try testing.expectEqual(at_ns - test_start_ns, rate.interval_ns);
     try testing.expect(!rate.application_limited);
     try testing.expectEqual(split_acknowledged * test_datagram_len, test_recovery.delivery.delivered_len);
+    // §2.3: the frame's other signals come from packet 4 too, which went out one interval before
+    // the frame, behind four packets in flight, with nothing yet lost.
+    try testing.expectEqual(0, rate.prior_delivered_len);
+    try testing.expectEqual(split_acknowledged * test_datagram_len, rate.acknowledged_len);
+    try testing.expectEqual(test_interval_ns, rate.rtt_ns);
+    try testing.expectEqual((split_largest + 1) * test_datagram_len, rate.tx_in_flight_len);
+    try testing.expectEqual(0, rate.lost_len);
 }
