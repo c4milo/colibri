@@ -3,6 +3,7 @@
 const constants = @import("../../constants.zig");
 const recovery_delivery = @import("../recovery_delivery.zig");
 const recovery_bbr = @import("recovery_bbr.zig");
+const recovery_sent = @import("../recovery_sent.zig");
 
 const Bbr = recovery_bbr.Bbr;
 const Path = recovery_bbr.Path;
@@ -35,11 +36,14 @@ pub const Driver = struct {
     now_ns: u64,
     /// `C.is_cwnd_limited` for every ACK frame.
     window_limited: bool,
+    /// `InLossRecovery()` for every ACK frame and loss.
+    in_recovery: bool,
 
     pub fn init(driver: *Driver) void {
         driver.now_ns = test_start_ns;
         driver.delivered_len = 0;
         driver.window_limited = false;
+        driver.in_recovery = false;
         driver.delivery.init();
         driver.state.init(test_start_ns, test_initial_window_len, test_waits);
     }
@@ -50,7 +54,7 @@ pub const Driver = struct {
             .in_flight_len = in_flight_len,
             .delivered_len = driver.delivered_len,
             .window_limited = driver.window_limited,
-            .in_recovery = false,
+            .in_recovery = driver.in_recovery,
             .datagram_len = test_datagram_len,
             .initial_window_len = test_initial_window_len,
             .send_quantum_len = test_send_quantum_len,
@@ -94,5 +98,21 @@ pub const Driver = struct {
     pub fn reach_probe_bw(driver: *Driver) void {
         driver.fill_pipe();
         driver.ack(test_round_trip_ns, test_rate, 0);
+    }
+
+    /// RFC 9002 §6.1 declares lost a datagram of the application space numbered `number`, sent
+    /// with `tx_in_flight_len` octets in flight and `lost_before_len` octets lost before it.
+    pub fn lose(driver: *Driver, number: u64, tx_in_flight_len: u64, lost_before_len: u64) void {
+        driver.delivery.on_lost(test_datagram_len);
+        const record: recovery_sent.Record = .{
+            .number = number,
+            .sent_at_ns = driver.now_ns,
+            .sent_len = test_datagram_len,
+            .ack_eliciting = true,
+            .in_flight = true,
+            .tx_in_flight_len = tx_in_flight_len,
+            .lost_len = lost_before_len,
+        };
+        driver.state.on_packet_lost(record, driver.delivery.lost_len, true, driver.path(tx_in_flight_len));
     }
 };

@@ -3,7 +3,8 @@
 //!
 //! Startup doubles the sending rate each round trip until three rounds in a row fail to raise
 //! the delivery rate by a quarter. The pipe is then full, and Drain paces at half the rate until
-//! the queue that Startup built is gone. 29b.3 adds Startup's exit on high loss (§5.3.1.3).
+//! the queue that Startup built is gone. `recovery_bbr_loss.zig` ends Startup on high loss too
+//! (§5.3.1.3).
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../../constants.zig");
@@ -48,13 +49,13 @@ pub fn check_full_bw_reached(state: *Bbr, sample: Sample) void {
     assert(state.full_bw_count <= bbr.full_bw_rounds);
 }
 
-/// §5.3.1.1's `CheckStartupDone`. 29b.3 adds `CheckStartupHighLoss` before it.
+/// §5.3.1.1's `CheckStartupDone`, after `recovery_bbr_loss.check_startup_high_loss`.
 pub fn check_startup_done(state: *Bbr) void {
     if (state.state == .startup and state.full_bw_reached) enter_drain(state);
 }
 
 /// §5.3.2's `EnterDrain`.
-fn enter_drain(state: *Bbr) void {
+pub fn enter_drain(state: *Bbr) void {
     state.state = .drain;
     state.pacing_gain = bbr.drain_pacing_gain;
     state.cwnd_gain = bbr.default_cwnd_gain;

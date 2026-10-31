@@ -9,9 +9,9 @@
 //! - `recovery_bbr_probe_rtt.zig`: ProbeRTT and the restart after an idle period (§5.3.4, §5.4).
 //! - `recovery_bbr_inflight.zig`: the volumes they compare with the octets in flight (§5.6.4).
 //! - `recovery_bbr_wait.zig`: the draws of each bandwidth probe wait (decision 136).
+//! - `recovery_bbr_loss.zig`: the short-term model and the response to loss (§5.5.10, §5.5.11).
 //!
-//! 29b.3 adds the short-term model and the response to each lost packet, and 29b.4 the pacing
-//! rate, the send quantum and the window. Every instant is a parameter (non-negotiable 3), and
+//! 29b.4 adds the pacing rate, the send quantum and the window. Every instant is a parameter (non-negotiable 3), and
 //! every gain is a count of hundredths (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -21,6 +21,8 @@ const recovery_bbr_model = @import("recovery_bbr_model.zig");
 const recovery_bbr_startup = @import("recovery_bbr_startup.zig");
 const recovery_bbr_probe_bw = @import("recovery_bbr_probe_bw.zig");
 const recovery_bbr_probe_rtt = @import("recovery_bbr_probe_rtt.zig");
+const recovery_bbr_loss = @import("recovery_bbr_loss.zig");
+const recovery_sent = @import("../recovery_sent.zig");
 
 const bbr = constants.recovery.bbr;
 const Sample = recovery_delivery.Sample;
@@ -74,8 +76,29 @@ pub const Bbr = struct {
     /// §2.5's `BBR.pacing_gain` and §2.6's `BBR.cwnd_gain`, in hundredths.
     pacing_gain: u64,
     cwnd_gain: u64,
-    /// §5.5.10.3's `BBR.bw`, octets a second. 29b.3 bounds it by the short-term model.
+    /// §5.5.10.3's `BBR.bw`, octets a second: `BBR.max_bw`, bounded by the short-term model.
     bw: u64,
+    /// §2.10 and §5.5.10.3: the short-term model, which loss outside a probe lowers, and the
+    /// latest round's delivery it lowers toward.
+    bw_shortterm: u64,
+    inflight_shortterm_len: u64,
+    bw_latest: u64,
+    inflight_latest_len: u64,
+    loss_round_delivered_len: u64,
+    loss_round_start: bool,
+    is_loss_in_round: bool,
+    /// §2.15: what §5.5.11 restores after a spurious loss episode. Null is the draft's None.
+    undo_state: ?State,
+    undo_bw_shortterm: u64,
+    undo_inflight_shortterm_len: u64,
+    undo_inflight_longterm_len: u64,
+    /// §5.3.1.3's counts of the round in progress: octets acknowledged and lost, lost ranges and
+    /// the last lost packet number, and the round RFC 9002's recovery period started in.
+    round_acknowledged_len: u64,
+    round_lost_len: u64,
+    round_lost_ranges: u8,
+    last_lost_number: ?u64,
+    recovery_start_round: ?u64,
     /// `C.cwnd`, which ProbeRTT saves and restores (§5.6.4.4) and 29b.4 sets.
     window_len: u64,
     /// §5.6.4.4's `BBR.prior_cwnd`.
@@ -119,6 +142,22 @@ pub const Bbr = struct {
             .pacing_gain = bbr.startup_pacing_gain,
             .cwnd_gain = bbr.default_cwnd_gain,
             .bw = 0,
+            .bw_shortterm = unbounded_len,
+            .inflight_shortterm_len = unbounded_len,
+            .bw_latest = 0,
+            .inflight_latest_len = 0,
+            .loss_round_delivered_len = 0,
+            .loss_round_start = false,
+            .is_loss_in_round = false,
+            .undo_state = null,
+            .undo_bw_shortterm = 0,
+            .undo_inflight_shortterm_len = 0,
+            .undo_inflight_longterm_len = 0,
+            .round_acknowledged_len = 0,
+            .round_lost_len = 0,
+            .round_lost_ranges = 0,
+            .last_lost_number = null,
+            .recovery_start_round = null,
             .window_len = initial_window_len,
             .prior_window_len = 0,
             .full_bw = 0,
@@ -147,24 +186,44 @@ pub const Bbr = struct {
         recovery_bbr_startup.enter_startup(state);
     }
 
-    /// §5.2.3's `UpdateModelAndState`, on an ACK frame that took packets out of flight, without
-    /// the steps 29b.3 adds. `delivery` is the connection's, which ProbeRTT marks.
+    /// §5.2.3's `UpdateModelAndState`, on an ACK frame that took packets out of flight.
+    /// `delivery` is the connection's, which ProbeRTT marks.
     pub fn on_ack(state: *Bbr, sample: Sample, path: Path, delivery: *recovery_delivery.Delivery) void {
         assert(path.datagram_len > 0);
-        // §5.5.10's `UpdateCongestionSignals` starts with `UpdateMaxBw`, which runs `UpdateRound`.
+        recovery_bbr_loss.update_latest_delivery_signals(state, sample);
+        state.round_acknowledged_len +|= sample.acknowledged_len;
+        // §5.5.10.3's `UpdateCongestionSignals` starts with `UpdateMaxBw`, which runs `UpdateRound`.
         state.model.update_max_bw(sample);
         // §5.5.1: "BBR.rounds_since_probe_up++" when a round starts.
         if (state.model.round_start) state.rounds_since_probe_up +|= 1;
+        recovery_bbr_loss.update_congestion_signals(state);
         state.model.update_ack_aggregation(sample, path.now_ns, state.bw, state.window_len, state.full_bw_reached);
         recovery_bbr_startup.check_full_bw_reached(state, sample);
+        recovery_bbr_loss.check_startup_high_loss(state, path);
         recovery_bbr_startup.check_startup_done(state);
         recovery_bbr_startup.check_drain_done(state, path);
         recovery_bbr_probe_bw.update_cycle_phase(state, sample, path);
         state.model.update_min_rtt(sample.rtt_ns, path.now_ns);
         recovery_bbr_probe_rtt.check(state, sample, path, delivery);
-        // §5.5.10.3's `BoundBWForModel`, until 29b.3 adds `BBR.bw_shortterm`.
-        state.bw = state.model.max_bw;
+        recovery_bbr_loss.advance_latest_delivery_signals(state, sample);
+        // §5.5.10.3's `BoundBWForModel`.
+        state.bw = @min(state.model.max_bw, state.bw_shortterm);
         assert(state.bw <= state.model.max_bw);
+    }
+
+    /// §5.2.4: RFC 9002 §6.1 declared `lost` lost. `lost_len` is `C.lost`, which counts it.
+    pub fn on_packet_lost(state: *Bbr, lost: recovery_sent.Record, lost_len: u64, application: bool, path: Path) void {
+        recovery_bbr_loss.on_packet_lost(state, lost, lost_len, application, path);
+    }
+
+    /// §5.6.4.4's `OnEnterFastRecovery`: RFC 9002's recovery period started.
+    pub fn on_enter_recovery(state: *Bbr, path: Path) void {
+        recovery_bbr_loss.on_enter_recovery(state, path);
+    }
+
+    /// §5.2.5: `recovery_spurious.zig` found the loss episode spurious.
+    pub fn on_spurious_loss(state: *Bbr, path: Path) void {
+        recovery_bbr_loss.on_spurious_loss(state, path);
     }
 
     /// §5.2.2's `OnTransmit`: §5.4's `HandleRestartFromIdle`, before a packet goes out.
@@ -185,4 +244,5 @@ test {
     _ = @import("recovery_bbr_test.zig");
     _ = @import("recovery_bbr_vectors_test.zig");
     _ = @import("recovery_bbr_probe_test.zig");
+    _ = @import("recovery_bbr_loss_test.zig");
 }

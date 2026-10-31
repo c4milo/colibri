@@ -11,6 +11,7 @@ const constants = @import("../../constants.zig");
 const recovery_delivery = @import("../recovery_delivery.zig");
 const recovery_bbr = @import("recovery_bbr.zig");
 const recovery_bbr_inflight = @import("recovery_bbr_inflight.zig");
+const recovery_bbr_loss = @import("recovery_bbr_loss.zig");
 const recovery_bbr_probe_bw = @import("recovery_bbr_probe_bw.zig");
 const recovery_bbr_startup = @import("recovery_bbr_startup.zig");
 
@@ -23,7 +24,7 @@ const bbr = constants.recovery.bbr;
 pub fn check(state: *Bbr, sample: Sample, path: Path, delivery: *recovery_delivery.Delivery) void {
     if (state.state != .probe_rtt and state.model.probe_rtt_expired and !state.idle_restart) {
         enter(state);
-        save_window(state, path);
+        recovery_bbr_loss.save_window(state, path);
         state.probe_rtt_done_at_ns = 0;
         state.ack_phase = .probe_stopping;
         state.model.start_round(path.delivered_len);
@@ -37,21 +38,6 @@ fn enter(state: *Bbr) void {
     state.state = .probe_rtt;
     state.pacing_gain = bbr.probe_rtt_pacing_gain;
     state.cwnd_gain = bbr.probe_rtt_cwnd_gain;
-}
-
-/// §5.6.4.4's `SaveCwnd`. In recovery or in ProbeRTT the window is already reduced, so the
-/// larger of the two is kept.
-fn save_window(state: *Bbr, path: Path) void {
-    if (!path.in_recovery and state.state != .probe_rtt) {
-        state.prior_window_len = state.window_len;
-    } else {
-        state.prior_window_len = @max(state.prior_window_len, state.window_len);
-    }
-}
-
-/// §5.6.4.4's `RestoreCwnd`.
-fn restore_window(state: *Bbr) void {
-    state.window_len = @max(state.window_len, state.prior_window_len);
 }
 
 /// §5.3.4.3's `HandleProbeRTT`.
@@ -74,13 +60,14 @@ fn check_done(state: *Bbr, path: Path) void {
     if (state.probe_rtt_done_at_ns == 0 or path.now_ns <= state.probe_rtt_done_at_ns) return;
     // "schedule next ProbeRTT".
     state.model.probe_rtt_min_at_ns = path.now_ns;
-    restore_window(state);
+    recovery_bbr_loss.restore_window(state);
     exit(state, path);
     assert(state.state != .probe_rtt);
 }
 
-/// §5.3.4.4's `ExitProbeRTT`. 29b.3 adds `ResetShortTermModel`.
+/// §5.3.4.4's `ExitProbeRTT`.
 fn exit(state: *Bbr, path: Path) void {
+    recovery_bbr_loss.reset_short_term_model(state);
     if (state.full_bw_reached) {
         recovery_bbr_probe_bw.start_down(state, path);
         recovery_bbr_probe_bw.start_cruise(state);

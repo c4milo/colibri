@@ -107,6 +107,12 @@ pub const crypto_send_buffer_len: usize = 16 * 1024;
 /// giving them a smaller table of their own is a change design §11 would have to measure first.
 pub const sent_packets_max: usize = 256;
 
+/// Packet numbers of the application space that one loss episode may declare lost and still be
+/// found spurious (draft-ietf-ccwg-bbr-06 §5.5.11, the owner's ruling of 2026-10-31, design §8
+/// step 29b.3). RFC 9002 detects no spurious loss, so the bound is colibri's. An episode that
+/// declares more is never undone.
+pub const spurious_loss_numbers_max: usize = 32;
+
 /// STREAM frames one application-level packet carries at most (decision 131).
 pub const stream_frames_per_packet_max: usize = 16;
 
@@ -131,6 +137,8 @@ pub const comptime_scan_branches_per_octet: u32 = 4;
 
 comptime {
     assert(coalesced_packets_max > 0);
+    // `recovery_spurious.zig` marks each number acknowledged in one bit of a `u32`.
+    assert(spurious_loss_numbers_max > 0 and spurious_loss_numbers_max <= 32);
     assert(frames_per_packet_max > 0);
     // A record counts its extra ranges in a `u8`, the ring wraps in a `u32`, and every range in
     // flight may be lost at once.
@@ -164,4 +172,5 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(768, stream_lost_ranges_max);
     try expectEqual(16, probe_timeout_backoff_max);
     try expectEqual(4, comptime_scan_branches_per_octet);
+    try expectEqual(32, spurious_loss_numbers_max);
 }

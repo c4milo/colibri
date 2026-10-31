@@ -25,6 +25,7 @@ const recovery_sent = @import("recovery_sent.zig");
 const recovery_timer = @import("recovery_timer.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
+const recovery_spurious = @import("recovery_spurious.zig");
 
 const Congestion = recovery_congestion.Congestion;
 const Kind = space.Kind;
@@ -74,6 +75,9 @@ pub const Recovery = struct {
     /// draft-ietf-ccwg-bbr-06 §4.1's delivery rate samples, over the three spaces. CUBIC reads
     /// none of it (design §8 step 29a).
     delivery: recovery_delivery.Delivery,
+    /// The packets the loss episode declared lost, which show it spurious once acknowledged
+    /// (draft-ietf-ccwg-bbr-06 §5.5.11).
+    spurious: recovery_spurious.Spurious,
 
     pub fn init(recovery: *Recovery, max_datagram_len: u64) void {
         recovery.rtt.init();
@@ -85,6 +89,7 @@ pub const Recovery = struct {
         for (&recovery.ecn) |*state| state.init();
         recovery.ecn_path.init();
         recovery.delivery.init();
+        recovery.spurious.init();
     }
 
     /// RFC 9000 §9.4: the peer's new address is validated, so the congestion controller and the
@@ -213,6 +218,9 @@ pub const Recovery = struct {
             lost,
         );
         recovery.after_loss(kind, found, now_ns);
+        // §5.5.11: the episode the congestion event above started or continued keeps the numbers.
+        for (lost[0..found.written]) |record| recovery.spurious.on_lost(kind == .application, record.number);
+        if (found.unwritten > 0) recovery.spurious.on_unnamed_loss();
         return found;
     }
 
@@ -268,7 +276,7 @@ pub const Recovery = struct {
         recovery.delivery.on_lost(found.in_flight_len);
         // RFC 9002 Appendix B.8: losing packets that were in flight is a congestion event.
         const sent_at_ns = found.latest_sent_at_ns orelse return;
-        recovery.congestion.on_congestion_event(sent_at_ns, now_ns);
+        recovery_spurious.on_congestion_event(&recovery.congestion, &recovery.spurious, sent_at_ns, now_ns);
         // RFC 9002 §7.6: and a long enough span of it is persistent congestion, which puts the
         // window back to the minimum.
         if (found.is_persistent_congestion(recovery.rtt.persistent_congestion_ns())) {

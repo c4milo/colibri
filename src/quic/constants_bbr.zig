@@ -50,6 +50,15 @@ pub const drain_rounds: u64 = 3;
 pub const loss_threshold: u64 = 2;
 pub const headroom: u64 = 15;
 
+/// §2.8: `BBR.Beta`, 0.7: what each round with loss scales the short-term model by.
+pub const beta: u64 = 70;
+
+/// §5.3.1.3: `BBRStartupFullLossCnt`, the lost ranges a round must hold before Startup ends on
+/// loss, and the rounds of loss recovery it waits first: the round the recovery started in, and
+/// one full round after it.
+pub const startup_full_loss_ranges: u8 = 6;
+pub const startup_recovery_rounds: u64 = 2;
+
 /// §2.8: `BBR.MinPipeCwnd`, in maximum datagrams.
 pub const min_pipe_cwnd_datagrams: u64 = 4;
 
@@ -92,5 +101,5 @@ comptime {
     // §2.5: "any value at or below 1 / BBRStartupCwndGain" drains the queue.
     assert(drain_pacing_gain * default_cwnd_gain <= gain_denominator * gain_denominator);
     assert(probe_wait_min_ns + probe_wait_spread_ns < min_rtt_filter_len_ns);
-    assert(loss_threshold < gain_denominator and headroom < gain_denominator);
+    assert(loss_threshold < gain_denominator and headroom < gain_denominator and beta < gain_denominator);
 }

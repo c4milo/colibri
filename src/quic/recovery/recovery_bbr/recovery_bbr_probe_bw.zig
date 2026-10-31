@@ -10,6 +10,7 @@ const constants = @import("../../constants.zig");
 const recovery_delivery = @import("../recovery_delivery.zig");
 const recovery_bbr = @import("recovery_bbr.zig");
 const recovery_bbr_inflight = @import("recovery_bbr_inflight.zig");
+const recovery_bbr_loss = @import("recovery_bbr_loss.zig");
 const recovery_bbr_startup = @import("recovery_bbr_startup.zig");
 const recovery_bbr_wait = @import("recovery_bbr_wait.zig");
 
@@ -25,8 +26,9 @@ pub fn enter(state: *Bbr, path: Path) void {
     start_down(state, path);
 }
 
-/// §5.3.3.9's `StartProbeBW_DOWN`. 29b.3 adds `ResetCongestionSignals`.
+/// §5.3.3.9's `StartProbeBW_DOWN`.
 pub fn start_down(state: *Bbr, path: Path) void {
+    recovery_bbr_loss.reset_congestion_signals(state);
     state.probe_up_acked_per_increase_len = unbounded_len;
     pick_probe_wait(state);
     state.cycle_start_ns = path.now_ns;
@@ -44,8 +46,9 @@ pub fn start_cruise(state: *Bbr) void {
     state.cwnd_gain = bbr.default_cwnd_gain;
 }
 
-/// §5.3.3.9's `StartProbeBW_REFILL`. 29b.3 adds `ResetShortTermModel`.
+/// §5.3.3.9's `StartProbeBW_REFILL`.
 pub fn start_refill(state: *Bbr, path: Path) void {
+    recovery_bbr_loss.reset_short_term_model(state);
     state.bw_probe_up_rounds = 0;
     state.bw_probe_up_acked_len = 0;
     state.prev_probe_precautionary = false;

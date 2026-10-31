@@ -19,6 +19,7 @@ const recovery_loss = @import("recovery_loss.zig");
 const recovery_sent = @import("recovery_sent.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
+const recovery_spurious = @import("recovery_spurious.zig");
 
 const Kind = space.Kind;
 const Record = recovery_sent.Record;
@@ -50,6 +51,9 @@ pub const Outcome = struct {
     /// draft-ietf-ccwg-bbr-06 §4.1.2.3's rate sample, or null when the frame took nothing out of
     /// flight. CUBIC reads none (design §8 step 29a).
     sample: ?recovery_delivery.Sample,
+    /// Whether the frame acknowledged the last of the packets the loss episode declared lost, so
+    /// the episode was spurious (draft-ietf-ccwg-bbr-06 §5.5.11). CUBIC reads none.
+    spurious: bool,
 };
 
 /// RFC 9002 Appendix A.7's `OnAckReceived`. `used` is RFC 9002 §7.8's judgement, which only the
@@ -89,7 +93,11 @@ pub fn on_ack_received(
         .rtt_sampled = false,
         .lost = recovery_loss.Detected.none(),
         .sample = null,
+        .spurious = false,
     };
+    // draft-ietf-ccwg-bbr-06 §5.5.11: a lost packet has left the table, so the frame's ranges are
+    // read for it even when they took nothing out.
+    outcome.spurious = kind == .application and acknowledges_lost(held, ack);
     // RFC 9002 Appendix A.7: nothing to do when the ACK named only packets already accounted for.
     if (removed.count == 0) return outcome;
 
@@ -108,6 +116,17 @@ pub fn on_ack_received(
     // RFC 9002 Appendix A.7 ends with `SetLossDetectionTimer`.
     held.timer.armed_at_ns = now_ns;
     return outcome;
+}
+
+/// Whether the frame's ranges acknowledge the last of the packets the loss episode declared lost.
+fn acknowledges_lost(held: *Recovery, ack: Ack) bool {
+    if (held.spurious.count == 0) return false;
+    var walk = ack.ranges.iterator();
+    // Bounded: RFC 9000 §19.3's ranges are bounded by the frame's own ACK Range Count.
+    while (walk.next()) |range| {
+        if (held.spurious.on_acknowledged(range.smallest, range.largest)) return true;
+    }
+    return false;
 }
 
 /// Takes every number the frame named out of the space's table, and writes their records into
@@ -186,7 +205,7 @@ fn process_ecn(
     const rose = counts.ecn_ce > state.reported.ecn_ce;
     state.accept(counts);
     if (!rose) return;
-    held.congestion.on_congestion_event(removed.largest_sent_at_ns, now_ns);
+    recovery_spurious.on_congestion_event(&held.congestion, &held.spurious, removed.largest_sent_at_ns, now_ns);
 }
 
 /// RFC 9002 Appendix B.5's `OnPacketsAcked`, over what this frame took out of flight.
@@ -317,4 +336,52 @@ test "draft-ietf-ccwg-bbr-06 §4.1.2.3: an ACK gives the rate its packets were d
     try testing.expectEqual(test_interval_ns, rate.rtt_ns);
     try testing.expectEqual((split_largest + 1) * test_datagram_len, rate.tx_in_flight_len);
     try testing.expectEqual(0, rate.lost_len);
+}
+
+/// An ACK frame of one range, `smallest` to `largest`. Test-only.
+fn test_range_ack(smallest: u64, largest: u64) Ack {
+    const ranges: frame_ack.AckRanges = .{
+        .largest_acknowledged = largest,
+        .first_range = largest - smallest,
+        .octets = &.{},
+        .count = 0,
+    };
+    return .{ .ranges = ranges, .delay_ns = 0, .ecn = null };
+}
+
+test "draft-ietf-ccwg-bbr-06 §5.5.11: an ACK of every packet the episode lost shows it spurious" {
+    test_recovery.init(test_datagram_len);
+    try send_numbered(split_largest + 1);
+    const at_ns = test_start_ns + test_interval_ns * (split_largest + 1);
+    // RFC 9002 §6.1: packet 4 alone declares 0 to 3 lost. Its round trip is one interval, and
+    // each of them went out more than 9/8 of it before the frame.
+    const first = on_ack_received(&test_recovery, .application, test_range_ack(split_largest, split_largest), .full, at_ns, &test_acknowledged, &test_lost);
+    try testing.expectEqual(split_largest, first.lost.count);
+    try testing.expect(!first.spurious);
+    // The packets arrived after all: a frame that names them takes nothing out, and shows it.
+    const some = on_ack_received(&test_recovery, .application, test_range_ack(0, 1), .full, at_ns + 1, &test_acknowledged, &test_lost);
+    try testing.expect(!some.spurious);
+    const late = on_ack_received(&test_recovery, .application, test_range_ack(2, 3), .full, at_ns + 2, &test_acknowledged, &test_lost);
+    try testing.expectEqual(0, late.acknowledged);
+    try testing.expect(late.spurious);
+}
+
+test "draft-ietf-ccwg-bbr-06 §5.5.11: every range of the frame is read for lost packets" {
+    test_recovery.init(test_datagram_len);
+    try send_numbered(split_largest + 1);
+    const at_ns = test_start_ns + test_interval_ns * (split_largest + 1);
+    _ = on_ack_received(&test_recovery, .application, test_range_ack(split_largest, split_largest), .full, at_ns, &test_acknowledged, &test_lost);
+    try testing.expect(!on_ack_received(&test_recovery, .application, test_range_ack(2, 2), .full, at_ns + 1, &test_acknowledged, &test_lost).spurious);
+    // The split frame names 3 and 4 in its first range and 0 and 1 in its second.
+    try testing.expect(on_ack_received(&test_recovery, .application, split_ack(), .full, at_ns + 2, &test_acknowledged, &test_lost).spurious);
+}
+
+test "draft-ietf-ccwg-bbr-06 §5.5.11: losses that did not fit the caller's slice keep the episode" {
+    test_recovery.init(test_datagram_len);
+    try send_numbered(split_largest + 1);
+    const at_ns = test_start_ns + test_interval_ns * (split_largest + 1);
+    // A slice of one record: three of the four lost go unnamed.
+    const outcome = on_ack_received(&test_recovery, .application, test_range_ack(split_largest, split_largest), .full, at_ns, &test_acknowledged, test_lost[0..1]);
+    try testing.expectEqual(split_largest - 1, outcome.lost.unwritten);
+    try testing.expect(!on_ack_received(&test_recovery, .application, test_range_ack(0, 3), .full, at_ns + 1, &test_acknowledged, &test_lost).spurious);
 }

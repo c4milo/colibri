@@ -11851,6 +11851,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         declares more is never undone, and the next episode replaces the list.
       - The undo of §5.5.11 is BBRv3's alone. CUBIC's, which RFC 9438 §4.9.2 permits, is not
         part of step 29.
+    - The owner ruled on 2026-10-31, for 29b.3:
+      - §5.3.1.3's loss rate is the octets lost in a round over the octets delivered and lost
+        in it.
+      - §5.3.1.3's lost range is a run of consecutive lost packet numbers.
+      - The list of lost packet numbers holds the application space's alone. A loss in the
+        Initial or Handshake space makes its episode one that is never undone.
+      - BBR saves its undo state as the draft's pseudocode does: when a loss episode starts
+        (§5.6.4.4) and at the first loss of each round (§5.5.10.2's `NoteLoss`).
     - **29b.1, the model of the path, 2026-10-30.** `recovery_bbr_model.zig` keeps §5.5.1's round
       count, §5.5.5's BBR.max_bw, §5.3.4.3's BBR.min_rtt and §5.5.9's BBR.extra_acked. Nothing
       calls it before 29b.4, so no census moves.
@@ -11922,6 +11930,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         - the larger saved window and its restore;
         - the doubled slope and the growth of `BBR.inflight_longterm`;
         - ProbeRTT's pacing gain.
+    - **29b.3, the model upon loss, 2026-10-31.** `recovery_bbr/recovery_bbr_loss.zig` holds
+      §5.5.10's short-term model and its response to each lost packet, §5.3.1.3's end of
+      Startup on high loss, and §5.5.11's undo. `recovery_spurious.zig` finds a spurious loss
+      episode, and `recovery_ack.Outcome.spurious` reports it. Nothing calls `Bbr` before 29b.4.
+      - An episode is RFC 9002's recovery period. `recovery_spurious.on_congestion_event` starts
+        one for both of `Recovery`'s congestion events, a loss and a rise in the ECN-CE count.
+      - A frame that acknowledges only lost packets takes nothing out of the sent table, so the
+        frame's ranges are read for the list before RFC 9002's early return.
+      - Once an episode is found spurious, it is over. TLC found that the first version emptied
+        the list, so a later loss in the same recovery period could make the episode spurious
+        twice.
+      - §5.3.1.3 says "at least one full packet-timed round trip" of recovery. Recovery that
+        starts in round R has a full round once round R + 2 starts, so the check waits for it.
+      - §5.5.10.2's `lost_prefix` is negative when the losses before the lost packet already
+        crossed 2%. `inflight_at_loss` takes it in signed arithmetic and holds the answer at 0.
+      - `spec/lean/Colibri/Quic/BbrLoss.lean` proves that the crossing `InflightAtLoss` finds is
+        never past the lost packet and never below 0. It also proves that a round with loss lowers
+        each short-term bound to at least the round's delivery and 0.7 of the bound, and never
+        above the larger of the two.
+        `src/quic/recovery/recovery_bbr/bbr_loss_vectors.txt` holds 74 lines of its answers, and
+        a Zig test reads them.
+      - `zig build tla` on `spec/tla/spurious_loss`, 4 packets and a list of 2: an episode is found
+        spurious only when every packet it declared lost was delivered and acknowledged, and at
+        most once. The properties hold over 38,994 distinct states, and its four mutants are
+        violated.
+      - The list grew `quic.Connection` from 207,656 to 207,920 octets.
+      - Mutations, against `zig build test-quic`, 43 of 43 CAUGHT. They cover each rule of the
+        short-term model, of each lost packet, of Startup's exit on high loss and of the undo, and
+        each rule of the detector. Seven were NOT CAUGHT at first, and a test now guards each of
+        them:
+        - the latest rate started again each round;
+        - `RS.lost` counted from the lost packet's send;
+        - Startup's exit only inside recovery;
+        - the bound after high loss at least the round's delivery;
+        - ProbeRTT's end resetting the short-term model;
+        - losses the caller's slice could not hold;
+        - a frame's second range read for lost packets.
   - **29c, the configuration and the measurement.** `quic.CongestionController`,
     `congestion_controller` in `quic.Connection`'s options, `server.Config` and `client.Config`,
     and `bandwidth_probe_waits`, which the server and the client draw. `examples/` and
