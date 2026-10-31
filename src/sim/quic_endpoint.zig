@@ -83,6 +83,14 @@ pub const request_len: u64 = 64;
 const octet_stride: u64 = 7;
 const octet_seed: u64 = 0x2b;
 
+/// The congestion controller an endpoint's connection runs, and the value BBRv3 draws its probe
+/// waits from (decision 136). The QUIC connection check runs each controller (design §8 step
+/// 29b.4).
+pub const Congestion = struct {
+    controller: quic.CongestionController = .cubic,
+    bandwidth_probe_waits: u64 = 0,
+};
+
 pub const Endpoint = struct {
     connection: Connection,
     provider: sim.NullQuicProvider,
@@ -120,12 +128,13 @@ pub const Endpoint = struct {
     /// An endpoint of `role` that starts in `version`, whose connection writes its qlog events
     /// into `log`, or none. A server starts in the version of the client's first flight (RFC 9368
     /// §2), so both endpoints of a run are given the same one.
-    pub fn init(endpoint: *Endpoint, role: Role, version: Version, now_ns: u64, log: ?*quic.qlog.Log) void {
-        endpoint.init_with(role, version, now_ns, parameters(), log);
+    /// `congestion` names its controller (decision 136).
+    pub fn init(endpoint: *Endpoint, role: Role, version: Version, now_ns: u64, log: ?*quic.qlog.Log, congestion: Congestion) void {
+        endpoint.init_with(role, version, now_ns, parameters(), log, congestion);
     }
 
     /// `init` with the transport parameters an application protocol needs (RFC 9000 §18.2).
-    pub fn init_with(endpoint: *Endpoint, role: Role, version: Version, now_ns: u64, local_parameters: Parameters, log: ?*quic.qlog.Log) void {
+    pub fn init_with(endpoint: *Endpoint, role: Role, version: Version, now_ns: u64, local_parameters: Parameters, log: ?*quic.qlog.Log, congestion: Congestion) void {
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
         endpoint.connection.init(.{
             .role = role,
@@ -140,6 +149,8 @@ pub const Endpoint = struct {
             // Decision 72: where the peer is before the network rebinds anything.
             .peer_address = peer_address(if (role == .client) sim.network.server_address else sim.network.client_address_initial),
             .qlog = log,
+            .congestion_controller = congestion.controller,
+            .bandwidth_probe_waits = congestion.bandwidth_probe_waits,
         });
         endpoint.provider = .{
             .role = role,

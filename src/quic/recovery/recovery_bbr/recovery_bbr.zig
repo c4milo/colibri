@@ -10,8 +10,9 @@
 //! - `recovery_bbr_inflight.zig`: the volumes they compare with the octets in flight (§5.6.4).
 //! - `recovery_bbr_wait.zig`: the draws of each bandwidth probe wait (decision 136).
 //! - `recovery_bbr_loss.zig`: the short-term model and the response to loss (§5.5.10, §5.5.11).
+//! - `recovery_bbr_control.zig`: the pacing rate, the send quantum and the window (§5.6).
 //!
-//! 29b.4 adds the pacing rate, the send quantum and the window. Every instant is a parameter (non-negotiable 3), and
+//! `recovery_congestion_bbr.zig` calls it from `Recovery`. Every instant is a parameter (non-negotiable 3), and
 //! every gain is a count of hundredths (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -22,6 +23,7 @@ const recovery_bbr_startup = @import("recovery_bbr_startup.zig");
 const recovery_bbr_probe_bw = @import("recovery_bbr_probe_bw.zig");
 const recovery_bbr_probe_rtt = @import("recovery_bbr_probe_rtt.zig");
 const recovery_bbr_loss = @import("recovery_bbr_loss.zig");
+const recovery_bbr_control = @import("recovery_bbr_control.zig");
 const recovery_sent = @import("../recovery_sent.zig");
 
 const bbr = constants.recovery.bbr;
@@ -99,8 +101,14 @@ pub const Bbr = struct {
     round_lost_ranges: u8,
     last_lost_number: ?u64,
     recovery_start_round: ?u64,
-    /// `C.cwnd`, which ProbeRTT saves and restores (§5.6.4.4) and 29b.4 sets.
+    /// `C.cwnd`, which `recovery_bbr_control.set_window` sets and `Congestion.window` mirrors.
     window_len: u64,
+    /// §5.6.2's `C.pacing_rate`, octets a second, §5.6.3's `C.send_quantum`, §5.6.4.2's
+    /// `BBR.max_inflight`, and whether a round trip sample has set the pacing rate again.
+    pacing_rate: u64,
+    send_quantum_len: u64,
+    max_inflight_len: u64,
+    has_seen_rtt: bool,
     /// §5.6.4.4's `BBR.prior_cwnd`.
     prior_window_len: u64,
     /// §2.13 and §5.3.1.2: the estimate of a full pipe.
@@ -134,8 +142,8 @@ pub const Bbr = struct {
 
     /// §5.2.1's `OnInit`, for the states. `bandwidth_probe_waits` is the caller's draw
     /// (decision 136).
-    pub fn init(state: *Bbr, now_ns: u64, initial_window_len: u64, bandwidth_probe_waits: u64) void {
-        assert(initial_window_len > 0);
+    pub fn init(state: *Bbr, now_ns: u64, datagram_len: u64, initial_window_len: u64, bandwidth_probe_waits: u64) void {
+        assert(initial_window_len > 0 and datagram_len > 0);
         state.* = .{
             .model = undefined,
             .state = .startup,
@@ -159,6 +167,10 @@ pub const Bbr = struct {
             .last_lost_number = null,
             .recovery_start_round = null,
             .window_len = initial_window_len,
+            .pacing_rate = 0,
+            .send_quantum_len = 0,
+            .max_inflight_len = initial_window_len,
+            .has_seen_rtt = false,
             .prior_window_len = 0,
             .full_bw = 0,
             .full_bw_count = 0,
@@ -184,6 +196,8 @@ pub const Bbr = struct {
         };
         state.model.init(now_ns);
         recovery_bbr_startup.enter_startup(state);
+        recovery_bbr_control.init_pacing_rate(state, initial_window_len, null);
+        recovery_bbr_control.set_send_quantum(state, datagram_len);
     }
 
     /// §5.2.3's `UpdateModelAndState`, on an ACK frame that took packets out of flight.
@@ -221,6 +235,13 @@ pub const Bbr = struct {
         recovery_bbr_loss.on_enter_recovery(state, path);
     }
 
+    /// §5.6.4.4's `OnEnterRTO`, which RFC 9002's persistent congestion stands in for: BBR saves
+    /// its state, and RFC 9002 §7.6.2 then sets the window to the minimum (the owner's ruling of
+    /// 2026-10-31).
+    pub fn on_enter_rto(state: *Bbr, path: Path) void {
+        recovery_bbr_loss.save_state_upon_loss(state, path);
+    }
+
     /// §5.2.5: `recovery_spurious.zig` found the loss episode spurious.
     pub fn on_spurious_loss(state: *Bbr, path: Path) void {
         recovery_bbr_loss.on_spurious_loss(state, path);
@@ -228,7 +249,15 @@ pub const Bbr = struct {
 
     /// §5.2.2's `OnTransmit`: §5.4's `HandleRestartFromIdle`, before a packet goes out.
     pub fn on_transmit(state: *Bbr, path: Path, delivery: *const recovery_delivery.Delivery) void {
-        recovery_bbr_probe_rtt.handle_restart_from_idle(state, path, delivery.application_limited_until != 0);
+        if (recovery_bbr_probe_rtt.handle_restart_from_idle(state, path, delivery.application_limited_until != 0)) {
+            recovery_bbr_control.on_restart_from_idle(state);
+        }
+    }
+
+    /// §5.2.3's `UpdateControlParameters`, after `on_ack`. `smoothed_rtt_ns` is RFC 9002's
+    /// smoothed round trip once it has a sample.
+    pub fn update_controls(state: *Bbr, sample: Sample, path: Path, smoothed_rtt_ns: ?u64) void {
+        recovery_bbr_control.update(state, sample, path, smoothed_rtt_ns);
     }
 
     /// §5.3.3.9's `IsInAProbeBWState`.
@@ -245,4 +274,5 @@ test {
     _ = @import("recovery_bbr_vectors_test.zig");
     _ = @import("recovery_bbr_probe_test.zig");
     _ = @import("recovery_bbr_loss_test.zig");
+    _ = @import("recovery_bbr_control_test.zig");
 }

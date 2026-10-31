@@ -25,7 +25,7 @@ def atLoss (tx lost size : Int) : Int :=
 /-- `IsInflightTooHigh`: the octets lost are above 2% of the octets in flight. -/
 def tooHigh (tx lost : Int) : Prop := 2 * tx < 100 * lost
 
-theorem atLoss_lt (tx lost size : Int) (hsize : 0 < size) (hlost : size ≤ lost)
+theorem atLoss_lt (tx lost size : Int) (hsize : 0 < size)
     (hhigh : tooHigh tx lost) (htx : size ≤ tx) : atLoss tx lost size < tx := by
   unfold atLoss tooHigh at *
   omega

@@ -11871,6 +11871,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         Initial or Handshake space makes its episode one that is never undone.
       - BBR saves its undo state as the draft's pseudocode does: when a loss episode starts
         (§5.6.4.4) and at the first loss of each round (§5.5.10.2's `NoteLoss`).
+    - The owner ruled on 2026-10-31, for 29b.4:
+      - `Congestion` keeps RFC 9002's shared state, and a tagged union holds CUBIC's or BBRv3's
+        own, so a connection pays for one controller.
+      - On persistent congestion BBRv3's window falls to `kMinimumWindow`, as RFC 9002 §7.6.2's
+        MUST says, after BBR saves its state as §5.6.4.4's `OnEnterRTO` does. QUIC has no RTO.
+      - `quic.CongestionController` and the `congestion_controller` and `bandwidth_probe_waits`
+        options of `quic.Connection` come in 29b.4, so the simulator's QUIC checks run once
+        with each controller before the step is done. 29c keeps `server.Config`,
+        `client.Config`, the examples and the judge.
     - **29b.1, the model of the path, 2026-10-30.** `recovery_bbr_model.zig` keeps §5.5.1's round
       count, §5.5.5's BBR.max_bw, §5.3.4.3's BBR.min_rtt and §5.5.9's BBR.extra_acked. Nothing
       calls it before 29b.4, so no census moves.
@@ -11983,10 +11992,52 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         - ProbeRTT's end resetting the short-term model;
         - losses the caller's slice could not hold;
         - a frame's second range read for lost packets.
-  - **29c, the configuration and the measurement.** `quic.CongestionController`,
-    `congestion_controller` in `quic.Connection`'s options, `server.Config` and `client.Config`,
-    and `bandwidth_probe_waits`, which the server and the client draw. `examples/` and
-    docs/usage.md show the option.
+    - **29b.4, the controls, 2026-10-31.** `recovery_bbr/recovery_bbr_control.zig` sets §5.6.2's
+      pacing rate, §5.6.3's send quantum and §5.6.4's window, and `recovery_congestion_bbr.zig`
+      gives `Bbr` each event of `Recovery`. A connection whose options name `.bbr` runs BBRv3.
+      - The public names: `quic.CongestionController`, `enum { cubic, bbr }`, and the
+        `congestion_controller` and `bandwidth_probe_waits` options of `quic.Connection`. The
+        simulator's QUIC connection check needs them, and 29c's `server.Config` and
+        `client.Config` will set them.
+      - `recovery_congestion.zig` keeps RFC 9002's shared state, and `State`, a tagged union,
+        holds `recovery_congestion_cubic.Cubic` or `Bbr`. `Congestion.window` is what the sender
+        reads, and BBRv3's `window_len` is a copy that `set_window` keeps equal.
+      - The pacer's `Rate` is now octets over a period times a factor. Under CUBIC it is RFC 9002
+        §7.7's window over the smoothed round trip times 5/4, so no census moved. Under BBRv3 it is
+        the pacing rate over a second, with the send quantum as the burst.
+      - §5.6.2 starts the pacing rate from "the initial C.srtt after the first non-zero RTT
+        sample". BBR starts it over 1 ms at init, and once more at the first round trip sample.
+      - BBRv3 does not cut the window on loss. A new recovery period runs §5.6.4.4's
+        `OnEnterFastRecovery`, and each lost packet runs `HandleLostPacket`. Persistent
+        congestion comes after them, because it ends the recovery period that they save state in.
+        A test found that the other order saved the minimum window as the one to restore.
+      - RFC 9000 §9.4's reset of the path starts the chosen controller again. It comes with no
+        instant, so BBRv3 starts from the latest instant it was given.
+      - The simulator's zeroed storage holds a tagged union now, so `zeroes_around_suites` zeroes
+        a union's first field.
+      - `spec/lean/Colibri/Quic/BbrControl.lean` proves the window never below `BBR.MinPipeCwnd`
+        nor above ProbeRTT's cap or the model's, and at most `BBR.max_inflight` once the pipe is
+        full. It also proves the send quantum between 2 datagrams and 64 KB, and the pacing rate
+        never above the estimate at its gain. `src/quic/recovery/recovery_bbr/bbr_control_vectors.txt`
+        holds 254 lines of its answers, and a Zig test reads them.
+      - `quic_connection_bbr_check.zig` runs the QUIC connection check with both endpoints on
+        BBRv3: the lossy network, the dropped ACK frames, the runner's handshakeloss network and
+        both NAT rebindings. Every seed finishes with invariants 17 to 21 holding, and each census
+        is pinned, the same in Debug and in ReleaseSafe. Every census under CUBIC is unchanged.
+      - BBRv3's state grew `quic.Connection` from 207,920 to 208,288 octets.
+      - Mutations, against `zig build test-quic`, and `zig build test-sim-run-quic` for the option
+        the connection reads, 31 of 31 CAUGHT. They cover each control, each event `Recovery`
+        gives BBRv3, the copy of the window, the reset of the path, the option, and the pacer's
+        factor. Five were NOT CAUGHT at first, and a test now guards each of them:
+        - `extra_acked` in `BBR.max_inflight`;
+        - each lost packet given to BBRv3;
+        - the start of a recovery period given to it;
+        - an ACK frame inside a recovery period, which only Startup's end on loss reads;
+        - `C.is_cwnd_limited` from RFC 9002 §7.8's judgement.
+  - **29c, the configuration and the measurement.** `congestion_controller` in `server.Config`
+    and `client.Config`, and `bandwidth_probe_waits`, which the server and the client draw.
+    `examples/` and docs/usage.md show the option. 29b.4 brought `quic.CongestionController` and
+    `quic.Connection`'s two options (the owner's ruling of 2026-10-31).
     - **Check.** The simulator runs its QUIC checks with each controller. The judge's `bulk` and
       `network` inputs measure BBRv3 against CUBIC, chi and axum, and the fairness run of 13k.
       The owner then rules on the default.

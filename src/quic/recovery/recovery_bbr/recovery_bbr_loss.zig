@@ -105,7 +105,7 @@ pub fn restore_window(state: *Bbr) void {
 }
 
 /// §5.5.11.1's `SaveStateUponLoss`.
-fn save_state_upon_loss(state: *Bbr, path: Path) void {
+pub fn save_state_upon_loss(state: *Bbr, path: Path) void {
     save_window(state, path);
     state.undo_state = null;
     state.undo_bw_shortterm = state.bw_shortterm;

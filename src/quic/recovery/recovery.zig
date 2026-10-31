@@ -26,6 +26,7 @@ const recovery_timer = @import("recovery_timer.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
 const recovery_spurious = @import("recovery_spurious.zig");
+const recovery_congestion_bbr = @import("recovery_congestion_bbr.zig");
 
 const Congestion = recovery_congestion.Congestion;
 const Kind = space.Kind;
@@ -97,7 +98,7 @@ pub const Recovery = struct {
     /// of [QUIC-RECOVERY])". What the peer advertised is kept (`Rtt.reset`).
     pub fn on_path_changed(recovery: *Recovery) void {
         recovery.rtt.reset();
-        recovery.congestion.init(recovery.congestion.max_datagram_len);
+        recovery.congestion.reset();
         recovery.pacer.init(recovery.rate());
     }
 
@@ -113,11 +114,15 @@ pub const Recovery = struct {
         return total;
     }
 
-    /// What `recovery_pacing.zig` spreads over a round trip.
+    /// The rate `recovery_pacing.zig` paces at: BBRv3's pacing rate, or under CUBIC RFC 9002
+    /// §7.7's window spread over a round trip.
     pub fn rate(recovery: *const Recovery) Rate {
+        if (recovery_congestion_bbr.rate(recovery)) |bbr_rate| return bbr_rate;
         return .{
-            .window_len = recovery.congestion.window,
-            .smoothed_rtt_ns = if (recovery.rtt.has_sample()) recovery.rtt.smoothed_ns else 0,
+            .period_len = recovery.congestion.window,
+            .period_ns = if (recovery.rtt.has_sample()) recovery.rtt.smoothed_ns else 0,
+            .numerator = constants.recovery.pacing_rate_numerator,
+            .denominator = constants.recovery.pacing_rate_denominator,
             .burst_len = recovery_congestion.initial_window(recovery.congestion.max_datagram_len),
         };
     }
@@ -160,6 +165,8 @@ pub const Recovery = struct {
     /// RFC 9002 Appendix A.5's `OnPacketSent`.
     pub fn on_packet_sent(recovery: *Recovery, kind: Kind, sent: Record, now_ns: u64) Error!void {
         if (recovery.table_of(kind).is_full()) return Error.Full;
+        // draft-ietf-ccwg-bbr-06 §5.2.2: BBRv3 looks at the path before a packet joins it.
+        if (sent.in_flight) recovery_congestion_bbr.on_transmit(recovery, now_ns);
         // draft-ietf-ccwg-bbr-06 §4.1.2.2: the record keeps what was delivered when it went out.
         var snapshot = sent;
         recovery.delivery.on_packet_sent(&snapshot, recovery.in_flight_len());
@@ -221,6 +228,14 @@ pub const Recovery = struct {
         // §5.5.11: the episode the congestion event above started or continued keeps the numbers.
         for (lost[0..found.written]) |record| recovery.spurious.on_lost(kind == .application, record.number);
         if (found.unwritten > 0) recovery.spurious.on_unnamed_loss();
+        // draft-ietf-ccwg-bbr-06 §5.2.4: BBRv3 takes each lost packet inside the recovery period
+        // the losses started, so persistent congestion, which ends it, comes after.
+        recovery_congestion_bbr.on_lost(recovery, kind == .application, lost[0..found.written], now_ns);
+        // RFC 9002 §7.6: a long enough span of loss is persistent congestion, which puts the
+        // window back to the minimum.
+        if (found.latest_sent_at_ns != null and found.is_persistent_congestion(recovery.rtt.persistent_congestion_ns())) {
+            recovery_congestion_bbr.on_persistent_congestion(recovery, now_ns);
+        }
         return found;
     }
 
@@ -276,12 +291,7 @@ pub const Recovery = struct {
         recovery.delivery.on_lost(found.in_flight_len);
         // RFC 9002 Appendix B.8: losing packets that were in flight is a congestion event.
         const sent_at_ns = found.latest_sent_at_ns orelse return;
-        recovery_spurious.on_congestion_event(&recovery.congestion, &recovery.spurious, sent_at_ns, now_ns);
-        // RFC 9002 §7.6: and a long enough span of it is persistent congestion, which puts the
-        // window back to the minimum.
-        if (found.is_persistent_congestion(recovery.rtt.persistent_congestion_ns())) {
-            recovery.congestion.on_persistent_congestion();
-        }
+        recovery_congestion_bbr.on_congestion_event(recovery, sent_at_ns, now_ns);
     }
 
     /// RFC 9002 Appendix A.11: dropping a space's keys gives up its packets, which are neither

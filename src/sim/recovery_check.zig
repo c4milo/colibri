@@ -128,7 +128,7 @@ pub const Storage = struct {
     settled: [numbers_max]bool,
     datagram: [constants.network_datagram_len_max]u8,
 
-    pub const zeroed: Storage = std.mem.zeroes(Storage);
+    pub const zeroed: Storage = sim.null_suite.zeroes_around_suites(Storage);
 };
 
 /// How many ack-eliciting packets of data one seed sends, and the octets each carries.

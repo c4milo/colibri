@@ -35,6 +35,8 @@ const files = struct {
     pub const recovery_sent = @import("recovery/recovery_sent.zig");
     pub const recovery_loss = @import("recovery/recovery_loss.zig");
     pub const recovery_congestion = @import("recovery/recovery_congestion.zig");
+    pub const recovery_congestion_cubic = @import("recovery/recovery_congestion_cubic.zig");
+    pub const recovery_congestion_bbr = @import("recovery/recovery_congestion_bbr.zig");
     pub const recovery_timer = @import("recovery/recovery_timer.zig");
     pub const recovery_pacing = @import("recovery/recovery_pacing.zig");
     pub const recovery = @import("recovery/recovery.zig");
@@ -54,6 +56,7 @@ const files = struct {
     pub const recovery_bbr_inflight = @import("recovery/recovery_bbr/recovery_bbr_inflight.zig");
     pub const recovery_bbr_wait = @import("recovery/recovery_bbr/recovery_bbr_wait.zig");
     pub const recovery_bbr_loss = @import("recovery/recovery_bbr/recovery_bbr_loss.zig");
+    pub const recovery_bbr_control = @import("recovery/recovery_bbr/recovery_bbr_control.zig");
     pub const stream = @import("stream/stream.zig");
     pub const connection = @import("connection/connection.zig");
     pub const connection_identity = @import("connection/connection_identity.zig");
@@ -95,6 +98,9 @@ const files = struct {
 pub const Connection = files.connection.Connection;
 /// A peer's address as the caller names it (decision 72).
 pub const PeerAddress = files.peer_address.PeerAddress;
+/// The congestion controller a connection runs, `congestion_controller` in its options:
+/// CUBIC, the default, or BBRv3 (decision 136, design §8 step 29b.4).
+pub const CongestionController = files.recovery_congestion.Controller;
 /// A packet number space, and the loss recovery of a connection, which the simulator drives by
 /// themselves. A program names neither.
 pub const Space = files.space.Space;
@@ -342,20 +348,20 @@ pub const stream = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",                           "wire",                   "crypto",
-        "tls_provider",                   "qlog",                   "constants",
-        "error_code",                     "Connection",             "PeerAddress",
-        "Space",                          "Recovery",               "connection_datagram",
-        "connection_send",                "connection_timer",       "connection_idle",
-        "connection_close",               "connection_stream_send", "connection_stream_read",
-        "connection_stream_acknowledged", "connection_flow",        "connection_stream_credit",
-        "connection_version",             "connection_retry",       "connection_id_frames",
-        "connection_migration",           "connection_key_update",  "connection_qlog",
-        "connection",                     "connection_receive",     "connection_recovery",
-        "connection_frames",              "connection_keys",        "connection_stream_frames",
-        "connection_stream_recovery",     "recovery_ack",           "recovery_sent",
-        "packet",                         "frame",                  "transport_parameters",
-        "transport_parameters_read",      "stream",
+        "core",                     "wire",                           "crypto",
+        "tls_provider",             "qlog",                           "constants",
+        "error_code",               "Connection",                     "PeerAddress",
+        "CongestionController",     "Space",                          "Recovery",
+        "connection_datagram",      "connection_send",                "connection_timer",
+        "connection_idle",          "connection_close",               "connection_stream_send",
+        "connection_stream_read",   "connection_stream_acknowledged", "connection_flow",
+        "connection_stream_credit", "connection_version",             "connection_retry",
+        "connection_id_frames",     "connection_migration",           "connection_key_update",
+        "connection_qlog",          "connection",                     "connection_receive",
+        "connection_recovery",      "connection_frames",              "connection_keys",
+        "connection_stream_frames", "connection_stream_recovery",     "recovery_ack",
+        "recovery_sent",            "packet",                         "frame",
+        "transport_parameters",     "transport_parameters_read",      "stream",
     });
 }
 

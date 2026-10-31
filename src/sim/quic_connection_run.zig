@@ -32,7 +32,10 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     // Bounded by the two sides of the network.
     for (std.enums.values(Side)) |side| {
         const at = @intFromEnum(side);
-        storage.endpoints[at].init(role_of(side), version, check.start_ns, log_of(storage, side));
+        // Decision 136: the caller draws the probe waits. The seed is the draw here, which leaves
+        // the generator's later draws, and so the census under CUBIC, as they were.
+        const congestion: quic_endpoint.Congestion = .{ .controller = storage.controller, .bandwidth_probe_waits = seed };
+        storage.endpoints[at].init(role_of(side), version, check.start_ns, log_of(storage, side), congestion);
         storage.histories[at].init(&storage.endpoints[at]);
     }
     apply_fault(storage);

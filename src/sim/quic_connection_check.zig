@@ -171,6 +171,8 @@ pub const Fault = enum {
 pub const Storage = struct {
     fault: Fault,
     adversary: Adversary,
+    /// The congestion controller both endpoints run (decision 136).
+    controller: quic.CongestionController,
     endpoints: [sim.network.Endpoint.count]quic_endpoint.Endpoint,
     histories: [sim.network.Endpoint.count]quic_invariants.History,
     network: sim.Network,
@@ -290,6 +292,7 @@ var check_storage: Storage align(@alignOf(Storage)) = undefined;
 test "two endpoints finish a handshake and a stream over a lossy network, invariants 17 to 21 holding" {
     check_storage.fault = .none;
     check_storage.adversary = .none;
+    check_storage.controller = .cubic;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -315,6 +318,7 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     fault_storage.adversary = .none;
+    fault_storage.controller = .cubic;
     fault_storage.logged = false;
     // An endpoint that stops ends the run, and the run keeps the error it stopped with.
     fault_storage.fault = .server_alert;
@@ -350,6 +354,7 @@ pub const adversary_census_dropped_expected: u64 = 1_406;
 test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
     check_storage.fault = .none;
     check_storage.adversary = .drop_ack_only;
+    check_storage.controller = .cubic;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -375,6 +380,7 @@ pub const runner_census_handshake_max_ns_expected: u64 = 8_242_000_000;
 test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
     check_storage.fault = .none;
     check_storage.adversary = .runner_handshake_loss;
+    check_storage.controller = .cubic;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -401,6 +407,7 @@ pub const rebind_address_census_migrations_expected: u64 = 255;
 fn run_rebinding(adversary: Adversary) !Census {
     check_storage.fault = .none;
     check_storage.adversary = adversary;
+    check_storage.controller = .cubic;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -440,6 +447,7 @@ test "decision 102: every check gives the same census when both endpoints write 
     for (checks) |logged| {
         check_storage.fault = .none;
         check_storage.adversary = logged.adversary;
+        check_storage.controller = .cubic;
         check_storage.logged = true;
         var census: Census = .{};
         var failed_seed: ?u64 = null;

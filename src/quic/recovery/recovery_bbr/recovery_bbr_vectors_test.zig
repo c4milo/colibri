@@ -11,6 +11,7 @@ const Bbr = recovery_bbr.Bbr;
 
 const test_start_ns: u64 = 1_000_000_000;
 const test_initial_window_len: u64 = 12_000;
+const test_datagram_len: u64 = 1_200;
 
 const Tokens = std.mem.TokenIterator(u8, .scalar);
 const decimal: u8 = 10;
@@ -41,7 +42,7 @@ fn expect_draw_line(fields: *Tokens) !void {
 
 fn expect_headroom_line(fields: *Tokens) !void {
     var state: Bbr = undefined;
-    state.init(test_start_ns, test_initial_window_len, 0);
+    state.init(test_start_ns, test_datagram_len, test_initial_window_len, 0);
     state.inflight_longterm_len = try field(fields);
     const path = test_path(try field(fields));
     try testing.expectEqual(try field(fields), recovery_bbr_inflight.inflight_with_headroom(&state, path));
@@ -57,7 +58,7 @@ fn expect_too_high_line(fields: *Tokens) !void {
 
 fn expect_bdp_line(fields: *Tokens) !void {
     var state: Bbr = undefined;
-    state.init(test_start_ns, test_initial_window_len, 0);
+    state.init(test_start_ns, test_datagram_len, test_initial_window_len, 0);
     const bw = try field(fields);
     state.model.min_rtt_ns = try field(fields);
     const gain = try field(fields);

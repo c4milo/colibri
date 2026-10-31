@@ -45,7 +45,7 @@ pub const Driver = struct {
         driver.window_limited = false;
         driver.in_recovery = false;
         driver.delivery.init();
-        driver.state.init(test_start_ns, test_initial_window_len, test_waits);
+        driver.state.init(test_start_ns, test_datagram_len, test_initial_window_len, test_waits);
     }
 
     pub fn path(driver: *const Driver, in_flight_len: u64) Path {

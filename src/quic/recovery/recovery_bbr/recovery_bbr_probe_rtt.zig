@@ -77,10 +77,12 @@ fn exit(state: *Bbr, path: Path) void {
 }
 
 /// §5.4.1's `HandleRestartFromIdle`, before a packet goes out. `application_limited` is
-/// `C.app_limited` (§4.1.2.4). In ProbeBW the draft also paces at the estimate, which 29b.4 does.
-pub fn handle_restart_from_idle(state: *Bbr, path: Path, application_limited: bool) void {
-    if (path.in_flight_len != 0 or !application_limited) return;
+/// `C.app_limited` (§4.1.2.4). True when it restarted, so the caller paces at the estimate in
+/// ProbeBW (`recovery_bbr_control.on_restart_from_idle`).
+pub fn handle_restart_from_idle(state: *Bbr, path: Path, application_limited: bool) bool {
+    if (path.in_flight_len != 0 or !application_limited) return false;
     state.idle_restart = true;
     state.model.extra_acked_interval_start_ns = path.now_ns;
     if (state.state == .probe_rtt) check_done(state, path);
+    return true;
 }

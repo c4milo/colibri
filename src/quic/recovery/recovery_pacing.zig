@@ -5,11 +5,12 @@
 //! path did not ask for and a queue somewhere has to hold. §7.7 requires a sender to either pace
 //! or bound its bursts, and colibri paces.
 //!
-//! It is the leaky bucket §7.7 names. The bucket holds octets, fills at the rate §7.7 gives —
-//! the congestion window spread over a round trip, times a factor a little above one so a moving
-//! round trip does not leave the window underused — and a packet may go out when the bucket
-//! holds its octets. The bucket's capacity is the burst §7.7 permits, which is the initial
-//! congestion window.
+//! It is the leaky bucket §7.7 names. The bucket holds octets, fills at a rate, and a packet may
+//! go out when the bucket holds its octets. Under CUBIC the rate is §7.7's: the congestion window
+//! spread over a round trip, times a factor a little above one so a moving round trip does not
+//! leave the window underused, and the bucket holds the initial congestion window. Under BBRv3
+//! the rate is BBR's pacing rate and the bucket holds its send quantum (draft-ietf-ccwg-bbr-06
+//! §5.6.2, §5.6.3).
 //!
 //! **A packet carrying only ACK frames is not paced**, which §7.7 asks for: delaying an
 //! acknowledgment delays the peer's own loss recovery. The caller sends those without asking
@@ -21,13 +22,17 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 
-/// What the rate is computed from, which the caller holds elsewhere: the congestion window of
-/// `recovery_congestion.zig`, the smoothed estimate of `rtt.zig`, and the burst §7.7 permits.
+/// The rate: `period_len` octets each `period_ns`, times `numerator / denominator`. Under CUBIC
+/// it is the congestion window over the smoothed round trip, times §7.7's `N`. Under BBRv3 it is
+/// the pacing rate in octets a second, over a second, times 1.
 pub const Rate = struct {
-    window_len: u64,
-    smoothed_rtt_ns: u64,
-    /// RFC 9002 §7.7: a sender SHOULD limit bursts to the initial congestion window, so that is
-    /// what the bucket holds at most.
+    period_len: u64,
+    /// 0 before any round trip sample, when the bucket refills at once.
+    period_ns: u64,
+    numerator: u64,
+    denominator: u64,
+    /// RFC 9002 §7.7: a sender SHOULD limit bursts to the initial congestion window. BBRv3 limits
+    /// them to its send quantum. It is what the bucket holds at most.
     burst_len: u64,
 };
 
@@ -82,13 +87,14 @@ pub const Pacer = struct {
     }
 };
 
-/// The octets the rate earns over `elapsed_ns`: `N * congestion_window * elapsed / smoothed_rtt`
-/// (RFC 9002 §7.7). It is computed in 128 bits and brought back down, because the window times
-/// an elapsed time in nanoseconds passes what 64 bits hold on an ordinary path.
+/// The octets the rate earns over `elapsed_ns`: under CUBIC, `N * congestion_window * elapsed /
+/// smoothed_rtt` (RFC 9002 §7.7). It is computed in 128 bits and brought back down, because the
+/// window times an elapsed time in nanoseconds passes what 64 bits hold on an ordinary path.
 fn earned_len(elapsed_ns: u64, rate: Rate) u64 {
-    if (rate.smoothed_rtt_ns == 0) return rate.burst_len;
-    const scaled: u128 = @as(u128, rate.window_len) * elapsed_ns * constants.recovery.pacing_rate_numerator;
-    const divisor: u128 = @as(u128, rate.smoothed_rtt_ns) * constants.recovery.pacing_rate_denominator;
+    if (rate.period_ns == 0) return rate.burst_len;
+    assert(rate.denominator > 0);
+    const scaled: u128 = @as(u128, rate.period_len) * elapsed_ns * rate.numerator;
+    const divisor: u128 = @as(u128, rate.period_ns) * rate.denominator;
     return @intCast(@min(scaled / divisor, rate.burst_len));
 }
 
@@ -96,9 +102,9 @@ fn earned_len(elapsed_ns: u64, rate: Rate) u64 {
 /// says which way the division goes: a wait rounds up, so it is never short enough to send
 /// early, and time already spent rounds down, so nothing is charged twice.
 fn inverted_ns(wanted_len: u64, rate: Rate, round: Round) u64 {
-    if (rate.window_len == 0) return std.math.maxInt(u64);
-    const scaled: u128 = @as(u128, wanted_len) * rate.smoothed_rtt_ns * constants.recovery.pacing_rate_denominator;
-    const divisor: u128 = @as(u128, rate.window_len) * constants.recovery.pacing_rate_numerator;
+    if (rate.period_len == 0 or rate.numerator == 0) return std.math.maxInt(u64);
+    const scaled: u128 = @as(u128, wanted_len) * rate.period_ns * rate.denominator;
+    const divisor: u128 = @as(u128, rate.period_len) * rate.numerator;
     const quotient: u128 = if (round == .up) (scaled + divisor - 1) / divisor else scaled / divisor;
     return @intCast(@min(quotient, std.math.maxInt(u64)));
 }
@@ -129,8 +135,10 @@ const test_round_trip_ns: u64 = 100_000_000;
 const test_per_datagram_ns: u64 = 8_000_000;
 const test_now_ns: u64 = 10_000_000_000;
 const test_rate: Rate = .{
-    .window_len = test_window_len,
-    .smoothed_rtt_ns = test_round_trip_ns,
+    .period_len = test_window_len,
+    .period_ns = test_round_trip_ns,
+    .numerator = constants.recovery.pacing_rate_numerator,
+    .denominator = constants.recovery.pacing_rate_denominator,
     .burst_len = test_window_len,
 };
 
@@ -177,7 +185,7 @@ test "§7.7: a wider window and a shorter round trip both pace faster" {
     test_pacer.on_sent(test_window_len);
     // Twice the window earns twice as much over the same time.
     var wider = test_rate;
-    wider.window_len = 2 * test_window_len;
+    wider.period_len = 2 * test_window_len;
     test_pacer.refill(test_now_ns + test_per_datagram_ns, wider);
     try testing.expectEqual(2 * test_datagram_len, test_pacer.credit_len);
     // Half the round trip does too.
@@ -185,7 +193,7 @@ test "§7.7: a wider window and a shorter round trip both pace faster" {
     test_pacer.refill(test_now_ns, test_rate);
     test_pacer.on_sent(test_window_len);
     var shorter = test_rate;
-    shorter.smoothed_rtt_ns = test_round_trip_ns / 2;
+    shorter.period_ns = test_round_trip_ns / 2;
     test_pacer.refill(test_now_ns + test_per_datagram_ns, shorter);
     try testing.expectEqual(2 * test_datagram_len, test_pacer.credit_len);
 }
@@ -229,7 +237,7 @@ test "§7.7: a path with no estimate yet paces nothing" {
     // Before the first round trip sample there is no rate to spread a window over, so the burst
     // is what bounds sending and the bucket refills whole.
     var unmeasured = test_rate;
-    unmeasured.smoothed_rtt_ns = 0;
+    unmeasured.period_ns = 0;
     test_pacer.init(unmeasured);
     test_pacer.refill(test_now_ns, unmeasured);
     test_pacer.on_sent(test_window_len);

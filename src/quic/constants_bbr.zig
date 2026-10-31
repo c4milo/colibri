@@ -59,6 +59,18 @@ pub const beta: u64 = 70;
 pub const startup_full_loss_ranges: u8 = 6;
 pub const startup_recovery_rounds: u64 = 2;
 
+/// §2.5: `BBR.PacingMarginPercent`, 1: BBR paces 1% below its estimate.
+pub const pacing_margin: u64 = 1;
+
+/// §5.6.2: before the first round trip sample, the initial window goes out over 1 ms.
+pub const initial_pacing_period_ns: u64 = 1_000_000;
+
+/// §5.6.3: the send quantum is what the pacing rate sends in 1 ms, at most 64 KB and at least 2
+/// maximum datagrams.
+pub const send_quantum_period_ns: u64 = 1_000_000;
+pub const send_quantum_max_len: u64 = 65_536;
+pub const send_quantum_min_datagrams: u64 = 2;
+
 /// §2.8: `BBR.MinPipeCwnd`, in maximum datagrams.
 pub const min_pipe_cwnd_datagrams: u64 = 4;
 
@@ -102,4 +114,7 @@ comptime {
     assert(drain_pacing_gain * default_cwnd_gain <= gain_denominator * gain_denominator);
     assert(probe_wait_min_ns + probe_wait_spread_ns < min_rtt_filter_len_ns);
     assert(loss_threshold < gain_denominator and headroom < gain_denominator and beta < gain_denominator);
+    assert(pacing_margin < gain_denominator);
+    assert(initial_pacing_period_ns == core.constants.nanoseconds_per_second / 1_000);
+    assert(send_quantum_period_ns == initial_pacing_period_ns);
 }

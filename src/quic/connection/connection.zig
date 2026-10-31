@@ -37,6 +37,7 @@ const stateless_reset = @import("../stateless_reset.zig");
 const termination_module = @import("../termination.zig");
 const recovery_module = @import("../recovery/recovery.zig");
 const recovery_ranges = @import("../recovery/recovery_ranges.zig");
+const recovery_congestion = @import("../recovery/recovery_congestion.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const frame_control = @import("../frame/frame_control.zig");
 const frame_latest = @import("../frame/frame_latest.zig");
@@ -80,6 +81,11 @@ pub const Options = struct {
     /// the 1-RTT packet numbers the connection skips to catch a peer that acknowledges what it
     /// never received (invariant 5), or null to skip none.
     packet_number_skips: ?u64 = null,
+    /// The congestion controller (decision 136): CUBIC, the default, or BBRv3.
+    congestion_controller: recovery_congestion.Controller = .cubic,
+    /// Decision 136: one value the caller drew from its source, from which BBRv3 draws each of
+    /// its bandwidth probe waits (draft-ietf-ccwg-bbr-06 §5.3.3.8.2). CUBIC reads none.
+    bandwidth_probe_waits: u64 = 0,
     /// The pool the peer's stream octets wait in until the application reads them, which the
     /// caller places (decision 61). Its capacity caps every receive window. A connection given
     /// none reads no stream: it checks STREAM frames and keeps nothing.
@@ -309,6 +315,10 @@ pub const Connection = struct {
         const idle_ns: ?u64 = if (idle == 0) null else idle * constants.nanoseconds_per_millisecond;
         connection.termination.init(idle_ns, options.now_ns);
         connection.recovery.init(constants.protocol.datagram_len_min);
+        connection.recovery.congestion.select(.{
+            .controller = options.congestion_controller,
+            .bandwidth_probe_waits = options.bandwidth_probe_waits,
+        }, options.now_ns);
     }
 
     /// Whether a packet whose Destination Connection ID is `dcid` belongs to this connection.

@@ -73,11 +73,11 @@ pub const Spurious = struct {
 
 /// RFC 9002 Appendix B.6's `OnCongestionEvent`, which also starts a new episode when it starts a
 /// new recovery period. Both of `Recovery`'s congestion events, a loss and an increase in the
-/// peer's ECN-CE count, come here.
-pub fn on_congestion_event(congestion: *recovery_congestion.Congestion, spurious: *Spurious, sent_at_ns: u64, now_ns: u64) void {
-    const started_before = congestion.recovery_started_at_ns;
-    congestion.on_congestion_event(sent_at_ns, now_ns);
-    if (congestion.recovery_started_at_ns != started_before) spurious.on_episode_start();
+/// peer's ECN-CE count, come here. True when it started a new recovery period.
+pub fn on_congestion_event(congestion: *recovery_congestion.Congestion, spurious: *Spurious, sent_at_ns: u64, now_ns: u64) bool {
+    const started = congestion.on_congestion_event(sent_at_ns, now_ns);
+    if (started) spurious.on_episode_start();
+    return started;
 }
 
 const testing = std.testing;

@@ -19,7 +19,7 @@ const recovery_loss = @import("recovery_loss.zig");
 const recovery_sent = @import("recovery_sent.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
-const recovery_spurious = @import("recovery_spurious.zig");
+const recovery_congestion_bbr = @import("recovery_congestion_bbr.zig");
 
 const Kind = space.Kind;
 const Record = recovery_sent.Record;
@@ -98,6 +98,7 @@ pub fn on_ack_received(
     // draft-ietf-ccwg-bbr-06 §5.5.11: a lost packet has left the table, so the frame's ranges are
     // read for it even when they took nothing out.
     outcome.spurious = kind == .application and acknowledges_lost(held, ack);
+    if (outcome.spurious) recovery_congestion_bbr.on_spurious(held, now_ns);
     // RFC 9002 Appendix A.7: nothing to do when the ACK named only packets already accounted for.
     if (removed.count == 0) return outcome;
 
@@ -107,7 +108,11 @@ pub fn on_ack_received(
     outcome.sample = held.delivery.on_ack(removed.record.?, removed.in_flight_len, now_ns, held.rtt.min_ns);
     process_ecn(held, kind, ack, removed, largest_is_new, now_ns);
     outcome.lost = held.detect(kind, now_ns, lost);
-    grow(held, removed, used, now_ns, outcome.rtt_sampled);
+    switch (held.congestion.state) {
+        .cubic => grow(held, removed, used, now_ns, outcome.rtt_sampled),
+        // draft-ietf-ccwg-bbr-06 §5.2.3: BBRv3 takes the frame's rate sample.
+        .bbr => recovery_congestion_bbr.on_ack(held, outcome.sample.?, removed.record.?.sent_at_ns, used, now_ns),
+    }
 
     // RFC 9002 Appendix A.7: the backoff starts again once the peer has validated the address,
     // because a probe that was answered is no longer evidence of a path that will not answer.
@@ -205,7 +210,7 @@ fn process_ecn(
     const rose = counts.ecn_ce > state.reported.ecn_ce;
     state.accept(counts);
     if (!rose) return;
-    recovery_spurious.on_congestion_event(&held.congestion, &held.spurious, removed.largest_sent_at_ns, now_ns);
+    recovery_congestion_bbr.on_congestion_event(held, removed.largest_sent_at_ns, now_ns);
 }
 
 /// RFC 9002 Appendix B.5's `OnPacketsAcked`, over what this frame took out of flight.
@@ -313,8 +318,8 @@ test "RFC 9406 §4.2: the round trip sample an ACK gives reaches HyStart++" {
     const outcome = on_ack_received(&test_recovery, .application, ack, .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expect(outcome.rtt_sampled);
     // RFC 9002 §5.1's latest_rtt: packet 0 went out one interval before the ACK.
-    try testing.expectEqual(test_interval_ns, test_recovery.congestion.hystart.round_min_ns.?);
-    try testing.expectEqual(1, test_recovery.congestion.hystart.samples);
+    try testing.expectEqual(test_interval_ns, test_recovery.congestion.state.cubic.hystart.round_min_ns.?);
+    try testing.expectEqual(1, test_recovery.congestion.state.cubic.hystart.samples);
 }
 
 test "draft-ietf-ccwg-bbr-06 §4.1.2.3: an ACK gives the rate its packets were delivered at" {

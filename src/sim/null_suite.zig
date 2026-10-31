@@ -152,7 +152,9 @@ const table: crypto.suite.VTable = .{
 };
 
 /// `std.mem.zeroes(T)`, with every `NullSuite` inside `T` at its defaults instead: a suite's
-/// versions have no zero value (decision 108). The checks whose storage starts zeroed use it.
+/// versions have no zero value (decision 108). A tagged union, which `std.mem.zeroes` refuses,
+/// takes its first field zeroed: a connection's congestion controller is one (design §8 step
+/// 29b.4), and its `init` writes it whole. The checks whose storage starts zeroed use it.
 pub fn zeroes_around_suites(comptime T: type) T {
     if (T == NullSuite) return .{};
     switch (@typeInfo(T)) {
@@ -162,6 +164,7 @@ pub fn zeroes_around_suites(comptime T: type) T {
             return value;
         },
         .array => |info| return @splat(zeroes_around_suites(info.child)),
+        .@"union" => |info| return @unionInit(T, info.fields[0].name, zeroes_around_suites(info.fields[0].type)),
         else => return std.mem.zeroes(T),
     }
 }
