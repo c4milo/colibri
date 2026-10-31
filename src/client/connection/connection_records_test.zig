@@ -33,10 +33,16 @@ const outputs_per_upload: usize = 2;
 /// A connection over `plain` that selected http/1.1, as one whose handshake just completed. The
 /// ClientHello that `init` staged never goes out. Test-only.
 fn attach_plain() !void {
-    try tls_support.prepare_tls(&support.protocols_h11, &support.protocols_h11, support.authority, false);
+    try attach_plain_as(&support.protocols_h11);
+}
+
+/// `attach_plain`, for a connection whose handshake selected the one protocol `protocols` names.
+/// Test-only.
+fn attach_plain_as(protocols: []const []const u8) !void {
+    try tls_support.prepare_tls(protocols, protocols, support.authority, false);
     connection.output_len = 0;
     connection.records_len = 0;
-    plain = .{ .alpn = "http/1.1" };
+    plain = .{ .alpn = protocols[0] };
     try testing.expect(connection_tls.attach_provider(connection, plain.provider()));
     support.to_peer_len = 0;
     support.to_client_len = 0;
@@ -176,4 +182,22 @@ test "RFC 9846 §6: a record refused while the content is sealed ends the connec
     // RFC 9112 §9.6: the request went out in part, so it ends with the connection.
     try testing.expectEqual(.closed, put.response.result);
     try testing.expect(support.find(.closed) != null);
+}
+
+test "RFC 9846 §6: a record refused while an h2 frame is sealed ends the connection" {
+    try attach_plain_as(&support.protocols_h2);
+    var put = put_upload();
+    _ = try connection.request(&put.request, &put.response);
+    // The output holds one record: the preface, the SETTINGS, the head and the start of the content.
+    const one_record = header_len + record_len_max;
+    support.to_peer_len = connection.send(support.to_peer[0..one_record], support.now_ns);
+    try testing.expectEqual(one_record, support.to_peer_len);
+    try testing.expect(put.response.body_sent < upload_len);
+    plain.refuse_seal = true;
+    support.client_send();
+    // Decision 139: no frame goes out after the failure, and the exchange ends with the connection.
+    try testing.expect(connection.failed);
+    try testing.expectEqual(one_record, support.to_peer_len);
+    try support.client_receive();
+    try testing.expectEqual(.closed, put.response.result);
 }

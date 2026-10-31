@@ -305,3 +305,58 @@ test "RFC 9846 §4.1.2: the ClientHello goes out on the first send, before any r
     connection.transport_closed();
     _ = h11;
 }
+
+/// A POST's content of several records, within the 65,535 octets a stream's window starts with
+/// (RFC 9113 §6.9.2). Test-only.
+var upload: [upload_len]u8 = undefined;
+const upload_len: usize = 60_000;
+/// The octets at the end of what the server opened that must be the content's. Test-only.
+const content_tail_len: usize = 1024;
+
+test "decision 139: a content queued before the handshake fills the record after the client's Finished" {
+    try prepare_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
+    @memset(&upload, 'x');
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = &upload }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&post.request, &post.response);
+    // The send after the client's handshake completes carries its Finished, then the preface,
+    // the head and the content. The server's handshake reads the Finished, and the records of
+    // data stay for it to open.
+    try run_handshake();
+    try testing.expectEqual(upload_len, post.response.body_sent);
+    try testing.expectEqual(1, try short_records());
+}
+
+/// The records of data the server opens from what the client sent that carry less than the most
+/// plaintext a record holds (RFC 9846 §5.1), after it read all of them. Test-only.
+fn short_records() !usize {
+    const provider = server.provider();
+    var offset: usize = 0;
+    var short: usize = 0;
+    var plaintext_len: usize = 0;
+    // Bounded: each pass opens one record.
+    for (0..support.to_peer_len) |_| {
+        const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[offset..support.to_peer_len], peer_plain[plaintext_len..]);
+        if (record.content == .incomplete) break;
+        offset += record.consumed;
+        plaintext_len += record.plaintext_len;
+        if (record.content != .application_data) continue;
+        if (record.plaintext_len < tls_provider.constants.protocol.record_plaintext_len_max) short += 1;
+    }
+    try testing.expectEqual(support.to_peer_len, offset);
+    try testing.expect(std.mem.endsWith(u8, peer_plain[0..plaintext_len], upload[0..content_tail_len]));
+    return short;
+}
+
+test "decision 139: an h2 content goes out over TLS in full records, sealed from the caller's memory" {
+    try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
+    @memset(&upload, 'x');
+    var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = &upload }, .response = .{ .body = &bodies[0] } };
+    // The server opens what the client sent with the handshake: its preface and SETTINGS.
+    try server_open();
+    _ = try connection.request(&post.request, &post.response);
+    support.client_send();
+    try testing.expectEqual(upload_len, post.response.body_sent);
+    // RFC 9846 §5.1: each record but the last carries the most plaintext a record holds. The
+    // first holds the head and the start of the content, and each after it one DATA frame.
+    try testing.expectEqual(1, try short_records());
+}

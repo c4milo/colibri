@@ -243,6 +243,25 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
     return sealed;
 }
 
+/// The most plaintext one `encrypt_parts` seals into `output_len` octets.
+pub fn writable_len(target: *const Connection, output_len: usize) usize {
+    const provider = target.provider orelse return 0;
+    return provider.vtable.writable_len(provider.context, output_len);
+}
+
+/// Protects a frame's `head` and then its `data`, which the caller holds apart, as one run of
+/// plaintext, whole or not at all (decision 139). The caller sizes the two by `writable_len` first.
+pub fn encrypt_parts(target: *Connection, head: []const u8, data: []const u8, output: []u8) RecordError!usize {
+    // RFC 9113 §3.3: a cleartext connection writes its frames straight to the transport.
+    const provider = target.provider orelse return error.NoProvider;
+    assert(!target.tls_failed and !target.handshake_owed);
+    return provider.vtable.encrypt_parts(provider.context, head, data, output) catch |failure| {
+        // `seal_refused` returns an error for every failure, and ends the record layer on one.
+        _ = try seal_refused(target, failure);
+        unreachable;
+    };
+}
+
 /// What a seal the provider refused leaves. A refusal ends the connection (RFC 9846 §6), and a
 /// short output leaves the plaintext for the next call.
 fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError) RecordError!tls_provider.provider.Sealed {

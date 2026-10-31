@@ -93,6 +93,8 @@ pub const connection_tls = struct {
     pub const close_notify = files.connection_tls.close_notify;
     pub const decrypt = files.connection_tls.decrypt;
     pub const encrypt = files.connection_tls.encrypt;
+    pub const encrypt_parts = files.connection_tls.encrypt_parts;
+    pub const writable_len = files.connection_tls.writable_len;
 };
 
 test "decision 115: the root exports the names code outside the module uses" {

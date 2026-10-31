@@ -1390,9 +1390,11 @@ response, DATA or trailers ended it. A client opens a stream with `write_request
 answers with `write_response`, and both send content with `write_data`, which writes as much as
 the flow-control windows allow. `sendable_len` says how many octets `write_data` would send now,
 so a program sizes a write, or waits for the peer's WINDOW_UPDATE when it says 0. A program that
-holds its content in its own buffer calls `write_data_header` instead: it writes the header of the
-frame `write_data` would write, and the program writes the frame's `consumed` octets right after
-it, before any other octet ([decision 138](decisions.md)). `write_trailers` ends either side's message with a trailer
+holds its content in its own buffer calls `write_data_header` instead. It writes the header of the
+frame `write_data` would write into `room_len` octets, into nine octets the program passes. The
+program sends the frame's `consumed` octets right after the header, before any other octet: after
+it in one buffer, or sealed with it by `tls_provider`'s `encrypt_parts` ([decisions 138 and
+139](decisions.md)). `write_trailers` ends either side's message with a trailer
 section, after its final header section (RFC 9113 §8.1). `reset_stream` ends one stream, and the
 next `write_pending` writes its RST_STREAM: it needs no room, however many streams the caller
 resets between two writes (decision 113). `shutdown` begins a graceful close.

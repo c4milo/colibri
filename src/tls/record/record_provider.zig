@@ -50,6 +50,8 @@ pub fn Provider(comptime Held: type) type {
             .handshake_read = handshake_read,
             .handshake_write = handshake_write,
             .encrypt_record = encrypt_record,
+            .writable_len = writable_len,
+            .encrypt_parts = encrypt_parts,
             .decrypt_record = decrypt_record,
             .negotiated_alpn = negotiated_alpn,
             .handshake_complete = handshake_complete,
@@ -75,6 +77,14 @@ pub fn Provider(comptime Held: type) type {
 
         fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) provider_module.SealError!provider_module.Sealed {
             return seal(held(context), plaintext, output);
+        }
+
+        fn writable_len(context: *const anyopaque, output_len: usize) usize {
+            return held_const(context).session.writableLen(output_len);
+        }
+
+        fn encrypt_parts(context: *anyopaque, head: []const u8, data: []const u8, output: []u8) provider_module.SealError!usize {
+            return seal_parts(held(context), head, data, output);
         }
 
         fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) provider_module.OpenError!provider_module.Opened {
@@ -143,6 +153,18 @@ fn seal(role: anytype, plaintext: []const u8, output: []u8) provider_module.Seal
     // RFC 9846 §6.1: a session that closed or failed seals nothing more.
     const written = role.session.write(plaintext[0..fits], output) catch return error.TlsFailed;
     return .{ .consumed = fits, .written = written };
+}
+
+/// Seals `head` and then `data` as one run of plaintext, whole or not at all, with chapulin's
+/// `writeParts` (chapulin's decision 167, decision 139): `write`'s records for the two joined, and
+/// no copy of them into one buffer.
+fn seal_parts(role: anytype, head: []const u8, data: []const u8, output: []u8) provider_module.SealError!usize {
+    assert(head.len > 0);
+    // RFC 9846 §5.2: what does not fit `output` is sealed whole by a later call.
+    if (head.len + data.len > role.session.writableLen(output.len)) return error.NoSpaceLeft;
+    const parts = [_]c.ch_part{ chapulin.part(head), chapulin.part(data) };
+    // RFC 9846 §6.1: a session that closed or failed seals nothing more.
+    return role.session.writeParts(&parts, output) catch return error.TlsFailed;
 }
 
 /// Opens the record at the front of `input` and says what it held.

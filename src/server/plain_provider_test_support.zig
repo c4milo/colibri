@@ -59,6 +59,8 @@ pub const PlainProvider = struct {
         .handshake_read = handshake_read,
         .handshake_write = handshake_write,
         .encrypt_record = encrypt_record,
+        .writable_len = writable_len,
+        .encrypt_parts = encrypt_parts,
         .decrypt_record = decrypt_record,
         .negotiated_alpn = negotiated_alpn,
         .handshake_complete = handshake_complete,
@@ -97,6 +99,32 @@ pub const PlainProvider = struct {
         const taken = @min(plaintext.len, output.len - answer_len - header_len, tls_provider.constants.protocol.record_plaintext_len_max);
         const written = seal(content_application_data, plaintext[0..taken], output[answer_len..]) catch unreachable;
         return .{ .consumed = taken, .written = answer_len + written.len };
+    }
+
+    /// The plaintext of one record after the answer the provider owes: the parts go out in one.
+    fn writable_len(context: *const anyopaque, output_len: usize) usize {
+        const answer_len: usize = if (held_const(context).answer_owed) header_len + key_update_not_requested.len else 0;
+        return @min(output_len -| (answer_len + header_len), tls_provider.constants.protocol.record_plaintext_len_max);
+    }
+
+    /// Writes `head` and then `data` in one record of data, after the answer the provider owes, as
+    /// `encrypt_record` writes (decision 139). Whole or nothing.
+    fn encrypt_parts(context: *anyopaque, head: []const u8, data: []const u8, output: []u8) provider_module.SealError!usize {
+        const plain = held(context);
+        // RFC 9846 §6: a provider that failed protects no more records.
+        if (plain.refuse_seal) return error.TlsFailed;
+        if (head.len + data.len > writable_len(context, output.len)) return error.NoSpaceLeft;
+        const answer_len: usize = if (plain.answer_owed) header_len + key_update_not_requested.len else 0;
+        // RFC 9846 §4.7.3: the provider writes the answer first, under the keys it replaces.
+        if (plain.answer_owed) _ = seal(content_handshake, &key_update_not_requested, output) catch unreachable;
+        plain.answer_owed = false;
+        var writer = core.Writer.init(output[answer_len..]);
+        writer.write_byte(content_application_data) catch unreachable;
+        writer.write_int(u16, legacy_record_version) catch unreachable;
+        writer.write_int(u16, @intCast(head.len + data.len)) catch unreachable;
+        writer.write_bytes(head) catch unreachable;
+        writer.write_bytes(data) catch unreachable;
+        return answer_len + writer.written().len;
     }
 
     fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) provider_module.OpenError!provider_module.Opened {

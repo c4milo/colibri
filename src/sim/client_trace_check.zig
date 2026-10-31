@@ -262,10 +262,10 @@ test "client trace run: every seed closes the pool with each exchange reported o
     try testing.expectEqual(Result{
         .states = 2581,
         .requests = 534,
-        .responses = 347,
+        .responses = 345,
         .refused = 86,
-        .failed = 52,
-        .cancelled = 49,
+        .failed = 53,
+        .cancelled = 50,
         .moved = 11,
         .resent = 8,
         .quic_connections = 119,

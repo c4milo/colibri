@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
+const tls_provider = @import("tls_provider");
 const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
 const connection_module = @import("connection.zig");
@@ -151,6 +152,18 @@ pub fn take_plaintext(connection: *Connection, read: usize) void {
 /// The room left in `output`.
 pub fn room(connection: *Connection) []u8 {
     return connection.output[connection.output_len..];
+}
+
+/// The octets that fill the record of what the output holds over TLS, and none when it holds none
+/// or in cleartext, where no record joins them. A request's content up to this many octets is
+/// copied into the output, so a small content goes out in the record of its head
+/// (https://github.com/c4milo/colibri/issues/105).
+pub fn record_fill(connection: *const Connection) usize {
+    if (connection.config.tls == null) return 0;
+    assert(connection.output_len >= connection.records_len);
+    const plaintext_len = connection.output_len - connection.records_len;
+    if (plaintext_len == 0) return 0;
+    return tls_provider.constants.protocol.record_plaintext_len_max -| plaintext_len;
 }
 
 /// Whether the connection has nothing more to write but what `output` holds and, over TLS,

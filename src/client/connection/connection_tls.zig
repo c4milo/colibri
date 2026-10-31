@@ -248,6 +248,23 @@ pub fn seal_content(connection: *Connection, content: []const u8, output: []u8, 
     return taken;
 }
 
+/// Seals an h2 DATA frame's `head` and the caller's `data` as one run of plaintext, with no copy
+/// into the connection's output (decision 139). `send_content` sized the frame by
+/// `h2.connection_tls.writable_len`, so it fits. A record that fails ends the connection, and the
+/// alert the provider owes is written in place of the frame.
+pub fn seal_frame(connection: *Connection, head: []const u8, data: []const u8, output: []u8, now_ns: u64) usize {
+    assert(connection.output_len == 0);
+    return h2.connection_tls.encrypt_parts(&connection.session.h2, head, data, output) catch |failure| switch (failure) {
+        // RFC 9846 §6: no data goes out after a failure, and `seal` writes the alert.
+        error.TlsFailed => {
+            internal.fail(connection);
+            return seal(connection, output, now_ns);
+        },
+        // `writable_len` sized the frame for `output`, and the provider took a finished handshake.
+        else => unreachable,
+    };
+}
+
 /// What one opened record gave, in either protocol.
 const Opened = struct {
     consumed: usize,

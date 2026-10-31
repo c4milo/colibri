@@ -190,6 +190,17 @@ pub const VTable = struct {
     /// `Sealed.written` counts it. Empty plaintext writes nothing, and the answer stays owed.
     encrypt_record: *const fn (context: *anyopaque, plaintext: []const u8, output: []u8) SealError!Sealed,
 
+    /// The most plaintext one `encrypt_parts` seals into `output_len` octets: the records' headers
+    /// and tags, and a KeyUpdate the provider owes (RFC 9846 §4.7.3), take the rest.
+    writable_len: *const fn (context: *const anyopaque, output_len: usize) usize,
+
+    /// Protects `head` and then `data` as one run of plaintext, in the records `encrypt_record`
+    /// would write for the two joined, with no copy of them into one buffer (decision 139). It
+    /// seals both whole or nothing: `error.NoSpaceLeft` when their lengths together pass
+    /// `writable_len(output.len)`. It returns the octets written, a KeyUpdate's answer included,
+    /// as `encrypt_record` does.
+    encrypt_parts: *const fn (context: *anyopaque, head: []const u8, data: []const u8, output: []u8) SealError!usize,
+
     /// Opens one record. The input and the plaintext buffer never overlap, which colibri asserts
     /// at the call site.
     decrypt_record: *const fn (context: *anyopaque, input: []const u8, plaintext: []u8) OpenError!Opened,

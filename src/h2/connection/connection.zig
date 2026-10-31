@@ -273,18 +273,19 @@ pub const Connection = struct {
         return connection_send.write_data(connection, output, stream_id, payload, end_stream);
     }
 
-    /// Writes the header of the DATA frame that carries the next `consumed` octets of a payload
-    /// `payload_len` long, which the caller writes after it from its own buffer (decision 138):
-    /// see `connection_send_data.zig`.
+    /// Writes into `header` the header of the DATA frame that carries the next `consumed` octets
+    /// of a payload `payload_len` long, which the caller sends after it from its own memory
+    /// (decision 138): see `connection_send_data.zig`.
     pub fn write_data_header(
         connection: *Connection,
-        output: []u8,
+        header: *[constants.protocol.frame_header_len]u8,
+        room_len: usize,
         stream_id: u32,
         payload_len: usize,
         end_stream: bool,
     ) SendError!DataWritten {
         connection.assert_preface_written();
-        return connection_send_data.write_data_header(connection, output, stream_id, payload_len, end_stream);
+        return connection_send_data.write_data_header(connection, header, room_len, stream_id, payload_len, end_stream);
     }
 
     /// The octets of `payload_len` that `write_data` sends now on `stream_id` into a buffer of

@@ -10,9 +10,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
 const h2 = @import("h2");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
+const connection_tls = @import("connection_tls.zig");
 const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
@@ -206,21 +208,33 @@ fn first_regular(section: *const http.FieldSection) u32 {
     return first;
 }
 
-/// Writes the heads of the exchanges waiting, oldest first, then, over TLS, as much of each
-/// written request's content as the windows and the room allow. In cleartext `send_content`
-/// writes the content.
+/// Writes the heads of the exchanges waiting, oldest first, and over TLS the DATA frame that fills
+/// the record of the heads. `send_content` writes the rest of the content.
 pub fn write_requests(connection: *Connection) void {
     // Bounded: each pass writes or ends an exchange, or stops.
     for (0..constants.limits.requests_max) |_| {
         const slot = connection.slots.oldest(.queued) orelse break;
         if (!open(connection, slot)) break;
     }
-    // The provider seals one slice, so over TLS a frame's header and its data go through the
-    // output together until chapulin seals two (https://github.com/c4milo/chapulin/issues/212).
-    if (connection.config.tls == null) return;
     for (&connection.slots.slots) |*slot| {
-        if (slot.stage == .sent and !slot.content_done()) write_content(connection, slot);
+        if (slot.stage == .sent and !slot.content_done()) fill_record(connection, slot);
     }
+}
+
+/// Copies into the output the DATA frame of `slot`'s content that fills the record of what the
+/// output holds over TLS, as the windows allow, so a small content goes out with its head.
+fn fill_record(connection: *Connection, slot: *Slot) void {
+    const fill = internal.record_fill(connection);
+    if (fill <= h2.constants.protocol.frame_header_len) return;
+    const room = internal.room(connection);
+    const content = slot.request.body[slot.response.body_sent..];
+    const sent = connection.session.h2.write_data(room[0..@min(room.len, fill)], @intCast(slot.stream_id), content, true) catch {
+        // RFC 9113 §5.1: the stream is no longer one the client may send on.
+        slot.content_stopped = true;
+        return;
+    };
+    connection.output_len += sent.written;
+    slot.response.body_sent += sent.consumed;
 }
 
 /// Writes the head of `slot`'s request, which opens its stream. Returns whether the next exchange
@@ -315,42 +329,25 @@ fn request_fields(
     return lines[0..count];
 }
 
-/// Writes as much of `slot`'s content as the windows and the room allow (RFC 9113 §6.9.1).
-fn write_content(connection: *Connection, slot: *Slot) void {
-    const content = slot.request.body;
-    const response = slot.response;
-    // Bounded: each pass writes a frame, or stops.
-    for (0..content.len + 1) |_| {
-        if (slot.content_done()) return;
-        const sent = connection.session.h2.write_data(internal.room(connection), @intCast(slot.stream_id), content[response.body_sent..], true) catch {
-            // RFC 9113 §5.1: the stream is no longer one the client may send on.
-            slot.content_stopped = true;
-            return;
-        };
-        connection.output_len += sent.written;
-        response.body_sent += sent.consumed;
-        // RFC 9113 §6.9: no window, or no room for a frame.
-        if (sent.written == 0) return;
-    }
-}
-
-/// Writes the content of each request going out into `output` in cleartext, as the windows and
+/// Writes the content of each request going out into `output`, sealed over TLS, as the windows and
 /// the room allow, once the connection's own output is empty. h2 writes each DATA frame's header,
-/// and the data follows it from the caller's memory (decision 138). Returns the octets written.
-pub fn send_content(connection: *Connection, output: []u8) usize {
+/// and the data follows it from the caller's memory (decisions 138 and 139). Returns the octets
+/// written.
+pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
     assert(connection.output_len == 0);
-    if (connection.stopped or connection.config.tls != null) return 0;
     var written: usize = 0;
     for (&connection.slots.slots) |*slot| {
-        if (slot.stage == .sent and !slot.content_done()) written += send_frames(connection, slot, output[written..]);
+        // A record that failed ended every exchange the connection held.
+        if (connection.stopped) break;
+        if (slot.stage == .sent and !slot.content_done()) written += send_frames(connection, slot, output[written..], now_ns);
     }
     assert(written <= output.len);
     return written;
 }
 
-/// Writes DATA frames of `slot`'s content into `output`, each one's data copied from the caller's
-/// memory after the header h2 wrote. Returns the octets written.
-fn send_frames(connection: *Connection, slot: *Slot, output: []u8) usize {
+/// Writes DATA frames of `slot`'s content into `output`, each one's data from the caller's memory
+/// after the header h2 wrote. Returns the octets written.
+fn send_frames(connection: *Connection, slot: *Slot, output: []u8, now_ns: u64) usize {
     const content = slot.request.body;
     const response = slot.response;
     var written: usize = 0;
@@ -358,7 +355,9 @@ fn send_frames(connection: *Connection, slot: *Slot, output: []u8) usize {
     for (0..content.len + 1) |_| {
         if (slot.content_done()) return written;
         const left = content[response.body_sent..];
-        const sent = connection.session.h2.write_data_header(output[written..], @intCast(slot.stream_id), left.len, true) catch {
+        var header: [h2.constants.protocol.frame_header_len]u8 = undefined;
+        const room_len = frame_room(connection, output.len - written);
+        const sent = connection.session.h2.write_data_header(&header, room_len, @intCast(slot.stream_id), left.len, true) catch {
             // RFC 9113 §5.1: the stream is no longer one the client may send on.
             slot.content_stopped = true;
             return written;
@@ -366,9 +365,28 @@ fn send_frames(connection: *Connection, slot: *Slot, output: []u8) usize {
         // RFC 9113 §6.9: no window, or no room for a frame.
         if (sent.written == 0) return written;
         // Decision 138: the frame's data follows its header, before any other octet.
-        @memcpy(output[written + sent.written ..][0..sent.consumed], left[0..sent.consumed]);
-        written += sent.written + sent.consumed;
+        written += put_frame(connection, &header, left[0..sent.consumed], output[written..], now_ns);
+        if (connection.stopped) return written;
         response.body_sent += sent.consumed;
     }
     return written;
+}
+
+/// The octets one DATA frame may take of `output_len`: all of them in cleartext, and over TLS the
+/// plaintext that one seal writes into them, at most one record's. A frame of 16,384 octets of
+/// data and its header would pass one record by 9 octets (RFC 9113 §4.2, RFC 9846 §5.1), and
+/// would cost a second record of 9 octets.
+fn frame_room(connection: *const Connection, output_len: usize) usize {
+    if (connection.config.tls == null) return output_len;
+    const writable = h2.connection_tls.writable_len(&connection.session.h2, output_len);
+    return @min(writable, tls_provider.constants.protocol.record_plaintext_len_max);
+}
+
+/// Writes a DATA frame's `header` and then its `data` into `output`, sealed over TLS, and returns
+/// the octets written.
+fn put_frame(connection: *Connection, header: []const u8, data: []const u8, output: []u8, now_ns: u64) usize {
+    if (connection.config.tls != null) return connection_tls.seal_frame(connection, header, data, output, now_ns);
+    @memcpy(output[0..header.len], header);
+    @memcpy(output[header.len..][0..data.len], data);
+    return header.len + data.len;
 }

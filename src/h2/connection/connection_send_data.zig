@@ -9,20 +9,23 @@ const stream = @import("../stream/stream.zig");
 const connection = @import("connection.zig");
 const connection_send = @import("connection_send.zig");
 const connection_send_window = @import("connection_send_window.zig");
+const constants = @import("../constants.zig");
 
 const Connection = connection.Connection;
 const Writer = core.Writer;
 const Error = connection_send.Error;
 const DataWritten = connection_send.DataWritten;
 
-/// Writes into `output` the header of the DATA frame on `stream_id` that carries the next
-/// `consumed` octets of a payload `payload_len` long, as many as `write_data` would send into
-/// `output`. The caller writes those octets right after the header, in `output`, before any other
-/// octet of the connection. `written` counts the header alone. END_STREAM is set only on the
-/// frame that carries the last octet.
+/// Writes into `header` the header of the DATA frame on `stream_id` that carries the next
+/// `consumed` octets of a payload `payload_len` long, as many as `write_data` would send into a
+/// buffer of `room_len` octets. The caller sends those octets right after the header, from its own
+/// memory, before any other octet of the connection: in cleartext after it in one buffer, and over
+/// TLS sealed with it (decision 139). `written` counts the header alone, or is 0 when no frame
+/// goes out. END_STREAM is set only on the frame that carries the last octet.
 pub fn write_data_header(
     target: *Connection,
-    output: []u8,
+    header: *[constants.protocol.frame_header_len]u8,
+    room_len: usize,
     stream_id: u32,
     payload_len: usize,
     end_stream: bool,
@@ -31,25 +34,25 @@ pub fn write_data_header(
     // RFC 9113 §8.1: a message's DATA frames follow its final header section, so a server sends
     // none before its final response.
     if (!record.final_sent) return error.SectionOutOfOrder;
-    const next = connection_send_window.sendable(target, record, output.len, payload_len);
+    const next = connection_send_window.sendable(target, record, room_len, payload_len);
     const room = next.len;
+    // RFC 9113 §4.1: a frame is its header and its whole payload, so a room that holds less holds
+    // no frame at all.
+    if (room_len < header.len) return .{ .consumed = 0, .written = 0, .short_by = .room };
     // A frame that carries nothing and ends nothing is one RFC 9113 §6.1 has no use for.
     if (room == 0 and !(payload_len == 0 and end_stream)) return .{ .consumed = 0, .written = 0, .short_by = next.short_by };
     const flag = end_stream and room == payload_len;
-    var writer = Writer.init(output);
-    // RFC 9113 §4.1: a frame is its header and its whole payload, so a buffer that holds less
-    // holds no frame at all.
-    frame.write_data_header(&writer, stream_id, @intCast(room), flag) catch return error.OutputTooSmall;
+    var writer = Writer.init(header);
+    frame.write_data_header(&writer, stream_id, @intCast(room), flag) catch unreachable;
     // `sendable` left room for the data after the header.
-    assert(output.len >= writer.written().len + room);
+    assert(room_len >= header.len + room);
     connection_send.spend_windows(target, record, @intCast(room));
     const verdict = stream.on_send(record.state, record.closed, .data, flag, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .data, flag);
-    return .{ .consumed = room, .written = writer.written().len, .short_by = next.short_by };
+    return .{ .consumed = room, .written = header.len, .short_by = next.short_by };
 }
 
 const testing = std.testing;
-const constants = @import("../constants.zig");
 const support = @import("connection_test_support.zig");
 const test_connection = &support.test_connection;
 const test_output = &support.test_output;
@@ -75,7 +78,7 @@ test "decision 138: the header and the caller's data are the frame write_data wr
     var whole: [frame_len]u8 = undefined;
     try start();
     const window_before = test_connection.send_window.sendable();
-    const sent = try write_data_header(test_connection, &split, 1, test_payload_len, true);
+    const sent = try write_data_header(test_connection, split[0..constants.protocol.frame_header_len], split.len, 1, test_payload_len, true);
     try testing.expectEqual(test_payload_len, sent.consumed);
     try testing.expectEqual(constants.protocol.frame_header_len, sent.written);
     try testing.expectEqual(window_before - test_payload_len, test_connection.send_window.sendable());
@@ -87,26 +90,40 @@ test "decision 138: the header and the caller's data are the frame write_data wr
     try testing.expectEqualSlices(u8, &whole, &split);
 }
 
-test "decision 138: a short output carries part of the data, without END_STREAM, and none past a frame" {
+test "decision 138: a short room carries part of the data, without END_STREAM, and none past a frame" {
+    var header: [constants.protocol.frame_header_len]u8 = undefined;
     try start();
     const room = constants.protocol.frame_header_len + test_payload_len / 2;
-    const sent = try write_data_header(test_connection, test_output[0..room], 1, test_payload_len, true);
+    const sent = try write_data_header(test_connection, &header, room, 1, test_payload_len, true);
     try testing.expectEqual(test_payload_len / 2, sent.consumed);
     try testing.expectEqual(.room, sent.short_by);
     // RFC 9113 §6.1: END_STREAM is on the frame of the last octet, which is still to come.
-    var reader = core.Reader.init(test_output[0..sent.written]);
+    var reader = core.Reader.init(header[0..sent.written]);
     try testing.expect(!frame.has_flag(try frame.read_header(&reader), constants.protocol.flag_end_stream));
-    const none = try write_data_header(test_connection, test_output[0..constants.protocol.frame_header_len], 1, test_payload_len, true);
+    const none = try write_data_header(test_connection, &header, constants.protocol.frame_header_len, 1, test_payload_len, true);
     try testing.expectEqual(0, none.consumed);
     try testing.expectEqual(0, none.written);
     // RFC 9113 §5.1: a stream that ended takes no more DATA.
-    const rest = try write_data_header(test_connection, test_output, 1, test_payload_len / 2, true);
+    const rest = try write_data_header(test_connection, &header, test_output.len, 1, test_payload_len / 2, true);
     try testing.expectEqual(test_payload_len / 2, rest.consumed);
-    try testing.expectError(error.StreamNotSendable, write_data_header(test_connection, test_output, 1, 1, true));
+    try testing.expectError(error.StreamNotSendable, write_data_header(test_connection, &header, test_output.len, 1, 1, true));
 }
 
 test "RFC 9113 §8.1: a server's DATA header before its final response is SectionOutOfOrder" {
     try support.start_server();
     _ = try support.feed_request(1, "/", true);
-    try testing.expectError(error.SectionOutOfOrder, write_data_header(test_connection, test_output, 1, test_payload_len, true));
+    var header: [constants.protocol.frame_header_len]u8 = undefined;
+    try testing.expectError(error.SectionOutOfOrder, write_data_header(test_connection, &header, test_output.len, 1, test_payload_len, true));
+}
+
+test "RFC 9113 §4.1: a room shorter than a frame header holds no frame, not even an empty one" {
+    var header: [constants.protocol.frame_header_len]u8 = undefined;
+    try start();
+    const none = try write_data_header(test_connection, &header, header.len - 1, 1, 0, true);
+    try testing.expectEqual(0, none.written);
+    try testing.expectEqual(.room, none.short_by);
+    // A room of a header holds the empty frame that ends the stream (RFC 9113 §6.1).
+    const empty = try write_data_header(test_connection, &header, header.len, 1, 0, true);
+    try testing.expectEqual(header.len, empty.written);
+    try testing.expectEqual(0, empty.consumed);
 }

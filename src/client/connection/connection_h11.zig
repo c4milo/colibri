@@ -302,7 +302,7 @@ fn write_content(connection: *Connection, slot: *Slot) void {
     const content = slot.request.body;
     const response = slot.response;
     const left = content.len - response.body_sent;
-    const take = @min(left, internal.room(connection).len, record_fill(connection));
+    const take = @min(left, internal.room(connection).len, internal.record_fill(connection));
     if (take == 0) return;
     const written = connection.session.h11.write_body(internal.room(connection), content[response.body_sent..][0..take]) catch {
         // RFC 9112 §9.6: the connection closed, and no more of the body goes out.
@@ -312,16 +312,6 @@ fn write_content(connection: *Connection, slot: *Slot) void {
     connection.output_len += written;
     response.body_sent += take;
     assert(response.body_sent <= content.len);
-}
-
-/// The content octets that fill the record of the octets the output holds over TLS, and none
-/// when it holds none or in cleartext, where no record joins them.
-fn record_fill(connection: *const Connection) usize {
-    if (connection.config.tls == null) return 0;
-    assert(connection.output_len >= connection.records_len);
-    const plaintext_len = connection.output_len - connection.records_len;
-    if (plaintext_len == 0) return 0;
-    return tls_provider.constants.protocol.record_plaintext_len_max -| plaintext_len;
 }
 
 /// Writes the content of the request going out from the caller's memory into `output`, sealed

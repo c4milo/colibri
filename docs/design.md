@@ -166,7 +166,7 @@ layer". The full list is [decision 8](decisions.md#what-the-caller-supplies); th
 | Operation | Record mode (h2) | QUIC mode (h3) |
 |---|---|---|
 | handshake bytes | record-framed, over TCP | unframed messages, per encryption level |
-| application protection | `encrypt_record` / `decrypt_record` | absent — colibri protects packets itself |
+| application protection | `encrypt_record` / `decrypt_record`, and `writable_len` / `encrypt_parts` for a frame's header and its data ([decision 139](decisions.md#what-the-caller-supplies)) | absent — colibri protects packets itself |
 | secrets | never exposed | never exposed to colibri: the provider hands them to the suite ([decision 48](decisions.md#what-the-caller-supplies)) |
 | key derivation | provider-internal | provider-internal |
 | transport parameters | absent | `set_transport_params` / `peer_transport_params` |
@@ -6790,9 +6790,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - h11 counts the octets with `count_body` (decision 95), and the body ends after its last octet.
   - h2 in cleartext does the same through `h2.Connection.write_data_header` (decision 138), a
     new public name the client needs: h2 writes each DATA frame's header, and the data follows it
-    from the program's memory. Over TLS, h2 copies a frame's header and data into the output
-    until chapulin seals two slices (https://github.com/c4milo/chapulin/issues/212). h3 needs no
-    change: QUIC reads the content from the program's memory into each packet (decision 57).
+    from the program's memory. h3 needs no change: QUIC reads the content from the program's
+    memory into each packet (decision 57).
   - The TCP trace run took a cleartext send's plaintext from what the client staged in its
     output. It now takes the octets the send handed out, which hold the content too.
   - The change removes a copy of each content octet in cleartext. Over TLS it also removes the
@@ -6802,6 +6801,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - For h11, three new tests and six mutations, each CAUGHT. For h2, six new tests and nine
     mutations. One was NOT CAUGHT until a test of a DATA header before the final response was
     added, and then all nine were CAUGHT.
+
+  **17c, h2's content over TLS with no copy, 2026-10-31**
+  ([#105](https://github.com/c4milo/colibri/issues/105)). colibri pins chapulin a9167b5b, whose
+  `writeParts` seals several slices as one run (https://github.com/c4milo/chapulin/issues/212).
+  Decision 139 adds `writable_len` and `encrypt_parts` to `tls_provider.VTable`, and the client's
+  h2 seals each DATA frame's header and its data from the program's memory.
+  - Each frame over TLS takes at most one record's plaintext, its header included. A frame of
+    16,384 octets of data would pass a record by 9 octets, and cost a record of 9 octets.
+  - The DATA frame that fills the record of the request's head is still copied, as h11 copies.
+  - The client trace's census moved: 347 responses to 345, 52 failed to 53 and 49 cancelled to
+    50. A send now fills the caller's segment, not only what the connection's output holds, so
+    the octets reach the server at other instants. In seeds 0x9d and 0xab a connection breaks
+    before a response arrives. `tools/client_trace.sh` found each of the 68 traces a behavior of
+    the model.
+  - Six new tests and ten mutations. A record fill that counts the handshake's records was NOT
+    CAUGHT until a test sent a content queued before the handshake, and then all ten were
+    CAUGHT. The first mutant of a seal failure that does not end the connection did not compile,
+    and the one that compiled was CAUGHT.
 
   **17c, a response too large at its head, 2026-10-31**
   ([#106](https://github.com/c4milo/colibri/issues/106)). A final response whose Content-Length

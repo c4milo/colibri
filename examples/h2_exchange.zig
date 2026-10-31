@@ -167,9 +167,10 @@ fn answer(buffer: []u8, stream_id: u32) !usize {
     // written. A program with more content than they hold writes what it says, and the rest after
     // the peer's WINDOW_UPDATE.
     std.debug.assert(server.sendable_len(stream_id, buffer.len - head_len, greeting.len) == greeting.len);
-    const data = try server.write_data_header(buffer[head_len..], stream_id, greeting.len, true);
+    const frame = buffer[head_len..];
+    const data = try server.write_data_header(frame[0..h2.constants.protocol.frame_header_len], frame.len, stream_id, greeting.len, true);
     std.debug.assert(data.consumed == greeting.len);
     // The frame's data follows its header, before any other octet of the connection.
-    @memcpy(buffer[head_len + data.written ..][0..data.consumed], greeting[0..data.consumed]);
+    @memcpy(frame[data.written..][0..data.consumed], greeting[0..data.consumed]);
     return head_len + data.written + data.consumed;
 }

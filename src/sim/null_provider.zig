@@ -61,6 +61,8 @@ pub const NullProvider = struct {
             .handshake_read = handshake_read,
             .handshake_write = handshake_write,
             .encrypt_record = encrypt_record,
+            .writable_len = writable_len,
+            .encrypt_parts = encrypt_parts,
             .decrypt_record = decrypt_record,
             .negotiated_alpn = negotiated_alpn,
             .handshake_complete = handshake_complete,
@@ -112,6 +114,32 @@ pub const NullProvider = struct {
         const written = write_record(output, .application_data, plaintext[0..body_len]) catch
             return error.NoSpaceLeft;
         return .{ .consumed = body_len, .written = written };
+    }
+
+    fn writable_len(context: *const anyopaque, output_len: usize) usize {
+        _ = context;
+        return plaintext_fitting(output_len);
+    }
+
+    /// Writes `head` and then `data` in the records `encrypt_record` would write for the two
+    /// joined, whole or not at all (decision 139).
+    fn encrypt_parts(context: *anyopaque, head: []const u8, data: []const u8, output: []u8) tls_provider.provider.SealError!usize {
+        _ = context;
+        const total = head.len + data.len;
+        if (total > plaintext_fitting(output.len)) return error.NoSpaceLeft;
+        var taken: usize = 0;
+        var written: usize = 0;
+        // Bounded: each pass writes one record of at least one octet.
+        for (0..total + 1) |_| {
+            if (taken == total) return written;
+            const body_len = @min(total - taken, tls_provider.constants.protocol.record_plaintext_len_max);
+            const first = head[@min(taken, head.len)..@min(taken + body_len, head.len)];
+            // The data starts where the head ends, so its offset is what the run took past the head.
+            const second = data[(taken + first.len) -| head.len..][0 .. body_len - first.len];
+            written += write_record_parts(output[written..], first, second) catch unreachable;
+            taken += body_len;
+        }
+        unreachable;
     }
 
     fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) tls_provider.provider.OpenError!tls_provider.provider.Opened {
@@ -242,6 +270,27 @@ fn write_record(output: []u8, content: ContentType, body: []const u8) error{NoSp
     @memcpy(output[header_len .. header_len + body.len], body);
     @memset(output[header_len + body.len .. total], 0);
     return total;
+}
+
+/// The plaintext that records of the most plaintext, and one shorter record after them, carry in
+/// `output_len` octets.
+fn plaintext_fitting(output_len: usize) usize {
+    const overhead = header_len + constants.record_tag_len;
+    const full_len = tls_provider.constants.protocol.record_plaintext_len_max + overhead;
+    return output_len / full_len * tls_provider.constants.protocol.record_plaintext_len_max + (output_len % full_len) -| overhead;
+}
+
+/// Writes one application-data record whose body is `first` and then `second`.
+fn write_record_parts(output: []u8, first: []const u8, second: []const u8) error{NoSpaceLeft}!usize {
+    const written = try write_record(output, .application_data, first);
+    if (second.len == 0) return written;
+    const declared = first.len + second.len + constants.record_tag_len;
+    if (output.len < header_len + declared) return error.NoSpaceLeft;
+    output[constants.record_length_offset] = @intCast(declared >> @bitSizeOf(u8));
+    output[constants.record_length_offset + 1] = @truncate(declared);
+    @memcpy(output[header_len + first.len ..][0..second.len], second);
+    @memset(output[header_len + first.len + second.len ..][0..constants.record_tag_len], 0);
+    return header_len + declared;
 }
 
 /// Writes one application-data record around `body`, for a check that builds a stream by hand.
@@ -406,4 +455,25 @@ test "§4.7.3: a key update that does not fit counts nothing" {
         view.vtable.initiate_key_update(view.context, .update_not_requested, &output),
     );
     try testing.expectEqual(0, endpoint.key_updates_sent);
+}
+
+test "decision 139: two parts go out in the records encrypt_record writes for the two joined" {
+    NullProvider.install();
+    var endpoint: NullProvider = .{};
+    const provider = endpoint.provider();
+    const head = "HEAD";
+    const data: [tls_provider.constants.protocol.record_plaintext_len_max]u8 = @splat('x');
+    var output: [2 * (tls_provider.constants.protocol.record_plaintext_len_max + header_len + constants.record_tag_len)]u8 = undefined;
+    const written = try provider.vtable.encrypt_parts(provider.context, head, &data, &output);
+    // The first record is full, so the head's octets push the data's last four into a second.
+    const first = read_record(output[0..written]).?;
+    try testing.expectEqual(tls_provider.constants.protocol.record_plaintext_len_max, first.body_len);
+    try testing.expectEqualStrings(head, output[header_len..][0..head.len]);
+    const second = read_record(output[first.total_len..written]).?;
+    try testing.expectEqual(head.len, second.body_len);
+    try testing.expectEqual(written, first.total_len + second.total_len);
+    // An output one octet short of the two seals nothing.
+    const fits = provider.vtable.writable_len(provider.context, written);
+    try testing.expectEqual(head.len + data.len, fits);
+    try testing.expectError(error.NoSpaceLeft, provider.vtable.encrypt_parts(provider.context, head, &data, output[0 .. written - 1]));
 }

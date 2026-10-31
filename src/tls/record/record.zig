@@ -288,6 +288,7 @@ test {
     _ = @import("record_failure_test.zig");
     _ = @import("record_fail_test.zig");
     _ = @import("record_ticket_test.zig");
+    _ = @import("record_parts_test.zig");
     // Sealing a peer's KeyUpdate needs the traffic secrets, which only a `KEYLOG=on` object logs.
     if (@hasDecl(chapulin.c, "ch_keylog")) _ = @import("record_keylog_test.zig");
 }
