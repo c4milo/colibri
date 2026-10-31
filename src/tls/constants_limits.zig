@@ -15,7 +15,7 @@ pub const receive_len: usize = 20 * 1024;
 /// or more since its commit 237e6e19. colibri keeps 12, chapulin's earlier
 /// `CH_WEBPKI_ANCHOR_MAX`, so no configuration grows. The owner ruled this on 2026-10-17. The PEM
 /// reader for a CA bundle (https://github.com/c4milo/colibri/issues/97) sizes it again for a
-/// system bundle. Each anchor costs a `ch_trust_anchor`, four words, in each client configuration.
+/// system bundle. Each anchor costs a `TrustAnchor`, four words, in each client configuration.
 pub const anchors_max: usize = 12;
 
 /// Octets of the server_name a server keeps from a ClientHello (RFC 9846 §9.2). chapulin copies

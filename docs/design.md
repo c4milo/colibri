@@ -6631,6 +6631,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     before the handshake completed, which a new test of a client that read only the ServerHello
     catches.
 
+  **chapulin's Zig types, 2026-10-31.** colibri pins chapulin c8cd8021, whose Zig API takes and
+  returns Zig slices for chains, anchors and ALPN names
+  (https://github.com/c4milo/chapulin/issues/213), which the owner asked for on 2026-10-31.
+  - `config.zig` passes a chain and an ALPN list as they are, and checks their lengths alone. An
+    anchor is still copied, because each object has a `TrustAnchor` type of its own.
+  - Each session type takes chapulin's `Limits`, set from `certificate_chain_len_max` and
+    `anchors_max`, so no limit of colibri's changes.
+  - chapulin holds the C arrays in each session now: each TLS session grows by 1,024 octets, and
+    colibri's configurations shrink by the copies they held. docs/performance.md's table is
+    printed again.
+  - 3 mutations **CAUGHT**: each length check, and an anchor's name.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27

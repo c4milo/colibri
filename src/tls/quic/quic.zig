@@ -47,7 +47,7 @@ pub const Error = error{
 };
 
 pub const Client = struct {
-    session: chapulin.quic.Client(constants.limits.receive_len),
+    session: chapulin.quic.Client(constants.limits.receive_len, config_module.limits_of(chapulin)),
     /// The ticket this connection offers, in chapulin's form; the session points at its PSK.
     offered: chapulin.Ticket,
     /// The values this connection starts from, which chapulin reads when its session starts.
@@ -141,7 +141,7 @@ pub const Client = struct {
 };
 
 pub const Server = struct {
-    session: chapulin.quic.Server(constants.limits.receive_len),
+    session: chapulin.quic.Server(constants.limits.receive_len, config_module.limits_of(chapulin)),
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
     server_name: [constants.limits.server_name_len_max]u8,
     /// The values this connection starts from, which chapulin reads when its session starts.

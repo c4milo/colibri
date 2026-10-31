@@ -1,7 +1,8 @@
 //! Step 16c's values converted, once, into one chapulin object's values (decision 97 as amended).
-//! chapulin's values point at lists of its own C element types, so a configuration holds those
-//! lists, at chapulin's limits, and every session of the object borrows it. The caller places a
-//! configuration and does not move it after `init`: its values point into it.
+//! chapulin takes the chains and the ALPN names as the caller's slices
+//! (https://github.com/c4milo/chapulin/issues/213). Its anchors are a type of each object, so a
+//! configuration holds them, at colibri's limit, and every session of the object borrows it. The
+//! caller places a configuration and does not move it after `init`: its values point into it.
 //!
 //! Each object's module is a type of its own, so each configuration is a function of the module:
 //! `record` takes the TCP object's and `quic` the QUIC object's.
@@ -39,8 +40,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
         pub const anchors_max: usize = constants.limits.anchors_max;
         pub const protocols_max: usize = c.CH_ALPN_MAX;
 
-        anchors: [anchors_max]c.ch_trust_anchor,
-        alpn: [protocols_max]c.ch_alpn_protocol,
+        anchors: [anchors_max]chapulin.TrustAnchor,
         suites: [constants.limits.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock and the ticket.
         values: chapulin.Client,
@@ -49,7 +49,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
             // chapulin's `build.h`: the object and the declarations colibri reads were built from
             // one define list, which the package guarantees and this checks once per configuration.
             assert(chapulin.buildMatches());
-            const alpn = try protocols(chapulin, &config.alpn, client.alpn);
+            const alpn = try protocols(chapulin, client.alpn);
             const trust = try config.trust_of(client.trust);
             config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq, .takes_tickets = client.takes_tickets };
             // Decided when the object is built, so an object that takes no description of the
@@ -73,7 +73,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
                     // `constants.limits.anchors_max`.
                     if (judged.anchors.len > config.anchors.len) return error.TooManyAnchors;
                     const anchors = config.anchors[0..judged.anchors.len];
-                    for (judged.anchors, anchors) |anchor, *converted| converted.* = chapulin.trustAnchor(anchor.subject, anchor.spki);
+                    for (judged.anchors, anchors) |anchor, *converted| converted.* = .{ .name = anchor.subject, .spki = anchor.spki };
                     return .{ .web_pki = .{ .anchors = anchors, .server_name = judged.server_name, .clock = no_clock(chapulin), .pins = judged.pins } };
                 },
                 .pins => |pinned| return .{ .pins = .{ .pins = pinned.pins, .server_name = pinned.server_name } },
@@ -98,9 +98,6 @@ pub fn ServerConfig(comptime chapulin: type) type {
         /// more.
         pub const protocols_max: usize = c.CH_ALPN_MAX;
 
-        ecdsa_chain: [constants.limits.certificate_chain_len_max]c.ch_cert,
-        rsa_chain: [constants.limits.certificate_chain_len_max]c.ch_cert,
-        alpn: [protocols_max]c.ch_alpn_protocol,
         suites: [constants.limits.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock.
         values: chapulin.Server,
@@ -110,7 +107,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
             config.values = .{
                 .cookie_key = server.cookie_key,
                 .ticket_key = server.ticket_key,
-                .alpn = try protocols(chapulin, &config.alpn, server.alpn),
+                .alpn = try protocols(chapulin, server.alpn),
                 .require_server_name = server.require_server_name,
             };
             // Decided when the object is built, so an object that takes no description of the
@@ -123,12 +120,12 @@ pub fn ServerConfig(comptime chapulin: type) type {
                 return error.SuitesUnavailable;
             }
             if (server.ecdsa_p256) |identity| config.values.ecdsa_p256 = .{
-                .chain = try certificates(chapulin, &config.ecdsa_chain, identity.chain),
+                .chain = try certificates(identity.chain),
                 .public_key = identity.public_key,
                 .private_key = identity.private_key,
             };
             if (server.rsa_pss) |identity| config.values.rsa_pss = .{
-                .chain = try certificates(chapulin, &config.rsa_chain, identity.chain),
+                .chain = try certificates(identity.chain),
                 .public_key = identity.public_key,
                 .private_key = @ptrCast(@alignCast(identity.private_key)),
             };
@@ -209,20 +206,26 @@ fn suite_order(comptime chapulin: type, storage: *[constants.limits.cipher_suite
     return storage[0..codes.len];
 }
 
-/// Copies the protocol names into chapulin's list, which an empty list leaves empty: a program
-/// that offers none sends no ALPN extension (RFC 7301 §3.1).
-fn protocols(comptime chapulin: type, storage: *[chapulin.c.CH_ALPN_MAX]chapulin.c.ch_alpn_protocol, names: []const []const u8) Error![]const chapulin.c.ch_alpn_protocol {
-    // RFC 7301 §3.1: the protocols, most preferred first, copied into a list of chapulin's
-    // `CH_ALPN_MAX`.
-    if (names.len > storage.len) return error.TooManyProtocols;
-    for (names, storage[0..names.len]) |name, *protocol| protocol.* = chapulin.alpnProtocol(name);
-    return storage[0..names.len];
+/// The protocol names, most preferred first, which chapulin takes as they are: an empty list
+/// sends no ALPN extension (RFC 7301 §3.1).
+fn protocols(comptime chapulin: type, names: []const []const u8) Error![]const []const u8 {
+    // RFC 7301 §3.1: chapulin's list holds `CH_ALPN_MAX` protocols.
+    if (names.len > chapulin.c.CH_ALPN_MAX) return error.TooManyProtocols;
+    return names;
 }
 
-/// Copies a chain into chapulin's list, the end-entity first (RFC 9846 §4.5.1).
-fn certificates(comptime chapulin: type, storage: *[constants.limits.certificate_chain_len_max]chapulin.c.ch_cert, chain: []const []const u8) Error![]const chapulin.c.ch_cert {
-    // RFC 9846 §4.5.1: the certificate_list, copied into a list of `certificate_chain_len_max`.
-    if (chain.len > storage.len) return error.TooManyCertificates;
-    for (chain, storage[0..chain.len]) |der, *certificate| certificate.* = chapulin.cert(der);
-    return storage[0..chain.len];
+/// A chain, the end-entity first (RFC 9846 §4.5.1), which chapulin takes as it is.
+fn certificates(chain: []const []const u8) Error![]const []const u8 {
+    // RFC 9846 §4.5.1: the certificate_list, at most `certificate_chain_len_max` certificates.
+    if (chain.len > constants.limits.certificate_chain_len_max) return error.TooManyCertificates;
+    return chain;
+}
+
+/// The lengths a session of the object takes, colibri's: the longest chain and the most anchors
+/// (chapulin's `Limits`).
+pub fn limits_of(comptime chapulin: type) chapulin.Limits {
+    return .{
+        .chain_max = constants.limits.certificate_chain_len_max,
+        .anchors_max = constants.limits.anchors_max,
+    };
 }
