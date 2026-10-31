@@ -11941,6 +11941,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Once an episode is found spurious, it is over. TLC found that the first version emptied
         the list, so a later loss in the same recovery period could make the episode spurious
         twice.
+      - §5.5.11 defines a spurious episode over the whole episode, but a sender judges it while the
+        episode runs, so a verdict can come before a later loss that is real. The draft and RFC
+        9002 do not say what then. colibri keeps the first verdict: a later loss in the same
+        recovery period lowers the model as any loss does, and undoes nothing again.
       - §5.3.1.3 says "at least one full packet-timed round trip" of recovery. Recovery that
         starts in round R has a full round once round R + 2 starts, so the check waits for it.
       - §5.5.10.2's `lost_prefix` is negative when the losses before the lost packet already
