@@ -6781,6 +6781,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     cleartext and over TLS: Go's ALPN chose h11, and the client offered only h11 to h2o.
   - `zig build test` passed.
 
+  **17c, a request's content with no copy, 2026-10-30**
+  ([#105](https://github.com/c4milo/colibri/issues/105)). Over h11, `send` writes a request's
+  content from the program's memory into its `output`, and over TLS it seals the content from
+  there. Before, each octet went through the connection's own output first.
+  - Over TLS, the octets that fill the head's record are still copied, so a small content goes out
+    in the record of its head.
+  - h11 counts the octets with `count_body` (decision 95), and the body ends after its last octet.
+  - h2 still copies a DATA frame's content into the output. Each frame needs its header, and flow
+    control decides its length.
+  - The change removes a copy of each content octet in cleartext. Over TLS it also removes the
+    move of the output's rest after each record that `send` sealed. A probe sent a 4 MiB PUT under
+    callgrind and counted fewer instructions both ways. Its numbers are a laptop's and are not
+    published (decision 32).
+  - Three new tests and six mutations, each CAUGHT.
+
   **17d, the client over QUIC and the choice, 2026-09-28.**
   - `QuicConnection` (`35dfbde`) carries exchanges over h3 on QUIC with the TCP connection's calls
     and events. An exchange's `finished` event waits until its stream reads nothing more of the

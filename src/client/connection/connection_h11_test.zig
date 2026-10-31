@@ -4,6 +4,7 @@
 const std = @import("std");
 const support = @import("connection_test_support.zig");
 const event = @import("../event.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -404,10 +405,34 @@ test "RFC 9112 §6.2: a cancel while the content is going out ends the connectio
     var post: Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = &upload }, .response = .{ .body = &bodies[0] } };
     const id = try connection.request(&post.request, &post.response);
     support.client_send();
-    // The output holds less than the content, so some of it is still to go.
-    try testing.expect(support.to_peer_len < upload.len);
+    // The head leaves no room for all of the content, so some of it is still to go.
+    try testing.expect(post.response.body_sent < upload.len);
     connection.cancel(id);
     try support.client_receive();
     try testing.expectEqual(0, support.count(.finished));
     try testing.expect(support.find(.closed) != null);
+}
+
+test "a content longer than the connection's output goes out from the caller's memory in one send" {
+    try start();
+    @memset(&upload, 'x');
+    const content = upload[0 .. 2 * constants.limits.output_len];
+    var put: Exchange = .{ .request = .{ .method = "PUT", .path = "/object", .body = content }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&put.request, &put.response);
+    support.client_send();
+    // https://github.com/c4milo/colibri/issues/105: the content is not copied through the
+    // connection's output, which holds less than it.
+    try testing.expectEqual(content.len, put.response.body_sent);
+    const sent_octets = support.to_peer[0..support.to_peer_len];
+    const head_len = std.mem.indexOf(u8, sent_octets, "\r\n\r\n").? + 4;
+    try testing.expectEqual(content.len, sent_octets.len - head_len);
+    try testing.expectEqualSlices(u8, content, sent_octets[head_len..]);
+    try peer_writes(ok_response);
+    try testing.expectEqual(.response, put.response.result);
+    // The body ended, so the next request goes out on the same connection.
+    support.to_peer_len = 0;
+    var next = get(&bodies[1]);
+    _ = try connection.request(&next.request, &next.response);
+    support.client_send();
+    try testing.expect(sent("GET /dns-query HTTP/1.1"));
 }

@@ -223,6 +223,31 @@ fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
     return written;
 }
 
+/// Seals as much of `content`, the caller's own octets, as `output` holds, with no copy into the
+/// connection's output (https://github.com/c4milo/colibri/issues/105). A record that fails ends
+/// the connection, and the alert the provider owes is written in place of the content.
+pub fn seal_content(connection: *Connection, content: []const u8, output: []u8, now_ns: u64) tls_provider.provider.Sealed {
+    assert(connection.output_len == 0);
+    var taken: tls_provider.provider.Sealed = .{ .consumed = 0, .written = 0 };
+    // Bounded: a pass seals a record at least, or ends the loop.
+    for (0..constants.limits.seals_per_send_max) |_| {
+        const sealed = encrypt(connection, content[taken.consumed..], output[taken.written..], now_ns) catch |failure| switch (failure) {
+            // The rest waits for the next call, as in `seal`.
+            error.NoSpaceLeft => return taken,
+            // RFC 9846 §6: no data goes out after a failure, and `seal` writes the alert.
+            error.TlsFailed => {
+                internal.fail(connection);
+                return .{ .consumed = 0, .written = taken.written + seal(connection, output[taken.written..], now_ns) };
+            },
+            error.ConnectionFailed, error.HandshakeIncomplete, error.NoProvider => unreachable,
+        };
+        taken.consumed += sealed.consumed;
+        taken.written += sealed.written;
+        if (sealed.consumed == 0) return taken;
+    }
+    return taken;
+}
+
 /// What one opened record gave, in either protocol.
 const Opened = struct {
     consumed: usize,

@@ -7,10 +7,12 @@ const support = @import("connection_test_support.zig");
 const tls_support = @import("connection_tls_test_support.zig");
 const plain_support = @import("plain_provider_test_support.zig");
 const connection_tls = @import("connection_tls.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 const header_len = tls_provider.constants.protocol.record_header_len;
+const record_len_max = tls_provider.constants.protocol.record_plaintext_len_max;
 
 /// The provider the tests attach in place of a handshake's session. Test-only.
 var plain: plain_support.PlainProvider align(@alignOf(plain_support.PlainProvider)) = undefined;
@@ -21,6 +23,12 @@ const ok: u16 = 200;
 /// Where each response's content goes: the test makes two exchanges. Test-only.
 const requests_count = 2;
 var bodies: [requests_count][response.len]u8 = undefined;
+
+/// A request's content longer than the connection's own output, which `send` seals from the
+/// caller's memory (https://github.com/c4milo/colibri/issues/105). Test-only.
+var upload: [upload_len]u8 = undefined;
+const upload_len: usize = outputs_per_upload * constants.limits.output_len;
+const outputs_per_upload: usize = 2;
 
 /// A connection over `plain` that selected http/1.1, as one whose handshake just completed. The
 /// ClientHello that `init` staged never goes out. Test-only.
@@ -106,4 +114,66 @@ test "a record of data ends a run of KeyUpdates, so the next run has the whole l
     const report = view.vtable.take_alert(view.context).?;
     try testing.expectEqual(tls_provider.Alert.unexpected_message, report.description);
     try testing.expectEqual(tls_provider.AlertReport.Origin.local, report.origin);
+}
+
+/// A PUT of `upload`. Test-only.
+fn put_upload() support.Exchange {
+    @memset(&upload, 'x');
+    return .{ .request = .{ .method = "PUT", .path = "/object", .body = &upload }, .response = .{ .body = &bodies[0] } };
+}
+
+test "a small request content goes out in the record of its head" {
+    try attach_plain();
+    var post: support.Exchange = .{ .request = .{ .method = "POST", .path = "/", .body = "query" }, .response = .{ .body = &bodies[0] } };
+    _ = try connection.request(&post.request, &post.response);
+    support.client_send();
+    const sent = support.to_peer[0..support.to_peer_len];
+    const record = plain_support.open(sent).?;
+    try testing.expectEqual(sent.len, header_len + record.content.len);
+    try testing.expect(std.mem.endsWith(u8, record.content, "\r\n\r\nquery"));
+}
+
+test "a content longer than the connection's output is sealed from the caller's memory in one send" {
+    try attach_plain();
+    var put = put_upload();
+    _ = try connection.request(&put.request, &put.response);
+    support.client_send();
+    try testing.expectEqual(upload_len, put.response.body_sent);
+    // The head and the start of the content fill the first record, and the rest follows whole.
+    const sent = support.to_peer[0..support.to_peer_len];
+    var offset: usize = 0;
+    var plaintext_len: usize = 0;
+    // Bounded: each pass reads one record.
+    for (0..sent.len) |_| {
+        const record = plain_support.open(sent[offset..]) orelse break;
+        if (offset == 0) try testing.expectEqual(record_len_max, record.content.len);
+        @memcpy(tls_support.peer_plain[plaintext_len..][0..record.content.len], record.content);
+        plaintext_len += record.content.len;
+        offset += header_len + record.content.len;
+    }
+    try testing.expectEqual(sent.len, offset);
+    const plaintext = tls_support.peer_plain[0..plaintext_len];
+    try testing.expect(std.mem.startsWith(u8, plaintext, "PUT /object HTTP/1.1"));
+    const head_len = std.mem.indexOf(u8, plaintext, "\r\n\r\n").? + 4;
+    try testing.expectEqualSlices(u8, &upload, plaintext[head_len..]);
+}
+
+test "RFC 9846 §6: a record refused while the content is sealed ends the connection" {
+    try attach_plain();
+    var put = put_upload();
+    _ = try connection.request(&put.request, &put.response);
+    // The output holds one record: the head and the start of the content.
+    const one_record = header_len + record_len_max;
+    support.to_peer_len = connection.send(support.to_peer[0..one_record], support.now_ns);
+    try testing.expectEqual(one_record, support.to_peer_len);
+    try testing.expect(put.response.body_sent < upload_len);
+    plain.refuse_seal = true;
+    support.client_send();
+    // No data goes out after the failure, and the exchange ends with the connection.
+    try testing.expect(connection.failed);
+    try testing.expectEqual(one_record, support.to_peer_len);
+    try support.client_receive();
+    // RFC 9112 §9.6: the request went out in part, so it ends with the connection.
+    try testing.expectEqual(.closed, put.response.result);
+    try testing.expect(support.find(.closed) != null);
 }

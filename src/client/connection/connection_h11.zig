@@ -12,9 +12,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
+const connection_tls = @import("connection_tls.zig");
 const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
@@ -212,6 +214,11 @@ fn write_request(connection: *Connection, slot: *Slot) bool {
     }
     write_content(connection, slot);
     if (!slot.content_done()) return false;
+    return end_content(connection);
+}
+
+/// Ends the body whose last octet went out. Returns whether the next head may follow.
+fn end_content(connection: *Connection) bool {
     const session = &connection.session.h11;
     // RFC 9112 §6.2: a body of a declared length ends with its last octet, and the next head may
     // follow.
@@ -280,12 +287,14 @@ fn request_fields(
     return lines[0..count];
 }
 
-/// Writes as much of `slot`'s content as the room holds, which h11 takes whole (RFC 9112 §2.1).
+/// Writes into the output the part of `slot`'s content that fills the record of the head before
+/// it, over TLS. `send_content` writes the rest from the caller's memory, with no copy into the
+/// output (https://github.com/c4milo/colibri/issues/105).
 fn write_content(connection: *Connection, slot: *Slot) void {
     const content = slot.request.body;
     const response = slot.response;
     const left = content.len - response.body_sent;
-    const take = @min(left, internal.room(connection).len);
+    const take = @min(left, internal.room(connection).len, record_fill(connection));
     if (take == 0) return;
     const written = connection.session.h11.write_body(internal.room(connection), content[response.body_sent..][0..take]) catch {
         // RFC 9112 §9.6: the connection closed, and no more of the body goes out.
@@ -295,4 +304,44 @@ fn write_content(connection: *Connection, slot: *Slot) void {
     connection.output_len += written;
     response.body_sent += take;
     assert(response.body_sent <= content.len);
+}
+
+/// The content octets that fill the record of the octets the output holds over TLS, and none
+/// when it holds none or in cleartext, where no record joins them.
+fn record_fill(connection: *const Connection) usize {
+    if (connection.config.tls == null) return 0;
+    assert(connection.output_len >= connection.records_len);
+    const plaintext_len = connection.output_len - connection.records_len;
+    if (plaintext_len == 0) return 0;
+    return tls_provider.constants.protocol.record_plaintext_len_max -| plaintext_len;
+}
+
+/// Writes the content of the request going out from the caller's memory into `output`, sealed
+/// over TLS, once the connection's own output is empty, and ends its body after its last octet.
+/// Returns the octets written into `output` (https://github.com/c4milo/colibri/issues/105).
+pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
+    assert(connection.output_len == 0);
+    if (connection.stopped or connection.session != .h11) return 0;
+    const slot = writing(connection) orelse return 0;
+    const response = slot.response;
+    const content = slot.request.body[response.body_sent..];
+    const sent: tls_provider.provider.Sealed = if (connection.config.tls == null)
+        copy_content(content, output)
+    else
+        connection_tls.seal_content(connection, content, output, now_ns);
+    // A record that failed ended the connection and every exchange it held.
+    if (sent.consumed == 0) return sent.written;
+    // The head declared the body's length, and the octets sent stay within it (decision 95).
+    connection.session.h11.count_body(sent.consumed) catch unreachable;
+    response.body_sent += sent.consumed;
+    assert(response.body_sent <= slot.request.body.len);
+    if (slot.content_done()) _ = end_content(connection);
+    return sent.written;
+}
+
+/// Copies as much of `content` as `output` holds, in cleartext.
+fn copy_content(content: []const u8, output: []u8) tls_provider.provider.Sealed {
+    const take = @min(content.len, output.len);
+    @memcpy(output[0..take], content[0..take]);
+    return .{ .consumed = take, .written = take };
 }

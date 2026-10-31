@@ -241,9 +241,26 @@ pub const Connection = struct {
     }
 
     /// Writes the requests waiting and what the protocol owes into `output`, sealed over TLS, and
-    /// returns the octets written. What does not fit waits for the next call.
+    /// returns the octets written. What does not fit waits for the next call. h11 writes a
+    /// request's content from the caller's memory, with no copy into the connection's output
+    /// (https://github.com/c4milo/colibri/issues/105).
     pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
-        if (connection.phase == .open) connection.write_protocol(now_ns);
+        var written: usize = 0;
+        // Bounded: each pass after the first follows a pass that wrote some content, and each
+        // exchange's content ends once.
+        for (0..constants.limits.requests_max + 1) |_| {
+            if (connection.phase == .open) connection.write_protocol(now_ns);
+            written += connection.send_output(output[written..], now_ns);
+            if (connection.output_len > 0) return written;
+            const content = connection_h11.send_content(connection, output[written..], now_ns);
+            if (content == 0) return written;
+            written += content;
+        }
+        return written;
+    }
+
+    /// Writes what the connection's output holds into `output`, sealed over TLS.
+    fn send_output(connection: *Connection, output: []u8, now_ns: u64) usize {
         if (connection.config.tls != null) return connection_tls.send(connection, output, now_ns);
         const written = @min(output.len, connection.output_len);
         @memcpy(output[0..written], connection.output[0..written]);
