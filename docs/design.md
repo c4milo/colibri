@@ -6803,6 +6803,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     mutations. One was NOT CAUGHT until a test of a DATA header before the final response was
     added, and then all nine were CAUGHT.
 
+  **17c, a response too large at its head, 2026-10-31**
+  ([#106](https://github.com/c4milo/colibri/issues/106)). A final response whose Content-Length
+  is larger than the room left in `body` ends `too_large` at its head, in h11, h2 and h3
+  (decision 124 as amended). Before, the client read and dropped all of its content, and an h11
+  connection stayed held until then.
+  - h11 ends the connection, h2 resets the stream with CANCEL, and h3 with H3_REQUEST_CANCELLED.
+  - The response to HEAD, a 304, and content the client decodes are not judged at the head.
+  - Two h11 tests of a dropped response now send it chunked, which gives no length at its head.
+  - Six new tests and nine mutations. Content judged at the head while it is decoded was NOT
+    CAUGHT until a gzip test was added, and then all nine were CAUGHT.
+
   **17d, the client over QUIC and the choice, 2026-09-28.**
   - `QuicConnection` (`35dfbde`) carries exchanges over h3 on QUIC with the TCP connection's calls
     and events. An exchange's `finished` event waits until its stream reads nothing more of the

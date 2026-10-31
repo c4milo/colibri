@@ -1128,7 +1128,7 @@ The response's `outcome` says what happened to the exchange:
 | `closed` | The connection ended before the response was whole. The server may have processed the request. When no part of the response arrived, the pool first sent an idempotent request again, once ([decision 124](decisions.md)). |
 | `malformed` | colibri refused the response, because the protocol's rules make it malformed. |
 | `invalid` | The request is one the protocol refuses to send. |
-| `too_large` | The content did not fit `body`, or a wanted value did not fit `values`. |
+| `too_large` | The content did not fit `body`, or a wanted value did not fit `values`. A Content-Length larger than `body` ends the exchange at its head, and over h11 the connection with it ([decision 124](decisions.md)). |
 
 The events:
 

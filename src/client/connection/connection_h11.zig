@@ -96,6 +96,14 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
         response_write.record_head(slot, status, section, 0) catch |failure| {
             if (start_dropping(connection, slot, response_write.outcome_of(failure))) return true;
         };
+        // RFC 9112 §9.3.1: "Connections can be closed at any time", so a content that cannot fit
+        // ends the exchange and the connection at its head, and is never read
+        // (https://github.com/c4milo/colibri/issues/106).
+        if (slot.stage == .sent and connection.session.h11.phase == .body and response_write.too_large_at_head(slot, status, section)) {
+            slots_module.end(slot, .too_large);
+            internal.fail(connection);
+            return true;
+        }
     }
     // A response without a body is read whole with its head (RFC 9112 §6.3).
     if (connection.session.h11.phase == .body) return false;

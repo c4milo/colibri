@@ -157,22 +157,36 @@ test "RFC 9110 §15.2: interim responses are counted, and the final one gives th
     try testing.expectEqual(ok, exchange.response.status);
 }
 
-test "RFC 9112 §9.2: content past the caller's memory is dropped, and the next response still arrives" {
+test "RFC 9112 §9.2: chunked content past the caller's memory is dropped, and the next response still arrives" {
     try start();
     var small = get(bodies[0][0..2]);
     var next = get(&bodies[1]);
     _ = try connection.request(&small.request, &small.response);
     _ = try connection.request(&next.request, &next.response);
     support.client_send();
-    try support.peer_h11_read();
-    try support.peer_h11_answer(ok, &hello_fields, "hello");
-    try support.peer_h11_read();
-    try support.peer_h11_answer(ok, &hello_fields, "world");
-    try support.client_receive();
+    // A chunked content gives no length at its head, so it is read until it passes the memory.
+    try peer_writes(chunked_hello ++ "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nworld");
     try testing.expectEqual(.too_large, small.response.result);
     try testing.expectEqual(.response, next.response.result);
     try testing.expectEqualStrings("world", next.response.body_received());
     try testing.expectEqual(null, support.find(.closed));
+}
+
+test "issue 106: a Content-Length past the caller's memory ends the exchange and the connection at the head" {
+    try start();
+    var small = get(bodies[0][0..2]);
+    var next = get(&bodies[1]);
+    _ = try connection.request(&small.request, &small.response);
+    _ = try connection.request(&next.request, &next.response);
+    support.client_send();
+    // The head alone arrives: the client does not wait for content it would drop.
+    try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n");
+    try testing.expectEqual(.too_large, small.response.result);
+    try testing.expectEqual(ok, small.response.status);
+    // RFC 9112 §9.3.1: the request after it was written, so it ends with the connection.
+    try testing.expectEqual(.closed, next.response.result);
+    try testing.expect(support.find(.closed) != null);
+    try testing.expect(connection.should_close());
 }
 
 test "RFC 9112 §9.2: a cancelled exchange's response is read and dropped, and reports nothing" {
@@ -261,6 +275,8 @@ test "RFC 9112 §8: a malformed response ends its exchange malformed, and the co
 const precondition_failed: u16 = 412;
 const early_response = "HTTP/1.1 412 Precondition Failed\r\nContent-Length: 0\r\n\r\n";
 const ok_response = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
+/// A response whose content of five octets is chunked, so its head gives no length. Test-only.
+const chunked_hello = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
 
 /// The peer writes `octets` itself, and the client reads them. Test-only.
 fn peer_writes(octets: []const u8) !void {
@@ -356,7 +372,7 @@ test "RFC 9112 §9.2: a response dropped after the content went out keeps the co
     var next = get(&bodies[1]);
     _ = try connection.request(&put.request, &put.response);
     try send_content(&put);
-    try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello");
+    try peer_writes(chunked_hello);
     try testing.expectEqual(.too_large, put.response.result);
     try testing.expectEqual(null, support.find(.closed));
     _ = try connection.request(&next.request, &next.response);

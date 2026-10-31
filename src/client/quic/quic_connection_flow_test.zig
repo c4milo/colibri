@@ -39,6 +39,19 @@ test "RFC 9114 §4.1.1: content past the caller's memory ends the exchange, and 
     try testing.expectEqual(&exchange.request, support.find(.finished).?.finished.request);
 }
 
+test "issue 106: a content-length past the caller's memory ends the exchange at the head" {
+    try support.start(&support.alpn_h3, &support.alpn_h3, false);
+    // The head names one octet and none follows, so only the head can end the exchange.
+    support.answer_content = "";
+    support.answer_malformed = true;
+    support.answer_open = true;
+    var exchange = get(bodies[0][0..0]);
+    _ = try connection.request(&exchange.request, &exchange.response);
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(.too_large, exchange.response.result);
+    try testing.expect(support.server.streams.lookup(.{ .value = 0 }) != .live);
+}
+
 test "RFC 9114 §4.1.1: a cancelled exchange's stream is reset, and no event reports it" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;

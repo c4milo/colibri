@@ -303,3 +303,17 @@ test "decision 101: a gzip trailer that arrives once the body is full decodes to
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings(text, exchange.response.body_received());
 }
+
+test "issue 106: coded content is judged decoded, never by a Content-Length past the body" {
+    try support.start_coding(.h11);
+    const short = "hi";
+    var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body[0..short.len] } };
+    const coded = try gzip_of(short);
+    // gzip's header and trailer make the coded content longer than what it decodes to.
+    try testing.expect(coded.len > short.len);
+    var digits: [8]u8 = undefined;
+    const fields = [_]Header{ .{ .name = "Content-Encoding", .value = "gzip" }, .{ .name = "Content-Length", .value = length_of(coded, &digits) } };
+    try h11_exchange(&exchange, ok, &fields, coded);
+    try testing.expectEqual(.response, exchange.response.result);
+    try testing.expectEqualStrings(short, exchange.response.body_received());
+}

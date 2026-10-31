@@ -107,7 +107,12 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
         return refuse(connection, slot, response_write.outcome_of(failure));
     };
-    if (!head.end_stream) return false;
+    if (!head.end_stream) {
+        // RFC 9113 §8.1: a content that cannot fit ends its stream with CANCEL at the head
+        // (https://github.com/c4milo/colibri/issues/106).
+        if (response_write.too_large_at_head(slot, head.response.status.code, section)) return refuse(connection, slot, .too_large);
+        return false;
+    }
     return finish(connection, slot);
 }
 

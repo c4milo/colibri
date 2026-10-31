@@ -261,8 +261,11 @@ fn on_response(connection: *QuicConnection, head: h3.connection.Response) void {
     }
     const section = connection.h3.field_section();
     response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
-        refuse(connection, slot, response_write.outcome_of(failure));
+        return refuse(connection, slot, response_write.outcome_of(failure));
     };
+    // RFC 9114 §4.1.1: a content that cannot fit ends its stream with H3_REQUEST_CANCELLED at the
+    // head (https://github.com/c4milo/colibri/issues/106).
+    if (response_write.too_large_at_head(slot, head.response.status.code, section)) refuse(connection, slot, .too_large);
 }
 
 fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {

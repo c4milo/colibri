@@ -4875,6 +4875,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      RFC 9110 §9.2.2 allows: the intended effect is the same. Each TCP connection, in the client
      and in the server, grows by about 16 KB for ruling 7.
 
+     Amended by the owner on 2026-10-30, for
+     [#106](https://github.com/c4milo/colibri/issues/106): a response too large ends at its
+     head, by default.
+     - A final response whose Content-Length is larger than the room left in `body` ends
+       `too_large` at its head, and its content is not read. The response to HEAD and a 304 are
+       not judged so, because their Content-Length counts content they do not carry (RFC 9110
+       §8.6).
+     - h11 also ends the connection, because it cannot end one exchange alone (RFC 9112 §9.3.1).
+       h2 resets the stream with CANCEL (RFC 9113 §8.1), and h3 with H3_REQUEST_CANCELLED (RFC
+       9114 §4.1.1).
+     - Content in a coding the client decodes is still judged as it arrives, because its
+       decoded length is not known at the head (decision 101).
+
+     The alternative refused: `Request.close_when_too_large`, which leaves the rule to each
+     program. A program that holds a slot for a large response it would drop then holds it until
+     the content drains.
+
 125. **`client.Pool` holds several TCP connections to one origin, counted at run time.** Ruled by
      the owner on 2026-10-17 and 2026-10-19, for design §8 step 22
      ([#108](https://github.com/c4milo/colibri/issues/108)). A program that sends many requests

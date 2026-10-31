@@ -80,6 +80,25 @@ pub fn append_body(slot: *Slot, octets: []const u8) Error!void {
     assert(response.body_len <= response.body.len);
 }
 
+/// Whether the final response that `record_head` just read declares, in its Content-Length, more
+/// content than the room left in the caller's `body`, so the exchange ends `too_large` at its
+/// head (https://github.com/c4milo/colibri/issues/106). Decoded content has a length no head
+/// gives (decision 101), so a response the client decodes is judged as its content arrives.
+pub fn too_large_at_head(slot: *const Slot, status: u16, section: *const FieldSection) bool {
+    if (coding.active(slot)) return false;
+    // RFC 9110 §8.6: the Content-Length of a response to HEAD, or of a 304, counts content that
+    // the response does not carry.
+    if (http.method.standard(slot.request.method) == .head or status == not_modified) return false;
+    // The protocol checked the value before the head was an event (RFC 9112 §6.3, RFC 9113
+    // §8.1.1, RFC 9114 §4.1.2), so a value it refused never reaches here.
+    const declared = http.content_length.from_section(section) catch return false;
+    const response = slot.response;
+    return (declared orelse return false) > response.body.len - response.body_len;
+}
+
+/// RFC 9110 §15.4.5: 304 (Not Modified).
+const not_modified: u16 = 304;
+
 /// The response's content ended whole, which coded content must end with its stream.
 pub fn end_body(slot: *Slot) Error!void {
     return coding.end(slot);
@@ -123,4 +142,30 @@ test "a value or content past the caller's memory is refused whole" {
     try testing.expectEqual(3, response.body_len);
     try append_body(&slot, "d");
     try testing.expectEqualStrings("abcd", body[0..response.body_len]);
+}
+
+test "issue 106: a Content-Length past the caller's memory is too large at the head" {
+    test_section.init();
+    try test_section.append("content-length", "5");
+    var body: [4]u8 = undefined;
+    var response: Response = .{ .body = &body };
+    var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
+    try testing.expect(too_large_at_head(&slot, 200, &test_section));
+    test_section.init();
+    try test_section.append("content-length", "4");
+    try testing.expect(!too_large_at_head(&slot, 200, &test_section));
+    test_section.init();
+    try testing.expect(!too_large_at_head(&slot, 200, &test_section));
+}
+
+test "RFC 9110 §8.6: a HEAD response's or a 304's Content-Length is never too large at the head" {
+    test_section.init();
+    try test_section.append("content-length", "5");
+    var body: [4]u8 = undefined;
+    var response: Response = .{ .body = &body };
+    const head_request: event.Request = .{ .method = "HEAD", .path = "/" };
+    var head_slot: Slot = .{ .stage = .sent, .request = &head_request, .response = &response };
+    try testing.expect(!too_large_at_head(&head_slot, 200, &test_section));
+    var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
+    try testing.expect(!too_large_at_head(&slot, not_modified, &test_section));
 }

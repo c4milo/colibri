@@ -52,7 +52,10 @@ pub const Result = enum {
     /// The request is one the protocol refuses to send, such as a method that is not a token or
     /// a field line RFC 9110 §5.5 forbids.
     invalid,
-    /// The response's body did not fit `body`, or a wanted value did not fit `values`.
+    /// The response's body did not fit `body`, or a wanted value did not fit `values`. A
+    /// Content-Length larger than `body` ends the exchange at its head, and over h11 the
+    /// connection with it (decision 124 as amended for
+    /// https://github.com/c4milo/colibri/issues/106).
     too_large,
 };
 

@@ -131,6 +131,25 @@ test "RFC 9113 §6.4: content past the caller's memory ends the exchange, and CA
     try testing.expectEqual(h2.constants.protocol.error_cancel, reset.error_code);
 }
 
+test "issue 106: a content-length past the caller's memory ends the exchange at the head with CANCEL" {
+    try start();
+    var exchange = get(bodies[0][0..4]);
+    _ = try connection.request(&exchange.request, &exchange.response);
+    try support.pump_h2();
+    // The head alone arrives: the client does not wait for content it would drop.
+    const fields = [_]h2.hpack.Field{.{ .name = "content-length", .value = "5" }};
+    support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &fields, false);
+    try support.client_receive();
+    try testing.expectEqual(.too_large, exchange.response.result);
+    try testing.expectEqual(ok, exchange.response.status);
+    support.peer_events_len = 0;
+    try support.pump_h2();
+    const reset = for (support.peer_events[0..support.peer_events_len]) |peer_event| {
+        if (peer_event == .stream_reset) break peer_event.stream_reset;
+    } else return error.TestUnexpectedResult;
+    try testing.expectEqual(h2.constants.protocol.error_cancel, reset.error_code);
+}
+
 test "RFC 9113 §8.7: REFUSED_STREAM ends an exchange refused, and another code ends it reset" {
     try start();
     var first = get(&bodies[0]);
