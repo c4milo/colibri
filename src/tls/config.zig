@@ -196,6 +196,13 @@ fn cpu_of(comptime chapulin: type, cpu: values.Cpu) chapulin.Cpu {
     };
 }
 
+/// What chapulin's PEM key call takes for the CPU: `cpu_of`'s description in a host object, and
+/// nothing in an object that takes none.
+pub fn cpu_value(comptime chapulin: type, cpu: values.Cpu) if (has_cpu(chapulin.Server)) ?chapulin.Cpu else void {
+    if (comptime !has_cpu(chapulin.Server)) return {};
+    return cpu_of(chapulin, cpu);
+}
+
 /// Copies a role's suite order into chapulin's list; an empty order keeps chapulin's own.
 /// chapulin's `init` refuses a suite the object does not hold and a suite named twice.
 fn suite_order(comptime chapulin: type, storage: *[constants.limits.cipher_suites_max]chapulin.Suite, codes: []const u16) Error![]const chapulin.Suite {

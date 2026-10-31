@@ -23,6 +23,13 @@ pub const root_spki = @embedFile("identity.spki");
 /// uncompressed point X||Y without its 0x04 prefix.
 pub const private_key = @embedFile("identity.priv");
 pub const public_key = @embedFile("identity.pub");
+/// The same identity as the PEM files an operator holds (RFC 7468): the chain, the leaf first; the
+/// leaf's key as PKCS #8 (RFC 5958) and as SEC 1 (RFC 5915); and a CA bundle of the root, with
+/// the title lines a curl-style bundle carries.
+pub const chain_pem = @embedFile("identity.chain.pem");
+pub const key_pem = @embedFile("identity.key.pem");
+pub const key_sec1_pem = @embedFile("identity.key.sec1.pem");
+pub const bundle_pem = @embedFile("identity.bundle.pem");
 
 /// The first and the last instant both certificates are valid at, in Unix seconds: their
 /// notBefore, 2026-01-01T00:00:00Z, and their notAfter, 2126-01-01T00:00:00Z. chapulin counts both

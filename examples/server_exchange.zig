@@ -102,11 +102,17 @@ var output: [output_len]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 
 // The server: its configuration, which holds the TLS identity, and the endpoint that holds its
-// connections. colibri's test identity stands in for the certificate and the key a program loads.
+// connections. The identity is read from the PEM files an operator holds, which colibri's test
+// identity stands in for: the chain's DER and the key go into these rooms, which stay in place
+// while the endpoint serves.
 /// The TCP and QUIC connections the endpoint holds at once, and the octets each QUIC connection
 /// holds unread.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
-const chain = [_][]const u8{ identity.leaf, identity.root };
+var chain_der: [chain_der_len]u8 = undefined;
+var chain_room: [tls.constants.limits.certificate_chain_len_max][]const u8 = undefined;
+var key: tls.P256Key align(@alignOf(tls.P256Key)) = .{};
+/// Room for the DER of the chain: a PEM file's DER is at most three quarters of its length.
+const chain_der_len = 4096;
 var cookie_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
@@ -162,6 +168,8 @@ pub fn main() !void {
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
     started_ns = link.now_ns(.server);
     try start_server(cpu);
+    // The key's scalar is a secret, which the program wipes once no session uses it.
+    defer key.wipe();
     try peers.init(&link, &datagram_link, cpu);
     try accept_closed();
     for (0..turns_max) |_| {
@@ -180,14 +188,18 @@ fn start_server(cpu: tls.Cpu) !void {
     // draws once.
     program.fill(&cookie_key);
     program.fill(&ticket_key);
+    // The program reads its PEM files into memory itself, and `tls.pem` reads them out of it: the
+    // chain, the end-entity first, and the P-256 key the end-entity certificate carries.
+    const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
+    try tls.pem.p256_key(cpu, identity.key_pem, chain[0], &key);
     endpoint_config = .{
         // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
         // as `protocols` allows by default, and names h3 for its QUIC connections.
         .tls = .{
             .ecdsa_p256 = .{
-                .chain = &chain,
-                .public_key = identity.public_key,
-                .private_key = identity.private_key,
+                .chain = chain,
+                .public_key = &key.public_key,
+                .private_key = &key.private_key,
             },
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,

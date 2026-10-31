@@ -11,12 +11,11 @@ const assert = std.debug.assert;
 /// advertises it, less record overhead, as its record_size_limit.
 pub const receive_len: usize = 20 * 1024;
 
-/// Trust anchors one client's values name (RFC 9846 §4.5.1.3). chapulin takes any count of one
-/// or more since its commit 237e6e19. colibri keeps 12, chapulin's earlier
-/// `CH_WEBPKI_ANCHOR_MAX`, so no configuration grows. The owner ruled this on 2026-10-17. The PEM
-/// reader for a CA bundle (https://github.com/c4milo/colibri/issues/97) sizes it again for a
-/// system bundle. Each anchor costs a `TrustAnchor`, four words, in each client configuration.
-pub const anchors_max: usize = 12;
+/// Trust anchors one client's values name (RFC 9846 §4.5.1.3), and the most `pem.anchors` reads
+/// from a CA bundle. A system bundle holds about 150, so the owner raised it from 12 to 256,
+/// chapulin's own default, on 2026-10-31 (decision 141). Each anchor costs a `TrustAnchor`, four
+/// words, in each client configuration and in each TLS session, which chapulin sizes from it.
+pub const anchors_max: usize = 256;
 
 /// Octets of the server_name a server keeps from a ClientHello (RFC 9846 §9.2). chapulin copies
 /// no longer name, and a server reports none for one.
@@ -55,7 +54,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     // A failure here is a changed limit, which the owner rules on before this test changes.
     const expectEqual = @import("std").testing.expectEqual;
     try expectEqual(20480, receive_len);
-    try expectEqual(12, anchors_max);
+    try expectEqual(256, anchors_max);
     try expectEqual(255, server_name_len_max);
     try expectEqual(16, certificate_chain_len_max);
     try expectEqual(3, cipher_suites_max);

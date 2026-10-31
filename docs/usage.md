@@ -163,9 +163,9 @@ endpoint_config = .{
     // as `protocols` allows by default, and names h3 for its QUIC connections.
     .tls = .{
         .ecdsa_p256 = .{
-            .chain = &chain,
-            .public_key = identity.public_key,
-            .private_key = identity.private_key,
+            .chain = chain,
+            .public_key = &key.public_key,
+            .private_key = &key.private_key,
         },
         .cookie_key = &cookie_key,
         .ticket_key = &ticket_key,
@@ -853,7 +853,7 @@ and its port, and an HTTPS record's `alpn` and `port` when it has one.
 // One configuration serves both transports. Its TLS value names no protocol: the pool
 // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them.
 client_config = .{
-    .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+    .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
     .authority = origin,
 };
 // The pool takes what DNS knows as values: the server's addresses and its port.
@@ -1499,6 +1499,38 @@ if (provider.vtable.negotiated_parameters(provider.context)) |chosen| {
 For QUIC, a `tls.quic.Client` or `tls.quic.Server` hands `provider()` and `suite()` to the
 `quic.Connection`, which starts chapulin's session when it sets its transport parameters. A server
 that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.
+
+An operator hands a server its certificate chain and its key, and a client its CA bundle, as PEM
+files (RFC 7468). `tls.pem` reads each from memory the program read it into, with no I/O, into
+rooms the program places and keeps in place while a session uses them ([decision
+141](decisions.md)). Each call skips the text lines around its blocks, as RFC 7468 §2 and §5.2
+permit, such as the Subject and Issuer lines a tool writes before a certificate. It returns
+`error.Invalid` for a file it refuses: a block of another label, an encrypted key, a key that is
+not P-256 or that the end-entity certificate does not carry, or more than fits the rooms. Decoding
+authenticates nothing: the files are trusted because the operator placed them.
+
+- `tls.pem.chain(file, der, room)` returns the chain `EcdsaP256Identity.chain` takes, the
+  end-entity first, at most `tls.constants.limits.certificate_chain_len_max` certificates.
+- `tls.pem.p256_key(cpu, file, leaf, &key)` reads a `PRIVATE KEY` (PKCS #8) or `EC PRIVATE KEY`
+  (SEC 1) block into a `tls.P256Key`, whose fields the identity points at. The program wipes the
+  key with `wipe()` once no session uses it, and wipes its own copy of the file.
+- `tls.pem.anchors(file, der, room)` returns the anchors `Trust.web_pki.anchors` takes, at most
+  `tls.constants.limits.anchors_max`, such as a curl-style bundle with a title line before each
+  block.
+
+A DER room of three quarters of a file's length holds its DER. The server of
+[`examples/server_exchange.zig`](../examples/server_exchange.zig) reads its identity so:
+
+```zig
+const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
+try tls.pem.p256_key(cpu, identity.key_pem, chain[0], &key);
+```
+
+The client of [`examples/client_exchange.zig`](../examples/client_exchange.zig) reads its anchors:
+
+```zig
+const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_room);
+```
 
 ## QUIC and h3
 

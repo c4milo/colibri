@@ -112,7 +112,13 @@ var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 // The client: one configuration for the origin, the receive pool where its QUIC connection holds
 // the server's unread octets, one pool, and for each exchange a request and a response. The response
 // holds the memory the answer goes into (decision 124).
-const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
+// The anchors are read from the CA bundle a program holds, which colibri's test identity stands
+// in for, into rooms that stay in place while the pool runs.
+var anchor_der: [anchor_der_len]u8 = undefined;
+var anchor_room: [anchors_max]tls.Anchor align(@alignOf(tls.Anchor)) = undefined;
+/// Room for the DER of the bundle's certificates, and for its anchors.
+const anchor_der_len = 4096;
+const anchors_max = 4;
 const ReceivePool = client.ReceivePool(64 * 1024);
 var client_config: client.Config align(@alignOf(client.Config)) = undefined;
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
@@ -202,10 +208,12 @@ pub fn main() !void {
 }
 
 fn start_client(cpu: tls.Cpu) !void {
+    // The CA certificates the client trusts, each its subject Name and SubjectPublicKeyInfo.
+    const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_room);
     // One configuration serves both transports. Its TLS value names no protocol: the pool
     // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them.
     client_config = .{
-        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
         .authority = origin,
     };
     // The pool takes what DNS knows as values: the server's addresses and its port.

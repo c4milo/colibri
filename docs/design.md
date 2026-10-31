@@ -6643,6 +6643,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     printed again.
   - 3 mutations **CAUGHT**: each length check, and an anchor's name.
 
+  **The PEM reader, 2026-10-31** ([#97](https://github.com/c4milo/colibri/issues/97)). A program
+  hands `tls` the PEM files an operator holds, as decision 141 rules: `tls.pem.chain`,
+  `tls.pem.p256_key` and `tls.pem.anchors`, and the type `tls.P256Key`.
+  - Public names: `tls.pem` and `tls.P256Key` on the root's list, and a list of `tls.pem`'s four
+    names beside it.
+  - The test identity gains its PEM files, made by the commands in `src/testing/testdata/`: the
+    chain, the key under both labels, and a CA bundle with title lines.
+  - `examples/server_exchange.zig` reads its chain and key, and `examples/client_exchange.zig` its
+    anchors, through `tls.pem`. docs/usage.md shows both.
+  - Each call skips the text lines around its blocks (RFC 7468 §2), which chapulin c8cd8021 does
+    for chains and keys too (https://github.com/c4milo/chapulin/issues/214), at the owner's word.
+  - `anchors_max` rises from 12 to 256. Each TLS session grows by 7,808 octets: the default
+    `server.Endpoint`, which holds 32 sessions, by 249,856 octets, and a pool by 23,424.
+  - 9 mutations **CAUGHT**: the chain's cap, each half of the key, the refused key, the anchors'
+    two fields, an anchor dropped, and a room past the caller's. The cap was NOT CAUGHT until a
+    test of a chain of 18 certificates was added. Wiping a copy of the key could not be tested,
+    so chapulin now decodes into the caller's key and no copy is made.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27

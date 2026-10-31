@@ -14,6 +14,10 @@ is for tests alone.
 | `identity.spki` | the CA's SubjectPublicKeyInfo, as DER: the key a client's anchor holds |
 | `identity.priv` | the leaf's P-256 private scalar, 32 octets |
 | `identity.pub` | the leaf's P-256 public point, X then Y, 64 octets, without the 0x04 prefix |
+| `identity.chain.pem` | the leaf's and then the CA's certificate, as PEM (RFC 7468) |
+| `identity.key.pem` | the leaf's key as a PKCS #8 `PRIVATE KEY` block (RFC 5958) |
+| `identity.key.sec1.pem` | the leaf's key as a SEC 1 `EC PRIVATE KEY` block (RFC 5915) |
+| `identity.bundle.pem` | the CA's certificate as a CA bundle, after two title lines as curl writes them |
 
 The certificates have the profile `tools/h2_interop/tls_identity.go` mints, which chapulin's Web
 PKI mode accepts:
@@ -77,3 +81,24 @@ The last four commands copy raw octets out of the certificates and the leaf's ke
 Nothing mints this identity again. `tools/h2_interop/tls_identity.go` mints a new one with the
 same validity for each script under `tools/` that needs an identity, because those scripts also
 need the PEM files that Go, nghttpd and h2o read.
+
+## The PEM files
+
+OpenSSL 4.1.0 made the four PEM files on 2026-10-31 from the files above, for
+https://github.com/c4milo/colibri/issues/97. The key's SEC 1 DER is built from `identity.priv` and
+`identity.pub`: version 1, the scalar, the prime256v1 OID and the point (RFC 5915 §3). openssl
+then writes it as PEM under both labels.
+
+```sh
+python3 -I -c 'import sys
+p = open("identity.priv", "rb").read(); q = open("identity.pub", "rb").read()
+oid = bytes.fromhex("06082a8648ce3d030107")
+b = bytes.fromhex("020101") + b"\x04\x20" + p + b"\xa0\x0a" + oid + b"\xa1\x44\x03\x42\x00\x04" + q
+sys.stdout.buffer.write(b"\x30" + bytes([len(b)]) + b)' > sec1.der
+openssl ec -inform DER -in sec1.der -out identity.key.sec1.pem
+openssl pkcs8 -topk8 -nocrypt -in identity.key.sec1.pem -out identity.key.pem
+openssl x509 -inform DER -in identity.leaf.der -out leaf.pem
+openssl x509 -inform DER -in identity.ca.der -out ca.pem
+cat leaf.pem ca.pem > identity.chain.pem
+{ printf 'colibri test CA\n===============\n'; cat ca.pem; } > identity.bundle.pem
+```

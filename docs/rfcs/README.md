@@ -56,6 +56,9 @@ rule or none at all.
 |---|---|---|
 | [9846](rfc9846.txt) | The Transport Layer Security (TLS) Protocol Version 1.3 | The semantics of the TLS provider (decision 8); obsoletes RFC 8446 |
 | [7301](rfc7301.txt) | Transport Layer Security (TLS) Application-Layer Protocol Negotiation Extension | Negotiating `h2` and `h3`; the ask to chapulin (decision 10) |
+| [7468](rfc7468.txt) | Textual Encodings of PKIX, PKCS, and CMS Structures | The PEM files `tls.pem` reads (decision 141), copied on 2026-10-31 |
+| [5958](rfc5958.txt) | Asymmetric Key Packages | The PKCS #8 key under a PRIVATE KEY label (decision 141), copied on 2026-10-31 |
+| [5915](rfc5915.txt) | Elliptic Curve Private Key Structure | The SEC 1 key under an EC PRIVATE KEY label (decision 141), copied on 2026-10-31 |
 
 ## Compression
 
