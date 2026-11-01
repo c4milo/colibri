@@ -77,7 +77,8 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
     }
     close_logs();
     socket.close() catch |failure| fail("the socket did not close: {t}", .{failure});
-    std.debug.print("quic-udp: served {d} files, {d} connection errors\n", .{ served, connection_errors });
+    // The controller the endpoint gave its connections, which tools/quic_udp.sh checks (decision 136).
+    std.debug.print("quic-udp: served {d} files, {d} connection errors, controller {t}\n", .{ served, connection_errors, endpoint_config.congestion_controller });
 }
 
 /// Starts the endpoint, the files of `<www>`, with `routes=github` the router's pool, and the
@@ -89,6 +90,7 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
         .ecn = asked.ecn,
         .idle_timeout_ms = constants.quic_idle_timeout_ms,
         .switch_to = asked.switch_to,
+        .congestion_controller = if (asked.bbr) .bbr else .cubic,
         .retry = if (asked.retry) udp_identity.retry_config() else null,
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
     };

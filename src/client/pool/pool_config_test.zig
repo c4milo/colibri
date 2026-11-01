@@ -124,12 +124,13 @@ const codings = [_]http.content_coding.Coding{ .br, .zstd, .gzip };
 /// An idle timeout other than the default, in milliseconds.
 const idle_timeout_ms: u64 = 10_000;
 
-test "decision 120: a QUIC connection gets the authority, ECN, the idle timeout, the codings and each pool" {
+test "decision 120: a QUIC connection gets the authority, ECN, the controller, the idle timeout, the codings and each pool" {
     const storage = support.pool.storage();
     storage.reset(.none());
     coding_support.reset_pools();
     var given = fixture.configured(true);
     given.ecn = true;
+    given.congestion_controller = .bbr;
     given.idle_timeout_ms = idle_timeout_ms;
     given.codings = &codings;
     given.decoders = storage;
@@ -140,6 +141,7 @@ test "decision 120: a QUIC connection gets the authority, ECN, the idle timeout,
     try testing.expectEqual(&pool.quic_tls, built.tls);
     try testing.expectEqualStrings(support.authority, built.authority);
     try testing.expect(built.ecn);
+    try testing.expectEqual(.bbr, built.congestion_controller);
     try testing.expectEqual(idle_timeout_ms, built.idle_timeout_ms);
     try testing.expectEqualSlices(http.content_coding.Coding, &codings, built.codings);
     try testing.expect(built.decoders != null and built.zstd_decoders != null and built.br_decoders != null);
@@ -157,6 +159,11 @@ test "decision 120: a QUIC connection gets the authority, ECN, the idle timeout,
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(idle_timeout_ms, quic_support.server.peer_parameters.?.max_idle_timeout_ms);
+    // The connection it started runs BBRv3, with probe waits from the program's source. It is
+    // read after the exchange, once the connection has written over the fixture's fill.
+    const started = pool.quic.transport.recovery.congestion.state;
+    try testing.expectEqual(.bbr, std.meta.activeTag(started));
+    try testing.expect(started.bbr.bandwidth_probe_waits != 0);
 }
 
 test "decision 120: init converts no TLS value for a transport the pool does not offer" {

@@ -22,6 +22,16 @@ fn test_sample() recovery_delivery.Sample {
     return sample;
 }
 
+test "§5.6.2: a smoothed round trip of 0 is no first sample, and keeps the rate over 1 ms" {
+    var driver: Driver = undefined;
+    driver.init();
+    recovery_bbr_control.update(&driver.state, test_sample(), driver.path(0), 0);
+    try testing.expectEqual(33_240_000, driver.state.pacing_rate);
+    try testing.expect(!driver.state.has_seen_rtt);
+    recovery_bbr_control.init_pacing_rate(&driver.state, test_initial_window_len, 0);
+    try testing.expectEqual(33_240_000, driver.state.pacing_rate);
+}
+
 test "§5.6.2: the pacing rate starts at Startup's gain over 1 ms, and again over the first round trip" {
     var driver: Driver = undefined;
     driver.init();
@@ -32,6 +42,8 @@ test "§5.6.2: the pacing rate starts at Startup's gain over 1 ms, and again ove
     try testing.expectEqual(664_800, driver.state.pacing_rate);
     try testing.expect(driver.state.has_seen_rtt);
     // A later sample does not start it again.
+    recovery_bbr_control.update(&driver.state, test_sample(), driver.path(0), 0);
+    try testing.expectEqual(664_800, driver.state.pacing_rate);
     recovery_bbr_control.update(&driver.state, test_sample(), driver.path(0), 1);
     try testing.expectEqual(664_800, driver.state.pacing_rate);
 }

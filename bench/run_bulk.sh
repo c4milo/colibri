@@ -7,9 +7,10 @@
 #
 #   bench/run_bulk.sh [--rounds <n>] [report.md]
 #
-# Each server serves the files of one directory: colibri's UDP server in its `h3` mode, and chi and
-# axum with --www. oha downloads `bulk_file` again and again for `seconds`, over h3 from each of the
-# three, and over h2-tls from chi and axum, whose TCP is the kernel's, as the baseline. It runs from
+# Each server serves the files of one directory: colibri's UDP server in its `h3` mode, under CUBIC
+# and, as `colibri-bbr`, under BBRv3 (design §8 step 29c), and chi and axum with --www. oha
+# downloads `bulk_file` again and again for `seconds`, over h3 from each of the four, and over
+# h2-tls from chi and axum, whose TCP is the kernel's, as the baseline. It runs from
 # 1 and then from 4 connections, one download at a time on each. A second oha sends a GET of a
 # small file each 100 ms on a connection of its own, and its latency is the delay the queue adds.
 #
@@ -21,7 +22,12 @@
 # and each h3 server sends each datagram in a send of its own (design §8 step 13i).
 #
 # A load over h3 takes about 30 s more than `seconds`: oha drops the downloads the end of the load
-# cuts, and then holds their connections until its idle timeout. A round takes about 16 minutes.
+# cuts, and then holds their connections until its idle timeout. A round takes about 20 minutes.
+#
+# Each round then runs `h3-shared`, which decision 136 asks for: colibri under CUBIC and under BBRv3
+# at once, each serving its own downloads through the one bottleneck, so the report can give the
+# share each controller takes. Each server has its own probe of small GETs. It adds about 4 minutes
+# a round.
 #
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset (decision 33 as
 # amended). Round 0 is a warm-up that the report discards. It needs sudo -n, tc, ethtool,
@@ -41,11 +47,17 @@ done
 # Each start takes the next port, as in bench/run_latency.sh.
 port=18590
 readonly server_core=1
+# The second server of `h3-shared`, which runs beside the first. The judge has 4 cores, and at
+# 20 Mbit/s neither server needs a whole one, so it takes the core the script runs on.
+readonly pair_core=0
 readonly load_cores=2,3
+# The two servers that share the bottleneck: colibri under CUBIC and under BBRv3.
+readonly shared_servers=(colibri colibri-bbr)
+pair_pids=()
 readonly ready_tries=100
 readonly oha_version=v1.16.0
 readonly oha_commit=c156bf3d442f5150fb1ad73e8c5144bd882ac4cd
-readonly servers=(colibri chi axum)
+readonly servers=(colibri colibri-bbr chi axum)
 readonly protocols=(h3 h2-tls)
 readonly connection_counts=(1 4)
 # 2 MiB takes 0.84 s at 20 Mbit/s, so one connection downloads it about 35 times in 30 s, and
@@ -82,6 +94,7 @@ lo_mtu=""
 lo_offloads=()
 cleanup() {
   if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; fi
+  for pid in "${pair_pids[@]}"; do kill "$pid" 2>/dev/null || true; done
   if [ -n "$lo_mtu" ]; then restore_lo; fi
   rm -rf "$scratch"
 }
@@ -110,7 +123,7 @@ build_servers() {
 
 # Whether <server> serves <protocol>: h2-tls is the kernel's TCP, which chi and axum measure.
 serves() {  # serves <server> <protocol>
-  [ "$2" = h3 ] || [ "$1" != colibri ]
+  [ "$2" = h3 ] || [[ "$1" != colibri* ]]
 }
 
 # The command that starts <server> for <protocol>, into the array `command`, each with one thread
@@ -120,6 +133,7 @@ server_command() {  # server_command <server> <protocol>
   if [ "$2" = h3 ]; then tls=(--h3 --tls "$scratch/identity"); fi
   case "$1" in
     colibri) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso) ;;
+    colibri-bbr) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso bbr) ;;
     chi) command=(env GOMAXPROCS=1 QUIC_GO_DISABLE_GSO=true "$scratch/chi" --port "$port" --www "$scratch/www" "${tls[@]}") ;;
     axum)
       command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --www "$scratch/www" "${tls[@]}")
@@ -161,15 +175,16 @@ oha_protocol() {  # oha_protocol <protocol>
 }
 
 # The downloads from <connections> connections into <out>.json, and the small GETs beside them
-# into <out>.probe.json.
-load() {  # load <protocol> <connections> <out>
+# into <out>.probe.json, from the server on <port>, which is `port` when it is not given.
+load() {  # load <protocol> <connections> <out> [port]
   local words
+  local to="${4:-$port}"
   read -r -a words <<<"$(oha_protocol "$1")"
   taskset -c "$load_cores" "$oha" --no-tui -z "${seconds}s" -q "$probe_rate" --latency-correction \
-    -c 1 -p "$probe_parallel" "${words[@]}" --output-format json "https://127.0.0.1:${port}/${small_file}" >"$3.probe.json" &
+    -c 1 -p "$probe_parallel" "${words[@]}" --output-format json "https://127.0.0.1:${to}/${small_file}" >"$3.probe.json" &
   local probe_pid=$!
   taskset -c "$load_cores" "$oha" --no-tui -z "${seconds}s" -c "$2" -p 1 "${words[@]}" \
-    --output-format json "https://127.0.0.1:${port}/${bulk_file}" >"$3.json"
+    --output-format json "https://127.0.0.1:${to}/${bulk_file}" >"$3.json"
   wait "$probe_pid"
 }
 
@@ -198,21 +213,68 @@ restore_lo() {
   lo_mtu=""
 }
 
-# Puts <profile> on the loopback device for the server on `port`: its packets, TCP or UDP, take
-# band 1:1 by their source port, and every other packet takes band 1:2.
-apply_profile() {  # apply_profile <profile>
+# Puts <profile> on the loopback device for the server on `port`, or on each of <ports> when given:
+# their packets, TCP or UDP, take band 1:1 by their source port, and every other packet takes band
+# 1:2. Servers given together share band 1:1's queue and rate.
+apply_profile() {  # apply_profile <profile> [ports...]
   local loss
-  read -r -a loss <<<"$(profile_loss "$1")"
+  local profile="$1"
+  shift
+  local ports=("$@")
+  if [ ${#ports[@]} -eq 0 ]; then ports=("$port"); fi
+  read -r -a loss <<<"$(profile_loss "$profile")"
   sudo -n tc qdisc del dev lo root 2>/dev/null || true
   if ! sudo -n tc qdisc add dev lo root handle 1: prio bands 2 priomap 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 ||
     ! sudo -n tc qdisc add dev lo parent 1:1 handle 10: netem limit "$queue_packets" delay "$delay" \
       "${loss[@]}" rate "$bottleneck_rate" ||
     ! sudo -n tc qdisc add dev lo parent 1:2 handle 20: netem limit "$other_limit" delay "$delay" \
-      "${loss[@]}" rate "$other_rate" ||
-    ! sudo -n tc filter add dev lo parent 1: protocol ip prio 1 u32 match ip sport "$port" 0xffff flowid 1:1; then
-    echo "run_bulk.sh: tc did not take the profile $1; it needs sch_prio and sch_netem" >&2
+      "${loss[@]}" rate "$other_rate"; then
+    echo "run_bulk.sh: tc did not take the profile $profile; it needs sch_prio and sch_netem" >&2
     exit 1
   fi
+  local each
+  for each in "${ports[@]}"; do
+    if ! sudo -n tc filter add dev lo parent 1: protocol ip prio 1 u32 match ip sport "$each" 0xffff flowid 1:1; then
+      echo "run_bulk.sh: tc did not take the filter of port $each" >&2
+      exit 1
+    fi
+  done
+}
+
+# Starts <first> and <second> for h3 on two ports, each pinned to a core of its own, into
+# `pair_ports` and `pair_pids`.
+start_pair() {  # start_pair <first> <second>
+  pair_ports=()
+  pair_pids=()
+  local cores=("$server_core" "$pair_core")
+  local index
+  for index in 0 1; do
+    local server=("$1" "$2")
+    port=$((port + 1))
+    server_command "${server[$index]}" h3
+    taskset -c "${cores[$index]}" "${command[@]}" >"$scratch/server.$index.log" 2>&1 &
+    pair_pids+=($!)
+    pair_ports+=("$port")
+    local ready=false
+    for _ in $(seq "$ready_tries"); do
+      if grep -q "listening on port" "$scratch/server.$index.log"; then ready=true; break; fi
+      sleep 0.1
+    done
+    if [ "$ready" = false ]; then
+      echo "run_bulk.sh: ${server[$index]} did not start for h3-shared" >&2
+      cat "$scratch/server.$index.log" >&2
+      exit 1
+    fi
+  done
+}
+
+stop_pair() {
+  local pid
+  for pid in "${pair_pids[@]}"; do
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+  pair_pids=()
 }
 
 machine() {
@@ -262,6 +324,21 @@ for round in $(seq 0 "$rounds"); do
         stop_server
       done
     done
+    # Both controllers at once through the one bottleneck, each loaded by its own oha.
+    echo "run_bulk.sh: round $round, h3-shared@$profile" >&2
+    start_pair "${shared_servers[@]}"
+    apply_profile "$profile" "${pair_ports[@]}"
+    for connections in "${connection_counts[@]}"; do
+      loads=()
+      for index in 0 1; do
+        mkdir -p "$scratch/runs/$round/h3-shared@$profile/${shared_servers[$index]}"
+        load h3 "$connections" "$scratch/runs/$round/h3-shared@$profile/${shared_servers[$index]}/$connections" "${pair_ports[$index]}" &
+        loads+=($!)
+      done
+      # The servers run in the background too, so the wait names the two loads.
+      wait "${loads[@]}"
+    done
+    stop_pair
   done
 done
 

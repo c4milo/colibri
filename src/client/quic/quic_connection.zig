@@ -65,6 +65,8 @@ pub const Config = struct {
     /// Decision 68: whether the caller reads each datagram's ECN codepoint and sets the one `send`
     /// names.
     ecn: bool = false,
+    /// The congestion controller the connection runs (decision 136).
+    congestion_controller: quic.CongestionController = .cubic,
     /// The idle timeout the client advertises (RFC 9000 §10.1), in milliseconds.
     idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
     /// The content codings the client offers in each request's Accept-Encoding, in its order of
@@ -172,6 +174,10 @@ pub const QuicConnection = struct {
             // RFC 9000 §21.4: the intervals between skipped packet numbers come from the
             // program's source (invariant 5).
             .packet_number_skips = random.int(u64),
+            // Decision 136: BBRv3's probe waits come from the program's source too. CUBIC draws
+            // nothing, so a connection under it draws what it drew before.
+            .congestion_controller = config.congestion_controller,
+            .bandwidth_probe_waits = if (config.congestion_controller == .bbr) random.int(u64) else 0,
             .receive = receive_pool,
             .ecn_reads = config.ecn,
             .ecn_marks = config.ecn,

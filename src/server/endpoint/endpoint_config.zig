@@ -53,6 +53,10 @@ pub const Config = struct {
     /// QUIC connections alone. Decision 68: whether the caller reads each datagram's ECN codepoint
     /// and sets the one `send_datagram` names.
     ecn: bool = false,
+    /// QUIC connections alone: the congestion controller each one runs (decision 136), CUBIC by
+    /// default or BBRv3. Under BBRv3 each connection draws its probe waits from the program's
+    /// source.
+    congestion_controller: quic.CongestionController = .cubic,
     /// QUIC connections alone: the idle timeout the server advertises (RFC 9000 §10.1), in
     /// milliseconds.
     idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
@@ -139,6 +143,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
     built.quic.* = .{
         .tls = built.quic_tls,
         .ecn = config.ecn,
+        .congestion_controller = config.congestion_controller,
         .idle_timeout_ms = config.idle_timeout_ms,
         .codings = config.codings,
         .encoders = config.encoders,

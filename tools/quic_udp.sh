@@ -170,6 +170,29 @@ if ! grep -q ResponseRefused "$scratch/h3_missing.log"; then
 fi
 kill "$server_pid" 2>/dev/null || true
 server_pid=""
+# The same three files from the `h3` mode under BBRv3 (`bbr`, decision 136, design §8 step 29c),
+# whose summary names the controller its connections ran.
+rm -f "$scratch/downloads/small" "$scratch/downloads/medium" "$scratch/downloads/large"
+start_server once h3 bbr
+if ! client h3 /small /medium /large >"$scratch/h3_bbr.log" 2>&1; then
+  echo "quic_udp: the h3 client failed against the h3 mode under BBRv3:" >&2
+  cat "$scratch/h3_bbr.log" "$scratch/server.log" >&2
+  exit 1
+fi
+for file in small medium large; do
+  if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
+    echo "quic_udp: $file arrived from the h3 mode under BBRv3 different from what the server holds" >&2
+    exit 1
+  fi
+done
+await_close "the h3 mode under BBRv3"
+grep -q "served 3 files, 0 connection errors, controller bbr" "$scratch/server.log" || {
+  echo "quic_udp: the h3 mode under BBRv3 did not report the three files it served:" >&2
+  cat "$scratch/server.log" >&2
+  exit 1
+}
+kill "$server_pid" 2>/dev/null || true
+server_pid=""
 # The same three files from the server's `h3` mode, which serves h3 through the `server` module
 # (design §8 step 17b), and logs its connection through the endpoint's log provider (decision 102
 # as amended). The client's close ends its connection, which is no connection error, and a path it
@@ -198,8 +221,8 @@ for file in small medium large; do
 done
 await_close "the h3 mode"
 cat "$scratch/server.log"
-grep -q "served 3 files, 0 connection errors" "$scratch/server.log" || {
-  echo "quic_udp: the h3 mode did not report the three files it served" >&2
+grep -q "served 3 files, 0 connection errors, controller cubic" "$scratch/server.log" || {
+  echo "quic_udp: the h3 mode did not report the three files it served under CUBIC" >&2
   exit 1
 }
 # The connection's two logs, the client's and the one the `server` module wrote, each whole.

@@ -85,6 +85,10 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
         // RFC 9000 §21.4: the intervals between skipped packet numbers come from the program's
         // source (invariant 5).
         .packet_number_skips = random.int(u64),
+        // Decision 136: BBRv3's probe waits come from the program's source too. CUBIC draws
+        // nothing, so a connection under it draws what it drew before.
+        .congestion_controller = config.congestion_controller,
+        .bandwidth_probe_waits = if (config.congestion_controller == .bbr) random.int(u64) else 0,
         .receive = receive_pool,
         .ecn_reads = config.ecn,
         .ecn_marks = config.ecn,

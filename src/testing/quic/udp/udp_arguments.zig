@@ -1,8 +1,8 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [no-switch] [no-gso] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
-//!         [qlogdir=<directory>]
+//!         [no-switch] [no-gso] [h3] [routes=github] [bbr] [connections=<n>]
+//!         [seconds=<unix-seconds>] [qlogdir=<directory>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
 //!
@@ -28,6 +28,8 @@
 //! - `routes=github`, with `h3`, routes each request through `server.router` over the GitHub API's
 //!   routes, as the TCP server's `--routes github` does, and answers every route with 200 and
 //!   "ok\n", in place of the files of `<www>` (design §8 step 13f).
+//! - `bbr`, with `h3`, runs BBRv3 on each connection in place of CUBIC (decision 136, design §8
+//!   step 29c), as the judge's `bulk` and `network` inputs measure it.
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
@@ -82,6 +84,8 @@ pub const Server = struct {
     h3: bool = false,
     /// Whether the h3 server routes the GitHub API's routes (`routes=github`, design §8 step 13f).
     routes: bool = false,
+    /// Whether the h3 server's connections run BBRv3 (`bbr`, decision 136).
+    bbr: bool = false,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
     /// The Unix seconds the server started at, or 0 for none.
@@ -89,10 +93,10 @@ pub const Server = struct {
     /// The directory each connection's qlog goes in, or null for no qlog.
     qlogdir: ?[]const u8 = null,
 
-    /// Whether the options agree: the router answers through `server`, which the `h3` mode
+    /// Whether the options agree: the router and BBRv3 run through `server`, which the `h3` mode
     /// alone runs on.
     fn complete(server: Server) bool {
-        return !server.routes or server.h3;
+        return (!server.routes and !server.bbr) or server.h3;
     }
 
     /// The Unix seconds at `now_ns`: `now_seconds` and the seconds Rotor's instant has advanced
@@ -195,6 +199,8 @@ fn parse_server_word(server: *Server, word: []const u8) bool {
         server.switch_to = null;
     } else if (std.mem.eql(u8, word, "no-gso")) {
         server.segments = false;
+    } else if (std.mem.eql(u8, word, "bbr")) {
+        server.bbr = true;
     } else if (std.mem.eql(u8, word, h3_word)) {
         server.h3 = true;
     } else if (std.mem.eql(u8, word, routes_word)) {
@@ -420,4 +426,9 @@ test "no-gso is one word, and a server sends segments without it" {
     try testing.expect(!server_of(&single, address).?.segments);
     var other: Words = .{ .words = &.{ "identity", "www", "h3", "no-gro" } };
     try testing.expectEqual(null, server_of(&other, address));
+    // `bbr` runs through `server`, which the `h3` mode alone does.
+    var bbr: Words = .{ .words = &.{ "identity", "www", "h3", "bbr" } };
+    try testing.expect(server_of(&bbr, address).?.bbr);
+    var bbr_alone: Words = .{ .words = &.{ "identity", "www", "bbr" } };
+    try testing.expectEqual(null, server_of(&bbr_alone, address));
 }

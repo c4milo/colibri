@@ -10,6 +10,10 @@ count of connections the report gives the median over the counted rounds of:
 - whether every download and every GET was answered 200. A download that the end of the load
   cut is no answer, and oha counts it as an error, so it does not count against this.
 
+The protocol `h3-shared` holds two servers loaded at once through one bottleneck (design §8
+step 29c). For it the report also gives each server's share of the two goodputs, the median of
+each counted round's share.
+
     python3 bench/report_bulk.py <scratch> <report.md> --file-len <octets> --seconds <seconds>
     python3 bench/report_bulk.py --test
 """
@@ -70,6 +74,34 @@ def row(key, measurements):
     return f"| {protocol} | {server} | {connections} | " + " | ".join(cells) + " |"
 
 
+# The protocol of the runs where two servers share the bottleneck.
+SHARED = "h3-shared"
+
+
+def shares(runs, profile, connections):
+    """{server: median share of the goodput} of the two servers that shared the bottleneck."""
+    keys = [key for key in sorted(runs) if key[:2] == (profile, SHARED) and key[3] == connections]
+    totals = [sum(pair) for pair in zip(*([m["goodput"] for m in runs[key]] for key in keys))]
+    return {key[2]: statistics.median(m["goodput"] / total if total else 0.0
+                                      for m, total in zip(runs[key], totals)) for key in keys}
+
+
+def shared_section(runs):
+    """The table of each server's share, or no lines when no run shared the bottleneck."""
+    profiles = sorted({key[0] for key in runs if key[1] == SHARED})
+    if not profiles:
+        return []
+    lines = ["## The bottleneck shared", "",
+             "Two servers loaded at once through one bottleneck, each with its own downloads. The "
+             "share is one server's goodput over the two, the median over the counted rounds.", "",
+             "| Profile | Connections each | Server | Share |", "|---|---|---|---|"]
+    for profile in profiles:
+        for connections in sorted({key[3] for key in runs if key[:2] == (profile, SHARED)}):
+            for server, share in shares(runs, profile, connections).items():
+                lines.append(f"| {profile} | {connections} | {server} | {share:.2f} |")
+    return lines + [""]
+
+
 def report(scratch, file_len, seconds):
     runs = read_runs(scratch, file_len, seconds)
     machine = pathlib.Path(scratch, "machine.txt").read_text()
@@ -82,7 +114,7 @@ def report(scratch, file_len, seconds):
                   "|---|---|---|" + "---|" * (len(FIGURES) + 1)]
         lines += [row(key, runs[key]) for key in sorted(runs) if key[0] == profile]
         lines.append("")
-    return "\n".join(lines)
+    return "\n".join(lines + shared_section(runs))
 
 
 def write_run(scratch, round_, label, server, connections, p50, count, codes):
@@ -114,6 +146,14 @@ def test():
         # One answer was a 503, so not every download was 200.
         assert "| h2-tls | b | 1 | 2000 | 4000 | 4.00 | 200.0 | 400.0 | no |" in text, text
         assert "## bottleneck\n" in text and "## bottleneck-lossy\n" in text, text
+        assert "## The bottleneck shared" not in text, text
+        # Two servers at once: 30 and 10 downloads, then 20 and 20, shares of 0.75 and 0.5.
+        for round_, counts in ((0, (1, 1)), (1, (30, 10)), (2, (20, 20))):
+            write_run(scratch, round_, "h3-shared@bottleneck", "cubic", 1, 1.0, counts[0], {})
+            write_run(scratch, round_, "h3-shared@bottleneck", "bbr", 1, 1.0, counts[1], {})
+        text = report(scratch, 1_000_000, 30)
+        assert "| bottleneck | 1 | cubic | 0.62 |" in text, text
+        assert "| bottleneck | 1 | bbr | 0.38 |" in text, text
     print("report_bulk.py: the report reads the runs as the tests require")
 
 

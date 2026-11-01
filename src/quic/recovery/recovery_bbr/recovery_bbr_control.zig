@@ -25,9 +25,11 @@ fn scale(a: u64, b: u64, c: u64) u64 {
 }
 
 /// §5.6.2's `InitPacingRate`: the initial window over the smoothed round trip, or over 1 ms
-/// before any sample, at Startup's gain.
+/// before any sample, at Startup's gain. "C.srtt ? C.srtt : 1ms" takes 1 ms for a smoothed
+/// round trip of 0 too, which an ACK frame at the instant its packet went out gives.
 pub fn init_pacing_rate(state: *Bbr, initial_window_len: u64, smoothed_rtt_ns: ?u64) void {
-    const period_ns = smoothed_rtt_ns orelse bbr.initial_pacing_period_ns;
+    const measured_ns = smoothed_rtt_ns orelse 0;
+    const period_ns = if (measured_ns > 0) measured_ns else bbr.initial_pacing_period_ns;
     assert(period_ns > 0);
     const nominal = scale(initial_window_len, core.constants.nanoseconds_per_second, period_ns);
     state.pacing_rate = scale(nominal, bbr.startup_pacing_gain, bbr.gain_denominator);
@@ -116,7 +118,8 @@ fn model_cap_len(state: *const Bbr, path: Path) u64 {
 /// §5.2.3's `UpdateControlParameters`, after `UpdateModelAndState`. `smoothed_rtt_ns` is RFC
 /// 9002's estimate once it has a sample: §5.6.2 starts the pacing rate again from the first one.
 pub fn update(state: *Bbr, sample: Sample, path: Path, smoothed_rtt_ns: ?u64) void {
-    if (!state.has_seen_rtt and smoothed_rtt_ns != null) {
+    // "the initial C.srtt after the first non-zero RTT sample".
+    if (!state.has_seen_rtt and (smoothed_rtt_ns orelse 0) > 0) {
         state.has_seen_rtt = true;
         init_pacing_rate(state, path.initial_window_len, smoothed_rtt_ns);
     }

@@ -52,6 +52,8 @@ pub const Config = struct {
     /// Decision 68: whether the caller reads each datagram's ECN codepoint and sets the one `send`
     /// names.
     ecn: bool = false,
+    /// The congestion controller the connection runs (decision 136).
+    congestion_controller: quic.CongestionController = .cubic,
     /// The idle timeout the server advertises (RFC 9000 §10.1), in milliseconds.
     idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
     /// The content codings the server applies to a response the caller marks `codable`, in its

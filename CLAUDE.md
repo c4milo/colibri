@@ -446,7 +446,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   `python3 bench/report_latency.py --test` checks its report, and `tools/ci.sh` runs it.
   `bench/run.sh --latency --network [--rounds <n>] [report.md]` measures colibri, chi and axum
   over h2-tls and h3 on the loopback device under four tc netem profiles of delay and loss. The
-  report gives each server's p99 over h3 divided by its p99 over h2-tls (design §8 step 13i). It
+  report gives each server's p99 over h3 divided by its p99 over h2-tls (design §8 step 13i), and
+  `colibri-bbr` is colibri's UDP server with `bbr` (design §8 step 29c). It
   needs sudo -n, tc, ethtool and sch_netem, and the workflow's `network` input runs it on the judge.
   `bench/run.sh --latency --waits [--rounds <n>] [report.md]` loads colibri and axum over h2 and
   h2-tls at 40,000 and 80,000 req/s, and records the server's core with `perf sched record` during
@@ -457,10 +458,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   `bench/run.sh --latency --bulk [--rounds <n>] [report.md]` runs `bench/run_bulk.sh` instead:
   oha downloads a file of 2 MiB again and again for 30 s, from 1 and 4 connections, over a
   loopback path where tc holds the server's packets at 20 Mbit/s and 25 ms with a queue of 1,000
-  packets, with no loss and with 1% loss. It downloads over h3 from colibri's UDP server, chi and
-  axum, and over h2-tls from chi and axum, while a second oha sends a small GET each 100 ms. The
-  report gives the download time at p50 and p90, the goodput and the GETs' p50 and p99 (design §8
-  step 13k). It needs sudo -n, tc, ethtool and sch_netem, and the workflow's `bulk` input runs it
+  packets, with no loss and with 1% loss. It downloads over h3 from colibri's UDP server under
+  CUBIC and under BBRv3 (`colibri-bbr`), chi and axum, and over h2-tls from chi and axum, while a
+  second oha sends a small GET each 100 ms. Its `h3-shared` runs load colibri under CUBIC and
+  under BBRv3 at once through the one bottleneck. The report gives the download time at p50 and
+  p90, the goodput, the GETs' p50 and p99, and each controller's share of the shared bottleneck
+  (design §8 steps 13k and 29c). It needs sudo -n, tc, ethtool and sch_netem, and the workflow's `bulk` input runs it
   on the judge. `python3 bench/report_bulk.py --test` checks its report, and `tools/ci.sh` runs it.
   `bench/run.sh --profile [--h11] [--h3] [report.md]` runs each input once after the warm-up,
   under `perf record` with the call stacks, in place of the counts (design §8 step 13h). The
@@ -537,8 +540,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
-  [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [connections=<n>] [seconds=<unix-seconds>]
-  [qlogdir=<directory>]`
+  [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [bbr] [connections=<n>]
+  [seconds=<unix-seconds>] [qlogdir=<directory>]`
   and `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
   [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...` run design §9's servers and
   clients over Rotor's UDP loop and `tls.quic`. With `pin` the client trusts the server's key, whose
@@ -550,7 +553,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
   connections and writes no qlog; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
   it. With `routes=github` too, `server.router` answers every request over the GitHub API's routes
-  in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). On Linux the `h3`
+  in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). With `bbr` too,
+  each connection runs BBRv3 in place of CUBIC (design §8 step 29c). On Linux the `h3`
   mode receives with UDP_GRO and sends each peer's datagrams of a turn as one send of segments
   (UDP_SEGMENT, design §8 step 13f.6), and with `no-gso` it sends each datagram in a send of its
   own (design §8 step 13i). An address is IPv4

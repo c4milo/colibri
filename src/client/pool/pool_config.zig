@@ -14,6 +14,7 @@ const coding = @import("../coding.zig");
 const coding_pool = @import("../coding_pool.zig");
 const protocols_module = @import("../protocols.zig");
 const connection_module = @import("../connection/connection.zig");
+const quic_module = @import("quic");
 const quic_connection = @import("../quic/quic_connection.zig");
 
 /// What every pool to one origin borrows. The caller keeps it alive and in place while any
@@ -51,6 +52,10 @@ pub const Config = struct {
     /// QUIC connections alone. Decision 68: whether the caller reads each datagram's ECN codepoint
     /// and sets the one `send_datagram` names.
     ecn: bool = false,
+    /// QUIC connections alone: the congestion controller each one runs (decision 136), CUBIC by
+    /// default or BBRv3. Under BBRv3 each connection draws its probe waits from the program's
+    /// source.
+    congestion_controller: quic_module.CongestionController = .cubic,
     /// QUIC connections alone: the idle timeout the client advertises (RFC 9000 §10.1), in
     /// milliseconds.
     idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
@@ -116,6 +121,7 @@ pub fn build_quic(config: *const Config, quic_tls: *tls.quic.ClientConfig, quic:
         .tls = quic_tls,
         .authority = config.authority,
         .ecn = config.ecn,
+        .congestion_controller = config.congestion_controller,
         .idle_timeout_ms = config.idle_timeout_ms,
         .codings = config.codings,
         .decoders = config.decoders,

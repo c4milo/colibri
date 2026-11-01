@@ -176,6 +176,9 @@ endpoint_config = .{
     .timeouts = .{ .idle_ns = idle_ns },
     // Each TLS connection advertises h3 on the server's UDP port (RFC 7838).
     .h3_alternative = .{ .port = peers.server_port },
+    // Decision 136: each QUIC connection runs BBRv3 in place of CUBIC, the default. Its
+    // probe waits come from the source `init` takes.
+    .congestion_controller = .bbr,
 };
 const now_ns = link.now_ns(.server);
 // One endpoint for every socket the program accepts and for its UDP socket, in storage the
@@ -758,7 +761,7 @@ of four segments and 64 octets.
 ### Over QUIC
 
 The same events and the same calls serve h3. A program moves datagrams with addresses in place of
-a stream of octets, and it keeps time for each connection. Two things differ from TCP:
+a stream of octets, and it keeps time for each connection. Three things differ from TCP:
 
 - **The body is not copied.** QUIC reads the program's bytes again whenever it sends them again.
   They stay the program's until the request's `finished`. A `sent` result comes once the peer
@@ -767,6 +770,9 @@ a stream of octets, and it keeps time for each connection. Two things differ fro
   recovery and acknowledgments too, so a program sleeps until then when no datagram arrives.
   `Config.idle_timeout_ms` is QUIC's own idle timeout, which ends a peer that sends nothing at
   all.
+- **The congestion controller.** `Config.congestion_controller` is `.cubic`, the default, or
+  `.bbr` for BBRv3 ([decision 136](decisions.md)). It applies to QUIC connections alone. Under
+  BBRv3 each connection draws its probe waits from the source `init` takes, so one seed replays.
 
 `ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
 or the limit its client passed, and `failed` says colibri closed it because its client broke a rule
@@ -881,7 +887,9 @@ The pool takes one `client.Config` ([decision 120](decisions.md)):
 - `authority`, the content codings and their decoder pools are given once, for both transports.
 - `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it. Its default
   is `client.constants.policy.fallback_delay_ns_default`, 250 ms.
-- `ecn` and `idle_timeout_ms` are for QUIC connections alone.
+- `ecn`, `idle_timeout_ms` and `congestion_controller` are for QUIC connections alone.
+  `congestion_controller` is `.cubic`, the default, or `.bbr` for BBRv3
+  ([decision 136](decisions.md)).
 
 `init` also takes the receive pool, where the pool's QUIC connection holds the server's unread octets:
 `client.ReceivePool(capacity)`, sized to the longest response the program expects. A pool

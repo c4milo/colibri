@@ -12071,6 +12071,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - **Check.** The simulator runs its QUIC checks with each controller. The judge's `bulk` and
       `network` inputs measure BBRv3 against CUBIC, chi and axum, and the fairness run of 13k.
       The owner then rules on the default.
+    - **29c.1, the option and the inputs, 2026-10-31.** `server.Config` and `client.Config` take
+      `congestion_controller`, which reaches each QUIC connection. Under BBRv3 each connection
+      draws its `bandwidth_probe_waits` from the program's source, after its
+      `packet_number_skips`. Under CUBIC it draws nothing, so no census of the server's or the
+      client's checks moved.
+      - `examples/server_exchange.zig` runs its QUIC connections under BBRv3, and docs/usage.md
+        shows the option for the server and the client.
+      - The test-only UDP server takes `bbr` with `h3`, and its summary names the controller.
+        `tools/quic_udp.sh` downloads the three files from the `h3` mode under BBRv3 too.
+      - `bench/run_bulk.sh` adds `colibri-bbr`, and `h3-shared` runs, where colibri under CUBIC
+        and under BBRv3 load the one bottleneck at once. `bench/report_bulk.py` gives each one's
+        share. `bench/run_latency.sh --network` adds `colibri-bbr` over h3.
+      - A client test found that §5.6.2's `C.srtt ? C.srtt : 1ms` was read as "any sample". A
+        smoothed round trip of 0, which a test whose ACK comes at the instant of the send gives,
+        crashed on an assertion. The pacing rate now starts again only from a sample above 0.
+      - Mutations, each CAUGHT: the option dropped by the server's configuration, by its
+        connection, by the client's configuration and by its connection, either side's probe
+        waits fixed at 0, the `bbr` word ignored or taken without `h3`, and the `h3` mode run
+        under CUBIC whatever the word, which `tools/quic_udp.sh` catches. The client's two were
+        NOT CAUGHT at first: the test read a connection the pool had not started, whose fill of
+        1s reads as `.bbr`. It now reads the connection after its exchange.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

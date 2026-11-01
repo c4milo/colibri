@@ -211,6 +211,7 @@ test {
     _ = @import("endpoint/endpoint_requests.zig");
     _ = @import("endpoint/endpoint_test.zig");
     _ = @import("endpoint/endpoint_state_test.zig");
+    _ = @import("endpoint/endpoint_congestion_test.zig");
     _ = @import("endpoint/endpoint_config.zig");
     _ = @import("endpoint/endpoint_writable_test.zig");
     _ = @import("endpoint/endpoint_tcp_test.zig");

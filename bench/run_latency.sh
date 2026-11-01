@@ -111,7 +111,9 @@ readonly network_rates=(1000 2000 4000)
 # At 1,000 req/s, 10 s gives p99.9 ten requests to stand on.
 readonly network_seconds=10
 if [ "$network" = true ]; then
-  servers=(colibri chi axum)
+  # colibri-bbr is colibri with its UDP server's connections under BBRv3 (design §8 step 29c). Its
+  # h2-tls is colibri's, the kernel's TCP, so its ratio reads against the same baseline.
+  servers=(colibri colibri-bbr chi axum)
   protocols=(h2-tls h3)
   rates=("${network_rates[@]}")
   seconds="$network_seconds"
@@ -191,7 +193,7 @@ serves() {  # serves <server> <protocol>
   case "$2" in
     h11) return 0 ;;
     h2 | h2-tls) [ "$1" != httpz ] ;;
-    h3) [ "$1" = colibri ] || [ "$1" = chi ] || [ "$1" = axum ] ;;
+    h3) [ "$1" = colibri ] || [ "$1" = colibri-bbr ] || [ "$1" = chi ] || [ "$1" = axum ] ;;
   esac
 }
 
@@ -204,10 +206,11 @@ server_command() {  # server_command <server> <protocol>
     h3) tls=(--h3 --tls "$scratch/identity") ;;
   esac
   case "$1" in
-    colibri)
+    colibri | colibri-bbr)
       if [ "$2" = h3 ]; then
         command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 routes=github)
         if [ "$network" = true ]; then command+=(no-gso); fi
+        if [ "$1" = colibri-bbr ]; then command+=(bbr); fi
       else
         command=("$scratch/colibri/bin/http-server" --port "$port" --routes github "${tls[@]}")
       fi
