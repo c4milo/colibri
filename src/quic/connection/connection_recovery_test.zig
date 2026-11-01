@@ -67,6 +67,8 @@ fn open_as(role: connection_module.Role) void {
         .local_parameters = parameters(),
         .now_ns = test_now_ns,
         .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
+        // RFC 9002 §7's window rules, which CUBIC follows and BBRv3 does not.
+        .congestion_controller = .cubic,
     });
     for ([_]Level{ .initial, .handshake, .application }) |level| {
         keys.on_keys_installed(&server, level, .read);
@@ -473,4 +475,15 @@ test "draft-ietf-ccwg-bbr-06 §4.1.2.4: a sender that ran out of data is marked 
     server.ran_out_of_data = true;
     try testing.expect(try fire_loss_timer());
     try testing.expectEqual(range_len, server.recovery.delivery.application_limited_until);
+}
+
+test "decision 143: a connection whose options name no controller runs BBRv3" {
+    suite_holder.init();
+    server.init(.{
+        .role = .server,
+        .local_parameters = parameters(),
+        .now_ns = test_now_ns,
+        .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
+    });
+    try testing.expectEqual(.bbr, std.meta.activeTag(server.recovery.congestion.state));
 }

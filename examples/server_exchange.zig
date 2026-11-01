@@ -210,8 +210,8 @@ fn start_server(cpu: tls.Cpu) !void {
         .timeouts = .{ .idle_ns = idle_ns },
         // Each TLS connection advertises h3 on the server's UDP port (RFC 7838).
         .h3_alternative = .{ .port = peers.server_port },
-        // Decision 136: each QUIC connection runs BBRv3 in place of CUBIC, the default. Its
-        // probe waits come from the source `init` takes.
+        // Decision 143: each QUIC connection runs BBRv3, the default, and `.cubic` chooses CUBIC.
+        // BBRv3 draws its probe waits from the source `init` takes.
         .congestion_controller = .bbr,
     };
     const now_ns = link.now_ns(.server);

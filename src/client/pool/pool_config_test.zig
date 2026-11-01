@@ -130,7 +130,7 @@ test "decision 120: a QUIC connection gets the authority, ECN, the controller, t
     coding_support.reset_pools();
     var given = fixture.configured(true);
     given.ecn = true;
-    given.congestion_controller = .bbr;
+    given.congestion_controller = .cubic;
     given.idle_timeout_ms = idle_timeout_ms;
     given.codings = &codings;
     given.decoders = storage;
@@ -141,7 +141,7 @@ test "decision 120: a QUIC connection gets the authority, ECN, the controller, t
     try testing.expectEqual(&pool.quic_tls, built.tls);
     try testing.expectEqualStrings(support.authority, built.authority);
     try testing.expect(built.ecn);
-    try testing.expectEqual(.bbr, built.congestion_controller);
+    try testing.expectEqual(.cubic, built.congestion_controller);
     try testing.expectEqual(idle_timeout_ms, built.idle_timeout_ms);
     try testing.expectEqualSlices(http.content_coding.Coding, &codings, built.codings);
     try testing.expect(built.decoders != null and built.zstd_decoders != null and built.br_decoders != null);
@@ -159,8 +159,18 @@ test "decision 120: a QUIC connection gets the authority, ECN, the controller, t
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(idle_timeout_ms, quic_support.server.peer_parameters.?.max_idle_timeout_ms);
-    // The connection it started runs BBRv3, with probe waits from the program's source. It is
-    // read after the exchange, once the connection has written over the fixture's fill.
+    // The connection it started runs CUBIC. It is read after the exchange, once the connection
+    // has written over the fixture's fill.
+    try testing.expectEqual(.cubic, std.meta.activeTag(pool.quic.transport.recovery.congestion.state));
+}
+
+test "decision 143: a pool's QUIC connection runs BBRv3 by default, with probe waits from the program's source" {
+    try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), fixture.configured(true), fixture.receive_storage());
+    var exchange = get(&bodies[0]);
+    _ = try pool.request(&exchange.request, &exchange.response);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.response, exchange.response.result);
+    // Read after the exchange, once the connection has written over the fixture's fill.
     const started = pool.quic.transport.recovery.congestion.state;
     try testing.expectEqual(.bbr, std.meta.activeTag(started));
     try testing.expect(started.bbr.bandwidth_probe_waits != 0);

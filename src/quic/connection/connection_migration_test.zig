@@ -93,6 +93,8 @@ fn open_one(connection: *Connection, role: connection_module.Role, peer: PeerAdd
         .now_ns = test_now_ns,
         .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
         .peer_address = peer,
+        // The tests set RFC 9002's window and read it back, which CUBIC keeps as set.
+        .congestion_controller = .cubic,
     });
     keys.on_keys_installed(connection, .application, .read);
     keys.on_keys_installed(connection, .application, .write);

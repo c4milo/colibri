@@ -54,6 +54,13 @@ test "RFC 9000 §21.4: the client draws the intervals of the packet numbers it s
     try testing.expectEqual(null, quic.connection.space_at(&connection.transport, .handshake).skips);
 }
 
+test "decision 143: the client's QUIC connection runs BBRv3 by default, with probe waits from the program's source" {
+    try support.start(&support.alpn_h3, &support.alpn_h3, false);
+    const state = connection.transport.recovery.congestion.state;
+    try testing.expectEqual(.bbr, std.meta.activeTag(state));
+    try testing.expect(state.bbr.bandwidth_probe_waits != 0);
+}
+
 test "RFC 9000 §4.1: a POST's content goes out whole as the server grants more, and it is answered" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     @memset(&upload, 'x');

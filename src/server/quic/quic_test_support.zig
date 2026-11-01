@@ -37,6 +37,10 @@ pub var client_port_now: u16 = client_port;
 pub const start_ns: u64 = 1_000_000_000;
 pub const round_ns: u64 = 30_000_000;
 pub const rounds_default: usize = 8;
+/// Rounds that carry a response of tens of KB. BBRv3, the default controller (decision 143),
+/// paces one send quantum out on each round, because the fixture steps `round_ns` and does not
+/// wake at `deadline_ns` as a program does. Test-only.
+pub const rounds_paced: usize = 32;
 const datagrams_per_round_max: usize = 64;
 const client_idle_timeout_ms: u64 = 30_000;
 const client_uni_window: u64 = 65_536;

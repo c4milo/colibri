@@ -99,7 +99,7 @@ pub const Connection = files.connection.Connection;
 /// A peer's address as the caller names it (decision 72).
 pub const PeerAddress = files.peer_address.PeerAddress;
 /// The congestion controller a connection runs, `congestion_controller` in its options:
-/// CUBIC, the default, or BBRv3 (decision 136, design §8 step 29b.4).
+/// BBRv3, the default, or CUBIC (decisions 136 and 143, design §8 step 29b.4).
 pub const CongestionController = files.recovery_congestion.Controller;
 /// A packet number space, and the loss recovery of a connection, which the simulator drives by
 /// themselves. A program names neither.

@@ -239,7 +239,7 @@ test "decision 110: a peer that keeps up runs no send deadline, and a record sta
     try connected(support.window_default, support.window_default);
     for (0..2) |_| {
         const fetch = try answered_get();
-        try support.pump(support.rounds_default);
+        try support.pump(support.rounds_paced);
         try testing.expect(fetch.ended);
         try testing.expectEqual(content.len, fetch.received_len);
         try testing.expect(!connection.sends.metered and connection.sends.busy == 0);

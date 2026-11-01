@@ -122,7 +122,7 @@ test "RFC 9110 §6.5: an h3 trailer section waits for the encoder's last octets,
         break true;
     } else false;
     try testing.expect(written);
-    try support.pump(support.rounds_default);
+    try support.pump(support.rounds_paced);
     try testing.expect(fetch.ended);
     try testing.expectEqualSlices(u8, tcp_support.incompressible[0..taken], try tcp_support.decode(.gzip, support.content_of(fetch)));
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());

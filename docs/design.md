@@ -12103,6 +12103,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         under CUBIC whatever the word, which `tools/quic_udp.sh` catches. The client's two were
         NOT CAUGHT at first: the test read a connection the pool had not started, whose fill of
         1s reads as `.bbr`. It now reads the connection after its exchange.
+    - **29c.2, the judge and the default, 2026-11-01.** The judge ran `bulk` (run 41267075258)
+      and `network` (run 41267079569) on ef04f32b, two jobs of 2 rounds each, and every answer
+      was a 200. [Decision 143](decisions.md) then made BBRv3 the default of `quic.Connection`,
+      `server.Config` and `client.Config`.
+      - `bulk`, over h3 at 20 Mbit/s and 25 ms with a queue of 1,000 packets, the two jobs'
+        values:
+
+        | Case | CUBIC | BBRv3 |
+        |---|---|---|
+        | No loss, 1 connection: goodput (Mbit/s) | 17.34, 17.34 | 17.06, 17.06 |
+        | No loss, 4 connections: GET p99 (ms) | 509.1, 717.5 | 185.6, 185.5 |
+        | 1% loss, 1 connection: goodput (Mbit/s) | 1.68, 1.68 | 14.54, 14.82 |
+        | 1% loss, 4 connections: goodput (Mbit/s) | 8.11, 8.11 | 17.06, 17.06 |
+        | Shared, no loss, 4 connections each: share | 0.82, 0.83 | 0.18, 0.17 |
+        | Shared, 1% loss, 4 connections each: share | 0.24, 0.23 | 0.76, 0.77 |
+
+      - At 1% loss, chi (quic-go) got 3.36 Mbit/s from 1 connection, and axum (quinn) 2.52.
+        [#123](https://github.com/c4milo/colibri/issues/123) asks why colibri's CUBIC gets half
+        of quic-go's.
+      - `network`, colibri's p99 over h3 at 4,000 req/s, the two jobs' values: on `far`, 50.76
+        and 62.23 ms under CUBIC and 59.28 and 69.54 ms under BBRv3. On `mobile`, 2,066 and
+        2,037 ms under CUBIC and 1,823 and 1,795 ms under BBRv3. On `lossy` the two were within
+        2%, and on `clean` both stayed under 0.4 ms.
+      - Under BBRv3 the server and the client draw their probe waits by default, so three
+        censuses moved: `h3_deadline_check` and `endpoint_check`, each in its two CRC-32s, and
+        the client trace run, whose seeds still reach each path its comment names. Each passes in
+        Debug and with `-Drelease`.
+      - Two quic tests read RFC 9002's window rules, which BBRv3 does not follow, so their
+        fixtures name CUBIC. Two server tests pump `rounds_paced`, 32 rounds: the fixture steps
+        30 ms and sends once a round, and BBRv3's pacer lets one send quantum out each time. A
+        program wakes at `deadline_ns`, which names the pacer's next send.
+      - The test-only UDP server keeps CUBIC unless its command names `bbr`, so the judge's
+        `colibri` input measures the same server as before.
+      - Mutations, each default set back to `.cubic`: `server.Config`'s and `client.Config`'s
+        were CAUGHT. `quic.Connection`'s and the two QUIC connections' own were NOT CAUGHT at
+        first, because the endpoint and the pool pass the controller. A test of each now starts
+        a connection with its defaults, and all five are CAUGHT.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
