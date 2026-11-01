@@ -125,7 +125,7 @@ pub const response_content_length = "8";
 
 /// Most requests one client session runs, each with the response to it on a stream of its own.
 /// It bounds the plan the command line reads and the array the session holds.
-pub const requests_max: u32 = 8;
+pub const requests_max: u32 = 16;
 
 /// Most octets of request content one exchange sends. It is past the 65,535-octet window a stream
 /// starts with (RFC 9113 §6.9.2) several times over, so a plan can make the peer's WINDOW_UPDATE

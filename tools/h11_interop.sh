@@ -34,7 +34,7 @@ readonly listen_wait_seconds=30
 readonly late_bind_seconds=2
 # Requests one pool carries at once, each on a TCP connection of its own: the most a plan of the
 # client holds (`requests_max` in src/testing/constants.zig).
-readonly slots_count=8
+readonly slots_count=16
 
 fail() {
   echo "h11_interop.sh: $*" >&2
