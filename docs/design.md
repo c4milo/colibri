@@ -12180,6 +12180,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Mutations, by `zig build test-testing-udp`: `content_of` without the mapping kept,
         `content_of` that keeps nothing, `find` that finds nothing, `keep` past a full table, and
         `keep` without its count: each CAUGHT. `tools/quic_udp.sh` passes.
+      - The judge's `--h3` on 1f981e2a (run 41357653325), two jobs of 5 rounds, a request on
+        h3-many and a connection on h3-one, against 98939d73 (run 41348385244):
+
+        | Input | Instructions | System calls | CPU (ns) |
+        |---|---|---|---|
+        | h3-many | 114,146 to 67,130; 115,143 to 67,940 | 5.022 to 0.021, both jobs | 16,801 to 7,517; 20,627 to 7,700 |
+        | h3-one | 1,561,167 to 1,538,974; 1,531,237 to 1,543,498 | 15.94 to 11.19; 15.59 to 11.13 | 281,813 to 276,531; 314,297 to 291,078 |
+        | h2-many, for scale | 13,488 | 0.023, 0.024 | 1,523; 1,555 |
+
+        h3-many now makes as few system calls a request as h2-many, so the loop already batches
+        its sends and receives. What is left is about 5 times h2-many's instructions, almost all
+        in user space.
     - **29d.3, a second BBRv3, 2026-11-01.** The judge ran `bulk` on 4f274b5f (run 41351081101),
       two jobs of 2 rounds each, with ngtcp2 a08611c0 under `--cc bbr`. Every answer was a 200.
       The two jobs' values:
