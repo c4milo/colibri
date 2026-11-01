@@ -8,8 +8,9 @@
 #   bench/run_bulk.sh [--rounds <n>] [report.md]
 #
 # Each server serves the files of one directory: colibri's UDP server in its `h3` mode, under CUBIC
-# and, as `colibri-bbr`, under BBRv3 (design §8 step 29c), and chi and axum with --www. oha
-# downloads `bulk_file` again and again for `seconds`, over h3 from each of the four, and over
+# and, as `colibri-bbr`, under BBRv3 (design §8 step 29c), chi and axum with --www, and ngtcp2's
+# server under its own BBRv3, from its QUIC Interop Runner image (design §8 step 29d). oha
+# downloads `bulk_file` again and again for `seconds`, over h3 from each of the five, and over
 # h2-tls from chi and axum, whose TCP is the kernel's, as the baseline. It runs from
 # 1 and then from 4 connections, one download at a time on each. A second oha sends a GET of a
 # small file each 100 ms on a connection of its own, and its latency is the delay the queue adds.
@@ -31,7 +32,8 @@
 #
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset (decision 33 as
 # amended). Round 0 is a warm-up that the report discards. It needs sudo -n, tc, ethtool,
-# sch_netem, Zig, Go, cargo, curl and python3. BENCH_OHA names an oha with h3 built already.
+# sch_netem, Zig, Go, cargo, curl, Docker and python3. BENCH_OHA names an oha with h3 built
+# already.
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -57,7 +59,11 @@ pair_pids=()
 readonly ready_tries=100
 readonly oha_version=v1.16.0
 readonly oha_commit=c156bf3d442f5150fb1ad73e8c5144bd882ac4cd
-readonly servers=(colibri colibri-bbr chi axum)
+readonly servers=(colibri colibri-bbr chi axum ngtcp2)
+# ngtcp2's image for the QUIC Interop Runner, pinned by digest: a second BBRv3, which the report
+# sets beside colibri's. Its label names the commit it was built from.
+readonly ngtcp2_image="ghcr.io/ngtcp2/ngtcp2-interop@sha256:fa6bf697aaa6badf64d57ff87fb9296c0d50c2e054a09ab54cdbe02ba598c865"
+server_container=""
 readonly protocols=(h3 h2-tls)
 readonly connection_counts=(1 4)
 # 2 MiB takes 0.84 s at 20 Mbit/s, so one connection downloads it about 35 times in 30 s, and
@@ -94,6 +100,7 @@ lo_mtu=""
 lo_offloads=()
 cleanup() {
   if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; fi
+  if [ -n "$server_container" ]; then docker rm -f "$server_container" >/dev/null 2>&1 || true; fi
   for pid in "${pair_pids[@]}"; do kill "$pid" 2>/dev/null || true; done
   if [ -n "$lo_mtu" ]; then restore_lo; fi
   rm -rf "$scratch"
@@ -116,6 +123,7 @@ build_servers() {
   (cd "$repository_root/bench/competitors/axum" &&
     cargo build --release --locked --quiet --target-dir "$scratch/axum-target")
   (cd "$repository_root" && go run tools/h2_interop/tls_identity.go "$scratch/identity")
+  docker pull -q "$ngtcp2_image" >/dev/null
   mkdir -p "$scratch/www"
   head -c "$bulk_len" /dev/zero >"$scratch/www/$bulk_file"
   printf 'ok\n' >"$scratch/www/$small_file"
@@ -123,7 +131,7 @@ build_servers() {
 
 # Whether <server> serves <protocol>: h2-tls is the kernel's TCP, which chi and axum measure.
 serves() {  # serves <server> <protocol>
-  [ "$2" = h3 ] || [[ "$1" != colibri* ]]
+  [ "$2" = h3 ] || [[ "$1" != colibri* && "$1" != ngtcp2 ]]
 }
 
 # The command that starts <server> for <protocol>, into the array `command`, each with one thread
@@ -142,8 +150,30 @@ server_command() {  # server_command <server> <protocol>
   esac
 }
 
+# Starts ngtcp2's server in a container on the host's network, pinned to the server's core, with
+# the identity and the files copied in, under BBRv3 and with no GSO. Its log names no port, so it
+# is ready once its UDP socket is bound.
+start_container() {
+  server_container="colibri-bulk-ngtcp2-$$"
+  docker create --name "$server_container" --network host --cpuset-cpus "$server_core" \
+    --entrypoint /usr/local/bin/wsslserver "$ngtcp2_image" 127.0.0.1 "$port" \
+    /identity/key.pem /identity/chain.pem -q -d /www --cc bbr --no-gso >/dev/null
+  docker cp -q "$scratch/identity.key.pem" "$server_container:/identity/key.pem"
+  docker cp -q "$scratch/identity.chain.pem" "$server_container:/identity/chain.pem"
+  docker cp -q "$scratch/www/." "$server_container:/www"
+  docker start "$server_container" >/dev/null
+  for _ in $(seq "$ready_tries"); do
+    if [ -n "$(ss -Hlun "sport = :$port")" ]; then return 0; fi
+    sleep 0.1
+  done
+  echo "run_bulk.sh: ngtcp2 did not start" >&2
+  docker logs "$server_container" >&2
+  exit 1
+}
+
 start_server() {  # start_server <server> <protocol>
   port=$((port + 1))
+  if [ "$1" = ngtcp2 ]; then start_container; return; fi
   server_command "$1" "$2"
   taskset -c "$server_core" "${command[@]}" >"$scratch/server.log" 2>&1 &
   server_pid=$!
@@ -160,6 +190,11 @@ start_server() {  # start_server <server> <protocol>
 }
 
 stop_server() {
+  if [ -n "$server_container" ]; then
+    docker rm -f "$server_container" >/dev/null
+    server_container=""
+    return
+  fi
   kill "$server_pid" 2>/dev/null || true
   wait "$server_pid" 2>/dev/null || true
   server_pid=""
@@ -285,6 +320,7 @@ machine() {
   echo "chi=$(sed -n 's|.*go-chi/chi/v5 \(v[0-9.]*\).*|\1|p' "$repository_root/bench/competitors/chi/go.mod" | head -1), $(go version | cut -d' ' -f3)"
   echo "quic-go=$(sed -n 's|.*quic-go/quic-go \(v[0-9.]*\).*|\1|p' "$repository_root/bench/competitors/chi/go.mod" | head -1)"
   echo "quinn=$(awk '$0 == "name = \"quinn\"" { getline; gsub(/version = |"/, ""); print; exit }' "$repository_root/bench/competitors/axum/Cargo.lock")"
+  echo "ngtcp2=commit $(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$ngtcp2_image"), --cc bbr, $ngtcp2_image"
   echo "oha=${oha_version} ${oha_commit}, with h3"
   echo "rounds=$rounds seconds=$seconds file=$bulk_len octets probe=$probe_rate GET/s"
   echo "path=loopback, 127.0.0.1, MTU ${network_mtu}, TSO, GSO and GRO off, no GSO in the h3 servers"
