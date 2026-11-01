@@ -38,6 +38,8 @@ var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
 /// The files each connection serves, at its slot in the endpoint.
 var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;
+/// The files every connection's table keeps mapped for the run.
+var mapped: udp_h3_files.Mapped align(@alignOf(udp_h3_files.Mapped)) = .{};
 var events: [constants.udp_operations_max]udp.Event align(@alignOf(udp.Event)) = undefined;
 /// The datagram the endpoint writes, before it joins its peer's batch.
 var datagram: [constants.quic_datagram_len_max]u8 = undefined;
@@ -95,7 +97,7 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
     };
     endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns) catch |failure| fail("the endpoint did not start: {t}", .{failure});
-    for (&files) |*held| held.init(asked.www);
+    for (&files) |*held| held.init(asked.www, &mapped);
     if (asked.routes) route_pool = .{};
     batches = .of(asked.segments);
 }

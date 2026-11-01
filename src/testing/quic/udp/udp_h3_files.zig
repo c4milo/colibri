@@ -4,8 +4,10 @@
 //! any other path 404. Content a client sends is read and dropped.
 //!
 //! `write_body` copies nothing, so a response's content stays in place until its request is done
-//! or cancelled (decision 103). A file is mapped read-only for that long (`hq_file.map_read`), and
-//! the kernel reads it in as QUIC sends it.
+//! or cancelled (decision 103). A file is mapped read-only (`hq_file.map_read`), and the kernel
+//! reads it in as QUIC sends it. `Mapped` keeps each file mapped from the first request that asks
+//! for it until the run ends, so a later request makes no system call to read it. A file past
+//! `h3_mapped_files_max` is mapped for its request alone.
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
@@ -32,18 +34,50 @@ const Answer = struct {
     path_len: usize = 0,
     /// Whether the response went out.
     answered: bool = false,
-    /// The file the response carries, mapped until the request is over.
+    /// The file the response carries when `Mapped` had no room for it, mapped until the request
+    /// is over.
     mapping: ?[]const u8 = null,
+};
+
+/// The files the run keeps mapped, by path, shared by every connection's table. A path that names
+/// no file is not kept, so each request for it tries to open the file again.
+pub const Mapped = struct {
+    paths: [constants.h3_mapped_files_max][constants.hq_request_len_max]u8 = undefined,
+    path_lens: [constants.h3_mapped_files_max]usize = undefined,
+    contents: [constants.h3_mapped_files_max][]const u8 = undefined,
+    count: usize = 0,
+
+    /// The content of `path` when a request asked for it before.
+    fn find(mapped: *const Mapped, path: []const u8) ?[]const u8 {
+        for (0..mapped.count) |index| {
+            if (std.mem.eql(u8, mapped.paths[index][0..mapped.path_lens[index]], path)) return mapped.contents[index];
+        }
+        return null;
+    }
+
+    /// Keeps `content` mapped under `path`, or answers false when every place is taken.
+    fn keep(mapped: *Mapped, path: []const u8, content: []const u8) bool {
+        assert(path.len <= constants.hq_request_len_max);
+        assert(mapped.find(path) == null);
+        if (mapped.count == constants.h3_mapped_files_max) return false;
+        @memcpy(mapped.paths[mapped.count][0..path.len], path);
+        mapped.path_lens[mapped.count] = path.len;
+        mapped.contents[mapped.count] = content;
+        mapped.count += 1;
+        return true;
+    }
 };
 
 pub const Files = struct {
     www: []const u8,
+    mapped: *Mapped,
     answers: [server.constants.limits.quic_requests_max]Answer,
     /// Responses answered with a file or the root body, which the endpoint reports.
     served: u64,
 
-    pub fn init(files: *Files, www: []const u8) void {
+    pub fn init(files: *Files, www: []const u8, mapped: *Mapped) void {
         files.www = www;
+        files.mapped = mapped;
         files.answers = @splat(.{});
         files.served = 0;
     }
@@ -91,9 +125,17 @@ pub const Files = struct {
         entry.answered = true;
         const path = entry.path[0..entry.path_len];
         if (std.mem.eql(u8, path, "/")) return files.respond(endpoint, entry, constants.h3_root_body);
-        const content = files.open(path) orelse return respond_missing(endpoint, entry);
-        entry.mapping = content;
+        const content = files.content_of(entry, path) orelse return respond_missing(endpoint, entry);
         files.respond(endpoint, entry, content);
+    }
+
+    /// The content of the file `path` names: the mapping `Mapped` kept, or the file mapped now and
+    /// kept, or mapped for `entry`'s request alone when `Mapped` is full. Null when it names none.
+    fn content_of(files: *Files, entry: *Answer, path: []const u8) ?[]const u8 {
+        if (files.mapped.find(path)) |content| return content;
+        const content = files.open(path) orelse return null;
+        if (!files.mapped.keep(path, content)) entry.mapping = content;
+        return content;
     }
 
     /// Maps the file `path` names read-only, or answers null when it names none. An empty file
@@ -152,3 +194,56 @@ const ok: u16 = 200;
 const not_found: u16 = 404;
 /// The digits of the longest content-length a file can have.
 const content_length_digits_max: usize = 20;
+
+const testing = std.testing;
+
+test "design §8 step 29d: a file a request asked for before is answered from the mapping kept" {
+    var mapped: Mapped = .{};
+    const content = "colibri\n";
+    try testing.expectEqual(null, mapped.find("/colibri.txt"));
+    try testing.expect(mapped.keep("/colibri.txt", content));
+    // The same octets, not a copy: no later request maps the file again.
+    try testing.expectEqual(content.ptr, mapped.find("/colibri.txt").?.ptr);
+    try testing.expectEqual(null, mapped.find("/colibri"));
+    try testing.expectEqual(null, mapped.find("/colibri.txt2"));
+}
+
+test "design §8 step 29d: a full table keeps no more files, and keeps the ones it holds" {
+    var mapped: Mapped = .{};
+    var names: [constants.h3_mapped_files_max][8]u8 = undefined;
+    for (&names, 0..) |*name, index| {
+        const path = std.fmt.bufPrint(name, "/{d}", .{index}) catch unreachable;
+        try testing.expect(mapped.keep(path, "x"));
+    }
+    try testing.expect(!mapped.keep("/past", "y"));
+    try testing.expectEqual(null, mapped.find("/past"));
+    try testing.expectEqualStrings("x", mapped.find("/0").?);
+}
+
+/// The table the test of `content_of` reads through, outside any stack frame, and the directory it
+/// writes its file into, which `zig build` makes before any test runs.
+var test_files: Files align(@alignOf(Files)) = undefined;
+var test_mapped: Mapped align(@alignOf(Mapped)) = .{};
+const test_directory = ".zig-cache";
+const test_path = "/udp_h3_files_test.txt";
+
+test "design §8 step 29d: a file is mapped once, and a later request reads the mapping kept" {
+    test_files.init(test_directory, &test_mapped);
+    const descriptor = hq_file.create(test_directory, test_path) orelse return error.TestUnexpectedResult;
+    const written = hq_file.write_all(descriptor, "colibri\n");
+    hq_file.close(descriptor);
+    try testing.expect(written);
+    var entry: Answer = .{ .in_use = true };
+    const first = files_content(&entry) orelse return error.TestUnexpectedResult;
+    try testing.expectEqualStrings("colibri\n", first);
+    try testing.expectEqual(null, entry.mapping);
+    // With the file gone, only the mapping kept can answer.
+    try testing.expectEqual(0, std.c.unlink(test_directory ++ test_path));
+    const again = files_content(&entry) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(first.ptr, again.ptr);
+    try testing.expectEqual(null, test_files.content_of(&entry, "/udp_h3_files_missing.txt"));
+}
+
+fn files_content(entry: *Answer) ?[]const u8 {
+    return test_files.content_of(entry, test_path);
+}

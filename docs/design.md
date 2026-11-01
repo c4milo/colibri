@@ -12166,6 +12166,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         The work on each ACK costs no instruction the judge can see.
       - On `h3-one` BBRv3 makes about one system call more a connection in both jobs. Its pacer
         may let a connection's first flight out in two sends, but no run has measured the cause.
+    - **29d.2, the h3 server's files, 2026-11-01.** The owner asked why h3 does not match h11 and
+      h2. The judge's `--profile --h3` on 956454b2 (run 41355278358) put 44.5% and 42.2% of
+      h3-many's samples in the h3 server's file reads, and h3-one's 7.6% and 7.5%. Each request
+      opened its file, mapped it, closed it and unmapped it at its end. That is four of its 5.02
+      system calls, and the TLB flush of the unmap took 12% alone. The h2 server answers from
+      memory.
+      - `udp_h3_files.Mapped` keeps each file mapped from its first request until the run ends,
+        for `h3_mapped_files_max` (64) files. A file past those is mapped for its request alone,
+        as before.
+      - quic-go's server reads its file on each request, so colibri's h3 ratio to quic-go also
+        moves for this reason, not for QUIC alone.
+      - Mutations, by `zig build test-testing-udp`: `content_of` without the mapping kept,
+        `content_of` that keeps nothing, `find` that finds nothing, `keep` past a full table, and
+        `keep` without its count: each CAUGHT. `tools/quic_udp.sh` passes.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
