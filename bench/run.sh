@@ -11,10 +11,11 @@
 # With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
 # counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
 # --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
-# (design §8 step 13d). With --latency, bench/run_latency.sh runs instead: the throughput and the
-# latency of servers that route, at fixed request rates, under oha (design §8 step 13f), or with
-# --network, --waits or --bulk after --latency, the inputs of steps 13i, 13j and 13k. With
-# --profile, perf record samples the server's call stacks under each input (bench/run_profile.sh).
+# (design §8 step 13d), and answers h3-bbr-many and h3-bbr-one under BBRv3 (design §8 step 29d).
+# With --latency, bench/run_latency.sh runs instead: the throughput and the latency of servers
+# that route, at fixed request rates, under oha (design §8 step 13f), or with --network, --waits
+# or --bulk after --latency, the inputs of steps 13i, 13j and 13k. With --profile, perf record
+# samples the server's call stacks under each input (bench/run_profile.sh).
 #
 #   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--latency] [--profile] [--rounds <n>] [report.md]
 #
@@ -77,7 +78,7 @@ readonly ready_tries=100
 readonly ready_seconds=1
 inputs=(h2-many h2-tls-many h2-one h2-tls-one h2-routes-many)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
-if [ -n "$h3" ]; then inputs+=(h3-many h3-one); fi
+if [ -n "$h3" ]; then inputs+=(h3-many h3-one h3-bbr-many h3-bbr-one); fi
 readonly inputs
 # The competitors --competitors measures, each in turns with colibri's server: the h2 and h11
 # servers, and with --h3 the h3 servers too.
@@ -137,12 +138,13 @@ offer_of() {  # offer_of <input>
 }
 
 # Whether <variant> serves <input>. A build of colibri serves every input. http.zig has no TLS and
-# speaks h11 alone, nginx, h2o and hyper serve no h3 input, and quic-go serves h3 inputs alone.
+# speaks h11 alone, nginx, h2o and hyper serve no h3 input, and quic-go serves h3-many and h3-one
+# alone, because its controller is its own.
 serves() {  # serves <variant> <input>
   case "$1" in
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
     nginx | h2o | hyper) [[ "$2" != h3-* && "$2" != *-routes-* ]] ;;
-    quic-go) [[ "$2" == h3-* ]] ;;
+    quic-go) [[ "$2" == h3-* && "$2" != h3-bbr-* ]] ;;
     *) true ;;
   esac
 }
@@ -185,8 +187,8 @@ esac
 h3="h2load --alpn-list=h3 --tls13-ciphers=${tls_suite}"
 h3_target=https://127.0.0.1:\$2/${h3_file}
 case "\$1" in
-  h3-many) ${h3_shell[*]} "\$h3 -n ${many_requests} -c ${many_clients} -m ${many_streams} \$h3_target" ;;
-  h3-one) ${h3_shell[*]} "for run in \\\$(seq 1 ${one_h3_runs}); do \$h3 -n ${one_h3_clients} -c ${one_h3_clients} \$h3_target; done" ;;
+  h3-many | h3-bbr-many) ${h3_shell[*]} "\$h3 -n ${many_requests} -c ${many_clients} -m ${many_streams} \$h3_target" ;;
+  h3-one | h3-bbr-one) ${h3_shell[*]} "for run in \\\$(seq 1 ${one_h3_runs}); do \$h3 -n ${one_h3_clients} -c ${one_h3_clients} \$h3_target; done" ;;
   # The GitHub API's GET routes in turn, each parameter given a value (design §8 step 13h).
   *-routes-many) sed "s#^#\$target#;s#//#/#2" ${scratch}/paths.txt >${scratch}/urls.txt
     h2load -i ${scratch}/urls.txt -n ${many_requests} -c ${many_clients} -m ${many_streams} ;;
@@ -297,7 +299,7 @@ server_command() {  # server_command <variant> <input>
       command=("$httpz_server" --port "$port")
       ;;
     *)
-      if [[ "$2" == h3-* ]]; then quic_server_command "$1"; return; fi
+      if [[ "$2" == h3-* ]]; then quic_server_command "$1" "$2"; return; fi
       if [ "$1" = base ]; then command=("$base_server"); else command=("$change_server"); fi
       command+=(--port "$port")
       if [ -n "$tls" ]; then command+=(--tls "$identity"); fi

@@ -12140,6 +12140,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         were CAUGHT. `quic.Connection`'s and the two QUIC connections' own were NOT CAUGHT at
         first, because the endpoint and the pool pass the controller. A test of each now starts
         a connection with its defaults, and all five are CAUGHT.
+  - **29d, BBRv3 against itself and its cost.** The judge measured BBRv3 only beside CUBIC, and
+    neither chi (quic-go) nor axum (quinn) runs BBRv3. The owner asked on 2026-11-01 for two
+    measurements before any change to the controller.
+    - `bench/run.sh --h3` adds `h3-bbr-many` and `h3-bbr-one`, which the UDP server answers under
+      BBRv3. Each one's instructions a request, or a connection, beside `h3-many` and `h3-one`
+      give the cost of BBRv3's work on each ACK. quic-go serves neither.
+    - The `bulk` input adds a server that runs BBRv3 from another implementation, measured and
+      never read (non-negotiable 10). It shows whether colibri's queue and goodput are BBRv3's
+      own on that path.
+    - **Check.** One judge run of `--h3` gives the four h3 inputs, and one `bulk` run gives the
+      other BBRv3 beside colibri's.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

@@ -428,8 +428,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   nginx and h2o on the PATH, cargo to build hyper, and `BENCH_ZIG_HTTPZ` naming the Zig 0.17.0 that
   builds http.zig; `BENCH_COMPETITORS` names a part of the list. `--h11` adds four h11 inputs,
   which wrk sends and which http.zig serves in cleartext alone; it needs wrk and curl. `--h3` adds
-  two inputs that measure the test-only UDP server over h3, under the h2load
-  `tools/h3load/Dockerfile` builds with HTTP/3, and needs Docker (design §8 step 13d). With
+  four inputs that measure the test-only UDP server over h3, under the h2load
+  `tools/h3load/Dockerfile` builds with HTTP/3, and needs Docker (design §8 step 13d):
+  `h3-many` and `h3-one` under CUBIC, and `h3-bbr-many` and `h3-bbr-one` under BBRv3 (step 29d). With
   `--competitors` and `--h3`, quic-go's server answers the h3 inputs too, from its QUIC Interop
   Runner image, pinned by digest. `--filter` needs neither perf nor taskset and reads the server's
   CPU time from /proc: its numbers order candidates on a laptop and are never published. It needs
