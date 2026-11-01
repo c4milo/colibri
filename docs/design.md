@@ -12152,6 +12152,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       goodput are BBRv3's own on that path.
     - **Check.** One judge run of `--h3` gives the four h3 inputs, and one `bulk` run gives the
       other BBRv3 beside colibri's.
+    - **29d.1, the cost, 2026-11-01.** The judge ran `--h3` on 98939d73 (run 41348385244), two
+      jobs of 5 rounds each. BBRv3's instructions are CUBIC's within the noise:
+
+      | Input | Unit | CUBIC | BBRv3 | System calls, CUBIC and BBRv3 |
+      |---|---|---|---|---|
+      | many, job 1 | request | 114,145.6 | 114,246.7 | 5.022, 5.023 |
+      | many, job 2 | request | 115,143.0 | 115,222.4 | 5.022, 5.023 |
+      | one, job 1 | connection | 1,561,166.6 | 1,559,076.9 | 15.938, 16.881 |
+      | one, job 2 | connection | 1,531,236.8 | 1,535,484.1 | 15.589, 16.578 |
+
+      - The difference is at most 0.28%, and each value varies by 0.4% to 0.8% across rounds.
+        The work on each ACK costs no instruction the judge can see.
+      - On `h3-one` BBRv3 makes about one system call more a connection in both jobs. Its pacer
+        may let a connection's first flight out in two sends, but no run has measured the cause.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
