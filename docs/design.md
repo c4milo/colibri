@@ -12180,6 +12180,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Mutations, by `zig build test-testing-udp`: `content_of` without the mapping kept,
         `content_of` that keeps nothing, `find` that finds nothing, `keep` past a full table, and
         `keep` without its count: each CAUGHT. `tools/quic_udp.sh` passes.
+    - **29d.3, a second BBRv3, 2026-11-01.** The judge ran `bulk` on 4f274b5f (run 41351081101),
+      two jobs of 2 rounds each, with ngtcp2 a08611c0 under `--cc bbr`. Every answer was a 200.
+      The two jobs' values:
+
+      | Case | colibri, BBRv3 | ngtcp2, BBR |
+      |---|---|---|
+      | No loss, 1 connection: goodput (Mbit/s) | 17.34, 16.78 | 17.06, 16.78 |
+      | No loss, 4 connections: GET p99 (ms) | 167.0, 154.8 | 305.0, 305.2 |
+      | 1% loss, 1 connection: goodput (Mbit/s) | 14.26, 14.26 | 12.02, 12.58 |
+      | 1% loss, 4 connections: goodput (Mbit/s) | 17.34, 17.06 | 17.06, 17.62 |
+      | 1% loss, 4 connections: GET p99 (ms) | 263.0, 612.6 | 471.5, 280.4 |
+
+      - colibri's queue with 4 connections and its goodput at 1% loss from one connection are
+        BBR's own on this path: ngtcp2's are the same or worse. Neither is a defect of colibri.
+      - The GET p99 at 1% loss from 4 connections varies between the jobs for both, so one run
+        does not order them.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
