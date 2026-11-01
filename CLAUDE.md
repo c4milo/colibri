@@ -321,6 +321,9 @@ Everything below exists. Change this section when a step adds or renames a comma
 - Test: `zig build test` — depends on `lint`, then every module's unit tests and `golden-check`.
   `zig build test-<module>` runs one target's tests with nothing else in the graph, which is what
   a mutation is measured against.
+- Fuzzer: `zig build test-<module> -Dfuzz --fuzz=<runs>` runs the module's fuzz properties under
+  Zig's fuzzer. `build/fuzz.zig` gives it Zig 0.16.0's test runner with one line fixed, and
+  `zig build test` keeps Zig's own runner (decision 144). `tools/ci.sh` does not run it.
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
 - Route tables: `zig build router-check` compiles `tools/fixtures/router_refused.zig` once for each

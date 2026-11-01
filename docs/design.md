@@ -590,11 +590,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     it names.
   - **Fuzzing.** Every decoder and validator has a `std.testing.fuzz` property function.
     `zig build test` runs each one over its corpus and over every input of up to two octets, at
-    every prefix size where the decoder takes one (`core.fuzz.sweep`). The fuzzer itself does not
-    run: with Zig 0.16.0, `zig build test-wire --fuzz` fails to compile the fuzz-mode test runner,
-    because `lib/compiler/test_runner.zig:566` passes a `builtin.StackTrace` where
-    `std.debug.writeStackTrace` takes a `debug.StackTrace`. The property functions are ready for a
-    toolchain that fixes it. A corpus entry is not raw octets: outside `--fuzz`, `Smith` reads a
+    every prefix size where the decoder takes one (`core.fuzz.sweep`). Zig 0.16.0's fuzz-mode
+    test runner does not compile, because `lib/compiler/test_runner.zig:566` passes a
+    `builtin.StackTrace` where `std.debug.writeStackTrace` takes a `debug.StackTrace`. Since
+    decision 144, `zig build test-<module> -Dfuzz --fuzz=<runs>` runs the fuzzer over a runner
+    with that one line fixed. A corpus entry is not raw octets: outside `--fuzz`, `Smith` reads a
     4-octet length before each slice, which `core.fuzz.input` writes.
   - **Built after the step passed.** Invariant 3's lint rule, no slicing with a peer-derived
     index outside the reader and writer, was not written when the step passed; its assertions

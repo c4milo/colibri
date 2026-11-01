@@ -35,6 +35,7 @@ const guide = @import("build/guide.zig");
 const bench = @import("build/bench.zig");
 const router_check = @import("build/router_check.zig");
 const check_steps = @import("build/check_steps.zig");
+const fuzz = @import("build/fuzz.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "examples", "src", "tools" };
@@ -152,9 +153,12 @@ pub fn build(b: *std.Build) void {
         .{ .name = "testing-qif", .module = graph.testing_qif },
         .{ .name = "testing-udp", .module = testing_udp },
     };
+    // Decision 144: `-Dfuzz` builds the unit tests with Zig's runner, one line fixed, so that
+    // `zig build test-<module> -Dfuzz --fuzz` runs the fuzzer.
+    const fuzz_runner = if (b.option(bool, "fuzz", "Build the unit tests with the runner --fuzz needs (decision 144)") orelse false) fuzz.test_runner(b) else null;
     var golden_tests: ?*std.Build.Step = null;
     for (unit_test_modules) |entry| {
-        const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module });
+        const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module, .test_runner = fuzz_runner });
         install_step.dependOn(&unit_tests.step);
         const run = &b.addRunArtifact(unit_tests).step;
         test_step.dependOn(run);

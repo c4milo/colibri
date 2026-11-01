@@ -13,6 +13,7 @@
 //! `input` and `input_with_value` write entries in that shape, so the property function reads a
 //! corpus entry as the octets it names.
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const Smith = std.testing.Smith;
@@ -49,6 +50,9 @@ pub fn sweep(
 ) anyerror!void {
     const range = values orelse .{ .min = 0, .max = 0 };
     assert(range.min <= range.max);
+    // Under `--fuzz` the fuzzer runs the whole test once for each input, so a sweep there would
+    // run 65,793 inputs for each one the fuzzer tries (decision 144).
+    if (builtin.fuzz) return;
     for (range.min..range.max + 1) |value| {
         for (0..sweep_len_max + 1) |len| {
             try sweep_length(property, values != null, value, len);
@@ -115,6 +119,7 @@ fn count_inputs(_: void, smith: *Smith) anyerror!void {
 }
 
 test "the sweep visits every string of up to two octets once per value" {
+    if (builtin.fuzz) return error.SkipZigTest;
     sweep_count = 0;
     sweep_longest = 0;
     try sweep(count_inputs, null);
