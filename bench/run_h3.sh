@@ -52,10 +52,12 @@ port_of() {  # port_of <variant>
 }
 
 # The command that serves an h3 input as a build of colibri, into the array `command`: the UDP
-# server of the change or of the base, in its h3 mode.
-quic_server_command() {  # quic_server_command <variant>
+# server of the change or of the base, in its h3 mode. Its connections run CUBIC, and BBRv3 for an
+# h3-bbr input. A server older than ef04f32b takes no `bbr`, so a base for --h3 is ef04f32b or later.
+quic_server_command() {  # quic_server_command <variant> <input>
   if [ "$1" = base ]; then command=("$base_quic_server"); else command=("$change_quic_server"); fi
   command+=(server 127.0.0.1 "$port" "$identity" "$scratch/www" h3)
+  if [[ "$2" == h3-bbr-* ]]; then command+=(bbr); fi
 }
 
 # A server in a container writes the container's log. Before stop_container removes the
