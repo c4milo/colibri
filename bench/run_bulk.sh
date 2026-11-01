@@ -158,8 +158,11 @@ start_container() {
   docker create --name "$server_container" --network host --cpuset-cpus "$server_core" \
     --entrypoint /usr/local/bin/wsslserver "$ngtcp2_image" 127.0.0.1 "$port" \
     /identity/key.pem /identity/chain.pem -q -d /www --cc bbr --no-gso >/dev/null
-  docker cp -q "$scratch/identity.key.pem" "$server_container:/identity/key.pem"
-  docker cp -q "$scratch/identity.chain.pem" "$server_container:/identity/chain.pem"
+  # docker cp makes the directory it copies a directory into, and not the one of a single file.
+  mkdir -p "$scratch/ngtcp2-identity"
+  cp "$scratch/identity.key.pem" "$scratch/ngtcp2-identity/key.pem"
+  cp "$scratch/identity.chain.pem" "$scratch/ngtcp2-identity/chain.pem"
+  docker cp -q "$scratch/ngtcp2-identity/." "$server_container:/identity"
   docker cp -q "$scratch/www/." "$server_container:/www"
   docker start "$server_container" >/dev/null
   for _ in $(seq "$ready_tries"); do
