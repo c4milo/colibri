@@ -1542,6 +1542,35 @@ The client of [`examples/client_exchange.zig`](../examples/client_exchange.zig) 
 const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_room);
 ```
 
+## DNSSEC
+
+The `dnssec` module checks DNSSEC signatures and DS digests through chapulin, in the same object
+`tls` links ([decision 142](decisions.md)). A resolver builds the records' data itself and feeds
+it in pieces, so nothing is copied, allocated or read. `dnssec.algorithm(number)` and
+`dnssec.digest_type(number)` say whether colibri checks what a record names: algorithms 8, 10,
+13, 14 and 15, and digest types 1, 2 and 4. Each answers null for any other number, and for every
+number on a target that is not arm64 or x86-64, whose chapulin object holds no DNSSEC.
+
+A `dnssec.Hash` the program holds reads an RRSIG's signed data (RFC 4034 §3.1.8.1), and
+`dnssec.verify` checks the signature over its digest. `key` is the DNSKEY's Public Key field as it
+arrives, RFC 3110's form for RSA, and `init` takes the signature too, because Ed25519 hashes it
+first (RFC 8080). `verify` returns `error.Auth` for a signature the key does not verify, and
+`error.Invalid` for a key, digest or signature of the wrong form. colibri sets no floor on an RSA
+key's length, which is the resolver's to set. The program of
+[`examples/dnssec_check.zig`](../examples/dnssec_check.zig) checks RFC 6605's RRSIG:
+
+```zig
+fn check(algorithm: dnssec.Algorithm, key: []const u8, signature: []const u8, data: []const u8) dnssec.Error!void {
+    var hash = try dnssec.Hash.init(algorithm, key, signature);
+    hash.update(data);
+    var digest: [dnssec.constants.protocol.digest_len_max]u8 = undefined;
+    try dnssec.verify(algorithm, key, hash.final(&digest), signature);
+}
+```
+
+`dnssec.Hash.digest(digest_type)` starts a plain digest, for a DS record (RFC 4034 §5.1.4) or one
+round of NSEC3's hash (RFC 5155 §5), which the resolver iterates itself.
+
 ## QUIC and h3
 
 A `quic.Connection` is one QUIC connection. Your program moves datagrams and time

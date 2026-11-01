@@ -137,6 +137,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "h11", .module = graph.h11 },
         .{ .name = "tls", .module = modules_test_roots.test_root(b, graph.tls, testdata) },
         .{ .name = "tls-keylog", .module = graph.tls_keylog },
+        .{ .name = "dnssec", .module = graph.dnssec },
         .{ .name = "server", .module = modules_test_roots.test_root(b, graph.server, testdata) },
         .{ .name = "client", .module = modules_test_roots.client_test_root(b, graph.client, testdata, graph.stdx) },
         .{ .name = "sim", .module = graph.sim },

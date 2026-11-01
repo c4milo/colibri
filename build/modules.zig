@@ -53,6 +53,9 @@ pub const Modules = struct {
     /// TLS 1.3 over chapulin (decisions 94 and 97, design §8 step 16b): colibri's values, converted
     /// once per object, and chapulin's sessions behind `tls_provider.Provider`.
     tls: *std.Build.Module,
+    /// DNSSEC's signature checks over the TCP object `tls` links (decision 142, design §8 step
+    /// 31).
+    dnssec: *std.Build.Module,
     /// HTTP responses behind one set of calls for h11 and h2, which runs the TLS handshake itself
     /// (decision 100, design §8 step 17a).
     server: *std.Build.Module,
@@ -183,6 +186,12 @@ pub fn add(
     tls_keylog.addImport("crypto", crypto);
     tls_keylog.addImport("chapulin_tcp", chapulin_record_object(b, target, .on).module("chapulin"));
     tls_keylog.addImport("chapulin_quic", chapulin_quic_keylog.module("chapulin"));
+
+    // Decision 142: chapulin's DNSSEC checks, over the TCP object `tls` links, so a program that
+    // links both links one object.
+    const dnssec = library(b, "dnssec", target, optimize);
+    dnssec.addImport("core", core);
+    dnssec.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
     tls_keylog.addImport("platform", stdx.module("platform"));
 
     // Decision 100: `server` answers requests over h11 and h2 behind one set of calls, and drives
@@ -360,6 +369,7 @@ pub fn add(
         .tls = tls,
         .server = server,
         .client = client,
+        .dnssec = dnssec,
         .chapulin_tcp = chapulin_tcp,
         .tls_keylog = tls_keylog,
         .chapulin_quic_keylog = chapulin_quic_keylog,
@@ -407,10 +417,11 @@ pub fn create(
     });
 }
 
-/// chapulin's `SUITE` and `KEYLOG` values the library's objects choose between, spelled as its build
-/// spells them.
+/// chapulin's `SUITE`, `KEYLOG` and `DNSSEC` values the library's objects choose between, spelled as
+/// its build spells them.
 const Suite = enum { chacha, aesgcm };
 const Keylog = enum { on, off };
+const Dnssec = enum { on, off };
 
 /// Decision 97's TCP object: `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`,
 /// compiled from the pinned package with `RAND=session`, where each session draws from the source its
@@ -432,7 +443,14 @@ fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylo
         .SUITE = suite_of(target),
         .TX_RECORD = "16384",
         .KEYLOG = keylog,
+        .DNSSEC = dnssec_of(target),
     });
+}
+
+/// chapulin's `DNSSEC` value: `on` in a host object, whose RSA check the DNSSEC calls share, and
+/// `off` in a device object, which chapulin refuses DNSSEC in (decision 142).
+fn dnssec_of(target: std.Build.ResolvedTarget) Dnssec {
+    return if (host_object(target)) .on else .off;
 }
 
 /// Decision 97 as amended for chapulin 0.2.0 (https://github.com/c4milo/colibri/issues/84): on a

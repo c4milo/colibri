@@ -60,6 +60,19 @@ rule or none at all.
 | [5958](rfc5958.txt) | Asymmetric Key Packages | The PKCS #8 key under a PRIVATE KEY label (decision 141), copied on 2026-10-31 |
 | [5915](rfc5915.txt) | Elliptic Curve Private Key Structure | The SEC 1 key under an EC PRIVATE KEY label (decision 141), copied on 2026-10-31 |
 
+## DNSSEC
+
+| RFC | Title | What colibri uses it for |
+|---|---|---|
+| [4034](rfc4034.txt) | Resource Records for the DNS Security Extensions | The RRSIG's signed data and the DS digest that `dnssec` checks (decision 142), copied on 2026-11-01 |
+| [3110](rfc3110.txt) | RSA/SHA-1 SIGs and RSA KEYs in the Domain Name System (DNS) | The form of an RSA DNSKEY's key, which `dnssec` takes as it arrives, copied on 2026-11-01 |
+| [4509](rfc4509.txt) | Use of SHA-256 in DNSSEC Delegation Signer (DS) Resource Records (RRs) | DS digest type 2, copied on 2026-11-01 |
+| [5155](rfc5155.txt) | DNS Security (DNSSEC) Hashed Authenticated Denial of Existence | NSEC3's hash, a round of which `Hash.digest` computes, copied on 2026-11-01 |
+| [5702](rfc5702.txt) | Use of SHA-2 Algorithms with RSA in DNSKEY and RRSIG Resource Records for DNSSEC | Algorithms 8 and 10, and their examples, copied on 2026-11-01 |
+| [6605](rfc6605.txt) | Elliptic Curve Digital Signature Algorithm (DSA) for DNSSEC | Algorithms 13 and 14, digest type 4, and their examples, copied on 2026-11-01 |
+| [8080](rfc8080.txt) | Edwards-Curve Digital Security Algorithm (EdDSA) for DNSSEC | Algorithm 15, and its example, copied on 2026-11-01 |
+| [8032](rfc8032.txt) | Edwards-Curve Digital Signature Algorithm (EdDSA) | Ed25519's hash of R and the key before the data, copied on 2026-11-01 |
+
 ## Compression
 
 These six are in `compression/`, copied unmodified from the same address: the first three on

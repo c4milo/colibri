@@ -5566,6 +5566,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        it then builds with DNSSEC=on. The module exports chapulin's hash and verify calls in
        colibri's names, and nothing of TLS.
      - colibri builds it when cocuyo asks for Stage B, against the chapulin commit it needs then.
+       cocuyo asked on 2026-10-31, and design §8 step 31 records the module, built over chapulin
+       f59c7e3f on 2026-11-01. On a target chapulin builds no DNSSEC for, the module checks
+       nothing, and says so.
 
      The alternatives refused:
      - The calls under `tls`. DNSSEC is not TLS, and a reader of `tls` would find a check of DNS

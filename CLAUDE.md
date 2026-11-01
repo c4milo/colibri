@@ -196,7 +196,7 @@ is added to the root and to the list in its test, which prints the name that dif
   The scope allows digits because `h2` and `h3` are the two commonest scopes, and a rule admitting
   letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`, `hpack`,
   `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`, `h11`, `server`,
-  `qlog`, `client`. A scope outside that set is a warning rather than a refusal, because the set
+  `qlog`, `client`, `dnssec`. A scope outside that set is a warning rather than a refusal, because the set
   grows when the graph does and docs/design.md §3 is the authority on it, not the linter.
 - The description is imperative, starts with a lowercase letter, and ends without a period: write
   `add the huffman decoder`, never `Adds the Huffman decoder.` The subject line stays at or under
@@ -211,7 +211,7 @@ is added to the root and to the list in its test, which prints the name that dif
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The fifteen
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The sixteen
   library modules are exported by name, so a dependent reaches them with `dependency.module`
   (decision 86); the simulator, the corpus and `src/testing/` are not. A module can only
   `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not

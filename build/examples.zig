@@ -11,6 +11,8 @@ const Example = struct {
     /// A program over TLS links chapulin through `tls`, asks the operating system for entropy,
     /// probes its CPU through stdx's `platform`, and presents colibri's test identity.
     tls: bool = false,
+    /// A program that checks DNSSEC records links chapulin through `dnssec` (decision 142).
+    dnssec: bool = false,
 };
 
 const examples = [_]Example{
@@ -19,6 +21,7 @@ const examples = [_]Example{
     .{ .name = "server_exchange", .tls = true },
     .{ .name = "client_exchange", .tls = true },
     .{ .name = "client_pool", .tls = true },
+    .{ .name = "dnssec_check", .dnssec = true },
 };
 
 pub fn add(
@@ -41,6 +44,7 @@ pub fn add(
         module.addImport("http", graph.http);
         module.addImport("rotor", rotor);
         if (example.tls) add_tls(module, graph, testdata);
+        if (example.dnssec) module.addImport("dnssec", graph.dnssec);
         const program = b.addExecutable(.{ .name = example.name, .root_module = module });
         const run = b.addRunArtifact(program);
         b.step("example-" ++ example.name, "Build and run examples/" ++ example.name ++ ".zig").dependOn(&run.step);
