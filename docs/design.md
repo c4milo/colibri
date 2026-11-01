@@ -12146,9 +12146,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `bench/run.sh --h3` adds `h3-bbr-many` and `h3-bbr-one`, which the UDP server answers under
       BBRv3. Each one's instructions a request, or a connection, beside `h3-many` and `h3-one`
       give the cost of BBRv3's work on each ACK. quic-go serves neither.
-    - The `bulk` input adds a server that runs BBRv3 from another implementation, measured and
-      never read (non-negotiable 10). It shows whether colibri's queue and goodput are BBRv3's
-      own on that path.
+    - The `bulk` input adds ngtcp2's server, under its own BBR with no GSO, from its QUIC Interop
+      Runner image, pinned by digest. ngtcp2's release notes say its BBR follows the current draft.
+      It is measured and never read (non-negotiable 10), and shows whether colibri's queue and
+      goodput are BBRv3's own on that path.
     - **Check.** One judge run of `--h3` gives the four h3 inputs, and one `bulk` run gives the
       other BBRv3 beside colibri's.
 
