@@ -11547,6 +11547,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Owed before the push.** `tools/ci.sh` on the exact tree, whose TLA+ section now runs the
     two pool configurations, the two mutants and `tools/pool_trace.sh`: about 4 minutes more on
     this laptop.
+
+  **An IPv6 scope id, 2026-10-31** ([#107](https://github.com/c4milo/colibri/issues/107)).
+  `quic.PeerAddress`, which `client.Address` names, gains `scope_id`, the interface a link-local
+  IPv6 address is reached through. The pool keeps it in `Open.to`, and `same_host` compares it,
+  so the same octets through two interfaces are two paths (RFC 9000 §9). The test-only UDP
+  endpoints carry it to and from Rotor's socket address.
+  - 1 mutation **CAUGHT**: `same_host` without the scope id. A test of the pool's `Open.to` checks
+    that the id and the pool's port both arrive.
+
 - **Step 23 — colibri's own names for HTTP.** [Decision 126](decisions.md) has `server` and
   `client` name each concept once, the same for h11, h2 and h3, with the word programmers know.
   The protocol modules keep each RFC's words. Every rename breaks a dependent's build in 0.9.0.

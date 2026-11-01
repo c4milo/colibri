@@ -249,17 +249,20 @@ fn send_stream(now_ns: u64) void {
 }
 
 /// A socket address as colibri names a peer's (decision 72), as `../quic/udp/udp_peer.zig`
-/// converts one: four octets for IPv4 and sixteen for IPv6, and the port.
+/// converts one: four octets for IPv4 and sixteen for IPv6, the port, and an IPv6 address's scope
+/// id.
 fn peer_address(address: udp.Address) Address {
     const len: usize = if (address.family == .ipv4) udp.Address.ipv4_bytes else address.bytes.len;
-    return Address.of(address.bytes[0..len], address.port);
+    var peer = Address.of(address.bytes[0..len], address.port);
+    peer.scope_id = address.scope_id;
+    return peer;
 }
 
 /// The socket address colibri named, back in Rotor's form.
 fn udp_address(address: Address) udp.Address {
     if (address.len == udp.Address.ipv4_bytes) return udp.Address.ipv4(address.octets[0..udp.Address.ipv4_bytes].*, address.port);
     assert(address.len == address.octets.len);
-    return udp.Address.ipv6(address.octets, address.port, 0);
+    return udp.Address.ipv6(address.octets, address.port, address.scope_id);
 }
 
 /// Prints one line per exchange, then the transports the pool opened. True when every exchange

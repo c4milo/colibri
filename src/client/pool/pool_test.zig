@@ -32,6 +32,28 @@ const other_octet: u8 = 0x7e;
 const other_host: [ipv4_len]u8 = @splat(other_octet);
 const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
 const two_addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&other_host, 0) };
+/// A link-local IPv6 address, fe80::1, reached through interface 3, which a program dials only
+/// with its scope id (https://github.com/c4milo/colibri/issues/107). Test-only.
+const link_local_octets: [ipv6_len]u8 = link_local_of();
+const ipv6_len: usize = 16;
+const link_local_high: u8 = 0xfe;
+const link_local_low: u8 = 0x80;
+
+fn link_local_of() [ipv6_len]u8 {
+    var octets: [ipv6_len]u8 = @splat(0);
+    octets[0] = link_local_high;
+    octets[1] = link_local_low;
+    octets[ipv6_len - 1] = 1;
+    return octets;
+}
+const link_local_interface: u32 = 3;
+const link_local = [_]pool_module.Address{scoped(pool_module.Address.of(&link_local_octets, 0), link_local_interface)};
+
+fn scoped(address: pool_module.Address, scope_id: u32) pool_module.Address {
+    var with_scope = address;
+    with_scope.scope_id = scope_id;
+    return with_scope;
+}
 /// Whether `collect` starts a TCP connection an `open` event asks for.
 var starts: bool = true;
 const unstarted_octet: u8 = 0x01;
@@ -265,6 +287,18 @@ fn Tests(comptime Pool: type) type {
             const stream = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(pool, .tcp), .bytes = &octets } }, support.now_ns);
             try testing.expectEqual(octets.len, stream.consumed);
             try testing.expectEqual(null, stream.event);
+        }
+
+        test "issue 107: the transport a pool opens keeps its address's scope id, and the pool's port" {
+            try start_at(&link_local);
+            starts = false;
+            var exchange = get(&bodies[0]);
+            _ = try pool.request(&exchange.request, &exchange.response);
+            try collect(&pool);
+            const to = find(.open).?.open.to;
+            try testing.expectEqual(link_local_interface, to.scope_id);
+            try testing.expectEqual(https_port, to.port);
+            try testing.expect(to.same_host(&link_local[0]));
         }
 
         test "a transport that failed before its handshake completed tries the next address next time" {

@@ -108,7 +108,7 @@ pub const Open = struct {
     connection: ConnectionHandle,
     transport: Transport,
     /// One of `Destination.addresses`, with only its port set to the port the pool chose for the
-    /// transport.
+    /// transport. It keeps the address's scope id, so a link-local IPv6 address dials as given.
     to: Address,
 };
 

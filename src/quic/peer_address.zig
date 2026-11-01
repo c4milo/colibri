@@ -12,6 +12,10 @@ pub const PeerAddress = struct {
     octets: [constants.limits.peer_address_len_max]u8 = @splat(0),
     len: u8 = 0,
     port: u16 = 0,
+    /// The interface an IPv6 address is reached through, as the operating system numbers it in a
+    /// socket address (`sin6_scope_id`), or 0 for none. A link-local address (fe80::/10) needs one
+    /// before a program can dial it. The program sets it after `of`; colibri only compares it.
+    scope_id: u32 = 0,
 
     /// The address `octets` and `port` name. The caller's octets must fit.
     pub fn of(octets: []const u8, port: u16) PeerAddress {
@@ -27,8 +31,10 @@ pub const PeerAddress = struct {
     }
 
     /// Whether the two differ, if at all, only in the port, which RFC 9000 §9.4 treats as the
-    /// likely work of NAT rebinding.
+    /// likely work of NAT rebinding. The same octets through two interfaces are two hosts, and so
+    /// two paths (RFC 9000 §9).
     pub fn same_host(address: *const PeerAddress, other: *const PeerAddress) bool {
+        if (address.scope_id != other.scope_id) return false;
         return address.len == other.len and std.mem.eql(u8, address.host(), other.host());
     }
 
@@ -63,4 +69,34 @@ test "RFC 9000 §9.4: a change of port alone keeps the host" {
     const address = PeerAddress.of(&loopback, test_port);
     try testing.expect(address.same_host(&PeerAddress.of(&loopback, other_port)));
     try testing.expect(!address.same_host(&PeerAddress.of(&other_host, test_port)));
+}
+
+/// An IPv6 link-local address, fe80::1, which needs a scope id. Test-only.
+const link_local: [constants.limits.peer_address_len_max]u8 = link_local_of();
+/// fe80::/10's first two octets. Test-only.
+const link_local_high: u8 = 0xfe;
+const link_local_low: u8 = 0x80;
+
+fn link_local_of() [constants.limits.peer_address_len_max]u8 {
+    var octets: [constants.limits.peer_address_len_max]u8 = @splat(0);
+    octets[0] = link_local_high;
+    octets[1] = link_local_low;
+    octets[octets.len - 1] = 1;
+    return octets;
+}
+const interface_one: u32 = 1;
+const interface_two: u32 = 2;
+
+test "RFC 9000 §9: the same link-local octets through two interfaces are two hosts" {
+    var through_one = PeerAddress.of(&link_local, test_port);
+    through_one.scope_id = interface_one;
+    var through_two = through_one;
+    through_two.scope_id = interface_two;
+    try testing.expect(!through_one.same_host(&through_two));
+    try testing.expect(!through_one.eql(&through_two));
+    // RFC 9000 §9.4: a new port alone, through the same interface, keeps the host.
+    var rebound = through_one;
+    rebound.port = other_port;
+    try testing.expect(through_one.same_host(&rebound));
+    try testing.expect(through_one.eql(&through_one));
 }

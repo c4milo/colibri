@@ -36,17 +36,19 @@ pub const Outgoing = struct {
 const PeerAddress = quic.PeerAddress;
 
 /// A socket address as colibri names a peer's (decision 72): four octets for IPv4 and sixteen for
-/// IPv6, and the port.
+/// IPv6, the port, and an IPv6 address's scope id.
 pub fn peer_address(address: udp.Address) PeerAddress {
     const len: usize = if (address.family == .ipv4) udp.Address.ipv4_bytes else address.bytes.len;
-    return PeerAddress.of(address.bytes[0..len], address.port);
+    var peer = PeerAddress.of(address.bytes[0..len], address.port);
+    peer.scope_id = address.scope_id;
+    return peer;
 }
 
 /// The socket address colibri named, back in rotor's form.
 pub fn udp_address(address: PeerAddress) udp.Address {
     if (address.len == udp.Address.ipv4_bytes) return udp.Address.ipv4(address.octets[0..udp.Address.ipv4_bytes].*, address.port);
     assert(address.len == address.octets.len);
-    return udp.Address.ipv6(address.octets, address.port, 0);
+    return udp.Address.ipv6(address.octets, address.port, address.scope_id);
 }
 
 const ReceivedEcn = quic.connection_receive.Datagram.Ecn;
