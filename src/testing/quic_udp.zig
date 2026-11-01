@@ -22,6 +22,7 @@ pub const udp_identity = @import("quic/udp/udp_identity.zig");
 pub const udp_run = @import("quic/udp/udp_run.zig");
 pub const udp_run_client = @import("quic/udp/udp_run_client.zig");
 pub const udp_batch = @import("quic/udp/udp_batch.zig");
+pub const udp_h3_files = @import("quic/udp/udp_h3_files.zig");
 
 comptime {
     // chapulin's objects import `ch_assert_fail` and `ch_keylog`, which these two
@@ -53,4 +54,5 @@ test {
     _ = udp_identity;
     _ = udp_run_client;
     _ = udp_batch;
+    _ = udp_h3_files;
 }

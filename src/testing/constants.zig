@@ -304,6 +304,11 @@ pub const h3_qpack_blocked_streams: u64 = 16;
 /// The body the h3 server answers `/` with, as design §9's h2 server answers `GET /`.
 pub const h3_root_body = "colibri\n";
 
+/// Files the h3 server keeps mapped for the whole run once a request asks for each. A file past
+/// these is mapped for its request alone. The h2 server answers from memory, so a map and an
+/// unmap on each request made the judge's h3 inputs pay four system calls the h2 ones do not.
+pub const h3_mapped_files_max: usize = 64;
+
 /// Requests the hq-interop server answers at once, which is the `initial_max_streams_bidi` it
 /// grants: one slot, with its request line, per stream the client may have open.
 pub const hq_requests_max: usize = 100;
