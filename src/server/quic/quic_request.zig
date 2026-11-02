@@ -43,6 +43,9 @@ pub const Requests = struct {
     /// response's kept frames, more than 8 KiB, and a walk that read a flag in each would touch
     /// every record after each datagram (design §8 step 29d.4).
     held: Held,
+    /// The records whose response a call of the caller's changed since the last settle, which a
+    /// `receive` at the instant the connection settled at settles alone (design §8 step 29d.7).
+    changed: Held,
     stream_ids: [constants.limits.quic_requests_max]u64,
     records: [constants.limits.quic_requests_max]Request,
 
@@ -50,6 +53,7 @@ pub const Requests = struct {
 
     pub fn init(requests: *Requests) void {
         requests.held = .initEmpty();
+        requests.changed = .initEmpty();
     }
 
     /// A record for the request on `stream_id`, or null when every record is in use.
@@ -69,6 +73,13 @@ pub const Requests = struct {
         const index = requests.index_of(record);
         assert(requests.held.isSet(index));
         requests.held.unset(index);
+    }
+
+    /// Notes that a call of the caller's changed the response of `record`.
+    pub fn mark(requests: *Requests, record: *const Request) void {
+        const index = requests.index_of(record);
+        assert(requests.held.isSet(index));
+        requests.changed.set(index);
     }
 
     /// Whether `record` is in use.

@@ -11,6 +11,7 @@ const tls = @import("tls");
 const constants = @import("../constants.zig");
 const quic_connection = @import("quic_connection.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
+const quic_connection_h3_settle = @import("quic_connection_h3_settle.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const quic_coding = @import("quic_coding.zig");
 const quic_continue = @import("quic_continue.zig");
@@ -225,7 +226,7 @@ fn after_change(connection: *QuicConnection, now_ns: u64) void {
     issue_spare_ids(connection);
     // A stream that closed frees its record before anything is sent, so the credit for a new
     // stream QUIC grants for it finds a record free (RFC 9000 §4.6).
-    quic_connection_h3.settle(connection);
+    quic_connection_h3_settle.settle(connection);
     // RFC 9000 §10: once the connection stops being active, no request is read or answered.
     // The peer closed it, or it went idle, and neither is a failure this side found: the
     // endpoint's `ended` reports it once its closing or draining period is over.

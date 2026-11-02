@@ -12316,11 +12316,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
            frame is owed, and `credit_owed` calls it. `observe_credit` calls `data_credit_owed`
            once and `count_credit_owed`, so it walks the streams once. The server's `observe`
            needs the name, which goes on `quic`'s list.
-        2. Each request record gets a flag, `changed`. `respond`, `write_body`, `write_trailers`
-           and `cancel` set it on the request they name, in place of a clear of `settled_ns`. A
-           `receive` at the instant the connection settled at settles only the records with the
-           flag, and clears it. `set_timeouts` still clears `settled_ns`, because it changes the
-           deadlines and no request.
+        2. A bit set beside `Requests.held`, `changed`, holds a bit for each record. `respond`,
+           `write_body`, `write_trailers` and `cancel` set the bit of the request they name, in
+           place of a clear of `settled_ns`. A `receive` at the instant the connection settled at
+           settles only the records whose bit is set (`settle_changed`), and clears the bits.
+           `settle` clears them all. `set_timeouts` still clears `settled_ns`, because it changes
+           the deadlines and no request.
       - Why item 2 is the same as a whole `settle`. `settle_one` of a record reads its stream and
         its response, and only a datagram or a call that names the record changes either. A
         datagram settles every record in `after_change`. `finish_if_drained` runs after the walk
@@ -12333,6 +12334,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         - `tools/h3_deadline_trace.sh` and the QUIC simulator give what they gave before.
         - The judge's `--h3 --base 3e815faa`, at 10 rounds. The step lands when h3-many and
           h3-bbr-many win and no input loses.
+    - **29d.7, the tests, 2026-11-02.** `quic_settle_test.zig` holds a test of two requests
+      changed at one instant, and `quic_deadline_credit_test.zig` a MAX_STREAMS frame owed that
+      holds the idle deadline. `settle` moved to `quic_connection_h3_settle.zig`, for the file
+      length. Mutations, by `zig build test-server` and, for `count_credit_owed`, `zig build
+      test-quic`:
+      - The bit that `respond`, `write_body`, `write_trailers` and `cancel` each set: each CAUGHT.
+      - `settle_changed` that settles the first record alone: CAUGHT.
+      - `settle_changed` and `settle` that clear no bit: each NOT CAUGHT at first. The test of two
+        requests now reads `Requests.changed`, and `settle_changed` asserts that each bit names a
+        record in use. Each is now CAUGHT.
+      - `free` that also cleared the bit of the record: NOT CAUGHT, because `settle` clears every
+        bit before it frees a record. The clear was removed.
+      - `observe_credit` with no `count_credit_owed`: NOT CAUGHT at first, and CAUGHT by the test of
+        the MAX_STREAMS frame.
+      - `count_credit_owed` that is always false: CAUGHT.
         - `tools/h3_deadline_trace.sh`, `zig build test-sim-run-quic` and the simulator's h3
           censuses give what they gave before.
         - The judge's `--h3 --base 07b742ee`. The step lands only when h3-many and h3-bbr-many

@@ -172,6 +172,8 @@ pub const connection_stream_acknowledged = struct {
 
 pub const connection_flow = struct {
     pub const credit_owed = files.connection_flow.credit_owed;
+    /// The server's `observe`, which asks `data_credit_owed` first (design §8 step 29d.7).
+    pub const count_credit_owed = files.connection_flow.count_credit_owed;
     /// The server's body meters, which wait on data credit alone (decision 130).
     pub const data_credit_owed = files.connection_flow.data_credit_owed;
 };

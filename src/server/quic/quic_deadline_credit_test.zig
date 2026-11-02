@@ -179,3 +179,21 @@ test "decision 110 as amended: a body's rate waits while the server holds credit
     server_at(at_ns);
     try testing.expectEqual(Timeout.body_rate, support.nth(.cancelled, 0).?.reason.?.timeout);
 }
+
+test "decision 110 as amended: a MAX_STREAMS frame the server owes holds the idle deadline, as data credit does" {
+    try connected(idle_short_ns);
+    const fetch = try support.request("GET", "/", "");
+    try support.pump(rounds_few);
+    try connection.respond(fetch.id, .{ .status = ok, .end = true });
+    try support.pump(support.rounds_default);
+    try testing.expect(connection.clock.idle_since_ns != null);
+    _ = try fill_window();
+    // RFC 9000 §13.3: a MAX_STREAMS frame that was lost is owed again, and the full window holds
+    // it back.
+    connection.transport.streams.max_streams[0].owed = true;
+    try testing.expect(!quic.connection_flow.data_credit_owed(&connection.transport));
+    support.now_ns += support.round_ns;
+    _ = try connection.receive(support.now_ns);
+    try testing.expectEqual(support.now_ns, connection.clock.credit_held_since_ns.?);
+    try testing.expectEqual(null, quic_deadline.soonest(connection));
+}

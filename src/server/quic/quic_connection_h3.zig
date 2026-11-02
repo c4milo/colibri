@@ -42,68 +42,6 @@ const status_digits_len: usize = 3;
 /// stream waits on the encoder stream (RFC 9204 §2.1.2): `:status`, then the caller's lines.
 const no_insert: [core.constants.limits.field_count_max + 1]Indexing = @splat(.no_insert);
 
-/// Brings each request up to date with its stream: drops the runs the peer acknowledged, reports
-/// a response that is done or a stream the peer stopped, writes the 100 (Continue) a request is
-/// owed, and frees each record whose stream closed. A connection shut down ends once it holds
-/// none.
-pub fn settle(connection: *QuicConnection) void {
-    if (connection.closed or connection.stopped) return;
-    // A 100 (Continue) that finds no room in this pass sets it again (`quic_continue.zig`).
-    connection.continue_owed = false;
-    var held = connection.requests.walk();
-    // Bounded by the records in use.
-    while (held.next()) |record| settle_one(connection, record);
-    finish_if_drained(connection);
-}
-
-fn settle_one(connection: *QuicConnection, record: *Request) void {
-    const id: StreamId = .{ .value = record.stream_id };
-    const stream = switch (connection.transport.streams.lookup(id)) {
-        .live => |stream| stream,
-        .closed, .unopened => {
-            // RFC 9000 §3: a stream closes once each part is finished. `settle` runs after every
-            // datagram, and saw any reset of the response first, so one not over was acknowledged
-            // whole.
-            if (!record.over) {
-                assert(record.finished);
-                end(connection, record, .done);
-            }
-            // Each way a request ends gave its encoder back, and each way its stream's receiving
-            // part ends stopped the wait for its content.
-            assert(record.coded == null);
-            assert(!quic_body.waits(connection, record));
-            quic_sends.forget(connection, record);
-            connection.requests.free(record);
-            return;
-        },
-    };
-    quic_sends.look(connection, record, stream);
-    switch (stream.sending.state) {
-        // RFC 9000 §3.1: "Data Recvd" means the peer acknowledged every octet.
-        .data_recvd => if (!record.over) end(connection, record, .done),
-        // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, whose octets are read no more.
-        // RFC 9114 §4.1.1: that is the client cancelling its request, which the limit counts.
-        .reset_sent, .reset_recvd => if (!record.over) {
-            end(connection, record, .{ .cancelled = .peer_reset });
-            if (!resets.count_peer_reset(connection)) return;
-        },
-        .ready, .send, .data_sent => {},
-    }
-    // The acknowledged end scans every packet in flight, and `settle` runs after each datagram,
-    // so it is read only when a run can go.
-    if (record.response.may_release(stream.outgoing.acknowledged_len)) release(connection, record, id);
-    quic_coding.go_on(connection, record);
-    quic_continue.write(connection, record, stream);
-}
-
-/// Drops the runs of `record`'s response that the peer acknowledged.
-fn release(connection: *QuicConnection, record: *Request, id: StreamId) void {
-    const acknowledged = quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, id) orelse return;
-    const freed = record.response.release_below(@min(acknowledged, record.response.end));
-    // A coded response's runs are its ring's, which frees what the peer acknowledged.
-    if (record.coded) |*coded| coded.ring.free(freed);
-}
-
 pub fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_request.Ending, "kind")) void {
     assert(!record.over);
     record.over = true;
@@ -251,6 +189,7 @@ fn reading(connection: *QuicConnection, stream_id: u64) ?*Request {
 
 pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
     const record = try writable(connection, id);
+    connection.requests.mark(record);
     const status = response.status;
     // RFC 9110 §15: a status code is three digits from 100 to 599; RFC 9114 §4.5: h3 has no 101.
     if (status < status_min or status > status_max or status == switching_protocols) return error.StatusInvalid;
@@ -289,6 +228,7 @@ const switching_protocols: u16 = 101;
 
 pub fn write_body(connection: *QuicConnection, id: Number, content: event.ResponseBody) SendError!usize {
     const record = try writable(connection, id);
+    connection.requests.mark(record);
     // RFC 9114 §4.1: DATA frames follow the final response's HEADERS frame.
     if (!record.answered) return error.SectionOutOfOrder;
     const octets = content.bytes;
@@ -321,6 +261,7 @@ pub const data_runs: usize = 2;
 
 pub fn write_trailers(connection: *QuicConnection, id: Number, fields: []const Field) SendError!void {
     const record = try writable(connection, id);
+    connection.requests.mark(record);
     // RFC 9114 §4.1: a trailer section follows the final response.
     if (!record.answered) return error.SectionOutOfOrder;
     if (record.coded != null) try quic_coding.end_before_trailers(connection, record);
@@ -335,6 +276,7 @@ pub fn write_trailers(connection: *QuicConnection, id: Number, fields: []const F
 pub fn cancel(connection: *QuicConnection, id: Number) void {
     if (connection.stopped or connection.closed) return;
     const record = live(connection, id) orelse return;
+    connection.requests.mark(record);
     // RFC 9114 §4.1.1: a server that abandons a response after processing "SHOULD abort its
     // response stream with the error code H3_REQUEST_CANCELLED".
     connection.h3.cancel(&connection.transport, id, h3.constants.protocol.error_request_cancelled);
@@ -380,7 +322,7 @@ fn reject_unread(connection: *QuicConnection) void {
 /// The last request of a connection shut down is over, so QUIC closes with H3_NO_ERROR. RFC 9114
 /// §5.2: once "all accepted requests ... have been processed", an endpoint "MAY initiate an
 /// immediate closure", and "SHOULD use the H3_NO_ERROR error code".
-fn finish_if_drained(connection: *QuicConnection) void {
+pub fn finish_if_drained(connection: *QuicConnection) void {
     if (!connection.shutting_down or connection.stopped or !connection.requests.idle()) return;
     // RFC 9114 §5.2: the GOAWAY tells the client which requests the server did not take. QUIC
     // writes a CONNECTION_CLOSE alone once it owes one, so the close waits until the client

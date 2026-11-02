@@ -23,6 +23,8 @@ const content: [content_windows * window_small]u8 = @splat('r');
 const content_part_len: usize = 512;
 const trailer_windows: usize = 2;
 const trailer_value: [trailer_windows * window_small]u8 = @splat('t');
+/// The responses that the test of two requests writes.
+const responses_two: u32 = 2;
 
 /// A server and a client connected, the client's streams starting with `stream_window` octets of
 /// credit, and a GET whose head the server reported and that has no response yet.
@@ -97,4 +99,20 @@ test "design §8 step 29d.6: a response cancelled at the instant the connection 
     try receive_none();
     try testing.expectEqual(0, connection.sends.busy);
     try testing.expectEqual(0, connection.sends.bound);
+}
+
+test "design §8 step 29d.7: each response written at the instant the connection settled at waits on its peer at the next receive" {
+    try support.start();
+    try support.connect();
+    const first = try support.request("GET", "/first", "");
+    const second = try support.request("GET", "/second", "");
+    try support.pump(rounds_few);
+    try receive_none();
+    try testing.expectEqual(0, connection.sends.busy);
+    try connection.respond(first.id, .{ .status = ok, .end = true });
+    try connection.respond(second.id, .{ .status = ok, .end = true });
+    try receive_none();
+    try testing.expectEqual(responses_two, connection.sends.busy);
+    // Each record settled once: the next receive at this instant settles none again.
+    try testing.expectEqual(0, connection.requests.changed.count());
 }

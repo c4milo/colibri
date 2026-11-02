@@ -20,6 +20,7 @@ const expect = @import("../expect.zig");
 const quic_request = @import("quic_request.zig");
 const quic_connection = @import("quic_connection.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
+const quic_connection_h3_settle = @import("quic_connection_h3_settle.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
@@ -88,5 +89,5 @@ pub fn write_before_send(connection: *QuicConnection, now_ns: u64) void {
     connection.last_ns = now_ns;
     // RFC 9110 §10.1.1: the 100 (Continue) is "immediate", so it does not wait for the caller's
     // next `receive`.
-    quic_connection_h3.settle(connection);
+    quic_connection_h3_settle.settle(connection);
 }

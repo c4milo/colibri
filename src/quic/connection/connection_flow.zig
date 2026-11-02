@@ -82,11 +82,17 @@ pub fn write_limits(connection: *Connection, level: Level, writer: *Writer, numb
 /// congestion window is full, and a peer that needs the credit waits on this endpoint then
 /// (decision 110 as amended).
 pub fn credit_owed(connection: *Connection) bool {
+    return count_credit_owed(connection) or data_credit_owed(connection);
+}
+
+/// Whether this endpoint owes its peer a MAX_STREAMS frame, as `credit_owed` judges one. It walks
+/// no stream, so a caller that has asked `data_credit_owed` asks this for the rest.
+pub fn count_credit_owed(connection: *const Connection) bool {
     const streams = &connection.streams;
     for (streams.peer_limit, streams.max_streams) |count, frame| {
         if (count.owes_count_credit() or frame.owed) return true;
     }
-    return data_credit_owed(connection);
+    return false;
 }
 
 /// Whether this endpoint owes its peer credit for data: a MAX_DATA or MAX_STREAM_DATA frame, as

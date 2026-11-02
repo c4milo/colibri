@@ -23,6 +23,7 @@ const event = @import("../event.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_request = @import("quic_request.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
+const quic_connection_h3_settle = @import("quic_connection_h3_settle.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const quic_body = @import("quic_body.zig");
 const quic_sends = @import("quic_sends.zig");
@@ -131,9 +132,9 @@ pub const QuicConnection = struct {
     /// Whether a request may be owed a 100 (Continue) (RFC 9110 §10.1.1), so the next `send`
     /// settles the requests before it writes a datagram (`quic_continue.zig`).
     continue_owed: bool,
-    /// The instant of the last `fire` and `settle` that ran after every change the caller made, or
-    /// null when a call made one since. A `receive` at that instant runs neither again (design
-    /// §8 step 29d.6).
+    /// The instant of the last `fire` and `settle`, or null when `set_timeouts` ran since. A
+    /// `receive` at that instant fires no deadline and settles only the requests whose response
+    /// the caller changed (`Requests.changed`, design §8 steps 29d.6 and 29d.7).
     settled_ns: ?u64,
     /// The connection failed or is ending, so it reads no request, and the next `receive` says
     /// so once.
@@ -198,7 +199,11 @@ pub const QuicConnection = struct {
             return error.ConnectionFailed;
         }
         // RFC 9110 §10.1.1: a head that the last event read can owe a 100 (Continue).
-        if (!settled or connection.continue_owed) quic_connection_h3.settle(connection);
+        if (!settled or connection.continue_owed) {
+            quic_connection_h3_settle.settle(connection);
+        } else {
+            quic_connection_h3_settle.settle_changed(connection);
+        }
         connection.settled_ns = now_ns;
         if (connection.owed.take()) |owed| return .{ .consumed = 0, .event = owed };
         if (!connection.started or connection.stopped) return .{ .consumed = 0, .event = null };
@@ -208,7 +213,6 @@ pub const QuicConnection = struct {
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content.
     pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
-        connection.settled_ns = null;
         return quic_connection_h3.respond(connection, id, response);
     }
 
@@ -219,13 +223,11 @@ pub const QuicConnection = struct {
     /// `error.Blocked` says the response holds as many runs, or its ring as many octets, as it can
     /// until the peer acknowledges some: `receive`, then call again.
     pub fn write_body(connection: *QuicConnection, id: Number, content: event.ResponseBody) SendError!usize {
-        connection.settled_ns = null;
         return quic_connection_h3.write_body(connection, id, content);
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
     pub fn write_trailers(connection: *QuicConnection, id: Number, fields: []const Field) SendError!void {
-        connection.settled_ns = null;
         return quic_connection_h3.write_trailers(connection, id, fields);
     }
 
@@ -233,7 +235,6 @@ pub const QuicConnection = struct {
     /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the caller's octets, and
     /// nothing more is reported of it.
     pub fn cancel(connection: *QuicConnection, id: Number) void {
-        connection.settled_ns = null;
         quic_connection_h3.cancel(connection, id);
     }
 
