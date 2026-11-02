@@ -60,6 +60,7 @@ pub const RequestError = connection_module.CheckError || error{
     Full,
 };
 pub const Config = pool_config.Config;
+pub const Timeouts = pool_config.Timeouts;
 pub const StartError = pool_config.StartError;
 pub const ReceiveStorage = quic_connection.ReceiveStorage;
 pub const Address = quic.PeerAddress;
@@ -295,10 +296,11 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
             return pool_calls.request(pool, message, response);
         }
 
-        /// Ends exchange `id`, and reports nothing for it. The memory of its request and its
-        /// response is the caller's again.
-        pub fn cancel(pool: *Self, id: RequestId) void {
-            pool_calls.cancel(pool, id);
+        /// Ends exchange `id` at `now_ns`, and reports nothing for it. The memory of its request
+        /// and its response is the caller's again. An h11 connection reads the rest of the
+        /// response and drops it, within the bounds of decision 146.
+        pub fn cancel(pool: *Self, id: RequestId, now_ns: u64) void {
+            pool_calls.cancel(pool, id, now_ns);
         }
 
         /// Takes no new exchange, and ends every connection once the exchanges it holds have
@@ -324,8 +326,9 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
             return pool_calls.send_stream(pool, connection, output, now_ns);
         }
 
-        /// The instant the pool next wants `on_instant` at: QUIC's next deadline, or the end of
-        /// the fallback delay while the pool offers TCP. Null for none.
+        /// The instant the pool next wants `on_instant` at: QUIC's next deadline, the end of an
+        /// h11 drop (decision 146), or the end of the fallback delay while the pool offers TCP.
+        /// Null for none.
         pub fn deadline_ns(pool: *Self) ?u64 {
             return pool_calls.deadline_ns(pool);
         }

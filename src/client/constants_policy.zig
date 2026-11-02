@@ -36,6 +36,11 @@ pub const quic_stream_window: u64 = 65_536;
 /// It is the delay the test-only client used before the pool had a default.
 pub const fallback_delay_ns_default: u64 = 250 * quic.constants.nanoseconds_per_millisecond;
 
+/// How long an h11 connection reads and drops a response the caller no longer reads, unless the
+/// caller names another limit, in nanoseconds: 50 ms (decision 146), Go 1.27's bound. No RFC in
+/// docs/rfcs gives a value.
+pub const drop_timeout_ns: u64 = 50 * quic.constants.nanoseconds_per_millisecond;
+
 comptime {
     // A margin shorter than the idle timeout the client advertises leaves the connection time to
     // work in.
@@ -43,4 +48,7 @@ comptime {
     assert(quic_idle_margin_timeout_divisor > 1);
     // A fallback delay of zero would open TCP beside every QUIC handshake.
     assert(fallback_delay_ns_default > 0);
+    // A drop of zero would close the connection at every cancel, which `Timeouts.drop_ns` of 0
+    // says when a program wants it.
+    assert(drop_timeout_ns > 0);
 }

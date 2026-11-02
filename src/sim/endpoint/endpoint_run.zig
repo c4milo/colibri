@@ -226,7 +226,7 @@ fn tcp_write(storage: *Storage, plan: *const Plan, now_ns: u64, now_ms: u64) Err
     for (&storage.tcp.peers, 0..) |*peer, index| {
         if (peer.state != .served or peer.closed) continue;
         const peer_plan = &plan.tcp[index];
-        if (Peer.played_by_client(peer_plan) and tcp_module.reset_due(peer, peer_plan, now_ms)) moved = true;
+        if (Peer.played_by_client(peer_plan) and tcp_module.reset_due(peer, peer_plan, now_ns, now_ms)) moved = true;
         if (try tcp_module.write(peer, peer_plan, now_ns, now_ms, &storage.record.wire)) moved = true;
         if (!tcp_module.closes(peer, peer_plan, now_ms)) continue;
         peer.closed = true;

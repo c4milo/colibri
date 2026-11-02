@@ -196,7 +196,7 @@ test "RFC 9113 §6.4: a cancelled exchange's stream is reset with CANCEL, and no
     var exchange = get(&bodies[0]);
     const id = try connection.request(&exchange.request, &exchange.response);
     try support.pump_h2();
-    connection.cancel(id);
+    connection.cancel(id, support.now_ns);
     support.peer_events_len = 0;
     try support.pump_h2();
     try testing.expectEqual(h2.constants.protocol.error_cancel, support.peer_events[0].stream_reset.error_code);

@@ -92,6 +92,11 @@ const h3_events_per_exchange_max: usize = 4;
 /// close is the caller's to judge.
 pub const moves_max: u8 = 1;
 
+/// Octets of content an h11 connection reads and drops of a response the caller no longer reads
+/// (decision 146): Go 1.27's bound. When more is left, the connection fails instead, since a new
+/// connection costs less than the octets left.
+pub const drop_len_max: u64 = 256 * 1024;
+
 /// Events the pool reads from its connections in one call at most: each connection's version,
 /// ticket, draining and close, and one `finished` event for each exchange it may hold.
 pub const pool_events_per_poll_max: usize = transports_count * (requests_max + connection_events_max);
@@ -184,6 +189,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(16384, quic_read_len);
     try expectEqual(1048641, h3_events_per_read_max);
     try expectEqual(1, moves_max);
+    try expectEqual(262144, drop_len_max);
     try expectEqual(40, pool_events_per_poll_max);
     try expectEqual(32768, stream_input_len_min);
     try expectEqual(16645, stream_output_len_min);

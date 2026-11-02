@@ -140,7 +140,7 @@ fn names(offered: []const http.content_coding.Coding, coding: http.content_codin
     return std.mem.indexOfScalar(http.content_coding.Coding, offered, coding) != null;
 }
 
-fn start_configured(value: Config) !void {
+pub fn start_configured(value: Config) !void {
     config = value;
     const protocol = protocols_module.cleartext(value.protocols).?;
     try connection.init(&config, stream.random(), 0, null, .{});

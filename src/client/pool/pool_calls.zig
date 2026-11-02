@@ -94,9 +94,9 @@ pub fn request(pool: anytype, message: *const Request, response: *Response) Requ
     return entry.id;
 }
 
-pub fn cancel(pool: anytype, id: RequestId) void {
+pub fn cancel(pool: anytype, id: RequestId, now_ns: u64) void {
     const entry = entry_of(pool, id) orelse return;
-    if (entry.stage == .carried) pool_connection.cancel(pool, entry.carrier, entry.carried_id);
+    if (entry.stage == .carried) pool_connection.cancel(pool, entry.carrier, entry.carried_id, now_ns);
     entry.* = .{};
     pool_events.unblock_sends(pool);
 }
@@ -132,6 +132,12 @@ pub fn send_stream(pool: anytype, connection: ConnectionHandle, output: []u8, no
 pub fn deadline_ns(pool: anytype) ?u64 {
     var deadline: ?u64 = null;
     if (pool.capacity.quic and pool.quic_link.state == .running) deadline = pool.quic.deadline_ns();
+    // Decision 146: the end of each h11 drop.
+    for (pool.tcp, pool.tcp_links) |*connection, link| {
+        if (link.state != .running) continue;
+        const drop_until = connection.deadline_ns() orelse continue;
+        deadline = @min(deadline orelse drop_until, drop_until);
+    }
     if (pool.offered.tcp and !pool.fallback and quic_phase(pool) == .handshake) {
         const fallback_at = pool.fallback_at_ns orelse return deadline;
         deadline = @min(deadline orelse fallback_at, fallback_at);
@@ -141,6 +147,9 @@ pub fn deadline_ns(pool: anytype) ?u64 {
 
 pub fn on_instant(pool: anytype, now_ns: u64) void {
     if (pool.capacity.quic and pool.quic_link.state == .running) pool.quic.on_instant(now_ns);
+    for (pool.tcp, pool.tcp_links) |*connection, link| {
+        if (link.state == .running) connection.on_instant(now_ns);
+    }
 }
 
 pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {

@@ -42,7 +42,7 @@ test "RFC 9114 §4.1.1: a cancelled exchange a connection carries reports nothin
     var exchange = get(&bodies[0]);
     const id = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    pool.cancel(id);
+    pool.cancel(id, quic_support.now_ns);
     quic_support.server_answers = true;
     try pump(quic_support.rounds_default);
     try testing.expectEqual(null, nth(.finished, 0));
@@ -149,7 +149,7 @@ test "a shut-down pool ends a handshake no exchange waits for, and closes" {
     const id = try pool.request(&exchange.request, &exchange.response);
     try collect();
     try testing.expectEqual(pool_module.Phase.handshake, pool.phase(pool_support.slot_of(pool, .quic)));
-    pool.cancel(id);
+    pool.cancel(id, quic_support.now_ns);
     pool.shutdown();
     try collect();
     // RFC 9000 §10.2: the abandoned connection owes its CONNECTION_CLOSE, then runs its closing
@@ -175,7 +175,7 @@ test "a shut-down pool keeps a handshake while it holds an exchange, which could
     try collect();
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     pool.shutdown();
-    pool.cancel(second_id);
+    pool.cancel(second_id, quic_support.now_ns);
     try collect();
     try testing.expectEqual(pool_module.Phase.handshake, pool.phase(pool_support.slot_of(pool, .tcp)));
     // Once the first exchange ends, the pool holds none, and the handshake ends.
@@ -210,7 +210,7 @@ test "RFC 9000 §10.2: a handshake the pool abandoned carries nothing, though da
     try testing.expect(withheld_count > 0);
     // The shut-down pool holds nothing, so it abandons the handshake, which owes its
     // CONNECTION_CLOSE and has not sent it.
-    pool.cancel(id);
+    pool.cancel(id, quic_support.now_ns);
     pool.shutdown();
     try collect();
     try testing.expectEqual(pool_module.Phase.failed, pool.phase(pool_support.slot_of(pool, .quic)));
@@ -224,7 +224,7 @@ test "a cancelled exchange leaves nothing to open" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     var exchange = get(&bodies[0]);
     const id = try pool.request(&exchange.request, &exchange.response);
-    pool.cancel(id);
+    pool.cancel(id, quic_support.now_ns);
     try collect();
     try testing.expectEqual(null, opened(0));
 }
@@ -485,7 +485,7 @@ test "decision 124: a cancelled exchange a QUIC connection carried is never sent
     var exchange = get(&bodies[0]);
     const id = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    pool.cancel(id);
+    pool.cancel(id, quic_support.now_ns);
     pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(null, nth(.finished, 0));

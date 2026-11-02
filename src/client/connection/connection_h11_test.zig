@@ -196,7 +196,7 @@ test "RFC 9112 §9.2: a cancelled exchange's response is read and dropped, and r
     const id = try connection.request(&cancelled.request, &cancelled.response);
     _ = try connection.request(&next.request, &next.response);
     support.client_send();
-    connection.cancel(id);
+    connection.cancel(id, support.now_ns);
     try support.peer_h11_read();
     try support.peer_h11_answer(ok, &hello_fields, "hello");
     try support.peer_h11_read();
@@ -423,7 +423,7 @@ test "RFC 9112 §6.2: a cancel while the content is going out ends the connectio
     support.client_send();
     // The head leaves no room for all of the content, so some of it is still to go.
     try testing.expect(post.response.body_sent < upload.len);
-    connection.cancel(id);
+    connection.cancel(id, support.now_ns);
     try support.client_receive();
     try testing.expectEqual(0, support.count(.finished));
     try testing.expect(support.find(.closed) != null);

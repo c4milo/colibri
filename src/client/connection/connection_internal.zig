@@ -41,7 +41,7 @@ pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64
     if (connection.stopped) return 0;
     return switch (connection.session) {
         .h2 => connection_h2.receive(connection, plaintext, now_ns),
-        .h11 => connection_h11.receive(connection, plaintext),
+        .h11 => connection_h11.receive(connection, plaintext, now_ns),
         // `receive` reads the protocol only once the connection is open.
         .none => unreachable,
     };

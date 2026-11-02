@@ -484,7 +484,7 @@ fn Tests(comptime Pool: type) type {
             var exchange = get(&bodies[0]);
             const id = try pool.request(&exchange.request, &exchange.response);
             try pump(&pool);
-            pool.cancel(id);
+            pool.cancel(id, support.now_ns);
             try close_transport();
             try testing.expectEqual(null, find(.finished));
             try testing.expectEqual(1, count(.open));

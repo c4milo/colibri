@@ -270,7 +270,7 @@ test "decision 101: a cancelled exchange gives its decoder back, dropped in h11 
     support.client_send();
     try support.peer_h11_read();
     // RFC 9112 §9.3: h11 reads the response of an exchange its caller cancelled, and drops it.
-    connection.cancel(id);
+    connection.cancel(id, support.now_ns);
     try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "5" }}, "hello");
     try support.client_receive();
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
@@ -278,7 +278,7 @@ test "decision 101: a cancelled exchange gives its decoder back, dropped in h11 
     var reset: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     const stream = try connection.request(&reset.request, &reset.response);
     try support.pump_h2();
-    connection.cancel(stream);
+    connection.cancel(stream, support.now_ns);
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
 }
 

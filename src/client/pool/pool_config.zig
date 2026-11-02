@@ -59,6 +59,16 @@ pub const Config = struct {
     /// QUIC connections alone: the idle timeout the client advertises (RFC 9000 §10.1), in
     /// milliseconds.
     idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
+    /// How long the client waits for what it no longer needs (decision 146).
+    timeouts: Timeouts = .{},
+};
+
+/// Each limit on the time the client waits for what it no longer needs, or null to turn it off.
+pub const Timeouts = struct {
+    /// h11 connections alone: how long a connection reads and drops a response the caller
+    /// cancelled, or whose content did not fit, from the cancel or the call that found it did not
+    /// fit (decision 146). When it runs out, the connection fails. 0 fails it at once.
+    drop_ns: ?u64 = constants.policy.drop_timeout_ns,
 };
 
 /// Why `ConnectionPool.init`, `start_tcp` or `start_quic` refused. `init` returns every member but
@@ -147,6 +157,7 @@ pub fn build_tcp(config: *const Config, tcp_tls: *tls.record.ClientConfig, tcp: 
         .decoders = config.decoders,
         .zstd_decoders = config.zstd_decoders,
         .br_decoders = config.br_decoders,
+        .drop_ns = config.timeouts.drop_ns,
     };
     var values = config.tls orelse return;
     const versions = config.protocols;

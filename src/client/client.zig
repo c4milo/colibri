@@ -29,6 +29,8 @@ const files = struct {
 };
 
 pub const Config = files.pool.Config;
+/// How long the client waits for what it no longer needs (decision 146): `Config.timeouts`.
+pub const Timeouts = files.pool.Timeouts;
 pub const Protocols = files.protocols.Protocols;
 /// Why `ConnectionPool.init`, `ConnectionPool.start_tcp` or `ConnectionPool.start_quic` refused (decisions 120 and 123).
 pub const StartError = files.pool.StartError;
@@ -119,18 +121,17 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126). Step 23.3 renames `Versions`
     // to `Protocols`, and 23.4 renames `Pool`, `PoolOf`, `Values`, `Https`, `Wanted` and `Outcome`
     // to `ConnectionPool`, `ConnectionPoolOf`, `Destination`, `HttpsRecord`, `WantedHeader` and
-    // `Result`. 23.5 folds `Options` into `Config`.
+    // `Result`. 23.5 folds `Options` into `Config`. Step 32 adds `Timeouts` (decision 146).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",     "Config",            "Protocols",          "StartError",         "RequestError",
-        "Header",        "RequestId",         "Protocol",           "Request",            "Response",
-        "WantedHeader",  "Result",            "Finished",           "Sent",               "Address",
-        "Ecn",           "ConnectionPool",    "ConnectionPoolOf",   "Capacity",           "Destination",
-        "HttpsRecord",   "Alternative",       "Input",              "StreamBytes",        "Datagram",
-        "ReceiveResult", "Event",             "Open",               "ConnectionHandle",   "Connected",
-        "Transport",     "Phase",             "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",
-        "Coding",        "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool",
-        "ZstdDecoders",  "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",         "Config",         "Timeouts",           "Protocols",   "StartError",         "RequestError",
+        "Header",            "RequestId",      "Protocol",           "Request",     "Response",           "WantedHeader",
+        "Result",            "Finished",       "Sent",               "Address",     "Ecn",                "ConnectionPool",
+        "ConnectionPoolOf",  "Capacity",       "Destination",        "HttpsRecord", "Alternative",        "Input",
+        "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",       "Open",               "ConnectionHandle",
+        "Connected",         "Transport",      "Phase",              "ReceivePool", "DefaultReceivePool", "ReceiveStorage",
+        "Coding",            "DecoderPool",    "DefaultDecoderPool", "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",
+        "BrotliDecoderPool", "BrotliDecoders", "Features",
     });
 }
 
@@ -208,6 +209,7 @@ test {
     _ = @import("pool/pool_config_test.zig");
     _ = @import("pool/pool_test.zig");
     _ = @import("pool/pool_h11_test.zig");
+    _ = @import("pool/pool_h11_drop_test.zig");
     _ = @import("pool/pool_tls_test.zig");
     _ = @import("pool/pool_limits_test.zig");
     _ = @import("pool/pool_capacity_test.zig");

@@ -1162,6 +1162,19 @@ The events:
 - After `shutdown`, `closed` says the pool is over: every exchange ended and every transport
   closed.
 
+`cancel(id, now_ns)` ends an exchange before its `finished` event, and the pool reports nothing
+for it. h2 and h3 reset its stream. An h11 connection cannot end one exchange alone, so it reads
+the rest of the response, drops it, and goes on with the next ([decision 146](decisions.md)). The
+connection fails instead in three cases:
+
+- The response closes the connection: `Connection: close`, HTTP/1.0, or content that runs until
+  the close.
+- More than `client.constants.limits.drop_len_max` octets of content are left, 256 KiB.
+- `Config.timeouts.drop_ns` runs out, 50 ms by default. The time starts at the cancel, or later,
+  when the response before it ends. `deadline_ns` names the instant, and `on_instant` fires it.
+
+The exchanges after it then end as a failed connection ends them, and the pool moves them.
+
 The example opens no later connection, so its `take_ticket` wipes each ticket the pool hands
 over:
 

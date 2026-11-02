@@ -8,7 +8,9 @@
 //! content is going out ends the connection, because the server waits for the octets the head
 //! declared (RFC 9112 §6.2). A final response that ends, or that the client drops, while the
 //! content is going out ends the connection too, and the rest of the content is not written (RFC
-//! 9112 §9.5, decision 124).
+//! 9112 §9.5, decision 124). A drop is bounded (decision 146): it fails the connection when the
+//! response closes the connection, when more content is left than `drop_len_max`, or when its time
+//! runs out.
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
@@ -32,13 +34,15 @@ const passes_per_octet: usize = 2;
 
 /// Reads responses from `plaintext` until an exchange ends or the octets run out, and returns the
 /// octets taken.
-pub fn receive(connection: *Connection, plaintext: []const u8) usize {
+pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usize {
     const session = &connection.session.h11;
     // h11 requires each call's octets to start with every octet it left unconsumed. The caller
     // passes them again, so a call with none waits for that one.
     if (plaintext.len == 0 and connection.unread_len > 0) return 0;
     var consumed: usize = 0;
     defer connection.unread_len = plaintext.len - consumed;
+    // A drop's time starts once its response is the one being read (decision 146).
+    defer start_drop_time(connection, now_ns);
     // The octets left after a response that ended are the next response's.
     defer note_arrival(connection, plaintext.len - consumed);
     note_arrival(connection, plaintext.len);
@@ -51,7 +55,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8) usize {
         };
         consumed += received.consumed;
         const h11_event = received.event orelse return consumed;
-        if (record(connection, h11_event)) return consumed;
+        if (record(connection, h11_event, now_ns)) return consumed;
     }
     return consumed;
 }
@@ -67,7 +71,7 @@ fn note_arrival(connection: *Connection, left: usize) void {
 
 /// Records what h11's event means for the exchange it answers. Returns whether the caller is owed
 /// an event, which `Connection.receive` reports before reading on.
-fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
+fn record(connection: *Connection, h11_event: h11.connection.Event, now_ns: u64) bool {
     // RFC 9112 §9.2: a response answers the oldest request awaiting one, and h11 refuses one that
     // arrives with none outstanding, so an exchange awaits it.
     const slot = connection.slots.oldest_awaiting().?;
@@ -77,10 +81,13 @@ fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
             if (slot.stage == .sent) slot.response.interims += 1;
             return false;
         },
-        .response => |head| return on_response(connection, slot, head.line.status.code),
+        .response => |head| return on_response(connection, slot, head.line.status.code, now_ns),
         .data => |octets| {
-            if (slot.stage == .dropping) return false;
-            response_write.append_body(slot, octets) catch |failure| return start_dropping(connection, slot, response_write.outcome_of(failure));
+            if (slot.stage == .dropping) {
+                slot.dropped_len += octets.len;
+                return end_drop_past_bound(connection, slot);
+            }
+            response_write.append_body(slot, octets) catch |failure| return start_dropping(connection, slot, response_write.outcome_of(failure), now_ns);
             return false;
         },
         .end => return finish(connection, slot),
@@ -89,12 +96,12 @@ fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
     }
 }
 
-fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
+fn on_response(connection: *Connection, slot: *Slot, status: u16, now_ns: u64) bool {
     internal.note_alt_svc(connection, &connection.session.h11.section, 0);
     if (slot.stage == .sent) {
         const section = &connection.session.h11.section;
         response_write.record_head(slot, status, section, 0) catch |failure| {
-            if (start_dropping(connection, slot, response_write.outcome_of(failure))) return true;
+            if (start_dropping(connection, slot, response_write.outcome_of(failure), now_ns)) return true;
         };
         // RFC 9112 §9.3.1: "Connections can be closed at any time", so a content that cannot fit
         // ends the exchange and the connection at its head, and is never read
@@ -106,14 +113,14 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
         }
     }
     // A response without a body is read whole with its head (RFC 9112 §6.3).
-    if (connection.session.h11.phase == .body) return false;
+    if (connection.session.h11.phase == .body) return slot.stage == .dropping and end_drop_past_bound(connection, slot);
     return finish(connection, slot);
 }
 
 /// The content did not fit the caller's memory, or its coding is corrupt: the exchange ends with
 /// `outcome`, and the rest of the response is read and dropped. Returns whether the connection
 /// ended instead, which owes the caller an event.
-fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Result) bool {
+fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Result, now_ns: u64) bool {
     if (!slot.content_done()) {
         // Decision 124 ruling 2: a response dropped while the content goes out ends the connection.
         // RFC 9112 §9.5 asks this when the server closes the connection. A server may also read
@@ -124,7 +131,54 @@ fn start_dropping(connection: *Connection, slot: *Slot, outcome: event.Result) b
     }
     slot.response.result = outcome;
     slots_module.drop(slot, true);
-    return false;
+    start_drop_time(connection, now_ns);
+    return end_drop_past_bound(connection, slot);
+}
+
+/// Fails the connection when the drop of `slot`'s response passes a bound of decision 146, and
+/// returns whether it did, which owes the caller an event.
+fn end_drop_past_bound(connection: *Connection, slot: *Slot) bool {
+    assert(slot.stage == .dropping);
+    if (!drop_past_bound(connection, slot)) return false;
+    internal.fail(connection);
+    return true;
+}
+
+/// Whether the drop of `slot`'s response gains nothing, or reads more content than
+/// `drop_len_max` (decision 146). Only the response being read, with content still to come, is
+/// judged: a response not yet begun is judged at its head.
+fn drop_past_bound(connection: *Connection, slot: *const Slot) bool {
+    const session = &connection.session.h11;
+    if (connection.slots.oldest_awaiting() != slot or session.phase != .body) return false;
+    // RFC 9112 §9.6: the server closes the connection after a response with the "close" option,
+    // or an HTTP/1.0 response, and RFC 9112 §6.3 rule 8: content that runs until the close.
+    if (session.close_after or session.reader.kind == .close_delimited) return true;
+    const left: u64 = if (session.reader.kind == .fixed) session.reader.remaining else 0;
+    return slot.dropped_len + left > constants.limits.drop_len_max;
+}
+
+/// Starts the time of the drop whose response is the one being read, unless it runs already or
+/// the connection sets no limit (decision 146).
+fn start_drop_time(connection: *Connection, now_ns: u64) void {
+    const limit = connection.config.drop_ns orelse return;
+    const slot = connection.slots.oldest_awaiting() orelse return;
+    if (slot.stage != .dropping or slot.drop_until_ns != null) return;
+    slot.drop_until_ns = now_ns +| limit;
+}
+
+/// The instant the drop being read runs out, or null for none (decision 146).
+pub fn deadline_ns(connection: *Connection) ?u64 {
+    const slot = connection.slots.oldest_awaiting() orelse return null;
+    if (slot.stage != .dropping) return null;
+    return slot.drop_until_ns;
+}
+
+/// Fails the connection when the drop being read ran out at `now_ns` (decision 146).
+pub fn on_instant(connection: *Connection, now_ns: u64) void {
+    const until = deadline_ns(connection) orelse return;
+    if (now_ns < until) return;
+    internal.fail(connection);
+    assert(connection.slots.idle());
 }
 
 /// The response to `slot` ended. Returns whether the caller is owed an event.
@@ -183,10 +237,12 @@ pub fn transport_closed(connection: *Connection) void {
 
 /// Cancels a written exchange. Its response is read and dropped, or, while its content is going
 /// out, the connection ends: the server waits for what the head declared (RFC 9112 §6.2).
-pub fn cancel(connection: *Connection, slot: *Slot) void {
+pub fn cancel(connection: *Connection, slot: *Slot, now_ns: u64) void {
     assert(slot.stage == .sent);
     if (slot.content_done()) {
         slots_module.drop(slot, false);
+        start_drop_time(connection, now_ns);
+        _ = end_drop_past_bound(connection, slot);
         return;
     }
     slots_module.release(slot);

@@ -114,7 +114,7 @@ test "decision 125: a cancel gives a blocked h2 connection its next send, for it
     const connection = try start_blocked(&post);
     const sends = count(.send);
     // RFC 9113 §8.1: a client that abandons a request resets its stream.
-    pool.cancel(post_id);
+    pool.cancel(post_id, support.now_ns);
     try collect();
     try testing.expectEqual(sends + 1, count(.send));
     try testing.expect(send(connection) > 0);
@@ -151,7 +151,7 @@ test "decision 125: exchanges past an h2 connection's slots wait for a slot, and
     try testing.expectEqual(1, count(.open));
     try testing.expectEqual(many_count - constants.limits.requests_max, waiting());
     // A cancel frees a slot, which the oldest waiting exchange takes.
-    pool.cancel(first);
+    pool.cancel(first, support.now_ns);
     try collect();
     try testing.expectEqual(many_count - constants.limits.requests_max - 1, waiting());
     try testing.expectEqual(1, count(.open));

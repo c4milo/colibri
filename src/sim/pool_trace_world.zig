@@ -165,7 +165,7 @@ pub const World = struct {
         const cancel_at = world.plan.cancel_at[index] orelse return;
         if (cancel_at != world.instant or world.ids[index] == null) return;
         if (world.reported[index] or world.cancelled[index]) return;
-        world.pool.cancel(world.ids[index].?);
+        world.pool.cancel(world.ids[index].?, now_ns);
         world.cancelled[index] = true;
     }
 

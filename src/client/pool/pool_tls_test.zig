@@ -281,7 +281,7 @@ fn Tests(comptime Pool: type) type {
         test "design §8 step 21c.5: a handshake that completes with no exchange waiting takes the next one" {
             var cancelled = get(&bodies[0]);
             const id = try start("localhost", &cancelled);
-            pool.cancel(id);
+            pool.cancel(id, support.now_ns);
             send();
             try testing.expectEqual(false, tls_support.server_flight().?);
             try collect(&pool);

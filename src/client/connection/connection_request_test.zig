@@ -81,7 +81,7 @@ test "a cancel before the exchange is written drops it, and reports nothing" {
     var kept: Exchange = .{ .request = .{ .method = "GET", .path = "/kept" }, .response = .{ .body = &bodies[1] } };
     const id = try connection.request(&cancelled.request, &cancelled.response);
     _ = try connection.request(&kept.request, &kept.response);
-    connection.cancel(id);
+    connection.cancel(id, support.now_ns);
     support.client_send();
     const sent = support.to_peer[0..support.to_peer_len];
     try testing.expect(std.mem.indexOf(u8, sent, "/cancelled") == null);

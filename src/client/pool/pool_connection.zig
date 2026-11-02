@@ -22,9 +22,9 @@ pub fn request(pool: anytype, slot: u32, message: *const Request, response: *Res
     return pool.tcp[slot].request(message, response);
 }
 
-pub fn cancel(pool: anytype, slot: u32, carried_id: RequestId) void {
+pub fn cancel(pool: anytype, slot: u32, carried_id: RequestId, now_ns: u64) void {
     if (is_quic(pool, slot)) return pool.quic.cancel(carried_id);
-    pool.tcp[slot].cancel(carried_id);
+    pool.tcp[slot].cancel(carried_id, now_ns);
 }
 
 /// The next event the connection of `slot` owes, read with no octets.

@@ -73,6 +73,9 @@ pub const Config = struct {
     decoders: ?h11.coding.Storage = null,
     zstd_decoders: ?coding_pool.ZstdDecoders = null,
     br_decoders: ?coding_pool.BrotliDecoders = null,
+    /// h11: how long the connection reads and drops a response the caller no longer reads, or null
+    /// for no limit (decision 146).
+    drop_ns: ?u64 = constants.policy.drop_timeout_ns,
 };
 
 /// What one connection starts with beside the configuration it shares with the others.
@@ -209,14 +212,15 @@ pub const Connection = struct {
     /// the caller's again. One not yet written is dropped. A written one: h2 resets its stream
     /// with CANCEL (RFC 9113 §6.4), and h11 reads its response and drops it, or, while its content
     /// is going out, ends the connection.
-    pub fn cancel(connection: *Connection, id: RequestId) void {
+    /// `now_ns` starts the time of h11's drop (decision 146).
+    pub fn cancel(connection: *Connection, id: RequestId, now_ns: u64) void {
         const slot = connection.slots.of_id(id) orelse return;
         switch (slot.stage) {
             .queued, .ended => slots_module.release(slot),
             .dropping => slot.report_after_drop = false,
             .sent => switch (connection.session) {
                 .h2 => connection_h2.cancel(connection, slot),
-                .h11 => connection_h11.cancel(connection, slot),
+                .h11 => connection_h11.cancel(connection, slot, now_ns),
                 // An exchange is written only once a protocol serves the connection.
                 .none => unreachable,
             },
@@ -316,6 +320,19 @@ pub const Connection = struct {
         };
     }
 
+    /// The instant the connection next wants `on_instant` at: the end of h11's drop (decision
+    /// 146). Null for none.
+    pub fn deadline_ns(connection: *Connection) ?u64 {
+        if (connection.phase != .open or connection.stopped or connection.session != .h11) return null;
+        return connection_h11.deadline_ns(connection);
+    }
+
+    /// Fails the connection when h11's drop ran out at `now_ns` (decision 146).
+    pub fn on_instant(connection: *Connection, now_ns: u64) void {
+        if (connection.deadline_ns() == null) return;
+        connection_h11.on_instant(connection, now_ns);
+    }
+
     /// The transport closed: the peer closed it, the caller closed it once `should_close` said so,
     /// or it failed. Every exchange still held ends, nothing more is read or written, and over TLS
     /// the session's secrets are wiped. A second call changes nothing.
@@ -411,9 +428,9 @@ test "design §8 step 17f: the connection's public functions are the calls the m
     // may call.
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{
-        "init",        "request",      "cancel",       "receive",          "send",
-        "owes_octets", "shutdown",     "should_close", "transport_closed", "protocol",
-        "take_ticket", "take_alt_svc",
+        "init",             "request",  "cancel",       "receive",      "send",
+        "owes_octets",      "shutdown", "should_close", "deadline_ns",  "on_instant",
+        "transport_closed", "protocol", "take_ticket",  "take_alt_svc",
     });
 }
 
@@ -424,6 +441,7 @@ test {
     _ = @import("connection_h2_test.zig");
     _ = @import("connection_h2_flow_test.zig");
     _ = @import("connection_h11_test.zig");
+    _ = @import("connection_h11_drop_test.zig");
     _ = @import("connection_tls_test.zig");
     _ = @import("connection_records_test.zig");
 }

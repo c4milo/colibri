@@ -54,6 +54,11 @@ pub const Slot = struct {
     /// A dropping slot whose exchange ended before its response did, and whose `finished` event
     /// is owed once the response is read.
     report_after_drop: bool = false,
+    /// A dropping slot: the octets of content it dropped, and the instant its drop runs out
+    /// (decision 146). The time starts once its response is the one being read, so it stays null
+    /// before then, and with no time limit.
+    dropped_len: u64 = 0,
+    drop_until_ns: ?u64 = null,
     /// The decoders the exchange holds from its request's Accept-Encoding until its response's
     /// head names a coding, and the one it keeps until the response ends: `gzip` and `deflate`'s,
     /// with the pool it came from, then `zstd`'s and `br`'s; and the coded octets it was given
@@ -213,6 +218,7 @@ pub fn end(slot: *Slot, outcome: Result) void {
 pub fn drop(slot: *Slot, report: bool) void {
     assert(slot.stage == .sent);
     assert(!report or slot.response.result != .pending);
+    assert(slot.dropped_len == 0 and slot.drop_until_ns == null);
     give_back(slot);
     slot.stage = .dropping;
     slot.report_after_drop = report;

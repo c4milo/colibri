@@ -207,7 +207,7 @@ pub const World = struct {
             if (!world.plan.cancel_on_end[index] or world.cancelled[index] or world.reported[index]) continue;
             const id = world.ids[index] orelse continue;
             if (world.responses[index].result == .pending) continue;
-            world.pool.cancel(id);
+            world.pool.cancel(id, world.now_ns);
             world.cancelled[index] = true;
             world.settled_ns = world.now_ns;
             cancelled = true;
@@ -276,7 +276,7 @@ pub const World = struct {
         const cancel_at = world.plan.cancel_at_ns[index] orelse return;
         const id = world.ids[index] orelse return;
         if (cancel_at > world.now_ns or world.cancelled[index] or world.reported[index]) return;
-        world.pool.cancel(id);
+        world.pool.cancel(id, world.now_ns);
         world.cancelled[index] = true;
         world.settled_ns = world.now_ns;
     }

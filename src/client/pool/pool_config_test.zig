@@ -211,7 +211,7 @@ fn expect_quic_after_cancel(protocols: protocols_module.Protocols) !void {
     const id = try pool.request(&exchanges[0].request, &exchanges[0].response);
     try collect();
     try testing.expectEqual(Transport.quic, opened(0).?.transport);
-    pool.cancel(id);
+    pool.cancel(id, quic_support.now_ns);
     try pump(rounds_to_close);
     try testing.expectEqual(pool_module.Phase.closed, pool.phase(pool_support.slot_of(pool, .quic)));
     // With no exchange waiting, the failed handshake opened no TCP.

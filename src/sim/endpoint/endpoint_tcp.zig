@@ -360,12 +360,12 @@ fn read_socket(peer: *Peer, plan: *const TcpPeer, now_ms: u64) bool {
 
 /// A resetting peer cancels its exchange once due: h2 resets its stream (RFC 9113 §6.4), and h11
 /// drops its response or ends the connection. Returns whether it did.
-pub fn reset_due(peer: *Peer, plan: *const TcpPeer, now_ms: u64) bool {
+pub fn reset_due(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64) bool {
     const at_ms = reset_ms(peer, plan) orelse return false;
     if (now_ms < at_ms) return false;
     peer.reset_done = true;
     if (peer.responses[plan.reset_exchange].result != .pending) return false;
-    peer.client.cancel(peer.ids[plan.reset_exchange].?);
+    peer.client.cancel(peer.ids[plan.reset_exchange].?, now_ns);
     return true;
 }
 

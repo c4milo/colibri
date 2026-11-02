@@ -218,7 +218,7 @@ test "decision 125: a waiting exchange goes to the connection a cancelled exchan
     try testing.expect(std.mem.startsWith(u8, sent(one), "GET /a HTTP/1.1"));
     // The connection reads the cancelled exchange's response and drops it, which reports no event
     // and frees its room.
-    pool.cancel(first_id);
+    pool.cancel(first_id, support.now_ns);
     try give(one, response);
     try testing.expectEqual(.pending, first.response.result);
     try testing.expect(std.mem.startsWith(u8, sent(one), "GET /b HTTP/1.1"));

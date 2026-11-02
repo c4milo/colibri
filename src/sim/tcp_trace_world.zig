@@ -296,7 +296,7 @@ pub const World = struct {
     fn client_cancel(world: *World, stream: u32) void {
         const id = world.client_ids[stream - 1] orelse return;
         if (world.responses[stream - 1].result != .pending or world.moved(id)) return;
-        world.pool.cancel(id);
+        world.pool.cancel(id, world.now_ns);
         world.client_ids[stream - 1] = null;
         _ = world.pool.send_stream(world.connection, &.{}, world.now_ns);
     }
