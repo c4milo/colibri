@@ -12349,6 +12349,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - `observe_credit` with no `count_credit_owed`: NOT CAUGHT at first, and CAUGHT by the test of
         the MAX_STREAMS frame.
       - `count_credit_owed` that is always false: CAUGHT.
+    - **29d.7, the judge, 2026-11-02.** The judge's `--h3 --base 3e815faa` at 10 rounds, the
+      change's instructions over the base's:
+      - Run 41469433388 on d146989b: every h3 input won in both jobs, and h3-many fell from
+        48,434 to 44,894 instructions a request. h2-many lost, 1.0065 and 1.0069, past its
+        noise of 0.5%: 97 more user instructions a request in both jobs, in code that h2 does
+        not change.
+      - Runs 41478348806 and 41478368393 measured each part alone. The credit walk left h2-many
+        at 1.0001 and 0.9998, and h3-one won, 0.950. The records' bits made h2-many lose, 1.0063
+        and 1.0068.
+      - A size of each function of the two servers showed why. `State.poll` holds the TCP poll and
+        the QUIC poll, and LLVM inlines both. With the bits it laid out the endpoint's functions in
+        another way, and `State.receive`, where h2-many spends 37% of its samples, was split.
+      - `State.poll` now calls `endpoint_state_quic.poll` with `.never_inline`. Run 41491105165 on
+        4d046092: h2-many 0.9976 and 0.9963, h2-tls-many 0.9964 and 0.9963, each within the
+        noise; h3-many 0.9215 and 0.9158, h3-bbr-many 0.9130 and 0.9193, h3-one 0.9559 and
+        0.9473, h3-bbr-one 0.9532 and 0.9512, each a win. h3-many fell from 48,602 to 44,788
+        instructions a request in job 1.
         - `tools/h3_deadline_trace.sh`, `zig build test-sim-run-quic` and the simulator's h3
           censuses give what they gave before.
         - The judge's `--h3 --base 07b742ee`. The step lands only when h3-many and h3-bbr-many
