@@ -201,7 +201,9 @@ pub const State = struct {
     fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
         assert(state.slots.live[slot]);
         if (state.is_tcp(slot)) return endpoint_state_tcp.poll(state, slot, now_ns);
-        return endpoint_state_quic.poll(state, slot, now_ns);
+        // Design §8 step 29d.7: a QUIC poll inlined here changed how LLVM laid out the TCP path
+        // it shares this function with, and h2-many ran 97 more instructions a request.
+        return @call(.never_inline, endpoint_state_quic.poll, .{ state, slot, now_ns });
     }
 
     /// Writes the head of the response to request `id`. One with no room waits for `writable`.
