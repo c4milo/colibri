@@ -12302,6 +12302,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           noise of 8.3%; h3-bbr-many 0.9200 and 0.9267, each a win. h3-many fell from 53,738 to
           48,374 instructions a request in job 1.
         - h3-one, h3-bbr-one and every h2 input stayed within the noise in both runs.
+    - **29d.7, one credit walk and the requests the caller changed, proposed 2026-11-02.** The
+      judge's `profile` on 3e815faa (run 41458676089) gave two costs on h3-many, in both jobs:
+      - `quic_deadline.observe` took 6.8% of the samples, and
+        `quic.connection_flow.data_credit_owed` 5.4% of them. `observe_credit` calls
+        `data_credit_owed`, and then `credit_owed`, which calls it again. Each call walks every
+        stream of the connection.
+      - `settle` took 5.4%: 2.5% from `after_change`, once for each datagram, and 3.0% from
+        `receive`. A call of the caller's clears `settled_ns`, so the next `receive` settles every
+        request again, though the call changed one.
+      - The change:
+        1. A new name in `quic`, `connection_flow.count_credit_owed`, says whether a MAX_STREAMS
+           frame is owed, and `credit_owed` calls it. `observe_credit` calls `data_credit_owed`
+           once and `count_credit_owed`, so it walks the streams once. The server's `observe`
+           needs the name, which goes on `quic`'s list.
+        2. Each request record gets a flag, `changed`. `respond`, `write_body`, `write_trailers`
+           and `cancel` set it on the request they name, in place of a clear of `settled_ns`. A
+           `receive` at the instant the connection settled at settles only the records with the
+           flag, and clears it. `set_timeouts` still clears `settled_ns`, because it changes the
+           deadlines and no request.
+      - Why item 2 is the same as a whole `settle`. `settle_one` of a record reads its stream and
+        its response, and only a datagram or a call that names the record changes either. A
+        datagram settles every record in `after_change`. `finish_if_drained` runs after the walk
+        in both cases.
+      - The checks:
+        - `quic_settle_test.zig` keeps its five tests, with item 2's flags in place of the clears.
+          One more test changes two requests' responses and requires each to settle.
+        - Mutations, by `zig build test-server`: each flag that a call sets, the clear of the flag,
+          and `observe_credit` with `count_credit_owed` left out.
+        - `tools/h3_deadline_trace.sh` and the QUIC simulator give what they gave before.
+        - The judge's `--h3 --base 3e815faa`, at 10 rounds. The step lands when h3-many and
+          h3-bbr-many win and no input loses.
         - `tools/h3_deadline_trace.sh`, `zig build test-sim-run-quic` and the simulator's h3
           censuses give what they gave before.
         - The judge's `--h3 --base 07b742ee`. The step lands only when h3-many and h3-bbr-many
