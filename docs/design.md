@@ -12262,7 +12262,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
            it runs `settle` only while `continue_owed` is set, because a head that `read_event`
            read can owe a 100 (Continue) (RFC 9110 §10.1.1).
         3. Each call that changes what the two read sets `settled_ns` to null: `respond`,
-           `write_body`, `write_trailers`, `cancel`, `shutdown`, `set_timeouts` and `send`.
+           `write_body`, `write_trailers`, `cancel` and `set_timeouts`. `shutdown` and `send`
+           were in the plan too, and each one's mutation survived, so neither clears it:
+           - `shutdown` ends the requests itself (`finish_if_drained`), and the drain that it
+             starts starts at `now_ns`.
+           - `send` moves a stream only to `send` or `data_sent`, which `settle` ignores, and
+             it settles first while a 100 (Continue) is owed (`write_before_send`).
         4. `observe` still runs after each event, because each event can open a request or owe
            credit. It is the next cost, and this step does not change it.
       - Why a `receive` at the same instant can skip `fire`. Between two calls to `receive`, only
@@ -12281,6 +12286,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           the clear goes.
         - Mutations, by `zig build test-server`: each clear of item 3, the instant compared in
           item 2, and the `continue_owed` test of item 2.
+      - **29d.6, the tests, 2026-11-02.** `quic_settle_test.zig` holds one test for each clear.
+        Mutations, by `zig build test-server`: the clears of `respond`, `write_body`,
+        `write_trailers`, `cancel` and `set_timeouts`, each CAUGHT. The clears of `shutdown` and
+        `send`, each NOT CAUGHT, and removed for the reasons of item 3. `receive` that settles
+        only when the instant differs, with no `continue_owed` test: CAUGHT. `settled_at` that is
+        always true: CAUGHT. `settled_at` that is always false is the code before this step, so
+        only the judge can show it.
         - `tools/h3_deadline_trace.sh`, `zig build test-sim-run-quic` and the simulator's h3
           censuses give what they gave before.
         - The judge's `--h3 --base 07b742ee`. The step lands only when h3-many and h3-bbr-many

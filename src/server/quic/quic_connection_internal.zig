@@ -58,6 +58,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.started = false;
     connection.shutting_down = false;
     connection.continue_owed = false;
+    connection.settled_ns = null;
     connection.stopped = false;
     connection.failure_owed = false;
     connection.closed = false;
@@ -230,6 +231,7 @@ fn after_change(connection: *QuicConnection, now_ns: u64) void {
     // endpoint's `ended` reports it once its closing or draining period is over.
     if (connection.transport.termination.state != .active and !connection.stopped) stop(connection);
     quic_deadline.observe(connection, now_ns);
+    connection.settled_ns = now_ns;
 }
 
 /// Issues spare connection IDs once the handshake is confirmed, as many as the peer's

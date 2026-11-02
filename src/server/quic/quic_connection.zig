@@ -131,6 +131,10 @@ pub const QuicConnection = struct {
     /// Whether a request may be owed a 100 (Continue) (RFC 9110 §10.1.1), so the next `send`
     /// settles the requests before it writes a datagram (`quic_continue.zig`).
     continue_owed: bool,
+    /// The instant of the last `fire` and `settle` that ran after every change the caller made, or
+    /// null when a call made one since. A `receive` at that instant runs neither again (design
+    /// §8 step 29d.6).
+    settled_ns: ?u64,
     /// The connection failed or is ending, so it reads no request, and the next `receive` says
     /// so once.
     stopped: bool,
@@ -172,19 +176,30 @@ pub const QuicConnection = struct {
     /// final response, with its own 100, or with `cancel` (RFC 9110 §10.1.1).
     pub fn receive(connection: *QuicConnection, now_ns: u64) Error!ConnectionResult {
         connection.last_ns = now_ns;
-        quic_deadline.fire(connection, now_ns);
-        const received = try connection.receive_event(now_ns);
+        // Design §8 step 29d.6: a deadline that the last events started starts at `now_ns`, and
+        // no limit is 0, so none passes at the instant that `fire` saw last.
+        const settled = connection.settled_at(now_ns);
+        if (!settled) quic_deadline.fire(connection, now_ns);
+        const received = try connection.receive_event(now_ns, settled);
         quic_deadline.observe(connection, now_ns);
         return received;
     }
 
-    fn receive_event(connection: *QuicConnection, now_ns: u64) Error!ConnectionResult {
+    /// Whether `fire` and `settle` ran at `now_ns` after every change the caller made.
+    fn settled_at(connection: *const QuicConnection, now_ns: u64) bool {
+        const settled_ns = connection.settled_ns orelse return false;
+        return settled_ns == now_ns;
+    }
+
+    fn receive_event(connection: *QuicConnection, now_ns: u64, settled: bool) Error!ConnectionResult {
         if (connection.failure_owed) {
             connection.failure_owed = false;
             // RFC 9000 §10.2: a connection that failed reads nothing more from its peer.
             return error.ConnectionFailed;
         }
-        quic_connection_h3.settle(connection);
+        // RFC 9110 §10.1.1: a head that the last event read can owe a 100 (Continue).
+        if (!settled or connection.continue_owed) quic_connection_h3.settle(connection);
+        connection.settled_ns = now_ns;
         if (connection.owed.take()) |owed| return .{ .consumed = 0, .event = owed };
         if (!connection.started or connection.stopped) return .{ .consumed = 0, .event = null };
         return .{ .consumed = 0, .event = try quic_connection_h3.read_event(connection, now_ns) };
@@ -193,6 +208,7 @@ pub const QuicConnection = struct {
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content.
     pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
+        connection.settled_ns = null;
         return quic_connection_h3.respond(connection, id, response);
     }
 
@@ -203,11 +219,13 @@ pub const QuicConnection = struct {
     /// `error.Blocked` says the response holds as many runs, or its ring as many octets, as it can
     /// until the peer acknowledges some: `receive`, then call again.
     pub fn write_body(connection: *QuicConnection, id: Number, content: event.ResponseBody) SendError!usize {
+        connection.settled_ns = null;
         return quic_connection_h3.write_body(connection, id, content);
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
     pub fn write_trailers(connection: *QuicConnection, id: Number, fields: []const Field) SendError!void {
+        connection.settled_ns = null;
         return quic_connection_h3.write_trailers(connection, id, fields);
     }
 
@@ -215,6 +233,7 @@ pub const QuicConnection = struct {
     /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the caller's octets, and
     /// nothing more is reported of it.
     pub fn cancel(connection: *QuicConnection, id: Number) void {
+        connection.settled_ns = null;
         quic_connection_h3.cancel(connection, id);
     }
 
@@ -233,6 +252,7 @@ pub const QuicConnection = struct {
         try deadlines.validate();
         try deadlines.validate_units();
         connection.timeouts = deadlines;
+        connection.settled_ns = null;
     }
 
     /// Why colibri closed the connection on its own: the deadline that passed, or the limit the
