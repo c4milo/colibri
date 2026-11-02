@@ -134,6 +134,10 @@ const Router = @TypeOf(routes).Of(.{ .requests = requests_max, .response_bytes =
 var router: Router align(@alignOf(Router)) = .{};
 ```
 
+The `align(@alignOf(Router))` states the alignment the type already has. Zig 0.16's x86_64 backend
+can place a large global at a smaller alignment, so every global in colibri's examples states it,
+and `zig build lint` refuses one that does not.
+
 One `server.Endpoint` holds the server's TCP and QUIC connections. The program passes the endpoint
 what each socket read, and gets one event from each `receive`, in h11, h2 and h3 alike. It hands
 each event to the router. The router takes the events of a request, and hands back the events
