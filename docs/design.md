@@ -12241,6 +12241,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Mutations, by `zig build test-server`, each walk made to visit no record: the send
         meters' `observe`, `soonest` and `fire`, and the body meters' `observe`, `soonest` and
         `fire`: each CAUGHT.
+      - The judge's `--h3 --base f177f5ec` on e279444e (run 41385734311), two jobs of 5 rounds,
+        the change's instructions over the base's: h3-many 0.8455 and 0.8888, h3-bbr-many 0.8859
+        and 0.8691, each a win. h3-one, h3-bbr-one and every h2 input stayed within the noise.
+        h3-many fell from 60,560 to 51,200 instructions a request in job 1.
+      - A cache of `quic.connection_flow.data_credit_owed`'s answer, forgotten at each call that
+        can change credit, was tried next and dropped: 12 of its 13 places that forget the answer
+        survived their mutation, so no test held them. Step 29d.6 removes the repeated walks
+        another way.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
