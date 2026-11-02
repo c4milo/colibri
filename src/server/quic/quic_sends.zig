@@ -115,7 +115,12 @@ pub fn observe(connection: *QuicConnection, now_ns: u64) void {
     // Nothing runs and nothing would: the common case, a connection whose peer keeps up.
     if (!wanted and !sends.metered) return;
     connection_sends.start_or_stop(&sends.meter, sends.busy > 0, now_ns, limits);
-    for (&sends.entries) |*entry| {
+    // Only a record in use has an entry that may run: `forget` empties each entry whose record
+    // is freed (design §8 step 29d.5).
+    var held = connection.requests.held.iterator(.{});
+    // Bounded by the records.
+    while (held.next()) |index| {
+        const entry = &sends.entries[index];
         // The connection's meter judges a peer that takes slowly, so a stream's own waits while
         // any other response is busy.
         const others_busy = sends.busy - @intFromBool(entry.busy);
@@ -132,8 +137,10 @@ pub fn soonest(connection: *const QuicConnection, current: ?u64) ?u64 {
     const window_ns = connection.timeouts.rate_window_ns;
     var at = current;
     if (sends.meter.check_ns(quota, window_ns)) |check_ns| at = @min(at orelse check_ns, check_ns);
-    for (&sends.entries) |*entry| {
-        const check_ns = entry.meter.check_ns(quota, window_ns) orelse continue;
+    var held = connection.requests.held.iterator(.{});
+    // Bounded by the records. Only a record in use has an entry that may run.
+    while (held.next()) |index| {
+        const check_ns = sends.entries[index].meter.check_ns(quota, window_ns) orelse continue;
         at = @min(at orelse check_ns, check_ns);
     }
     return at;
@@ -147,8 +154,10 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) ?Timeout {
     const quota = connection.timeouts.send_quota() orelse return null;
     const window_ns = connection.timeouts.rate_window_ns;
     if (sends.meter.short(now_ns, quota, window_ns)) return .send_rate;
-    for (&sends.entries, 0..) |*entry, index| {
-        if (!entry.meter.short(now_ns, quota, window_ns)) continue;
+    var held = connection.requests.held.iterator(.{});
+    // Bounded by the records. Only a record in use has an entry that may run.
+    while (held.next()) |index| {
+        if (!sends.entries[index].meter.short(now_ns, quota, window_ns)) continue;
         cancel_stream(connection, index);
     }
     return null;
