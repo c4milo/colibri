@@ -12249,6 +12249,44 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         can change credit, was tried next and dropped: 12 of its 13 places that forget the answer
         survived their mutation, so no test held them. Step 29d.6 removes the repeated walks
         another way.
+    - **29d.6, one settle for each change, proposed 2026-11-02.** On h3-many a datagram brings
+      about 3 events, so the endpoint calls `receive` 4 times for it. `take` already fired the
+      deadlines and settled each request at that instant (`after_change`). Each `receive` does both
+      again, though nothing that they read changed. After 29d.5 the judge's profile of h3-many gave
+      `settle` 7.4% to 8.1% of the server's samples and `fire` 3.3%.
+      - The change:
+        1. A new field, `settled_ns: ?u64`, holds the instant of the last `fire` and `settle`
+           that saw every change. `after_change` sets it, and so does `receive` when it runs the
+           two.
+        2. `receive` runs `fire` and `settle` only when `settled_ns` is not `now_ns`. Otherwise
+           it runs `settle` only while `continue_owed` is set, because a head that `read_event`
+           read can owe a 100 (Continue) (RFC 9110 §10.1.1).
+        3. Each call that changes what the two read sets `settled_ns` to null: `respond`,
+           `write_body`, `write_trailers`, `cancel`, `shutdown`, `set_timeouts` and `send`.
+        4. `observe` still runs after each event, because each event can open a request or owe
+           credit. It is the next cost, and this step does not change it.
+      - Why a `receive` at the same instant can skip `fire`. Between two calls to `receive`, only
+        `read_event` and `observe` ran. Each deadline that they start starts at `now_ns`, and
+        `deadline.Timeouts.validate` refuses a limit of 0, so none passes at `now_ns`. A wait
+        that `observe` resumes moves by the time it waited (`moved`), so it does not pass either.
+        Content that `read_event` reads only makes a body less late.
+      - Why it can skip `settle`. `settle` reads the streams' states, what the peer acknowledged
+        and what each response supplied. Only a datagram changes the first two, and only the
+        caller's calls change the third. A stream that `read_event` reads to its end can close,
+        and its record then frees at the next change, not at once. No request needs that record
+        first: QUIC grants a new stream only in a datagram that `send` writes (RFC 9000 §4.6).
+      - The checks:
+        - A test for each call of item 3 fails when that call does not clear `settled_ns`. A
+          call that no test can show in this way needs no clear: its entry here says why, and
+          the clear goes.
+        - Mutations, by `zig build test-server`: each clear of item 3, the instant compared in
+          item 2, and the `continue_owed` test of item 2.
+        - `tools/h3_deadline_trace.sh`, `zig build test-sim-run-quic` and the simulator's h3
+          censuses give what they gave before.
+        - The judge's `--h3 --base 07b742ee`. The step lands only when h3-many and h3-bbr-many
+          win and no input loses.
+      - When the mutations leave a clear that is needed but that no test holds, the step stops,
+        as the cache of 29d.5 stopped.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
