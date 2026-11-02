@@ -159,7 +159,7 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) ?Timeout {
 /// of. The stream is reset, so the next `look` finds its response holding nothing.
 fn cancel_stream(connection: *QuicConnection, index: usize) void {
     const record = &connection.requests.records[index];
-    assert(record.in_use);
+    assert(connection.requests.holds(record));
     connection.h3.cancel(&connection.transport, record.stream_id, h3.constants.protocol.error_request_cancelled);
     quic_body.remove(connection, record);
     if (record.over) return;

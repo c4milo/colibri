@@ -275,7 +275,7 @@ pub fn stop(connection: *QuicConnection) void {
     connection.bodies.init();
     connection.sends.init();
     quic_coding.give_back_all(connection);
-    for (&connection.requests.records) |*record| record.in_use = false;
+    connection.requests.init();
 }
 
 /// Ends the connection on a failure: it stops, QUIC's CONNECTION_CLOSE still goes out, and

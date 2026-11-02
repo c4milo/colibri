@@ -30,7 +30,7 @@ const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");
 
 /// Notes the 100 (Continue) the request of `record` is owed, when its head `request` expects one.
 pub fn note(connection: *QuicConnection, record: *Request, request: event.Request) void {
-    assert(record.in_use and !record.continue_owed);
+    assert(connection.requests.holds(record) and !record.continue_owed);
     assert(record.stream_id == request.id.number);
     // RFC 9110 §10.1.1: a server that reads the 100-continue expectation "MUST send either" a
     // final response at once or "an immediate 100 (Continue) response".
@@ -41,7 +41,7 @@ pub fn note(connection: *QuicConnection, record: *Request, request: event.Reques
 
 /// A response's head with `status` went out on the stream of `record`.
 pub fn on_response(record: *Request, status: u16) void {
-    assert(record.in_use and status >= continue_status);
+    assert(status >= continue_status);
     // RFC 9110 §10.1.1: the request expects one 100 (Continue), so the caller's own is the one
     // it is owed.
     if (status == continue_status) record.continue_owed = false;
@@ -51,7 +51,7 @@ pub fn on_response(record: *Request, status: u16) void {
 /// it for each request the connection holds.
 pub fn write(connection: *QuicConnection, record: *Request, stream: *const Stream) void {
     if (!record.continue_owed) return;
-    assert(record.in_use and stream.id == record.stream_id);
+    assert(connection.requests.holds(record) and stream.id == record.stream_id);
     // RFC 9110 §10.1.1: a server "MAY omit sending a 100 (Continue) response if it has already
     // received some or all of the content", "or if the framing indicates that there is no
     // content". Once h3 has read the request's stream to its end, no content follows.
