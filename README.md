@@ -297,9 +297,8 @@ against quic-go, ngtcp2, neqo and quinn, run every Monday.
 
 ## Platforms
 
-CI runs every check on Ubuntu 24.04 on x86-64, the module tests on Ubuntu 24.04 and macOS 26 on
-arm64, and the QUIC Interop Runner on Ubuntu 26.04 on x86-64, because it needs tshark 4.5.0 or
-newer.
+CI runs every check on Ubuntu 26.04 on x86-64, and the module tests on Ubuntu 26.04 and macOS 26
+on arm64. The HTTP Garden and the QUIC Interop Runner also run on Ubuntu 26.04 on x86-64.
 macOS on arm64 is also the development host, where every check runs, the TLS and QUIC ones
 included. colibri makes no system call, so it builds wherever Zig 0.16.0 does, but only these
 platforms are checked. Published performance numbers come from Linux alone.

@@ -163,6 +163,10 @@ section "TLS handshake, colibri as client" tools/tls_handshake.sh
 tls_lines="$(grep -E "^tls-handshake:|^tls_handshake: a refused handshake" "${scratch}/last.log")"
 section "TLS handshake, colibri as server" tools/tls_accept.sh
 tls_lines="${tls_lines}"$'\n'"$(grep -E "^tls-accept: complete|^tls-accept: records|^tls_client:|^tls_accept: a refused handshake" "${scratch}/last.log")"
+# https://github.com/c4milo/colibri/issues/115: OpenSSL's client gets ML-KEM-1024 from colibri's
+# servers over TCP and QUIC whenever it lists it, and its older groups still work.
+section "TLS key exchange against OpenSSL, TCP and QUIC" tools/tls_openssl.sh
+tls_lines="${tls_lines}"$'\n'"$(grep -E "^tls_openssl: (OpenSSL|tcp|quic)" "${scratch}/last.log")"
 # Design §8 step 9e's QUIC checks: a colibri client and server over chapulin's QUIC object, in one
 # process and over UDP, and colibri against aioquic.
 section "QUIC handshake, colibri to colibri over chapulin" tools/quic_loopback.sh

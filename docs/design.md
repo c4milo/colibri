@@ -12473,6 +12473,24 @@ library.
     judged at the head, the time fired late, a cancel or a read starting no time, the time started
     again at each read, the pool naming no drop deadline or firing none, and `Config.timeouts`
     not carried to the connection.
+- **Step 33 — CNSA 2.0 on the server.** The owner ruled on 2026-11-01 that colibri's server
+  always holds CNSA 2.0's algorithms, and selects them first when a client offers them
+  ([#115](https://github.com/c4milo/colibri/issues/115)). chapulin's `ROLE=both TRUST=webpki`
+  object does the selection, so the step adds no build option. It lands in three parts, as
+  chapulin's commits land:
+  - **33a, ML-KEM-1024 first.** chapulin `7d8064dd` (its decisions 177 and 179) makes the server
+    select ML-KEM-1024 (0x0202) whenever the client lists it, then its older order. colibri
+    pins it. No colibri API changes: `tls_provider.Negotiated.group` already carries the code
+    point. `tools/tls_openssl.sh` runs OpenSSL's s_client over TCP and over QUIC.
+    - **Check met, 2026-11-02,** on macOS 26 on arm64 with OpenSSL 4.1.0. Over TCP and QUIC
+      alike: `MLKEM1024` gets 0x0202 in one ServerHello; `X25519MLKEM768:MLKEM1024` gets a
+      HelloRetryRequest for 0x0202 and then 0x0202; `X25519MLKEM768` gets 0x11ec; `x25519` gets
+      0x001d. The suite was TLS_AES_256_GCM_SHA384 in each.
+    - 1 mutation **CAUGHT**: the previous pin, chapulin `f59c7e3f`, refused the client that sent
+      only an ML-KEM-1024 share.
+  - **33b, TLS_AES_256_GCM_SHA384 first.** It waits for chapulin's step 3.
+  - **33c, the ML-DSA-87 identity.** It waits for chapulin's step 4, then adds the identity to
+    `tls.Server` and its key call to `tls.pem`.
 
 ## 9. Test-only entry points
 

@@ -61,8 +61,8 @@ fn report() void {
     };
     const negotiated = held.vtable.negotiated_parameters(held.context).?;
     std.debug.print(
-        "tls-accept: complete alpn={s} version=0x{x:0>4} suite=0x{x:0>4}\n",
-        .{ alpn, negotiated.version, negotiated.cipher_suite },
+        "tls-accept: complete alpn={s} version=0x{x:0>4} suite=0x{x:0>4} group=0x{x:0>4}\n",
+        .{ alpn, negotiated.version, negotiated.cipher_suite, negotiated.group },
     );
     if (!std.mem.eql(u8, alpn, "h2")) std.process.exit(exit_failed);
     if (!admitted(negotiated.cipher_suite)) {

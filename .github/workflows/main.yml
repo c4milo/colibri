@@ -26,7 +26,10 @@ jobs:
   checks:
     # The scheduled run is the Garden's and the runner's alone.
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04
+    # tools/tls_openssl.sh needs an OpenSSL that offers ML-KEM-1024 and speaks QUIC, 3.5 or newer.
+    # Ubuntu 26.04 packages 3.5; Ubuntu 24.04 packages 3.0
+    # (https://github.com/c4milo/colibri/issues/115).
+    runs-on: ubuntu-26.04
     # The job takes about 100 minutes on this runner, 51 of them in the TLA+ models. A limit of 90
     # cancelled the four jobs from 3d240941 to 3599733f before their last checks ran.
     timeout-minutes: 150
@@ -84,6 +87,10 @@ jobs:
           echo "${HOME}/lean/bin" >>"${GITHUB_PATH}"
       - name: Install h2load
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nghttp2-client
+      # tools/ci.sh runs the TLA+ models and traces where java is on the path (decision 67), and
+      # skips them where it is not, so this step fails unless the runner's image has Java.
+      - name: Require Java
+        run: java -version
       # Zig's caches are addressed by content, so a restored entry is reused only when its inputs
       # are the same octets. A cache entry cannot be overwritten, so each commit saves its own and
       # a run restores the newest one.
@@ -150,7 +157,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-26.04-arm
             zig_target: aarch64-linux
             zig_sha256: ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
           - runner: macos-26
@@ -198,7 +205,7 @@ jobs:
   # tools/http_garden.sh, which a person on Linux runs for the same answer.
   http-garden:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 360
     concurrency:
       group: http-garden

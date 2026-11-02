@@ -531,6 +531,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   handshake colibri refuses, a name the certificate does not carry and a client that offers TLS 1.2
   alone, and requires the Go peer to read colibri's alert (RFC 9846 §6.2). Both need a Go
   toolchain, and `tools/ci.sh` runs them.
+  `tools/tls_openssl.sh` runs OpenSSL's s_client against `tls-accept` over TCP and against the
+  UDP server over QUIC, and reads each ServerHello from `-trace`: a client that lists ML-KEM-1024
+  gets it, with a HelloRetryRequest when it sends only an X25519MLKEM768 share, and a client that
+  lists X25519MLKEM768 alone or x25519 alone gets that group
+  (https://github.com/c4milo/colibri/issues/115). It needs OpenSSL 3.5 or newer, named by
+  `OPENSSL` or on the path, and a Go toolchain, and `tools/ci.sh` runs it. The push job runs on
+  Ubuntu 26.04 for its OpenSSL (decision 47 as amended).
 - Deadline check: `tools/deadlines.sh` runs the test-only server in h11 and h2 on its
   loop's clock and requires four peers to be cut at decision 110's default deadlines, each within
   a second after its instant: half a head and a silent peer at 10 s, a body too slow at 20 s, and

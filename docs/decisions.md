@@ -1070,6 +1070,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     workflow adds the base's checkout and `perf`, which the script runs as root, so that it counts
     the kernel's instructions and reads the system call tracepoint with no kernel setting changed.
 
+    Amended by the owner on 2026-11-02, for https://github.com/c4milo/colibri/issues/115: the push
+    job runs on Ubuntu 26.04 and not on Ubuntu 24.04. `tools/tls_openssl.sh` needs an OpenSSL that
+    offers ML-KEM-1024 and speaks QUIC, 3.5 or newer. Ubuntu 26.04 packages 3.5, and Ubuntu 24.04
+    packages 3.0. The alternatives offered: OpenSSL from a Docker image pinned by digest, which the
+    job pulls on each push; and the openssl on the path, with the check skipped where it offers no
+    ML-KEM-1024, so that no hosted runner ran it.
+    The same day the owner asked that every job run on the latest Ubuntu LTS. The arm64 job moves
+    to `ubuntu-26.04-arm`, and the HTTP Garden's job to `ubuntu-26.04`. The judge of
+    `.github/workflows/bench.yml` stays on `ubuntu-24.04-arm` until the owner rules, because a new
+    runner changes every baseline (decision 33).
+
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three
