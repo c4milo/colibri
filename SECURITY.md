@@ -19,7 +19,7 @@ the assessment.
 
 ## Scope
 
-In scope: the eleven library modules under `src/`, which read a peer's octets and write the
+In scope: the sixteen library modules under `src/`, which read a peer's octets and write the
 octets colibri owes. A peer's input that makes colibri crash, trip an assertion, read or write
 outside a buffer, loop without bound, or accept a message the RFCs require it to refuse is a
 vulnerability. So is a parse that frames a message differently from what RFC 9112 states, which
@@ -27,8 +27,8 @@ is how request smuggling starts.
 
 Out of scope, so triage stays fast:
 - `src/testing/`, `src/sim/`, `src/golden/` and `tools/`, which are test-only and never packaged.
-- Attacks that need a malicious caller: a wrong buffer, a wrong instant, a `tls.Provider` or
-  `crypto.Suite` that lies. The caller is trusted; the peer and the network are not.
+- Attacks that need a malicious caller: a wrong buffer, a wrong instant, or a
+  `tls_provider.Provider` or `crypto.Suite` that lies. The caller is trusted; the peer and the network are not.
 - Denial of service through the caller's own limits. colibri names every limit as a constant,
   and the caller owns its timeouts and its event loop.
 - Weaknesses in chapulin itself. Report those to

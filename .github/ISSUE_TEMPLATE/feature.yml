@@ -1,0 +1,26 @@
+name: Feature
+description: Ask for something colibri does not do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        First read the section "What colibri does not build" of docs/decisions.md. colibri
+        refuses some features on purpose, and gives the reason for each.
+  - type: textarea
+    id: need
+    attributes:
+      label: What your program needs
+      description: The program, the call it makes, and what it cannot do now.
+    validations:
+      required: true
+  - type: textarea
+    id: rfc
+    attributes:
+      label: RFC
+      description: The RFC and the section that define the feature, when one does.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do now
+      description: How your program works around the gap today.

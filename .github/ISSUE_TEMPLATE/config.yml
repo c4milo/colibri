@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/c4milo/colibri/security/advisories/new
+    about: Report it in private, as SECURITY.md describes. Do not open a public issue.
+  - name: Read the usage guide
+    url: https://github.com/c4milo/colibri/blob/main/docs/usage.md
+    about: How to drive each protocol, TLS, and the buffers your program owns.

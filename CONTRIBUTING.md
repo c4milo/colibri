@@ -27,11 +27,11 @@ zig build test
 
 `zig build hooks` points git at `.githooks`, which checks commit messages. `zig build test` runs
 the lint first, then every module's tests and the golden corpus. The first build fetches the
-tooling colibri pins: pepegrillo, Rotor and the QPACK vectors.
+packages `build.zig.zon` pins: chapulin and stdx, which the library links, and pepegrillo, Rotor
+and the QPACK vectors, which the tooling and the tests use.
 
 Some checks need more:
-- the TLS and QUIC endpoints need a chapulin checkout, built as CLAUDE.md's Commands section
-  shows;
+- the TLS checks need a Go toolchain, which mints the test identity and runs the Go peers;
 - `zig build tla` needs Java, and `zig build lean` needs a Lean toolchain;
 - the conformance and interop scripts in `tools/` need the tools each one names.
 
@@ -71,8 +71,9 @@ octets matter, cases in the simulator's input checks.
 Commits are [Conventional Commits](https://www.conventionalcommits.org/):
 `type(scope): description`.
 - The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci` or `chore`.
-- The scope, when present, is a module: `h2`, `h3`, `quic`, `hpack`, `qpack`, `wire`, `http`,
-  `tls`, `crypto`, `core`, `sim`, `golden`, `bench` or `h11`.
+- The scope, when present, is a module or an area: `h11`, `h2`, `h3`, `quic`, `hpack`, `qpack`,
+  `wire`, `http`, `tls`, `crypto`, `core`, `server`, `client`, `qlog`, `dnssec`, `sim`, `golden`
+  or `bench`.
 - The description is imperative and lowercase, with no period, and the subject line fits in 72
   columns.
 - The body says why, in at most 3 paragraphs and 100 words, with lines of at most 100 columns.

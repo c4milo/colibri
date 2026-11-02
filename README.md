@@ -3,6 +3,7 @@
 [![main](https://github.com/c4milo/colibri/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/c4milo/colibri/actions/workflows/main.yml?query=branch%3Amain)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![zig](https://img.shields.io/badge/zig-0.16.0-f7a41d.svg)](https://ziglang.org/download/)
+[![release](https://img.shields.io/github/v/release/c4milo/colibri)](https://github.com/c4milo/colibri/releases/latest)
 
 An HTTP/1.1, HTTP/2 and HTTP/3 library for Zig, client and server, with QUIC underneath HTTP/3.
 It is written from the RFCs, and every check it makes on a peer's input cites the section that
@@ -30,34 +31,28 @@ The name is Spanish for hummingbird.
 
 ## Status
 
-colibri 0.10.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
-16 put in the library. 0.2.0 has each TLS session draw from a source its caller passes. 0.3.0 ends
-a connection inside colibri on a TLS or QUIC error, and adds h2's trailers. 0.4.0 adds the `server`
-and `client` modules, whose `Channel` chooses h3 over QUIC or TCP for each server, and qlog. 0.5.0
-adds the server over QUIC and Alt-Svc advertising, and content codings: the server codes a response
-in gzip or deflate, and the client decodes one. The client also retires a QUIC connection near its
-idle timeout. 0.6.0 runs AES-256-GCM first where the CPU has the AES instructions, lets a TLS
-client choose the suites it offers, and sends a failed record's alert before it closes. 0.7.0
-speaks QUIC version 2, and its server switches a client that lists it (RFC 9368). The server ends a
-connection whose peer is too slow or silent, and an h2 peer that resets streams too fast. One build
-runs the AES instructions where the program's probe of its CPU finds them and ChaCha20 elsewhere,
-and both ciphers run faster. 0.8.0 adds a router to the server: literal paths, parameters, a
-trailing wildcard, and HEAD answered by a route's GET. The router refuses a table that hides a
-route. The server holds its TCP connections in its endpoint and runs its deadlines and rate limits
-over h3 too. Each module exports its names from its root alone, and a channel builds its TLS from
-one value. The client sends a `client.Request` and reads a `client.Response` in place of
-`client.HttpExchange`, and `client.ChannelOf` sizes a channel. It sends an idempotent request again
-once after an unanswered close, and holds a long h11 head over TLS. After a KeyUpdate that asks for
-a reply, the client and the server read on, and send the reply before their next application data
-record (RFC 9846 §4.7.3). The client decodes zstd and br, a TLS client can take no tickets, and
-colibri carries chapulin e6e3c1e7, whose clock is a function. 0.9.0 has the router call a
-program's functions, with typed path and query values and middleware, and gives a request its
-query apart from its path. The server and the client name each HTTP concept once, and the
-client's connection pool opens TCP connections on demand. A TLS record session sends a fatal alert
-the program names, and a TLS handshake takes about half the instructions it took on 2026-10-20.
-0.10.0 runs CUBIC with HyStart++ as QUIC's congestion controller, carries up to 16 STREAM frames in
-a packet, and holds 100 h3 requests open, so h3 answers sooner than h2 over TLS on a path with
-delay and loss.
+colibri is before 1.0. Each minor release can change the API, and its release notes list each
+breaking change first. The latest release is
+[0.11.0](https://github.com/c4milo/colibri/releases/tag/v0.11.0).
+
+| Release | Date | What it added |
+| --- | --- | --- |
+| [0.11.0](https://github.com/c4milo/colibri/releases/tag/v0.11.0) | 2026-11-01 | BBRv3 as QUIC's default congestion controller, PEM files, and the `dnssec` module |
+| [0.10.0](https://github.com/c4milo/colibri/releases/tag/v0.10.0) | 2026-10-30 | CUBIC with HyStart++, up to 16 STREAM frames in a packet, and 100 open h3 requests |
+| [0.9.0](https://github.com/c4milo/colibri/releases/tag/v0.9.0) | 2026-10-29 | Route functions with typed path and query values, middleware, one set of HTTP names, and TLS alerts the program names |
+| [0.8.0](https://github.com/c4milo/colibri/releases/tag/v0.8.0) | 2026-10-21 | The server's router, `client.Request` and `client.Response`, deadlines over h3, and zstd and br |
+| [0.7.0](https://github.com/c4milo/colibri/releases/tag/v0.7.0) | 2026-09-30 | QUIC version 2, the program's CPU probe, and the server's deadlines and rate limits |
+| [0.6.0](https://github.com/c4milo/colibri/releases/tag/v0.6.0) | 2026-09-29 | AES-256-GCM first on CPUs with the AES instructions, and the client's own suite order |
+| [0.5.0](https://github.com/c4milo/colibri/releases/tag/v0.5.0) | 2026-09-29 | The server over QUIC, Alt-Svc, and gzip and deflate content codings |
+| [0.4.0](https://github.com/c4milo/colibri/releases/tag/v0.4.0) | 2026-09-28 | The `server` and `client` modules, and qlog |
+| [0.3.0](https://github.com/c4milo/colibri/releases/tag/v0.3.0) | 2026-09-28 | Connection errors end the connection inside colibri, and h2 trailers |
+| [0.2.0](https://github.com/c4milo/colibri/releases/tag/v0.2.0) | 2026-09-27 | A TLS session draws from the source its caller passes |
+| [0.1.0](https://github.com/c4milo/colibri/releases/tag/v0.1.0) | 2026-09-27 | h11, h2 and h3, client and server, with TLS through chapulin |
+
+[The releases page](https://github.com/c4milo/colibri/releases) has the notes of each release:
+its breaking changes, what is new, its fixes, its speed, and the checks it passed.
+
+### Conformance
 
 | Protocol | Built | Checked against |
 | --- | --- | --- |
@@ -65,18 +60,15 @@ delay and loss.
 | h2 | Client and server, HPACK with the dynamic table | [h2spec](https://github.com/summerwind/h2spec) 2.6.0: 144 of 146 in cleartext with h2 alone and over TLS, the other 2 test an RFC 7540 rule RFC 9113 dropped; curl, nghttp, Go, nghttpd and h2o |
 | h3 and QUIC | Client and server, QPACK with the dynamic table, Retry, resumption, key update, loss recovery and congestion control | The [QUIC Interop Runner](https://github.com/quic-interop/quic-interop-runner) against quic-go, ngtcp2, neqo and quinn; [h3spec](https://github.com/kazu-yamamoto/h3spec) 0.1.13: 49 examples, 0 failures; `h2load --h3`: 1,000 of 1,000 requests; aioquic in both directions; QPACK against ls-qpack |
 
-Still to come:
-- published benchmarks from Linux (step 13).
-
 [`docs/design.md`](docs/design.md) §8 records each check: what ran, on what machine, and what it
-printed.
+printed. Open work is in the [issues](https://github.com/c4milo/colibri/issues).
 
 ## Using colibri
 
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.10.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.11.0
 ```
 
 Then import the modules you use. Each of the sixteen library modules is exported by name: `core`,
@@ -211,14 +203,16 @@ build examples` runs them, and CI does too.
 - **Deterministic simulation.** A seeded network delays, drops, reorders and duplicates
   datagrams, and marks them with ECN. Checks drive h11, h2, h3, QUIC, loss recovery and QPACK
   through it, and each seed replays byte for byte in Debug and in ReleaseSafe.
-- **Models.** Ten [TLA+](https://lamport.azurewebsites.net/tla/tla.html) specifications in
-  [`spec/tla/`](spec/tla/) cover flow control, QPACK's tables, key installation, connection IDs,
-  closing, probe timeouts and more. Each model also has configurations that remove one rule, and
-  TLC must find those violated. The h3 simulator writes its runs as traces that TLC checks
-  against the h3 model.
+- **Models.** Nineteen [TLA+](https://lamport.azurewebsites.net/tla/tla.html) specifications in
+  [`spec/tla/`](spec/tla/) cover the h2 and h3 connections, flow control, QPACK's tables, key
+  installation, connection IDs, closing, probe timeouts, CUBIC, HyStart++, BBRv3, the server's
+  deadlines and the client's exchanges. Each model also has configurations that remove one rule,
+  and TLC must find those violated. Seven simulator runs write their traces as TLA+, and TLC
+  checks that each trace is a behavior of its model.
 - **Proofs.** [`spec/lean/`](spec/lean/) holds [Lean 4](https://lean-lang.org/) proofs of
   QUIC's variable-length integer, packet number and ACK ranges, HPACK's and QPACK's prefixed
-  integer and Huffman code, and QPACK's Required Insert Count encoding. The Zig tests read vectors the proved definitions
+  integer and Huffman code, QPACK's Required Insert Count encoding, and the arithmetic of CUBIC,
+  HyStart++, BBRv3 and the server's rate meter. The Zig tests read vectors the proved definitions
   produce.
 - **Golden corpus.** [`src/golden/`](src/golden/) holds exact bytes with a manifest that names
   each case's length, checksum and expected verdict, including the request smuggling shapes of
@@ -233,7 +227,7 @@ build examples` runs them, and CI does too.
   source file above 500 lines, and a slice indexed by a value a peer chose.
 
 CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main: the lints, every module's tests in
-both build modes, the examples, the simulator in both build modes, the TLA+ models and the h3
+both build modes, the examples, the simulator in both build modes, the TLA+ models and the
 traces, the Lean proofs, h2spec and the interop scripts in cleartext and over TLS, h3spec, the TLS
 handshakes against Go, and the QUIC checks against colibri and aioquic. Every push also runs the
 module tests on arm64, on Linux and on macOS. The HTTP Garden and the QUIC Interop Runner,
@@ -257,19 +251,21 @@ platforms are checked. Published performance numbers come from Linux alone.
 | [`docs/design.md`](docs/design.md) | The module graph, the wire formats, and the numbered build plan with each step's record |
 | [`docs/decisions.md`](docs/decisions.md) | Every design decision, with the alternatives it beat |
 | [`docs/invariants.md`](docs/invariants.md) | The numbered invariants, each one a runtime assertion |
+| [`docs/performance.md`](docs/performance.md) | How colibri measures a change, its baselines, and the memory each object takes |
 | [`docs/chapulin.md`](docs/chapulin.md) | What colibri needs from chapulin, its TLS stack |
 | [`docs/rfcs/`](docs/rfcs/) | The RFCs colibri is written from, unmodified, with their checksums |
 
 ## Limits
 
-colibri does not build these, and [`docs/decisions.md`](docs/decisions.md) says why for each:
+colibri does not build these. The section "What colibri does not build" of
+[`docs/decisions.md`](docs/decisions.md) gives the reason for each, and what the refusal still costs
+on the wire:
 - server push, in h2 and h3;
 - priority scheduling, though it parses the priority fields the RFCs still require;
 - extended CONNECT;
 - 0-RTT;
 - connection migration;
-- HTTP datagrams and multipath QUIC;
-- middleware: events are polled, so a program's own loop is where a check before a request runs.
+- HTTP datagrams and multipath QUIC.
 
 ## Contributing and security
 

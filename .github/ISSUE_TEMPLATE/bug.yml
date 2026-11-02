@@ -1,0 +1,44 @@
+name: Bug
+description: colibri does something the RFCs or its documents say it must not do.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report a vulnerability here. SECURITY.md says where to send it.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release tag or the commit of colibri, and the output of `zig version`.
+      placeholder: v0.11.0, zig 0.16.0
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol
+      multiple: true
+      options: [h11, h2, h3, QUIC, TLS, other]
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The calls your program made, the bytes colibri read, and what it returned.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Cite the RFC and the section that states the rule, when there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce it
+      description: A simulator seed, a test, an example program or a packet capture.
+      render: zig
