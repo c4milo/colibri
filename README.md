@@ -85,10 +85,86 @@ exe.root_module.addImport("tls", colibri.module("tls"));
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
 
-Most programs use two modules. `client` sends requests and `server` answers them, behind one
-set of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the
-version. For each exchange a client places a request, and a response that holds the memory the
-answer goes into. These lines are from
+Most programs use two modules. `server` answers requests and `client` sends them, behind one set
+of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the
+version.
+
+### A server with the router
+
+A server declares its routes in a table, and `server.router` builds the table at compile time. A
+route names a method, a path and the function that answers it. A path can hold parameters, such as
+`:name`, and a trailing wildcard. A table that hides a route, or that is malformed, does not
+compile. Middleware runs before each route, in table order. These lines are from
+[`examples/server_exchange.zig`](examples/server_exchange.zig):
+
+```zig
+const routes = server.router(App, .{
+    .error_handler = on_error,
+    .middleware = .{ Brand, Counted },
+    .routes = .{
+        .{ .get, "/greeting", greet },
+        .{ .post, "/echo", Echo, .{ .whole_body = true } },
+        .{ .get, "/greetings/:name", greet_named },
+    },
+});
+```
+
+The router calls a route's function with the path's parameters and the query as structs, which it
+fills by their field names. The function writes its response through a `std.Io.Writer`:
+
+```zig
+fn greet_named(
+    _: *App,
+    _: *const server.Request,
+    path: struct { name: []const u8 },
+    query: struct { mark: []const u8 = "" },
+    response: *server.ResponseWriter,
+) !void {
+    try response.header("content-type", content_type);
+    try response.body().print("hello, {s}{s}\n", .{ path.name, query.mark });
+    try response.end();
+}
+```
+
+The program owns the router's memory. `Of` sizes it for the requests the server holds at once, and
+the program places it once:
+
+```zig
+const Router = @TypeOf(routes).Of(.{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+var router: Router align(@alignOf(Router)) = .{};
+```
+
+One `server.Endpoint` holds the server's TCP and QUIC connections. The program passes the endpoint
+what each socket read, and gets one event from each `receive`, in h11, h2 and h3 alike. It hands
+each event to the router. The router takes the events of a request, and hands back the events
+that are the program's I/O:
+
+```zig
+switch (router.handle(&app, &endpoint, event)) {
+    .taken => {},
+    .event => |other| switch (other) {
+        // A TCP connection owes its socket octets.
+        .send => |connection| try flush(connection, now_ns),
+        // colibri reads and writes nothing more on this TCP connection. A program closes the
+        // socket once the socket has taken the octets `send_stream` returned, and owes the
+        // endpoint no call: the connection's `ended` follows by itself.
+        .close => closes += 1,
+        // The connection is over, and its slot takes a later socket or client.
+        .ended => |over| try count_ended(over, now_ns),
+        // The shut-down endpoint holds no connection.
+        .closed => endpoint_closed = true,
+        else => return error.ExchangeWrong,
+    },
+}
+```
+
+The router answers 404 when no route matches the path, 405 with an Allow field when no route
+matches the method, and 501 for a method it does not know. A GET route also answers HEAD.
+
+### A client
+
+For each exchange a client places a request, and a response that holds the memory the answer goes
+into. These lines are from
 [`examples/client_exchange.zig`](examples/client_exchange.zig):
 
 ```zig
@@ -132,28 +208,10 @@ request and the response:
 },
 ```
 
-A server holds its TCP and QUIC connections in one endpoint, and calls `accept` for each TCP socket
-it accepts. It gets one event from each `receive`, in h11, h2 and h3 alike, and passes it to a
-router that it declares at compile time with `server.router`. The router calls the function of each
-request's route with the path's parameters and the query as structs, and the function writes its
-response through a `std.Io.Writer`. These lines are from
-[`examples/server_exchange.zig`](examples/server_exchange.zig):
+[`docs/usage.md`](docs/usage.md) walks through both modules: the router, middleware, queries,
+request bodies, the client's pool, TLS, and the buffers each one needs.
 
-```zig
-fn greet_named(
-    _: *App,
-    _: *const server.Request,
-    path: struct { name: []const u8 },
-    query: struct { mark: []const u8 = "" },
-    response: *server.ResponseWriter,
-) !void {
-    try response.header("content-type", content_type);
-    try response.body().print("hello, {s}{s}\n", .{ path.name, query.mark });
-    try response.end();
-}
-```
-
-[`docs/usage.md`](docs/usage.md) walks through both modules.
+### One protocol by itself
 
 The protocol modules are there for a program that wants one version by itself. An h11 client
 writes each request into a buffer it owns, then sends it. These lines are from
