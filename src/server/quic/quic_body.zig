@@ -99,7 +99,12 @@ pub fn observe(connection: *QuicConnection, credit_held: bool, now_ns: u64) void
     const bodies = &connection.bodies;
     if (bodies.waiting == 0) return;
     const limits = &connection.timeouts;
-    for (&bodies.entries) |*body| {
+    // Only a record in use has a body the connection waits for: a record is freed only once its
+    // wait ended (design §8 step 29d.5).
+    var held = connection.requests.held.iterator(.{});
+    // Bounded by the records.
+    while (held.next()) |index| {
+        const body = &bodies.entries[index];
         if (body.waiting) connection_sends.start_or_stop(&body.meter, !credit_held, now_ns, limits);
     }
     connection_sends.start_or_stop(&bodies.together, !credit_held, now_ns, limits);
@@ -112,7 +117,10 @@ pub fn soonest(connection: *const QuicConnection, current: ?u64) ?u64 {
     const limits = &connection.timeouts;
     const quota = limits.body_quota();
     var at = current;
-    for (&bodies.entries) |*body| {
+    var held = connection.requests.held.iterator(.{});
+    // Bounded by the records. Only a record in use has a body the connection waits for.
+    while (held.next()) |index| {
+        const body = &bodies.entries[index];
         if (!body.waiting) continue;
         if (limits.body_ns) |cap_ns| at = earlier(at, body.since_ns + cap_ns);
         at = earlier_check(at, &body.meter, quota, limits.rate_window_ns);
@@ -136,7 +144,10 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) ?Timeout {
     const bodies = &connection.bodies;
     if (bodies.waiting == 0) return null;
     const limits = &connection.timeouts;
-    for (&bodies.entries, 0..) |*body, index| {
+    var held = connection.requests.held.iterator(.{});
+    // Bounded by the records. Only a record in use has a body the connection waits for.
+    while (held.next()) |index| {
+        const body = &bodies.entries[index];
         if (!body.waiting) continue;
         const passed = passed_of(limits, body, now_ns) orelse continue;
         end_request(connection, index, passed);

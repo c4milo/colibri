@@ -12233,6 +12233,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
         h3-many fell from 67,680 to 60,477 instructions a request in job 1, and its CPU time
         from 7,488 to 6,738 ns. Each h2 input is within the noise, as a change to h3 alone gives.
+    - **29d.5, the meters of the records in use, 2026-11-01.** Each call to a QUIC connection's
+      `receive` fires and observes the deadlines, and the send and body meters walked all 100
+      entries for each, whichever records were in use. They now walk `Requests.held`. An entry
+      whose record is free never runs: `quic_sends.forget` empties it when the record is freed,
+      and a record is freed only once the wait for its body ended.
+      - Mutations, by `zig build test-server`, each walk made to visit no record: the send
+        meters' `observe`, `soonest` and `fire`, and the body meters' `observe`, `soonest` and
+        `fire`: each CAUGHT.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
