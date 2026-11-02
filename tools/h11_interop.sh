@@ -36,8 +36,16 @@ readonly late_bind_seconds=2
 # client holds (`requests_max` in src/testing/constants.zig).
 readonly slots_count=16
 
+# The peer the run is on, which `fail` names with the mode (https://github.com/c4milo/colibri/issues/124).
+peer=""
+
 fail() {
-  echo "h11_interop.sh: $*" >&2
+  local at=""
+  if [ -n "${peer}" ]; then
+    at="${peer} cleartext: "
+    [[ " ${mode_arguments[*]-} " != *" --tls "* ]] || at="${peer} tls: "
+  fi
+  echo "h11_interop.sh: ${at}$*" >&2
   exit 1
 }
 

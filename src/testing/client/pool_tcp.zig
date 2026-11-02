@@ -31,6 +31,17 @@ pub const Happened = enum {
     open_failed,
 };
 
+/// How a socket ended before the pool asked for the close, which a failed run prints
+/// (https://github.com/c4milo/colibri/issues/124).
+pub const Ending = struct {
+    cause: Cause,
+    /// The name of the error the system returned, or null for the peer's close.
+    error_name: ?[]const u8,
+
+    pub const Cause = enum { none, connect_failed, receive_failed, peer_closed, send_failed };
+    pub const none: Ending = .{ .cause = .none, .error_name = null };
+};
+
 pub const Socket = struct {
     /// The user data of the socket's first operation, which `init` takes. Each operation's user
     /// data is `base` plus its `Kind`. The loop that runs the socket chooses `base`, so that no
@@ -55,6 +66,8 @@ pub const Socket = struct {
     close_asked: bool,
     /// An open the pool asked for while the last socket was still closing.
     open_pending: ?rotor.Address,
+    /// How the last socket ended, when it ended before the pool asked for the close.
+    ending: Ending,
 
     pub const State = enum { idle, connecting, open, closing };
 
@@ -63,6 +76,7 @@ pub const Socket = struct {
         socket.base = base;
         socket.state = .idle;
         socket.open_pending = null;
+        socket.ending = Ending.none;
         socket.reset();
     }
 
@@ -124,7 +138,7 @@ pub const Socket = struct {
     fn on_connected(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
         assert(socket.state == .connecting);
         if (socket.close_asked) return socket.end(loop);
-        _ = event.outcome() catch return socket.end(loop);
+        _ = event.outcome() catch |err| return socket.end_by(loop, .connect_failed, @errorName(err));
         socket.state = .open;
         return .connected;
     }
@@ -134,8 +148,8 @@ pub const Socket = struct {
     fn on_received(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
         socket.receiving = false;
         if (socket.state != .open) return .none;
-        const read = event.outcome() catch return socket.end(loop);
-        if (read == 0) return socket.end(loop);
+        const read = event.outcome() catch |err| return socket.end_by(loop, .receive_failed, @errorName(err));
+        if (read == 0) return socket.end_by(loop, .peer_closed, null);
         assert(read <= socket.input.len - socket.input_len);
         @memcpy(socket.input[socket.input_len..][0..read], socket.received[0..read]);
         socket.input_len += read;
@@ -147,7 +161,7 @@ pub const Socket = struct {
     fn on_sent(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
         socket.sending = false;
         if (socket.state != .open) return .none;
-        const sent = event.outcome() catch return socket.end(loop);
+        const sent = event.outcome() catch |err| return socket.end_by(loop, .send_failed, @errorName(err));
         socket.output_sent += sent;
         assert(socket.output_sent <= socket.output_len);
         if (socket.output_sent == socket.output_len) {
@@ -169,6 +183,13 @@ pub const Socket = struct {
 
     /// Closes the socket, and says whether the pool must hear that its transport failed: it
     /// must unless it asked for the close. Rotor's close cancels the receive and the send first.
+    /// Ends the socket for `cause`, and keeps the cause when the pool did not ask for the close.
+    fn end_by(socket: *Socket, loop: *rotor.Loop, cause: Ending.Cause, error_name: ?[]const u8) Happened {
+        assert(cause != .none);
+        if (!socket.close_asked) socket.ending = .{ .cause = cause, .error_name = error_name };
+        return socket.end(loop);
+    }
+
     fn end(socket: *Socket, loop: *rotor.Loop) Happened {
         assert(socket.state == .connecting or socket.state == .open);
         socket.state = .closing;

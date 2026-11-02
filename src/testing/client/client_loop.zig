@@ -56,6 +56,8 @@ const Connection = struct {
     /// The sockets of the pool's slots, slot 0 first, in `sockets`.
     sockets: []pool_tcp.Socket,
     failure: Failure,
+    /// How the socket that failed the connection ended.
+    ending: pool_tcp.Ending,
 
     /// Whether the pool or one of its sockets still has something to do.
     fn running(connection: *const Connection) bool {
@@ -154,6 +156,7 @@ fn turn(live: []Connection) !bool {
 /// asks for its first socket at once.
 fn start_connection(connection: *Connection, index: usize, run: *const Run) void {
     connection.failure = .none;
+    connection.ending = pool_tcp.Ending.none;
     const slots = run.tcp_connections;
     connection.sockets = sockets[index * slots ..][0..slots];
     for (connection.sockets, index * slots..) |*socket, socket_index| socket.init(@as(u64, socket_index) << kind_bits);
@@ -200,6 +203,7 @@ fn on_happened(connection: *Connection, slot: u32, happened: pool_tcp.Happened) 
 /// close may end a response, so it is a failure only if the run fails.
 fn socket_ended(connection: *Connection, slot: u32, failure: Failure) void {
     connection.failure = failure;
+    connection.ending = connection.sockets[slot].ending;
     connection.session.peer_closed(slot);
 }
 
@@ -268,7 +272,10 @@ fn report(run: *const Run, succeeded: u32) void {
             exchange.print(protocol_name(session.protocol));
         }
         if (!connection.succeeded()) {
-            std.debug.print("connection={d} failure={t} succeeded={}\n", .{ index, connection.failure, session.succeeded() });
+            const ending = connection.ending;
+            std.debug.print("connection={d} failure={t} ended={t} error={s} succeeded={}\n", .{
+                index, connection.failure, ending.cause, ending.error_name orelse "-", session.succeeded(),
+            });
         }
     }
     if (run.tcp_connections > 1) {
@@ -371,6 +378,7 @@ fn test_connection() !*Connection {
     pool_config = .{ .authority = "localhost", .protocols = .{ .h2 = false } };
     const connection = &connections[0];
     connection.failure = .none;
+    connection.ending = pool_tcp.Ending.none;
     slots_per_pool = 1;
     connection.sockets = sockets[0..1];
     connection.sockets[0].init(0);
@@ -423,4 +431,29 @@ test "a socket the pool asks for while its last one closes waits for that close"
     try testing.expect(step_once(connection));
     try testing.expectEqual(.closing, connection.sockets[0].state);
     try testing.expect(connection.sockets[0].open_pending != null);
+}
+
+test "https://github.com/c4milo/colibri/issues/124: a failed connection names how its socket ended" {
+    try loop.init(&loop_memory, loop_options);
+    defer loop.deinit();
+    // Each ending submits the socket's close, which the loop finishes before it stops.
+    defer {
+        loop.cancel_all();
+        loop.drain(&events) catch {};
+    }
+    const connection = try test_carrying();
+    const socket = &connection.sockets[0];
+    socket.descriptor = try pool_tcp.open_descriptor(.ipv4);
+    socket.state = .open;
+    const reset: i32 = -@as(i32, @intFromEnum(rotor.Code.connection_reset));
+    const event: rotor.Event = .{ .user_data = socket.base + @intFromEnum(pool_tcp.Kind.receive), .result = reset, .flags = .{} };
+    on_happened(connection, 0, socket.on_event(&loop, event));
+    try testing.expectEqual(.receive_failed, connection.ending.cause);
+    try testing.expectEqualStrings("ConnectionReset", connection.ending.error_name.?);
+    // A receive of no octets is the peer's close, with no error.
+    socket.descriptor = try pool_tcp.open_descriptor(.ipv4);
+    socket.state = .open;
+    on_happened(connection, 0, socket.on_event(&loop, rotor.Event.success(event.user_data, 0)));
+    try testing.expectEqual(.peer_closed, connection.ending.cause);
+    try testing.expect(connection.ending.error_name == null);
 }
