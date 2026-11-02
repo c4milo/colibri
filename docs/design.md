@@ -12293,6 +12293,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         only when the instant differs, with no `continue_owed` test: CAUGHT. `settled_at` that is
         always true: CAUGHT. `settled_at` that is always false is the code before this step, so
         only the judge can show it.
+      - The judge's `--h3 --base 07b742ee` on fe2da81b, the change's instructions over the
+        base's:
+        - Run 41440875630, two jobs of 5 rounds: h3-many 0.9440 and 0.9416, h3-bbr-many 0.9272,
+          a win, and 0.9544. The base's noise was up to 7.5%, so three of the four stayed within
+          it.
+        - Run 41448365201, two jobs of 10 rounds: h3-many 0.9002, a win, and 0.9176, within its
+          noise of 8.3%; h3-bbr-many 0.9200 and 0.9267, each a win. h3-many fell from 53,738 to
+          48,374 instructions a request in job 1.
+        - h3-one, h3-bbr-one and every h2 input stayed within the noise in both runs.
         - `tools/h3_deadline_trace.sh`, `zig build test-sim-run-quic` and the simulator's h3
           censuses give what they gave before.
         - The judge's `--h3 --base 07b742ee`. The step lands only when h3-many and h3-bbr-many
