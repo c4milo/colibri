@@ -12208,6 +12208,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         BBR's own on this path: ngtcp2's are the same or worse. Neither is a defect of colibri.
       - The GET p99 at 1% loss from 4 connections varies between the jobs for both, so one run
         does not order them.
+    - **29d.4, the request records apart from their flags, 2026-11-01.** The judge's
+      `--profile --h3` on e1ff6119 (run 41358976530) put 46% of h3-many's samples under
+      `server.Endpoint`'s poll and 10.8% in `quic_connection_h3.settle` itself, the largest of any
+      function. `settle` runs after each datagram and read `in_use` in each of the 100 records,
+      each more than 8 KiB with its response's kept frames, to find the few in use. AES-GCM took
+      0.5%.
+      - `quic_request.Requests` holds `held`, a bit set of the records in use, and their stream
+        ids apart from the records. `settle`, `of`, `idle`, `any_open` and the encoders' give-back
+        read the bit set and the records in use alone. A QUIC slot grows by 16 octets.
+      - Mutations, by `zig build test-server`: a walk that visits one record, a `free` that keeps
+        the record held, a `take` that writes no stream id, an `any_open` that finds none, an
+        `idle` with one record held, and a `take` that never uses the last record: each CAUGHT.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

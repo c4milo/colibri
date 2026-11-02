@@ -97,9 +97,9 @@ pub fn give_back(connection: *QuicConnection, record: *Request) void {
 /// Gives back every encoder the connection's responses hold.
 pub fn give_back_all(connection: *QuicConnection) void {
     if (connection.config.encoders == null) return;
-    for (&connection.requests.records) |*record| {
-        if (record.in_use) give_back(connection, record);
-    }
+    var held = connection.requests.walk();
+    // Bounded by the records in use.
+    while (held.next()) |record| give_back(connection, record);
 }
 
 /// Whether the response's end goes out now: the encoder has finished, and no trailer section

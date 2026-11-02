@@ -50,9 +50,9 @@ pub fn settle(connection: *QuicConnection) void {
     if (connection.closed or connection.stopped) return;
     // A 100 (Continue) that finds no room in this pass sets it again (`quic_continue.zig`).
     connection.continue_owed = false;
-    for (&connection.requests.records) |*record| {
-        if (record.in_use) settle_one(connection, record);
-    }
+    var held = connection.requests.walk();
+    // Bounded by the records in use.
+    while (held.next()) |record| settle_one(connection, record);
     finish_if_drained(connection);
 }
 
@@ -73,7 +73,7 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
             assert(record.coded == null);
             assert(!quic_body.waits(connection, record));
             quic_sends.forget(connection, record);
-            record.in_use = false;
+            connection.requests.free(record);
             return;
         },
     };

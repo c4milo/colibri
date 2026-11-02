@@ -13,9 +13,9 @@ const coding_response = @import("../coding/coding_response.zig");
 
 const Number = event.Number;
 
-/// One request stream, from its request's head until the stream closes.
+/// One request stream, from its request's head until the stream closes. `Requests.held` says
+/// which records are in use.
 pub const Request = struct {
-    in_use: bool,
     stream_id: u64,
     /// The request's end went to the caller: its content ended, or its trailer section came.
     ended: bool,
@@ -39,23 +39,59 @@ pub const Request = struct {
 };
 
 pub const Requests = struct {
+    /// The records in use, and the stream of each, apart from the records: each record holds its
+    /// response's kept frames, more than 8 KiB, and a walk that read a flag in each would touch
+    /// every record after each datagram (design §8 step 29d.4).
+    held: Held,
+    stream_ids: [constants.limits.quic_requests_max]u64,
     records: [constants.limits.quic_requests_max]Request,
 
+    pub const Held = std.StaticBitSet(constants.limits.quic_requests_max);
+
     pub fn init(requests: *Requests) void {
-        for (&requests.records) |*record| record.in_use = false;
+        requests.held = .initEmpty();
     }
 
     /// A record for the request on `stream_id`, or null when every record is in use.
     pub fn take(requests: *Requests, stream_id: u64) ?*Request {
         assert(requests.of(stream_id) == null);
-        for (&requests.records) |*record| {
-            if (record.in_use) continue;
-            make_record(record, stream_id);
-            record.response.init();
-            return record;
-        }
-        return null;
+        const index = requests.held.complement().findFirstSet() orelse return null;
+        requests.held.set(index);
+        requests.stream_ids[index] = stream_id;
+        const record = &requests.records[index];
+        make_record(record, stream_id);
+        record.response.init();
+        return record;
     }
+
+    /// Frees `record` for a later request.
+    pub fn free(requests: *Requests, record: *const Request) void {
+        const index = requests.index_of(record);
+        assert(requests.held.isSet(index));
+        requests.held.unset(index);
+    }
+
+    /// Whether `record` is in use.
+    pub fn holds(requests: *const Requests, record: *const Request) bool {
+        return requests.held.isSet(requests.index_of(record));
+    }
+
+    /// The records in use, in the order of their places. Each `next` reads the bit set alone, and
+    /// a record freed during the walk is not visited again.
+    pub fn walk(requests: *Requests) Walk {
+        return .{ .requests = requests, .rest = requests.held };
+    }
+
+    pub const Walk = struct {
+        requests: *Requests,
+        rest: Held,
+
+        pub fn next(walk_state: *Walk) ?*Request {
+            const index = walk_state.rest.findFirstSet() orelse return null;
+            walk_state.rest.unset(index);
+            return &walk_state.requests.records[index];
+        }
+    };
 
     /// Writes a fresh record for the request on `stream_id` and leaves its response pieces as
     /// they are. ReleaseSafe fills a field written as `undefined` with 0xAA, which for
@@ -66,7 +102,6 @@ pub const Requests = struct {
     fn make_record(record: *Request, stream_id: u64) void {
         @setRuntimeSafety(false);
         record.* = .{
-            .in_use = true,
             .stream_id = stream_id,
             .ended = false,
             .answered = false,
@@ -81,18 +116,17 @@ pub const Requests = struct {
 
     /// The record of the request on `stream_id`, or null.
     pub fn of(requests: *Requests, stream_id: u64) ?*Request {
-        for (&requests.records) |*record| {
-            if (record.in_use and record.stream_id == stream_id) return record;
+        var held = requests.held.iterator(.{});
+        // Bounded by the records.
+        while (held.next()) |index| {
+            if (requests.stream_ids[index] == stream_id) return &requests.records[index];
         }
         return null;
     }
 
     /// Whether no request is held.
     pub fn idle(requests: *const Requests) bool {
-        for (&requests.records) |*record| {
-            if (record.in_use) return false;
-        }
-        return true;
+        return requests.held.count() == 0;
     }
 
     /// Where `record` sits among the records, which the tables kept beside them are indexed by.
@@ -105,8 +139,10 @@ pub const Requests = struct {
     /// Whether the caller still hears of any request: one whose head arrived and which is not
     /// over. A record that is over only waits for its stream to close.
     pub fn any_open(requests: *const Requests) bool {
-        for (&requests.records) |*record| {
-            if (record.in_use and !record.over) return true;
+        var held = requests.held.iterator(.{});
+        // Bounded by the records.
+        while (held.next()) |index| {
+            if (!requests.records[index].over) return true;
         }
         return false;
     }
@@ -165,7 +201,9 @@ test "a record is taken for each request stream, found by its stream, and freed 
     }
     try testing.expectEqual(null, requests.take(constants.limits.quic_requests_max * 4));
     const second = requests.of(4).?;
-    second.in_use = false;
+    try testing.expect(requests.holds(second));
+    requests.free(second);
+    try testing.expect(!requests.holds(second));
     try testing.expectEqual(null, requests.of(4));
     try testing.expect(requests.take(1000) != null);
     try testing.expect(!requests.idle());

@@ -268,7 +268,7 @@ fn refuse_head(connection: *QuicConnection, stream_id: u64) void {
     connection.h3.stop_reading(&connection.transport, stream_id, connection.h3.no_error_code());
     const record = connection.requests.take(stream_id) orelse return reject(connection, stream_id);
     if (!quic_connection_h3.respond_timeout(connection, stream_id)) {
-        record.in_use = false;
+        connection.requests.free(record);
         return reject(connection, stream_id);
     }
     // The caller never heard of the request, so nothing is reported of it, and its record only

@@ -165,7 +165,7 @@ fn passed_of(limits: *const deadline.Timeouts, body: *Body, now_ns: u64) ?Timeou
 /// more of the request.
 fn end_request(connection: *QuicConnection, index: usize, passed: Timeout) void {
     const record = &connection.requests.records[index];
-    assert(record.in_use and !record.ended);
+    assert(connection.requests.holds(record) and !record.ended);
     remove(connection, record);
     const stream_id = record.stream_id;
     if (record.over or record.finished) {

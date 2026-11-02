@@ -160,10 +160,13 @@ fn response_reset(id: u64) bool {
 test "RFC 9114 §4.1.1: a request no record can hold is rejected, which the client may send again" {
     const first = try get("/");
     // Every other record holds the first request's open stream, so none is free.
-    for (&connection.requests.records) |*record| {
-        if (record.in_use) continue;
+    var free = connection.requests.held.complement().iterator(.{});
+    // Bounded by the records.
+    while (free.next()) |index| {
+        connection.requests.held.set(index);
+        connection.requests.stream_ids[index] = first.id;
+        const record = &connection.requests.records[index];
         record.* = .{
-            .in_use = true,
             .stream_id = first.id,
             .ended = true,
             .answered = false,

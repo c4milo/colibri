@@ -219,9 +219,13 @@ test "RFC 9114 §4.1.1: a late head with no record free for a response is reject
     try support.pump(rounds_few);
     const wait = connection.h3.oldest_head_wait().?;
     // Every record is taken, as if each held a response.
-    for (&connection.requests.records) |*record| {
-        if (record.in_use) continue;
-        record.* = .{ .in_use = true, .stream_id = open.id, .ended = true, .answered = false, .finished = false, .over = true, .continue_owed = false, .response = undefined, .asked = .{}, .coded = null };
+    var free = connection.requests.held.complement().iterator(.{});
+    // Bounded by the records.
+    while (free.next()) |index| {
+        connection.requests.held.set(index);
+        connection.requests.stream_ids[index] = open.id;
+        const record = &connection.requests.records[index];
+        record.* = .{ .stream_id = open.id, .ended = true, .answered = false, .finished = false, .over = true, .continue_owed = false, .response = undefined, .asked = .{}, .coded = null };
         record.response.init();
     }
     server_at(wait.since_ns + constants.policy.head_timeout_ns);
