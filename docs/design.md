@@ -12220,6 +12220,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Mutations, by `zig build test-server`: a walk that visits one record, a `free` that keeps
         the record held, a `take` that writes no stream id, an `any_open` that finds none, an
         `idle` with one record held, and a `take` that never uses the last record: each CAUGHT.
+      - The judge's `--h3 --base e1ff6119` on ea7878f9 (run 41365866317), two jobs of 5 rounds,
+        the change's instructions over the base's:
+
+        | Input | Job 1 | Job 2 |
+        |---|---|---|
+        | h3-many | 0.8936, wins | 0.8995, wins |
+        | h3-one | 0.9697, wins | 0.9727, wins |
+        | h3-bbr-many | 0.8929, wins | 0.9143, within the noise of 9.39% |
+        | h3-bbr-one | 0.9696, wins | 0.9744, wins |
+        | h2 inputs | 0.9987 to 1.0007 | 0.9983 to 1.0033 |
+
+        h3-many fell from 67,680 to 60,477 instructions a request in job 1, and its CPU time
+        from 7,488 to 6,738 ns. Each h2 input is within the noise, as a change to h3 alone gives.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
