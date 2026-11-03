@@ -12398,6 +12398,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           gave before.
         - The judge's `--h3 --base 5c238041`, at 10 rounds. The step lands when h3-many wins and
           no input loses.
+    - **29d.8, the checks, 2026-11-03.** The test compares `find_static` with the scan. Mutations,
+      by `zig build test-qpack`: the list without its last entry, a first entry that is not the
+      lowest, and a value compared with the first entry alone: each CAUGHT. `zig build
+      qpack-vectors` gives the round-trip octets it gave on 5c238041, and `tools/qif_interop.sh`
+      passes its 45 runs.
+    - **29d.8, the judge, 2026-11-03.** Run 41656458658, `--h3 --base 5c238041` at 10 rounds, the
+      change's instructions over the base's:
+      - h3-many 0.9398 and 0.9380, and h3-bbr-many 0.9366 and 0.9385, each a win. h3-many fell
+        from 44,704 to 42,011 instructions a request in job 1.
+      - h3-one, h3-bbr-one and each h2 input are within the noise in both jobs.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
