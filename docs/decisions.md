@@ -521,7 +521,9 @@ middleware, was reversed by decision 127 and stays here as a record.
     that ignore path — and colibri tests it rather than assuming it.
 
 118. **Middleware: no.** Reversed by decision 127, ruling 5, on 2026-10-21: a route table runs a
-     compile-time chain of middleware, global and for each route. The ruling below is the record
+     compile-time chain of middleware, global and for each route. colibri's two middleware for
+     content codings, `server.middleware.decode_request` and `encode_response`, are design §8 step
+     25.7, which waits for https://github.com/c4milo/stdx/issues/21. The ruling below is the record
      of the first position. Ruled by the owner on 2026-10-04 in
      [#96](https://github.com/c4milo/colibri/issues/96), beside decision 117. Middleware is a
      chain of functions a library calls for each request, before or after the program's own
