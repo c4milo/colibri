@@ -174,6 +174,27 @@ test "decision 80: a peek leaves the octets unread and gives no credit, and cons
     try expect_octets(short_len, output[0..rest.len]);
 }
 
+test "design §8 step 29d.9: a peek where nothing arrived copies none, and still reports a FIN" {
+    open_pair();
+    const id = try client_stream(body_len, false);
+    for (0..try send_all(&client)) |index| try deliver(index, &server);
+    const flow = &server.streams.lookup(id).live.receive_flow;
+    // A first peek with octets past the read offset copies them.
+    try testing.expectEqual(body_len, (try stream_read.peek(&server, id, &output)).len);
+    _ = try stream_read.consume(&server, id, body_len);
+    try testing.expectEqual(flow.used, flow.consumed);
+    const idle = try stream_read.peek(&server, id, &output);
+    try testing.expectEqual(0, idle.len);
+    try testing.expect(!idle.fin);
+    // RFC 9000 §19.8: a STREAM frame that carries no octet and the FIN ends the stream there.
+    try stream_send.supply(&client, id, body_len, true);
+    for (0..try send_all(&client)) |index| try deliver(index, &server);
+    try testing.expectEqual(flow.used, flow.consumed);
+    const ended = try stream_read.peek(&server, id, &output);
+    try testing.expectEqual(0, ended.len);
+    try testing.expect(ended.fin);
+}
+
 test "RFC 9000 §2.2: octets that arrive out of order wait for the ones before them" {
     open_pair();
     const id = try client_stream(body_len, true);

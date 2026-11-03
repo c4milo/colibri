@@ -47,7 +47,9 @@ pub fn read(connection: *Connection, id: StreamId, output: []u8) Error!Read {
 pub fn peek(connection: *Connection, id: StreamId, output: []u8) Error!Read {
     const stream = try readable(connection, id);
     const consumed = stream.receive_flow.consumed;
-    const len = stream.incoming.peek(connection.receive_storage.?, stream.id, consumed, output);
+    // Design §8 step 29d.9: no octet past `consumed` arrived, so the pool holds none to copy.
+    const arrived = stream.receive_flow.used > consumed;
+    const len = if (arrived) stream.incoming.peek(connection.receive_storage.?, stream.id, consumed, output) else 0;
     const final_size = stream.receiving.final_size orelse return .{ .len = len, .fin = false };
     assert(consumed + len <= final_size);
     return .{ .len = len, .fin = consumed + len == final_size };
