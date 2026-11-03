@@ -292,7 +292,7 @@ fn test_fill(random: *sim.Random, buffer: []u8) void {
 
 test "P5: a deadline heap whose top differs from the soonest slot's deadline is refused" {
     test_config = .{ .tls = .{
-        .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+        .identities = &identity.identities,
         .cookie_key = &identity.cookie_key,
         .cpu = identity.cpu,
     } };

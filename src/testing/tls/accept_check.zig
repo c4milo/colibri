@@ -30,23 +30,35 @@ var identity_storage: server_identity.Storage align(@alignOf(server_identity.Sto
 /// The octets this run reads from the socket, and the plaintext it opens them into.
 var input: check_socket.Input align(@alignOf(check_socket.Input)) = .{};
 var plaintext_storage: [constants.tls_record_buffer_len]u8 = undefined;
-var output_storage: [constants.tls_record_buffer_len]u8 = undefined;
+/// The octets the server writes: one record, or its whole handshake flight, which an ML-DSA-87
+/// identity makes longer than a record.
+var output_storage: [@max(constants.tls_record_buffer_len, constants.tls_flight_len_max)]u8 = undefined;
 
 /// What the run was asked to do.
 const Arguments = struct {
     port: u16,
     /// The prefix of the files `tools/h2_interop/tls_identity.go` wrote.
     identity_prefix: []const u8,
+    /// The prefix of an ML-DSA-87 identity's PEM files, presented beside the P-256 one, or null.
+    mldsa87_prefix: ?[]const u8,
 };
+
+/// The option that names the ML-DSA-87 identity's prefix (decision 147).
+const mldsa87_option = "mldsa87=";
 
 fn parse(init: std.process.Init.Minimal) Arguments {
     var arguments = std.process.Args.Iterator.init(init.args);
     _ = arguments.next();
     const port_text = arguments.next() orelse usage();
     const identity_prefix = arguments.next() orelse usage();
+    const mldsa87_prefix: ?[]const u8 = if (arguments.next()) |option| prefix: {
+        if (!std.mem.startsWith(u8, option, mldsa87_option)) usage();
+        break :prefix option[mldsa87_option.len..];
+    } else null;
     return .{
         .port = std.fmt.parseUnsigned(u16, port_text, decimal) catch usage(),
         .identity_prefix = identity_prefix,
+        .mldsa87_prefix = mldsa87_prefix,
     };
 }
 
@@ -102,7 +114,8 @@ fn admitted(suite: u16) bool {
 pub fn main(init: std.process.Init.Minimal) !void {
     const asked = parse(init);
     server_identity.seed(&identity_storage);
-    const identity = try server_identity.load(asked.identity_prefix, &identity_storage, &.{&tls_provider.constants.protocol.alpn_h2});
+    var identity = try server_identity.load(asked.identity_prefix, &identity_storage, &.{&tls_provider.constants.protocol.alpn_h2});
+    if (asked.mldsa87_prefix) |prefix| try server_identity.add_mldsa87(prefix, &identity_storage, &identity);
     config.init(identity) catch |failure| {
         std.debug.print("tls-accept: the configuration was refused: {t}\n", .{failure});
         std.process.exit(exit_failed);
@@ -229,7 +242,7 @@ fn accept_one(port: u16) !std.c.fd_t {
 }
 
 fn usage() noreturn {
-    std.debug.print("usage: tls-accept <port> <identity-prefix>\n", .{});
+    std.debug.print("usage: tls-accept <port> <identity-prefix> [mldsa87=<prefix>]\n", .{});
     std.process.exit(exit_usage);
 }
 

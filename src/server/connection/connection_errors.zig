@@ -23,6 +23,12 @@ pub const StartError = error{
     /// The endpoint's TLS identity orders suites, which a build without AES-GCM cannot keep
     /// (decision 97).
     SuitesUnavailable,
+    /// The endpoint's TLS identities hold two of one scheme (decision 147).
+    IdentityRepeated,
+    /// An identity's key has no scheme: no `tls.pem.key` filled it.
+    IdentityUnfilled,
+    /// An ML-DSA-87 identity in a build without chapulin's host object, which has no slot for it.
+    IdentityUnavailable,
 };
 
 /// What a TCP connection's `init` returns: `StartError`, or `TlsRefused` when chapulin refuses

@@ -7,6 +7,7 @@ const tls = @import("tls");
 const chapulin = @import("chapulin");
 const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
+const identity_files = @import("../../tls/server_identity.zig");
 const entropy = @import("../../entropy.zig");
 const cpu = @import("../../cpu.zig");
 const keylog_module = @import("../keylog.zig");
@@ -35,8 +36,12 @@ var chain_storage: [constants.quic_chain_len_max][constants.tls_der_len_max]u8 =
 var chain: [constants.quic_chain_len_max][]const u8 = undefined;
 /// The server's chain, read once into `chain`.
 var server_chain: []const []const u8 = &.{};
-var private_storage: [tls.constants.protocol.p256_private_key_len]u8 = undefined;
-var public_storage: [tls.constants.protocol.p256_public_key_len]u8 = undefined;
+/// The server's P-256 key, read from the Go tool's raw files, and the identities it presents.
+var key: tls.Key align(@alignOf(tls.Key)) = .{};
+var identities: [constants.tls_identities_max]tls.Identity align(@alignOf(tls.Identity)) = undefined;
+var identities_count: usize = 0;
+/// The ML-DSA-87 identity, when the run names one (decision 147).
+var mldsa87_storage: identity_files.Mldsa87Storage align(@alignOf(identity_files.Mldsa87Storage)) = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
 var pin_storage: [1]tls.Pin align(@alignOf(tls.Pin)) = undefined;
@@ -137,7 +142,7 @@ pub fn server_ids(destination: []const u8, source: []const u8) udp_peer.Identity
 /// names h3 itself (decision 119).
 pub fn server_identity() tls.Server {
     return .{
-        .ecdsa_p256 = .{ .chain = server_chain, .public_key = &public_storage, .private_key = &private_storage },
+        .identities = identities[0..identities_count],
         .cookie_key = &cookie_storage,
         .ticket_key = &ticket_key_storage,
         .cpu = cpu.probe(),
@@ -200,9 +205,16 @@ fn configure_client(asked: udp_arguments.Client) !void {
 
 fn configure_server(asked: udp_arguments.Server) !void {
     const prefix = asked.identity_prefix;
-    try read_key(prefix, ".priv", &private_storage);
-    try read_key(prefix, ".pub", &public_storage);
+    try read_key(prefix, ".priv", key.private_key[0..tls.constants.protocol.p256_private_key_len]);
+    try read_key(prefix, ".pub", key.public_key[0..tls.constants.protocol.p256_public_key_len]);
+    key.scheme = .ecdsa_secp256r1_sha256;
     server_chain = try read_chain(prefix);
+    identities[0] = .{ .chain = server_chain, .key = &key };
+    identities_count = 1;
+    if (asked.mldsa87_prefix) |mldsa87_prefix| {
+        identities[identity_files.mldsa87_index] = try identity_files.load_mldsa87(mldsa87_prefix, &mldsa87_storage, cpu.probe());
+        identities_count = identity_files.mldsa87_index + 1;
+    }
     var values = server_identity();
     values.alpn = &server_alpn;
     try server_config.init(values);

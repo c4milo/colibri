@@ -124,7 +124,7 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
 fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.endpoint_config = .{
         .tls = .{
-            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+            .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
             .cpu = identity.cpu,

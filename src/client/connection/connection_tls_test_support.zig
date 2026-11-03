@@ -38,7 +38,7 @@ pub fn prepare_configs(server_protocols: []const []const u8, client_protocols: [
 /// it, for a client that converts its own values, as a pool does.
 pub fn prepare_server(server_protocols: []const []const u8, tickets: bool) !void {
     try server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .ticket_key = if (tickets) &support.ticket_key else null,
         .alpn = server_protocols,

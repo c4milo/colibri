@@ -13,6 +13,14 @@ pub const root_spki = testdata.root_spki;
 pub const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = testdata.private_key;
 pub const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = testdata.public_key;
 
+/// The test identity's key, as `tls.pem.key` fills it from `identity.key.pem` (decision 147).
+pub const key: tls.Key = p256_key: {
+    var filled: tls.Key = .{ .scheme = .ecdsa_secp256r1_sha256 };
+    @memcpy(filled.private_key[0..private_key.len], private_key);
+    @memcpy(filled.public_key[0..public_key.len], public_key);
+    break :p256_key filled;
+};
+
 /// The instant every handshake of the run judges the chain at. Any instant inside the identity's
 /// validity works, from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
@@ -26,6 +34,8 @@ pub const cpu: tls.Cpu = .{
 pub const authority = "localhost";
 
 pub const chain = [_][]const u8{ leaf, root };
+/// The test identity as a server holds it: the chain and its key.
+pub const identities = [_]tls.Identity{.{ .chain = &chain, .key = &key }};
 pub const anchors = [_]tls.Anchor{.{ .subject = root_name, .spki = root_spki }};
 pub const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_key_octet);
 const cookie_key_octet: u8 = 0x07;

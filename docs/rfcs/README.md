@@ -59,6 +59,7 @@ rule or none at all.
 | [7468](rfc7468.txt) | Textual Encodings of PKIX, PKCS, and CMS Structures | The PEM files `tls.pem` reads (decision 141), copied on 2026-10-31 |
 | [5958](rfc5958.txt) | Asymmetric Key Packages | The PKCS #8 key under a PRIVATE KEY label (decision 141), copied on 2026-10-31 |
 | [5915](rfc5915.txt) | Elliptic Curve Private Key Structure | The SEC 1 key under an EC PRIVATE KEY label (decision 141), copied on 2026-10-31 |
+| [9881](rfc9881.txt) | Internet X.509 Public Key Infrastructure -- Algorithm Identifiers for the Module-Lattice-Based Digital Signature Algorithm (ML-DSA) | The ML-DSA-87 key and certificate forms, and the sizes of its keys (decision 147), copied on 2026-11-02 |
 
 ## DNSSEC
 
@@ -90,6 +91,17 @@ through stdx's decoders too (decision 101 as amended, https://github.com/c4milo/
 | [7932](compression/rfc7932.txt) | Brotli Compressed Data Format | The `br` content coding (§13) and its window (§9.1) |
 | [8878](compression/rfc8878.txt) | Zstandard Compression and the 'application/zstd' Media Type | The `zstd` content coding (§7.2) |
 | [9659](compression/rfc9659.txt) | Window Sizing for Zstandard Content Encoding | The `zstd` coding's window of 8 MB (§3); updates RFC 8878 |
+
+## ML-DSA in TLS
+
+This Internet-Draft is in `mldsa/`, copied unmodified on 2026-11-02 from
+`https://www.ietf.org/archive/id/draft-ietf-tls-mldsa-05.txt`. The owner ruled it in for the
+ML-DSA-87 SignatureScheme until an RFC publishes it ([decision 147](../decisions.md)). colibri
+cites it by revision and section.
+
+| Draft | Title | What colibri uses it for |
+|---|---|---|
+| [mldsa-05](mldsa/draft-ietf-tls-mldsa-05.txt) | Use of ML-DSA in TLS 1.3 | The code point of `mldsa87`, 0x0906, which `tls.SignatureScheme` names (decision 147) |
 
 ## BBR
 

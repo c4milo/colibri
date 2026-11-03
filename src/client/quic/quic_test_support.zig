@@ -144,7 +144,7 @@ pub fn prepare(client_protocols: []const []const u8, server_protocols: []const [
         .cpu = support.cpu,
     });
     try server_tls.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .ticket_key = if (tickets) &support.ticket_key else null,
         .alpn = server_protocols,

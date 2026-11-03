@@ -30,6 +30,10 @@ pub const chain_pem = @embedFile("identity.chain.pem");
 pub const key_pem = @embedFile("identity.key.pem");
 pub const key_sec1_pem = @embedFile("identity.key.sec1.pem");
 pub const bundle_pem = @embedFile("identity.bundle.pem");
+/// An ML-DSA-87 identity for `localhost` and 127.0.0.1 under a CA of its own, as PEM: the chain,
+/// the leaf first, and the leaf's key as PKCS #8 in RFC 9881 §6's both form (decision 147).
+pub const mldsa87_chain_pem = @embedFile("identity.mldsa87.chain.pem");
+pub const mldsa87_key_pem = @embedFile("identity.mldsa87.key.pem");
 
 /// The first and the last instant both certificates are valid at, in Unix seconds: their
 /// notBefore, 2026-01-01T00:00:00Z, and their notAfter, 2126-01-01T00:00:00Z. chapulin counts both

@@ -161,7 +161,7 @@ const alpn_h3 = [_][]const u8{"h3"};
 /// The server's identity, which names no protocol: what an endpoint takes.
 pub fn server_values() tls.Server {
     return .{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .cpu = support.cpu,
     };

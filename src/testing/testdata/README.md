@@ -18,6 +18,8 @@ is for tests alone.
 | `identity.key.pem` | the leaf's key as a PKCS #8 `PRIVATE KEY` block (RFC 5958) |
 | `identity.key.sec1.pem` | the leaf's key as a SEC 1 `EC PRIVATE KEY` block (RFC 5915) |
 | `identity.bundle.pem` | the CA's certificate as a CA bundle, after two title lines as curl writes them |
+| `identity.mldsa87.chain.pem` | an ML-DSA-87 leaf for `localhost` and 127.0.0.1, and the ML-DSA-87 CA that signed it, as PEM |
+| `identity.mldsa87.key.pem` | that leaf's key as a PKCS #8 `PRIVATE KEY` block, seed and expanded key (RFC 9881 §6) |
 
 The certificates have the profile `tools/h2_interop/tls_identity.go` mints, which chapulin's Web
 PKI mode accepts:
@@ -102,3 +104,34 @@ openssl x509 -inform DER -in identity.ca.der -out ca.pem
 cat leaf.pem ca.pem > identity.chain.pem
 { printf 'colibri test CA\n===============\n'; cat ca.pem; } > identity.bundle.pem
 ```
+
+## The ML-DSA-87 identity
+
+OpenSSL 4.1.0 made it on 2026-11-02, in an empty directory, with the commands below (decision 147).
+The profile is the P-256 one's, with ML-DSA-87 keys and signatures. Only the two
+`identity.mldsa87.*` files were copied here.
+
+```sh
+openssl genpkey -algorithm ML-DSA-87 -out ca.key
+openssl req -x509 -new -key ca.key -config /dev/null -subj "/CN=colibri test ML-DSA-87 CA" \
+  -set_serial 1 -not_before 20260101000000Z -not_after 21260101000000Z \
+  -addext "keyUsage=critical,digitalSignature,keyCertSign" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "subjectKeyIdentifier=hash" \
+  -addext "authorityKeyIdentifier=none" \
+  -out ca.pem
+openssl genpkey -algorithm ML-DSA-87 -out identity.mldsa87.key.pem
+openssl req -x509 -new -key identity.mldsa87.key.pem -config /dev/null -subj "/CN=localhost" \
+  -CA ca.pem -CAkey ca.key \
+  -set_serial 2 -not_before 20260101000000Z -not_after 21260101000000Z \
+  -addext "keyUsage=critical,digitalSignature" \
+  -addext "extendedKeyUsage=serverAuth" \
+  -addext "basicConstraints=critical,CA:FALSE" \
+  -addext "authorityKeyIdentifier=keyid" \
+  -addext "subjectKeyIdentifier=none" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+  -out leaf.pem
+cat leaf.pem ca.pem > identity.mldsa87.chain.pem
+```
+
+The leaf's DER is 7,498 octets and the CA's 7,466.

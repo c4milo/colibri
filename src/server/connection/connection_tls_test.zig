@@ -117,7 +117,7 @@ test "RFC 9846 §6.1: the peer's close_notify ends its data, and this side's fol
 
 test "RFC 7301 §3.2: a handshake with no protocol in common ends with the server's alert" {
     try support.server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols_h2,
         .cpu = support.cpu,
@@ -194,7 +194,7 @@ test "RFC 9846 §9.2: a configuration chapulin cannot serve from is refused at t
 
 test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answers before a request" {
     try support.server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols_both,
         .cpu = support.cpu,

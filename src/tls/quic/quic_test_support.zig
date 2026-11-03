@@ -42,7 +42,7 @@ pub const ServerChoice = struct {
 pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
     try client_config.init(client_values);
     try server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+        .identities = &identity.identities,
         .cookie_key = &identity.cookie_key,
         .ticket_key = if (choice.tickets) &identity.ticket_key else null,
         .alpn = &protocols,

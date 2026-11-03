@@ -72,7 +72,7 @@ const rounds_max: usize = 64;
 /// The server's identity, which names no protocol. Test-only.
 pub fn identity() tls.Server {
     return .{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .cpu = support.cpu,
     };

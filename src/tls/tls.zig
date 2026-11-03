@@ -34,9 +34,9 @@ pub const Client = files.values.Client;
 pub const Server = files.values.Server;
 pub const Ticket = files.values.Ticket;
 pub const Resumption = files.values.Resumption;
-pub const EcdsaP256Identity = files.values.EcdsaP256Identity;
-pub const RsaPssIdentity = files.values.RsaPssIdentity;
-pub const P256Key = files.pem.P256Key;
+pub const SignatureScheme = files.values.SignatureScheme;
+pub const Key = files.values.Key;
+pub const Identity = files.values.Identity;
 
 pub const record = struct {
     pub const Client = files.record.Client;
@@ -61,19 +61,19 @@ pub const quic = struct {
 pub const pem = struct {
     pub const Error = files.pem.Error;
     pub const chain = files.pem.chain;
-    pub const p256_key = files.pem.p256_key;
+    pub const key = files.pem.key;
     pub const anchors = files.pem.anchors;
 };
 
 test "decision 115: the root exports the names code outside the module uses" {
     try @import("crypto").core.public_names.expect(@This(), &.{
-        "constants",      "Random",  "Cpu",        "Timing",
-        "Anchor",         "Pin",     "Trust",      "Client",
-        "Server",         "Ticket",  "Resumption", "EcdsaP256Identity",
-        "RsaPssIdentity", "P256Key", "record",     "quic",
+        "constants", "Random",   "Cpu",        "Timing",
+        "Anchor",    "Pin",      "Trust",      "Client",
+        "Server",    "Ticket",   "Resumption", "SignatureScheme",
+        "Key",       "Identity", "record",     "quic",
         "pem",
     });
-    try @import("crypto").core.public_names.expect(pem, &.{ "Error", "chain", "p256_key", "anchors" });
+    try @import("crypto").core.public_names.expect(pem, &.{ "Error", "chain", "key", "anchors" });
     try @import("crypto").core.public_names.expect(record, &.{
         "Client", "ClientConfig", "Server", "ServerConfig", "alert_record_len", "FailError",
     });

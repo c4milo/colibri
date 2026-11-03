@@ -44,8 +44,8 @@ const go_chain_len: usize = 2;
 var chain: [go_chain_len][]const u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
-var private_storage: [tls.constants.protocol.p256_private_key_len]u8 = undefined;
-var public_storage: [tls.constants.protocol.p256_public_key_len]u8 = undefined;
+/// The server's P-256 key, read from the Go tool's raw files.
+var key: tls.Key align(@alignOf(tls.Key)) = .{ .scheme = .ecdsa_secp256r1_sha256 };
 var cookie_storage: [tls.constants.protocol.server_key_len]u8 = undefined;
 
 const Arguments = struct {
@@ -101,10 +101,10 @@ fn configure(asked: Arguments) !void {
     }};
     chain[0] = try check_file.read_part(prefix, ".leaf.der", &leaf_storage);
     chain[1] = try check_file.read_part(prefix, ".ca.der", &issuer_storage);
-    try read_key(prefix, ".priv", &private_storage);
-    try read_key(prefix, ".pub", &public_storage);
+    try read_key(prefix, ".priv", key.private_key[0..tls.constants.protocol.p256_private_key_len]);
+    try read_key(prefix, ".pub", key.public_key[0..tls.constants.protocol.p256_public_key_len]);
     try server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &chain, .public_key = &public_storage, .private_key = &private_storage },
+        .identities = &.{.{ .chain = &chain, .key = &key }},
         .cookie_key = &cookie_storage,
         .alpn = &.{alpn},
         .cpu = cpu.probe(),

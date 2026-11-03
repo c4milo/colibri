@@ -162,11 +162,7 @@ endpoint_config = .{
     // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
     // as `protocols` allows by default, and names h3 for its QUIC connections.
     .tls = .{
-        .ecdsa_p256 = .{
-            .chain = chain,
-            .public_key = &key.public_key,
-            .private_key = &key.private_key,
-        },
+        .identities = &identities,
         .cookie_key = &cookie_key,
         .ticket_key = &ticket_key,
         .cpu = cpu,
@@ -1530,14 +1526,16 @@ rooms the program places and keeps in place while a session uses them ([decision
 141](decisions.md)). Each call skips the text lines around its blocks, as RFC 7468 §2 and §5.2
 permit, such as the Subject and Issuer lines a tool writes before a certificate. It returns
 `error.Invalid` for a file it refuses: a block of another label, an encrypted key, a key that is
-not P-256 or that the end-entity certificate does not carry, or more than fits the rooms. Decoding
-authenticates nothing: the files are trusted because the operator placed them.
+neither P-256 nor ML-DSA-87, a key the end-entity certificate does not carry, or more than fits
+the rooms. Decoding authenticates nothing: the files are trusted because the operator placed them.
 
-- `tls.pem.chain(file, der, room)` returns the chain `EcdsaP256Identity.chain` takes, the
-  end-entity first, at most `tls.constants.limits.certificate_chain_len_max` certificates.
-- `tls.pem.p256_key(cpu, file, leaf, &key)` reads a `PRIVATE KEY` (PKCS #8) or `EC PRIVATE KEY`
-  (SEC 1) block into a `tls.P256Key`, whose fields the identity points at. The program wipes the
-  key with `wipe()` once no session uses it, and wipes its own copy of the file.
+- `tls.pem.chain(file, der, room)` returns the chain `tls.Identity.chain` takes, the end-entity
+  first, at most `tls.constants.limits.certificate_chain_len_max` certificates.
+- `tls.pem.key(cpu, file, leaf, &key)` reads a key block into a `tls.Key`, which a `tls.Identity`
+  points at, and sets `key.scheme` from the key's algorithm ([decision 147](decisions.md)):
+  `ecdsa_secp256r1_sha256` for a P-256 key under `PRIVATE KEY` (PKCS #8) or `EC PRIVATE KEY`
+  (SEC 1), and `mldsa87` for an ML-DSA-87 key under `PRIVATE KEY` (RFC 9881 §6). The program
+  wipes the key with `wipe()` once no session uses it, and wipes its own copy of the file.
 - `tls.pem.anchors(file, der, room)` returns the anchors `Trust.web_pki.anchors` takes, at most
   `tls.constants.limits.anchors_max`, such as a curl-style bundle with a title line before each
   block.
@@ -1547,8 +1545,16 @@ A DER room of three quarters of a file's length holds its DER. The server of
 
 ```zig
 const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
-try tls.pem.p256_key(cpu, identity.key_pem, chain[0], &key);
+try tls.pem.key(cpu, identity.key_pem, chain[0], &key);
+identities[0] = .{ .chain = chain, .key = &key };
 ```
+
+A server holds at most one identity for each scheme in `tls.Server.identities`, and chapulin
+signs with the one the client offers: ML-DSA-87 first, then ECDSA P-256. A `tls.Key` holds
+7,488 bytes of key room, the size of an ML-DSA-87 key pair, whatever its scheme. `init` returns
+`error.IdentityRepeated` for two identities of one scheme, `error.IdentityUnfilled` for a key
+with no scheme, and `error.IdentityUnavailable` for ML-DSA-87 on a target without chapulin's host
+object.
 
 The client of [`examples/client_exchange.zig`](../examples/client_exchange.zig) reads its anchors:
 

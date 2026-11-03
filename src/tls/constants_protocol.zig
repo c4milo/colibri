@@ -10,6 +10,16 @@ pub const sha256_len: usize = 32;
 pub const p256_public_key_len: usize = 64;
 pub const p256_private_key_len: usize = 32;
 
+/// Octets of an ML-DSA-87 public key (RFC 9881 §4) and of its expanded private key (RFC 9881 §6).
+pub const mldsa87_public_key_len: usize = 2592;
+pub const mldsa87_private_key_len: usize = 4896;
+
+comptime {
+    // A `Key` holds either key in the room of the larger.
+    assert(mldsa87_public_key_len >= p256_public_key_len);
+    assert(mldsa87_private_key_len >= p256_private_key_len);
+}
+
 /// Octets of a server's cookie key and ticket key, chapulin's `CH_SRV_COOKIE_KEY_LEN` and
 /// `CH_SRV_TICKET_KEY_LEN`, which the configurations assert.
 pub const server_key_len: usize = 32;

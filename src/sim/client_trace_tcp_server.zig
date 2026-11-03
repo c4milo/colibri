@@ -70,7 +70,7 @@ pub const TcpServer = struct {
 
     pub fn configure(server: *TcpServer) !void {
         try server.config.init(.{
-            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+            .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
             .alpn = &alpn_h2,

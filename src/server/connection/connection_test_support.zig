@@ -30,6 +30,14 @@ pub const root_spki = testdata.root_spki;
 pub const private_key: *const [tls.constants.protocol.p256_private_key_len]u8 = testdata.private_key;
 pub const public_key: *const [tls.constants.protocol.p256_public_key_len]u8 = testdata.public_key;
 
+/// The test identity's key, as `tls.pem.key` fills it from `identity.key.pem` (decision 147).
+pub const key: tls.Key = p256_key: {
+    var filled: tls.Key = .{ .scheme = .ecdsa_secp256r1_sha256 };
+    @memcpy(filled.private_key[0..private_key.len], private_key);
+    @memcpy(filled.public_key[0..public_key.len], public_key);
+    break :p256_key filled;
+};
+
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
@@ -44,6 +52,8 @@ pub const cpu: tls.Cpu = .{
 pub const now_ns: u64 = 1_000_000;
 
 pub const chain = [_][]const u8{ leaf, root };
+/// The test identity as a server holds it: the chain and its key.
+pub const identities = [_]tls.Identity{.{ .chain = &chain, .key = &key }};
 pub const anchors = [_]tls.Anchor{.{ .subject = root_name, .spki = root_spki }};
 pub const cookie_key: [tls.constants.protocol.server_key_len]u8 = @splat(cookie_key_octet);
 const cookie_key_octet: u8 = 0x07;
@@ -220,7 +230,7 @@ pub fn start_tls(server_protocols: []const []const u8, client_protocols: []const
 /// The connection and the client of `start_tls`, before either has sent anything.
 pub fn begin_tls(server_protocols: []const []const u8, client_protocols: []const []const u8) !void {
     try server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &chain, .public_key = public_key, .private_key = private_key },
+        .identities = &identities,
         .cookie_key = &cookie_key,
         .alpn = server_protocols,
         .cpu = cpu,

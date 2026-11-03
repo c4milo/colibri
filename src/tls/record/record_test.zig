@@ -5,6 +5,7 @@ const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin_tcp");
 const record = @import("record.zig");
 const values = @import("../values.zig");
+const constants = @import("../constants.zig");
 const support = @import("record_test_support.zig");
 const random_support = @import("../random_test_support.zig");
 
@@ -266,7 +267,7 @@ test "a pin of the server's key authenticates it with no anchor, clock or name" 
     // Pins alone read the leaf alone, however long the chain after it (chapulin `e802399`).
     const long_chain = [_][]const u8{support.leaf} ++ [_][]const u8{support.root} ** 15;
     try support.server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &.{.{ .chain = &long_chain, .key = &support.key }},
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
         .cpu = support.cpu,
@@ -361,7 +362,7 @@ test "a list longer than the one it is copied into is refused when it is convert
     const server_config = &support.server_config;
     const server_most = comptime distinct_protocols(record.ServerConfig.protocols_max);
     try server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &server_most,
         .cpu = support.cpu,
@@ -370,14 +371,14 @@ test "a list longer than the one it is copied into is refused when it is convert
     server.close();
     const server_protocols = [_][]const u8{"h2"} ** (record.ServerConfig.protocols_max + 1);
     try testing.expectError(error.TooManyProtocols, server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &server_protocols,
         .cpu = support.cpu,
     }));
     const long_chain = [_][]const u8{support.leaf} ** 17;
     try testing.expectError(error.TooManyCertificates, server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &.{.{ .chain = &long_chain, .key = &support.key }},
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
         .cpu = support.cpu,
@@ -386,7 +387,7 @@ test "a list longer than the one it is copied into is refused when it is convert
     // An object without AES-GCM has no order to set at all (decision 97).
     const refused = if (support.aes_gcm) error.TooManySuites else error.SuitesUnavailable;
     try testing.expectError(refused, server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
         .cpu = support.cpu,
@@ -417,7 +418,7 @@ test "a rule of chapulin's is chapulin's to report, when a session starts or a s
     // No protocol offered is no ALPN extension, which a client that speaks h11 alone may send.
     try support.client_config.init(.{ .trust = support.web_pki.trust, .alpn = &.{}, .cpu = support.cpu });
     try support.server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
         .cpu = support.cpu,
@@ -432,7 +433,7 @@ test "decision 117: a client's values that name no `alpn` convert to a list of n
     try testing.expectEqual(0, support.client_config.values.alpn.len);
     // A session starts from it, and a server that selects from a list selects none.
     try support.server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .identities = &support.identities,
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
         .cpu = support.cpu,
@@ -444,9 +445,10 @@ test "decision 117: a client's values that name no `alpn` convert to a list of n
 test "a server's identity passes chapulin's check, and a key that does not match fails it" {
     try support.configure(support.web_pki, .{});
     try support.server_config.check(support.random());
-    const wrong_key: [32]u8 = @splat(0x42);
+    var wrong_key = support.key;
+    @memset(wrong_key.private_key[0..constants.protocol.p256_private_key_len], 0x42);
     try support.server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = &wrong_key },
+        .identities = &.{.{ .chain = &support.chain, .key = &wrong_key }},
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
         .cpu = support.cpu,

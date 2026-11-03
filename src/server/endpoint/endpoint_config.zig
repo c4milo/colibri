@@ -205,14 +205,14 @@ test "RFC 9846 §4.5.2: an endpoint whose key's signature does not verify refuse
     try support.start_endpoint(null);
     const config = &endpoint_support.endpoint_config;
     // Another point than the private key's, so its CertificateVerify fails.
-    var other: [tls.constants.protocol.p256_public_key_len]u8 = tcp_support.public_key.*;
-    other[other.len - 1] ^= 1;
-    config.tls.?.ecdsa_p256.?.public_key = &other;
+    var other = tcp_support.key;
+    other.public_key[tls.constants.protocol.p256_public_key_len - 1] ^= 1;
+    config.tls.?.identities = &.{.{ .chain = &tcp_support.chain, .key = &other }};
     try testing.expectError(error.IdentityRefused, endpoint_support.restart());
     // A chain longer than the configuration holds is the TLS configuration's own refusal.
     const long_chain: [tls.constants.limits.certificate_chain_len_max + 1][]const u8 = @splat(tcp_support.chain[0]);
     config.tls = support.server_values();
-    config.tls.?.ecdsa_p256.?.chain = &long_chain;
+    config.tls.?.identities = &.{.{ .chain = &long_chain, .key = &tcp_support.key }};
     try testing.expectError(error.TooManyCertificates, endpoint_support.restart());
 }
 
@@ -268,9 +268,9 @@ test "decision 110 as amended: units are judged only where a body may arrive in 
 
 test "RFC 9846 §4.5.2: an endpoint of TCP slots alone refuses a key whose signature does not verify" {
     var identity = support.server_values();
-    var other: [tls.constants.protocol.p256_public_key_len]u8 = tcp_support.public_key.*;
-    other[other.len - 1] ^= 1;
-    identity.ecdsa_p256.?.public_key = &other;
+    var other = tcp_support.key;
+    other.public_key[tls.constants.protocol.p256_public_key_len - 1] ^= 1;
+    identity.identities = &.{.{ .chain = &tcp_support.chain, .key = &other }};
     try testing.expectError(error.IdentityRefused, start_tcp_only(identity, .{}));
     try start_tcp_only(support.server_values(), .{});
 }

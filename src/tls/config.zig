@@ -29,6 +29,17 @@ pub const Error = error{
     SuitesUnavailable,
 };
 
+/// What a server's conversion refuses beside `Error`: its identities (decision 147).
+pub const ServerError = Error || error{
+    /// Two identities of one scheme.
+    IdentityRepeated,
+    /// An identity whose key has no scheme, which no `pem.key` filled.
+    IdentityUnfilled,
+    /// An ML-DSA-87 identity for an object without chapulin's ML-DSA-87 slot, which one built for a
+    /// target without its host object does.
+    IdentityUnavailable,
+};
+
 /// A client's values, converted for the object whose module is `chapulin`.
 pub fn ClientConfig(comptime chapulin: type) type {
     const c = chapulin.c;
@@ -102,7 +113,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
         /// What each session starts from; `start` sets the clock.
         values: chapulin.Server,
 
-        pub fn init(config: *Config, server: values.Server) Error!void {
+        pub fn init(config: *Config, server: values.Server) ServerError!void {
             assert(chapulin.buildMatches());
             config.values = .{
                 .cookie_key = server.cookie_key,
@@ -119,16 +130,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
                 // RFC 9846 §9.1: an object without AES-GCM has one suite, and no order to set.
                 return error.SuitesUnavailable;
             }
-            if (server.ecdsa_p256) |identity| config.values.ecdsa_p256 = .{
-                .chain = try certificates(identity.chain),
-                .public_key = identity.public_key,
-                .private_key = identity.private_key,
-            };
-            if (server.rsa_pss) |identity| config.values.rsa_pss = .{
-                .chain = try certificates(identity.chain),
-                .public_key = identity.public_key,
-                .private_key = @ptrCast(@alignCast(identity.private_key)),
-            };
+            for (server.identities) |identity| try identity_into(chapulin, &config.values, identity);
         }
 
         /// Whether the object holds the AES-GCM suites beside ChaCha20, and so an order among them.
@@ -219,6 +221,44 @@ fn protocols(comptime chapulin: type, names: []const []const u8) Error![]const [
     // RFC 7301 §3.1: chapulin's list holds `CH_ALPN_MAX` protocols.
     if (names.len > chapulin.c.CH_ALPN_MAX) return error.TooManyProtocols;
     return names;
+}
+
+/// Sets the slot of chapulin's server that `identity`'s scheme names (decision 147). chapulin
+/// signs with the key whose scheme the client offers, and colibri chooses none.
+fn identity_into(comptime chapulin: type, server: *chapulin.Server, identity: values.Identity) ServerError!void {
+    const key = identity.key;
+    const chain = try certificates(identity.chain);
+    // RFC 9846 §4.5.2: the server signs its CertificateVerify with the key, so a key that names
+    // no scheme has nothing to sign with.
+    const scheme = key.scheme orelse return error.IdentityUnfilled;
+    switch (scheme) {
+        .ecdsa_secp256r1_sha256 => {
+            // RFC 9846 §4.5.1.2: the server picks the certificate by the client's signature schemes,
+            // so two of one scheme leave the choice to no rule.
+            if (server.ecdsa_p256 != null) return error.IdentityRepeated;
+            server.ecdsa_p256 = .{
+                .chain = chain,
+                .public_key = key.public_key[0..constants.protocol.p256_public_key_len],
+                .private_key = key.private_key[0..constants.protocol.p256_private_key_len],
+            };
+        },
+        .mldsa87 => {
+            // An object without the slot holds `void` there, so its branch names no field.
+            if (comptime !has_mldsa87(chapulin.Server)) {
+                // RFC 9846 §4.5.1.2: a server presents a key only for a scheme it can sign with.
+                return error.IdentityUnavailable;
+            } else {
+                // RFC 9846 §4.5.1.2, as for P-256 above.
+                if (server.mldsa87 != null) return error.IdentityRepeated;
+                server.mldsa87 = .{ .chain = chain, .public_key = &key.public_key, .private_key = &key.private_key };
+            }
+        },
+    }
+}
+
+/// Whether the object's server holds chapulin's ML-DSA-87 slot, which a host object's does.
+fn has_mldsa87(comptime Server: type) bool {
+    return @FieldType(Server, "mldsa87") != void;
 }
 
 /// A chain, the end-entity first (RFC 9846 §4.5.1), which chapulin takes as it is.

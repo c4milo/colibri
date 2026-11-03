@@ -532,11 +532,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   alone, and requires the Go peer to read colibri's alert (RFC 9846 §6.2). Both need a Go
   toolchain, and `tools/ci.sh` runs them.
   `tools/tls_openssl.sh` runs OpenSSL's s_client against `tls-accept` over TCP and against the
-  UDP server over QUIC, and reads each ServerHello from `-trace`: a client that lists ML-KEM-1024
-  gets it, with a HelloRetryRequest when it sends only an X25519MLKEM768 share, and a client that
-  lists X25519MLKEM768 alone or x25519 alone gets that group
-  (https://github.com/c4milo/colibri/issues/115). It needs OpenSSL 3.5 or newer, named by
-  `OPENSSL` or on the path, and a Go toolchain, and `tools/ci.sh` runs it. The push job runs on
+  UDP server over QUIC, each holding the Go tool's P-256 identity and the ML-DSA-87 one of
+  `src/testing/testdata/` (`mldsa87=<prefix>`), and reads each choice from `-trace`. A client
+  that lists ML-KEM-1024 gets it, with a HelloRetryRequest when it sends only an X25519MLKEM768
+  share; one that lists TLS_AES_256_GCM_SHA384 gets it; one that lists mldsa87 gets an ML-DSA-87
+  signature; and one that lists only older algorithms gets them
+  (https://github.com/c4milo/colibri/issues/115, design §8 step 33). It needs OpenSSL 3.5 or
+  newer, named by `OPENSSL` or on the path, and a Go toolchain, and `tools/ci.sh` runs it. The push job runs on
   Ubuntu 26.04 for its OpenSSL (decision 47 as amended).
 - Deadline check: `tools/deadlines.sh` runs the test-only server in h11 and h2 on its
   loop's clock and requires four peers to be cut at decision 110's default deadlines, each within
@@ -553,14 +555,15 @@ Everything below exists. Change this section when a step adds or renames a comma
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
   [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [bbr] [connections=<n>]
-  [seconds=<unix-seconds>] [qlogdir=<directory>]`
+  [seconds=<unix-seconds>] [qlogdir=<directory>] [mldsa87=<prefix>]`
   and `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
   [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...` run design §9's servers and
   clients over Rotor's UDP loop and `tls.quic`. With `pin` the client trusts the server's key, whose
   SHA-256 `<anchor-prefix>.pin` holds, and judges no chain, date or name. With `chacha20` it offers
   TLS_CHACHA20_POLY1305_SHA256 alone, as the runner's chacha20 case requires, and each client names
   the suite it ran in its report. With `qlogdir` each connection writes its qlog into the directory,
-  as `<ODCID>_<vantage point>.sqlog` (decision 102). The server serves h3 or hq-interop, whichever
+  as `<ODCID>_<vantage point>.sqlog` (decision 102). With `mldsa87=<prefix>` the server also
+presents the ML-DSA-87 identity of `<prefix>.chain.pem` and `<prefix>.key.pem` (decision 147). The server serves h3 or hq-interop, whichever
   its client's ALPN asks for, and a client with `h3` fetches over h3. A server with `h3` serves h3
   alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
   connections and writes no qlog; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run

@@ -75,7 +75,7 @@ pub const QuicServer = struct {
     pub fn configure(server: *QuicServer, plan: *const Plan) !void {
         const protocols: []const []const u8 = if (plan.quic == .refused) &alpn_other else &alpn_h3;
         try server.config.init(.{
-            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+            .identities = &identity.identities,
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
             .alpn = protocols,

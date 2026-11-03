@@ -124,31 +124,44 @@ pub const Resumption = struct {
     age_ms: u64,
 };
 
-/// An ecdsa_secp256r1_sha256 identity.
-pub const EcdsaP256Identity = struct {
-    /// DER certificates, the end-entity first (RFC 9846 §4.5.1).
-    chain: []const []const u8,
-    /// The end-entity's point, X||Y.
-    public_key: *const [constants.protocol.p256_public_key_len]u8,
-    /// The private scalar, big-endian. colibri passes the pointer to chapulin and never reads it.
-    private_key: *const [constants.protocol.p256_private_key_len]u8,
+/// A key's signature algorithm, by its SignatureScheme code point (RFC 9846 §4.3.3), as
+/// `cipher_suites` names suites by theirs (decision 147).
+pub const SignatureScheme = enum(u16) {
+    /// RFC 9846 §4.3.3.
+    ecdsa_secp256r1_sha256 = 0x0403,
+    /// draft-ietf-tls-mldsa-05 §3, ML-DSA-87.
+    mldsa87 = 0x0906,
 };
 
-/// An rsa_pss_rsae_sha256 identity.
-pub const RsaPssIdentity = struct {
+/// A key pair a server signs with, which `pem.key` fills, in room for the largest key, ML-DSA-87's
+/// (RFC 9881 §4 and §6). A key of another scheme uses the start of each room. colibri passes
+/// chapulin pointers into it and never reads the secret. The program places it, keeps it in place
+/// while a session uses it, and calls `wipe` once none does.
+pub const Key = struct {
+    /// The key's algorithm, or null until `pem.key` fills it. A server refuses a key with none.
+    scheme: ?SignatureScheme = null,
+    /// The private key: a P-256 scalar, big-endian, or an expanded ML-DSA-87 secret key.
+    private_key: [constants.protocol.mldsa87_private_key_len]u8 = @splat(0),
+    /// The public key: a P-256 point X||Y, or an ML-DSA-87 public key.
+    public_key: [constants.protocol.mldsa87_public_key_len]u8 = @splat(0),
+
+    /// Writes zero over the private key, through a write the compiler keeps.
+    pub fn wipe(key: *Key) void {
+        std.crypto.secureZero(u8, &key.private_key);
+    }
+};
+
+/// A server's identity: a chain and the key its end-entity certificate carries.
+pub const Identity = struct {
+    /// DER certificates, the end-entity first (RFC 9846 §4.5.1).
     chain: []const []const u8,
-    /// The modulus, big-endian.
-    public_key: []const u8,
-    /// A chapulin `ch_rsa_priv`. In a host object it holds the modulus, the private exponent and
-    /// the CRT values p, q, dp, dq and qinv, and in a device object the modulus and the private
-    /// exponent (chapulin's decision 95). It is opaque here because chapulin's type is one of each
-    /// object, and colibri passes the pointer and never reads it.
-    private_key: *const anyopaque,
+    key: *const Key,
 };
 
 pub const Server = struct {
-    ecdsa_p256: ?EcdsaP256Identity = null,
-    rsa_pss: ?RsaPssIdentity = null,
+    /// At most one identity for each scheme. chapulin signs with ML-DSA-87 when the client offers
+    /// it, and with ECDSA P-256 otherwise (its decision 180).
+    identities: []const Identity = &.{},
     /// RFC 9846 §4.3.2's cookie key, which chapulin requires of every server.
     cookie_key: *const [constants.protocol.server_key_len]u8,
     /// The key tickets are sealed under, or null to issue none.

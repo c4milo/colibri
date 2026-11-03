@@ -110,7 +110,9 @@ var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
 var chain_der: [chain_der_len]u8 = undefined;
 var chain_room: [tls.constants.limits.certificate_chain_len_max][]const u8 = undefined;
-var key: tls.P256Key align(@alignOf(tls.P256Key)) = .{};
+var key: tls.Key align(@alignOf(tls.Key)) = .{};
+/// The identity the server presents: the chain and the key its end-entity certificate carries.
+var identities: [1]tls.Identity align(@alignOf(tls.Identity)) = undefined;
 /// Room for the DER of the chain: a PEM file's DER is at most three quarters of its length.
 const chain_der_len = 4096;
 var cookie_key: [tls.constants.protocol.server_key_len]u8 = undefined;
@@ -189,18 +191,16 @@ fn start_server(cpu: tls.Cpu) !void {
     program.fill(&cookie_key);
     program.fill(&ticket_key);
     // The program reads its PEM files into memory itself, and `tls.pem` reads them out of it: the
-    // chain, the end-entity first, and the P-256 key the end-entity certificate carries.
+    // chain, the end-entity first, and the key the end-entity certificate carries. `pem.key` takes
+    // the key's scheme, here ecdsa_secp256r1_sha256, from the file.
     const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
-    try tls.pem.p256_key(cpu, identity.key_pem, chain[0], &key);
+    try tls.pem.key(cpu, identity.key_pem, chain[0], &key);
+    identities[0] = .{ .chain = chain, .key = &key };
     endpoint_config = .{
         // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
         // as `protocols` allows by default, and names h3 for its QUIC connections.
         .tls = .{
-            .ecdsa_p256 = .{
-                .chain = chain,
-                .public_key = &key.public_key,
-                .private_key = &key.private_key,
-            },
+            .identities = &identities,
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,
             .cpu = cpu,

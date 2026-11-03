@@ -212,9 +212,18 @@ pub const tls_flight_len_max: usize = 2 * tls_der_len_max + tls_flight_rest_len;
 /// The rest of the flight: ServerHello, the compatibility ChangeCipherSpec, EncryptedExtensions,
 /// CertificateVerify and Finished, and a header and tag around every record. The library's object
 /// seals up to 16,384 octets of plaintext per record (`TX_RECORD`, decision 97), so two 8 KiB
-/// certificates take two records and their overhead; the other messages are a few hundred octets
-/// more.
-pub const tls_flight_rest_len: usize = 4 * 1024;
+/// certificates take two records and their overhead. An ML-DSA-87 CertificateVerify carries a
+/// signature of 4,627 octets (RFC 9881 Appendix B, decision 147), and the other messages are a few
+/// hundred octets more.
+pub const tls_flight_rest_len: usize = 8 * 1024;
+
+/// The identities a test-only server presents at most: the Go tool's P-256 one, and an ML-DSA-87
+/// one read from PEM (decision 147).
+pub const tls_identities_max: usize = 2;
+
+/// The longest PEM file of an ML-DSA-87 identity: its chain's two certificates, about 7,500
+/// octets of DER each, as base64 (RFC 7468 §2).
+pub const tls_mldsa87_file_len_max: usize = 24 * 1024;
 
 /// The label, context and length both TLS checks export under (RFC 9846 §7.5). The Go peers in
 /// `tools/h2_interop/` export under the same three, and the scripts require the two values to

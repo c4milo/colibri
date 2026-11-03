@@ -167,6 +167,9 @@ test "decision 121: StartError names what Endpoint.init returns, and no other er
                 error.TooManyCertificates => "TooManyCertificates",
                 error.TooManySuites => "TooManySuites",
                 error.SuitesUnavailable => "SuitesUnavailable",
+                error.IdentityRepeated => "IdentityRepeated",
+                error.IdentityUnfilled => "IdentityUnfilled",
+                error.IdentityUnavailable => "IdentityUnavailable",
             };
         }
     };

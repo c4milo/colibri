@@ -1,6 +1,6 @@
 //! The PEM files an operator holds (RFC 7468), read into the values `tls` takes
 //! (https://github.com/c4milo/colibri/issues/97, decision 141): a server's certificate chain and
-//! its P-256 key, and a client's CA bundle. chapulin decodes each file (its decision 131), and
+//! its key, P-256 or ML-DSA-87 (decision 147), and a client's CA bundle. chapulin decodes each file (its decision 131), and
 //! this file shapes the result. None of the calls reads a file: the program reads it into a slice
 //! and passes the slice, with rooms it places and sizes. Decoding authenticates nothing; the files
 //! are trusted because the operator placed them.
@@ -16,23 +16,8 @@ const config = @import("config.zig");
 /// around the blocks are skipped (RFC 7468 §2 and §5.2).
 pub const Error = error{Invalid};
 
-/// A P-256 key pair read from a PEM file: the scalar and its point, which
-/// `EcdsaP256Identity.private_key` and `public_key` point at. The scalar is a secret: `wipe` zeroes
-/// it once no session uses it.
-pub const P256Key = extern struct {
-    /// The private scalar, big-endian.
-    private_key: [constants.protocol.p256_private_key_len]u8 = @splat(0),
-    /// The point, X||Y.
-    public_key: [constants.protocol.p256_public_key_len]u8 = @splat(0),
-
-    /// Writes zero over the scalar, through a write the compiler keeps.
-    pub fn wipe(key: *P256Key) void {
-        std.crypto.secureZero(u8, &key.private_key);
-    }
-};
-
 /// Reads the CERTIFICATE blocks of `file`, the end-entity first (RFC 9846 §4.5.1), into the DER
-/// room `der` and the slices of `room`, and returns the chain `EcdsaP256Identity.chain` takes. A
+/// room `der` and the slices of `room`, and returns the chain `Identity.chain` takes. A
 /// DER room of `file.len / 4 * 3` octets holds any file. Both rooms stay in place while a session
 /// uses the chain.
 pub fn chain(file: []const u8, der: []u8, room: [][]const u8) Error![]const []const u8 {
@@ -44,26 +29,61 @@ pub fn chain(file: []const u8, der: []u8, room: [][]const u8) Error![]const []co
     return read.certs;
 }
 
-/// Reads one PRIVATE KEY block (PKCS #8, RFC 7468 §10) or one EC PRIVATE KEY block (SEC 1, RFC 5915 §4)
-/// of `file` into `key`. The key must be P-256, and `leaf`, the end-entity certificate's DER, must
-/// carry its point (RFC 9846 §4.5.2). `cpu` is the server's `Cpu`, which chapulin computes the
-/// point under. The program wipes `file` itself once the call returns.
-pub fn p256_key(cpu: values.Cpu, file: []const u8, leaf: []const u8, key: *P256Key) Error!void {
-    // chapulin decodes into the caller's key, so no copy of the scalar is left to wipe. A refused
-    // file leaves both fields zero.
-    const read: *chapulin.EcdsaP256Key = @ptrCast(key);
-    // RFC 7468 §2 and §10, RFC 5958 §2, RFC 5915 §3 and §4, and RFC 9846 §4.5.2: chapulin skips the
-    // text around the block, and refuses another label, a key that is not P-256, and one the leaf
-    // does not carry.
-    read.fromPem(config.cpu_value(chapulin, cpu), file, leaf) catch return error.Invalid;
+/// Reads one key block of `file` into `key`, and sets `key.scheme` from the key's algorithm:
+/// - ecdsa_secp256r1_sha256 for a PRIVATE KEY block (PKCS #8, RFC 7468 §10) or an EC PRIVATE KEY
+///   block (SEC 1, RFC 5915 §4) that holds a P-256 key;
+/// - mldsa87 for a PRIVATE KEY block that holds an ML-DSA-87 key (RFC 9881 §6), in an object that
+///   holds chapulin's ML-DSA-87 slot.
+/// `leaf`, the end-entity certificate's DER, must carry the key's public key (RFC 9846 §4.5.2).
+/// `cpu` is the server's `Cpu`, which chapulin computes the public key under. A refused file
+/// leaves `key` with no scheme and zero keys. The program wipes `file` itself once the call
+/// returns.
+pub fn key(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) Error!void {
+    into.* = .{};
+    // RFC 7468 §2 and §10, RFC 5958 §2, RFC 5915 §3 and §4, and RFC 9846 §4.5.2: chapulin skips
+    // the text around the block, and refuses another label, another algorithm, and a key the leaf
+    // does not carry. Each call is tried in turn, so the one that holds the key's algorithm reads it.
+    if (read_p256(cpu, file, leaf, into)) return;
+    if (comptime has_mldsa87) {
+        if (read_mldsa87(cpu, file, leaf, into)) return;
+    }
+    // RFC 7468 §10 and RFC 9881 §6: no call read the block as a key of its algorithm.
+    return error.Invalid;
+}
+
+/// Whether the object reads an ML-DSA-87 key, which a host object does and a device object does not.
+const has_mldsa87 = @hasDecl(chapulin.c, "ch_mldsa_key_from_pem");
+
+/// Reads a P-256 key into `into`. chapulin decodes into its own key, which this copies and wipes.
+fn read_p256(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
+    var read: chapulin.EcdsaP256Key = .{};
+    defer read.wipe();
+    read.fromPem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    @memcpy(into.private_key[0..read.private_key.len], &read.private_key);
+    @memcpy(into.public_key[0..read.public_key.len], &read.public_key);
+    into.scheme = .ecdsa_secp256r1_sha256;
+    return true;
+}
+
+/// Reads an ML-DSA-87 key into `into`, as `read_p256` reads a P-256 one.
+fn read_mldsa87(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
+    var read: chapulin.MlDsa87Key = .{};
+    defer read.wipe();
+    read.fromPem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    @memcpy(&into.private_key, &read.private_key);
+    @memcpy(&into.public_key, &read.public_key);
+    into.scheme = .mldsa87;
+    return true;
 }
 
 comptime {
-    // `p256_key` hands the caller's key to chapulin as chapulin's own type.
-    assert(@sizeOf(P256Key) == @sizeOf(chapulin.EcdsaP256Key));
-    assert(@alignOf(P256Key) == @alignOf(chapulin.EcdsaP256Key));
-    assert(@offsetOf(P256Key, "private_key") == @offsetOf(chapulin.EcdsaP256Key, "private_key"));
-    assert(@offsetOf(P256Key, "public_key") == @offsetOf(chapulin.EcdsaP256Key, "public_key"));
+    // `read_p256` and `read_mldsa87` copy chapulin's keys into the rooms of a `Key`.
+    assert(@sizeOf(@FieldType(chapulin.EcdsaP256Key, "private_key")) == constants.protocol.p256_private_key_len);
+    assert(@sizeOf(@FieldType(chapulin.EcdsaP256Key, "public_key")) == constants.protocol.p256_public_key_len);
+    if (has_mldsa87) {
+        assert(@sizeOf(@FieldType(chapulin.MlDsa87Key, "private_key")) == constants.protocol.mldsa87_private_key_len);
+        assert(@sizeOf(@FieldType(chapulin.MlDsa87Key, "public_key")) == constants.protocol.mldsa87_public_key_len);
+    }
 }
 
 /// Reads the CERTIFICATE blocks of a CA bundle into the DER room `der` and the anchors of `room`,

@@ -56,6 +56,9 @@ const Router = @TypeOf(routes).Of(.{ .requests = 1, .response_bytes = 256, .body
 /// One TCP connection at a time, and no QUIC connection: this server has no UDP socket.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 const chain = [_][]const u8{ identity.leaf, identity.root };
+/// The server's key, which `init` reads from the test identity's PEM file, and its identity.
+var key: tls.Key align(@alignOf(tls.Key)) = .{};
+const identities = [_]tls.Identity{.{ .chain = &chain, .key = &key }};
 
 // The endpoint holds hundreds of kilobytes, so it lives outside the stack.
 var link: *Link = undefined;
@@ -76,15 +79,12 @@ var ended: u32 = 0;
 /// Starts the server's endpoint on the stream link the example holds.
 pub fn init(stream: *Link, cpu: tls.Cpu) !void {
     link = stream;
+    try tls.pem.key(cpu, identity.key_pem, identity.leaf, &key);
     program.fill(&cookie_key);
     program.fill(&ticket_key);
     config = .{
         .tls = .{
-            .ecdsa_p256 = .{
-                .chain = &chain,
-                .public_key = identity.public_key,
-                .private_key = identity.private_key,
-            },
+            .identities = &identities,
             .cookie_key = &cookie_key,
             .ticket_key = &ticket_key,
             .cpu = cpu,
