@@ -1534,8 +1534,11 @@ the rooms. Decoding authenticates nothing: the files are trusted because the ope
 - `tls.pem.key(cpu, file, leaf, &key)` reads a key block into a `tls.Key`, which a `tls.Identity`
   points at, and sets `key.scheme` from the key's algorithm ([decision 147](decisions.md)):
   `ecdsa_secp256r1_sha256` for a P-256 key under `PRIVATE KEY` (PKCS #8) or `EC PRIVATE KEY`
-  (SEC 1), and `mldsa87` for an ML-DSA-87 key under `PRIVATE KEY` (RFC 9881 §6). The program
-  wipes the key with `wipe()` once no session uses it, and wipes its own copy of the file.
+  (SEC 1), `rsa_pss_rsae_sha256` for an RSA key of two primes and the exponent 65537 under
+  `PRIVATE KEY`, and `mldsa87` for an ML-DSA-87 key under `PRIVATE KEY` (RFC 9881 §6). chapulin
+  signs once with an RSA key and verifies the signature, so a key that does not match the leaf is
+  refused. The program wipes the key with `wipe()` once no session uses it, and wipes its own copy
+  of the file.
 - `tls.pem.anchors(file, der, room)` returns the anchors `Trust.web_pki.anchors` takes, at most
   `tls.constants.limits.anchors_max`, such as a curl-style bundle with a title line before each
   block.

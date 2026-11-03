@@ -129,6 +129,8 @@ pub const Resumption = struct {
 pub const SignatureScheme = enum(u16) {
     /// RFC 9846 §4.3.3.
     ecdsa_secp256r1_sha256 = 0x0403,
+    /// RFC 9846 §4.3.3, RSASSA-PSS with SHA-256 over an rsaEncryption key.
+    rsa_pss_rsae_sha256 = 0x0804,
     /// draft-ietf-tls-mldsa-05 §3, ML-DSA-87.
     mldsa87 = 0x0906,
 };
@@ -136,13 +138,16 @@ pub const SignatureScheme = enum(u16) {
 /// A key pair a server signs with, which `pem.key` fills, in room for the largest key, ML-DSA-87's
 /// (RFC 9881 §4 and §6). A key of another scheme uses the start of each room. colibri passes
 /// chapulin pointers into it and never reads the secret. The program places it, keeps it in place
-/// while a session uses it, and calls `wipe` once none does.
+/// while a session uses it, and calls `wipe` once none does. The program fills a P-256 key itself
+/// when it holds the raw scalar and point, and an RSA key only through `pem.key`.
 pub const Key = struct {
     /// The key's algorithm, or null until `pem.key` fills it. A server refuses a key with none.
     scheme: ?SignatureScheme = null,
-    /// The private key: a P-256 scalar, big-endian, or an expanded ML-DSA-87 secret key.
-    private_key: [constants.protocol.mldsa87_private_key_len]u8 = @splat(0),
-    /// The public key: a P-256 point X||Y, or an ML-DSA-87 public key.
+    /// The private key: a P-256 scalar, big-endian; chapulin's RSA key, its modulus, exponent and
+    /// CRT integers in chapulin's `ch_rsa_priv`, which holds machine words and so is aligned to
+    /// one; or an expanded ML-DSA-87 secret key.
+    private_key: [constants.protocol.mldsa87_private_key_len]u8 align(@alignOf(usize)) = @splat(0),
+    /// The public key: a P-256 point X||Y, an RSA modulus, big-endian, or an ML-DSA-87 public key.
     public_key: [constants.protocol.mldsa87_public_key_len]u8 = @splat(0),
 
     /// Writes zero over the private key, through a write the compiler keeps.
@@ -160,7 +165,8 @@ pub const Identity = struct {
 
 pub const Server = struct {
     /// At most one identity for each scheme. chapulin signs with ML-DSA-87 when the client offers
-    /// it, and with ECDSA P-256 otherwise (its decision 180).
+    /// it, then with ECDSA P-256, and with RSA-PSS when the client offers neither (its decision
+    /// 180). `tools/tls_openssl.sh` checks the order.
     identities: []const Identity = &.{},
     /// RFC 9846 §4.3.2's cookie key, which chapulin requires of every server.
     cookie_key: *const [constants.protocol.server_key_len]u8,

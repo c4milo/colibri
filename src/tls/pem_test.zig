@@ -170,3 +170,51 @@ test "decision 147: a server holds one identity for each scheme, and chapulin's 
     const unfilled: values.Key = .{};
     try testing.expectError(error.IdentityUnfilled, support.server_config.init(.{ .identities = &.{.{ .chain = chain, .key = &unfilled }}, .cookie_key = &support.cookie_key, .cpu = support.cpu }));
 }
+
+/// The DER room of the RSA chain: two certificates of about 1,000 octets each. Test-only.
+var rsa_der: [der_len]u8 = undefined;
+var rsa_certificates: [chain_len][]const u8 = undefined;
+
+test "decision 147: an RSA key reads with its scheme and its modulus, and a leaf that does not carry it refuses" {
+    const chain = try pem.chain(testdata.rsa_chain_pem, &rsa_der, &rsa_certificates);
+    var key: values.Key = .{};
+    defer key.wipe();
+    try pem.key(support.cpu, testdata.rsa_key_pem, chain[0], &key);
+    try testing.expectEqual(.rsa_pss_rsae_sha256, key.scheme.?);
+    // RFC 8017 §A.1.1: the leaf's RSAPublicKey holds the modulus, 384 octets for RSA-3072.
+    try testing.expect(std.mem.indexOf(u8, chain[0], key.public_key[0..rsa_modulus_len]) != null);
+    // RFC 9846 §4.5.2: the P-256 leaf carries another key, so the file is refused.
+    var refused: values.Key = .{};
+    try testing.expectError(error.Invalid, pem.key(support.cpu, testdata.rsa_key_pem, testdata.leaf, &refused));
+    try testing.expectEqual(null, refused.scheme);
+}
+
+/// Octets of the test RSA key's modulus: RSA-3072. Test-only.
+const rsa_modulus_len: usize = 384;
+
+test "decision 147: a server holds a P-256, an RSA and an ML-DSA-87 identity, and chapulin's check signs with each" {
+    const rsa_chain = try pem.chain(testdata.rsa_chain_pem, &rsa_der, &rsa_certificates);
+    const mldsa87_chain = try pem.chain(testdata.mldsa87_chain_pem, &mldsa87_der, &mldsa87_certificates);
+    var rsa_key: values.Key = .{};
+    defer rsa_key.wipe();
+    var mldsa87_key: values.Key = .{};
+    defer mldsa87_key.wipe();
+    try pem.key(support.cpu, testdata.rsa_key_pem, rsa_chain[0], &rsa_key);
+    try pem.key(support.cpu, testdata.mldsa87_key_pem, mldsa87_chain[0], &mldsa87_key);
+    try support.configure(support.web_pki, .{});
+    const all = [_]values.Identity{
+        support.identities[0],
+        .{ .chain = rsa_chain, .key = &rsa_key },
+        .{ .chain = mldsa87_chain, .key = &mldsa87_key },
+    };
+    try support.server_config.init(.{ .identities = &all, .cookie_key = &support.cookie_key, .alpn = &support.protocols, .cpu = support.cpu });
+    const rsa_pss = support.server_config.values.rsa_pss.?;
+    try testing.expectEqual(@intFromPtr(&rsa_key.private_key), @intFromPtr(rsa_pss.private_key));
+    try testing.expectEqualSlices(u8, rsa_key.public_key[0..rsa_modulus_len], rsa_pss.public_key);
+    try support.server_config.check(support.random());
+    try support.handshake_both(null);
+    try testing.expect(support.client.provider().is_complete());
+    // RFC 9846 §4.5.1.2: two RSA identities are refused.
+    const twice_rsa = [_]values.Identity{ all[1], all[1] };
+    try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice_rsa, .cookie_key = &support.cookie_key, .cpu = support.cpu }));
+}

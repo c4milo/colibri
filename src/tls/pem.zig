@@ -1,6 +1,6 @@
 //! The PEM files an operator holds (RFC 7468), read into the values `tls` takes
 //! (https://github.com/c4milo/colibri/issues/97, decision 141): a server's certificate chain and
-//! its key, P-256 or ML-DSA-87 (decision 147), and a client's CA bundle. chapulin decodes each file (its decision 131), and
+//! its key, P-256, RSA or ML-DSA-87 (decision 147), and a client's CA bundle. chapulin decodes each file (its decision 131), and
 //! this file shapes the result. None of the calls reads a file: the program reads it into a slice
 //! and passes the slice, with rooms it places and sizes. Decoding authenticates nothing; the files
 //! are trusted because the operator placed them.
@@ -32,6 +32,9 @@ pub fn chain(file: []const u8, der: []u8, room: [][]const u8) Error![]const []co
 /// Reads one key block of `file` into `key`, and sets `key.scheme` from the key's algorithm:
 /// - ecdsa_secp256r1_sha256 for a PRIVATE KEY block (PKCS #8, RFC 7468 §10) or an EC PRIVATE KEY
 ///   block (SEC 1, RFC 5915 §4) that holds a P-256 key;
+/// - rsa_pss_rsae_sha256 for a PRIVATE KEY block that holds an rsaEncryption key of two primes and
+///   the public exponent 65537 (RFC 8017 §3.2). chapulin signs once with it at load and verifies
+///   the signature under the leaf's key, so a private key that does not match the leaf is refused;
 /// - mldsa87 for a PRIVATE KEY block that holds an ML-DSA-87 key (RFC 9881 §6), in an object that
 ///   holds chapulin's ML-DSA-87 slot.
 /// `leaf`, the end-entity certificate's DER, must carry the key's public key (RFC 9846 §4.5.2).
@@ -44,6 +47,7 @@ pub fn key(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Ke
     // the text around the block, and refuses another label, another algorithm, and a key the leaf
     // does not carry. Each call is tried in turn, so the one that holds the key's algorithm reads it.
     if (read_p256(cpu, file, leaf, into)) return;
+    if (read_rsa(cpu, file, leaf, into)) return;
     if (comptime has_mldsa87) {
         if (read_mldsa87(cpu, file, leaf, into)) return;
     }
@@ -65,6 +69,19 @@ fn read_p256(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.
     return true;
 }
 
+/// Reads an RSA key into `into`: chapulin's `ch_rsa_priv` into the private room, whose alignment
+/// holds it, and the modulus into the public room.
+fn read_rsa(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
+    var read: chapulin.RsaKey = .{};
+    defer read.wipe();
+    read.fromPem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    const modulus = read.publicKey();
+    @memcpy(into.private_key[0..@sizeOf(chapulin.c.ch_rsa_priv)], std.mem.asBytes(&read.private_key));
+    @memcpy(into.public_key[0..modulus.len], modulus);
+    into.scheme = .rsa_pss_rsae_sha256;
+    return true;
+}
+
 /// Reads an ML-DSA-87 key into `into`, as `read_p256` reads a P-256 one.
 fn read_mldsa87(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
     var read: chapulin.MlDsa87Key = .{};
@@ -77,9 +94,13 @@ fn read_mldsa87(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *valu
 }
 
 comptime {
-    // `read_p256` and `read_mldsa87` copy chapulin's keys into the rooms of a `Key`.
+    // `read_p256`, `read_rsa` and `read_mldsa87` copy chapulin's keys into the rooms of a `Key`.
     assert(@sizeOf(@FieldType(chapulin.EcdsaP256Key, "private_key")) == constants.protocol.p256_private_key_len);
     assert(@sizeOf(@FieldType(chapulin.EcdsaP256Key, "public_key")) == constants.protocol.p256_public_key_len);
+    assert(@sizeOf(chapulin.c.ch_rsa_priv) <= constants.protocol.mldsa87_private_key_len);
+    assert(@alignOf(chapulin.c.ch_rsa_priv) <= @alignOf(values.Key) and
+        @offsetOf(values.Key, "private_key") % @alignOf(chapulin.c.ch_rsa_priv) == 0);
+    assert(@sizeOf(@FieldType(chapulin.c.ch_rsa_priv, "n")) <= constants.protocol.mldsa87_public_key_len);
     if (has_mldsa87) {
         assert(@sizeOf(@FieldType(chapulin.MlDsa87Key, "private_key")) == constants.protocol.mldsa87_private_key_len);
         assert(@sizeOf(@FieldType(chapulin.MlDsa87Key, "public_key")) == constants.protocol.mldsa87_public_key_len);

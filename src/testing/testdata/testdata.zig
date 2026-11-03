@@ -34,6 +34,11 @@ pub const bundle_pem = @embedFile("identity.bundle.pem");
 /// the leaf first, and the leaf's key as PKCS #8 in RFC 9881 §6's both form (decision 147).
 pub const mldsa87_chain_pem = @embedFile("identity.mldsa87.chain.pem");
 pub const mldsa87_key_pem = @embedFile("identity.mldsa87.key.pem");
+/// An RSA-3072 identity for `localhost` and 127.0.0.1 under an RSA CA of its own, as PEM: the chain,
+/// the leaf first, and the leaf's key as PKCS #8 (RFC 5958), which `rsa_pss_rsae_sha256` signs
+/// with (decision 147).
+pub const rsa_chain_pem = @embedFile("identity.rsa.chain.pem");
+pub const rsa_key_pem = @embedFile("identity.rsa.key.pem");
 
 /// The first and the last instant both certificates are valid at, in Unix seconds: their
 /// notBefore, 2026-01-01T00:00:00Z, and their notAfter, 2126-01-01T00:00:00Z. chapulin counts both

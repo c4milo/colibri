@@ -5719,6 +5719,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        checks.
      - Step 33c waiting for the RFC. The key exchange of step 33a ships without it.
 
+     Amended on 2026-11-03 (design §8 step 33d). chapulin `965668d2` (its decision 184) reads an
+     RSA key from PEM with `ch_rsa_key_from_pem`, so ruling 3 is met:
+     - `tls.SignatureScheme` gains `rsa_pss_rsae_sha256`, 0x0804 (RFC 9846 §4.3.3).
+     - `tls.pem.key` reads a PKCS #8 rsaEncryption key of two primes and the exponent 65537. It
+       copies chapulin's key into the room of a `tls.Key`, whose private room is aligned to a
+       machine word for it. chapulin signs once at load and verifies, so a key that does not
+       match the leaf is refused there.
+     - The owner ruled that every server object outside chapulin's `PROFILE=cnsa2` exports the
+       call, device objects too.
+
      Cost: a `tls.Key` holds 7,488 octets and its scheme, even for a P-256 key of 96. chapulin's
      server accept takes 28,752 octets of stack on arm64, where it took 12,752, whether or not an
      ML-DSA-87 identity is set.

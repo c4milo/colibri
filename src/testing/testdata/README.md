@@ -20,6 +20,8 @@ is for tests alone.
 | `identity.bundle.pem` | the CA's certificate as a CA bundle, after two title lines as curl writes them |
 | `identity.mldsa87.chain.pem` | an ML-DSA-87 leaf for `localhost` and 127.0.0.1, and the ML-DSA-87 CA that signed it, as PEM |
 | `identity.mldsa87.key.pem` | that leaf's key as a PKCS #8 `PRIVATE KEY` block, seed and expanded key (RFC 9881 §6) |
+| `identity.rsa.chain.pem` | an RSA-3072 leaf for `localhost` and 127.0.0.1, and the RSA-3072 CA that signed it, as PEM |
+| `identity.rsa.key.pem` | that leaf's key as a PKCS #8 `PRIVATE KEY` block (RFC 5958) |
 
 The certificates have the profile `tools/h2_interop/tls_identity.go` mints, which chapulin's Web
 PKI mode accepts:
@@ -135,3 +137,32 @@ cat leaf.pem ca.pem > identity.mldsa87.chain.pem
 ```
 
 The leaf's DER is 7,498 octets and the CA's 7,466.
+
+## The RSA identity
+
+OpenSSL 4.1.0 made it on 2026-11-03, in an empty directory, with the commands below (decision 147
+as amended). The profile is the P-256 one's, with RSA-3072 keys and sha256WithRSAEncryption
+signatures. Only the two `identity.rsa.*` files were copied here.
+
+```sh
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out ca.key
+openssl req -x509 -new -key ca.key -sha256 -config /dev/null -subj "/CN=colibri test RSA CA" \
+  -set_serial 1 -not_before 20260101000000Z -not_after 21260101000000Z \
+  -addext "keyUsage=critical,digitalSignature,keyCertSign" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "subjectKeyIdentifier=hash" \
+  -addext "authorityKeyIdentifier=none" \
+  -out ca.pem
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out identity.rsa.key.pem
+openssl req -x509 -new -key identity.rsa.key.pem -sha256 -config /dev/null -subj "/CN=localhost" \
+  -CA ca.pem -CAkey ca.key \
+  -set_serial 2 -not_before 20260101000000Z -not_after 21260101000000Z \
+  -addext "keyUsage=critical,digitalSignature" \
+  -addext "extendedKeyUsage=serverAuth" \
+  -addext "basicConstraints=critical,CA:FALSE" \
+  -addext "authorityKeyIdentifier=keyid" \
+  -addext "subjectKeyIdentifier=none" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+  -out leaf.pem
+cat leaf.pem ca.pem > identity.rsa.chain.pem
+```

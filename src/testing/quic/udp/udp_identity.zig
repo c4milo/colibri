@@ -40,8 +40,9 @@ var server_chain: []const []const u8 = &.{};
 var key: tls.Key align(@alignOf(tls.Key)) = .{};
 var identities: [constants.tls_identities_max]tls.Identity align(@alignOf(tls.Identity)) = undefined;
 var identities_count: usize = 0;
-/// The ML-DSA-87 identity, when the run names one (decision 147).
-var mldsa87_storage: identity_files.Mldsa87Storage align(@alignOf(identity_files.Mldsa87Storage)) = undefined;
+/// The RSA and the ML-DSA-87 identity, when the run names them (decision 147).
+var rsa_storage: identity_files.PemStorage align(@alignOf(identity_files.PemStorage)) = undefined;
+var mldsa87_storage: identity_files.PemStorage align(@alignOf(identity_files.PemStorage)) = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
 var pin_storage: [1]tls.Pin align(@alignOf(tls.Pin)) = undefined;
@@ -211,9 +212,13 @@ fn configure_server(asked: udp_arguments.Server) !void {
     server_chain = try read_chain(prefix);
     identities[0] = .{ .chain = server_chain, .key = &key };
     identities_count = 1;
+    if (asked.rsa_prefix) |rsa_prefix| {
+        identities[identities_count] = try identity_files.load_pem(rsa_prefix, .rsa_pss_rsae_sha256, &rsa_storage, cpu.probe());
+        identities_count += 1;
+    }
     if (asked.mldsa87_prefix) |mldsa87_prefix| {
-        identities[identity_files.mldsa87_index] = try identity_files.load_mldsa87(mldsa87_prefix, &mldsa87_storage, cpu.probe());
-        identities_count = identity_files.mldsa87_index + 1;
+        identities[identities_count] = try identity_files.load_pem(mldsa87_prefix, .mldsa87, &mldsa87_storage, cpu.probe());
+        identities_count += 1;
     }
     var values = server_identity();
     values.alpn = &server_alpn;

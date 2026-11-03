@@ -2,7 +2,7 @@
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
 //!         [no-switch] [no-gso] [h3] [routes=github] [bbr] [connections=<n>]
-//!         [seconds=<unix-seconds>] [qlogdir=<directory>] [mldsa87=<prefix>]
+//!         [seconds=<unix-seconds>] [qlogdir=<directory>] [rsa=<prefix>] [mldsa87=<prefix>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
 //!
@@ -92,8 +92,9 @@ pub const Server = struct {
     now_seconds: u64 = 0,
     /// The directory each connection's qlog goes in, or null for no qlog.
     qlogdir: ?[]const u8 = null,
-    /// The prefix of an ML-DSA-87 identity's PEM files, presented beside the P-256 one, or null
-    /// (`mldsa87=<prefix>`, decision 147).
+    /// The prefixes of an RSA and of an ML-DSA-87 identity's PEM files, presented beside the
+    /// P-256 one, or null (`rsa=<prefix>` and `mldsa87=<prefix>`, decision 147).
+    rsa_prefix: ?[]const u8 = null,
     mldsa87_prefix: ?[]const u8 = null,
 
     /// Whether the options agree: the router and BBRv3 run through `server`, which the `h3` mode
@@ -134,9 +135,6 @@ pub const Client = struct {
     v2: bool = false,
     /// The directory each connection's qlog goes in, or null for no qlog.
     qlogdir: ?[]const u8 = null,
-    /// The prefix of an ML-DSA-87 identity's PEM files, presented beside the P-256 one, or null
-    /// (`mldsa87=<prefix>`, decision 147).
-    mldsa87_prefix: ?[]const u8 = null,
 };
 
 pub const Arguments = union(Role) {
@@ -182,6 +180,8 @@ fn server_of(arguments: anytype, address: udp.Address) ?Server {
             server.now_seconds = seconds;
         } else if (parse_qlogdir(word)) |directory| {
             server.qlogdir = directory;
+        } else if (std.mem.startsWith(u8, word, rsa_prefix)) {
+            server.rsa_prefix = word[rsa_prefix.len..];
         } else if (std.mem.startsWith(u8, word, mldsa87_prefix)) {
             server.mldsa87_prefix = word[mldsa87_prefix.len..];
         } else {
@@ -230,15 +230,17 @@ const client_options_count: usize = 7;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `no-gso`, `h3`, `routes=github`,
-/// `connections=<n>`, `seconds=<unix-seconds>`, `qlogdir=<directory>` and `mldsa87=<prefix>`.
-const server_options_count: usize = 12;
+/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `no-gso`, `bbr`, `h3`, `routes=github`,
+/// `connections=<n>`, `seconds=<unix-seconds>`, `qlogdir=<directory>`, `rsa=<prefix>` and
+/// `mldsa87=<prefix>`.
+const server_options_count: usize = 14;
 /// The one route table the h3 server routes.
 const routes_word = "routes=github";
 
 const connections_prefix = "connections=";
 const seconds_prefix = "seconds=";
 const qlogdir_prefix = "qlogdir=";
+const rsa_prefix = "rsa=";
 const mldsa87_prefix = "mldsa87=";
 
 /// The directory of `qlogdir=<directory>`, or null for any other word, or for an empty directory.

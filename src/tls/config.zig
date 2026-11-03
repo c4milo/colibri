@@ -242,6 +242,21 @@ fn identity_into(comptime chapulin: type, server: *chapulin.Server, identity: va
                 .private_key = key.private_key[0..constants.protocol.p256_private_key_len],
             };
         },
+        .rsa_pss_rsae_sha256 => {
+            // RFC 9846 §4.5.1.2, as for P-256 above.
+            if (server.rsa_pss != null) return error.IdentityRepeated;
+            // `pem.key` wrote chapulin's `ch_rsa_priv` at the start of the private room, which is
+            // aligned and large enough for it in every object colibri builds.
+            comptime assert(@sizeOf(chapulin.c.ch_rsa_priv) <= @sizeOf(@FieldType(values.Key, "private_key")));
+            comptime assert(@alignOf(chapulin.c.ch_rsa_priv) <= @alignOf(values.Key) and
+                @offsetOf(values.Key, "private_key") % @alignOf(chapulin.c.ch_rsa_priv) == 0);
+            const private_key: *const chapulin.c.ch_rsa_priv = @ptrCast(&key.private_key);
+            server.rsa_pss = .{
+                .chain = chain,
+                .public_key = key.public_key[0..private_key.n_len],
+                .private_key = private_key,
+            };
+        },
         .mldsa87 => {
             // An object without the slot holds `void` there, so its branch names no field.
             if (comptime !has_mldsa87(chapulin.Server)) {

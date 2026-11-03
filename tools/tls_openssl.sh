@@ -2,14 +2,16 @@
 #
 # OpenSSL's s_client against colibri's servers, over TCP and over QUIC, for CNSA 2.0
 # (https://github.com/c4milo/colibri/issues/115, design §8 step 33). Each server holds the Go
-# tool's P-256 identity and the ML-DSA-87 one of src/testing/testdata/ (decision 147), and chooses
+# tool's P-256 identity and the RSA and ML-DSA-87 ones of src/testing/testdata/ (decision 147), and
+# chooses
 # CNSA 2.0's algorithms first when the client offers them:
 # - ML-KEM-1024 (0x0202) whenever the client lists it. A client that sends only an
 #   X25519MLKEM768 share gets a HelloRetryRequest that selects ML-KEM-1024 (RFC 9846 §4.2.4).
 # - TLS_AES_256_GCM_SHA384 (0x1302) when the client lists it, even after TLS_AES_128_GCM_SHA256.
 # - mldsa87 (0x0906, draft-ietf-tls-mldsa-05 §3) when the client lists it.
+# - ecdsa_secp256r1_sha256 before rsa_pss_rsae_sha256, in whatever order the client lists them.
 # A client that lists only older algorithms still gets them: X25519MLKEM768 (0x11ec), x25519
-# (0x001d), and ecdsa_secp256r1_sha256 (0x0403).
+# (0x001d), ecdsa_secp256r1_sha256 (0x0403) and rsa_pss_rsae_sha256 (0x0804).
 #
 # It needs an OpenSSL that offers ML-KEM-1024 and ML-DSA-87 and speaks QUIC, 3.5 or newer, named by
 # OPENSSL or found on the path, and a Go toolchain for the P-256 identity. It is not part of `zig
@@ -23,6 +25,7 @@ set -euo pipefail
 
 readonly hostname="localhost"
 readonly openssl="${OPENSSL:-openssl}"
+readonly rsa="src/testing/testdata/identity.rsa"
 readonly mldsa87="src/testing/testdata/identity.mldsa87"
 # Seconds a client may take before the run counts it as hung.
 readonly client_seconds=10
@@ -102,13 +105,15 @@ readonly cases=(
   "-ciphersuites TLS_AES_128_GCM_SHA256|groups=0x11ec suite=0x1301 signature=0x0906"
   "-sigalgs ecdsa_secp256r1_sha256:mldsa87|groups=0x11ec suite=0x1302 signature=0x0906"
   "-sigalgs ecdsa_secp256r1_sha256|groups=0x11ec suite=0x1302 signature=0x0403"
+  "-sigalgs rsa_pss_rsae_sha256|groups=0x11ec suite=0x1302 signature=0x0804"
+  "-sigalgs rsa_pss_rsae_sha256:ecdsa_secp256r1_sha256|groups=0x11ec suite=0x1302 signature=0x0403"
 )
 
 # Over TCP: tls-accept serves one connection, echoes one record, and requires the client's
 # close_notify (RFC 9846 §6.1).
 tcp_case() {
   local options="$1" want="$2"
-  ./zig-out/bin/tls-accept 0 "$scratch/identity" "mldsa87=$mldsa87" >"$scratch/tcp_server.log" 2>&1 &
+  ./zig-out/bin/tls-accept 0 "$scratch/identity" "rsa=$rsa" "mldsa87=$mldsa87" >"$scratch/tcp_server.log" 2>&1 &
   server_pid=$!
   local port
   port="$(tools/listening_port.sh "$scratch/tcp_server.log")"
@@ -139,7 +144,7 @@ for entry in "${cases[@]}"; do
   tcp_case "${entry%%|*}" "${entry#*|}"
 done
 
-./zig-out/bin/quic-udp server 127.0.0.1 0 "$scratch/identity" "$scratch/www" "mldsa87=$mldsa87" \
+./zig-out/bin/quic-udp server 127.0.0.1 0 "$scratch/identity" "$scratch/www" "rsa=$rsa" "mldsa87=$mldsa87" \
   >"$scratch/quic_server.log" 2>&1 &
 server_pid=$!
 quic_port="$(tools/listening_port.sh "$scratch/quic_server.log")"

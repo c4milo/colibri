@@ -12512,7 +12512,7 @@ library.
 - **Step 33 — CNSA 2.0 on the server.** The owner ruled on 2026-11-01 that colibri's server
   always holds CNSA 2.0's algorithms, and selects them first when a client offers them
   ([#115](https://github.com/c4milo/colibri/issues/115)). chapulin's `ROLE=both TRUST=webpki`
-  object does the selection, so the step adds no build option. It lands in three parts, as
+  object does the selection, so the step adds no build option. It lands in four parts, as
   chapulin's commits land:
   - **33a, ML-KEM-1024 first.** chapulin `7d8064dd` (its decisions 177 and 179) makes the server
     select ML-KEM-1024 (0x0202) whenever the client lists it, then its older order. colibri
@@ -12568,6 +12568,29 @@ library.
       repeated ML-DSA-87 identity allowed (NOT CAUGHT first; its test was then added), an unfilled
       key taken as P-256, `pem.key` reading no ML-DSA-87 key, naming an ML-DSA-87 key P-256, or
       leaving a P-256 key's scheme unset, and `Key.wipe` leaving the secret.
+  - **33d, RSA-PSS from PEM.** [Decision 147](decisions.md) as amended on 2026-11-03. chapulin
+    `965668d2` (its decision 184) adds `ch_rsa_key_from_pem`.
+    - **The public names.** `SignatureScheme` gains `rsa_pss_rsae_sha256`, 0x0804 (RFC 9846
+      §4.3.3). A server that presents an RSA certificate needs it. No other name changes.
+    - **The rules.** `pem.key` tries P-256, then RSA, then ML-DSA-87. It copies chapulin's
+      `ch_rsa_priv`, 2,312 octets in a host object, into the start of `Key.private_key`, and the
+      modulus into `Key.public_key`. The private room is aligned to a machine word, as
+      `ch_rsa_priv` holds a `size_t`. chapulin signs with ML-DSA-87 first, then with ECDSA P-256,
+      and with RSA-PSS when the client offers neither.
+    - **The checks.** `tls.pem.key` reads the RSA-3072 test key of `src/testing/testdata/` and
+      refuses it under the P-256 leaf. A server holds all three identities, chapulin's check signs
+      with each, and a second RSA identity is refused. `tls-accept` and the UDP server take
+      `rsa=<prefix>`. `tools/tls_openssl.sh` requires 0x0804 for `rsa_pss_rsae_sha256` alone and
+      0x0403 for `rsa_pss_rsae_sha256:ecdsa_secp256r1_sha256`.
+    - **Check met, 2026-11-03,** on macOS 26 on arm64 with OpenSSL 4.1.0. `tools/tls_openssl.sh`
+      ran 10 cases over TCP and 10 over QUIC against servers that hold the three identities, and
+      each printed what its case requires. `zig build test-tls test-tls-keylog -Dcpu=generic`
+      passed 172 of 172 tests.
+    - **The cost.** None: `zig build bench-memory` prints the table of step 33c.
+    - 8 mutations **CAUGHT**: `pem.key` reading no RSA key, naming an RSA key P-256, copying no
+      modulus, or copying no private key; a repeated RSA identity allowed; the modulus cut short;
+      the RSA slot never set; and `tls-accept` ignoring `rsa=`, which `tools/tls_openssl.sh`
+      caught.
 
 ## 9. Test-only entry points
 

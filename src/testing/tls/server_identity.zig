@@ -25,41 +25,43 @@ pub const Storage = struct {
     chain: [chain_len][]const u8,
     /// The identities the server presents, which point into this storage.
     identities: [constants.tls_identities_max]tls.Identity,
-    /// The ML-DSA-87 identity, when the run names one.
-    mldsa87: Mldsa87Storage,
+    /// The RSA and the ML-DSA-87 identity, when the run names them.
+    rsa: PemStorage,
+    mldsa87: PemStorage,
 };
 
-/// The rooms an ML-DSA-87 identity read from PEM takes (decision 147): the files, the chain's DER,
-/// and the key. A chain of two ML-DSA-87 certificates is about 15,000 octets of DER.
-pub const Mldsa87Storage = struct {
-    file: [mldsa87_file_len_max]u8,
-    der: [mldsa87_file_len_max]u8,
+/// The rooms an identity read from PEM takes (decision 147): the files, the chain's DER, and the
+/// key. A chain of two ML-DSA-87 certificates, the largest, is about 15,000 octets of DER.
+pub const PemStorage = struct {
+    file: [pem_file_len_max]u8,
+    der: [pem_file_len_max]u8,
     certificates: [chain_len][]const u8,
     key: tls.Key,
 };
 
-/// The longest PEM file an ML-DSA-87 identity holds: the chain's two certificates as base64.
-const mldsa87_file_len_max: usize = constants.tls_mldsa87_file_len_max;
+/// The longest PEM file of an identity: an ML-DSA-87 chain's two certificates as base64.
+const pem_file_len_max: usize = constants.tls_pem_file_len_max;
 
-/// Reads `<prefix>.chain.pem` and `<prefix>.key.pem`, an ML-DSA-87 chain and its key, through
-/// `tls.pem`, and returns the identity that points into `storage`.
-pub fn load_mldsa87(prefix: []const u8, storage: *Mldsa87Storage, cpu_value: tls.Cpu) !tls.Identity {
+/// Reads `<prefix>.chain.pem` and `<prefix>.key.pem`, a chain and its key, through `tls.pem`, and
+/// returns the identity that points into `storage`. The key must be of `scheme`.
+pub fn load_pem(prefix: []const u8, scheme: tls.SignatureScheme, storage: *PemStorage, cpu_value: tls.Cpu) !tls.Identity {
     const chain_file = try check_file.read_part(prefix, ".chain.pem", &storage.file);
     const chain = try tls.pem.chain(chain_file, &storage.der, &storage.certificates);
     const key_file = try check_file.read_part(prefix, ".key.pem", &storage.file);
     defer std.crypto.secureZero(u8, &storage.file);
     try tls.pem.key(cpu_value, key_file, chain[0], &storage.key);
-    if (storage.key.scheme != .mldsa87) return error.KeyNotMlDsa87;
+    if (storage.key.scheme != scheme) return error.KeySchemeWrong;
     return .{ .chain = chain, .key = &storage.key };
 }
 
-/// Where the ML-DSA-87 identity goes: after the P-256 one.
-pub const mldsa87_index: usize = 1;
-
-/// Adds the ML-DSA-87 identity of `prefix` to the server `load` returned, beside its P-256 one.
-pub fn add_mldsa87(prefix: []const u8, storage: *Storage, server: *tls.Server) !void {
-    storage.identities[mldsa87_index] = try load_mldsa87(prefix, &storage.mldsa87, server.cpu);
-    server.identities = storage.identities[0 .. mldsa87_index + 1];
+/// Adds the identity of `prefix`, of `scheme`, to the server `load` returned, after the
+/// identities it holds.
+pub fn add_pem(prefix: []const u8, scheme: tls.SignatureScheme, storage: *Storage, server: *tls.Server) !void {
+    const room = if (scheme == .mldsa87) &storage.mldsa87 else &storage.rsa;
+    const count = server.identities.len;
+    std.debug.assert(count < storage.identities.len);
+    storage.identities[count] = try load_pem(prefix, scheme, room, server.cpu);
+    server.identities = storage.identities[0 .. count + 1];
 }
 
 pub const LoadError = error{
