@@ -12408,6 +12408,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - h3-many 0.9398 and 0.9380, and h3-bbr-many 0.9366 and 0.9385, each a win. h3-many fell
         from 44,704 to 42,011 instructions a request in job 1.
       - h3-one, h3-bbr-one and each h2 input are within the noise in both jobs.
+    - **29d.9, a peek of a stream where nothing arrived, proposed 2026-11-03.** The profile of
+      h3-many on 5c238041 (run 41651029947) gave `stream_incoming.Storage.find` 4.9% and 4.6%
+      of the samples, in the function itself. A third of them came from h3's `peek_critical`,
+      which peeks the peer's control, encoder and decoder streams on each `step`. Those streams
+      are idle once the SETTINGS frame is read, and each peek walks a chain of the pool's buckets
+      to find that no block holds the next octet.
+      - The change, in `quic`'s `connection_stream_read.peek`: when the stream's
+        `receive_flow.used` equals its `receive_flow.consumed`, no octet past the read offset has
+        arrived, so the peek copies none and does not call `Incoming.peek`. `fin` is computed as
+        before, so a FIN that carries no octet is still reported. The same peek serves h3's
+        request streams. No public name changes.
+      - The checks:
+        - A test peeks a stream with nothing new, then with an empty STREAM frame that carries a
+          FIN, and requires `len` 0 and `fin` false, then true.
+        - Mutations, by `zig build test-quic`: the fast path when `used` is above `consumed`,
+          and a fast path that reports no FIN.
+        - The QUIC simulator's censuses and `tools/h3_deadline_trace.sh` give what they gave
+          before.
+        - The judge's `--h3 --base 96ed6ef5`, at 10 rounds. The step lands when h3-many wins and
+          no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
