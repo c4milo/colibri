@@ -110,13 +110,30 @@ run_client() {
   ! grep -qE " protocol=(h2|none) " <<<"${report}" || fail "an exchange ran over h2, or never connected"
   # On a failure, the lines that are not a response say why: each exchange that got none, and the
   # `failure=` line of each connection that failed.
-  local many summary
-  many="$("${client}" --port "${peer_port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1)" ||
-    { grep -v " outcome=response " <<<"${many}" || true; fail "64 connections: $(tail -1 <<<"${many}")"; }
-  summary="$(tail -1 <<<"${many}")"
+  local many summary denied attempt
+  for attempt in 1 2; do
+    denied="$(mbufs_denied)"
+    many="$("${client}" --port "${peer_port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1)" || true
+    summary="$(tail -1 <<<"${many}")"
+    [ "${summary}" != "${all_succeeded}" ] || break
+    # https://github.com/c4milo/colibri/issues/124: the host refused memory to the network, so
+    # each end's sends can fail with ENOBUFS. The plan runs once more, and the failure stays when
+    # the host refused none.
+    [ "${attempt}" = 1 ] && [ -n "${denied}" ] && [ "$(mbufs_denied)" -gt "${denied}" ] || break
+    echo "h11_interop.sh: the host refused memory to the network $(($(mbufs_denied) - denied)) times during 64 connections, so they run once more" >&2
+  done
   echo "${summary}"
-  [ "${summary}" = "http-client: connections=64 succeeded=64 failed=0" ] ||
-    { grep -v " outcome=response " <<<"${many}" || true; fail "64 connections did not all succeed"; }
+  [ "${summary}" = "${all_succeeded}" ] ||
+    { grep -v " outcome=response " <<<"${many}" || true; fail "64 connections: ${summary}"; }
+}
+
+readonly all_succeeded="http-client: connections=64 succeeded=64 failed=0"
+
+# On macOS, the count of the host's refusals of memory to the network, which `netstat -m` prints;
+# empty on any other system.
+mbufs_denied() {
+  [ "$(uname -s)" = Darwin ] || return 0
+  netstat -m | awk '/requests for memory denied/ { print $1 }'
 }
 
 # expect <path> <text>: the report's line for <path> carries <text>.
