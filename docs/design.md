@@ -12372,6 +12372,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           win and no input loses.
       - When the mutations leave a clear that is needed but that no test holds, the step stops,
         as the cache of 29d.5 stopped.
+    - **29d.8, a build-time index of the QPACK static table, proposed 2026-11-03.** The judge's
+      `profile` on 5c238041 (run 41651029947) gave h3-many no cost above 6.2% of the samples. The
+      largest, in both jobs, was the h3 `connection_send.write_headers`: 5.3% and 6.2% of the
+      samples in the function itself, each one under `respond`.
+      - `write_headers` encodes the response's field section. The QPACK encoder's `find_static`
+        compares each field line with the 99 entries of RFC 9204 Appendix A, in order. The test
+        server's response has two lines. `:status: 200` is entry 25, and `content-length` is
+        entry 4 with no entry for its value, so that line compares all 99 entries.
+      - HPACK had the same scan, and 3c07e53e replaced it with a build-time map from each name to
+        its entries (h2-many 0.942). HPACK's map needs the entries of a name to be adjacent.
+        Appendix A of RFC 9204 does not keep them adjacent: `content-type` is entries 44 to 54,
+        and `access-control-allow-headers` is entries 33, 34 and 75.
+      - The change: `encoder_plan.zig` builds, at compile time, a `std.StaticStringMap` from each
+        name of Appendix A to the list of its entries, in order. `find_static` reads the name's
+        list, takes its first entry as `name`, and compares the value with the list alone. The
+        result is the same as the scan's: the lowest entry with the name, and the lowest with the
+        line. No public name changes.
+      - The checks:
+        - A test compares `find_static` with the scan for each entry of Appendix A, for each name
+          with a value it does not hold, and for a name it does not hold.
+        - Mutations, by `zig build test-qpack`: a list that leaves out its last entry, a first
+          entry that is not the lowest, and a value compared with the first entry alone.
+        - `zig build qpack-vectors`, `tools/qif_interop.sh` and the golden corpus give what they
+          gave before.
+        - The judge's `--h3 --base 5c238041`, at 10 rounds. The step lands when h3-many wins and
+          no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
