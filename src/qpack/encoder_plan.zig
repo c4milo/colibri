@@ -231,17 +231,88 @@ const Match = struct {
 
 /// The lowest static index holding the whole line, and the lowest holding its name. Appendix A
 /// orders the entries so the commonest field lines take the fewest octets, and the lowest index
-/// is the shortest to encode, so the first match of each is the one to take.
+/// is the shortest to encode, so the first match of each is the one to take. The name finds its
+/// entries through `static_names`, and the value is compared with those entries alone (design §8
+/// step 29d.8).
 fn find_static(name: []const u8, value: []const u8) Match {
+    const indices = static_names.get(name) orelse return .{};
+    assert(indices.len > 0);
+    // Bounded by the name's entries, at most Appendix A's entry count.
+    for (indices) |index| {
+        if (std.mem.eql(u8, static_table.entries[index].value, value)) return .{ .exact = index, .name = indices[0] };
+    }
+    return .{ .name = indices[0] };
+}
+
+/// Each name of Appendix A and its entries in ascending order, computed when colibri is built
+/// ("Precompute what cannot change", CLAUDE.md). Appendix A does not keep a name's entries
+/// adjacent: `:status` is entries 24 to 28 and 63 to 71.
+const static_names = std.StaticStringMap([]const u8).initComptime(static_lists());
+
+fn static_lists() [static_names_len]struct { []const u8, []const u8 } {
+    @setEvalBranchQuota(static_quota);
+    var lists: [static_names_len]struct { []const u8, []const u8 } = undefined;
+    var len: usize = 0;
+    for (static_table.entries, 0..) |entry, index| {
+        if (named_before(index)) continue;
+        var indices: [static_table.entries.len]u8 = undefined;
+        var count: usize = 0;
+        for (static_table.entries[index..], index..) |later, at| {
+            if (!std.mem.eql(u8, later.name, entry.name)) continue;
+            indices[count] = at;
+            count += 1;
+        }
+        const list = indices[0..count].*;
+        lists[len] = .{ entry.name, &list };
+        len += 1;
+    }
+    assert(len == static_names_len);
+    return lists;
+}
+
+/// Whether an entry before `index` has the name of entry `index`.
+fn named_before(index: usize) bool {
+    const name = static_table.entries[index].name;
+    for (static_table.entries[0..index]) |earlier| {
+        if (std.mem.eql(u8, earlier.name, name)) return true;
+    }
+    return false;
+}
+
+/// The distinct names of Appendix A.
+const static_names_len: usize = count: {
+    @setEvalBranchQuota(static_quota);
+    var len: usize = 0;
+    for (0..static_table.entries.len) |index| {
+        if (!named_before(index)) len += 1;
+    }
+    break :count len;
+};
+
+/// The evaluation the build spends comparing Appendix A's names with one another.
+const static_quota: u32 = 1_000_000;
+
+comptime {
+    // An index of Appendix A fits the octet `static_names` holds it in.
+    assert(static_table.entries.len <= std.math.maxInt(u8) + 1);
+}
+
+/// The scan `find_static` replaced, which the test holds it to.
+fn scan_static(name: []const u8, value: []const u8) Match {
     var match: Match = .{};
-    // Bounded by Appendix A's entry count, which is a named limit.
     for (static_table.entries, 0..) |entry, index| {
         if (!std.mem.eql(u8, entry.name, name)) continue;
         if (match.name == null) match.name = index;
-        if (std.mem.eql(u8, entry.value, value)) {
-            match.exact = index;
-            return match;
-        }
+        if (std.mem.eql(u8, entry.value, value)) return .{ .exact = index, .name = match.name };
     }
     return match;
+}
+
+test "design §8 step 29d.8: find_static gives what a scan of Appendix A gives" {
+    const value_not_held = "x-colibri-not-held";
+    for (static_table.entries) |entry| {
+        try std.testing.expectEqual(scan_static(entry.name, entry.value), find_static(entry.name, entry.value));
+        try std.testing.expectEqual(scan_static(entry.name, value_not_held), find_static(entry.name, value_not_held));
+    }
+    try std.testing.expectEqual(Match{}, find_static("x-colibri-not-a-name", "1"));
 }
