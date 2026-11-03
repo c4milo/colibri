@@ -400,8 +400,9 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
 
 ## What colibri does not build
 
-Each of the eight is a no with a reason, and each records what saying no still costs on the wire,
-because a refused feature still imposes obligations on the wire.
+Each of the seven is a no with a reason, and each records what saying no still costs on the wire,
+because a refused feature still imposes obligations on the wire. An eighth, decision 118 on
+middleware, was reversed by decision 127 and stays here as a record.
 
 17. **Server push: no.** It is optional in both protocols. Cost of refusing, h2: a client must send
     `SETTINGS_ENABLE_PUSH` (0x02) with value 0, because its initial value is 1 (RFC 9113 §6.5.2) and
@@ -519,7 +520,9 @@ because a refused feature still imposes obligations on the wire.
     transport-parameter identifiers of the form 31*N+27 (§18.1), which exist to exercise
     that ignore path — and colibri tests it rather than assuming it.
 
-118. **Middleware: no.** Ruled by the owner on 2026-10-04 in
+118. **Middleware: no.** Reversed by decision 127, ruling 5, on 2026-10-21: a route table runs a
+     compile-time chain of middleware, global and for each route. The ruling below is the record
+     of the first position. Ruled by the owner on 2026-10-04 in
      [#96](https://github.com/c4milo/colibri/issues/96), beside decision 117. Middleware is a
      chain of functions a library calls for each request, before or after the program's own
      code. colibri calls no function of its program's: events are polled (decision 100), so the
