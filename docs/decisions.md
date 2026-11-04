@@ -5751,3 +5751,30 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: a `tls.Key` holds 7,488 octets and its scheme, even for a P-256 key of 96. chapulin's
      server accept takes 28,752 octets of stack on arm64, where it took 12,752, whether or not an
      ML-DSA-87 identity is set.
+
+149. **colibri's QUIC connections may resume congestion state, by RFC 9959's Careful Resume.**
+     Ruled by the owner on 2026-11-04 (design §8 step 35). RFC 9959 lets a sender start a later
+     connection near an earlier one's rate, through its Reconnaissance, Unvalidated, Validating
+     and Safe Retreat phases. colibri holds no state between connections (non-negotiable 1), so
+     the program keeps it.
+
+     The rulings:
+     1. A provider. `server.Endpoint` and `client.ConnectionPool` take an optional resume
+        provider, as they take a log provider (decision 102). Its `take` gives one saved set for
+        a remote endpoint and claims it for one connection, as RFC 9959 §3.2 requires. Its `put`
+        stores the set a connection observed (§3.1). `quic.Connection`'s options take a saved set
+        directly, for a program that drives QUIC itself.
+     2. All three controllers: CUBIC and NewReno by §3, and BBRv3 by Appendix C.
+     3. Bounds in the configurations, with defaults: `max_jump`, 4 MiB, and the Lifetime, 1 hour
+        (§3.3 and §4.3.1). A program may lower or raise either.
+     4. Both sides. RFC 9959 is about the sender, and the server and the client each send.
+     5. The saved set is a structure a program may write to disk, so it carries a version and a
+        size (non-negotiable 6).
+
+     Alternatives that lost:
+     - `quic.Connection` alone, which leaves the server's and the client's programs without it.
+     - CUBIC and NewReno alone. BBRv3 is the default (decision 143), so few connections would
+       resume.
+     - Bounds with no defaults, which every program would have to choose.
+     - The server alone. A client that uploads sends too.
+

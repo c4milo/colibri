@@ -12743,6 +12743,36 @@ library.
     period, avoidance that grows as slow start, the carry dropped, a cut to 0.7 in place of 0.5,
     no minimum after an event, no packet past the window after an event, persistent congestion
     that keeps the carry, and the UDP server that ignores `newreno`.
+- **Step 35 — Careful Resume (RFC 9959), proposed 2026-11-04.** [Decision 149](decisions.md).
+  - **The public names,** each listed in a test beside its root before the code (decision 115):
+    - `quic.ResumeState`: `version`, `size`, `window_len` (§3.1's saved_cwnd), `rtt_ns`
+      (saved_rtt) and `saved_at_ns`. A program stores it as it stores a ticket.
+    - `quic.ResumeBounds`: `jump_len_max` (§3.3's max_jump) and `lifetime_ns` (§4.3.1).
+    - `quic.Connection`'s options gain `resume: ?ResumeState` and `resume_bounds`.
+    - `quic.connection_resume.observe(connection, now_ns) ?ResumeState`: the set to save, or
+      null when the window is below four initial windows (§3.1).
+    - `server.ResumeProvider` and `client.ResumeProvider`, each with `take` and `put`, and
+      `server.Config.resume` and `client.Config.resume`, null by default.
+    - `quic.constants.policy.resume_jump_len_max_default`, 4 MiB, and
+      `resume_lifetime_ns_default`, 1 hour.
+  - **The rules,** each cited to RFC 9959 in the code (non-negotiable 9):
+    - Reconnaissance: the initial window, and the normal controller. Congestion, a saved set
+      past its Lifetime, or a minimum RTT at or below half of `rtt_ns` ends Careful Resume (§3.2).
+    - Unvalidated: the window is at most `min(jump_len_max, window_len / 2)`, paced over the
+      current RTT. The phase ends on congestion, on the first acknowledgment of an unvalidated
+      packet, once the window is full, or after one RTT (§3.3).
+    - Validating and Safe Retreat as §3.4 and §3.5, with Beta at the controller's own β.
+    - BBRv3 by Appendix C.
+  - **The checks.**
+    - Unit tests of each phase's entry and exit, for each controller.
+    - A simulator check: a connection that observes, then a second one that resumes on the same
+      path and finishes sooner, and one whose path lost capacity and retreats.
+    - A TLA+ model of the phases, whose mutants break §3.2's RTT check, §3.3's half of the
+      saved window and §3.5's halving.
+    - A Lean proof of the jump and the retreat arithmetic.
+    - The judge's bulk run, with a second download that resumes.
+  - **What it costs.** A `quic.Connection` grows by the phase state, about 64 octets. The
+    provider is the program's, so colibri holds no table.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
