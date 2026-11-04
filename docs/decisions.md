@@ -400,8 +400,8 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
 
 ## What colibri does not build
 
-Each of the seven is a no with a reason, and each records what saying no still costs on the wire,
-because a refused feature still imposes obligations on the wire. An eighth, decision 118 on
+Each of the eight is a no with a reason, and each records what saying no still costs on the wire,
+because a refused feature still imposes obligations on the wire. A ninth, decision 118 on
 middleware, was reversed by decision 127 and stays here as a record.
 
 17. **Server push: no.** It is optional in both protocols. Cost of refusing, h2: a client must send
@@ -537,6 +537,18 @@ middleware, was reversed by decision 127 and stays here as a record.
 
      Cost of refusing: nothing on the wire. A program writes in its own loop what it would have
      put in middleware.
+
+148. **Prague congestion control: no.** Ruled by the owner on 2026-11-04, during
+     https://github.com/c4milo/colibri/issues/123. Prague is the scalable controller of L4S, after
+     DCTCP. Its one document is draft-briscoe-iccrg-prague-congestion-control-04 of July 2024, an
+     individual draft for Experimental status, which expired in January 2025. Its authors write
+     that their code does not yet meet all of Prague's requirements. colibri reads RFCs and the
+     drafts its decisions pin (non-negotiable 10), and an expired individual draft is a poor one to
+     pin. Prague also gains only where the bottleneck runs an L4S queue (RFC 9330 to RFC 9332),
+     which few paths do. colibri asks again if ICCRG publishes Prague.
+
+     Cost of refusing: nothing on the wire. colibri marks its packets ECT(0) (RFC 9000 §13.4.2),
+     never ECT(1), which RFC 9331 gives to L4S, so no L4S queue takes its packets as Prague's.
 
 ## Correctness
 
