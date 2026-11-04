@@ -38,6 +38,8 @@ const files = struct {
     pub const recovery_congestion_cubic = @import("recovery/recovery_congestion_cubic.zig");
     pub const recovery_congestion_bbr = @import("recovery/recovery_congestion_bbr.zig");
     pub const recovery_congestion_newreno = @import("recovery/recovery_congestion_newreno.zig");
+    pub const recovery_resume = @import("recovery/recovery_resume.zig");
+    pub const connection_resume = @import("connection/connection_resume.zig");
     pub const recovery_timer = @import("recovery/recovery_timer.zig");
     pub const recovery_pacing = @import("recovery/recovery_pacing.zig");
     pub const recovery = @import("recovery/recovery.zig");
@@ -103,6 +105,10 @@ pub const PeerAddress = files.peer_address.PeerAddress;
 /// BBRv3, the default, CUBIC, or RFC 9002's NewReno (decisions 133, 136 and 143, design §8
 /// steps 29b.4 and 34).
 pub const CongestionController = files.recovery_congestion.Controller;
+/// RFC 9959's saved set of a connection's path, which a program keeps for a later connection, and
+/// the bounds on a connection that resumes from one (decision 149, design §8 step 35).
+pub const ResumeState = files.recovery_resume.ResumeState;
+pub const ResumeBounds = files.recovery_resume.ResumeBounds;
 /// A packet number space, and the loss recovery of a connection, which the simulator drives by
 /// themselves. A program names neither.
 pub const Space = files.space.Space;
@@ -130,6 +136,11 @@ pub const connection_send = struct {
 pub const connection_timer = struct {
     pub const next = files.connection_timer.next;
     pub const on_instant = files.connection_timer.on_instant;
+};
+
+/// RFC 9959 §3.1: the set a connection observed, which a program saves (decision 149).
+pub const connection_resume = struct {
+    pub const observe = files.connection_resume.observe;
 };
 
 pub const connection_idle = struct {
@@ -355,8 +366,9 @@ test "decision 115: the root exports the names code outside the module uses" {
         "core",                     "wire",                           "crypto",
         "tls_provider",             "qlog",                           "constants",
         "error_code",               "Connection",                     "PeerAddress",
-        "CongestionController",     "Space",                          "Recovery",
-        "connection_datagram",      "connection_send",                "connection_timer",
+        "CongestionController",     "ResumeState",                    "ResumeBounds",
+        "Space",                    "Recovery",                       "connection_datagram",
+        "connection_send",          "connection_timer",               "connection_resume",
         "connection_idle",          "connection_close",               "connection_stream_send",
         "connection_stream_read",   "connection_stream_acknowledged", "connection_flow",
         "connection_stream_credit", "connection_version",             "connection_retry",

@@ -38,6 +38,7 @@ const termination_module = @import("../termination.zig");
 const recovery_module = @import("../recovery/recovery.zig");
 const recovery_ranges = @import("../recovery/recovery_ranges.zig");
 const recovery_congestion = @import("../recovery/recovery_congestion.zig");
+const recovery_resume = @import("../recovery/recovery_resume.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const frame_control = @import("../frame/frame_control.zig");
 const frame_latest = @import("../frame/frame_latest.zig");
@@ -87,6 +88,12 @@ pub const Options = struct {
     /// Decision 136: one value the caller drew from its source, from which BBRv3 draws each of
     /// its bandwidth probe waits (draft-ietf-ccwg-bbr-06 §5.3.3.8.2). CUBIC and NewReno read none.
     bandwidth_probe_waits: u64 = 0,
+    /// RFC 9959's saved set to start from (decision 149), which a program kept from an earlier
+    /// connection to the same remote endpoint, or null for normal congestion control. A set past
+    /// `resume_bounds.lifetime_ns`, or of another layout, is not used.
+    resumed_from: ?recovery_resume.ResumeState = null,
+    /// RFC 9959 §5's bounds on a resumed connection: max_jump and the Lifetime.
+    resume_bounds: recovery_resume.ResumeBounds = .{},
     /// The pool the peer's stream octets wait in until the application reads them, which the
     /// caller places (decision 61). Its capacity caps every receive window. A connection given
     /// none reads no stream: it checks STREAM frames and keeps nothing.
@@ -320,6 +327,7 @@ pub const Connection = struct {
             .controller = options.congestion_controller,
             .bandwidth_probe_waits = options.bandwidth_probe_waits,
         }, options.now_ns);
+        connection.recovery.careful_resume.init(options.resumed_from, options.resume_bounds, options.now_ns);
     }
 
     /// Whether a packet whose Destination Connection ID is `dcid` belongs to this connection.

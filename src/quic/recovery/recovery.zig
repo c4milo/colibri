@@ -26,6 +26,7 @@ const recovery_timer = @import("recovery_timer.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
 const recovery_spurious = @import("recovery_spurious.zig");
+const recovery_resume = @import("recovery_resume.zig");
 const recovery_congestion_bbr = @import("recovery_congestion_bbr.zig");
 
 const Congestion = recovery_congestion.Congestion;
@@ -79,6 +80,9 @@ pub const Recovery = struct {
     /// The packets the loss episode declared lost, which show it spurious once acknowledged
     /// (draft-ietf-ccwg-bbr-06 §5.5.11).
     spurious: recovery_spurious.Spurious,
+    /// Careful Resume's phase and saved set (RFC 9959, decision 149), off until the connection
+    /// starts it from a saved set.
+    careful_resume: recovery_resume.Resume,
 
     pub fn init(recovery: *Recovery, max_datagram_len: u64) void {
         recovery.rtt.init();
@@ -91,6 +95,7 @@ pub const Recovery = struct {
         recovery.ecn_path.init();
         recovery.delivery.init();
         recovery.spurious.init();
+        recovery.careful_resume.init(null, .{}, 0);
     }
 
     /// RFC 9000 §9.4: the peer's new address is validated, so the congestion controller and the
@@ -100,6 +105,7 @@ pub const Recovery = struct {
         recovery.rtt.reset();
         recovery.congestion.reset();
         recovery.pacer.init(recovery.rate());
+        recovery.careful_resume.on_path_changed();
     }
 
     pub fn table_of(recovery: *Recovery, kind: Kind) *Table {

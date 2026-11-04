@@ -12766,11 +12766,12 @@ library.
     - `quic.ResumeState`: `version`, `size`, `window_len` (§3.1's saved_cwnd), `rtt_ns`
       (saved_rtt) and `saved_at_ns`. A program stores it as it stores a ticket.
     - `quic.ResumeBounds`: `jump_len_max` (§3.3's max_jump) and `lifetime_ns` (§4.3.1).
-    - `quic.Connection`'s options gain `resume: ?ResumeState` and `resume_bounds`.
+    - `quic.Connection`'s options gain `resumed_from: ?ResumeState` and `resume_bounds`. Zig
+      reserves `resume`, so no name is that word.
     - `quic.connection_resume.observe(connection, now_ns) ?ResumeState`: the set to save, or
       null when the window is below four initial windows (§3.1).
     - `server.ResumeProvider` and `client.ResumeProvider`, each with `take` and `put`, and
-      `server.Config.resume` and `client.Config.resume`, null by default.
+      `server.Config.resumes` and `client.Config.resumes`, null by default, beside `logs`.
     - `quic.constants.policy.resume_jump_len_max_default`, 4 MiB, and
       `resume_lifetime_ns_default`, 1 hour.
   - **The rules,** each cited to RFC 9959 in the code (non-negotiable 9):
@@ -12789,8 +12790,29 @@ library.
       saved window and §3.5's halving.
     - A Lean proof of the jump and the retreat arithmetic.
     - The judge's bulk run, with a second download that resumes.
-  - **What it costs.** A `quic.Connection` grows by the phase state, about 64 octets. The
+  - **What it costs.** A `quic.Connection` grows by the phase state, 56 octets in 35a. The
     provider is the program's, so colibri holds no table.
+  - It lands in five parts: 35a, the saved set, the bounds, `observe` and the option; 35b, the
+    phases under CUBIC and NewReno; 35c, BBRv3 by Appendix C; 35d, the providers of
+    `server.Endpoint` and `client.ConnectionPool`; and 35e, the simulator check, the model, the
+    proof and the judge run.
+  - **35a, the saved set, 2026-11-04.**
+    - `quic.ResumeState` is an extern struct of 32 octets: `version`, `size`, `window_len`,
+      `rtt_ns` and `saved_at_ns`. `usable` refuses another version or size, an empty window or
+      round trip, a set from after now, and one past its Lifetime (§3.2, §4.3.1).
+    - `quic.connection_resume.observe` saves the window in congestion avoidance, half of it in
+      slow start (§4.1), BBRv3's BDP under BBRv3, and nothing below four initial windows (§3.1).
+    - The option `resumed_from` starts the Reconnaissance Phase, and a new path ends it (§3.2).
+      The window does not change yet: 35b changes it.
+    - The example in `examples/` and the section of docs/usage.md come with 35d, where a program
+      reaches Careful Resume through `server.Config.resumes` and `client.Config.resumes`.
+    - `quic.Connection` grows by 56 octets, to 208,376, and `server.Endpoint` at its default
+      capacity to 52,434,448. docs/performance.md lists each size.
+    - 14 mutations, each **CAUGHT**: another version, another size, an empty window, a set from
+      after now and one past its Lifetime each used; `init` taking an unusable set; a new path
+      that keeps Careful Resume, in `Resume` and in `Recovery`; slow start saving the whole
+      window; a small window saved; the smoothed round trip saved; a set saved with no sample;
+      BBRv3's BDP in the wrong unit; and the option ignored.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

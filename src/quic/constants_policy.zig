@@ -90,6 +90,24 @@ pub const stream_priority_default: u8 = 128;
 /// cannot process risks creating an infinite exchange of packets".
 pub const early_crypto_resends_max: u8 = 2;
 
+/// RFC 9959 §3.3's max_jump: the most a resumed connection's window jumps to, whatever the saved
+/// window. The owner set the default at 4 MiB on 2026-11-04 (decision 149); a program may set
+/// another in `ResumeBounds`.
+pub const resume_jump_len_max_default: u64 = 4 * 1024 * 1024;
+
+/// RFC 9959 §4.3.1's Lifetime: how long a saved set may be used after it was observed. The owner
+/// set the default at 1 hour on 2026-11-04 (decision 149); a program may set another in
+/// `ResumeBounds`.
+pub const resume_lifetime_ns_default: u64 = 3_600_000_000_000;
+
+/// RFC 9959 §4.1: a window observed in slow start is saved divided by this, "the validated pipe
+/// size (i.e., CWND / 2)", because slow start overshoots the path.
+pub const resume_slow_start_window_divisor: u64 = 2;
+
+/// RFC 9959 §3.1: "If the measured CWND is less than four times the IW, the sender can choose to
+/// not save the CC parameters", which colibri does below this many initial windows.
+pub const resume_observed_windows_min: u64 = 4;
+
 comptime {
     // Both of §6.5's sentences say "three times the PTO", so the number is the RFC's and not a
     // knob: a change here is a change to what the specification asks for.
