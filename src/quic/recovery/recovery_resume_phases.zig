@@ -1,6 +1,7 @@
-//! Careful Resume's phases (RFC 9959 §3.2 to §3.6, decision 149) under the window-based
-//! controllers, CUBIC and NewReno. Part of design §8 step 35b. BBRv3 follows Appendix C, which is
-//! 35c's: until then a BBRv3 connection stays in the Reconnaissance Phase, which changes nothing.
+//! Careful Resume's phases (RFC 9959 §3.2 to §3.6, decision 149): under the window-based
+//! controllers, CUBIC and NewReno, by §3 (design §8 step 35b), and under BBRv3 by Appendix C, whose
+//! flag `recovery_bbr/recovery_bbr_resume.zig` runs (35c). The Reconnaissance Phase is the same for
+//! the three.
 //!
 //! `Recovery` calls in at three places: after it records an application packet in flight, after an
 //! ACK frame, and when a congestion event starts a recovery period. Only the application space
@@ -14,6 +15,7 @@ const recovery_module = @import("recovery.zig");
 const recovery_congestion = @import("recovery_congestion.zig");
 const recovery_resume = @import("recovery_resume.zig");
 const space = @import("../space/space.zig");
+const recovery_bbr_resume = @import("recovery_bbr/recovery_bbr_resume.zig");
 
 const Recovery = recovery_module.Recovery;
 const Resume = recovery_resume.Resume;
@@ -46,7 +48,6 @@ pub fn on_packet_sent(recovery: *Recovery, number: u64) void {
 /// detection, so a Safe Retreat the same frame starts halves a PipeSize that holds them.
 pub fn on_acknowledged(recovery: *Recovery, acknowledged_len: u64) void {
     const held = &recovery.careful_resume;
-    if (!windowed(recovery)) return;
     switch (held.phase) {
         .off => {},
         // §3.2: the initial data the path is confirmed by.
@@ -60,11 +61,11 @@ pub fn on_acknowledged(recovery: *Recovery, acknowledged_len: u64) void {
 /// After an ACK frame was processed at `now_ns`, its losses included: the phase it ends.
 pub fn on_ack(recovery: *Recovery, now_ns: u64) void {
     const held = &recovery.careful_resume;
-    if (!windowed(recovery)) return;
     const largest = recovery.largest_acknowledged[@intFromEnum(space.Kind.application)] orelse return;
+    if (held.phase == .reconnaissance) return on_ack_reconnaissance(recovery, now_ns);
+    if (!windowed(recovery)) return on_ack_bbr(recovery);
     switch (held.phase) {
-        .off => {},
-        .reconnaissance => on_ack_reconnaissance(recovery, now_ns),
+        .off, .reconnaissance => {},
         .unvalidated => {
             // §3.3: the phase ends on the acknowledgment of "the first packet number (or higher)
             // that was sent in the Unvalidated Phase", or once "more than one RTT has elapsed".
@@ -102,7 +103,29 @@ fn on_ack_reconnaissance(recovery: *Recovery, now_ns: u64) void {
         held.phase = .off;
         return;
     }
-    enter_unvalidated(recovery, now_ns);
+    if (windowed(recovery)) enter_unvalidated(recovery, now_ns) else enter_bbr(recovery);
+}
+
+/// Appendix C.1: under BBRv3 the jump is a probing rate, half the saved window over the saved
+/// round trip, which the flag sets at the next round while Startup lasts.
+fn enter_bbr(recovery: *Recovery) void {
+    const held = &recovery.careful_resume;
+    const jump_len = @min(held.bounds.jump_len_max, held.saved.window_len / constants.protocol.resume_jump_divisor);
+    const rate = recovery_bbr_resume.probing_rate(jump_len, held.saved.rtt_ns);
+    held.phase = if (recovery_bbr_resume.start(&recovery.congestion.state.bbr, rate)) .unvalidated else .off;
+}
+
+/// Appendix C under BBRv3: the Unvalidated Phase lasts while the flag is set or waits, and the
+/// Safe Retreat Phase while Drain keeps it (C.3). BBRv3's own rules exit Startup (C.2).
+fn on_ack_bbr(recovery: *Recovery) void {
+    const held = &recovery.careful_resume;
+    const flag = recovery.congestion.state.bbr.resuming;
+    switch (held.phase) {
+        .off, .reconnaissance, .validating => {},
+        .unvalidated, .safe_retreat => if (!flag.active and !flag.pending) {
+            held.phase = .off;
+        },
+    }
 }
 
 /// §3.3's entry: PipeSize starts at the flight size, and the window jumps to at most half the
@@ -149,7 +172,7 @@ fn leave_unvalidated(recovery: *Recovery) void {
 /// reduced its window.
 pub fn on_congestion_event(recovery: *Recovery) void {
     const held = &recovery.careful_resume;
-    if (!windowed(recovery)) return;
+    if (!windowed(recovery) and held.phase == .unvalidated) return retreat_bbr(recovery);
     switch (held.phase) {
         .off, .safe_retreat => {},
         // §3.2: "If the sender detects congestion ... The sender stops using Careful Resume".
@@ -158,6 +181,18 @@ pub fn on_congestion_event(recovery: *Recovery) void {
         // Retreat Phase.
         .unvalidated, .validating => enter_safe_retreat(recovery),
     }
+}
+
+/// Appendix C.1 and C.3: congestion with the flag set leaves Startup for Drain, which is the Safe
+/// Retreat Phase, and the saved set goes (§3.5).
+fn retreat_bbr(recovery: *Recovery) void {
+    const held = &recovery.careful_resume;
+    if (!recovery_bbr_resume.on_congestion(&recovery.congestion.state.bbr)) {
+        held.phase = .off;
+        return;
+    }
+    held.retreated = true;
+    held.phase = .safe_retreat;
 }
 
 /// §3.5's entry: the saved set goes, and "The CWND MUST be reduced to no more than
@@ -190,6 +225,10 @@ fn leave_safe_retreat(recovery: *Recovery) void {
 /// §3.6: "A sender that experiences persistent congestion ... ceases to use Careful Resume."
 pub fn on_persistent_congestion(recovery: *Recovery) void {
     recovery.careful_resume.phase = .off;
+    switch (recovery.congestion.state) {
+        .bbr => |*bbr| bbr.resuming = .{},
+        .cubic, .newreno => {},
+    }
 }
 
 test {

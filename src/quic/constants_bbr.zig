@@ -103,6 +103,10 @@ pub const splitmix_first_shift: u6 = 30;
 pub const splitmix_second_shift: u6 = 27;
 pub const splitmix_third_shift: u6 = 31;
 
+/// RFC 9959 Appendix C.1: the "carefully-resuming" flag "is reset to False two rounds after it is
+/// set (i.e., after all the packets sent in the first round of 'carefully resuming' have been
+/// received and acknowledged by the peer)".
+pub const resume_rounds: u64 = 2;
 comptime {
     // §5.5.7.2: the min_rtt filter covers an entire ProbeRTT cycle.
     assert(min_rtt_filter_len_ns > probe_rtt_interval_ns);

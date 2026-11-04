@@ -173,13 +173,6 @@ test "RFC 9959 §3.3: a jump no larger than the window changes nothing" {
     try testing.expect(test_recovery.congestion.window > initial_window);
 }
 
-test "RFC 9959 Appendix C: until 35c a BBRv3 connection stays in the Reconnaissance Phase" {
-    start(.bbr);
-    _ = try confirm();
-    try testing.expectEqual(.reconnaissance, phase());
-    try testing.expect(test_recovery.congestion.window < jump_len);
-}
-
 test "RFC 9959 §3.5: a packet sent after the retreat grows no window while the phase lasts" {
     start(.cubic);
     const at_ns = try confirm();

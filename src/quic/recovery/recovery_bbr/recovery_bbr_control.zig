@@ -11,6 +11,7 @@ const constants = @import("../../constants.zig");
 const recovery_delivery = @import("../recovery_delivery.zig");
 const recovery_bbr = @import("recovery_bbr.zig");
 const recovery_bbr_inflight = @import("recovery_bbr_inflight.zig");
+const recovery_bbr_resume = @import("recovery_bbr_resume.zig");
 
 const Bbr = recovery_bbr.Bbr;
 const Path = recovery_bbr.Path;
@@ -124,8 +125,11 @@ pub fn update(state: *Bbr, sample: Sample, path: Path, smoothed_rtt_ns: ?u64) vo
         init_pacing_rate(state, path.initial_window_len, smoothed_rtt_ns);
     }
     set_pacing_rate_with_gain(state, state.pacing_gain);
+    // RFC 9959 Appendix C.1: the probing rate raises the pacing rate and the window.
+    recovery_bbr_resume.raise_pacing_rate(state);
     set_send_quantum(state, path.datagram_len);
     set_window(state, sample, path);
+    recovery_bbr_resume.raise_window(state, path);
 }
 
 /// §5.4.1: after an idle period in ProbeBW, BBR paces at its estimate, with a gain of 1.

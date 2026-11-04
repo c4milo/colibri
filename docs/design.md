@@ -12833,6 +12833,22 @@ library.
       in Safe Retreat, NOT CAUGHT until its test was added; no ssthresh after it; persistent
       congestion kept; PipeSize, congestion events or sent packets never reported; and BBRv3
       under the window rules.
+  - **35c, BBRv3 by Appendix C, 2026-11-04.** `recovery_bbr/recovery_bbr_resume.zig` holds
+    Appendix C's "carefully-resuming" flag in BBRv3's state. Reconnaissance is §3.2's, the same
+    for the three controllers.
+    - A confirmed path in Startup waits for the next round, then sets the flag for
+      `resume_rounds`, 2 (C.1). The probing rate is the jump over the saved round trip. While the
+      flag holds in Startup, the pacing rate is at least the probing rate, and the window covers
+      the larger of `BBR.bw` and the probing rate over `BBR.min_rtt` at the cwnd gain.
+    - A path confirmed after Startup does not resume (C.1). Congestion with the flag set leaves
+      Startup for Drain, the Safe Retreat Phase, and the saved set goes (C.3). Drain discards its
+      delivery rates while the flag holds, and leaving Drain clears it (C.3). BBRv3's own rules
+      exit Startup, which is the Validating Phase (C.2).
+    - 14 mutations, each **CAUGHT**: a flag outside Startup; the flag never set; set before a
+      round starts, NOT CAUGHT until its test was added; never cleared; Drain keeping its rates;
+      no raised pacing rate; no raised window; congestion kept in Startup; the flag kept after
+      Drain; the probing rate doubled; the rounds never run; a refused start left Unvalidated;
+      the saved set kept after a retreat; and persistent congestion keeping the flag.
     - `quic.Connection` grows by 56 octets, to 208,376, and `server.Endpoint` at its default
       capacity to 52,434,448. docs/performance.md lists each size.
     - 14 mutations, each **CAUGHT**: another version, another size, an empty window, a set from

@@ -12,6 +12,7 @@ const recovery_delivery = @import("../recovery_delivery.zig");
 const recovery_bbr = @import("recovery_bbr.zig");
 const recovery_bbr_inflight = @import("recovery_bbr_inflight.zig");
 const recovery_bbr_probe_bw = @import("recovery_bbr_probe_bw.zig");
+const recovery_bbr_resume = @import("recovery_bbr_resume.zig");
 
 const Bbr = recovery_bbr.Bbr;
 const Path = recovery_bbr.Path;
@@ -68,6 +69,7 @@ pub fn check_drain_done(state: *Bbr, path: Path) void {
     const drained = path.in_flight_len <= recovery_bbr_inflight.inflight(state, path, state.bw, bbr.gain_denominator);
     if (drained or state.model.round_count > state.drain_start_round + bbr.drain_rounds) {
         recovery_bbr_probe_bw.enter(state, path);
+        recovery_bbr_resume.on_drain_exit(state);
     }
     assert(state.state != .drain or state.model.round_count <= state.drain_start_round + bbr.drain_rounds);
 }

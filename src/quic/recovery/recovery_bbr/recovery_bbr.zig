@@ -20,6 +20,7 @@ const constants = @import("../../constants.zig");
 const recovery_delivery = @import("../recovery_delivery.zig");
 const recovery_bbr_model = @import("recovery_bbr_model.zig");
 const recovery_bbr_startup = @import("recovery_bbr_startup.zig");
+const recovery_bbr_resume = @import("recovery_bbr_resume.zig");
 const recovery_bbr_probe_bw = @import("recovery_bbr_probe_bw.zig");
 const recovery_bbr_probe_rtt = @import("recovery_bbr_probe_rtt.zig");
 const recovery_bbr_loss = @import("recovery_bbr_loss.zig");
@@ -139,6 +140,8 @@ pub const Bbr = struct {
     probe_rtt_round_done: bool,
     /// §5.4's `BBR.idle_restart`.
     idle_restart: bool,
+    /// RFC 9959 Appendix C's "carefully-resuming" flag (decision 149).
+    resuming: recovery_bbr_resume.Resuming,
 
     /// §5.2.1's `OnInit`, for the states. `bandwidth_probe_waits` is the caller's draw
     /// (decision 136).
@@ -193,6 +196,7 @@ pub const Bbr = struct {
             .probe_rtt_done_at_ns = 0,
             .probe_rtt_round_done = false,
             .idle_restart = false,
+            .resuming = .{},
         };
         state.model.init(now_ns);
         recovery_bbr_startup.enter_startup(state);
@@ -207,7 +211,10 @@ pub const Bbr = struct {
         recovery_bbr_loss.update_latest_delivery_signals(state, sample);
         state.round_acknowledged_len +|= sample.acknowledged_len;
         // §5.5.10.3's `UpdateCongestionSignals` starts with `UpdateMaxBw`, which runs `UpdateRound`.
-        state.model.update_max_bw(sample);
+        // RFC 9959 Appendix C.3: Drain discards its rates while the flag is set; the round still
+        // counts.
+        if (recovery_bbr_resume.discards_rates(state)) state.model.update_round(sample) else state.model.update_max_bw(sample);
+        recovery_bbr_resume.on_round(state);
         // §5.5.1: "BBR.rounds_since_probe_up++" when a round starts.
         if (state.model.round_start) state.rounds_since_probe_up +|= 1;
         recovery_bbr_loss.update_congestion_signals(state);
