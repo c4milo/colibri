@@ -8,9 +8,10 @@
 #   bench/run_bulk.sh [--rounds <n>] [report.md]
 #
 # Each server serves the files of one directory: colibri's UDP server in its `h3` mode, under CUBIC
-# and, as `colibri-bbr`, under BBRv3 (design §8 step 29c), chi and axum with --www, and ngtcp2's
+# and, as `colibri-bbr`, under BBRv3 (design §8 step 29c), as `colibri-newreno` under RFC 9002's
+# NewReno (design §8 step 34), chi and axum with --www, and ngtcp2's
 # server under its own BBRv3, from its QUIC Interop Runner image (design §8 step 29d). oha
-# downloads `bulk_file` again and again for `seconds`, over h3 from each of the five, and over
+# downloads `bulk_file` again and again for `seconds`, over h3 from each of the six, and over
 # h2-tls from chi and axum, whose TCP is the kernel's, as the baseline. It runs from
 # 1 and then from 4 connections, one download at a time on each. A second oha sends a GET of a
 # small file each 100 ms on a connection of its own, and its latency is the delay the queue adds.
@@ -23,7 +24,7 @@
 # and each h3 server sends each datagram in a send of its own (design §8 step 13i).
 #
 # A load over h3 takes about 30 s more than `seconds`: oha drops the downloads the end of the load
-# cuts, and then holds their connections until its idle timeout. A round takes about 20 minutes.
+# cuts, and then holds their connections until its idle timeout. A round takes about 24 minutes.
 #
 # Each round then runs `h3-shared`, which decision 136 asks for: colibri under CUBIC and under BBRv3
 # at once, each serving its own downloads through the one bottleneck, so the report can give the
@@ -68,7 +69,7 @@ pair_pids=()
 readonly ready_tries=100
 readonly oha_version=v1.16.0
 readonly oha_commit=c156bf3d442f5150fb1ad73e8c5144bd882ac4cd
-readonly servers=(colibri colibri-bbr chi axum ngtcp2)
+readonly servers=(colibri colibri-bbr colibri-newreno chi axum ngtcp2)
 # ngtcp2's image for the QUIC Interop Runner, pinned by digest: a second BBRv3, which the report
 # sets beside colibri's. Its label names the commit it was built from.
 readonly ngtcp2_image="ghcr.io/ngtcp2/ngtcp2-interop@sha256:fa6bf697aaa6badf64d57ff87fb9296c0d50c2e054a09ab54cdbe02ba598c865"
@@ -156,6 +157,7 @@ server_command() {  # server_command <server> <protocol>
   case "$1" in
     colibri) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso "${qlog[@]}") ;;
     colibri-bbr) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso bbr "${qlog[@]}") ;;
+    colibri-newreno) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso newreno "${qlog[@]}") ;;
     chi) command=(env GOMAXPROCS=1 QUIC_GO_DISABLE_GSO=true "$scratch/chi" --port "$port" --www "$scratch/www" "${tls[@]}") ;;
     axum)
       command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --www "$scratch/www" "${tls[@]}")

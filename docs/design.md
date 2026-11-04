@@ -12711,6 +12711,38 @@ library.
       the RSA slot never set; and `tls-accept` ignoring `rsa=`, which `tools/tls_openssl.sh`
       caught.
 
+- **Step 34 — NewReno beside CUBIC and BBRv3.** [Decision 133](decisions.md) as amended on
+  2026-11-04 adds RFC 9002's own NewReno (§7.3 and Appendix B) as a third controller, never the
+  default. The owner asked for it after step 29c.3, to measure RFC 9002's controller beside the
+  other two.
+  - **The public names.** `quic.CongestionController` gains `newreno`, and
+    `quic.constants.recovery` gains `newreno`, with `loss_reduction_numerator` and
+    `loss_reduction_denominator`, Appendix B.1's kLossReductionFactor of 1/2. A program that
+    sets `server.Config.congestion_controller` or `client.Config.congestion_controller` to
+    `.newreno` needs the first.
+  - **The rules.** `recovery_congestion_newreno.zig` holds the controller's own state: the carry
+    of Appendix B.5's increase. Slow start adds what was acknowledged (§7.3.1). Congestion
+    avoidance adds `max_datagram_size × acknowledged / window`, with the rest carried (§7.3.3).
+    A new congestion event sets ssthresh to half the window, and the window to the larger of
+    ssthresh and the minimum (Appendix B.6). A limited acknowledgment and one in the recovery
+    period grow nothing (§7.8, Appendix B.5). No HyStart++ runs, because RFC 9002 names none.
+  - **The checks.**
+    - 9 tests in `recovery_congestion_newreno_test.zig` and `constants_newreno.zig`.
+    - `quic_connection_newreno_check.zig` runs the QUIC connection check with both endpoints
+      on NewReno, over the lossy network and each adversary, with each census pinned. It passes
+      in Debug and with `-Drelease`.
+    - `spec/lean/Colibri/Quic/NewReno.lean` proves that one acknowledgment loses no octet to the
+      carry, and that one of at most a window adds at most one datagram. It also proves that an
+      event never raises the window nor leaves it below the minimum.
+    - `spec/tla/newreno_congestion` holds over 160,008 states. Each of its 5 mutants is
+      violated: a second reduction in one period, growth in the period, growth on a limited
+      acknowledgment, no minimum, and a datagram on each acknowledgment.
+    - The UDP server's `h3` mode takes `newreno`, and `tools/quic_udp.sh` requires its summary
+      to name the controller. The bulk run measures it as `colibri-newreno`.
+  - 9 mutations, each **CAUGHT**: growth on a limited acknowledgment, growth in the recovery
+    period, avoidance that grows as slow start, the carry dropped, a cut to 0.7 in place of 0.5,
+    no minimum after an event, no packet past the window after an event, persistent congestion
+    that keeps the carry, and the UDP server that ignores `newreno`.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

@@ -24,7 +24,7 @@ const Bbr = recovery_bbr.Bbr;
 fn bbr_of(recovery: *Recovery) ?*Bbr {
     return switch (recovery.congestion.state) {
         .bbr => |*state| state,
-        .cubic => null,
+        .cubic, .newreno => null,
     };
 }
 
@@ -105,7 +105,7 @@ pub fn on_transmit(recovery: *Recovery, now_ns: u64) void {
 pub fn rate(recovery: *const Recovery) ?recovery_pacing.Rate {
     const state = switch (recovery.congestion.state) {
         .bbr => |*state| state,
-        .cubic => return null,
+        .cubic, .newreno => return null,
     };
     return .{
         .period_len = state.pacing_rate,

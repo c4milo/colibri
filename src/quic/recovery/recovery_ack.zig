@@ -109,7 +109,7 @@ pub fn on_ack_received(
     process_ecn(held, kind, ack, removed, largest_is_new, now_ns);
     outcome.lost = held.detect(kind, now_ns, lost);
     switch (held.congestion.state) {
-        .cubic => grow(held, removed, used, now_ns, outcome.rtt_sampled),
+        .cubic, .newreno => grow(held, removed, used, now_ns, outcome.rtt_sampled),
         // draft-ietf-ccwg-bbr-06 §5.2.3: BBRv3 takes the frame's rate sample.
         .bbr => recovery_congestion_bbr.on_ack(held, outcome.sample.?, removed.record.?.sent_at_ns, used, now_ns),
     }

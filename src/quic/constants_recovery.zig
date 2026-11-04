@@ -1,5 +1,5 @@
 //! The parameters of RFC 9002's loss detection, congestion control and pacing, as it
-//! recommends them, with CUBIC's (RFC 9438) and HyStart++'s (RFC 9406).
+//! recommends them, with CUBIC's (RFC 9438), HyStart++'s (RFC 9406) and NewReno's (RFC 9002).
 //! Decision 137 groups them, and `constants.zig` exports this file as `recovery`.
 const constants = @import("constants.zig");
 
@@ -42,11 +42,13 @@ pub const congestion_window_initial_len_max: u64 = 14_720;
 /// ECN-CE count, or on persistent congestion, which §7.2 recommends at two maximum datagrams.
 pub const congestion_window_minimum_datagrams: u64 = 2;
 
-/// The constants of CUBIC (RFC 9438, decision 133), of HyStart++ (RFC 9406, decision 135) and of
-/// BBRv3 (draft-ietf-ccwg-bbr-06, decision 134).
+/// The constants of CUBIC (RFC 9438, decision 133), of HyStart++ (RFC 9406, decision 135), of
+/// BBRv3 (draft-ietf-ccwg-bbr-06, decision 134) and of NewReno (RFC 9002, decision 133 as
+/// amended).
 pub const cubic = @import("constants_cubic.zig");
 pub const hystart = @import("constants_hystart.zig");
 pub const bbr = @import("constants_bbr.zig");
+pub const newreno = @import("constants_newreno.zig");
 
 /// RFC 9002 Appendix A.9: a Probe Timeout sends one or two ack-eliciting packets, and two is
 /// what recovers a tail of exactly one lost packet in one round trip rather than two.

@@ -463,7 +463,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   oha downloads a file of 2 MiB again and again for 30 s, from 1 and 4 connections, over a
   loopback path where tc holds the server's packets at 20 Mbit/s and 25 ms with a queue of 1,000
   packets, with no loss and with 1% loss. It downloads over h3 from colibri's UDP server under
-  CUBIC and under BBRv3 (`colibri-bbr`), chi, axum and ngtcp2's server under its own BBR (step
+  CUBIC, under BBRv3 (`colibri-bbr`) and under NewReno (`colibri-newreno`), chi, axum and ngtcp2's server under its own BBR (step
   29d), and over h2-tls from chi and axum, while a
   second oha sends a small GET each 100 ms. Its `h3-shared` runs load colibri under CUBIC and
   under BBRv3 at once through the one bottleneck. The report gives the download time at p50 and
@@ -558,7 +558,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
-  [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [bbr] [connections=<n>]
+  [retry] [errors] [no-ecn] [no-gso] [h3] [routes=github] [bbr] [newreno] [connections=<n>]
   [seconds=<unix-seconds>] [qlogdir=<directory>] [rsa=<prefix>] [mldsa87=<prefix>]`
   and `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
   [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...` run design §9's servers and
@@ -574,7 +574,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   connections, and with `qlogdir` writes each one's qlog through the endpoint's log provider; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
   it. With `routes=github` too, `server.router` answers every request over the GitHub API's routes
   in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). With `bbr` too,
-  each connection runs BBRv3 in place of CUBIC (design §8 step 29c). On Linux the `h3`
+  each connection runs BBRv3 in place of CUBIC (design §8 step 29c). With `newreno` too, each connection runs RFC 9002's NewReno (design §8 step 34). On Linux the `h3`
   mode receives with UDP_GRO and sends each peer's datagrams of a turn as one send of segments
   (UDP_SEGMENT, design §8 step 13f.6), and with `no-gso` it sends each datagram in a send of its
   own (design §8 step 13i). An address is IPv4

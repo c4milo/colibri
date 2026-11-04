@@ -1,11 +1,13 @@
-//! The congestion window of RFC 9002 §7, under CUBIC (RFC 9438, decision 133) or BBRv3
-//! (draft-ietf-ccwg-bbr-06, decision 134). Part of design §8 steps 10, 27 and 29b.4.
+//! The congestion window of RFC 9002 §7, under CUBIC (RFC 9438, decision 133), BBRv3
+//! (draft-ietf-ccwg-bbr-06, decision 134) or RFC 9002's own NewReno (decision 133 as amended).
+//! Part of design §8 steps 10, 27, 29b.4 and 34.
 //!
-//! One number decides how much may be outstanding: the window. RFC 9002 gives the parts both
+//! One number decides how much may be outstanding: the window. RFC 9002 gives the parts the
 //! controllers share: the initial and minimum windows, the recovery period and persistent
-//! congestion. `recovery_congestion_cubic.zig` grows the window along RFC 9438's curve, and
-//! `recovery_bbr/` sets it from its model of the path. A connection holds the state of one of
-//! the two, which `Choice` names (decision 136, the owner's ruling of 2026-10-31).
+//! congestion. `recovery_congestion_cubic.zig` grows the window along RFC 9438's curve,
+//! `recovery_congestion_newreno.zig` by Appendix B.5's additive increase, and `recovery_bbr/`
+//! sets it from its model of the path. A connection holds the state of one of the three, which
+//! `Choice` names (decision 136, the owner's ruling of 2026-10-31).
 //!
 //! **The octets in flight are not held here.** `recovery_sent.zig` knows what is outstanding
 //! because it holds the records, and RFC 9002 Appendix B.2's `bytes_in_flight` is the sum over
@@ -17,6 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const recovery_congestion_cubic = @import("recovery_congestion_cubic.zig");
+const recovery_congestion_newreno = @import("recovery_congestion_newreno.zig");
 const recovery_bbr = @import("recovery_bbr/recovery_bbr.zig");
 
 /// What §7.8 calls underutilizing the window: the sender had less to send than the window
@@ -35,6 +38,8 @@ pub const Controller = enum {
     cubic,
     /// BBRv3, from draft-ietf-ccwg-bbr-06 (decision 134).
     bbr,
+    /// RFC 9002 §7's NewReno, which colibri ran before CUBIC (decision 133 as amended).
+    newreno,
 };
 
 /// What a connection chose: the controller, and the value BBRv3 draws its probe waits from
@@ -48,6 +53,7 @@ pub const Choice = struct {
 pub const State = union(Controller) {
     cubic: recovery_congestion_cubic.Cubic,
     bbr: recovery_bbr.Bbr,
+    newreno: recovery_congestion_newreno.NewReno,
 };
 
 pub const Congestion = struct {
@@ -112,6 +118,10 @@ pub const Congestion = struct {
                 congestion.state = .{ .bbr = undefined };
                 congestion.state.bbr.init(now_ns, max_datagram_len, congestion.window, choice.bandwidth_probe_waits);
             },
+            .newreno => {
+                congestion.state = .{ .newreno = undefined };
+                congestion.state.newreno.init();
+            },
         }
     }
 
@@ -127,7 +137,8 @@ pub const Congestion = struct {
         switch (congestion.state) {
             // RFC 9438 counts in segments, so a new segment starts the stage again.
             .cubic => |*cubic| cubic.epoch_ns = null,
-            .bbr => {},
+            // RFC 9002 counts in octets, so NewReno's carry stays whole.
+            .bbr, .newreno => {},
         }
         if (smaller) congestion.set_window(initial_window(max_datagram_len));
     }
@@ -136,7 +147,7 @@ pub const Congestion = struct {
     pub fn set_window(congestion: *Congestion, window: u64) void {
         congestion.window = window;
         switch (congestion.state) {
-            .cubic => {},
+            .cubic, .newreno => {},
             .bbr => |*bbr| bbr.window_len = window,
         }
     }
@@ -159,6 +170,7 @@ pub const Congestion = struct {
         congestion.latest_ns = @max(congestion.latest_ns, now_ns);
         switch (congestion.state) {
             .cubic => |*cubic| recovery_congestion_cubic.on_ack(congestion, cubic, sent_at_ns, sent_len, used, now_ns, smoothed_rtt_ns, latest_rtt_ns),
+            .newreno => |*newreno| recovery_congestion_newreno.on_ack(congestion, newreno, sent_at_ns, sent_len, used),
             .bbr => unreachable,
         }
     }
@@ -175,6 +187,7 @@ pub const Congestion = struct {
         congestion.latest_ns = @max(congestion.latest_ns, now_ns);
         switch (congestion.state) {
             .cubic => |*cubic| recovery_congestion_cubic.on_congestion_event(congestion, cubic),
+            .newreno => |*newreno| recovery_congestion_newreno.on_congestion_event(congestion, newreno),
             // BBRv3 does not cut the window on loss: its model takes each lost packet, and the
             // period starts its `OnEnterFastRecovery` (`recovery_congestion_bbr.zig`).
             .bbr => {},
@@ -190,6 +203,7 @@ pub const Congestion = struct {
     pub fn on_persistent_congestion(congestion: *Congestion) void {
         switch (congestion.state) {
             .cubic => |*cubic| recovery_congestion_cubic.on_persistent_congestion(cubic),
+            .newreno => |*newreno| recovery_congestion_newreno.on_persistent_congestion(newreno),
             .bbr => {},
         }
         congestion.set_window(congestion.minimum_window());

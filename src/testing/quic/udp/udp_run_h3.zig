@@ -92,7 +92,7 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
         .ecn = asked.ecn,
         .idle_timeout_ms = constants.quic_idle_timeout_ms,
         .switch_to = asked.switch_to,
-        .congestion_controller = if (asked.bbr) .bbr else .cubic,
+        .congestion_controller = if (asked.bbr) .bbr else if (asked.newreno) .newreno else .cubic,
         .retry = if (asked.retry) udp_identity.retry_config() else null,
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
     };

@@ -5342,6 +5342,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        choice comes with BBRv3, if decision 134 builds it.
      - BBRv3 now. Its specification is a draft, and it measured no better here.
 
+     Amended by the owner on 2026-11-04 (design §8 step 34). After step 29c.3 the owner asked
+     for RFC 9002's NewReno as a choice in the configuration, which the second alternative above
+     had lost to one controller. `quic.CongestionController` gains `newreno`, beside `cubic` and
+     `bbr`, and BBRv3 stays the default (decision 143). NewReno follows RFC 9002 §7.3 and
+     Appendix B as written, with no HyStart++. The cost is a third controller to test: a
+     simulator check, a TLA+ model and a Lean proof of its own, as CUBIC has.
+
 134. **colibri may read the BBR draft, and builds BBRv3 beside CUBIC once CUBIC has landed.** Ruled
      by the owner on 2026-10-29, with decision 133. A third exception to non-negotiable 10, after
      decisions 102 and 127.

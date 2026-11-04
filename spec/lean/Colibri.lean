@@ -8,6 +8,7 @@ import Colibri.Wire.HuffmanTable
 import Colibri.Wire.Huffman
 import Colibri.Server.RateMeter
 import Colibri.Quic.Cubic
+import Colibri.Quic.NewReno
 import Colibri.Quic.HyStart
 import Colibri.Quic.DeliveryRate
 import Colibri.Quic.BbrModel

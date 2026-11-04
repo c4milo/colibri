@@ -1,7 +1,7 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [no-switch] [no-gso] [h3] [routes=github] [bbr] [connections=<n>]
+//!         [no-switch] [no-gso] [h3] [routes=github] [bbr] [newreno] [connections=<n>]
 //!         [seconds=<unix-seconds>] [qlogdir=<directory>] [rsa=<prefix>] [mldsa87=<prefix>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
@@ -30,6 +30,8 @@
 //!   "ok\n", in place of the files of `<www>` (design §8 step 13f).
 //! - `bbr`, with `h3`, runs BBRv3 on each connection in place of CUBIC (decision 136, design §8
 //!   step 29c), as the judge's `bulk` and `network` inputs measure it.
+//! - `newreno`, with `h3`, runs RFC 9002's NewReno on each connection in place of CUBIC (decision
+//!   133 as amended, design §8 step 34), as the judge's `bulk` input measures it.
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
@@ -86,6 +88,9 @@ pub const Server = struct {
     routes: bool = false,
     /// Whether the h3 server's connections run BBRv3 (`bbr`, decision 136).
     bbr: bool = false,
+    /// Whether the h3 server's connections run RFC 9002's NewReno (`newreno`, decision 133 as
+    /// amended).
+    newreno: bool = false,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
     /// The Unix seconds the server started at, or 0 for none.
@@ -97,10 +102,11 @@ pub const Server = struct {
     rsa_prefix: ?[]const u8 = null,
     mldsa87_prefix: ?[]const u8 = null,
 
-    /// Whether the options agree: the router and BBRv3 run through `server`, which the `h3` mode
-    /// alone runs on.
+    /// Whether the options agree: the router, BBRv3 and NewReno run through `server`, which the
+    /// `h3` mode alone runs on, and a server runs one controller.
     fn complete(server: Server) bool {
-        return (!server.routes and !server.bbr) or server.h3;
+        if (server.bbr and server.newreno) return false;
+        return (!server.routes and !server.bbr and !server.newreno) or server.h3;
     }
 
     /// The Unix seconds at `now_ns`: `now_seconds` and the seconds Rotor's instant has advanced
@@ -209,6 +215,8 @@ fn parse_server_word(server: *Server, word: []const u8) bool {
         server.segments = false;
     } else if (std.mem.eql(u8, word, "bbr")) {
         server.bbr = true;
+    } else if (std.mem.eql(u8, word, "newreno")) {
+        server.newreno = true;
     } else if (std.mem.eql(u8, word, h3_word)) {
         server.h3 = true;
     } else if (std.mem.eql(u8, word, routes_word)) {
@@ -230,10 +238,10 @@ const client_options_count: usize = 7;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `no-gso`, `bbr`, `h3`, `routes=github`,
+/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `no-gso`, `bbr`, `newreno`, `h3`, `routes=github`,
 /// `connections=<n>`, `seconds=<unix-seconds>`, `qlogdir=<directory>`, `rsa=<prefix>` and
 /// `mldsa87=<prefix>`.
-const server_options_count: usize = 14;
+const server_options_count: usize = 15;
 /// The one route table the h3 server routes.
 const routes_word = "routes=github";
 
@@ -442,4 +450,11 @@ test "no-gso is one word, and a server sends segments without it" {
     try testing.expect(server_of(&bbr, address).?.bbr);
     var bbr_alone: Words = .{ .words = &.{ "identity", "www", "bbr" } };
     try testing.expectEqual(null, server_of(&bbr_alone, address));
+    // `newreno` likewise, and a server runs one controller.
+    var newreno: Words = .{ .words = &.{ "identity", "www", "h3", "newreno" } };
+    try testing.expect(server_of(&newreno, address).?.newreno);
+    var newreno_alone: Words = .{ .words = &.{ "identity", "www", "newreno" } };
+    try testing.expectEqual(null, server_of(&newreno_alone, address));
+    var both: Words = .{ .words = &.{ "identity", "www", "h3", "bbr", "newreno" } };
+    try testing.expectEqual(null, server_of(&both, address));
 }

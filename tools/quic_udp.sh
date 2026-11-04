@@ -193,6 +193,29 @@ grep -q "served 3 files, 0 connection errors, controller bbr" "$scratch/server.l
 }
 kill "$server_pid" 2>/dev/null || true
 server_pid=""
+# The same three files under RFC 9002's NewReno (`newreno`, decision 133 as amended, design §8
+# step 34).
+rm -f "$scratch/downloads/small" "$scratch/downloads/medium" "$scratch/downloads/large"
+start_server once h3 newreno
+if ! client h3 /small /medium /large >"$scratch/h3_newreno.log" 2>&1; then
+  echo "quic_udp: the h3 client failed against the h3 mode under NewReno:" >&2
+  cat "$scratch/h3_newreno.log" "$scratch/server.log" >&2
+  exit 1
+fi
+for file in small medium large; do
+  if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
+    echo "quic_udp: $file arrived from the h3 mode under NewReno different from what the server holds" >&2
+    exit 1
+  fi
+done
+await_close "the h3 mode under NewReno"
+grep -q "served 3 files, 0 connection errors, controller newreno" "$scratch/server.log" || {
+  echo "quic_udp: the h3 mode under NewReno did not report the three files it served:" >&2
+  cat "$scratch/server.log" >&2
+  exit 1
+}
+kill "$server_pid" 2>/dev/null || true
+server_pid=""
 # The same three files from the server's `h3` mode, which serves h3 through the `server` module
 # (design §8 step 17b), and logs its connection through the endpoint's log provider (decision 102
 # as amended). The client's close ends its connection, which is no connection error, and a path it
