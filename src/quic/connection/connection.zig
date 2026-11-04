@@ -81,10 +81,11 @@ pub const Options = struct {
     /// the 1-RTT packet numbers the connection skips to catch a peer that acknowledges what it
     /// never received (invariant 5), or null to skip none.
     packet_number_skips: ?u64 = null,
-    /// The congestion controller (decisions 136 and 143): BBRv3, the default, or CUBIC.
+    /// The congestion controller (decisions 133, 136 and 143): BBRv3, the default, CUBIC, or
+    /// RFC 9002's NewReno.
     congestion_controller: recovery_congestion.Controller = .bbr,
     /// Decision 136: one value the caller drew from its source, from which BBRv3 draws each of
-    /// its bandwidth probe waits (draft-ietf-ccwg-bbr-06 §5.3.3.8.2). CUBIC reads none.
+    /// its bandwidth probe waits (draft-ietf-ccwg-bbr-06 §5.3.3.8.2). CUBIC and NewReno read none.
     bandwidth_probe_waits: u64 = 0,
     /// The pool the peer's stream octets wait in until the application reads them, which the
     /// caller places (decision 61). Its capacity caps every receive window. A connection given

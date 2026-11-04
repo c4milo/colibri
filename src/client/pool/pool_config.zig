@@ -52,9 +52,9 @@ pub const Config = struct {
     /// QUIC connections alone. Decision 68: whether the caller reads each datagram's ECN codepoint
     /// and sets the one `send_datagram` names.
     ecn: bool = false,
-    /// QUIC connections alone: the congestion controller each one runs (decisions 136 and 143),
-    /// BBRv3 by default or CUBIC. Under BBRv3 each connection draws its probe waits from the
-    /// program's source.
+    /// QUIC connections alone: the congestion controller each one runs (decisions 133, 136 and
+    /// 143), BBRv3 by default, CUBIC, or RFC 9002's NewReno. Under BBRv3 each connection draws its
+    /// probe waits from the program's source.
     congestion_controller: quic_module.CongestionController = .bbr,
     /// QUIC connections alone: the idle timeout the client advertises (RFC 9000 §10.1), in
     /// milliseconds.
