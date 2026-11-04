@@ -12501,6 +12501,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         - Each pool grows by 128 octets: each h2 and each QUIC connection, in docs/performance.md.
         - The judge's `--h3 --base 5036ba0c`, at 10 rounds, with the h2 inputs, which share the
           pool. The step lands when h3-many wins and no input loses.
+    - **29d.11, the judge, 2026-11-04.** Run 41835439979, `--h3 --base 5036ba0c` at 10 rounds:
+      - h2-many lost in both jobs, 1.0065 and 1.0063, past its noise of 0.50%: about 88 more
+        instructions a request.
+      - h3-many 0.9838, within its noise, and 0.9787, a win. h3-bbr-many 0.9798, a win, and
+        0.9753, within its noise. h3-many fell from 38,326 to 37,706 instructions a request.
+      - The owner's ruling of 2026-11-04: the step is dropped. It stays on the branch
+        `pool-buckets` and does not go to main.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
