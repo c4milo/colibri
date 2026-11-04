@@ -12140,6 +12140,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         were CAUGHT. `quic.Connection`'s and the two QUIC connections' own were NOT CAUGHT at
         first, because the endpoint and the pool pass the controller. A test of each now starts
         a connection with its defaults, and all five are CAUGHT.
+    - **29c.3, CUBIC at 1% loss, 2026-11-04.** [#123](https://github.com/c4milo/colibri/issues/123)
+      asked why colibri's CUBIC got half of quic-go's goodput. CUBIC follows RFC 9438, and most of
+      the difference is in how the report counts.
+      - A scratch copy of the simulator, which was not kept, held the bulk path: a queue of
+        1,000 packets at 20 Mbit/s, 25 ms each way, and 1% loss each way. Over 4 seeds a 2 MiB
+        download took 6.49 s under CUBIC, 2.58 Mbit/s, and 1.14 s under BBRv3, 14.76 Mbit/s.
+      - The bulk run's qlog option (`BENCH_BULK_QLOG`, the workflow's `qlog` input) kept the
+        server's qlog in run 41830884812, job 2, on a39c8d1f. Each CUBIC connection at 1% loss
+        had a smoothed RTT of 51 to 55 ms and a mean window of 14 to 18 KB. Each sent 2.0 to
+        2.6 Mbit/s.
+      - Between two cuts the window grew 0.49 to 0.52 packets a round trip, where RFC 9438 §4.3
+        gives α_cubic = 0.53. Each cut left 0.7 of the window (§4.6). At 1% loss and 50 ms,
+        CUBIC stays in the Reno-friendly region, where that growth gives about 2.3 Mbit/s.
+      - The report's goodput counts whole 2 MiB downloads in a load of 30 s. 1.68 Mbit/s is 3
+        downloads, 2.24 is 4 and 3.36 is 6, so the report shows the differences in steps of
+        one download.
+      - The median download still took 9.1 s from colibri, 6.4 s from axum (quinn) and 5.2 s
+        from chi (quic-go). Both send faster than RFC 9438's CUBIC on this path. colibri reads
+        neither one's source (non-negotiable 10), and BBRv3 is the default for a lossy path.
+      - BBRv3 loses about 8.5% at 1% loss in the simulator, over 16 MiB: 16.45 Mbit/s against
+        17.97. Most of it is draft-ietf-ccwg-bbr-06 §5.5.10.3, which cuts the short-term model
+        in each round that loses a packet. The owner ruled on 2026-11-04 to keep the draft.
   - **29d, BBRv3 against itself and its cost.** The judge measured BBRv3 only beside CUBIC, and
     neither chi (quic-go) nor axum (quinn) runs BBRv3. The owner asked on 2026-11-01 for two
     measurements before any change to the controller.
