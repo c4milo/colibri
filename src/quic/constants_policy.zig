@@ -104,6 +104,11 @@ pub const resume_lifetime_ns_default: u64 = 3_600_000_000_000;
 /// size (i.e., CWND / 2)", because slow start overshoots the path.
 pub const resume_slow_start_window_divisor: u64 = 2;
 
+/// RFC 9959 §4.2.1: "A current RTT that is more than ten times the saved_rtt is indicative of a
+/// path change", so a resumed connection whose minimum round trip passes this many saved ones
+/// stops using Careful Resume.
+pub const resume_rtt_growth_factor_max: u64 = 10;
+
 /// RFC 9959 §3.1: "If the measured CWND is less than four times the IW, the sender can choose to
 /// not save the CC parameters", which colibri does below this many initial windows.
 pub const resume_observed_windows_min: u64 = 4;

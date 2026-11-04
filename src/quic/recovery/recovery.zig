@@ -27,6 +27,7 @@ const recovery_ecn = @import("recovery_ecn.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
 const recovery_spurious = @import("recovery_spurious.zig");
 const recovery_resume = @import("recovery_resume.zig");
+const recovery_resume_phases = @import("recovery_resume_phases.zig");
 const recovery_congestion_bbr = @import("recovery_congestion_bbr.zig");
 
 const Congestion = recovery_congestion.Congestion;
@@ -186,6 +187,8 @@ pub const Recovery = struct {
         held.ack_eliciting_in_flight = recovery.table_of(kind).ack_eliciting_count() > 0;
         recovery.pacer.refill(now_ns, recovery.rate());
         recovery.pacer.on_sent(sent.sent_len);
+        // RFC 9959 §3.3: the Unvalidated Phase counts the application packets it sends.
+        if (kind == .application) recovery_resume_phases.on_packet_sent(recovery, sent.number);
     }
 
     /// RFC 9002 Appendix A.6's `OnDatagramReceived`. A server that was at the anti-amplification

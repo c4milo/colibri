@@ -12806,6 +12806,33 @@ library.
       The window does not change yet: 35b changes it.
     - The example in `examples/` and the section of docs/usage.md come with 35d, where a program
       reaches Careful Resume through `server.Config.resumes` and `client.Config.resumes`.
+  - **35b, the phases under CUBIC and NewReno, 2026-11-04.** `recovery_resume_phases.zig`
+    takes three calls from `Recovery`: an application packet recorded, an ACK frame, and a new
+    congestion event. An ACK frame's octets join PipeSize before loss detection, so a retreat the
+    same frame starts halves a PipeSize that holds them.
+    - Reconnaissance: an acknowledged initial window, with a minimum round trip above half the
+      saved one and at most ten times it, enters the Unvalidated Phase (§3.2, §4.2.1).
+      Congestion first ends Careful Resume.
+    - Unvalidated: the window jumps to `min(jump_len_max, window_len / 2)`, and PipeSize starts at
+      the flight size (§3.3). A jump no larger than the window ends Careful Resume. A full
+      window, the first unvalidated packet acknowledged, or one round trip ends the phase. The
+      window then falls to PipeSize, held at the initial window, or takes the flight size and
+      the Validating Phase starts.
+    - Validating ends once the last unvalidated packet is acknowledged (§3.4). Congestion in
+      either phase retreats: the window falls to half of PipeSize, held at the minimum, and
+      `retreated` says to delete the saved set (§3.5). The window holds until the last
+      unvalidated packet is acknowledged, and ssthresh is then at most PipeSize times the
+      controller's β.
+    - Persistent congestion ends Careful Resume (§3.6). BBRv3 stays in Reconnaissance, which
+      changes nothing, until 35c.
+    - 22 mutations, each **CAUGHT**: the path confirmed early; the half and the ten-times checks
+      of the round trip; a jump of the whole saved window; max_jump ignored; a jump below the
+      window; a full window, or the first unvalidated acknowledgment, not ending the phase; an
+      unused jump kept; the Validating Phase on the jump window, or never ending; congestion in
+      Reconnaissance kept; no retreat; a retreat that does not halve; the saved set kept; growth
+      in Safe Retreat, NOT CAUGHT until its test was added; no ssthresh after it; persistent
+      congestion kept; PipeSize, congestion events or sent packets never reported; and BBRv3
+      under the window rules.
     - `quic.Connection` grows by 56 octets, to 208,376, and `server.Endpoint` at its default
       capacity to 52,434,448. docs/performance.md lists each size.
     - 14 mutations, each **CAUGHT**: another version, another size, an empty window, a set from

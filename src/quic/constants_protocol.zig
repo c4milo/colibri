@@ -173,6 +173,12 @@ pub const max_ack_delay_invalid_at: u64 = 1 << 14;
 /// one of these and knows its header's length.
 pub const length_field_lens = wire.constants.protocol.varint_lens;
 
+/// RFC 9959's three halvings. §3.2: a minimum round trip "less than or equal to (saved_rtt / 2)"
+/// stops Careful Resume. §3.3: "the jump_cwnd MUST be no more than half of the saved_cwnd". §3.5:
+/// "The CWND MUST be reduced to no more than (PipeSize/2)".
+pub const resume_rtt_shrink_divisor: u64 = 2;
+pub const resume_jump_divisor: u64 = 2;
+pub const resume_retreat_divisor: u64 = 2;
 comptime {
     // RFC 9000 §14.1's floor is below §18.2's ceiling, or no datagram size would be legal.
     assert(datagram_len_min < datagram_len_max);

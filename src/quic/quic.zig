@@ -39,6 +39,7 @@ const files = struct {
     pub const recovery_congestion_bbr = @import("recovery/recovery_congestion_bbr.zig");
     pub const recovery_congestion_newreno = @import("recovery/recovery_congestion_newreno.zig");
     pub const recovery_resume = @import("recovery/recovery_resume.zig");
+    pub const recovery_resume_phases = @import("recovery/recovery_resume_phases.zig");
     pub const connection_resume = @import("connection/connection_resume.zig");
     pub const recovery_timer = @import("recovery/recovery_timer.zig");
     pub const recovery_pacing = @import("recovery/recovery_pacing.zig");

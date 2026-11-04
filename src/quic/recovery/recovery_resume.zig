@@ -1,7 +1,7 @@
 //! Careful Resume (RFC 9959, decision 149): what a connection saves of its path for a later
 //! connection, the bounds a program sets, and the phase a resumed connection is in. Part of design
-//! §8 step 35. 35a holds the saved set, its checks and the Reconnaissance Phase's entry; the
-//! phases that change the window are 35b's and 35c's.
+//! §8 step 35. This file holds the saved set, its checks and the phase state;
+//! `recovery_resume_phases.zig` moves through the phases (35b).
 //!
 //! colibri holds no state between connections (non-negotiable 1): a program stores a
 //! `ResumeState` as it stores a session ticket, and passes it to a later connection.
@@ -66,17 +66,42 @@ pub const Phase = enum(u8) {
     safe_retreat,
 };
 
-/// A connection's part of Careful Resume: its phase, and the set it resumes from.
+/// A connection's part of Careful Resume: its phase, the set it resumes from, and what
+/// `recovery_resume_phases.zig` tracks through the phases.
 pub const Resume = struct {
     phase: Phase,
     /// The saved set, which only the phases after `off` read.
     saved: ResumeState,
     bounds: ResumeBounds,
+    /// The application octets acknowledged in the Reconnaissance Phase, which confirm the path
+    /// once they cover the initial window (§3.2).
+    acknowledged_len: u64,
+    /// §3.3's PipeSize: the octets in flight when the Unvalidated Phase started, and every octet
+    /// acknowledged since.
+    pipe_len: u64,
+    /// When the Unvalidated Phase started, which §3.3 limits to one round trip.
+    unvalidated_at_ns: u64,
+    /// The first and the last packet number sent in the Unvalidated Phase, or null before one is.
+    first_unvalidated: ?u64,
+    last_unvalidated: ?u64,
+    /// Whether the connection entered the Safe Retreat Phase, after which §3.5 deletes the saved
+    /// set. 35d tells the program's provider.
+    retreated: bool,
 
     /// Starts in the Reconnaissance Phase when the program passed a set colibri may use at
     /// `now_ns`, and in normal congestion control otherwise (RFC 9959 §3.2).
     pub fn init(state: *Resume, saved: ?ResumeState, bounds: ResumeBounds, now_ns: u64) void {
-        state.* = .{ .phase = .off, .saved = .{ .window_len = 0, .rtt_ns = 0, .saved_at_ns = 0 }, .bounds = bounds };
+        state.* = .{
+            .phase = .off,
+            .saved = .{ .window_len = 0, .rtt_ns = 0, .saved_at_ns = 0 },
+            .bounds = bounds,
+            .acknowledged_len = 0,
+            .pipe_len = 0,
+            .unvalidated_at_ns = 0,
+            .first_unvalidated = null,
+            .last_unvalidated = null,
+            .retreated = false,
+        };
         const held = saved orelse return;
         if (!held.usable(bounds, now_ns)) return;
         state.saved = held;

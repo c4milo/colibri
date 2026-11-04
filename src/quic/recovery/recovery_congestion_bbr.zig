@@ -14,6 +14,7 @@ const recovery_congestion = @import("recovery_congestion.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
 const recovery_sent = @import("recovery_sent.zig");
 const recovery_spurious = @import("recovery_spurious.zig");
+const recovery_resume_phases = @import("recovery_resume_phases.zig");
 const recovery_pacing = @import("recovery_pacing.zig");
 const recovery_bbr = @import("recovery_bbr/recovery_bbr.zig");
 
@@ -75,6 +76,8 @@ pub fn on_lost(recovery: *Recovery, application: bool, lost: []const recovery_se
 pub fn on_congestion_event(recovery: *Recovery, sent_at_ns: u64, now_ns: u64) void {
     const started = recovery_spurious.on_congestion_event(&recovery.congestion, &recovery.spurious, sent_at_ns, now_ns);
     if (!started) return;
+    // RFC 9959 §3.2 to §3.4: a new congestion event moves Careful Resume to its next phase.
+    recovery_resume_phases.on_congestion_event(recovery);
     const state = bbr_of(recovery) orelse return;
     state.on_enter_recovery(path_of(recovery, state, now_ns, false, true));
 }
@@ -84,6 +87,8 @@ pub fn on_congestion_event(recovery: *Recovery, sent_at_ns: u64, now_ns: u64) vo
 pub fn on_persistent_congestion(recovery: *Recovery, now_ns: u64) void {
     if (bbr_of(recovery)) |state| state.on_enter_rto(path_of(recovery, state, now_ns, false, true));
     recovery.congestion.on_persistent_congestion();
+    // RFC 9959 §3.6: persistent congestion ends Careful Resume.
+    recovery_resume_phases.on_persistent_congestion(recovery);
 }
 
 /// §5.2.5: the frame showed the loss episode spurious.

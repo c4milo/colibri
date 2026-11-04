@@ -20,6 +20,7 @@ const recovery_sent = @import("recovery_sent.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
 const recovery_delivery = @import("recovery_delivery.zig");
 const recovery_congestion_bbr = @import("recovery_congestion_bbr.zig");
+const recovery_resume_phases = @import("recovery_resume_phases.zig");
 
 const Kind = space.Kind;
 const Record = recovery_sent.Record;
@@ -102,6 +103,8 @@ pub fn on_ack_received(
     // RFC 9002 Appendix A.7: nothing to do when the ACK named only packets already accounted for.
     if (removed.count == 0) return outcome;
 
+    // RFC 9959 §3.3: PipeSize counts the frame's octets before a loss it shows ends the phase.
+    if (kind == .application) recovery_resume_phases.on_acknowledged(held, removed.in_flight_len);
     outcome.rtt_sampled = sample(held, ack, removed, now_ns);
     // draft-ietf-ccwg-bbr-06 §4.1.2.3 compares the interval with C.min_rtt, which this frame's
     // own round trip sample may just have lowered.
@@ -113,6 +116,8 @@ pub fn on_ack_received(
         // draft-ietf-ccwg-bbr-06 §5.2.3: BBRv3 takes the frame's rate sample.
         .bbr => recovery_congestion_bbr.on_ack(held, outcome.sample.?, removed.record.?.sent_at_ns, used, now_ns),
     }
+    // RFC 9959 §3.2 to §3.5: Careful Resume's phase moves on what the frame acknowledged.
+    if (kind == .application) recovery_resume_phases.on_ack(held, now_ns);
 
     // RFC 9002 Appendix A.7: the backoff starts again once the peer has validated the address,
     // because a probe that was answered is no longer evidence of a path that will not answer.
@@ -215,6 +220,8 @@ fn process_ecn(
 
 /// RFC 9002 Appendix B.5's `OnPacketsAcked`, over what this frame took out of flight.
 fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization, now_ns: u64, sampled: bool) void {
+    // RFC 9959 §3.3 and §3.5: the Unvalidated and the Safe Retreat Phases hold the window.
+    if (recovery_resume_phases.holds_window(held)) return;
     // Appendix B.5 walks the packets one at a time and each one asks the same two questions of
     // the same instant, so the octets are added once. The record kept is the largest, which is
     // the one whose send instant decides whether the recovery period still holds, and the caller
