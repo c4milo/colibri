@@ -12523,6 +12523,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           docs/performance.md.
         - The judge's `--h3 --base 5036ba0c`, at 10 rounds. The step lands when h3-many wins and
           no input loses.
+    - **29d.11, the judge, 2026-11-04.** Run 41852315591, `--h3 --base 5036ba0c` at 10 rounds:
+      h3-many 0.9452 and 0.9476, and h3-bbr-many 0.9447 and 0.9381, each a win. h3-many fell
+      from 38,313 to 36,215 instructions a request in job 1. Every other input is within the
+      noise in both jobs, and h2-many runs the base's instructions.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
