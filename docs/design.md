@@ -12439,6 +12439,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         1,240 instructions a request, which is less than its noise.
       - The owner's ruling of 2026-11-03: the step stays on its branch, and the judge measures it
         again together with the next h3 change.
+    - **29d.10, a credit walk over the streams that receive, 2026-11-03.** The same profile gave
+      `quic_deadline.observe_credit` 4.9% and 4.3% of h3-many's samples, in the function itself,
+      where `quic.connection_flow.data_credit_owed` is inlined. It walks every live stream of
+      the connection, about twice a datagram, and reads each stream's receiving state. In
+      h3-many each GET carries its FIN, so nearly every stream it reads has left "Recv".
+      - The change, the owner's choice of three on 2026-11-03: `quic`'s `Streams` keeps
+        `may_owe_credit`, a bit for each slot. `open_local` and `open_peer` set the bit of each
+        stream this endpoint receives on, and `close` clears it. `data_credit_owed` walks the set
+        bits alone, and clears the bit of a stream it finds out of "Recv" (RFC 9000 §13.3). No
+        answer is kept from one call to the next, so no answer goes stale. No public name
+        changes.
+      - The two alternatives it beat: one walk a datagram, which halves the walks and keeps
+        their length, and a count of the streams that owe credit, which is the cache that 29d.5
+        dropped.
+      - The checks:
+        - A test in `stream_table.zig` opens streams of each type and closes one, and counts the
+          bits. The credit test of decision 110 requires the walk to clear the bit of a stream
+          whose size is known.
+        - Mutations, by `zig build test-quic`: `open_local` and `open_peer` that mark nothing, a
+          stream that only sends marked too, `close` that keeps the bit, a walk that keeps the
+          bit of a stream out of "Recv", and a walk that clears the bit of a stream in "Recv":
+          each CAUGHT.
+        - Each QUIC connection grows by 16 octets, the 128 bits, in docs/performance.md.
+        - The judge's `--h3 --base 96ed6ef5`, at 10 rounds, measures 29d.9 and 29d.10 together.
+          They land when h3-many wins and no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

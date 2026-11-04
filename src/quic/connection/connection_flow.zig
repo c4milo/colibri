@@ -102,11 +102,18 @@ pub fn count_credit_owed(connection: *const Connection) bool {
 pub fn data_credit_owed(connection: *Connection) bool {
     if (connection.receive_flow.owes_credit() or connection.max_data.owed) return true;
     const streams = &connection.streams;
-    var walk = streams.pool.iterator();
+    // Design §8 step 29d.10: only a marked slot may owe credit. The walk reads a copy, because it
+    // clears the marks of streams that left "Recv".
+    const marked = streams.may_owe_credit;
+    var walk = marked.iterator(.{});
     // Bounded by the table's capacity, `streams_per_connection_max`.
-    while (walk.next()) |stream| {
+    while (walk.next()) |index| {
+        const stream = streams.pool.at(@intCast(index));
         // RFC 9000 §13.3: no MAX_STREAM_DATA once the receiving part leaves "Recv".
-        if (stream.receiving.state != .recv) continue;
+        if (stream.receiving.state != .recv) {
+            streams.may_owe_credit.unset(index);
+            continue;
+        }
         if (stream.receive_flow.owes_credit() or stream.max_stream_data.owed) return true;
     }
     return false;

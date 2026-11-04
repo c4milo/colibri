@@ -137,6 +137,11 @@ pub const Streams = struct {
     /// The table slot of the stream that last sent new octets, so streams of one priority take
     /// turns: the slot after it goes next.
     send_turn: u32,
+    /// The slots whose stream may owe a MAX_STREAM_DATA frame: each stream this endpoint receives
+    /// on, set when it opens and cleared when it closes, or when `data_credit_owed` finds its
+    /// receiving part out of "Recv" (§13.3). The walk then passes over the rest (design §8 step
+    /// 29d.10).
+    may_owe_credit: std.StaticBitSet(constants.limits.streams_per_connection_max),
 
     /// `peer_limits` are the counts this endpoint advertises, which `init` caps at the table's
     /// capacity: §3.2's implicit creation makes an advertised limit a promise to hold that many
@@ -155,6 +160,7 @@ pub const Streams = struct {
         streams.streams_blocked = @splat(.{});
         streams.open_refused = @splat(false);
         streams.resets_unacknowledged = 0;
+        streams.may_owe_credit = .initEmpty();
         // No stream has sent, so the turn starts at the first slot.
         streams.send_turn = constants.limits.streams_per_connection_max - 1;
         for (0..constants.protocol.stream_directionalities) |index| {
@@ -195,6 +201,7 @@ pub const Streams = struct {
         if (index > constants.protocol.stream_index_max) return error.IdentifiersExhausted;
         const id = StreamId.of(streams.role, directionality, index);
         const stream = streams.pool.open(id.value) catch return error.Full;
+        streams.on_opened(stream);
         streams.next_index[which] = index + 1;
         streams.local_limit[which].spend(1);
         streams.open_refused[which] = false;
@@ -222,10 +229,18 @@ pub const Streams = struct {
         for (0..constants.limits.streams_per_connection_max + 1) |_| {
             const next = StreamId.of(id.initiator(), id.directionality(), index);
             const stream = streams.pool.open(next.value) catch return error.Full;
+            streams.on_opened(stream);
             if (index == id.index()) return stream;
             index += 1;
         }
         unreachable; // The limit is capped at the table, so the walk ends inside it.
+    }
+
+    /// Marks the slot of a stream this endpoint receives on, which may come to owe credit.
+    fn on_opened(streams: *Streams, stream: *Stream) void {
+        assert(stream.receiving.state == .recv);
+        if (!stream.stream_identifier().is_receivable_by(streams.role)) return;
+        streams.may_owe_credit.set(streams.pool.index_of(stream));
     }
 
     /// The first index of `id`'s type that has not been opened, which is one past the watermark
@@ -241,6 +256,7 @@ pub const Streams = struct {
         const stream = streams.pool.get(id.value).?;
         assert(stream.sending.state.is_terminal() or !id.is_sendable_by(streams.role));
         assert(stream.receiving.state.is_terminal() or !id.is_receivable_by(streams.role));
+        streams.may_owe_credit.unset(streams.pool.index_of(stream));
         streams.pool.close(id.value);
         // RFC 9000 §4.6: "Implementations might choose to increase limits as streams are closed,
         // to keep the number of streams available to peers roughly consistent." A closed stream
@@ -459,4 +475,25 @@ test "§4.6: more room for the peer is offered as its streams close" {
         test_streams.close(id);
     }
     try testing.expectEqual(test_limit + test_limit / 2, test_streams.peer_limit_frame(.unidirectional, 0).?);
+}
+
+test "design §8 step 29d.10: a stream this endpoint receives on is marked from open to close" {
+    test_streams.init(.server, both_limits, both_limits);
+    const marks = &test_streams.may_owe_credit;
+    const id = peer_id(.server, .unidirectional, 1);
+    // §3.2: the frame opens index 0 too, and the endpoint receives on both.
+    _ = try test_streams.open_peer(id);
+    const opened = marks.count();
+    try testing.expectEqual(2, opened);
+    // §2.1: a unidirectional stream this endpoint opens only sends, and a bidirectional one
+    // receives too.
+    _ = try test_streams.open_local(.unidirectional);
+    try testing.expectEqual(opened, marks.count());
+    _ = try test_streams.open_local(.bidirectional);
+    try testing.expectEqual(opened + 1, marks.count());
+    const stream = test_streams.lookup(id).live;
+    _ = stream.receiving.on(.received_reset);
+    _ = stream.receiving.on(.application_read_reset);
+    test_streams.close(id);
+    try testing.expectEqual(opened, marks.count());
 }

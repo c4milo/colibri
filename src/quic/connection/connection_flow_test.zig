@@ -221,6 +221,7 @@ test "decision 110: credit waits to be sent from the read that earns it to the p
     stream.max_stream_data.owed = true;
     _ = stream.receiving.on(.received_fin);
     try testing.expect(!flow_frames.credit_owed(&server));
+    try testing.expect(!server.streams.may_owe_credit.isSet(server.streams.pool.index_of(stream)));
 }
 
 test "RFC 9000 §13.3: a lost limit frame is sent again at the current value, for the most recent only" {
