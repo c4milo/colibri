@@ -52,26 +52,40 @@ pub fn settle_changed(connection: *QuicConnection) void {
     finish_if_drained(connection);
 }
 
+/// The live stream of `record`, or null once it closed. The first lookup that finds it keeps its
+/// slot, and each later one reads that slot alone: a slot that no longer holds the identifier
+/// says the stream closed, where a lookup would scan every slot to say so (design §8 step 29d.11).
+fn live_stream(connection: *QuicConnection, record: *Request) ?*quic.stream.Stream {
+    const streams = &connection.transport.streams;
+    if (record.stream_slot) |slot| {
+        if (!streams.pool.holds(slot, record.stream_id)) return null;
+        return streams.pool.at(slot);
+    }
+    const stream = switch (streams.lookup(.{ .value = record.stream_id })) {
+        .live => |stream| stream,
+        .closed, .unopened => return null,
+    };
+    record.stream_slot = streams.pool.index_of(stream);
+    return stream;
+}
+
 fn settle_one(connection: *QuicConnection, record: *Request) void {
     const id: StreamId = .{ .value = record.stream_id };
-    const stream = switch (connection.transport.streams.lookup(id)) {
-        .live => |stream| stream,
-        .closed, .unopened => {
-            // RFC 9000 §3: a stream closes once each part is finished. `settle` runs after every
-            // datagram, and saw any reset of the response first, so one not over was acknowledged
-            // whole.
-            if (!record.over) {
-                assert(record.finished);
-                end(connection, record, .done);
-            }
-            // Each way a request ends gave its encoder back, and each way its stream's receiving
-            // part ends stopped the wait for its content.
-            assert(record.coded == null);
-            assert(!quic_body.waits(connection, record));
-            quic_sends.forget(connection, record);
-            connection.requests.free(record);
-            return;
-        },
+    const stream = live_stream(connection, record) orelse {
+        // RFC 9000 §3: a stream closes once each part is finished. `settle` runs after every
+        // datagram, and saw any reset of the response first, so one not over was acknowledged
+        // whole.
+        if (!record.over) {
+            assert(record.finished);
+            end(connection, record, .done);
+        }
+        // Each way a request ends gave its encoder back, and each way its stream's receiving part
+        // ends stopped the wait for its content.
+        assert(record.coded == null);
+        assert(!quic_body.waits(connection, record));
+        quic_sends.forget(connection, record);
+        connection.requests.free(record);
+        return;
     };
     quic_sends.look(connection, record, stream);
     switch (stream.sending.state) {

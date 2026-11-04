@@ -17,6 +17,9 @@ const Number = event.Number;
 /// which records are in use.
 pub const Request = struct {
     stream_id: u64,
+    /// The slot of the request's stream in the QUIC stream table, once `settle_one` found it
+    /// live. A later settle reads that slot alone (design §8 step 29d.11).
+    stream_slot: ?u32,
     /// The request's end went to the caller: its content ended, or its trailer section came.
     ended: bool,
     /// The final response's head went out, and the stream's last octet is supplied, its FIN.
@@ -114,6 +117,7 @@ pub const Requests = struct {
         @setRuntimeSafety(false);
         record.* = .{
             .stream_id = stream_id,
+            .stream_slot = null,
             .ended = false,
             .answered = false,
             .finished = false,

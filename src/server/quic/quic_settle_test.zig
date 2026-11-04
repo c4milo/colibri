@@ -115,4 +115,6 @@ test "design §8 step 29d.7: each response written at the instant the connection
     try testing.expectEqual(responses_two, connection.sends.busy);
     // Each record settled once: the next receive at this instant settles none again.
     try testing.expectEqual(0, connection.requests.changed.count());
+    // Design §8 step 29d.11: each record keeps its live stream's slot, which later settles read.
+    for ([_]u64{ first.id, second.id }) |id| try testing.expect(connection.requests.of(id).?.stream_slot != null);
 }

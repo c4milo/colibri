@@ -225,11 +225,11 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 52433552 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.Endpoint` | 52446352 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
 | `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 348448 | an endpoint that holds one TCP connection |
-| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2951136 | an endpoint that holds one QUIC connection, with its receive pool |
+| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2951936 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 332528 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1428240 | the connection each QUIC slot of an endpoint holds, without its receive pool |
+| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1429040 | the connection each QUIC slot of an endpoint holds, without its receive pool |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp"))` | 315784 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))` | 40 | each exchange a pool holds at once |

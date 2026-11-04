@@ -180,7 +180,17 @@ pub fn Pool(
             pool.count -= 1;
             pool.free_from = @min(pool.free_from, @as(Slot, @intCast(slot.?)));
             assert(!pool.is_above_watermark(id));
-            assert(pool.slot_of(id) == null);
+            // No other slot holds `id`: `open` takes only an identifier above its class's
+            // watermark (invariant 13), so the slot just freed was its one (design §8 step 29d.11).
+            assert(!pool.holds(slot.?, id));
+        }
+
+        /// Whether slot `index` holds the live entry of `id`. An identifier leaves its slot only
+        /// when it closes, and `open` never takes it again, so a slot that held `id` and holds it
+        /// no more says `id` closed.
+        pub fn holds(pool: *const Self, index: u32, id: u64) bool {
+            assert(index < capacity);
+            return pool.live[index] and pool.entries[index].id == id;
         }
 
         /// The slot that holds `entry`, a live entry of this pool. Where the entry lies in the

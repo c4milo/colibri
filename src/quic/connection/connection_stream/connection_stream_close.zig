@@ -29,8 +29,12 @@ pub fn close_if_finished(connection: *Connection, stream: *Stream) bool {
     if (id.is_receivable_by(role) and !stream.receiving.state.is_terminal()) return false;
     // Decision 61: what the stream still held in the receive pool goes back to it.
     if (connection.receive_storage) |storage| stream.incoming.release(storage, stream.id, stream.receive_flow.consumed);
+    const slot = connection.streams.pool.index_of(stream);
     connection.streams.close(id);
-    assert(connection.streams.lookup(id) == .closed);
+    // What `lookup` would call `closed`, read from the slot alone (design §8 step 29d.11): the
+    // identifier is at or below its watermark, and its slot holds it no more.
+    assert(!connection.streams.pool.is_above_watermark(id.value));
+    assert(!connection.streams.pool.holds(slot, id.value));
     return true;
 }
 

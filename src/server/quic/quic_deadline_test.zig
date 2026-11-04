@@ -225,7 +225,7 @@ test "RFC 9114 §4.1.1: a late head with no record free for a response is reject
         connection.requests.held.set(index);
         connection.requests.stream_ids[index] = open.id;
         const record = &connection.requests.records[index];
-        record.* = .{ .stream_id = open.id, .ended = true, .answered = false, .finished = false, .over = true, .continue_owed = false, .response = undefined, .asked = .{}, .coded = null };
+        record.* = .{ .stream_id = open.id, .stream_slot = null, .ended = true, .answered = false, .finished = false, .over = true, .continue_owed = false, .response = undefined, .asked = .{}, .coded = null };
         record.response.init();
     }
     server_at(wait.since_ns + constants.policy.head_timeout_ns);

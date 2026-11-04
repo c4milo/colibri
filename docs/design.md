@@ -12492,6 +12492,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         h3-bbr-one 0.9591 and 0.9607: each a win. h3-many fell from 42,280 to 38,461 instructions
         a request in job 1.
       - Each h2 input is within the noise in both jobs.
+    - **29d.11, no scan for a stream that closed, 2026-11-04.** The judge's `profile` on 5036ba0c
+      (run 41824399460) gave `core.Pool.get` of the QUIC stream table 4.0% and 4.1% of h3-many's
+      samples, the largest cost in the function itself. A lookup of an identifier that is not
+      live scans every slot, and each stream that closes costs three:
+      - `Pool.close` asserts that its identifier is found no more.
+      - `close_if_finished` asserts that `lookup` calls it `closed`.
+      - `settle_one` looks up the stream after the acknowledgment that closed it.
+      - The change, the owner's choice of 2026-11-04, which allowed the two assertions to change:
+        1. `core.Pool` gets `holds(index, id)`: whether a slot holds the live entry of an
+           identifier.
+        2. `Pool.close` asserts that the slot it freed holds the identifier no more. `open`
+           takes only an identifier above its watermark (invariant 13), so no other slot holds
+           it, and the check proves what the scan proved.
+        3. `close_if_finished` asserts the same of the stream's slot, and that the identifier is
+           at or below its watermark, which together are what `lookup` calls `closed`.
+        4. Each server `Request` keeps `stream_slot` once `settle_one` finds its stream live,
+           and each later settle reads that slot alone. A slot that holds the identifier no more
+           says the stream closed, because an identifier never returns to a pool.
+      - The alternative it beat, run first as 29d.11 on the branch `pool-buckets`: buckets by
+        `id / class_count` and a count of each bucket's live entries in `core.Pool`. Run
+        41835439979 lost h2-many by 0.65% for 2% on h3-many, and the owner dropped it.
+      - The checks:
+        - The test of two requests in `quic_settle_test.zig` requires each record to keep its
+          stream's slot.
+        - Mutations, by `zig build test-core` and `zig build test-server`: `holds` that ignores
+          the identifier or the live flag, a settle that keeps no slot, a kept slot read as live
+          after its stream closed, and `make_record` that keeps an old slot: each CAUGHT.
+        - Each QUIC slot of a server grows by 800 octets, 8 for each record, in
+          docs/performance.md.
+        - The judge's `--h3 --base 5036ba0c`, at 10 rounds. The step lands when h3-many wins and
+          no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

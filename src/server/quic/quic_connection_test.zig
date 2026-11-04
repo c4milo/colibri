@@ -168,6 +168,7 @@ test "RFC 9114 §4.1.1: a request no record can hold is rejected, which the clie
         const record = &connection.requests.records[index];
         record.* = .{
             .stream_id = first.id,
+            .stream_slot = null,
             .ended = true,
             .answered = false,
             .finished = false,
