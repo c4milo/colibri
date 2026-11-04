@@ -12428,6 +12428,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           before.
         - The judge's `--h3 --base 96ed6ef5`, at 10 rounds. The step lands when h3-many wins and
           no input loses.
+    - **29d.9, the checks and the judge, 2026-11-03.** The test and both mutations ran as the
+      entry says: each mutation CAUGHT. `zig build test-sim-run-quic` and
+      `tools/h3_deadline_trace.sh` (32 of 32) passed. The judge, `--h3 --base 96ed6ef5`:
+      - Run 41730768549, 10 rounds: h3-many 0.9786, within its noise of 2.84%, and 0.9706, a
+        win. h3-bbr-many 0.9804 and 0.9740, within the noise.
+      - Run 41738836664, 20 rounds: h3-many 0.9787 and 0.9709, within noises of 3.87% and
+        3.62%. h3-bbr-many 0.9809 and 0.9735, within the noise.
+      - No input lost in either run. h3-many fell 2% to 3% in each of the four jobs, about 900 to
+        1,240 instructions a request, which is less than its noise.
+      - The owner's ruling of 2026-11-03: the step stays on its branch, and the judge measures it
+        again together with the next h3 change.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
