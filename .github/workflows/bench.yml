@@ -62,6 +62,10 @@ on:
         description: "Sample colibri's server and its call stacks under each input, in place of the counts"
         type: boolean
         default: false
+      qlog:
+        description: "With bulk, keep each colibri connection's qlog beside the report; its numbers are not published"
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -92,6 +96,8 @@ jobs:
       WAITS: ${{ inputs.waits }}
       BULK: ${{ inputs.bulk }}
       PROFILE: ${{ inputs.profile }}
+      # https://github.com/c4milo/colibri/issues/123: bench/run_bulk.sh writes colibri's qlog here.
+      BENCH_BULK_QLOG: ${{ inputs.qlog && 'bench-report-qlog' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -191,9 +197,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bench-report-${{ matrix.job }}
-          # With `profile`, the folded stacks of each input go beside the report.
+          # With `profile`, the folded stacks of each input go beside the report, and with `qlog`
+          # colibri's qlog files.
           path: |
             bench-report.md
             bench-report-profile/
+            bench-report-qlog/
           if-no-files-found: ignore
           retention-days: 90

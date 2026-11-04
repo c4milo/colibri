@@ -33,7 +33,10 @@
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset (decision 33 as
 # amended). Round 0 is a warm-up that the report discards. It needs sudo -n, tc, ethtool,
 # sch_netem, Zig, Go, cargo, curl, Docker and python3. BENCH_OHA names an oha with h3 built
-# already.
+# already. BENCH_BULK_QLOG names a directory: colibri's servers then write each connection's qlog
+# into <directory>/<round>/<protocol>@<profile>/<server>, to find where their goodput goes
+# (https://github.com/c4milo/colibri/issues/123). A load that logs costs the server more, so no
+# report publishes its numbers.
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,6 +48,12 @@ while [ $# -gt 0 ]; do
     *) report="$1"; shift ;;
   esac
 done
+
+# The directory each colibri server's qlog goes in, or empty for none, and the part of its path
+# the loop sets: <round>/<protocol>@<profile>.
+qlog_root="${BENCH_BULK_QLOG:-}"
+if [ -n "$qlog_root" ]; then qlog_root="$(mkdir -p "$qlog_root" && cd "$qlog_root" && pwd)"; fi
+qlog_run=""
 
 # Each start takes the next port, as in bench/run_latency.sh.
 port=18590
@@ -138,10 +147,15 @@ serves() {  # serves <server> <protocol>
 # and with no GSO, as bench/run_latency.sh --network starts them.
 server_command() {  # server_command <server> <protocol>
   local tls=(--tls "$scratch/identity")
+  local qlog=()
+  if [ -n "$qlog_root" ]; then
+    mkdir -p "$qlog_root/$qlog_run/$1"
+    qlog=("qlogdir=$qlog_root/$qlog_run/$1")
+  fi
   if [ "$2" = h3 ]; then tls=(--h3 --tls "$scratch/identity"); fi
   case "$1" in
-    colibri) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso) ;;
-    colibri-bbr) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso bbr) ;;
+    colibri) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso "${qlog[@]}") ;;
+    colibri-bbr) command=("$scratch/colibri/bin/quic-udp" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 no-gso bbr "${qlog[@]}") ;;
     chi) command=(env GOMAXPROCS=1 QUIC_GO_DISABLE_GSO=true "$scratch/chi" --port "$port" --www "$scratch/www" "${tls[@]}") ;;
     axum)
       command=("$scratch/axum-target/release/colibri-bench-axum" --port "$port" --www "$scratch/www" "${tls[@]}")
@@ -354,6 +368,7 @@ for round in $(seq 0 "$rounds"); do
       for ((place = 0; place < ${#serving[@]}; place++)); do
         server="${serving[(round + place) % ${#serving[@]}]}"
         echo "run_bulk.sh: round $round, $protocol@$profile, $server" >&2
+        qlog_run="$round/$protocol@$profile"
         start_server "$server" "$protocol"
         apply_profile "$profile"
         mkdir -p "$scratch/runs/$round/$protocol@$profile/$server"
@@ -365,6 +380,7 @@ for round in $(seq 0 "$rounds"); do
     done
     # Both controllers at once through the one bottleneck, each loaded by its own oha.
     echo "run_bulk.sh: round $round, h3-shared@$profile" >&2
+    qlog_run="$round/h3-shared@$profile"
     start_pair "${shared_servers[@]}"
     apply_profile "$profile" "${pair_ports[@]}"
     for connections in "${connection_counts[@]}"; do

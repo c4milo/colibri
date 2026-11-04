@@ -469,7 +469,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   under BBRv3 at once through the one bottleneck. The report gives the download time at p50 and
   p90, the goodput, the GETs' p50 and p99, and each controller's share of the shared bottleneck
   (design §8 steps 13k and 29c). It needs sudo -n, tc, ethtool, sch_netem and Docker, and the workflow's `bulk` input runs it
-  on the judge. `python3 bench/report_bulk.py --test` checks its report, and `tools/ci.sh` runs it.
+  on the judge. With `BENCH_BULK_QLOG` set to a directory, colibri's servers write their qlog
+  there, and the workflow's `qlog` input keeps it beside the report; no document publishes the
+  numbers of such a run. `python3 bench/report_bulk.py --test` checks its report, and `tools/ci.sh` runs it.
   `bench/run.sh --profile [--h11] [--h3] [report.md]` runs each input once after the warm-up,
   under `perf record` with the call stacks, in place of the counts (design §8 step 13h). The
   report gives the functions that took the most samples, and `<report>-profile/` holds each
@@ -569,7 +571,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   `<prefix>.key.pem` (decision 147). The server serves h3 or hq-interop, whichever
   its client's ALPN asks for, and a client with `h3` fetches over h3. A server with `h3` serves h3
   alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
-  connections and writes no qlog; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
+  connections, and with `qlogdir` writes each one's qlog through the endpoint's log provider; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
   it. With `routes=github` too, `server.router` answers every request over the GitHub API's routes
   in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). With `bbr` too,
   each connection runs BBRv3 in place of CUBIC (design §8 step 29c). On Linux the `h3`
