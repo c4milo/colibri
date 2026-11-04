@@ -12470,6 +12470,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         h3-bbr-one 0.9591 and 0.9607: each a win. h3-many fell from 42,280 to 38,461 instructions
         a request in job 1.
       - Each h2 input is within the noise in both jobs.
+    - **29d.11, a stream lookup that knows a miss, 2026-11-04.** The judge's `profile` on
+      5036ba0c (run 41824399460) gave `core.Pool.get` of the QUIC stream table 4.0% and 4.1% of
+      h3-many's samples, the largest cost in the function itself. Two causes:
+      - A lookup of an identifier that is not live checks `last_slot` and its bucket's slot, and
+        then scans every slot. `close_if_finished` and `Pool.close` each assert that the stream
+        they closed reads as closed, and `settle_one` looks up the stream an acknowledgment
+        closed, so each closed stream costs about three scans.
+      - `slot_by_bucket` is indexed by `id % capacity`. QUIC's identifiers of one type step by 4,
+        so they fill a quarter of the buckets, and live identifiers share them.
+      - The change, the owner's choice of three on 2026-11-04, in `core`'s `slots.zig`, which h2
+        and QUIC share:
+        1. `bucket_of` is `(id / class_count) % capacity`, so one class's identifiers fill
+           consecutive buckets. h2 and QUIC each give a class as a residue modulo `class_count`.
+        2. `bucket_live` counts the live entries of each bucket. `open` adds one, and `close`
+           and `close_at` take one away. A lookup returns no entry at once when its bucket holds
+           none, or when the one it holds is in the bucket's slot and holds another identifier.
+           Every other miss scans, as before.
+      - The alternatives it beat: a check at the two callers alone, which leaves the live
+        identifiers in shared buckets and changes an assertion, and the bucket function alone,
+        which leaves each miss a scan.
+      - The checks:
+        - The test that holds `get` to a scan after each open and close also counts each bucket's
+          live entries. A test in `slots.zig` reopens a closed slot with an identifier of another
+          bucket, which the first bucket still names.
+        - Mutations, by `zig build test-core`: `open`, `close` and `close_at` that count nothing,
+          a bucket of two live entries that answers from its slot, and a slot of another bucket
+          that answers: each CAUGHT. A miss in an empty bucket that scans gives the same answers
+          more slowly: NOT CAUGHT, and the judge measures it.
+        - Each pool grows by 128 octets: each h2 and each QUIC connection, in docs/performance.md.
+        - The judge's `--h3 --base 5036ba0c`, at 10 rounds, with the h2 inputs, which share the
+          pool. The step lands when h3-many wins and no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

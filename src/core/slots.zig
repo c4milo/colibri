@@ -87,12 +87,18 @@ pub fn Pool(
         /// The slot `get` last found an entry in, or `open` last wrote. `get` reads it before it
         /// scans, because a frame and its answer look one stream up several times in a row.
         last_slot: Slot,
-        /// `slot_by_bucket[id % capacity]` is the slot that `open` last wrote, or `get` last found,
-        /// an identifier of that bucket in. `get` reads it after `last_slot` and before it scans.
-        /// A slot that has closed since, or holds another identifier, fails the same check, and
-        /// the scan runs, so a stale slot number costs one check and never a wrong answer. Live
-        /// identifiers less than `capacity` apart fall into different buckets.
+        /// `slot_by_bucket[bucket_of(id)]` is the slot that `open` last wrote, or `get` last
+        /// found, an identifier of that bucket in. `get` reads it after `last_slot` and before it
+        /// scans. A slot that has closed since, or holds another identifier, fails the same check,
+        /// and the scan runs, so a stale slot number costs one check and never a wrong answer.
+        /// Live identifiers of one class less than `capacity * class_count` apart fall into
+        /// different buckets.
         slot_by_bucket: [capacity]Slot,
+        /// `bucket_live[bucket]` counts the live entries whose identifier falls in the bucket. A
+        /// `get` of an identifier in an empty bucket, or in a bucket whose one live entry is in
+        /// `slot_by_bucket` and holds another identifier, finds nothing without a scan (design §8
+        /// step 29d.11).
+        bucket_live: [capacity]Slot,
         /// No slot below this one is free. `open` scans for the lowest free slot from here and
         /// leaves it one past the slot it took, and a close lowers it to the slot it frees when
         /// that slot is below it. An `open` after a close at or below it then reads one flag,
@@ -107,6 +113,7 @@ pub fn Pool(
             pool.watermark = @splat(null);
             pool.last_slot = 0;
             pool.slot_by_bucket = @splat(0);
+            pool.bucket_live = @splat(0);
             pool.free_from = 0;
             assert(pool.len() == 0);
             assert(pool.free_slot() == 0);
@@ -157,7 +164,10 @@ pub fn Pool(
             pool.count += 1;
             pool.watermark[class] = id;
             pool.last_slot = @intCast(slot);
-            pool.slot_by_bucket[bucket_of(id)] = @intCast(slot);
+            const bucket = bucket_of(id);
+            assert(pool.bucket_live[bucket] < capacity);
+            pool.bucket_live[bucket] += 1;
+            pool.slot_by_bucket[bucket] = @intCast(slot);
             // No slot below `free_from` was free, the scan passed the rest below this one, and
             // this one is live now.
             pool.free_from = @intCast(slot + 1);
@@ -179,6 +189,7 @@ pub fn Pool(
             pool.live[slot.?] = false;
             pool.count -= 1;
             pool.free_from = @min(pool.free_from, @as(Slot, @intCast(slot.?)));
+            pool.on_closed(id);
             assert(!pool.is_above_watermark(id));
             assert(pool.slot_of(id) == null);
         }
@@ -210,6 +221,7 @@ pub fn Pool(
             pool.live[index] = false;
             pool.count -= 1;
             pool.free_from = @min(pool.free_from, @as(Slot, @intCast(index)));
+            pool.on_closed(pool.entries[index].id);
             assert(!pool.is_above_watermark(pool.entries[index].id));
         }
 
@@ -248,15 +260,29 @@ pub fn Pool(
             // No two live entries hold one identifier, so the slot the scan would find is this
             // one whenever this one holds `id`.
             if (pool.live[pool.last_slot] and pool.entries[pool.last_slot].id == id) return pool.last_slot;
-            const bucketed = pool.slot_by_bucket[bucket_of(id)];
+            const bucket = bucket_of(id);
+            const bucketed = pool.slot_by_bucket[bucket];
             assert(bucketed < capacity);
-            if (pool.live[bucketed] and pool.entries[bucketed].id == id) return bucketed;
-            return live_slot_holding(Entry, &pool.entries, &pool.live, id);
+            const bucket_held: Bucket = .{ .live = pool.bucket_live[bucket], .slot_live = pool.live[bucketed] };
+            return switch (bucket_held.answer(Entry, bucket_of, &pool.entries[bucketed], bucket, id)) {
+                .found => bucketed,
+                .absent => null,
+                .scan => live_slot_holding(Entry, &pool.entries, &pool.live, id),
+            };
         }
 
-        /// The index of `id` in `slot_by_bucket`.
+        /// The index of `id` in `slot_by_bucket` and `bucket_live`. An identifier's class is a
+        /// residue modulo `class_count` in h2 and in QUIC, so the identifiers of one class fill
+        /// consecutive buckets.
         fn bucket_of(id: u64) u32 {
-            return @intCast(id % capacity);
+            return @intCast((id / class_count) % capacity);
+        }
+
+        /// Counts out of its bucket an entry that `close` or `close_at` freed.
+        fn on_closed(pool: *Self, id: u64) void {
+            const bucket = bucket_of(id);
+            assert(pool.bucket_live[bucket] > 0);
+            pool.bucket_live[bucket] -= 1;
         }
 
         /// The lowest free slot. The caller has checked that one exists.
@@ -295,6 +321,23 @@ fn first_slot_with_flag(live: []const bool, from: u32, flag: bool) ?u32 {
     return null;
 }
 
+/// What a pool knows of one bucket: how many live entries fall in it, and whether the slot it
+/// names is live (design §8 step 29d.11).
+const Bucket = struct {
+    live: u32,
+    slot_live: bool,
+
+    /// Whether the bucket's slot holds `id`, or proves that no live entry does, or neither. The
+    /// slot's `entry` is read only while it is live. It proves absence when the bucket holds no
+    /// live entry, or when its one live entry is the one in its slot.
+    fn answer(bucket: Bucket, comptime Entry: type, comptime bucket_of: fn (u64) u32, entry: *const Entry, index: u32, id: u64) enum { found, absent, scan } {
+        const holds_bucket = bucket.slot_live and bucket_of(entry.id) == index;
+        if (holds_bucket and entry.id == id) return .found;
+        if (bucket.live == 0 or (holds_bucket and bucket.live == 1)) return .absent;
+        return .scan;
+    }
+};
+
 /// The slot whose live flag is set and whose entry holds `id`, or null when none is. The scan is
 /// bounded by `live.len`, the pool's capacity.
 fn live_slot_holding(comptime Entry: type, entries: []const Entry, live: []const bool, id: u64) ?u32 {
@@ -303,6 +346,29 @@ fn live_slot_holding(comptime Entry: type, entries: []const Entry, live: []const
         if (is_live and entry.id == id) return @intCast(slot);
     }
     return null;
+}
+
+/// The slots and the classes, by parity as h2's, of the pool the bucket test opens. Test-only.
+const bucket_test_capacity: u32 = 4;
+const bucket_test_class_count: u32 = 2;
+const BucketTestPool = Pool(struct { id: u64 }, bucket_test_capacity, bucket_test_class_count, bucket_test_class_of);
+
+fn bucket_test_class_of(id: u64) u32 {
+    return @intCast(id & 1);
+}
+
+test "design §8 step 29d.11: a bucket's slot that another bucket's identifier took answers nothing" {
+    var pool: BucketTestPool = undefined;
+    pool.init();
+    // 1 and 9 share a bucket. 9 closes, and 2, of another bucket, takes the slot 9 held, which
+    // the first bucket still names.
+    _ = try pool.open(1);
+    _ = try pool.open(9);
+    pool.close(9);
+    _ = try pool.open(2);
+    try std.testing.expectEqual(pool.slot_by_bucket[BucketTestPool.bucket_of(1)], pool.slot_by_bucket[BucketTestPool.bucket_of(2)]);
+    try std.testing.expectEqual(1, pool.get(1).?.id);
+    try std.testing.expectEqual(null, pool.get(9));
 }
 
 test {

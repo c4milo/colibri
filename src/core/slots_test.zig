@@ -73,6 +73,9 @@ fn scanned_slot(pool: *const TestPool, id: u64) ?usize {
 /// the first that differs. Each `get` moves the slot the pool reads first, so the walk also asks
 /// with that slot on every entry in turn. Test-only.
 fn expect_gets_as_scanned(pool: *TestPool) !void {
+    var live_by_bucket: [test_capacity]u32 = @splat(0);
+    for (pool.entries, pool.live) |entry, is_live| live_by_bucket[test_bucket(entry.id)] += @intFromBool(is_live);
+    for (live_by_bucket, pool.bucket_live) |counted, kept| try testing.expectEqual(counted, kept);
     for (0..compared_ids) |id| {
         const scanned: ?*TestEntry = if (scanned_slot(pool, id)) |slot| &pool.entries[slot] else null;
         const found = pool.get(id);
@@ -80,6 +83,12 @@ fn expect_gets_as_scanned(pool: *TestPool) !void {
         std.debug.print("first difference: identifier {d}: get {any}, scan {any}, last slot {d}\n", .{ id, found, scanned, pool.last_slot });
         return error.TestUnexpectedResult;
     }
+}
+
+/// The bucket of `id` in the test pool: one class's identifiers fill consecutive buckets.
+/// Test-only.
+fn test_bucket(id: u64) usize {
+    return @intCast((id / test_class_count) % test_capacity);
 }
 
 /// The identifiers the comparison asks for: every one the test opens, and some never opened.
@@ -251,17 +260,17 @@ test "the slot read first is the one get last found or open last wrote" {
 test "open and get write the slot of an identifier's bucket, which get reads before it scans" {
     var pool: TestPool = undefined;
     pool.init();
-    for ([_]u64{ 1, 2, 3 }) |id| _ = try pool.open(id);
-    // Each open wrote its own bucket, and 3 is the slot read last.
-    for ([_]u64{ 1, 2, 3 }) |id| {
-        try testing.expectEqual(scanned_slot(&pool, id).?, pool.slot_by_bucket[id % test_capacity]);
+    for ([_]u64{ 1, 2, 4 }) |id| _ = try pool.open(id);
+    // Each open wrote its own bucket, and 4 is the slot read last.
+    for ([_]u64{ 1, 2, 4 }) |id| {
+        try testing.expectEqual(scanned_slot(&pool, id).?, pool.slot_by_bucket[test_bucket(id)]);
     }
-    // 5 shares 1's bucket, so its open moves the bucket to its own slot.
-    _ = try pool.open(5);
-    try testing.expectEqual(scanned_slot(&pool, 5).?, pool.slot_by_bucket[5 % test_capacity]);
+    // 9 shares 1's bucket, so its open moves the bucket to its own slot.
+    _ = try pool.open(9);
+    try testing.expectEqual(scanned_slot(&pool, 9).?, pool.slot_by_bucket[test_bucket(9)]);
     // A get of 1 finds it by the scan and writes the bucket back.
     try testing.expectEqual(1, pool.get(1).?.id);
-    try testing.expectEqual(scanned_slot(&pool, 1).?, pool.slot_by_bucket[1 % test_capacity]);
+    try testing.expectEqual(scanned_slot(&pool, 1).?, pool.slot_by_bucket[test_bucket(1)]);
     try expect_gets_as_scanned(&pool);
 }
 
