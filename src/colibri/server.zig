@@ -199,7 +199,7 @@ test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
 }
 
 test "design §8 step 37e: init reads the identity from PEM files, and wipes the key's text" {
-    var directory: identity_files.TestDirectory = .init();
+    var directory: support.TestDirectory = .init();
     defer directory.deinit();
     const chain = try directory.write(.chain, testdata.chain_pem);
     const key = try directory.write(.key, testdata.key_pem);

@@ -32,7 +32,7 @@ pub const loop_options: rotor.Loop.Options = .{ .operations = 1, .file_policy = 
 pub const loop_memory_bytes = rotor.Loop.memory_bytes(loop_options);
 
 /// The longest name, with its terminator, that the system opens.
-const path_len_max = std.Io.Dir.max_path_bytes;
+pub const path_len_max = std.Io.Dir.max_path_bytes;
 
 /// Reads the chain's file and the key's file into `text` on a loop in `loop_memory`, and returns
 /// the PEM text of each. The loop ends before this returns, so `run` can use the same memory.
@@ -102,40 +102,14 @@ fn settle(loop: *rotor.Loop, events: []rotor.Event) void {
 }
 
 const testing = std.testing;
+const support = @import("test_support.zig");
 
 /// The loop memory and the text the tests place, outside any stack frame. Test-only.
 threadlocal var test_loop_memory: [loop_memory_bytes]u8 align(rotor.memory_alignment) = undefined;
 threadlocal var test_text: Text align(@alignOf(Text)) = undefined;
 
-/// A directory the tests write their files into, and the names of those files relative to the
-/// process's directory, which is where `std.testing.tmpDir` makes the directory. Test-only.
-pub const TestDirectory = struct {
-    directory: testing.TmpDir,
-    chain_name: [path_len_max]u8 = undefined,
-    key_name: [path_len_max]u8 = undefined,
-
-    pub fn init() TestDirectory {
-        return .{ .directory = testing.tmpDir(.{}) };
-    }
-
-    pub fn deinit(self: *TestDirectory) void {
-        self.directory.cleanup();
-    }
-
-    /// Writes `data` into the chain's file or the key's file, and returns the file's name.
-    pub fn write(self: *TestDirectory, comptime which: enum { chain, key }, data: []const u8) ![]const u8 {
-        const base = @tagName(which) ++ ".pem";
-        const name = switch (which) {
-            .chain => &self.chain_name,
-            .key => &self.key_name,
-        };
-        try self.directory.dir.writeFile(testing.io, .{ .sub_path = base, .data = data });
-        return std.fmt.bufPrint(name, ".zig-cache/tmp/{s}/{s}", .{ &self.directory.sub_path, base });
-    }
-};
-
 test "design §8 step 37e: the two files are read whole, up to pem_file_len_max octets" {
-    var directory: TestDirectory = .init();
+    var directory: support.TestDirectory = .init();
     defer directory.deinit();
     const longest: [constants.limits.pem_file_len_max]u8 = @splat('k');
     const chain = try directory.write(.chain, "chain");
@@ -146,7 +120,7 @@ test "design §8 step 37e: the two files are read whole, up to pem_file_len_max 
 }
 
 test "design §8 step 37e: a file longer than pem_file_len_max is refused" {
-    var directory: TestDirectory = .init();
+    var directory: support.TestDirectory = .init();
     defer directory.deinit();
     const long: [constants.limits.pem_file_len_max + 1]u8 = @splat('k');
     const chain = try directory.write(.chain, "chain");
@@ -156,7 +130,7 @@ test "design §8 step 37e: a file longer than pem_file_len_max is refused" {
 }
 
 test "design §8 step 37e: a missing file, an empty name and a name with a zero octet are refused" {
-    var directory: TestDirectory = .init();
+    var directory: support.TestDirectory = .init();
     defer directory.deinit();
     const chain = try directory.write(.chain, "chain");
     const missing = ".zig-cache/tmp/colibri-no-such-directory/key.pem";
