@@ -3,14 +3,18 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");
+const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const identity_files = @import("identity_files.zig");
 
 /// Where the server's certificate chain and key come from.
 pub const Identity = union(enum) {
     /// The chain and the key as PEM text the program holds. The program may wipe the key's text
     /// once `init` returns.
     pem: Pem,
-    /// The names of the chain's file and the key's file, read at `init` (design §8 step 37e).
+    /// The names of the chain's file and the key's file, read at `init` into the server's memory
+    /// (design §8 step 37e). Each file holds at most `constants.limits.pem_file_len_max` octets.
+    /// Rotor opens each file to read and to write, so the program needs both permissions.
     files: Files,
 
     pub const Pem = struct {
@@ -31,21 +35,30 @@ pub const Storage = struct {
     key: tls.Key,
     identities: [1]tls.Identity,
     cookie_key: [tls.constants.protocol.server_key_len]u8,
+    /// The text of `.files`. The key's text is wiped before `init` returns.
+    files: identity_files.Text,
 };
 
-pub const LoadError = error{
+pub const LoadError = identity_files.ReadError || error{
     /// A PEM file `tls.pem` refuses: a chain longer than the server's rooms is one.
     IdentityInvalid,
-    /// `.files`, which design §8 step 37e reads, is not built yet.
-    FilesUnavailable,
 };
 
 /// Reads `identity` into `storage`, draws the cookie key from `random`, and returns the TLS values
-/// of a server that runs on `cpu`.
-pub fn load(identity: Identity, storage: *Storage, cpu: tls.Cpu, random: tls.Random) LoadError!tls.Server {
+/// of a server that runs on `cpu`. `.files` is read on a loop in `loop_memory`.
+pub fn load(
+    identity: Identity,
+    storage: *Storage,
+    loop_memory: []align(rotor.memory_alignment) u8,
+    cpu: tls.Cpu,
+    random: tls.Random,
+) LoadError!tls.Server {
+    // The key's octets stay in the server's memory only until `tls.pem.key` has read them, also
+    // when a read or a parse fails.
+    defer if (identity == .files) std.crypto.secureZero(u8, &storage.files.key);
     const pem = switch (identity) {
         .pem => |pem| pem,
-        .files => return error.FilesUnavailable,
+        .files => |names| try identity_files.read(names, &storage.files, loop_memory),
     };
     const chain = tls.pem.chain(pem.chain, &storage.der, &storage.certificates) catch return error.IdentityInvalid;
     assert(chain.len > 0);
@@ -60,9 +73,11 @@ const testing = std.testing;
 
 const support = @import("test_support.zig");
 
-test "decision 150: a file that is not PEM is refused, and `.files` waits for 37e" {
-    var storage: Storage = undefined;
+test "decision 150: a file that is not PEM is refused" {
     var counter: support.Counter = .{};
-    try testing.expectError(error.IdentityInvalid, load(.{ .pem = .{ .chain = "not PEM", .key = "" } }, &storage, support.cpu(), counter.random()));
-    try testing.expectError(error.FilesUnavailable, load(.{ .files = .{ .chain = "a", .key = "b" } }, &storage, support.cpu(), counter.random()));
+    try testing.expectError(error.IdentityInvalid, load(.{ .pem = .{ .chain = "not PEM", .key = "" } }, &test_storage, &test_loop_memory, support.cpu(), counter.random()));
 }
+
+/// The storage and the loop memory the tests place, outside any stack frame. Test-only.
+threadlocal var test_storage: Storage align(@alignOf(Storage)) = undefined;
+threadlocal var test_loop_memory: [identity_files.loop_memory_bytes]u8 align(rotor.memory_alignment) = undefined;

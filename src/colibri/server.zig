@@ -8,6 +8,7 @@ const tls = @import("tls");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const identity_module = @import("identity.zig");
+const identity_files = @import("identity_files.zig");
 const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_loop = @import("server_loop.zig");
@@ -58,6 +59,8 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         };
         comptime {
             assert(tcp_connections > 0 and loop_options.operations <= rotor.constants.batch_max);
+            // `init` reads `.files` on a loop of one slot in the memory `run`'s loop takes later.
+            assert(identity_files.loop_memory_bytes <= rotor.Loop.memory_bytes(loop_options));
             assert(tcp_connections < server_udp.send_user_data_last >> socket_module.kind_bits);
         }
 
@@ -109,7 +112,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             self.endpoint_config = config.endpoint;
             assert(self.endpoint_config.tls == null);
             if (config.identity) |identity| {
-                self.endpoint_config.tls = try identity_module.load(identity, &self.identity, config.cpu, self.config.random.?);
+                self.endpoint_config.tls = try identity_module.load(identity, &self.identity, &self.loop_memory, config.cpu, self.config.random.?);
             }
             assert((self.endpoint_config.tls != null) == (config.identity != null));
             try server_loop.bind(self);
@@ -193,6 +196,24 @@ test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
     // RFC 9846 §4.3.2: the cookie key comes from the program's source.
     try testing.expectEqual(0, values.cookie_key[0]);
     try testing.expectEqual(1, values.cookie_key[1]);
+}
+
+test "design §8 step 37e: init reads the identity from PEM files, and wipes the key's text" {
+    var directory: identity_files.TestDirectory = .init();
+    defer directory.deinit();
+    const chain = try directory.write(.chain, testdata.chain_pem);
+    const key = try directory.write(.key, testdata.key_pem);
+    var counter: support.Counter = .{};
+    try test_server.init(.{ .identity = .{ .files = .{ .chain = chain, .key = key } }, .cpu = support.cpu(), .random = counter.random() });
+    rotor.sync.close_now(test_server.listener);
+    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
+    const values = test_server.endpoint_config.tls.?;
+    try testing.expectEqual(.ecdsa_secp256r1_sha256, values.identities[0].key.scheme);
+    try testing.expectEqualSlices(u8, testdata.leaf, values.identities[0].chain[0]);
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.files.key, 0));
+    // A missing key file ends `init` before it binds.
+    const missing = ".zig-cache/tmp/colibri-no-such-directory/key.pem";
+    try testing.expectError(error.IdentityFileNotFound, test_server.init(.{ .identity = .{ .files = .{ .chain = chain, .key = missing } }, .cpu = support.cpu(), .random = counter.random() }));
 }
 
 test "decision 150 ruling 9: a server given no source draws from the system" {
