@@ -12881,6 +12881,13 @@ library.
       The existing checks' censuses did not change.
     - 2 mutations against the check, each **CAUGHT**: a jump that never widens the window, and a
       retreat that does not halve PipeSize.
+  - **35e, the model and the proof, 2026-11-04.** `spec/tla/careful_resume` models the phases under
+    CUBIC and NewReno in datagrams. It holds over 57,285 states: the jump stays at or below half
+    the saved window and max_jump, the window jumps only after the initial window is acknowledged,
+    a retreat leaves at most half of PipeSize and deletes the set, the window does not grow in Safe
+    Retreat, and Careful Resume never starts again once it ends. Each of its 5 mutants is violated.
+    `spec/lean/Colibri/Quic/CarefulResume.lean` proves the jump's two bounds, the retreat's bounds
+    and that it never raises the window, and that the threshold after it is at most PipeSize.
     - `quic.Connection` grows by 56 octets, to 208,376, and `server.Endpoint` at its default
       capacity to 52,447,248 on main f5649a00. docs/performance.md lists each size.
     - 14 mutations, each **CAUGHT**: another version, another size, an empty window, a set from
