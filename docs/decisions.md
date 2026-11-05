@@ -5818,4 +5818,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Alternatives that lost:
      - Responses alone.
      - No edge: programs use `std.json` or stdx themselves, as they do now.
+152. **`client.Response.trailers` gives a program the trailer fields it names.** Ruled by the owner
+     on 2026-11-05 (design §8 step 38), for a dependent that implements Connect and gRPC, whose
+     status arrives in trailer fields such as `grpc-status`. Until now the client read each
+     trailer section over h11, h2 and h3 and dropped it.
+     1. `Response.trailers: []WantedHeader`, empty by default, has the shape of `Response.wanted`.
+        A program names the fields it reads, and the client sets each `value` before `finished`.
+     2. Each value goes into `Response.values`, after the wanted header values. It is null when
+        the trailer section does not carry the field, or when no trailer section arrived.
+     3. A value that does not fit `values` ends the exchange `too_large`, as a header value does.
+     4. The client keeps trailer fields apart from header fields (RFC 9110 §6.5.1). A field named
+        in `trailers` never takes a value from the header section, and the reverse.
+     5. The name is `trailers`, the word programmers know (decision 126), and the word the server's
+        `ResponseWriter.trailers` already uses.
 
+     Alternatives that lost:
+     - `trailing_headers`. RFC 9110 §6.5 calls them trailer fields, and Go, Node and curl call
+       them trailers.
+     - `wanted_trailers`. `trailers` beside `wanted` says the same with one word less.
+     - Wait for streamed bodies. Trailers do not depend on them, and the dependent needs the
+       status of a whole response now.
