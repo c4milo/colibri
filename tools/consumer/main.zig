@@ -1,7 +1,8 @@
-//! The program the consumer project builds: it reaches h11, h2, tls, server, client and stdx's
-//! gzip through the modules colibri exports, writes a request, reads a response, starts a TLS
-//! handshake, codes content and moves a request through the client and the server's endpoint,
-//! which shows the modules link and run for a project that depends on colibri.
+//! The program the consumer project builds: it reaches h11, h2, tls, server, client, colibri and
+//! stdx's gzip through the modules colibri exports, writes a request, reads a response, starts a
+//! TLS handshake, codes content, moves a request through the client and the server's endpoint, and
+//! binds a `colibri.Server` on a loopback port, which shows the modules link and run for a project
+//! that depends on colibri.
 const std = @import("std");
 const h11 = @import("h11");
 const h2 = @import("h2");
@@ -10,6 +11,7 @@ const gzip = @import("gzip");
 const server_module = @import("server");
 const client_module = @import("client");
 const platform = @import("platform");
+const colibri = @import("colibri");
 
 var client: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 var h2_client: h2.Connection align(@alignOf(h2.Connection)) = undefined;
@@ -37,6 +39,9 @@ var get_response: client_module.Response align(@alignOf(client_module.Response))
 // not read, so the server's octets go into a buffer of their own.
 var wire: [4096]u8 = undefined;
 var server_output: [4096]u8 = undefined;
+// A `colibri.Server` of one TCP connection, which binds a port the system chooses.
+const BoundServer = colibri.ServerOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+var bound_server: BoundServer align(@alignOf(BoundServer)) = undefined;
 
 /// Rounds of moving octets between the client and the server before the exchange must have ended.
 const exchange_rounds_max = 8;
@@ -130,7 +135,14 @@ pub fn main() !void {
         try serve(accepted, asked.send_stream(asked_connection, &wire, 0));
     }
     if (get_response.result != .response or get_response.status != 204) return error.ExchangeWrong;
-    std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
+
+    // `colibri` (decision 150): `init` binds 127.0.0.1 on port 0, and `port()` names the port the
+    // system chose. The program does not call `run`, so it serves nothing, and the socket closes
+    // when the program exits.
+    const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated } };
+    try bound_server.init(config);
+    if (bound_server.port() == 0) return error.BindWrong;
+    std.debug.print("consumer: h11, h2, tls, gzip, server, client and colibri link and run as a dependency\n", .{});
 }
 
 /// tls converts the client's values once, and a session's first call writes its ClientHello. The

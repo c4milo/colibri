@@ -23,9 +23,10 @@ const colibri = b.dependency("colibri", .{ .target = target, .release = true });
 exe.root_module.addImport("server", colibri.module("server"));
 exe.root_module.addImport("client", colibri.module("client"));
 exe.root_module.addImport("tls", colibri.module("tls"));
+exe.root_module.addImport("colibri", colibri.module("colibri"));
 ```
 
-The library is fifteen modules, each exported by name:
+The library is seventeen modules, each exported by name:
 
 | Module | What it holds |
 | --- | --- |
@@ -43,6 +44,8 @@ The library is fifteen modules, each exported by name:
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
 | `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). An `Endpoint` holds the TCP connections you accept, which serve h11 or h2, and the QUIC connections that serve h3 behind one UDP socket you own ([decision 119](decisions.md)). |
+| `dnssec` | The checks of a DNSSEC signature and of a DS digest over chapulin ([decision 142](decisions.md)) |
+| `colibri` | `colibri.Server`, which binds one port, reads the server's identity and runs `server` on Rotor's loop ([decision 150](decisions.md)). It is the one module that does I/O. |
 | `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
 The package also exports stdx's codecs, `codec`, `gzip`, `zlib`, `zstd` and `brotli`, from the stdx
@@ -62,7 +65,9 @@ assertions stay on in production.
 
 ## What your program owns
 
-colibri makes no system call, holds no allocator, and reads no clock. Four things follow:
+colibri makes no system call, holds no allocator, and reads no clock. The `colibri` module is the
+one exception: it binds sockets and runs a loop for you (see [colibri.Server](#colibriserver)).
+Four things follow for every other module:
 
 - **Your program owns every struct and buffer.** Declare a server's endpoint, a client's pool
   or a protocol module's connection where you like: in a static, in an array, or inside a larger
@@ -115,6 +120,60 @@ protocol modules keep the RFCs' words. This table says which word means what:
 | a body | content | the message body | DATA frames | DATA frames |
 | bytes | octets | octets | octets | octets |
 | an exchange | a request/response exchange | | | |
+
+## colibri.Server
+
+`colibri.Server` does the I/O of a server for you ([decision 150](decisions.md)). It binds the TCP
+socket and the UDP socket of one port, reads the server's identity, and runs `server.Endpoint` on
+[Rotor](https://github.com/c4milo/rotor)'s loop. Your program gives it a configuration and a router
+of `server.router`, and calls `run`. The code in this section is from
+[`examples/colibri_server.zig`](../examples/colibri_server.zig).
+
+A program places the server once, outside any stack frame, as it places an endpoint.
+`colibri.Server` holds the default capacity, and `colibri.ServerOf` takes a `server.Capacity`:
+
+```zig
+const connections = 4;
+const Server = colibri.ServerOf(.{ .tcp_connections = connections, .quic_connections = 0 });
+var http_server: Server align(@alignOf(Server)) = undefined;
+```
+
+`init` binds the port and reads the identity. Port 0 asks the system for a port, and `port()`
+returns the port bound. `run` serves on the thread that calls it, one Rotor loop on that thread,
+until another thread calls `shutdown`. `run` then ends each connection and returns:
+
+```zig
+const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+try http_server.init(.{ .host = "127.0.0.1", .port = 0, .cpu = cpu });
+const thread = try std.Thread.spawn(.{}, serve, .{});
+defer thread.join();
+defer http_server.shutdown();
+```
+
+```zig
+fn serve() void {
+    http_server.run(&router, &app) catch |failure| std.debug.panic("run failed: {t}", .{failure});
+}
+```
+
+`colibri.ServerConfig` holds these fields:
+
+- `host` and `port`: an IPv4 or IPv6 literal, and the port of TCP and UDP. The defaults are
+  127.0.0.1 and 0.
+- `identity`: the certificate chain and the key. `.pem` takes the PEM text your program holds.
+  `.files` takes the names of the two files, which `init` reads into the server's memory, each at
+  most `colibri.constants.limits.pem_file_len_max` octets. `init` wipes the key's text once it has
+  read the key. Rotor opens each file to read and to write, so your program needs both
+  permissions. With no identity the server speaks h11 and h2 in cleartext, and opens no UDP
+  socket. With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
+- `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
+- `random`: the source each TLS session draws from. Null draws from the system's entropy.
+- `endpoint`: the `server.Config` the endpoint starts from. `colibri` fills its `tls`.
+
+A program that wants more cores starts more servers on one port: each one binds with
+SO_REUSEPORT. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,
+UDP_SEGMENT and one system call a tick on Linux. The example fetches over h11 alone. The fetch
+over h2 and h3 comes with `colibri.Client` (design §8 step 42).
 
 ## The server
 

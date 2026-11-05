@@ -15,12 +15,13 @@ pub fn build(b: *std.Build) void {
         }),
     });
     // Decision 100: `server` and `client` put one set of calls over every version, and `tls` holds
-    // the values their handshakes take. The protocol modules follow, for a program that drives one
-    // version by itself.
+    // the values their handshakes take. `colibri` binds a port and runs `server` (decision 150). The
+    // protocol modules follow, for a program that drives one version by itself.
     const colibri = b.dependency("colibri", .{ .target = target, .release = true });
     exe.root_module.addImport("server", colibri.module("server"));
     exe.root_module.addImport("client", colibri.module("client"));
     exe.root_module.addImport("tls", colibri.module("tls"));
+    exe.root_module.addImport("colibri", colibri.module("colibri"));
     exe.root_module.addImport("h11", colibri.module("h11"));
     exe.root_module.addImport("http", colibri.module("http"));
     exe.root_module.addImport("h2", colibri.module("h2"));

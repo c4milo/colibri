@@ -13025,9 +13025,28 @@ library.
   - **37c: UDP.** h3 on the UDP socket of the same port, with UDP_GRO and UDP_SEGMENT on Linux,
     from `src/testing/quic/udp/`'s batches.
   - **37d: the example.** `examples/colibri_server.zig` serves a route table on 127.0.0.1 port 0, and
-    `client` fetches over h11, h2 and h3 and checks each body. docs/usage.md and README.md show
-    it, and `tools/consumer/` calls `colibri`.
-  - **37e: `.files`.** The identity read from PEM files at `init`.
+    a client of `std.Io.Threaded` fetches over h11 and checks each response octet for octet. The
+    fetch over h2 and h3 comes with `colibri.Client` in step 42. docs/usage.md and README.md show
+    the example, and `tools/consumer/` calls `colibri`.
+  - **37e: `.files`.** The identity read from PEM files at `init`, through Rotor's `open_file`,
+    `file_size` and `read`, into the server's memory. The key's text is wiped once `tls.pem.key`
+    has read it.
+  - **The record, 2026-11-05.** Each mutation below was **CAUGHT** by `zig build test-colibri`, or
+    by `zig build examples` for 37d.
+    - 37a: a `std.Io` accepted; no default source; the cookie key not drawn; the identity ignored;
+      the key not read; entropy that fills one call alone.
+    - 37b, five of them as a hang: no accept armed; shutdown ignored; a send event ignored;
+      request events not stepped; a peer's close not passed on; a closing socket kept open; port
+      0 kept.
+    - 37c: the end-to-end h3 fetch moves to step 42 with the h2 fetch. The shutdown fix passed ten
+      runs in a row.
+    - 37d, by `zig build example-colibri_server`, two of them as a hang: shutdown ignored; port 0
+      kept; a closing socket kept open.
+    - 37e: the key's text not wiped; a file of `pem_file_len_max` octets refused; no length check;
+      a missing file reported as unreadable; the key read from the chain's name; a name with a
+      zero octet accepted.
+    - Rotor's `open_file` opens a file to read and to write, so a key file the program may only
+      read, such as one of mode 0400, is refused with `IdentityFileAccessDenied`.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open
     connections close. The simulator's checks of `server` stay as they are.
 - **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**

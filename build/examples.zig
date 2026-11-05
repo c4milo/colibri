@@ -1,6 +1,6 @@
 //! The programs of `examples/` (decision 96): what a project that depends on colibri writes, each
 //! one importing the library modules by the names a dependent uses, and run over an in-memory link
-//! on rotor's loop. `zig build examples` builds and runs every one, and `zig build example-<name>`
+//! on rotor's loop. `colibri_server` alone binds a loopback port, through `colibri`. `zig build examples` builds and runs every one, and `zig build example-<name>`
 //! one of them.
 const std = @import("std");
 const modules = @import("modules.zig");
@@ -13,6 +13,9 @@ const Example = struct {
     tls: bool = false,
     /// A program that checks DNSSEC records links chapulin through `dnssec` (decision 142).
     dnssec: bool = false,
+    /// A program that binds a loopback port through `colibri` (decision 96 as amended), the one
+    /// example that opens a socket.
+    colibri: bool = false,
 };
 
 const examples = [_]Example{
@@ -22,6 +25,7 @@ const examples = [_]Example{
     .{ .name = "client_exchange", .tls = true },
     .{ .name = "client_pool", .tls = true },
     .{ .name = "dnssec_check", .dnssec = true },
+    .{ .name = "colibri_server", .tls = true, .colibri = true },
 };
 
 pub fn add(
@@ -45,6 +49,7 @@ pub fn add(
         module.addImport("rotor", rotor);
         if (example.tls) add_tls(module, graph, testdata);
         if (example.dnssec) module.addImport("dnssec", graph.dnssec);
+        if (example.colibri) module.addImport("colibri", graph.colibri);
         const program = b.addExecutable(.{ .name = example.name, .root_module = module });
         const run = b.addRunArtifact(program);
         b.step("example-" ++ example.name, "Build and run examples/" ++ example.name ++ ".zig").dependOn(&run.step);

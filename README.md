@@ -71,15 +71,16 @@ Add colibri to your `build.zig.zon`:
 zig fetch --save git+https://github.com/c4milo/colibri#v0.11.0
 ```
 
-Then import the modules you use. Each of the sixteen library modules is exported by name: `core`,
-`wire`, `http`, `tls_provider`, `tls`, `dnssec`, `crypto`, `qlog`, `hpack`, `qpack`, `quic`, `h2`,
-`h3`, `h11`, `server` and `client`.
+Then import the modules you use. Each of the seventeen library modules is exported by name:
+`core`, `wire`, `http`, `tls_provider`, `tls`, `dnssec`, `crypto`, `qlog`, `hpack`, `qpack`,
+`quic`, `h2`, `h3`, `h11`, `server`, `client` and `colibri`.
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });
 exe.root_module.addImport("server", colibri.module("server"));
 exe.root_module.addImport("client", colibri.module("client"));
 exe.root_module.addImport("tls", colibri.module("tls"));
+exe.root_module.addImport("colibri", colibri.module("colibri"));
 ```
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
@@ -88,6 +89,25 @@ assertions stay on in production.
 Most programs use two modules. `server` answers requests and `client` sends them, behind one set
 of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the
 version.
+
+### A server that binds its port
+
+`colibri.Server` does a server's I/O for you ([decision 150](docs/decisions.md)). It binds one
+port, reads the certificate chain and the key from PEM text or from files, and runs a router of
+`server.router` on [Rotor](https://github.com/c4milo/rotor)'s loop: h11 and h2 over TCP, and h3
+over UDP on the same port. These lines are from
+[`examples/colibri_server.zig`](examples/colibri_server.zig):
+
+```zig
+const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
+try http_server.init(.{ .host = "127.0.0.1", .port = 0, .cpu = cpu });
+const thread = try std.Thread.spawn(.{}, serve, .{});
+defer thread.join();
+defer http_server.shutdown();
+```
+
+`run` serves on the thread that calls it until `shutdown`. The `colibri` module is the one module
+that does I/O. Every other module stays sans-I/O, for a program that brings its own loop.
 
 ### A server with the router
 
@@ -254,8 +274,8 @@ shape: octets in, at most one event out, and the frames colibri owes written int
 
 [`examples/`](examples/) holds whole programs, each a client and a server run over
 [Rotor](https://github.com/c4milo/rotor)'s loop: a server that serves TCP and QUIC through one
-endpoint, a client whose pool tries QUIC and then TCP, and h11 and h2 by themselves. `zig
-build examples` runs them, and CI does too.
+endpoint, a client whose pool tries QUIC and then TCP, a `colibri.Server` on a loopback port, and
+h11 and h2 by themselves. `zig build examples` runs them, and CI does too.
 
 ## How it is checked
 
@@ -299,8 +319,8 @@ against quic-go, ngtcp2, neqo and quinn, run every Monday.
 CI runs every check on Ubuntu 26.04 on x86-64, and the module tests on Ubuntu 26.04 and macOS 26
 on arm64. The HTTP Garden and the QUIC Interop Runner also run on Ubuntu 26.04 on x86-64.
 macOS on arm64 is also the development host, where every check runs, the TLS and QUIC ones
-included. colibri makes no system call, so it builds wherever Zig 0.16.0 does, but only these
-platforms are checked. Published performance numbers come from Linux alone.
+included. Every module but `colibri` makes no system call, so it builds wherever Zig 0.16.0 does,
+but only these platforms are checked. `colibri` runs on Rotor, on Linux and macOS. Published performance numbers come from Linux alone.
 
 ## Documentation
 
