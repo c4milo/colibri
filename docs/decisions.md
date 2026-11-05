@@ -5840,6 +5840,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `net.Server` lost: std's `net.Server` is a bare listener, not an HTTP server.
         - `http.Server` lost: colibri's `http` module is sans-I/O, and the protocol modules import
           it.
+     9. Amended by the owner on 2026-11-05: `ServerConfig.random` may be null, and `colibri` then
+        draws from the operating system's entropy, through `getrandom` on Linux and `getentropy`
+        on macOS. A program may still pass its own source. Once a program can pass a `std.Io`,
+        its `randomSecure` takes this place. Only `colibri` has this default: every sans-I/O
+        module still takes the program's source (non-negotiable 2).
 
      10. Amended by the owner on 2026-11-05: Rotor builds no `std.Io` adapter, because it is too
         large. `colibri.Server` stays on Rotor's own API for good:

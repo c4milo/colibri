@@ -83,11 +83,10 @@ pub fn build(b: *std.Build) void {
     const pepegrillo_dependency = b.lazyDependency("pepegrillo", .{}) orelse return;
     const pepegrillo = pepegrillo_dependency.module("pepegrillo");
     guide.add(b, pepegrillo_dependency);
-    // Decision 58: rotor is the loop of `src/testing/`'s UDP endpoints. Lazy like pepegrillo, and
-    // requested here for the same reason, with the target and mode this build resolved. rotor's
-    // build, like this one, offers ReleaseSafe as `-Drelease` and no `-Doptimize`.
-    const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
-    const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
+    // Decision 58: rotor is the loop of `src/testing/`'s UDP endpoints, and decision 150 makes it
+    // the library's loop too, so `modules.add` fetches it with the target and mode this build
+    // resolved. rotor's build, like this one, offers ReleaseSafe as `-Drelease`.
+    const rotor_dependency = graph.rotor;
     // Design §8 step 16b: the UDP endpoint's sessions are `tls`'s, over the `KEYLOG=on` objects.
     const testing_udp = modules_testing_udp.add(b, graph, rotor_dependency.module("rotor"), target, optimize);
     // The QUIC Interop Runner's endpoint is the same program, under the name its image copies. It
@@ -141,6 +140,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "dnssec", .module = graph.dnssec },
         .{ .name = "server", .module = modules_test_roots.test_root(b, graph.server, testdata) },
         .{ .name = "client", .module = modules_test_roots.client_test_root(b, graph.client, testdata, graph.stdx) },
+        .{ .name = "colibri", .module = modules_test_roots.test_root(b, graph.colibri, testdata) },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "sim-run-quic", .module = graph.sim_run_quic },

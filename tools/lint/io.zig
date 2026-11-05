@@ -3,11 +3,11 @@
 //! parsed out of bytes the caller has already read, so every function that would block returns
 //! what it wants instead.
 //!
-//! Over every `.zig` file under `src/` but not under `src/testing/` and not `src/sim/run_main.zig`, the rule flags a chain that
+//! Over every `.zig` file under `src/` but not under `src/testing/` or `src/colibri/` and not `src/sim/run_main.zig`, the rule flags a chain that
 //! starts with one of `forbidden_prefixes` at a dot boundary: `std.posix`, `std.fs`, `std.net`,
 //! `std.Thread`, `std.Io` and `std.process`. `src/testing/` holds the test-only entry points of
-//! design §9 and is the one directory permitted to touch a socket (CLAUDE.md, Layout), so it is
-//! exempt.
+//! design §9, and `src/colibri/` binds the sockets of `colibri.Server` (decision 150). They are the
+//! two directories permitted to touch a socket (CLAUDE.md, Layout), so both are exempt.
 //!
 //! `std.Io.Writer` and `std.Io.Reader`, every name under them, and `std.Io.Limit`, the count
 //! they take, are not findings. They are interfaces over memory, and decision 127 has a route read a request body through one and write
@@ -45,14 +45,15 @@ const memory_interfaces = [_]forbidden_references.Exception{
     .{ .prefix = "std.Io.Limit", .last_segment_prefixes = &.{""} },
 };
 
-/// The configuration. It reads `src/`, and exempts `src/testing/`: the test-only entry points of
-/// docs/design.md §9, which are excluded from the packaged library.
+/// The configuration. It reads `src/`, and exempts `src/testing/`, the test-only entry points of
+/// docs/design.md §9, and `src/colibri/`, the one library module that binds sockets and runs a
+/// loop (decision 150).
 pub const config: forbidden_references.Config = .{
     .name = "io",
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_directories = &.{"src/testing"},
+        .exclude_directories = &.{ "src/testing", "src/colibri" },
         .exclude_paths = &.{"src/sim/run_main.zig"},
     },
     .prefixes = &forbidden_prefixes,
@@ -180,6 +181,7 @@ test "io exempts src/testing/ and reads nothing outside src/" {
     try testing.expect(config.scope.applies("src/quic/quic.zig"));
     try testing.expect(!config.scope.applies("src/testing/endpoint.zig"));
     try testing.expect(!config.scope.applies("./src/testing/deep/endpoint.zig"));
+    try testing.expect(!config.scope.applies("src/colibri/server.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try harness.expect_messages(try findings_of(arena, "src/testing/endpoint.zig", failing_fixture), &.{});
     try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});

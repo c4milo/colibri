@@ -41,7 +41,8 @@ The architecture depends on every rule in this section.
    and packet protection key; colibri never holds one and never chooses a cipher suite.
    Randomness is the consumer's: chapulin is built `RAND=session`, each session draws from the
    `std.Random` its caller passes to `start` and from nothing else, and the program that links
-   colibri defines `ch_assert_fail` (decision 94 as amended).
+   colibri defines `ch_assert_fail` (decision 94 as amended). `colibri.Server` alone draws from
+   the operating system when its program passes no source (decision 150 ruling 9).
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and

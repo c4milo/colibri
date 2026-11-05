@@ -12941,8 +12941,9 @@ library.
     `InitError` and `RunError`.
     - `ServerOf(capacity)` takes a `server.Capacity`, and `Server` is `ServerOf(.{})`. A program
       places one, as it places an endpoint.
-    - `ServerConfig` holds `host`, an IPv4 or IPv6 literal, `port`, `identity`, `cpu`, `random` and
-      `endpoint`, the `server.Config` the endpoint starts from. `colibri` fills its `tls`.
+    - `ServerConfig` holds `host`, an IPv4 or IPv6 literal, `port`, `identity`, `cpu`, `random`,
+      which defaults to the system's entropy (ruling 9), and `endpoint`, the `server.Config` the
+      endpoint starts from. `colibri` fills its `tls`.
     - `Identity` is `.pem`, the chain and the key as PEM bytes, or `.files`, their names.
     - `Server.init(config)` reads the identity and binds. `Server.run(router, context)` runs
       until `shutdown()`. `Server.port()` returns the port

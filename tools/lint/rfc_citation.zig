@@ -2,8 +2,9 @@
 //! a comment on the line that does the checking (CLAUDE.md non-negotiable 9). A reader must be able
 //! to go from any validation to the sentence that requires it.
 //!
-//! Over every `.zig` file under `src/`, but for `src/golden/`, `src/sim/` and `src/testing/`, the
-//! rule reads every `return error.Name` outside a `test` block as a validation branch. The branch
+//! Over every `.zig` file under `src/`, but for `src/golden/`, `src/sim/`, `src/testing/` and
+//! `src/colibri/`, the rule reads every `return error.Name` outside a `test` block as a validation
+//! branch. The branch
 //! is cited when a comment holds `RFC <number> §<section>` or `RFC <number> Appendix <letter>` in
 //! either of two places:
 //!
@@ -27,7 +28,8 @@
 //! `false`, `null` or an error held in a variable is outside it. It checks that a citation is
 //! present, not that the section says what the check does: the reader of the citation does that.
 //! `src/golden/`, `src/sim/` and `src/testing/` hold the corpus, the simulator and the test-only
-//! endpoints, which check colibri rather than a peer.
+//! endpoints, which check colibri rather than a peer. `src/colibri/` checks the program's own
+//! configuration, and the modules under it check every peer (decision 150).
 //!
 //! This rule is colibri's own, written against pepegrillo's readers (decision 36).
 
@@ -44,7 +46,7 @@ pub const name = "rfc-citation";
 pub const scope: Scope = .{
     .extensions = &.{lint.paths.zig_extension},
     .include_directories = &.{"src"},
-    .exclude_directories = &.{ "src/golden", "src/sim", "src/testing" },
+    .exclude_directories = &.{ "src/golden", "src/sim", "src/testing", "src/colibri" },
 };
 
 /// Errors that report a short input, a full output buffer or a full pool. CLAUDE.md calls these
