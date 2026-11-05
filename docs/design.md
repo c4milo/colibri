@@ -12761,6 +12761,22 @@ library.
     period, avoidance that grows as slow start, the carry dropped, a cut to 0.7 in place of 0.5,
     no minimum after an event, no packet past the window after an event, persistent congestion
     that keeps the carry, and the UDP server that ignores `newreno`.
+  - **The judge's bulk run**, [run 42069619121](https://github.com/c4milo/colibri/actions/runs/42069619121)
+    on 7b9b9100, 3 rounds, two jobs on `ubuntu-24.04-arm`. Goodput in Mbit/s, for 1 and 4
+    connections, each job's median, and the download p50 for 1 connection:
+
+    | Path | colibri-newreno | colibri (CUBIC) | colibri-bbr | chi (quic-go) |
+    | --- | --- | --- | --- | --- |
+    | 20 Mbit/s, 25 ms | 17.34 and 17.90; 946 ms | 17.34 and 17.90; 946 ms | 16.78 and 17.34; 952 ms | 17.34 and 17.90; 938 ms |
+    | the same, 1% loss | 1.68 and 7.27; 8,446 to 8,700 ms | 2.24 and 8.39 to 8.95; 7,189 to 7,576 ms | 14.54 and 17.34; 1,143 to 1,162 ms | 3.36 and 12.86 to 13.42; 4,358 to 4,524 ms |
+
+    - With no loss, NewReno fills the link as CUBIC does. Its GET p99 with 4 connections is
+      686 to 718 ms, against CUBIC's 519 to 595.
+    - At 1% loss, NewReno gets three quarters of CUBIC's goodput: each loss halves its window
+      (RFC 9002 Appendix B.6), and CUBIC grows back faster (RFC 9438 §4.3). BBRv3 stays the
+      default (decision 143).
+    - quic-go's NewReno, under chi, gets twice colibri's at 1% loss. The owner asked why on
+      2026-11-05; CLAUDE.md's rule 10 bars reading quic-go's source.
 - **Step 35 — Careful Resume (RFC 9959), proposed 2026-11-04.** [Decision 149](decisions.md).
   - **The public names,** each listed in a test beside its root before the code (decision 115):
     - `quic.ResumeState`: `version`, `size`, `window_len` (§3.1's saved_cwnd), `rtt_ns`
