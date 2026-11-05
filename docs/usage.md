@@ -145,6 +145,7 @@ until another thread calls `shutdown`. `run` then ends each connection and retur
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
 try http_server.init(.{ .host = "127.0.0.1", .port = 0, .cpu = cpu });
+defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
 defer http_server.shutdown();
@@ -156,9 +157,10 @@ fn serve() void {
 }
 ```
 
-Once `init` returns, the server holds its sockets, and only `run` closes them. The server has no
-other call that closes them. A program that does not start `run` after `init` keeps the sockets
-open until the program exits.
+`deinit` closes the sockets and wipes the private key and the cookie key. Call it after `init`
+returns, and after `run` returns when your program calls `run`. `run` closes the sockets when it
+returns, and `deinit` does not close them again, because the system can give a closed number to
+another file of your program.
 
 `colibri.ServerConfig` holds these fields:
 

@@ -77,12 +77,14 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         loop: rotor.Loop,
         events: [loop_options.operations]rotor.Event,
         listener: rotor.Descriptor,
+        /// Whether `listener` is open: `init` opens it, and `run` or `deinit` closes it once.
+        listener_open: bool,
         bound_port: u16,
         accepting: bool,
         sockets: [tcp_connections]socket_module.Socket,
         /// The UDP socket, open when the server has an identity and QUIC slots (design §8 step
         /// 37c), its receive buffers, its batches and their destinations, and the room each
-        /// datagram is written in.
+        /// datagram is written in. `run` or `deinit` closes the socket once.
         udp_open: bool,
         udp_socket: rotor.Descriptor,
         udp_receiving: rotor.Handle,
@@ -108,22 +110,32 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         /// ruling 10).
         pub fn init(self: *Self, config: ServerConfig) InitError!void {
             self.config = config;
+            self.listener_open = false;
+            self.udp_open = false;
             if (self.config.random == null) self.config.random = entropy.random();
             self.endpoint_config = config.endpoint;
             assert(self.endpoint_config.tls == null);
             // A server that `init` does not return keeps no private key and no cookie key.
-            errdefer {
-                self.identity.key.wipe();
-                std.crypto.secureZero(u8, &self.identity.cookie_key);
-            }
+            errdefer wipe_keys(self);
             if (config.identity) |identity| {
                 self.endpoint_config.tls = try identity_module.load(identity, &self.identity, &self.loop_memory, config.cpu, self.config.random.?);
             }
             assert((self.endpoint_config.tls != null) == (config.identity != null));
             try server_loop.bind(self);
-            errdefer rotor.sync.close_now(self.listener);
+            self.listener_open = true;
+            errdefer close_sockets(self);
             try server_udp.open_when_served(self, capacity.quic_connections > 0);
             self.stopping = .init(false);
+        }
+
+        /// Closes the listener and the UDP socket, and wipes the private key and the cookie key.
+        /// The program calls it after `init` returns, and after `run` returns when it calls `run`.
+        /// It does not close a socket that `run` closed: the system can give that number to
+        /// another file of the program.
+        pub fn deinit(self: *Self) void {
+            close_sockets(self);
+            assert(!self.listener_open and !self.udp_open);
+            wipe_keys(self);
         }
 
         /// The port the server bound: the configured one, or the one the system chose for 0.
@@ -142,8 +154,8 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         /// pool of `server.router`'s, with `context` (decision 150). The loop runs here because a
         /// Rotor loop belongs to the thread that starts it.
         pub fn run(self: *Self, router: anytype, context: anytype) RunError!void {
-            defer rotor.sync.close_now(self.listener);
-            defer if (self.udp_open) rotor.sync.close_now(self.udp_socket);
+            assert(self.listener_open);
+            defer close_sockets(self);
             try self.loop.init(&self.loop_memory, loop_options);
             defer self.loop.deinit();
             defer {
@@ -162,6 +174,20 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
     };
 }
 
+/// Writes zero over a server's private key and its cookie key.
+fn wipe_keys(state: anytype) void {
+    state.identity.key.wipe();
+    std.crypto.secureZero(u8, &state.identity.cookie_key);
+}
+
+/// Closes each socket of a server that is open, and records it as closed.
+fn close_sockets(state: anytype) void {
+    if (state.listener_open) rotor.sync.close_now(state.listener);
+    state.listener_open = false;
+    if (state.udp_open) rotor.sync.close_now(state.udp_socket);
+    state.udp_open = false;
+}
+
 const testing = std.testing;
 const testdata = @import("testdata");
 const support = @import("test_support.zig");
@@ -176,9 +202,8 @@ test "design §8 step 37c: an identity opens UDP on the listener's port, which A
         .cpu = support.cpu(),
         .random = counter.random(),
     });
-    defer rotor.sync.close_now(test_server.listener);
+    defer test_server.deinit();
     try testing.expect(test_server.udp_open);
-    defer rotor.sync.close_now(test_server.udp_socket);
     const local = try rotor.sync.local_address(test_server.udp_socket);
     try testing.expectEqual(test_server.port(), local.port);
     // RFC 7838 §3: the TCP connections over TLS advertise h3 on the same port.
@@ -196,11 +221,10 @@ test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
     try testing.expectEqual(1, values.identities.len);
     try testing.expectEqual(.ecdsa_secp256r1_sha256, values.identities[0].key.scheme);
     try testing.expectEqualSlices(u8, testdata.leaf, values.identities[0].chain[0]);
-    rotor.sync.close_now(test_server.listener);
-    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
     // RFC 9846 §4.3.2: the cookie key comes from the program's source.
     try testing.expectEqual(0, values.cookie_key[0]);
     try testing.expectEqual(1, values.cookie_key[1]);
+    test_server.deinit();
 }
 
 test "design §8 step 37e: init reads the identity from PEM files, and wipes the key's text" {
@@ -210,8 +234,7 @@ test "design §8 step 37e: init reads the identity from PEM files, and wipes the
     const key = try directory.write(.key, testdata.key_pem);
     var counter: support.Counter = .{};
     try test_server.init(.{ .identity = .{ .files = .{ .chain = chain, .key = key } }, .cpu = support.cpu(), .random = counter.random() });
-    rotor.sync.close_now(test_server.listener);
-    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
+    test_server.deinit();
     const values = test_server.endpoint_config.tls.?;
     try testing.expectEqual(.ecdsa_secp256r1_sha256, values.identities[0].key.scheme);
     try testing.expectEqualSlices(u8, testdata.leaf, values.identities[0].chain[0]);
@@ -227,8 +250,7 @@ test "decision 150 ruling 9: a server given no source draws from the system" {
     const values = test_server.endpoint_config.tls.?;
     // Thirty-two octets from the system are not the counter's 0, 1, 2, ...
     try testing.expect(!(values.cookie_key[0] == 0 and values.cookie_key[1] == 1 and values.cookie_key[2] == 2));
-    rotor.sync.close_now(test_server.listener);
-    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
+    test_server.deinit();
 }
 
 test "decision 150: no identity serves cleartext" {
@@ -238,8 +260,7 @@ test "decision 150: no identity serves cleartext" {
     // RFC 9001 §4: QUIC needs TLS, so a cleartext server opens no UDP socket.
     try testing.expect(!test_server.udp_open);
     try testing.expectEqual(null, test_server.endpoint_config.h3_alternative);
-    rotor.sync.close_now(test_server.listener);
-    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
+    test_server.deinit();
 }
 
 test "decision 150: a host that is no IP literal is refused" {
@@ -257,6 +278,27 @@ test "decision 150: an init that fails after it reads the key wipes the key and 
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
 }
 
+test "design §8 step 37: deinit closes the listener and the UDP socket, and wipes both keys" {
+    var counter: support.Counter = .{};
+    try test_server.init(.{
+        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .cpu = support.cpu(),
+        .random = counter.random(),
+    });
+    try testing.expect(test_server.udp_open);
+    const listener = test_server.listener;
+    const udp_socket = test_server.udp_socket;
+    try testing.expect(!std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
+    try testing.expect(!std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
+    test_server.deinit();
+    // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.
+    try testing.expectError(error.Unexpected, rotor.sync.local_address(listener));
+    try testing.expectError(error.Unexpected, rotor.sync.local_address(udp_socket));
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
+}
+
 test {
     _ = @import("server_tcp_test.zig");
+    _ = @import("server_deinit_test.zig");
 }

@@ -44,9 +44,10 @@ pub fn open(state: anytype) (rotor.sync.SocketError || rotor.sync.ListenError ||
 /// h3 runs over QUIC, which needs TLS (RFC 9001 §4). A TCP connection over TLS then advertises h3
 /// on the same port (RFC 7838 §3), unless the program named another alternative.
 pub fn open_when_served(state: anytype, quic_slots: bool) !void {
-    state.udp_open = quic_slots and state.config.identity != null;
-    if (!state.udp_open) return;
+    assert(!state.udp_open);
+    if (!quic_slots or state.config.identity == null) return;
     try open(state);
+    state.udp_open = true;
     if (state.endpoint_config.h3_alternative == null) state.endpoint_config.h3_alternative = .{ .port = state.bound_port };
 }
 

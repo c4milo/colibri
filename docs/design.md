@@ -13016,7 +13016,8 @@ library.
     - `Identity` is `.pem`, the chain and the key as PEM bytes, or `.files`, their names.
     - `Server.init(config)` reads the identity and binds. `Server.run(router, context)` runs
       until `shutdown()`. `Server.port()` returns the port
-      bound, for port 0.
+      bound, for port 0. `Server.deinit()` closes each socket `run` did not close, and wipes the
+      private key and the cookie key (the owner's ruling of 2026-11-05).
   - **37a: the module.** `src/colibri/` in the graph, importing `server`, `tls` and Rotor, which
     stops being lazy. The io and determinism lint rules exempt it as they exempt `src/testing/`.
     The test that lists the names, and `init` with `.pem`.
@@ -13051,6 +13052,8 @@ library.
       `AccessDenied` reported as unreadable; the key's text wiped on success alone; the key and
       the cookie key kept when `init` fails after the read; a TLS connection accepted as
       cleartext. The last one is caught by a fetch over TLS from std's client.
+    - `deinit`, on 2026-11-05: no listener close; no UDP close; no key wipe; no cookie key
+      wipe; a second close after `run`, in three forms.
     - **NOT CAUGHT:** no check for a file that became shorter after `file_size`. No test can
       shorten a file within `read`, so the check stays without a test.
     - **Not checked:** no test sends a datagram through `colibri.Server`, so its UDP receive and

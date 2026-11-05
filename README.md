@@ -101,12 +101,14 @@ over UDP on the same port. These lines are from
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
 try http_server.init(.{ .host = "127.0.0.1", .port = 0, .cpu = cpu });
+defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
 defer http_server.shutdown();
 ```
 
-`run` serves on the thread that calls it until `shutdown`. The `colibri` module is the one module
+`run` serves on the thread that calls it until `shutdown`. `deinit` closes each socket that `run`
+did not close, and wipes the private key and the cookie key. The `colibri` module is the one module
 that does I/O. Every other module stays sans-I/O, for a program that brings its own loop.
 
 ### A server with the router

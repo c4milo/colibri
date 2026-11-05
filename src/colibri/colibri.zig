@@ -24,11 +24,11 @@ pub const InitError = files.server.InitError;
 pub const RunError = files.server.RunError;
 
 test "decision 115: the root exports the names design §8 step 37 lists" {
-    // Step 37a adds `Server`, `ServerOf`, `ServerConfig`, `Identity` and `InitError`, and 37b
-    // `RunError` and `run`, `port` and `shutdown`.
+    // Step 37a adds `Server`, `ServerOf`, `ServerConfig`, `Identity` and `InitError`, 37b
+    // `RunError` and `run`, `port` and `shutdown`, and the owner's ruling of 2026-11-05 `deinit`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{ "constants", "Server", "ServerOf", "ServerConfig", "Identity", "InitError", "RunError" });
-    try public_names.expect(Server, &.{ "init", "port", "shutdown", "run" });
+    try public_names.expect(Server, &.{ "init", "deinit", "port", "shutdown", "run" });
 }
 
 test {

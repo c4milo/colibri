@@ -12,6 +12,8 @@
 //! 3. A client of `std.Io.Threaded` sends two GETs over h11, each on a connection of its own, and
 //!    checks each response octet for octet.
 //! 4. The program calls `shutdown`, and `run` returns once each connection has closed.
+//! 5. The program calls `deinit`, which wipes the private key and the cookie key. `run` has
+//!    closed the sockets, and `deinit` closes neither again.
 //!
 //! This example binds a loopback socket, which decision 96 as amended allows for `colibri` alone.
 //! The fetch over h2 and h3 comes with `colibri.Client` (design §8 step 42).
@@ -72,6 +74,7 @@ pub fn main() !void {
     // included. With no `random`, the server draws from the system's entropy.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
     try http_server.init(.{ .host = "127.0.0.1", .port = 0, .cpu = cpu });
+    defer http_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});
     defer thread.join();
     defer http_server.shutdown();

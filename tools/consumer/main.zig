@@ -137,10 +137,11 @@ pub fn main() !void {
     if (get_response.result != .response or get_response.status != 204) return error.ExchangeWrong;
 
     // `colibri` (decision 150): `init` binds 127.0.0.1 on port 0, and `port()` names the port the
-    // system chose. The program does not call `run`, so it serves nothing, and the socket closes
-    // when the program exits.
+    // system chose. The program does not call `run`, so it serves nothing, and `deinit` closes
+    // the socket.
     const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated } };
     try bound_server.init(config);
+    defer bound_server.deinit();
     if (bound_server.port() == 0) return error.BindWrong;
     std.debug.print("consumer: h11, h2, tls, gzip, server, client and colibri link and run as a dependency\n", .{});
 }

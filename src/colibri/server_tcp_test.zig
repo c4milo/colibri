@@ -83,6 +83,7 @@ test "decision 150: a server on port 0 answers an h11 request through its router
     try testing.expect(std.mem.startsWith(u8, missing, "HTTP/1.1 404"));
     test_server.shutdown();
     thread.join();
+    test_server.deinit();
 }
 
 /// Sends `request` over a new TLS connection to the server, and returns what the server sent until
@@ -122,6 +123,7 @@ test "decision 150: a server with an identity answers an h11 request over TLS" {
     var counter: support.Counter = .{};
     router = .{};
     try test_server.init(.{ .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } }, .cpu = support.cpu(), .random = counter.random() });
+    defer test_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});
     defer thread.join();
     defer test_server.shutdown();
