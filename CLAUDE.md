@@ -200,8 +200,9 @@ is added to the root and to the list in its test, which prints the name that dif
   The scope allows digits because `h2` and `h3` are the two commonest scopes, and a rule admitting
   letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`, `hpack`,
   `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`, `h11`, `server`,
-  `qlog`, `client`, `dnssec`. A scope outside that set is a warning rather than a refusal, because the set
-  grows when the graph does and docs/design.md §3 is the authority on it, not the linter.
+  `qlog`, `client`, `dnssec`, `colibri`. A scope outside that set is a warning rather than a
+  refusal, because the set grows when the graph does and docs/design.md §3 is the authority on it,
+  not the linter.
 - The description is imperative, starts with a lowercase letter, and ends without a period: write
   `add the huffman decoder`, never `Adds the Huffman decoder.` The subject line stays at or under
   72 columns.
@@ -215,7 +216,7 @@ is added to the root and to the list in its test, which prints the name that dif
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The sixteen
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The seventeen
   library modules are exported by name, so a dependent reaches them with `dependency.module`
   (decision 86); the simulator, the corpus and `src/testing/` are not. A module can only
   `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not
@@ -240,9 +241,9 @@ is added to the root and to the list in its test, which prints the name that dif
   without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
   58 and 83).
 - `examples/` holds programs a project that depends on colibri would write, importing the library
-  modules by name. They run on Rotor's loop over an in-memory link and open no socket, except
-  `colibri_server.zig`, which binds loopback through `colibri`, and `zig build examples` runs every one
-  (decision 96 as amended).
+  modules by name. They run on Rotor's loop over an in-memory link, and every one opens no socket
+  except `examples/colibri_server.zig`, which binds loopback through `colibri`. `zig build
+  examples` runs every one (decision 96 as amended).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
