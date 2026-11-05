@@ -207,12 +207,28 @@ pub const Connections = struct {
             held.slots.release(handle);
             return null;
         };
+        // RFC 9959 §3.2: the set the program saved for this client, claimed for this connection.
+        // It is taken once the connection started, so every set taken comes back through `put`.
+        if (held.config.resumes) |resumes| {
+            const taken = resumes.take(from, now_ns);
+            connection.transport.recovery.careful_resume.init(taken, held.config.resume_bounds, now_ns);
+        }
         // Decision 102 as amended: a log only for a connection that started, so each log the
         // provider gives comes back through `close`.
         if (held.config.logs) |logs| {
             if (logs.open(original_destination, now_ns)) |log| internal.attach_log(connection, log, now_ns);
         }
         return handle.slot;
+    }
+
+    /// RFC 9959 §3.1 and §3.5: what a connection that is over observed goes to the program's
+    /// provider, after the deletion a retreat asks for.
+    pub fn close_resume(held: *const Connections, connection: *QuicConnection, now_ns: u64) void {
+        const resumes = held.config.resumes orelse return;
+        const transport = &connection.transport;
+        const peer = transport.path.address;
+        if (transport.recovery.careful_resume.retreated) resumes.drop(peer);
+        resumes.put(peer, quic.connection_resume.observe(transport, now_ns), now_ns);
     }
 
     /// Hands the log of a connection that is over back to the caller.

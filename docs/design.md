@@ -12849,6 +12849,22 @@ library.
       no raised pacing rate; no raised window; congestion kept in Startup; the flag kept after
       Drain; the probing rate doubled; the rounds never run; a refused start left Unvalidated;
       the saved set kept after a retreat; and persistent congestion keeping the flag.
+  - **35d, the providers, 2026-11-04.** `quic.ResumeProvider` has three calls: `take`, which
+    claims a set for one connection; `put`, once when that connection ends, with what it
+    observed or null; and `drop`, before `put`, when the connection retreated (§3.5). `server`
+    and `client` re-export it beside `ResumeState` and `ResumeBounds` (decision 126), and each
+    `Config` takes `resumes` and `resume_bounds`.
+    - The plan named `take` and `put`. `drop` joins them because `put`'s null keeps a held set,
+      so a retreat needs a call of its own.
+    - A server's connection, and a client's, takes its set only once its start succeeded, so no
+      failed start leaves a set claimed. The server puts when the connection ends; the client
+      puts in `transport_closed`, once, stamped with the latest instant its controller was given.
+    - `examples/server_resume.zig` is the server example's provider: a table of four addresses
+      with no allocator, which gives a set to one connection at a time. `server_exchange.zig`
+      requires one `take` and one `put`, and docs/usage.md shows `take`.
+    - 10 mutations, each **CAUGHT**: on each side, no set taken, the set ignored, nothing put
+      back and nothing dropped after a retreat; on the server, a drop after the put; on the
+      client, a second close that puts twice.
     - `quic.Connection` grows by 56 octets, to 208,376, and `server.Endpoint` at its default
       capacity to 52,434,448. docs/performance.md lists each size.
     - 14 mutations, each **CAUGHT**: another version, another size, an empty window, a set from

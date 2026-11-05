@@ -64,7 +64,7 @@ pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
         if (table.first()) |entry| return endpoint_state_events.ending(handle, table, entry.number, .closed);
     }
     if (endpoint_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
-    if (internal.ended(connection)) return end(state, slot, connection);
+    if (internal.ended(connection)) return end(state, slot, connection, now_ns);
     return null;
 }
 
@@ -85,8 +85,9 @@ fn connection_event(state: *State, slot: u32, connection: *QuicConnection, table
 }
 
 /// Ends the connection in `slot`, whose requests have all ended: its secrets are wiped, its log
-/// goes back, and the slot frees, its generation advancing.
-fn end(state: *State, slot: u32, connection: *QuicConnection) Event {
+/// and what it observed for Careful Resume go back, and the slot frees, its generation
+/// advancing.
+fn end(state: *State, slot: u32, connection: *QuicConnection, now_ns: u64) Event {
     // INV-30: a connection stops before it ends, and a stopped one gave each of its requests an
     // ending first.
     assert(connection.stopped and table_of(state, slot).len() == 0);
@@ -95,6 +96,7 @@ fn end(state: *State, slot: u32, connection: *QuicConnection) Event {
     const ended: event.Ended = .{ .connection = handle, .reason = reason, .failed = state.failed[slot] and reason == null };
     internal.transport_closed(connection);
     state.connections.close_log(connection);
+    state.connections.close_resume(connection, now_ns);
     state.heap.forget(slot);
     state.ready.remove(slot);
     state.sendable.remove(slot);

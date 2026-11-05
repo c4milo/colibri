@@ -234,7 +234,7 @@ With chapulin's host objects:
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))` | 40 | each exchange a pool holds at once |
 | `@FieldType(client.ConnectionPool, "quic")` | 807240 | a pool's QUIC connection, without its receive pool |
-| `client.ConnectionPool` | 824600 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
+| `client.ConnectionPool` | 824640 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
 | `client.ConnectionPoolOf(.{ .quic = false })` | 8744 | the fixed part of a pool with no QUIC state |
 | `client.ConnectionPool.memory_bytes(.{})` | 316480 | the memory a pool takes at the default counts: one TCP connection, its link and 16 requests |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a pool, at its default capacity |

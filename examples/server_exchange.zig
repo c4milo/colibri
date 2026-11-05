@@ -22,7 +22,9 @@
 //! - `set_timeouts`, which shortens the idle deadline of the one QUIC connection the endpoint
 //!   holds once it has a request, so the server closes it when its client keeps it open;
 //! - `h3_alternative`, with which each TLS connection advertises the server's h3 port;
-//! - `shutdown`, once both clients are done, and the `closed` event that follows it.
+//! - `shutdown`, once both clients are done, and the `closed` event that follows it;
+//! - `resumes`, the provider of `server_resume.zig`, which the QUIC connection takes a saved set
+//!   from when it starts and puts what it observed into when it ends (RFC 9959).
 //!
 //! Its clients are in `server_peers.zig`: one sends five requests over TCP, and one a GET over
 //! QUIC. The links of `link.zig` and `link_datagram.zig` stand where a program's sockets would be,
@@ -45,6 +47,7 @@ const program = @import("tls_program.zig");
 const peers = @import("server_peers.zig");
 const link_module = @import("link.zig");
 const datagram_module = @import("link_datagram.zig");
+const resumes = @import("server_resume.zig");
 
 const Link = link_module.Link;
 const DatagramLink = datagram_module.DatagramLink;
@@ -213,6 +216,8 @@ fn start_server(cpu: tls.Cpu) !void {
         // Decision 143: each QUIC connection runs BBRv3, the default, and `.cubic` chooses CUBIC.
         // BBRv3 draws its probe waits from the source `init` takes.
         .congestion_controller = .bbr,
+        // Decision 149: RFC 9959's saved sets, which the program keeps (`server_resume.zig`).
+        .resumes = resumes.provider(),
     };
     const now_ns = link.now_ns(.server);
     // One endpoint for every socket the program accepts and for its UDP socket, in storage the
@@ -478,13 +483,14 @@ const routed_bytes = 2 * greeting.len + note.len + peers.named_greeting.len;
 fn check() Error!void {
     const answered = app.requests == requests_count and app.done == requests_count and
         app.counted == routed_count and app.body_bytes == routed_bytes;
-    const over = closes == 1 and connections_ended == connections_count and idle_ended == 1;
+    const over = closes == 1 and connections_ended == connections_count and idle_ended == 1 and
+        resumes.taken == 1 and resumes.put_back == 1;
     if (peers.check() and answered and over) {
         std.debug.print("server_exchange: every octet arrived as sent\n", .{});
         return;
     }
-    std.debug.print("server_exchange: requests {d}, done {d}, counted {d}, bytes {d}, closes {d}, ended {d}, idle {d}\n", .{
-        app.requests, app.done, app.counted, app.body_bytes, closes, connections_ended, idle_ended,
+    std.debug.print("server_exchange: requests {d}, done {d}, counted {d}, bytes {d}, closes {d}, ended {d}, idle {d}, taken {d}, put {d}\n", .{
+        app.requests, app.done, app.counted, app.body_bytes, closes, connections_ended, idle_ended, resumes.taken, resumes.put_back,
     });
     return error.ExchangeWrong;
 }

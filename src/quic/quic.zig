@@ -111,6 +111,7 @@ pub const CongestionController = files.recovery_congestion.Controller;
 /// the bounds on a connection that resumes from one (decision 149, design §8 step 35).
 pub const ResumeState = files.recovery_resume.ResumeState;
 pub const ResumeBounds = files.recovery_resume.ResumeBounds;
+pub const ResumeProvider = files.recovery_resume.ResumeProvider;
 /// A packet number space, and the loss recovery of a connection, which the simulator drives by
 /// themselves. A program names neither.
 pub const Space = files.space.Space;
@@ -365,21 +366,22 @@ pub const stream = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",                     "wire",                           "crypto",
-        "tls_provider",             "qlog",                           "constants",
-        "error_code",               "Connection",                     "PeerAddress",
-        "CongestionController",     "ResumeState",                    "ResumeBounds",
-        "Space",                    "Recovery",                       "connection_datagram",
-        "connection_send",          "connection_timer",               "connection_resume",
-        "connection_idle",          "connection_close",               "connection_stream_send",
-        "connection_stream_read",   "connection_stream_acknowledged", "connection_flow",
-        "connection_stream_credit", "connection_version",             "connection_retry",
-        "connection_id_frames",     "connection_migration",           "connection_key_update",
-        "connection_qlog",          "connection",                     "connection_receive",
-        "connection_recovery",      "connection_frames",              "connection_keys",
-        "connection_stream_frames", "connection_stream_recovery",     "recovery_ack",
-        "recovery_sent",            "packet",                         "frame",
-        "transport_parameters",     "transport_parameters_read",      "stream",
+        "core",                   "wire",                     "crypto",
+        "tls_provider",           "qlog",                     "constants",
+        "error_code",             "Connection",               "PeerAddress",
+        "CongestionController",   "ResumeState",              "ResumeBounds",
+        "ResumeProvider",         "Space",                    "Recovery",
+        "connection_datagram",    "connection_send",          "connection_timer",
+        "connection_resume",      "connection_idle",          "connection_close",
+        "connection_stream_send", "connection_stream_read",   "connection_stream_acknowledged",
+        "connection_flow",        "connection_stream_credit", "connection_version",
+        "connection_retry",       "connection_id_frames",     "connection_migration",
+        "connection_key_update",  "connection_qlog",          "connection",
+        "connection_receive",     "connection_recovery",      "connection_frames",
+        "connection_keys",        "connection_stream_frames", "connection_stream_recovery",
+        "recovery_ack",           "recovery_sent",            "packet",
+        "frame",                  "transport_parameters",     "transport_parameters_read",
+        "stream",
     });
 }
 

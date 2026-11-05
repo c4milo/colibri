@@ -65,6 +65,11 @@ pub const Input = files.endpoint.Input;
 pub const Datagram = files.endpoint.Datagram;
 pub const StreamBytes = files.endpoint.StreamBytes;
 pub const LogProvider = files.endpoint.LogProvider;
+/// RFC 9959's Careful Resume (decision 149): where `Config.resumes` keeps the saved sets, a set,
+/// and the bounds of `Config.resume_bounds`, which the client names the same.
+pub const ResumeProvider = quic.ResumeProvider;
+pub const ResumeState = quic.ResumeState;
+pub const ResumeBounds = quic.ResumeBounds;
 /// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = files.quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
@@ -137,20 +142,20 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
     // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
-    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, 25.3 `Handled`, and 25.5 `middleware`.
+    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, 25.3 `Handled`, and 25.5 `middleware`. 35d adds `ResumeProvider`, `ResumeState` and `ResumeBounds`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",    "Config",             "Protocols",        "Limits",      "Timeout",
-        "Timeouts",     "CloseReason",        "Limit",            "Endpoint",    "EndpointOf",
-        "Capacity",     "Input",              "Datagram",         "StreamBytes", "LogProvider",
-        "Sent",         "Address",            "Ecn",              "StartError",  "SendError",
-        "Header",       "RequestId",          "ConnectionHandle", "Version",     "Headers",
-        "Event",        "Request",            "RequestBody",      "Trailers",    "CancelReason",
-        "Finished",     "Result",             "Writable",         "Ended",       "Response",
-        "ResponseBody", "ResponseWriter",     "ReceiveResult",    "Alternative", "Coding",
-        "EncoderPool",  "DefaultEncoderPool", "Encoders",         "DecoderPool", "DefaultDecoderPool",
-        "Decoders",     "Features",           "PathParameters",   "Handled",     "router",
-        "middleware",
+        "constants",        "Config",      "Protocols",          "Limits",       "Timeout",
+        "Timeouts",         "CloseReason", "Limit",              "Endpoint",     "EndpointOf",
+        "Capacity",         "Input",       "Datagram",           "StreamBytes",  "LogProvider",
+        "ResumeProvider",   "ResumeState", "ResumeBounds",       "Sent",         "Address",
+        "Ecn",              "StartError",  "SendError",          "Header",       "RequestId",
+        "ConnectionHandle", "Version",     "Headers",            "Event",        "Request",
+        "RequestBody",      "Trailers",    "CancelReason",       "Finished",     "Result",
+        "Writable",         "Ended",       "Response",           "ResponseBody", "ResponseWriter",
+        "ReceiveResult",    "Alternative", "Coding",             "EncoderPool",  "DefaultEncoderPool",
+        "Encoders",         "DecoderPool", "DefaultDecoderPool", "Decoders",     "Features",
+        "PathParameters",   "Handled",     "router",             "middleware",
     });
 }
 
@@ -216,6 +221,7 @@ test {
     _ = @import("endpoint/endpoint_test.zig");
     _ = @import("endpoint/endpoint_state_test.zig");
     _ = @import("endpoint/endpoint_congestion_test.zig");
+    _ = @import("endpoint/endpoint_resume_test.zig");
     _ = @import("endpoint/endpoint_config.zig");
     _ = @import("endpoint/endpoint_writable_test.zig");
     _ = @import("endpoint/endpoint_tcp_test.zig");

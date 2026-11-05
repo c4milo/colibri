@@ -175,6 +175,8 @@ endpoint_config = .{
     // Decision 143: each QUIC connection runs BBRv3, the default, and `.cubic` chooses CUBIC.
     // BBRv3 draws its probe waits from the source `init` takes.
     .congestion_controller = .bbr,
+    // Decision 149: RFC 9959's saved sets, which the program keeps (`server_resume.zig`).
+    .resumes = resumes.provider(),
 };
 const now_ns = link.now_ns(.server);
 // One endpoint for every socket the program accepts and for its UDP socket, in storage the
@@ -784,6 +786,31 @@ least that percent of the QUIC slots hold a connection ([decision 110](decisions
 Initial then holds no slot while the server is under load, and an honest client spends no extra
 round trip while it is not. `Config.logs` gives each connection a qlog log
 ([decision 102](decisions.md)).
+
+`Config.resumes` lets a later connection from a client start near an earlier one's rate, by RFC
+9959's Careful Resume ([decision 149](decisions.md)). colibri keeps nothing between connections, so
+the program keeps a `server.ResumeState` for each client address and gives the endpoint a
+`server.ResumeProvider` over them. The endpoint calls `take` when a connection starts, and the set it
+returns is that connection's until `put` comes for it, once the connection ends. `put` carries what
+the connection observed, or null to keep the set held. `drop` comes first when the connection had to
+retreat, and the set goes. `Config.resume_bounds` holds RFC 9959's max_jump and Lifetime, 4 MiB and
+1 hour by default. A `ResumeState` carries its version and size, so a program may store its octets.
+The provider of
+[`examples/server_resume.zig`](../examples/server_resume.zig) gives a set out once at a time:
+
+```zig
+fn take(_: *anyopaque, address: server.Address, now_ns: u64) ?server.ResumeState {
+    _ = now_ns;
+    taken += 1;
+    const entry = find(address) orelse return null;
+    // RFC 9959 §3.2: a set another connection holds is not given twice.
+    if (entry.claimed) return null;
+    entry.claimed = entry.saved != null;
+    return entry.saved;
+}
+```
+
+The client takes the same three calls in `client.Config.resumes`, keyed by the server's address.
 
 ## The client
 

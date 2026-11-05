@@ -67,6 +67,10 @@ pub const Config = struct {
     ecn: bool = false,
     /// The congestion controller the connection runs (decisions 136 and 143), BBRv3 by default.
     congestion_controller: quic.CongestionController = .bbr,
+    /// Where the program keeps RFC 9959's saved sets (decision 149), or null for none, and the
+    /// bounds on a connection that resumes from one.
+    resumes: ?quic.ResumeProvider = null,
+    resume_bounds: quic.ResumeBounds = .{},
     /// The idle timeout the client advertises (RFC 9000 §10.1), in milliseconds.
     idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
     /// The content codings the client offers in each request's Accept-Encoding, in its order of
@@ -190,6 +194,11 @@ pub const QuicConnection = struct {
         // RFC 9001 §5.2: the Initial keys derive from the client's first Destination Connection ID.
         suite.vtable.install_initial_keys(suite.context, .client, &connection.start_values.original_destination_id) catch
             return error.TlsRefused;
+        // RFC 9959 §3.2: the set the program saved for this server, claimed for this connection.
+        // It is taken once nothing can fail, so every set taken comes back through `put`.
+        const resumes = config.resumes orelse return;
+        const taken = resumes.take(config.server_address, now_ns);
+        connection.transport.recovery.careful_resume.init(taken, config.resume_bounds, now_ns);
     }
 
     /// RFC 9001 §8.2: the transport parameters travel in the handshake. `transport.init` wrote the
@@ -339,6 +348,7 @@ pub const QuicConnection = struct {
         if (!connection.owed.closed_reported) connection.failed = true;
         connection.closed = true;
         connection.stopped = true;
+        connection.close_resume();
         for (&connection.slots.slots) |*slot| slot.holds_octets = false;
         quic_h3.note_heads(connection);
         connection.slots.end_all(.refused, .closed);
@@ -412,6 +422,18 @@ pub const QuicConnection = struct {
         if (!connection.draining or !connection.started) return false;
         connection.finish_draining();
         return true;
+    }
+
+    /// RFC 9959 §3.1 and §3.5: what the connection observed goes to the program's provider, after
+    /// the deletion a retreat asks for. The flow closing carries no instant, so the set is
+    /// stamped with the latest instant the connection's controller was given.
+    fn close_resume(connection: *QuicConnection) void {
+        const resumes = connection.config.resumes orelse return;
+        const transport = &connection.transport;
+        const peer = connection.config.server_address;
+        const now_ns = transport.recovery.congestion.latest_ns;
+        if (transport.recovery.careful_resume.retreated) resumes.drop(peer);
+        resumes.put(peer, quic.connection_resume.observe(transport, now_ns), now_ns);
     }
 
     /// The last exchange of a draining connection ended, so QUIC closes with H3_NO_ERROR. RFC

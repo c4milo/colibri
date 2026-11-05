@@ -75,6 +75,12 @@ pub const Config = struct {
     /// QUIC connections alone: where each connection's qlog log comes from (decision 102 as
     /// amended), or null for none.
     logs: ?endpoint_connections.LogProvider = null,
+    /// QUIC connections alone: where the program keeps RFC 9959's saved sets, so a connection to a
+    /// client starts near an earlier one's rate (decision 149), or null for none. The endpoint
+    /// takes a set when a connection starts, and puts back what it observed when it ends.
+    resumes: ?quic.ResumeProvider = null,
+    /// QUIC connections alone: RFC 9959 §5's max_jump and Lifetime for a connection that resumes.
+    resume_bounds: quic.ResumeBounds = .{},
 };
 
 /// How many slots of each kind an endpoint holds.

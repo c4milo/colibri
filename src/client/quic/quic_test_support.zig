@@ -132,6 +132,11 @@ pub fn start(client_protocols: []const []const u8, server_protocols: []const []c
 /// As `start`, with the server's octets held in `receive_pool` until h3 reads them.
 pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage, client_protocols: []const []const u8, server_protocols: []const []const u8, tickets: bool) !void {
     try prepare(client_protocols, server_protocols, tickets);
+    try init_connection(receive_pool);
+}
+
+/// Starts the client's connection from `config` as `prepare` left it, or as a test then set it.
+pub fn init_connection(receive_pool: quic_connection.ReceiveStorage) !void {
     try connection.init(&config, receive_pool, client_start, support.stream.random(), support.now_seconds, now_ns, null);
 }
 

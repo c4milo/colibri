@@ -56,6 +56,11 @@ pub const Config = struct {
     /// 143), BBRv3 by default, CUBIC, or RFC 9002's NewReno. Under BBRv3 each connection draws its
     /// probe waits from the program's source.
     congestion_controller: quic_module.CongestionController = .bbr,
+    /// QUIC connections alone: where the program keeps RFC 9959's saved sets, so a connection to a
+    /// server starts near an earlier one's rate (decision 149), or null for none, and the bounds on
+    /// a connection that resumes.
+    resumes: ?quic_module.ResumeProvider = null,
+    resume_bounds: quic_module.ResumeBounds = .{},
     /// QUIC connections alone: the idle timeout the client advertises (RFC 9000 §10.1), in
     /// milliseconds.
     idle_timeout_ms: u64 = constants.policy.quic_idle_timeout_ms_default,
@@ -132,6 +137,8 @@ pub fn build_quic(config: *const Config, quic_tls: *tls.quic.ClientConfig, quic:
         .authority = config.authority,
         .ecn = config.ecn,
         .congestion_controller = config.congestion_controller,
+        .resumes = config.resumes,
+        .resume_bounds = config.resume_bounds,
         .idle_timeout_ms = config.idle_timeout_ms,
         .codings = config.codings,
         .decoders = config.decoders,

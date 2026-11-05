@@ -10,6 +10,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
+const PeerAddress = @import("../peer_address.zig").PeerAddress;
 
 /// The version of `ResumeState`'s layout. A program may write the set to disk, so the set carries
 /// its version and its size (non-negotiable 6), and a set of another version or size is refused.
@@ -48,6 +49,38 @@ comptime {
     // The layout a program stores: two 32-bit fields and three 64-bit ones, with no padding.
     assert(@sizeOf(ResumeState) == 32);
 }
+
+/// Where a program keeps its saved sets between connections (decision 149), which colibri calls
+/// and never holds. A server's endpoint and a client's pool each take one.
+pub const ResumeProvider = struct {
+    context: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        /// The set saved for `peer`, or null for none. RFC 9959 §3.2: "Only one connection can
+        /// use a specific set of saved CC parameters", so a set this returns is the connection's
+        /// until `put` comes for it, and a second `take` for `peer` meanwhile answers null.
+        take: *const fn (context: *anyopaque, peer: PeerAddress, now_ns: u64) ?ResumeState,
+        /// Once when a connection to `peer` ends: the set it observed (§3.1), which replaces the
+        /// one held, or null for none, which keeps it. Either way the claim of `take` ends.
+        put: *const fn (context: *anyopaque, peer: PeerAddress, observed: ?ResumeState, now_ns: u64) void,
+        /// §3.5: a connection to `peer` retreated, so "The set of saved CC parameters for the
+        /// path are deleted". It comes before that connection's `put`.
+        drop: *const fn (context: *anyopaque, peer: PeerAddress) void,
+    };
+
+    pub fn take(provider: ResumeProvider, peer: PeerAddress, now_ns: u64) ?ResumeState {
+        return provider.vtable.take(provider.context, peer, now_ns);
+    }
+
+    pub fn put(provider: ResumeProvider, peer: PeerAddress, observed: ?ResumeState, now_ns: u64) void {
+        provider.vtable.put(provider.context, peer, observed, now_ns);
+    }
+
+    pub fn drop(provider: ResumeProvider, peer: PeerAddress) void {
+        provider.vtable.drop(provider.context, peer);
+    }
+};
 
 /// RFC 9959 §5's two bounds a sender configures: the most a window may jump to (§3.3's max_jump)
 /// and how long a saved set may be used (§4.3.1's Lifetime).

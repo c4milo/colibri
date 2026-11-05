@@ -51,6 +51,11 @@ pub const Address = files.pool.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
+/// RFC 9959's Careful Resume (decision 149): where `Config.resumes` keeps the saved sets, a set,
+/// and the bounds of `Config.resume_bounds`, which the server names the same.
+pub const ResumeProvider = quic.ResumeProvider;
+pub const ResumeState = quic.ResumeState;
+pub const ResumeBounds = quic.ResumeBounds;
 pub const ConnectionPool = files.pool.ConnectionPool;
 /// A pool that holds the connections a `Capacity` names (decision 124). `ConnectionPool` is
 /// `ConnectionPoolOf(.{})`, and a program that never speaks h3 places a `ConnectionPoolOf(.{ .quic = false })`,
@@ -121,17 +126,18 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126). Step 23.3 renames `Versions`
     // to `Protocols`, and 23.4 renames `Pool`, `PoolOf`, `Values`, `Https`, `Wanted` and `Outcome`
     // to `ConnectionPool`, `ConnectionPoolOf`, `Destination`, `HttpsRecord`, `WantedHeader` and
-    // `Result`. 23.5 folds `Options` into `Config`. Step 32 adds `Timeouts` (decision 146).
+    // `Result`. 23.5 folds `Options` into `Config`. Step 32 adds `Timeouts` (decision 146), and 35d
+    // adds `ResumeProvider`, `ResumeState` and `ResumeBounds` (decision 149).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",         "Config",         "Timeouts",           "Protocols",   "StartError",         "RequestError",
-        "Header",            "RequestId",      "Protocol",           "Request",     "Response",           "WantedHeader",
-        "Result",            "Finished",       "Sent",               "Address",     "Ecn",                "ConnectionPool",
-        "ConnectionPoolOf",  "Capacity",       "Destination",        "HttpsRecord", "Alternative",        "Input",
-        "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",       "Open",               "ConnectionHandle",
-        "Connected",         "Transport",      "Phase",              "ReceivePool", "DefaultReceivePool", "ReceiveStorage",
-        "Coding",            "DecoderPool",    "DefaultDecoderPool", "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",
-        "BrotliDecoderPool", "BrotliDecoders", "Features",
+        "constants",   "Config",             "Timeouts",         "Protocols",         "StartError",     "RequestError",
+        "Header",      "RequestId",          "Protocol",         "Request",           "Response",       "WantedHeader",
+        "Result",      "Finished",           "Sent",             "Address",           "Ecn",            "ResumeProvider",
+        "ResumeState", "ResumeBounds",       "ConnectionPool",   "ConnectionPoolOf",  "Capacity",       "Destination",
+        "HttpsRecord", "Alternative",        "Input",            "StreamBytes",       "Datagram",       "ReceiveResult",
+        "Event",       "Open",               "ConnectionHandle", "Connected",         "Transport",      "Phase",
+        "ReceivePool", "DefaultReceivePool", "ReceiveStorage",   "Coding",            "DecoderPool",    "DefaultDecoderPool",
+        "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",     "BrotliDecoderPool", "BrotliDecoders", "Features",
     });
 }
 
@@ -226,6 +232,7 @@ test {
     _ = @import("quic/quic_connection_test.zig");
     _ = @import("quic/quic_connection_flow_test.zig");
     _ = @import("quic/quic_connection_idle_test.zig");
+    _ = @import("quic/quic_resume_test.zig");
     _ = @import("quic/quic_coding_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
