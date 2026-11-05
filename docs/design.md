@@ -12563,6 +12563,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         `test-sim-run-quic` and `lint` pass.
       - The judge's `--h3 --base cbd11528`, at 10 rounds. The step lands when h3-many wins and
         no input loses.
+    - **29d.13, the judge, 2026-11-05.** Run 42087359788, `--h3 --base cbd11528` at 10 rounds:
+      h3-many 0.9702 and 0.9691, and h3-bbr-many 0.9721 and 0.9685, each a win. h3-many fell from
+      35,569 to 34,508 instructions a request in job 1. Every other input is within the noise in
+      both jobs.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
