@@ -12775,8 +12775,23 @@ library.
     - At 1% loss, NewReno gets three quarters of CUBIC's goodput: each loss halves its window
       (RFC 9002 Appendix B.6), and CUBIC grows back faster (RFC 9438 §4.3). BBRv3 stays the
       default (decision 143).
-    - quic-go's NewReno, under chi, gets twice colibri's at 1% loss. The owner asked why on
-      2026-11-05; CLAUDE.md's rule 10 bars reading quic-go's source.
+    - quic-go's Reno, under chi, gets twice colibri's at 1% loss. The owner asked why on
+      2026-11-05, and decision 154 allowed one reading of quic-go v0.55.0 for that question.
+  - **Why quic-go gets more** (decision 154). An audit against RFC 9002 found that colibri's
+    NewReno follows §6.1's thresholds, §7.3.2's cut to one half once each recovery period,
+    §7.3.3's growth of one datagram each window, and §7.7's pacing. quic-go differs in three ways:
+    - Its server builds its sender with Reno, which cuts the window to 0.7 on a loss and still
+      grows one datagram each round trip. RFC 9002 §7.3.2 says the threshold "MUST" be half, and
+      RFC 9438 §4.3 pairs a cut to 0.7 with a growth of 0.53 datagrams, so that it stays fair to
+      Reno. A rate model gives the cut about 1.37 times Reno's goodput at 1% loss.
+    - It runs DPLPMTUD up to 1,452 octets, and colibri sends 1,200 octets always (RFC 9000
+      §14.2). About 1.2 times the goodput at a loss rate counted in packets. RFC 9000 §14.3
+      supports it.
+    - Its initial window is 32 datagrams, against RFC 9002 §7.2's 10, and its window grows within
+      3 datagrams of full (§7.8 allows it). A few percent together.
+    - The model puts colibri at about 2.25 Mbit/s and quic-go at about 3.75 Mbit/s, against
+      downloads of about 8.5 s and 4.4 s on the judge. colibri keeps RFC 9002's cut. DPLPMTUD is
+      the gain the RFCs allow, for every controller.
 - **Step 35 — Careful Resume (RFC 9959), proposed 2026-11-04.** [Decision 149](decisions.md).
   - **The public names,** each listed in a test beside its root before the code (decision 115):
     - `quic.ResumeState`: `version`, `size`, `window_len` (§3.1's saved_cwnd), `rtt_ns`
