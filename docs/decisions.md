@@ -5841,6 +5841,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `http.Server` lost: colibri's `http` module is sans-I/O, and the protocol modules import
           it.
 
+     10. Amended by the owner on 2026-11-05: Rotor builds no `std.Io` adapter, because it is too
+        large. `colibri.Server` stays on Rotor's own API for good:
+        - `Server.init` takes no `io`. Rulings 1 and 5 no longer pass a program's `std.Io`, and no
+          example runs `colibri` over an in-memory `std.Io`. The examples stay in memory over
+          `examples/link.zig`, which drives the sans-I/O modules.
+        - `colibri` reads `.files` at `init` through Rotor's own file calls, and the clock is the
+          loop's. Ruling 9's default source stays.
+
      Alternatives that lost:
      - A separate package on colibri and Rotor. The owner wants the shape in colibri itself.
      - Wait for Rotor's adapter before any `colibri` (ruling 6). The dependent needs `colibri` now,
@@ -5930,6 +5938,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         up a piece.
      5. The client lives in `colibri`, beside the server, so that one module of the library does
         I/O.
+
+     6. Amended by the owner on 2026-11-05, with decision 150 ruling 10: there is no `std.Io`
+        client. Rulings 1, 2 and 5 are withdrawn, and `colibri.Client` is not built.
+        - Step 39 builds ruling 3's streamed bodies in the pool, with ruling 4's model, at once.
+          It depends on no other step, and a program drives the pool on its own loop.
+        - Design §8 step 41 then adds a `std.Io.Writer` for a request body and a `std.Io.Reader`
+          for a response body over the pool, in the way of stdx's codec adapters (stdx decision
+          56). The writer's `drain` takes what the pool takes and fails with `WriteFailed` when the
+          stream has no room, and the reader fails with `ReadFailed` until the next `body` event.
+          Each keeps its state, so the next call goes on from it. stdx's encoders and decoders
+          compose over them unchanged. Code that treats either failure as the end, such as
+          `writeAll` with no retry, does not work over them, and the docs say so.
 
      Alternatives that lost:
      - A `std.Io.Writer` and a `std.Io.Reader` on the pool itself. `writeAll` and

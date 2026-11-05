@@ -12934,9 +12934,9 @@ library.
     and the decoder's limits in `server.constants.limits`.
   - **The checks.** Each value type the encoder takes round-trips through stdx's decoder. A body
     that is not JSON, is not `T`, or passes a limit answers 400. An example route shows both.
-- **Step 37 — the `colibri` module, proposed 2026-11-04.** [Decision 150](decisions.md). It runs on Rotor's
-  own API first (ruling 6). The `std.Io` a program passes waits for Rotor's adapter, Rotor's
-  decision 22. One loop runs on the thread that calls `run` (ruling 7).
+- **Step 37 — the `colibri` module, proposed 2026-11-04.** [Decision 150](decisions.md). It runs on
+  Rotor's own API for good (rulings 6 and 10). One loop runs on the thread that calls `run`
+  (ruling 7).
   - **The public names.** The root exports `Server`, `ServerOf`, `ServerConfig`, `Identity`,
     `InitError` and `RunError`.
     - `ServerOf(capacity)` takes a `server.Capacity`, and `Server` is `ServerOf(.{})`. A program
@@ -12944,8 +12944,8 @@ library.
     - `ServerConfig` holds `host`, an IPv4 or IPv6 literal, `port`, `identity`, `cpu`, `random` and
       `endpoint`, the `server.Config` the endpoint starts from. `colibri` fills its `tls`.
     - `Identity` is `.pem`, the chain and the key as PEM bytes, or `.files`, their names.
-    - `Server.init(io, config)`, where `io` must be null until the adapter exists.
-      `Server.run(router, context)` runs until `shutdown()`. `Server.port()` returns the port
+    - `Server.init(config)` reads the identity and binds. `Server.run(router, context)` runs
+      until `shutdown()`. `Server.port()` returns the port
       bound, for port 0.
   - **37a: the module.** `src/colibri/` in the graph, importing `server`, `tls` and Rotor, which
     stops being lazy. The io and determinism lint rules exempt it as they exempt `src/testing/`.
@@ -12978,18 +12978,17 @@ library.
     h11 and with a `Trailer` header. A response with a trailer buffer sends `te: trailers`. A
     trailer named Content-Length is refused. The examples, docs/usage.md and the client trace
     run move to the new fields.
-- **Step 39 — a client on a `std.Io` and streamed bodies, proposed 2026-11-05.**
-  [Decision 153](decisions.md). It depends on step 37.
+- **Step 39 — streamed bodies in the pool, proposed 2026-11-05.** [Decision 153](decisions.md)
+  as amended. It depends on no other step.
   - **The public names:** `client.Streamed`, `Request.streamed`, `ConnectionPool.write_body`,
-    `ConnectionPool.release_body`, the events `headers`, `body` and `body_taken`, and
-    `colibri.Client` with `init(io, config)`, `request`, `run` and `shutdown`. Each exchange of
-    `colibri.Client` gives `writer()` and `reader()`.
+    `ConnectionPool.release_body`, and the events `headers`, `body` and `body_taken`.
   - **The rules.** The pool copies no piece and holds one piece of each body at a time. It gives
-    back flow credit only after `release_body`. `colibri.Client` waits only through its `std.Io`.
+    back flow credit only after `release_body`. A streamed request is sent again only before
+    its first `body_taken`.
   - **The checks.** A request body in pieces and a response body in pieces each arrive whole over
-    h11, h2 and h3. A server that sends faster than the program releases is held by flow
-    control. The TLA+ model finds each of decision 153's rules violated when the rule is off. An
-    example runs a gRPC-shaped stream in memory through `colibri.Client` and `colibri.Server`.
+    h11, h2 and h3, and over h2 and h3 both at once. A server that sends faster than the program
+    releases is held by flow control. The TLA+ model finds each of decision 153's rules
+    violated when the rule is off. An example streams a gRPC-shaped exchange both ways in memory.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It comes after step 37 and before v0.14.0.
   - **The public names.** A connection option `datagram_len_max`, 1,452 octets by default and up
@@ -13005,6 +13004,14 @@ library.
     drops in the middle of a connection, each with every seed finishing. A TLA+ model of the
     search's states, with mutants. Mutations of each rule. A judge bulk run, beside step 34's
     numbers.
+- **Step 41 — body readers and writers, proposed 2026-11-05.** [Decision 153](decisions.md)
+  ruling 6. It depends on step 39.
+  - **The rules.** A request body's `std.Io.Writer` and a response body's `std.Io.Reader` over
+    the pool. Each fails with `WriteFailed` or `ReadFailed` to mean "not yet" and keeps its state,
+    as stdx's codec adapters do (stdx decision 56).
+  - **The checks.** stdx's gzip writer and JSON value encoder stream a request body through the
+    writer, and stdx's decoders read a response body through the reader, over h11, h2 and h3.
+    Each retry goes on from the octet it stopped at.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
