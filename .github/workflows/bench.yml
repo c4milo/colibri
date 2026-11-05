@@ -82,8 +82,9 @@ jobs:
       matrix:
         job: [1, 2]
     runs-on: ubuntu-24.04-arm
-    # The latency inputs ran 60 minutes with h11, h2 and h3, and h2-tls adds about 20.
-    timeout-minutes: 120
+    # The latency inputs ran 60 minutes with h11, h2 and h3, and h2-tls adds about 20. The bulk
+    # inputs with colibri-newreno did not end within 120 minutes at 3 rounds (run 42043605974).
+    timeout-minutes: 180
     env:
       RUNNER_LABEL: ubuntu-24.04-arm
       BASE: ${{ inputs.base }}
