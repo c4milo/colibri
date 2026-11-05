@@ -12913,15 +12913,20 @@ library.
     Rotor's adapter.
   - **The checks.** An example serves h11, h2 and h3 from one port to colibri's client, on
     Rotor's adapter and on `std.Io.Threaded`. The simulator's checks of `server` stay as they are.
-- **Step 38 — response trailers in the client, proposed 2026-11-05.** [Decision 152](decisions.md).
-  A dependent that implements Connect and gRPC needs `grpc-status` and `grpc-message`.
-  - **The public names:** the field `client.Response.trailers`. It adds no type.
-  - **The rules.** Each named trailer field's value goes into `Response.values` before
-    `finished`, over h11's chunked trailer section (RFC 9112 §7.1.2), h2's trailing HEADERS frame
-    (RFC 9113 §8.1) and h3's trailing HEADERS frame (RFC 9114 §4.1).
+- **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**
+  [Decision 152](decisions.md). A dependent that implements Connect and gRPC needs
+  `grpc-status` and `grpc-message`.
+  - **The public names:** `client.Headers` and `client.Trailers`, each with `get` and
+    `iterator`, and the fields `Response.headers` and `Response.trailers`. `Response.wanted`,
+    `Response.values`, `Response.values_len` and `client.WantedHeader` leave the root's list.
+  - **The rules.** The client copies each field line into its section's buffer before
+    `finished`: the header section over each protocol, and the trailer section from h11's
+    chunked trailer section (RFC 9112 §7.1.2) and from the trailing HEADERS frame of h2 (RFC 9113
+    §8.1) and of h3 (RFC 9114 §4.1).
   - **The checks.** Over each protocol, a server sends `grpc-status` in its trailers and the
-    program reads it. A header field of the same name stays apart. A value too long for
-    `values` ends `too_large`. An example and docs/usage.md show the field.
+    program reads it with `get`. A header field of the same name stays apart. Two Set-Cookie
+    lines come back from `iterator` in order. A section too long for its buffer ends
+    `too_large`. The examples, docs/usage.md and the client trace run move to the new fields.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

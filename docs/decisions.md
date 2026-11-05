@@ -4816,6 +4816,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `Response` holds where the answer goes: `wanted`, `values` and `body`. It also holds
           what arrived: `status`, `interims`, `body_len`, `values_len`, `outcome`, `coding`,
           `error_code` and `content_sent`.
+          Decision 152 amended this on 2026-11-05: `headers` and `trailers` replace `wanted`
+          and `values`.
         - The call is `Channel.request(request: *const Request, response: *Response) !Id`.
         - The program keeps both in place, with each slice they name, until the exchange's
           `finished` event or until `cancel` returns. Decision 100 ruled the same for the
@@ -5818,23 +5820,33 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Alternatives that lost:
      - Responses alone.
      - No edge: programs use `std.json` or stdx themselves, as they do now.
-152. **`client.Response.trailers` gives a program the trailer fields it names.** Ruled by the owner
-     on 2026-11-05 (design §8 step 38), for a dependent that implements Connect and gRPC, whose
-     status arrives in trailer fields such as `grpc-status`. Until now the client read each
-     trailer section over h11, h2 and h3 and dropped it.
-     1. `Response.trailers: []WantedHeader`, empty by default, has the shape of `Response.wanted`.
-        A program names the fields it reads, and the client sets each `value` before `finished`.
-     2. Each value goes into `Response.values`, after the wanted header values. It is null when
-        the trailer section does not carry the field, or when no trailer section arrived.
-     3. A value that does not fit `values` ends the exchange `too_large`, as a header value does.
-     4. The client keeps trailer fields apart from header fields (RFC 9110 §6.5.1). A field named
-        in `trailers` never takes a value from the header section, and the reverse.
-     5. The name is `trailers`, the word programmers know (decision 126), and the word the server's
+152. **`client.Response` holds its headers and trailers in a `Headers` and a `Trailers`.**
+     Ruled by the owner on 2026-11-05 (design §8 step 38), for a dependent that implements Connect
+     and gRPC, whose status arrives in trailer fields such as `grpc-status`. Until now the client
+     dropped each trailer section, and kept only the header fields a program listed in `wanted`.
+     The owner found `WantedHeader` "weird and uncommon" as a type name. This amends ruling 1 of
+     decision 124.
+     1. `Response.headers` is a `client.Headers`, and `Response.trailers` is a `client.Trailers`.
+        Each one holds a buffer the program gives, and the client copies each field line of its
+        section into it.
+     2. `get(name)` returns the value of the first field line with that name, compared
+        case-insensitively (RFC 9110 §5.1), or null. `iterator()` returns each field line in
+        the order it arrived, for a field such as Set-Cookie that cannot be joined (RFC 9110
+        §5.3).
+     3. A section that does not fit its buffer ends the exchange `too_large`. A program that gives
+        no buffer for trailers drops them, as before.
+     4. The client keeps trailer fields apart from header fields (RFC 9110 §6.5.1).
+     5. `Response.wanted`, `Response.values`, `Response.values_len` and `WantedHeader` leave the
+        API. A dependent's code breaks at the next release.
+     6. Two types, not one, so that a program cannot pass trailers where headers go. The names
+        are the words programmers know (decision 126), and `trailers` is the word the server's
         `ResponseWriter.trailers` already uses.
 
      Alternatives that lost:
+     - Keep `wanted` and type trailers as `[]WantedHeader`. It names a trailer a header, and
+       programmers do not know the pattern.
+     - Keep the list of names and only rename the type. A lookup over the whole section is the
+       shape Go's `Header.Get` and fetch's `headers.get` give.
      - `trailing_headers`. RFC 9110 §6.5 calls them trailer fields, and Go, Node and curl call
        them trailers.
-     - `wanted_trailers`. `trailers` beside `wanted` says the same with one word less.
-     - Wait for streamed bodies. Trailers do not depend on them, and the dependent needs the
-       status of a whole response now.
+     - Wait for streamed bodies. Trailers do not depend on them.
