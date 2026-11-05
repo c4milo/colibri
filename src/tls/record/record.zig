@@ -25,7 +25,7 @@ pub const State = record_provider.State;
 /// Octets of a sealed alert record, chapulin's `alert_record_len` (RFC 9846 §5.2, §6). A client's
 /// `handshake` reads the server's flight only into an output with this much room left, so the
 /// alert a refused flight owes fits the call that fails.
-pub const alert_record_len: usize = chapulin.record.alert_record_len;
+pub const alert_record_len: usize = chapulin.tcp.alert_record_len;
 
 /// Why `Client.fail` or `Server.fail` sent no alert.
 pub const FailError = record_provider.FailError;
@@ -54,7 +54,7 @@ pub const Progress = struct {
 };
 
 pub const Client = struct {
-    session: chapulin.record.Client(constants.limits.receive_len, config_module.limits_of(chapulin)),
+    session: chapulin.tcp.Client(constants.limits.receive_len, config_module.limits_of(chapulin)),
     /// The ticket this connection offers, in chapulin's form; the session points at its PSK.
     offered: chapulin.Ticket,
     /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
@@ -120,7 +120,7 @@ pub const Client = struct {
             client.owed = true;
             written += try client.collect(output[written..]);
         }
-        client.state.completed = client.session.recordState() == .connected;
+        client.state.completed = client.session.tcpState() == .connected;
         return .{ .consumed = consumed, .written = written, .complete = client.state.completed };
     }
 
@@ -185,13 +185,13 @@ pub const Client = struct {
     /// Wipes every secret the session holds, the offered ticket's copy included, and ends it.
     /// A connected caller sends its close_notify through the provider first.
     pub fn close(client: *Client) void {
-        client.session.recordClose();
+        client.session.tcpClose();
         std.crypto.secureZero(u8, std.mem.asBytes(&client.offered));
     }
 };
 
 pub const Server = struct {
-    session: chapulin.record.Server(constants.limits.receive_len, config_module.limits_of(chapulin)),
+    session: chapulin.tcp.Server(constants.limits.receive_len, config_module.limits_of(chapulin)),
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
     server_name: [constants.limits.server_name_len_max]u8,
     /// The instant `start` was given, which the session's clock answers (`config.clock_at`).
@@ -229,7 +229,7 @@ pub const Server = struct {
                 else => error.HandshakeFailed,
             };
         };
-        server.state.completed = server.session.recordState() == .connected;
+        server.state.completed = server.session.tcpState() == .connected;
         return .{ .consumed = progress.consumed, .written = progress.written, .complete = server.state.completed };
     }
 
@@ -267,7 +267,7 @@ pub const Server = struct {
 
     /// Wipes every secret the session holds and ends it.
     pub fn close(server: *Server) void {
-        server.session.recordClose();
+        server.session.tcpClose();
     }
 };
 

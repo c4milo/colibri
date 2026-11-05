@@ -6663,6 +6663,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     test of a chain of 18 certificates was added. Wiping a copy of the key could not be tested,
     so chapulin now decodes into the caller's key and no copy is made.
 
+  **chapulin 0.3.0, 2026-11-05.** The pin moves from chapulin `965668d2` to `v0.3.0`
+  (`4da5b220`). Its decision 185 renames the TCP driver and makes each session opaque.
+  - `chapulin.record` is now `chapulin.tcp`, and `recordState` and `recordClose` are now
+    `tcpState` and `tcpClose`. `record_provider.zig` calls `ch_tcp_whole_len`.
+  - colibri read no field of a chapulin session, so the opaque sessions change no code.
+  - colibri's own names do not change: `tls.record` stays on the root's list (decision 115).
+  - Each server session grows by 16 octets: `tls.record.Server` to 49,480 and `tls.quic.Server`
+    to 101,096. The default `server.Endpoint` grows by 512 octets. docs/performance.md's table is
+    printed again.
+  - **Check met, 2026-11-05,** on macOS 26 on arm64: `tools/ci.sh` passed on the tree of this
+    commit. The rename adds no check, so it needs no mutation.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27

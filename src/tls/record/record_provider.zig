@@ -20,7 +20,7 @@ const provider_module = tls_provider.provider;
 
 /// Room for what a `read` sends: the alert a failed read raises (RFC 9846 §6). chapulin's `write`
 /// sends the answer to a KeyUpdate, so a `read` sends nothing else.
-pub const owed_len_max = chapulin.record.alert_record_len;
+pub const owed_len_max = chapulin.tcp.alert_record_len;
 
 /// RFC 9846 §4.3.1: chapulin speaks TLS 1.3 and nothing else.
 const tls_1_3 = tls_provider.constants.protocol.version_tls_1_3;
@@ -169,7 +169,7 @@ fn seal_parts(role: anytype, head: []const u8, data: []const u8, output: []u8) p
 
 /// Opens the record at the front of `input` and says what it held.
 fn open(role: anytype, input: []const u8, plaintext: []u8) provider_module.OpenError!provider_module.Opened {
-    const whole = c.ch_record_whole_len(input.ptr, input.len);
+    const whole = c.ch_tcp_whole_len(input.ptr, input.len);
     // RFC 9846 §5.1: a record not yet whole is incomplete, and chapulin never reads it.
     if (whole == 0) return .{ .consumed = 0, .plaintext_len = 0, .content = .incomplete };
     // RFC 9846 §5.2: a record's plaintext is shorter than what follows its header, so a buffer
@@ -232,7 +232,7 @@ fn next_alert(role: anytype) ?tls_provider.AlertReport {
         state.pending_alert = null;
         return report;
     }
-    if (role.session.recordState() != .failed) return null;
+    if (role.session.tcpState() != .failed) return null;
     if (!state.received_taken) {
         state.received_taken = true;
         if (role.session.alertReceived()) |description| return .{ .description = @enumFromInt(description), .origin = .peer };
@@ -248,7 +248,7 @@ fn next_alert(role: anytype) ?tls_provider.AlertReport {
 /// fits, so an output too short for it is refused before chapulin is called.
 fn close_notify(role: anytype, output: []u8) provider_module.CloseError!usize {
     if (role.state.closed) return 0;
-    if (output.len < chapulin.record.alert_record_len) return error.NoSpaceLeft;
+    if (output.len < chapulin.tcp.alert_record_len) return error.NoSpaceLeft;
     const written = role.session.close(output) catch unreachable;
     role.state.closed = true;
     return written;
@@ -273,7 +273,7 @@ pub const FailError = error{
 /// session fails. chapulin wipes the keys once it is called, so an output too short for the alert
 /// is refused before chapulin is called, as `close_notify` refuses one.
 pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailError!usize {
-    if (output.len < chapulin.record.alert_record_len) return error.NoSpaceLeft;
+    if (output.len < chapulin.tcp.alert_record_len) return error.NoSpaceLeft;
     const written = role.session.fail(@intFromEnum(description), output) catch |failure| return switch (failure) {
         // RFC 9846 §6.2: chapulin takes the error alerts alone, and the session stays as it was.
         error.Invalid => error.NotErrorAlert,
@@ -284,14 +284,14 @@ pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailEr
         // The output holds a whole alert record, which the check above made sure of.
         error.Io => unreachable,
     };
-    assert(written > 0 and written <= chapulin.record.alert_record_len);
+    assert(written > 0 and written <= chapulin.tcp.alert_record_len);
     return written;
 }
 
 /// RFC 9846 §7.5's exporter, which the TCP object offers (`EXPORTER=on`).
 fn export_material(role: anytype, label: []const u8, context_value: ?[]const u8, output: []u8) provider_module.ExportError!void {
     // RFC 9846 §7.5: the exporter secret exists once the handshake completes.
-    if (role.session.recordState() != .connected) return error.HandshakeIncomplete;
+    if (role.session.tcpState() != .connected) return error.HandshakeIncomplete;
     // RFC 9846 §7.5: the exporter's output, which chapulin bounds at `CH_EXPORT_MAX` octets.
     if (output.len > c.CH_EXPORT_MAX) return error.OutputTooLong;
     if (output.len == 0) return;

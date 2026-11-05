@@ -142,7 +142,7 @@ test "RFC 9846 §6: a record that does not authenticate fails, and its alert is 
     var short: [1]u8 = undefined;
     try testing.expectError(error.NoSpaceLeft, receiver.vtable.handshake_write(receiver.context, &short, 0));
     const written = try receiver.vtable.handshake_write(receiver.context, to_client.free(), 0);
-    try testing.expectEqual(chapulin.record.alert_record_len, written);
+    try testing.expectEqual(chapulin.tcp.alert_record_len, written);
     to_client.len += written;
     try testing.expectEqual(0, try receiver.vtable.handshake_write(receiver.context, to_client.free(), 0));
     try testing.expectError(error.TlsFailed, sender.vtable.decrypt_record(sender.context, to_client.held(), scratch));

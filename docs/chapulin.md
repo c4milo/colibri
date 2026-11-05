@@ -10,7 +10,8 @@ nothing here binds chapulin until chapulin's own decisions record it.
 
 The transport names below are the ones chapulin used before `ca80351`, which renamed them:
 `TRANSPORT=tls` is now `tcp-blocking`, `record` is `tcp-nonblocking`, and `quic` is
-`quic-nonblocking`.
+`quic-nonblocking`. chapulin 0.3.0 renamed the `ch_record_*` calls below to `ch_tcp_*`, and the
+`ch_srv_record_*` calls to `ch_srv_tcp_*` (chapulin's decision 185).
 
 [Decision 10](decisions.md#what-the-caller-supplies) rules that chapulin provides all of colibri's
 crypto. This document is the request that ruling needs: what colibri asks chapulin to add, why each

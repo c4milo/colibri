@@ -24,7 +24,7 @@ const std = @import("std");
 const modules_colibri = @import("modules_colibri.zig");
 const modules_chapulin = @import("modules_chapulin.zig");
 
-const chapulin_record_object = modules_chapulin.record_object;
+const chapulin_tcp_object = modules_chapulin.tcp_object;
 const chapulin_quic_object = modules_chapulin.quic_object;
 pub const host_object = modules_chapulin.host_object;
 
@@ -181,7 +181,7 @@ pub fn add(
 
     // Decision 97: `tls` fills `tls_provider.Provider` from chapulin's sessions. No HTTP module
     // imports it, so a cleartext program never links chapulin.
-    const chapulin_tcp = chapulin_record_object(b, target, .off);
+    const chapulin_tcp = chapulin_tcp_object(b, target, .off);
     const tls = library(b, "tls", target, optimize);
     tls.addImport("tls_provider", tls_provider);
     tls.addImport("crypto", crypto);
@@ -193,7 +193,7 @@ pub fn add(
     const tls_keylog = create(b, "src/tls/tls.zig", target, optimize);
     tls_keylog.addImport("tls_provider", tls_provider);
     tls_keylog.addImport("crypto", crypto);
-    tls_keylog.addImport("chapulin_tcp", chapulin_record_object(b, target, .on).module("chapulin"));
+    tls_keylog.addImport("chapulin_tcp", chapulin_tcp_object(b, target, .on).module("chapulin"));
     tls_keylog.addImport("chapulin_quic", chapulin_quic_keylog.module("chapulin"));
 
     // Decision 142: chapulin's DNSSEC checks, over the TCP object `tls` links, so a program that

@@ -31,8 +31,8 @@
         // `tls` module imports it, so it is not lazy: a project that depends on colibri fetches it
         // too.
         .chapulin = .{
-            .url = "git+https://github.com/c4milo/chapulin#965668d27a90f454107266b8ed21661b85e761b6",
-            .hash = "chapulin-0.2.0-btv9NikROADKJDe1-DsPSfYuURJcXoEcMNz0vj54s3BH",
+            .url = "git+https://github.com/c4milo/chapulin#4da5b22001fd2e793a74a4eee8f617ea9321dec6",
+            .hash = "chapulin-0.2.0-btv9Nku2OAAr5LDHAFhUhr6-oD-0BhtAsJ8nFtgZJJwZ",
         },
         // The decoders of the gzip and deflate transfer codings h11 reads (decisions 90 and 91,
         // design §8 step 14). The library imports it, so it is not lazy: a project that depends on

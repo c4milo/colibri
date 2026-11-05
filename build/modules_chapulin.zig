@@ -17,7 +17,7 @@ const Dnssec = enum { on, off };
 /// headers under the defines its object compiled with, so the declarations colibri reads always
 /// match the object it links. The library's object is `KEYLOG=off` (decision 94); only the tests
 /// of `tls_keylog` build one `on`.
-pub fn record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
+pub fn tcp_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
     return b.dependency("chapulin", .{
         .target = target,
         .RAND = .session,
