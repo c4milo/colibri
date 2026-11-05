@@ -12917,7 +12917,8 @@ library.
   [Decision 152](decisions.md). A dependent that implements Connect and gRPC needs
   `grpc-status` and `grpc-message`.
   - **The public names:** `client.Headers` and `client.Trailers`, each with `get` and
-    `iterator`, and the fields `Response.headers` and `Response.trailers`. `Response.wanted`,
+    `iterator`, the fields `Response.headers`, `Response.trailers` and `Request.trailers`, and
+    `RequestError.InvalidTrailer`. `Response.wanted`,
     `Response.values`, `Response.values_len` and `client.WantedHeader` leave the root's list.
   - **The rules.** The client copies each field line into its section's buffer before
     `finished`: the header section over each protocol, and the trailer section from h11's
@@ -12926,7 +12927,10 @@ library.
   - **The checks.** Over each protocol, a server sends `grpc-status` in its trailers and the
     program reads it with `get`. A header field of the same name stays apart. Two Set-Cookie
     lines come back from `iterator` in order. A section too long for its buffer ends
-    `too_large`. The examples, docs/usage.md and the client trace run move to the new fields.
+    `too_large`. A request with trailers reaches each protocol's server with them, chunked over
+    h11 and with a `Trailer` header. A response with a trailer buffer sends `te: trailers`. A
+    trailer named Content-Length is refused. The examples, docs/usage.md and the client trace
+    run move to the new fields.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

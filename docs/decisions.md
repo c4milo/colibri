@@ -5821,7 +5821,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Responses alone.
      - No edge: programs use `std.json` or stdx themselves, as they do now.
 152. **`client.Response` holds its headers and trailers in a `Headers` and a `Trailers`.**
-     Ruled by the owner on 2026-11-05 (design §8 step 38), for a dependent that implements Connect
+     Ruled by the owner on 2026-11-05 (design §8 step 38), with points 7 to 9 added the same day,
+     for a dependent that implements Connect
      and gRPC, whose status arrives in trailer fields such as `grpc-status`. Until now the client
      dropped each trailer section, and kept only the header fields a program listed in `wanted`.
      The owner found `WantedHeader` "weird and uncommon" as a type name. This amends ruling 1 of
@@ -5841,6 +5842,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      6. Two types, not one, so that a program cannot pass trailers where headers go. The names
         are the words programmers know (decision 126), and `trailers` is the word the server's
         `ResponseWriter.trailers` already uses.
+     7. When `Response.trailers` has a buffer, the client sends `te: trailers` (RFC 9110 §10.1.4),
+        unless the program's headers name TE. A gRPC server over h2 refuses a request without it.
+     8. A program sends trailers with `Request.trailers: []const Header`, empty by default, the
+        type `Request.headers` has. Over h11 such a request is sent chunked, never with a
+        Content-Length (RFC 9112 §7.1.2). Over h2 and h3 the trailers end the stream in a
+        HEADERS frame (RFC 9113 §8.1, RFC 9114 §4.1). The client names each trailer field in a
+        `Trailer` header field (RFC 9110 §6.6.2).
+     9. `request` refuses a trailer field that frames or routes the message (RFC 9110 §6.5.1):
+        Content-Length, Transfer-Encoding, Host, TE and Trailer. It returns a new member of
+        `RequestError`, `InvalidTrailer`.
 
      Alternatives that lost:
      - Keep `wanted` and type trailers as `[]WantedHeader`. It names a trailer a header, and
