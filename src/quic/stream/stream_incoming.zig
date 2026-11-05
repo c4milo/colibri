@@ -244,10 +244,13 @@ pub const Incoming = struct {
     }
 
     /// Drops `len` octets from `read_offset`, as reading them would, without copying them. Every
-    /// one of them has arrived: the caller drops only octets it has seen.
+    /// one of them has arrived: the caller drops only octets it has seen. No walk of the blocks
+    /// proves it here (design §8 step 29d.12, the owner's ruling of 2026-11-05): the caller's
+    /// `flow.Receiver.consume` asserts that the octets lie below the highest one that arrived, and
+    /// each whole block dropped below must be found.
     pub fn discard(incoming: *Incoming, storage: Storage, stream_id: u64, read_offset: u64, len: u64) void {
-        assert(incoming.contiguous_end(storage, stream_id, read_offset) >= read_offset + len);
         const end = read_offset + len;
+        assert(end >= read_offset);
         var number = read_offset / block_len;
         // Bounded by the blocks the octets span. A block goes back once every octet in it lies
         // below `end`.

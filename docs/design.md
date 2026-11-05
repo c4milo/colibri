@@ -12527,6 +12527,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       h3-many 0.9452 and 0.9476, and h3-bbr-many 0.9447 and 0.9381, each a win. h3-many fell
       from 38,313 to 36,215 instructions a request in job 1. Every other input is within the
       noise in both jobs, and h2-many runs the base's instructions.
+    - **29d.12, no walk of the receive pool to assert a discard, 2026-11-05.** The judge's
+      `profile` on f5649a00 (run 41958253605) gave `stream_incoming.Storage.find` 3.1% and 4.1%
+      of h3-many's samples. About half came from one assertion in `Incoming.discard`, which
+      called `contiguous_end` to walk the blocks and prove that each octet it drops arrived.
+      - The change, the owner's ruling of 2026-11-05, which allowed the assertion to change:
+        `discard` no longer walks the blocks. Its one caller, `connection_stream_read.consume`,
+        then calls `flow.Receiver.consume`, which asserts that the octets lie below the highest
+        one that arrived, and `discard` still requires each whole block it drops to be found.
+        What the assertion no longer proves is that no gap lies below that octet. The caller
+        drops only octets that `peek` copied, and `peek` stops at the first gap.
+      - The checks: the step adds no check, so it has no mutation. `zig build test-quic`,
+        `test-h3`, `test-server` and `test-sim-run-quic` pass (1,611 tests).
+      - The judge's `--h3 --base f5649a00`, at 10 rounds. The step lands when h3-many wins and
+        no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
