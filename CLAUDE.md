@@ -82,7 +82,8 @@ The architecture depends on every rule in this section.
     qlog, written from the three Internet-Drafts pinned in `docs/rfcs/qlog/` until they publish
     (decision 102), a query's `name=value` pairs, written from the WHATWG URL Standard pinned
     in `docs/rfcs/whatwg/` (decision 127), and BBRv3, written from the Internet-Draft pinned in
-    `docs/rfcs/bbr/` (decision 134).
+    `docs/rfcs/bbr/` (decision 134). Decision 154 allows one reading of quic-go's congestion
+    controller, to explain one gap the judge measured, and no change cites it.
 
 ## Tests are proved by mutation
 
