@@ -274,12 +274,12 @@ test "§5.2: after colibri's GOAWAY a server rejects later requests, and the cli
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const first = try harness.request(&harness.get_lines, "");
     try exchange();
-    _ = (try next(server)).?.request;
+    const got = (try next(server)).?.request;
+    try testing.expect(got.stream_id == first and got.end);
     try server.h3.shutdown(&server.transport, harness.test_now_ns);
     // A request already on its way names a stream the GOAWAY did not take.
     const late = try harness.request(&harness.get_lines, "");
     try exchange();
-    try testing.expectEqual(Event{ .end = first }, (try next(server)).?);
     try testing.expectEqual(null, try next(server));
     try exchange();
     try testing.expectEqual(constants.protocol.error_request_rejected, quic.connection_stream_read.reset_code(&client.transport, .{ .value = late }).?);
@@ -306,4 +306,29 @@ test "§4.2.2: a section past the peer's SETTINGS_MAX_FIELD_SECTION_SIZE is not 
     const long = [_]Line{ .{ ":status", "200" }, .{ "x-long", "a" ** 64 } };
     try testing.expectError(error.FieldSectionTooLarge, server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &long), &.{}, &writer, harness.test_now_ns));
     try testing.expectEqual(0, writer.written().len);
+}
+
+test "decision 116 as amended: a FIN that arrives after the head comes as its own end event" {
+    try harness.pair(.{ .role = .client }, .{ .role = .server });
+    const id = try get_then(&.{}, false);
+    try exchange();
+    // The head arrived without the stream's end, so the request event does not end the request.
+    try testing.expect(!(try next(server)).?.request.end);
+    try testing.expectEqual(null, try next(server));
+    try client.send_raw(id, &.{}, true);
+    try exchange();
+    try testing.expectEqual(Event{ .end = id }, (try next(server)).?);
+}
+
+test "RFC 9114 §4.1.2: a stream that ends with a head whose content-length is not zero is refused" {
+    try harness.pair(.{ .role = .client }, .{ .role = .server });
+    const declared = harness.get_lines ++ [_]Line{.{ "content-length", "5" }};
+    var octets: [frames_len_max]u8 = undefined;
+    var writer = Writer.init(&octets);
+    try headers_frame(&writer, &declared);
+    const id = try raw_request(writer.written(), true);
+    try exchange();
+    // Decision 116 as amended: the refusal comes in place of the request, not after it.
+    try testing.expectEqual(Event{ .refused = .{ .stream_id = id, .error_code = constants.protocol.error_message_error } }, (try next(server)).?);
+    try testing.expectEqual(null, try next(server));
 }

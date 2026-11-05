@@ -26,7 +26,7 @@ fn get(path: []const u8) !*support.Fetch {
     return fetch;
 }
 
-test "RFC 9114 §4.1: a GET's head arrives as a request event, and its end as a body event" {
+test "decision 116 as amended: a GET whose FIN came with its head arrives as one request event" {
     const fetch = try get("/index.html?page=2");
     try testing.expectEqual(event.Protocol.h3, connection.protocol().?);
     const head = support.nth(.request, 0).?;
@@ -34,9 +34,11 @@ test "RFC 9114 §4.1: a GET's head arrives as a request event, and its end as a 
     // Decision 127: `:path` comes apart at its first "?" (RFC 3986 §3.4).
     try testing.expectEqualStrings("/index.html", head.path_of());
     try testing.expectEqualStrings("page=2", head.query_of());
-    // RFC 9114 §4.1: the request's end comes apart from its head.
-    const end = support.nth(.body, 0).?;
-    try testing.expect(end.end and end.len == 0);
+    // RFC 9114 §4.1: the stream's end with the head ends the request, and no body event follows.
+    try testing.expect(head.end);
+    try testing.expectEqual(null, support.nth(.body, 0));
+    // The record says that the request's end went to the caller, so no later event reads it.
+    try testing.expect(connection.requests.of(fetch.id).?.ended);
     try testing.expectEqualStrings("localhost", connection.server_name().?);
 }
 

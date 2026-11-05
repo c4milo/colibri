@@ -90,7 +90,8 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
         connection.h3.cancel(&connection.transport, arrived.stream_id, h3.constants.protocol.error_request_rejected);
         return null;
     };
-    quic_body.add(connection, record, connection.last_ns);
+    // Design §8 step 29d.15: a request whose head ended its stream has no content to wait for.
+    if (arrived.end) record.ended = true else quic_body.add(connection, record, connection.last_ns);
     const request = arrived.request;
     const reported: event.ConnectionEvent = .{
         .request = .{
@@ -104,8 +105,9 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
             .path = event.split_target(request.path).path,
             .query = event.split_target(request.path).query,
             .headers = event.Headers.of(connection.h3.field_section()),
-            // RFC 9114 §4.1: h3 reports the request's end apart from its head, as a `body` event.
-            .end = false,
+            // RFC 9114 §4.1: h3 reports the end of a request with content, or with a trailer
+            // section, apart from its head, as a `body` event.
+            .end = arrived.end,
         },
     };
     if (connection.config.encoders != null) {

@@ -41,8 +41,8 @@ fn put(fields: []const Field, open: bool) !*support.Fetch {
     try deliver();
     const head = (try connection.receive(support.now_ns)).event.?.request;
     try testing.expectEqual(fetch.id, head.id.number);
-    // RFC 9114 §4.1: h3 reports the request's end apart from its head.
-    try testing.expect(!head.end);
+    // Decision 116 as amended: a head reports the end only of a stream that ended with it.
+    try testing.expectEqual(!open, head.end);
     return fetch;
 }
 
@@ -155,16 +155,13 @@ test "RFC 9110 §10.1.1: an h3 request that expects no 100 gets none, and a send
     try testing.expectEqual(0, fetch.interims);
 }
 
-test "decision 116: an h3 request whose stream ended with its head gets no 100" {
+test "decision 116 as amended: an h3 request whose stream ended with its head gets no 100" {
     const fetch = try put(&expect_continue, false);
     const record = connection.requests.of(fetch.id).?;
-    // RFC 9114 §4.1: the head does not say that the request ended, so it owes the 100.
-    try testing.expect(record.continue_owed);
-    const end = (try connection.receive(support.now_ns)).event.?.body;
-    try testing.expect(end.end and end.bytes.len == 0);
-    // RFC 9000 §4.5: h3 had taken every octet below the stream's final size, so no content
-    // follows.
+    // RFC 9110 §10.1.1: the head says that no content follows, so no 100 is owed.
     try testing.expect(!record.continue_owed and !connection.continue_owed);
+    // No body event follows a head that ended the request.
+    try testing.expectEqual(null, (try connection.receive(support.now_ns)).event);
     try support.pump(support.rounds_default);
     try testing.expectEqual(0, fetch.interims);
 }

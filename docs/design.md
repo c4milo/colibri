@@ -12583,6 +12583,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         eight bits a step saves about 230 instructions a request, 0.7% of h3-many, but its table
         is 256 KB against 4 KB, and its build at comptime took about 3 minutes. The owner ruled
         on 2026-11-05 to keep main's decoder.
+    - **29d.15, one event for a request whose head ended its stream, 2026-11-05.** The same
+      profile gave the QUIC poll's own code 4.4% and 4.5% of h3-many's samples. Callgrind on a
+      laptop counted about 1,070 instructions a request in it, and a probe counted 3.1 polls a
+      GET: its `request`, an empty `body` that ends it, and its `finished`.
+      - Each poll pays about 340 instructions to set up the connection's `receive`. A split of
+        the poll's rare paths into functions of their own saved 13 instructions a request, and
+        was dropped. Decision 145's draft keeps three calls a GET, since a stream gives one
+        event a call.
+      - The change, decision 116 as amended at the owner's ruling of 2026-11-05: when the FIN
+        arrives with the head, `h3.connection.Request` reports `end`, and the server sets
+        `request.end`. No `end` event and no empty `body` follow. A FIN in a later packet keeps
+        the old order.
+      - `h3.connection.Request` gains the field `end`, which programs of `h3` read. The head
+        handlers move to `connection_request_head.zig` for the length of `connection_request.zig`.
+      - The simulator's h3 deadline program and the test-only UDP server answered an h3 request
+        only at its `body` end. Each reads `request.end` now, as `server.router` already did.
+        The first judge run found the server's gap: it answered no h3-many request. Three pinned census values change: h3's long check, and the endpoint check's
+        trace and wire values. Each run passes, and Debug and ReleaseSafe agree on each value.
+      - The checks: tests for a FIN with the head, a FIN in a later packet, and a content-length
+        above zero with the FIN, which h3 refuses before the program reads the request. Seven
+        mutations, each CAUGHT: h3 never folds, folds with `end` false, ignores a refusal, or
+        skips the end's checks; the server waits for a body, drops `end`, or leaves the record
+        unended. `zig build lint`, `test-h3`, `test-server`, `test-client`, `test-sim`,
+        `test-sim-run`, `test-sim-run-quic`, `test-testing-quic` and `test-golden` pass.
+      - The judge's `--h3 --base` 29d.13's tree, at 10 rounds. The step lands when h3-many wins
+        and no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

@@ -129,8 +129,8 @@ test "decision 110 as amended: h3 counts each request it refuses, and past the l
     try testing.expectEqual(batch_len, connection.resets_sent);
     try testing.expect(!support.server_failed);
     try testing.expectEqual(null, connection.close_reason());
-    // The caller heard of each request, then of its refusal.
-    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .refused);
+    // Decision 116 as amended: h3 refused each one at its head, so the caller heard of none.
+    try testing.expectEqual(null, support.nth(.request, 0));
     try broken_batch(1);
     try testing.expect(support.server_failed);
     try testing.expectEqual(.resets_sent, connection.close_reason().?.limit);

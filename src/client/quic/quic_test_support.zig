@@ -330,6 +330,8 @@ fn server_read() !void {
                 answer.https = std.mem.eql(u8, held.request.scheme orelse "", "https");
                 const offer = server_h3.field_section().find("accept-encoding");
                 answer.offers_gzip = offer != null and std.mem.startsWith(u8, offer.?.value, "gzip");
+                // Design §8 step 29d.15: a head that ended its stream is the whole request.
+                answer.ended = held.end;
                 answers_len += 1;
             },
             .data => |held| if (answer_of(held.stream_id)) |answer| {

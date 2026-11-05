@@ -93,7 +93,11 @@ pub const Files = struct {
     /// content ended.
     pub fn on_event(files: *Files, endpoint: *Endpoint, reported: server.Event) void {
         switch (reported) {
-            .request => |request| files.take(request),
+            .request => |request| {
+                files.take(request);
+                // Decision 116 as amended: a head that ended its stream is the whole request.
+                if (request.end) files.answer(endpoint, request.id);
+            },
             .body => |body| if (body.end) files.answer(endpoint, body.id),
             .trailers => |trailers| files.answer(endpoint, trailers.id),
             .finished => |finished| files.release(finished.id),

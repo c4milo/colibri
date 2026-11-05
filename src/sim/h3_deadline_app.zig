@@ -55,7 +55,11 @@ pub const Application = struct {
     /// reports of it after.
     pub fn note_event(app: *Application, reported: server.Event, now_ms: u64) void {
         switch (reported) {
-            .request => |request| app.note_request(request.id, now_ms),
+            .request => |request| {
+                app.note_request(request.id, now_ms);
+                // Decision 116 as amended: a head that ended its stream ends the request's content.
+                if (request.end) app.note_content_end(request.id.number, now_ms);
+            },
             .body => |body| if (body.end) app.note_content_end(body.id.number, now_ms),
             .trailers => |trailers| app.note_content_end(trailers.id.number, now_ms),
             .finished => |finished| if (app.find(finished.id.number)) |pending| switch (finished.result) {

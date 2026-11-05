@@ -66,14 +66,16 @@ test "RFC 9114 §4.1.1: a client's reset of its request cancels it, and the serv
     try testing.expect(response_reset(fetch.id));
 }
 
-test "RFC 9114 §4.1.2: a request whose content falls short of its content-length is cancelled as refused" {
+test "RFC 9114 §4.1.2: a request whose stream ends short of its content-length at the head is refused unheard" {
     try support.start();
     try support.connect();
     const declared = [_]support.Field{.{ .name = "content-length", .value = "5" }};
-    const fetch = try support.request_with_fields("POST", "/upload", &declared);
+    _ = try support.request_with_fields("POST", "/upload", &declared);
     try support.pump(support.rounds_default);
-    try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
-    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .refused);
+    // Decision 116 as amended: h3 refuses the stream before the caller hears of its request.
+    try testing.expectEqual(null, support.nth(.request, 0));
+    try testing.expectEqual(null, support.nth(.cancelled, 0));
+    try testing.expectEqual(1, connection.resets_sent);
 }
 
 test "RFC 9110 §6.5: a request's trailer section ends it, and no end of its content follows" {

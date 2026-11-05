@@ -48,6 +48,7 @@ pub const Seen = struct {
     query: [path_len_max]u8 = undefined,
     query_len: usize = 0,
     len: usize = 0,
+    /// Whether a request's head or a body event ended the request.
     end: bool = false,
     reason: ?event.CancelReason = null,
     /// The word the event carried back (decision 119).
@@ -81,6 +82,7 @@ pub fn keep(reported: Event) void {
             const query = head.query orelse "";
             @memcpy(entry.query[0..query.len], query);
             entry.query_len = query.len;
+            entry.end = head.end;
         },
         .body => |body| {
             entry.id = body.id.number;

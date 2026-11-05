@@ -23,6 +23,7 @@ const message = @import("../message/message.zig");
 const connection_module = @import("connection.zig");
 const connection_local = @import("connection_local.zig");
 const connection_qlog = @import("connection_qlog.zig");
+const head = @import("connection_request_head.zig");
 
 const Reader = core.Reader;
 const Writer = core.Writer;
@@ -73,7 +74,7 @@ pub const RequestStream = struct {
 };
 
 /// What one pass over a stream did.
-const Step = union(enum) {
+pub const Step = union(enum) {
     /// It produced an event.
     event: Event,
     /// It took a frame header or payload, and the next may be whole too.
@@ -194,9 +195,8 @@ fn step_stream(connection: *Connection, transport: *QuicConnection, request: *Re
 }
 
 fn advance(connection: *Connection, transport: *QuicConnection, request: *RequestStream, body: []u8) Error!Step {
-    const id: StreamId = .{ .value = request.id };
     // The peer's code is read before the reset is reported, which forgets the stream.
-    if (stream_read.reset_code(transport, id)) |code| return on_reset(connection, transport, request, code);
+    if (stream_read.reset_code(transport, .{ .value = request.id })) |code| return on_reset(connection, transport, request, code);
     if (request.phase == .abandoned) return discard(connection, transport, request);
     if (request.data_left > 0) return read_data(connection, transport, request, body);
     if (request.skip_left > 0) return skip(connection, transport, request);
@@ -309,19 +309,13 @@ fn on_decode_failure(connection: *Connection, transport: *QuicConnection, reques
 
 /// A decoded field section, read as what the stream's phase says comes next (§4.1).
 fn on_section(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
-    const section = &connection.section;
     switch (request.phase) {
         .head => switch (connection.options.role) {
-            .server => {
-                const found = message.validate_request(section) catch |reason| return refuse(connection, transport, request, message.verdict(reason));
-                request.content_length = found.content_length;
-                request.phase = .content;
-                return .{ .event = .{ .request = .{ .stream_id = request.id, .request = found } } };
-            },
-            .client => return on_response(connection, transport, request),
+            .server => return head.on_request(connection, transport, request),
+            .client => return head.on_response(connection, transport, request),
         },
         .content => {
-            message.validate_trailers(section) catch |reason| return refuse(connection, transport, request, message.verdict(reason));
+            message.validate_trailers(&connection.section) catch |reason| return refuse(connection, transport, request, message.verdict(reason));
             // §4.1.2: the content is whole once the trailer section arrives.
             if (!content_length_matches(request)) return refuse(connection, transport, request, constants.protocol.error_message_error);
             request.phase = .trailers_read;
@@ -331,25 +325,6 @@ fn on_section(connection: *Connection, transport: *QuicConnection, request: *Req
         // reads no frame.
         .trailers_read, .abandoned => unreachable,
     }
-}
-
-fn on_response(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
-    const found = message.validate_response(&connection.section) catch |reason|
-        return refuse(connection, transport, request, message.verdict(reason));
-    // §4.1: interim responses precede the final one and carry no content, so the stream stays
-    // at its head.
-    if (!found.status.is_interim()) {
-        request.phase = .content;
-        request.content_length = found.content_length;
-        // RFC 9110 §15: any three-digit status may arrive, so it is compared, never converted.
-        const code = found.status.code;
-        // §4.1.2: "A response that is defined as never having content, even when a
-        // Content-Length is present, can have a non-zero Content-Length header field", which
-        // RFC 9110 §6.4.1 says of a response to HEAD and of 204 and 304.
-        request.no_content = request.head_request or code == @intFromEnum(http.status.Code.no_content) or
-            code == @intFromEnum(http.status.Code.not_modified);
-    }
-    return .{ .event = .{ .response = .{ .stream_id = request.id, .response = found } } };
 }
 
 fn start_data(connection: *Connection, request: *RequestStream, transport: *QuicConnection, header: frame.Header, header_len: usize) Error!Step {
@@ -404,7 +379,7 @@ fn skip(connection: *Connection, transport: *QuicConnection, request: *RequestSt
 }
 
 /// The stream ended cleanly at a frame's end (§4.1).
-fn on_end(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
+pub fn on_end(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
     if (request.phase == .head) {
         const code = switch (connection.options.role) {
             // §4.1: "If a client-initiated stream terminates without enough of the HTTP message
@@ -459,7 +434,7 @@ fn discard(connection: *Connection, transport: *QuicConnection, request: *Reques
 }
 
 /// Refuses the stream with `code`: its message is malformed or incomplete (§4.1.1, §4.1.2).
-fn refuse(connection: *Connection, transport: *QuicConnection, request: *RequestStream, code: u64) Step {
+pub fn refuse(connection: *Connection, transport: *QuicConnection, request: *RequestStream, code: u64) Step {
     const id = request.id;
     refuse_stream(connection, transport, request, code);
     // A stream whose FIN colibri took has nothing more to discard.

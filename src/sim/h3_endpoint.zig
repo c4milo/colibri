@@ -200,7 +200,11 @@ pub const Endpoint = struct {
     fn on_event(endpoint: *Endpoint, event: h3.connection.Event) Error!void {
         switch (event) {
             .settings => {},
-            .request => |held| try endpoint.on_head(held.stream_id, try endpoint.request_section(&endpoint.expected, index_of(held.stream_id))),
+            .request => |held| {
+                try endpoint.on_head(held.stream_id, try endpoint.request_section(&endpoint.expected, index_of(held.stream_id)));
+                // Design §8 step 29d.15: a head that ended its stream is the whole request.
+                if (held.end) try endpoint.on_end(held.stream_id);
+            },
             .response => |held| try endpoint.on_response(held.stream_id, held.response),
             .data => |held| try endpoint.on_data(held.stream_id, held.octets),
             .trailers => |id| try endpoint.on_trailers(id),

@@ -8,9 +8,10 @@
 //! before then, with a final response, with its own 100 or with `cancel`, has answered first, and
 //! the request gets no other 100.
 //!
-//! h3 reports a request's end apart from its head (RFC 9114 §4.1), so the head does not say
-//! whether content follows. The connection learns it from the stream when it writes the 100: once
-//! h3 has read the stream to its end, no content follows, and the request gets no 100.
+//! A head that ended its stream says that no content follows, and the request is owed no 100
+//! (decision 116 as amended). A FIN that arrives after the head comes as its own event, so that
+//! head does not say whether content follows. The connection learns it from the stream when it
+//! writes the 100: once h3 has read the stream to its end, the request gets no 100.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");

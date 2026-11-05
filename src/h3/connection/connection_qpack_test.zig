@@ -31,8 +31,7 @@ const custom_lines = [_]Line{ .{ ":status", "200" }, .{ "x-custom", "value-that-
 fn request_and_respond() !u64 {
     const id = try harness.request(&harness.get_lines, "");
     try exchange();
-    _ = (try next(server)).?.request;
-    _ = (try next(server)).?.end;
+    try testing.expect((try next(server)).?.request.end);
     try harness.respond(id, &custom_lines, "");
     return id;
 }
@@ -116,8 +115,7 @@ test "RFC 9204 §2.1.3: the encoder inserts nothing the connection's credit cann
     try harness.pair(table_client, .{ .role = .server });
     const id = try harness.request(&harness.get_lines, "");
     try exchange();
-    _ = (try next(server)).?.request;
-    _ = (try next(server)).?.end;
+    try testing.expect((try next(server)).?.request.end);
     // The client's MAX_DATA leaves no room, and arrives only after the response is written.
     const flow = &server.transport.send_flow;
     const limit = flow.limit;

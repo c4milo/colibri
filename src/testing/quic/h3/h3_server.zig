@@ -117,7 +117,11 @@ pub const Server = struct {
 
     fn on_event(server: *Server, transport: *quic.Connection, event: h3.connection.Event, now_ns: u64) Error!void {
         switch (event) {
-            .request => |held| server.take(held.stream_id, held.request),
+            .request => |held| {
+                server.take(held.stream_id, held.request);
+                // Design §8 step 29d.15: a head that ended its stream is the whole request.
+                if (held.end) if (server.find(held.stream_id)) |response| try server.answer(transport, response, now_ns);
+            },
             .end => |id| if (server.find(id)) |response| try server.answer(transport, response, now_ns),
             .reset, .refused => |held| server.release(held.stream_id),
             // Content and trailers the client sends are read and dropped; the rest asks nothing.

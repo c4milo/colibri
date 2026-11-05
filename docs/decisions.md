@@ -4072,6 +4072,40 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: 8 octets for each request a QUIC connection holds, 256 for a connection, and a branch
      for each request each time the connection settles them.
 
+     **Amended on 2026-11-05, for design §8 step 29d.15, at the owner's ruling.** The owner asked
+     why each h3 GET costs three events. A request whose FIN arrives with its HEADERS frame now
+     reports `request.end` true over h3, as h2 reports `end_stream` (RFC 9113 §8.1).
+     - h3 reads the HEADERS frame and then takes the octets after it from `quic`. When that take
+       reaches the stream's final size (RFC 9000 §4.5), the stream ended with the head. h3 then
+       runs the checks of its end at once: a content-length that is not zero is malformed (RFC
+       9114 §4.1.2), and h3 refuses the stream.
+     - h3's `request` event gains one field, `end`. When it is true, no `end` event follows for
+       that stream. The server sets `request.end` from it, starts no body deadline, and reports
+       no `body` event.
+     - A FIN that arrives in a later packet is still unknown at the head. That request reports
+       `end` false, then an empty `body` with `end` true, as before. A program must still read
+       both forms, as it does over h11 and h2.
+     - The rule of the 100 (Continue) above stays for that later FIN. A request whose head says
+       it ended gets no 100, as over h2: "the framing indicates that there is no content" (RFC
+       9110 §10.1.1).
+     - A head with a content-length above zero and a FIN with it is refused before the program
+       hears of it. Before, the program read the request and then its cancellation.
+
+     What it gains: one event and one call of `receive` less for each such request. Callgrind on
+     a laptop counted about 340 of the server's instructions for each event on h3-many, where
+     h2load sends each GET's FIN with its head. The judge measures it before the step lands.
+
+     Why the refusal above no longer holds:
+     - "It changes h3's event and what a program reads over h3." The change is one field of
+       h3's event. The server's event already has `end`, which h11 and h2 set, so a program of
+       the server reads nothing new.
+     - "A FIN that arrives in a later packet is still unknown at the head." It still is, and
+       that request keeps the old order. The amendment only reports a FIN that h3 has already
+       read.
+
+     Cost: one field on a public type of `h3`, and a second order of events over h3 that the
+     simulator's h3 endpoints and the test-only h3 server must each handle.
+
 117. **A program names no HTTP version outside `versions`, and one endpoint serves every
      connection.** Ruled by the owner on 2026-10-04 in
      [#96](https://github.com/c4milo/colibri/issues/96); design §8 step 21 carries it.

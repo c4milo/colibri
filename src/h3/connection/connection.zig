@@ -98,6 +98,9 @@ pub const Event = union(enum) {
 pub const Request = struct {
     stream_id: u64,
     request: message.Request,
+    /// The stream ended with the head (§4.1), so no `end` event follows for it, and the request
+    /// is whole: it has no content and no trailer section.
+    end: bool,
 };
 
 pub const Response = struct {

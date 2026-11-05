@@ -188,13 +188,21 @@ pub const QuicServer = struct {
             const read_event = server.h3.receive(&server.connection, &server.body, now_ns) catch return;
             const got = read_event orelse return;
             switch (got) {
-                .request => |held| try server.take(held, plan, ledger, now_ns),
-                .end => |id| if (server.request_of(id)) |request| {
-                    request.ended = true;
+                .request => |held| {
+                    try server.take(held, plan, ledger, now_ns);
+                    // Design §8 step 29d.15: a head that ended its stream is the whole request.
+                    if (held.end) server.mark_ended(held.stream_id);
                 },
+                .end => |id| server.mark_ended(id),
                 else => {},
             }
         }
+    }
+
+    /// The request on stream `id` ended, when the server still holds it.
+    fn mark_ended(server: *QuicServer, id: u64) void {
+        const request = server.request_of(id) orelse return;
+        request.ended = true;
     }
 
     /// A request's head arrived: the server rejects it unprocessed, or processes it and answers

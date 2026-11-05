@@ -284,7 +284,8 @@ test "§4.1: a GET and its response travel end to end, content included" {
     try testing.expectEqualStrings("GET", got.request.method);
     try testing.expectEqualStrings("/index.html", got.request.path.?);
     try testing.expectEqualStrings("example.com", server.h3.field_section().find(":authority").?.value);
-    try testing.expectEqual(Event{ .end = id }, (try next(&server)).?);
+    // Design §8 step 29d.15: the FIN came with the head, so the request event ends the request.
+    try testing.expect(got.end);
     try testing.expectEqual(null, try next(&server));
 
     try respond(id, &ok_lines, "hello");

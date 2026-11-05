@@ -29,7 +29,7 @@ const constants = sim.constants;
 
 /// The digest of every seed's run, committed after both build modes agree on it.
 pub const census_crc32_expected: u32 = 0xe09c9a30;
-pub const long_census_crc32_expected: u32 = 0xb3f9e0d8;
+pub const long_census_crc32_expected: u32 = 0xe11df4a4;
 /// The logs of `h3_qlog_check_seeds` seeds with a qlog on each endpoint: their octets, the digest
 /// of every record and the events read back. They change when an event or its fields change.
 pub const qlog_census_len_expected: u64 = 8_300_662;

@@ -298,7 +298,8 @@ test "decision 110: a body ended by trailers, by its client's end after the resp
     const declared = [_]support.Field{.{ .name = "content-length", .value = "5" }};
     _ = try support.request_with_fields("POST", "/", &declared);
     try support.pump(rounds_few);
-    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .refused);
+    // Decision 116 as amended: h3 refuses it at its head, before any deadline starts.
+    try testing.expectEqual(1, connection.resets_sent);
     try testing.expectEqual(0, connection.bodies.waiting);
     // A request answered whole whose client then ends it: the caller hears of it no more.
     const fetch = try post_holding();
