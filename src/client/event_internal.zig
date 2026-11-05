@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const http = @import("http");
 const event = @import("event.zig");
 const constants = @import("constants.zig");
+const headers = @import("headers.zig");
 
 const Request = event.Request;
 const Response = event.Response;
@@ -27,19 +28,19 @@ pub fn clear(response: *Response) void {
     response.status = 0;
     response.interims = 0;
     response.body_len = 0;
-    response.values_len = 0;
     response.body_sent = 0;
     response.error_code = 0;
     response.coding = null;
-    for (response.wanted) |*wanted| wanted.value = null;
+    headers.clear(&response.headers);
+    headers.clear(&response.trailers);
     assert(response.result == .pending and response.body_len == 0);
 }
 
 const testing = std.testing;
 
 test "clearing a response makes it pending again, and keeps where the response goes" {
-    var wanted = [_]event.WantedHeader{.{ .name = "content-type", .value = "text/plain" }};
-    var response: Response = .{ .wanted = &wanted };
+    var buffer: [8]u8 = undefined;
+    var response: Response = .{ .headers = .{ .buffer = &buffer, .len = 5 }, .trailers = .{ .buffer = &buffer, .len = 3 } };
     response.result = .response;
     response.status = 200;
     response.body_len = 3;
@@ -48,8 +49,9 @@ test "clearing a response makes it pending again, and keeps where the response g
     try testing.expectEqual(.pending, response.result);
     try testing.expectEqual(0, response.body_len);
     try testing.expectEqual(null, response.coding);
-    try testing.expectEqual(null, response.wanted[0].value);
-    try testing.expectEqualStrings("content-type", response.wanted[0].name);
+    try testing.expectEqual(0, response.headers.len);
+    try testing.expectEqual(0, response.trailers.len);
+    try testing.expectEqual(buffer.len, response.headers.buffer.len);
 }
 
 test "RFC 9110 §8.6: a request names its content's length, and a POST or PUT names it when empty" {

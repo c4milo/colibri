@@ -45,10 +45,8 @@ fn start() !void {
 test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the exchange" {
     try start();
     // RFC 9113 §8.3: `:status` is a pseudo-header field and no field, so the caller reads none.
-    var wanted = [_]event.WantedHeader{ .{ .name = "content-type" }, .{ .name = "age" }, .{ .name = ":status" } };
     var exchange = get(&bodies[0]);
-    exchange.response.wanted = &wanted;
-    exchange.response.values = &values;
+    exchange.response.headers = .{ .buffer = &values };
     try testing.expectEqual(1, try connection.request(&exchange.request, &exchange.response));
     try support.pump_h2();
     const arrived = peer_request().?;
@@ -68,9 +66,9 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(ok, exchange.response.status);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
-    try testing.expectEqualStrings("application/dns-message", wanted[0].value.?);
-    try testing.expectEqual(null, wanted[1].value);
-    try testing.expectEqual(null, wanted[2].value);
+    try testing.expectEqualStrings("application/dns-message", exchange.response.headers.get("content-type").?);
+    try testing.expectEqual(null, exchange.response.headers.get("age"));
+    try testing.expectEqual(null, exchange.response.headers.get(":status"));
 }
 
 test "RFC 9113 §6.9: content past the stream's window goes out as the peer grants more" {
@@ -281,4 +279,36 @@ test "RFC 9114 §3.1.2: an ALTSVC frame over cleartext teaches no h3" {
     try support.client_receive();
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(null, connection.take_alt_svc());
+}
+
+const grpc_ok = [_]h2.hpack.Field{.{ .name = "grpc-status", .value = "0" }};
+
+test "RFC 9113 §8.1: a trailer section goes to the response's trailers, apart from its headers" {
+    try start();
+    var trailer_buffer: [64]u8 = undefined;
+    var exchange = get(&bodies[0]);
+    exchange.response.headers = .{ .buffer = &values };
+    exchange.response.trailers = .{ .buffer = &trailer_buffer };
+    _ = try connection.request(&exchange.request, &exchange.response);
+    try support.pump_h2();
+    try testing.expect(peer_request() != null);
+    try support.peer_h2_answer_trailers(1, ok, "hello", &grpc_ok);
+    try support.client_receive();
+    try testing.expectEqual(.response, exchange.response.result);
+    try testing.expectEqualStrings("hello", exchange.response.body_received());
+    try testing.expectEqualStrings("0", exchange.response.trailers.get("grpc-status").?);
+    // RFC 9110 §6.5.1: a trailer field is never a header field.
+    try testing.expectEqual(null, exchange.response.headers.get("grpc-status"));
+}
+
+test "decision 152: a trailer section past its buffer ends the exchange too_large" {
+    try start();
+    var trailer_buffer: [4]u8 = undefined;
+    var exchange = get(&bodies[0]);
+    exchange.response.trailers = .{ .buffer = &trailer_buffer };
+    _ = try connection.request(&exchange.request, &exchange.response);
+    try support.pump_h2();
+    try support.peer_h2_answer_trailers(1, ok, "hello", &grpc_ok);
+    try support.client_receive();
+    try testing.expectEqual(.too_large, exchange.response.result);
 }

@@ -5884,7 +5884,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         the order it arrived, for a field such as Set-Cookie that cannot be joined (RFC 9110
         §5.3).
      3. A section that does not fit its buffer ends the exchange `too_large`. A program that gives
-        no buffer for trailers drops them, as before.
+        no buffer for a section drops it: no trailers, as before, and no headers.
      4. The client keeps trailer fields apart from header fields (RFC 9110 §6.5.1).
      5. `Response.wanted`, `Response.values`, `Response.values_len` and `WantedHeader` leave the
         API. A dependent's code breaks at the next release.

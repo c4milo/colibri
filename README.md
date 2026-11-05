@@ -174,8 +174,7 @@ into. These lines are from
 ```zig
 const get: client.Request = .{ .method = "GET", .path = "/greeting" };
 var get_response: client.Response align(@alignOf(client.Response)) = .{
-    .wanted = &wanted,
-    .values = &wanted_values,
+    .headers = .{ .buffer = &get_headers },
     .body = &get_body,
 };
 ```

@@ -269,6 +269,16 @@ pub fn peer_h2_answer(stream_id: u32, status: u16, fields: []const h2.hpack.Fiel
     to_client_len += sent.written;
 }
 
+/// The h2 peer answers stream `stream_id` with `status`, `content`, and a trailer section of
+/// `trailers` that ends the stream (RFC 9113 §8.1).
+pub fn peer_h2_answer_trailers(stream_id: u32, status: u16, content: []const u8, trailers: []const h2.hpack.Field) !void {
+    to_client_len += try peer_h2.write_response(to_client[to_client_len..], stream_id, status, &.{}, false);
+    const sent = try peer_h2.write_data(to_client[to_client_len..], stream_id, content, false);
+    assert(sent.consumed == content.len);
+    to_client_len += sent.written;
+    to_client_len += try peer_h2.write_trailers(to_client[to_client_len..], stream_id, trailers);
+}
+
 /// The h11 peer's requests, which `peer_h11_read` counts.
 pub var peer_requests: usize = 0;
 

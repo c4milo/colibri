@@ -68,9 +68,8 @@ fn record(connection: *Connection, h2_event: h2.Event) bool {
     return switch (h2_event) {
         .response => |head| on_response(connection, head),
         .data => |data| on_data(connection, data),
-        // RFC 9113 §8.1: a trailer section ends the stream. RFC 9110 §6.5.1: its fields are kept
-        // apart from the header section, and the client reads none.
-        .trailers => |trailers| end_response(connection, trailers.stream_id),
+        // RFC 9113 §8.1: a trailer section ends the stream.
+        .trailers => |trailers| on_trailers(connection, trailers.stream_id),
         .stream_reset => |reset| on_reset(connection, reset),
         // RFC 9113 §5.4.2, §8.1.1: colibri reset a stream whose response broke the rules.
         .stream_refused => |refusal| end_stream(connection, refusal.stream_id, .malformed),
@@ -118,6 +117,15 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     return finish(connection, slot);
 }
 
+/// RFC 9110 §6.5.1: a trailer section's fields are kept apart from the header section, in the
+/// response's `trailers` (decision 152). The section ends the response.
+fn on_trailers(connection: *Connection, stream_id: u32) bool {
+    const slot = connection.slots.of_stream(stream_id) orelse return false;
+    const section = connection.session.h2.field_section();
+    response_write.record_trailers(slot, section) catch |failure| return refuse(connection, slot, response_write.outcome_of(failure));
+    return finish(connection, slot);
+}
+
 fn on_data(connection: *Connection, data: h2.connection.Data) bool {
     const slot = connection.slots.of_stream(data.stream_id) orelse return false;
     response_write.append_body(slot, data.payload) catch |failure| return refuse(connection, slot, response_write.outcome_of(failure));
@@ -147,11 +155,6 @@ fn on_goaway(connection: *Connection, last_stream_id: u32) bool {
         if (slot.stage == .queued or unprocessed) slots_module.end(slot, .refused);
     }
     return true;
-}
-
-fn end_response(connection: *Connection, stream_id: u32) bool {
-    const slot = connection.slots.of_stream(stream_id) orelse return false;
-    return finish(connection, slot);
 }
 
 /// The response ended whole. A request whose content has not all gone out needs none of the rest,

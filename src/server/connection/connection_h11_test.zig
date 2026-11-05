@@ -158,6 +158,22 @@ test "RFC 9112 §7.1.2: a chunked request's trailer section ends it" {
     }
     try testing.expectEqualStrings("0", trailers.?.headers.find("grpc-status").?.value);
     try testing.expectEqual(1, trailers.?.id.number);
+    // Only a chunked body carries trailers, so the next request reports none.
+    try connection.respond(1, .{ .status = ok, .end = true });
+    _ = support.drain();
+    const next = "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nok";
+    @memcpy(support.input[0..next.len], next);
+    consumed = 0;
+    var ended = false;
+    // Bounded: the head, the data, and the end.
+    for (0..next.len) |_| {
+        const received = try connection.receive(support.input[consumed..next.len], support.now_ns);
+        consumed += received.consumed;
+        const reported = received.event orelse break;
+        try testing.expect(reported != .trailers);
+        if (reported == .body and reported.body.end) ended = true;
+    }
+    try testing.expect(ended);
 }
 
 test "RFC 9112 §3.2.2: an absolute-form target's authority replaces Host's" {

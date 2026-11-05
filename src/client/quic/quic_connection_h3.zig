@@ -237,9 +237,9 @@ fn record(connection: *QuicConnection, h3_event: h3.connection.Event) void {
     switch (h3_event) {
         .response => |head| on_response(connection, head),
         .data => |data| on_data(connection, data),
-        // RFC 9110 §6.5.1: a trailer section's fields are kept apart from the header section, and
-        // the client reads none. The stream's end follows.
-        .trailers, .settings => {},
+        // RFC 9114 §4.1: a trailer section comes last, and the stream's end follows.
+        .trailers => |stream_id| on_trailers(connection, stream_id),
+        .settings => {},
         .end => |stream_id| end_response(connection, stream_id),
         .reset => |ended| on_reset(connection, ended),
         // RFC 9114 §4.1.2: colibri refused a response that broke the rules.
@@ -266,6 +266,14 @@ fn on_response(connection: *QuicConnection, head: h3.connection.Response) void {
     // RFC 9114 §4.1.1: a content that cannot fit ends its stream with H3_REQUEST_CANCELLED at the
     // head (https://github.com/c4milo/colibri/issues/106).
     if (response_write.too_large_at_head(slot, head.response.status.code, section)) refuse(connection, slot, .too_large);
+}
+
+/// RFC 9110 §6.5.1: a trailer section's fields are kept apart from the header section, in the
+/// response's `trailers` (decision 152).
+fn on_trailers(connection: *QuicConnection, stream_id: u64) void {
+    const slot = connection.slots.of_stream(stream_id) orelse return;
+    const section = connection.h3.field_section();
+    response_write.record_trailers(slot, section) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
 }
 
 fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {

@@ -93,10 +93,8 @@ test "RFC 9114 §3.1.2: a cleartext response's Alt-Svc names nothing, since h3 s
 
 test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the exchange" {
     try start();
-    var wanted = [_]event.WantedHeader{.{ .name = "content-length" }};
     var exchange = get(&bodies[0]);
-    exchange.response.wanted = &wanted;
-    exchange.response.values = &values;
+    exchange.response.headers = .{ .buffer = &values };
     try testing.expectEqual(1, try connection.request(&exchange.request, &exchange.response));
     support.client_send();
     // RFC 9110 §7.2: a user agent sends Host first; RFC 9110 §8.6: a GET with no content sends
@@ -110,7 +108,7 @@ test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the
     try testing.expectEqual(1, support.find(.finished).?.finished.id);
     try testing.expectEqual(ok, exchange.response.status);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
-    try testing.expectEqualStrings("5", wanted[0].value.?);
+    try testing.expectEqualStrings("5", exchange.response.headers.get("content-length").?);
 }
 
 test "decision 88: a POST's content goes out whole, and the GET after it waits for its response" {
@@ -353,13 +351,11 @@ test "RFC 9112 §9.5: a response dropped while the content goes out ends the con
 
 test "RFC 9112 §9.5: a response dropped at its head while the content goes out ends the connection" {
     try start();
-    var wanted = [_]event.WantedHeader{.{ .name = "content-type" }};
     var put = put_upload(&bodies[0]);
-    put.response.wanted = &wanted;
-    put.response.values = values[0..2];
+    put.response.headers = .{ .buffer = values[0..2] };
     _ = try connection.request(&put.request, &put.response);
     support.client_send();
-    // The value does not fit the two octets of `values`.
+    // The header section does not fit the two octets of its buffer.
     try peer_writes("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhel");
     try testing.expectEqual(.too_large, put.response.result);
     try testing.expect(put.response.body_sent < upload.len);
@@ -451,4 +447,24 @@ test "a content longer than the connection's output goes out from the caller's m
     _ = try connection.request(&next.request, &next.response);
     support.client_send();
     try testing.expect(sent("GET /dns-query HTTP/1.1"));
+}
+
+test "RFC 9112 §7.1.2: a chunked trailer section goes to trailers, and the next response has none" {
+    try start();
+    var trailer_buffers: [2][64]u8 = undefined;
+    var first = get(&bodies[0]);
+    first.response.trailers = .{ .buffer = &trailer_buffers[0] };
+    _ = try connection.request(&first.request, &first.response);
+    support.client_send();
+    try peer_writes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nGrpc-Status: 0\r\n\r\n");
+    try testing.expectEqual(.response, first.response.result);
+    try testing.expectEqualStrings("0", first.response.trailers.get("grpc-status").?);
+    try testing.expectEqual(null, first.response.headers.get("grpc-status"));
+    var next = get(&bodies[1]);
+    next.response.trailers = .{ .buffer = &trailer_buffers[1] };
+    _ = try connection.request(&next.request, &next.response);
+    support.client_send();
+    try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nworld");
+    try testing.expectEqual(.response, next.response.result);
+    try testing.expectEqual(0, next.response.trailers.len);
 }

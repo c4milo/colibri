@@ -23,10 +23,9 @@ const values_len: usize = 64;
 
 test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exchange" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
-    var wanted = [_]event.WantedHeader{.{ .name = "content-type" }};
     var exchange: Exchange = .{
         .request = .{ .method = "GET", .path = "/dns-query" },
-        .response = .{ .body = &bodies[0], .wanted = &wanted, .values = &values },
+        .response = .{ .body = &bodies[0], .headers = .{ .buffer = &values } },
     };
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
@@ -34,11 +33,27 @@ test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exc
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(ok, exchange.response.status);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
-    try testing.expectEqualStrings("application/dns-message", wanted[0].value.?);
+    try testing.expectEqualStrings("application/dns-message", exchange.response.headers.get("content-type").?);
     // RFC 9000 §2.1: the client's first bidirectional stream is 0.
     try testing.expectEqual(0, support.answers[0].id);
     try testing.expectEqualStrings("/dns-query", support.answers[0].path[0..support.answers[0].path_len]);
     _ = h3;
+}
+
+test "RFC 9114 §4.1: a trailer section goes to the response's trailers, apart from its headers" {
+    try support.start(&support.alpn_h3, &support.alpn_h3, false);
+    support.answer_content = "";
+    support.answer_trailer = .{ .name = "grpc-status", .value = "0" };
+    var trailer_buffer: [64]u8 = undefined;
+    var exchange: Exchange = .{
+        .request = .{ .method = "GET", .path = "/dns-query" },
+        .response = .{ .body = &bodies[0], .headers = .{ .buffer = &values }, .trailers = .{ .buffer = &trailer_buffer } },
+    };
+    _ = try connection.request(&exchange.request, &exchange.response);
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(.response, exchange.response.result);
+    try testing.expectEqualStrings("0", exchange.response.trailers.get("grpc-status").?);
+    try testing.expectEqual(null, exchange.response.headers.get("grpc-status"));
 }
 
 /// Content past the server's stream window, so it goes out only as the server grants more (RFC

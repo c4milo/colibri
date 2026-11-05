@@ -90,10 +90,22 @@ fn record(connection: *Connection, h11_event: h11.connection.Event, now_ns: u64)
             response_write.append_body(slot, octets) catch |failure| return start_dropping(connection, slot, response_write.outcome_of(failure), now_ns);
             return false;
         },
-        .end => return finish(connection, slot),
+        .end => return on_end(connection, slot),
         // A client reads no request, and sends no CONNECT to be tunnelled (`check_request`).
         .request, .tunnel => unreachable,
     }
+}
+
+/// The response ended. RFC 9112 §7.1.2: a chunked body's trailer section goes to the response's
+/// `trailers`, apart from its headers (RFC 9110 §6.5.1, decision 152).
+fn on_end(connection: *Connection, slot: *Slot) bool {
+    if (slot.stage == .sent) {
+        response_write.record_trailers(slot, &connection.session.h11.trailers) catch |failure| {
+            slot.response.result = response_write.outcome_of(failure);
+            slots_module.drop(slot, true);
+        };
+    }
+    return finish(connection, slot);
 }
 
 fn on_response(connection: *Connection, slot: *Slot, status: u16, now_ns: u64) bool {

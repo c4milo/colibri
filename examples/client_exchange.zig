@@ -126,15 +126,14 @@ var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefin
 // The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
 // `client.Config` give (decision 125).
 var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
-/// The fields of the response the client reads. colibri keeps no other field.
-var wanted: [1]client.WantedHeader align(@alignOf(client.WantedHeader)) = .{.{ .name = "content-type" }};
-var wanted_values: [content_type.len]u8 = undefined;
+/// The memory each response's headers go into. Each header takes its name, its value and four
+/// bytes, and a section that does not fit ends the exchange `too_large`.
+var get_headers: [1024]u8 = undefined;
 var get_body: [greeting.len]u8 = undefined;
 var post_body: [note.len]u8 = undefined;
 const get: client.Request = .{ .method = "GET", .path = "/greeting" };
 var get_response: client.Response align(@alignOf(client.Response)) = .{
-    .wanted = &wanted,
-    .values = &wanted_values,
+    .headers = .{ .buffer = &get_headers },
     .body = &get_body,
 };
 const post: client.Request = .{
@@ -149,13 +148,11 @@ var post_response: client.Response align(@alignOf(client.Response)) = .{ .body =
 /// gets 405 with an Allow value. No route names `/missing`, so its GET gets 404. No route names
 /// DELETE, so its request gets 501 on any path. Each response has no content.
 const allow_expected = "POST";
-var allow: [1]client.WantedHeader align(@alignOf(client.WantedHeader)) = .{.{ .name = "allow" }};
-var allow_values: [allow_expected.len]u8 = undefined;
+var get_echo_headers: [1024]u8 = undefined;
 var unanswered_body: [greeting.len]u8 = undefined;
 const get_echo: client.Request = .{ .method = "GET", .path = "/echo" };
 var get_echo_response: client.Response align(@alignOf(client.Response)) = .{
-    .wanted = &allow,
-    .values = &allow_values,
+    .headers = .{ .buffer = &get_echo_headers },
     .body = &unanswered_body,
 };
 const get_missing: client.Request = .{ .method = "GET", .path = "/missing" };
@@ -418,7 +415,7 @@ fn sleep_ns() u64 {
 /// 501. The refused exchange ended `refused`, and the server saw what it expects.
 fn check() Error!void {
     const greeted = arrived(&get_response, 200, greeting);
-    const typed = std.mem.eql(u8, wanted[0].value orelse "", content_type);
+    const typed = std.mem.eql(u8, get_response.headers.get("content-type") orelse "", content_type);
     const echoed = arrived(&post_response, 200, note);
     const unserved = unserved_arrived();
     const opened = opens.get(.quic) == 1 and opens.get(.tcp) == 1;
@@ -447,7 +444,7 @@ fn arrived(response: *const client.Response, status: u16, content: []const u8) b
 
 /// Whether the three requests that no route serves got 405 with the Allow value, 404 and 501.
 fn unserved_arrived() bool {
-    const allowed = std.mem.eql(u8, allow[0].value orelse "", allow_expected);
+    const allowed = std.mem.eql(u8, get_echo_response.headers.get("allow") orelse "", allow_expected);
     return allowed and arrived(&get_echo_response, 405, "") and
         arrived(&get_missing_response, 404, "") and arrived(&delete_greeting_response, 501, "");
 }

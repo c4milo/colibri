@@ -1,6 +1,7 @@
 //! Writes a response into the `Response` the caller placed (decisions 100 and 123): the final
-//! status, the values of the fields the caller named, and the content, each in the caller's memory.
-//! A value or content that does not fit is refused whole, and the exchange ends `too_large`.
+//! status, its header section, its content and its trailer section, each in the caller's memory
+//! (decision 152). A section or content that does not fit is refused whole, and the exchange ends
+//! `too_large`.
 //! Content in a coding the client offered is decoded into the caller's memory (`coding.zig`,
 //! decision 101).
 const std = @import("std");
@@ -9,6 +10,7 @@ const http = @import("http");
 const event = @import("event.zig");
 const slots_module = @import("slots.zig");
 const coding = @import("coding.zig");
+const headers = @import("headers.zig");
 
 const Response = event.Response;
 const FieldSection = http.FieldSection;
@@ -25,48 +27,23 @@ pub fn outcome_of(failure: Error) event.Result {
     };
 }
 
-/// RFC 9110 §5.3: "use comma SP" between the values of field lines with the same name.
-const separator = ", ";
-
-/// Records a final response's status and the values of the fields the caller named, from the
-/// regular field lines of `section`, which start at index `first`, and what its Content-Encoding
-/// says of its content, given the decoders the slot took for the codings its request offered.
+/// Records a final response's status and its header section, from the regular field lines of
+/// `section`, which start at index `first`, and what its Content-Encoding says of its content,
+/// given the decoders the slot took for the codings its request offered.
 pub fn record_head(slot: *Slot, status: u16, section: *const FieldSection, first: u32) Error!void {
     const response = slot.response;
-    assert(response.status == 0 and response.values_len == 0);
+    assert(response.status == 0 and response.headers.len == 0);
     assert(first <= section.len());
     response.status = status;
-    for (response.wanted) |*wanted| {
-        wanted.value = try join(response, wanted.name, section, first);
-    }
+    try headers.record(&response.headers, section, first);
     coding.begin(slot, status, section, first);
 }
 
-/// The value of every field line of `section` named `name`, joined into the response's `values`,
-/// or null when none is.
-fn join(response: *Response, name: []const u8, section: *const FieldSection, first: u32) Error!?[]const u8 {
-    const start = response.values_len;
-    var found = false;
-    var iterator: http.field_section.Iterator = .{ .section = section, .index = first };
-    // Bounded: the section holds `len()` lines.
-    for (0..section.len()) |_| {
-        const line = iterator.next() orelse break;
-        // RFC 9110 §5.1: field names are case-insensitive.
-        if (!std.ascii.eqlIgnoreCase(line.name, name)) continue;
-        // RFC 9110 §5.3: a recipient may join field lines with the same name, in order.
-        if (found) try append(response, separator);
-        try append(response, line.value);
-        found = true;
-    }
-    if (!found) return null;
-    return response.values[start..response.values_len];
-}
-
-fn append(response: *Response, octets: []const u8) Error!void {
-    const room = response.values.len - response.values_len;
-    if (octets.len > room) return error.NoSpaceLeft;
-    @memcpy(response.values[response.values_len..][0..octets.len], octets);
-    response.values_len += octets.len;
+/// Records a response's trailer section, which RFC 9110 §6.5.1 keeps apart from its headers.
+pub fn record_trailers(slot: *Slot, section: *const FieldSection) Error!void {
+    const response = slot.response;
+    assert(response.trailers.len == 0);
+    try headers.record(&response.trailers, section, 0);
 }
 
 /// Copies octets of the response's content after those already in `body`, or decodes them there.
@@ -111,30 +88,39 @@ const testing = std.testing;
 threadlocal var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 const test_request: event.Request = .{ .method = "GET", .path = "/" };
 
-test "RFC 9110 §5.3: the field lines of a wanted name are joined in order, and a missing one is null" {
+test "decision 152: a final head copies its regular field lines, and the status apart" {
     test_section.init();
     try test_section.append(":status", "200");
     try test_section.append("cache-control", "max-age=60");
     try test_section.append("content-type", "application/dns-message");
-    try test_section.append("Cache-Control", "no-transform");
-    var wanted = [_]event.WantedHeader{ .{ .name = "cache-control" }, .{ .name = "age" }, .{ .name = "Content-Type" } };
-    var values: [64]u8 = undefined;
-    var response: Response = .{ .wanted = &wanted, .values = &values };
+    var buffer: [128]u8 = undefined;
+    var response: Response = .{ .headers = .{ .buffer = &buffer } };
     var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
     try record_head(&slot, 200, &test_section, 1);
     try testing.expectEqual(200, response.status);
-    try testing.expectEqualStrings("max-age=60, no-transform", wanted[0].value.?);
-    try testing.expectEqual(null, wanted[1].value);
-    try testing.expectEqualStrings("application/dns-message", wanted[2].value.?);
+    try testing.expectEqualStrings("max-age=60", response.headers.get("cache-control").?);
+    try testing.expectEqual(null, response.headers.get(":status"));
+    try testing.expectEqual(0, response.trailers.len);
 }
 
-test "a value or content past the caller's memory is refused whole" {
+test "RFC 9110 §6.5.1: trailers go to their own buffer, never to the headers" {
+    test_section.init();
+    try test_section.append("grpc-status", "0");
+    var header_buffer: [32]u8 = undefined;
+    var trailer_buffer: [32]u8 = undefined;
+    var response: Response = .{ .headers = .{ .buffer = &header_buffer }, .trailers = .{ .buffer = &trailer_buffer } };
+    var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
+    try record_trailers(&slot, &test_section);
+    try testing.expectEqualStrings("0", response.trailers.get("grpc-status").?);
+    try testing.expectEqual(null, response.headers.get("grpc-status"));
+}
+
+test "a section or content past the caller's memory is refused whole" {
     test_section.init();
     try test_section.append("content-type", "application/dns-message");
-    var wanted = [_]event.WantedHeader{.{ .name = "content-type" }};
-    var values: [8]u8 = undefined;
+    var buffer: [8]u8 = undefined;
     var body: [4]u8 = undefined;
-    var response: Response = .{ .wanted = &wanted, .values = &values, .body = &body };
+    var response: Response = .{ .headers = .{ .buffer = &buffer }, .body = &body };
     var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
     try testing.expectError(error.NoSpaceLeft, record_head(&slot, 200, &test_section, 0));
     try append_body(&slot, "abc");

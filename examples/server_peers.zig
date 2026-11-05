@@ -66,20 +66,21 @@ const datagrams_per_turn_max = 32;
 /// Requests one peer makes, at most.
 const requests_max = 5;
 
+/// The memory each response's headers go into.
+const headers_len = 1024;
+
 /// One request a peer makes, its response, and the memory the response goes into.
 const Asked = struct {
     request: client.Request,
     response: client.Response,
-    /// The content type of a 200, and the Allow value of a 405.
-    wanted: [2]client.WantedHeader,
-    values: [content_type.len + greeting_allow.len]u8,
+    /// The headers of the response: the content type of a 200, and the Allow value of a 405.
+    headers: [headers_len]u8,
     body: [note.len]u8,
 
     /// Fills the request and the response. `content` is the request's content, or empty for none.
     fn place(asked: *Asked, method: []const u8, path: []const u8, content: []const u8) void {
-        asked.wanted = .{ .{ .name = "content-type" }, .{ .name = "allow" } };
         asked.request = .{ .method = method, .path = path };
-        asked.response = .{ .wanted = &asked.wanted, .values = &asked.values, .body = &asked.body };
+        asked.response = .{ .headers = .{ .buffer = &asked.headers }, .body = &asked.body };
         if (content.len == 0) return;
         asked.request.headers = &.{.{ .name = "content-type", .value = content_type }};
         asked.request.body = content;
@@ -89,7 +90,7 @@ const Asked = struct {
     fn arrived(asked: *const Asked, content: []const u8) bool {
         const response = &asked.response;
         if (response.result != .response or response.status != 200) return false;
-        if (!std.mem.eql(u8, asked.wanted[0].value orelse "", content_type)) return false;
+        if (!std.mem.eql(u8, response.headers.get("content-type") orelse "", content_type)) return false;
         return std.mem.eql(u8, response.body_received(), content);
     }
 
@@ -99,7 +100,7 @@ const Asked = struct {
         const response = &asked.response;
         if (response.result != .response or response.status != status) return false;
         if (response.body_received().len != 0) return false;
-        const held = asked.wanted[1].value orelse return allow == null;
+        const held = response.headers.get("allow") orelse return allow == null;
         return std.mem.eql(u8, held, allow orelse return false);
     }
 };

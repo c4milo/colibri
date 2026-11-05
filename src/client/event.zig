@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
+const headers_module = @import("headers.zig");
 
 /// One header: a field line's name and value (RFC 9110 §5.2).
 pub const Header = http.Field;
@@ -17,15 +18,6 @@ pub const RequestId = u64;
 
 /// The protocol serving a connection: h11 or h2 over TCP, or h3 over QUIC.
 pub const Protocol = enum { h11, h2, h3 };
-
-/// A response field the caller reads: it names the field, and the client sets the value.
-pub const WantedHeader = struct {
-    /// Compared case-insensitively (RFC 9110 §5.1).
-    name: []const u8,
-    /// The value of every field line of the response's header section with this name, joined by
-    /// ", " (RFC 9110 §5.3), in the response's `values`. Null when the section has none.
-    value: ?[]const u8 = null,
-};
 
 /// How an exchange ended.
 pub const Result = enum {
@@ -52,7 +44,7 @@ pub const Result = enum {
     /// The request is one the protocol refuses to send, such as a method that is not a token or
     /// a field line RFC 9110 §5.5 forbids.
     invalid,
-    /// The response's body did not fit `body`, or a wanted value did not fit `values`. A
+    /// The response's body did not fit `body`, or its headers or trailers did not fit their buffer. A
     /// Content-Length larger than `body` ends the exchange at its head, and over h11 the
     /// connection with it (decision 124 as amended for
     /// https://github.com/c4milo/colibri/issues/106).
@@ -80,9 +72,12 @@ pub const Request = struct {
 /// Where the response to a request goes, and what arrived, in the program's memory (decision
 /// 123). The client writes it from `request` until the exchange's `finished` event.
 pub const Response = struct {
-    /// The response headers the caller reads, and the bytes their values are copied into.
-    wanted: []WantedHeader = &.{},
-    values: []u8 = &.{},
+    /// The response's header section, copied into a buffer the program gives (decision 152).
+    /// Each field line takes its name, its value and four octets. An empty buffer drops it.
+    headers: headers_module.Headers = .{},
+    /// The response's trailer section (RFC 9110 §6.5), kept apart from its headers (§6.5.1), in
+    /// the same way.
+    trailers: headers_module.Trailers = .{},
     /// Where the response's body is copied.
     body: []u8 = &.{},
 
@@ -95,8 +90,6 @@ pub const Response = struct {
     interims: u32 = 0,
     /// Bytes of `body` the response body filled.
     body_len: usize = 0,
-    /// Bytes of `values` the wanted values filled.
-    values_len: usize = 0,
     /// Bytes of the request's `body` written. Fewer than all when the response ended first (RFC
     /// 9113 §8.1, RFC 9112 §9.5) or the exchange ended another way.
     body_sent: usize = 0,

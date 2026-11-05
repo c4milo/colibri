@@ -128,6 +128,9 @@ fn read_response(target: *Connection, input: []const u8) connection.Error!Receiv
     connection.begin_decoding(target, response.body) catch |failure| return target.fail(failure, null);
     // RFC 9112 §9.3: a response with the close option, or an HTTP/1.0 one, is the last.
     if (response.line.version.minor == 0 or connection.section_asks_close(&target.section)) target.close_after = true;
+    // RFC 9112 §7.1.2: only a chunked body carries a trailer section, so a message's trailers never
+    // hold the lines of the message before it.
+    target.trailers.clear();
     target.reader = connection_body.Reader.start(response.body.length);
     if (response.body.length == .tunnel) {
         // RFC 9112 §6.3 rule 2: after a 2xx to CONNECT, every octet each way is the tunnel's.

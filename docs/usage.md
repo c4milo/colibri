@@ -838,14 +838,12 @@ For each exchange the program places two values in its own memory
 The client only reads the request, so a program may make it a `const`.
 
 ```zig
-var wanted: [1]client.WantedHeader align(@alignOf(client.WantedHeader)) = .{.{ .name = "content-type" }};
-var wanted_values: [content_type.len]u8 = undefined;
+var get_headers: [1024]u8 = undefined;
 var get_body: [greeting.len]u8 = undefined;
 var post_body: [note.len]u8 = undefined;
 const get: client.Request = .{ .method = "GET", .path = "/greeting" };
 var get_response: client.Response align(@alignOf(client.Response)) = .{
-    .wanted = &wanted,
-    .values = &wanted_values,
+    .headers = .{ .buffer = &get_headers },
     .body = &get_body,
 };
 const post: client.Request = .{
@@ -857,8 +855,14 @@ const post: client.Request = .{
 var post_response: client.Response align(@alignOf(client.Response)) = .{ .body = &post_body };
 ```
 
-`wanted` names the headers of the response the program reads. Their values go into `values` and
-the body into `body`; colibri keeps no other header. The request's `body` is its own body.
+The response's headers go into the buffer of `headers`, and its body into `body` ([decision
+152](decisions.md)). Each header takes its name, its value and four bytes. A program reads one with
+`get_response.headers.get("content-type")`, which returns the first value of that name or null,
+and every line with `iterator()`, for a header such as Set-Cookie that comes more than once. A
+response's trailers go into `trailers` the same way, apart from its headers, and a program reads
+`grpc-status` with `response.trailers.get("grpc-status")`. An empty buffer drops its section, and
+a section that does not fit its buffer ends the exchange `too_large`. The request's `body` is its
+own body.
 The program keeps the request and the response in place, with each slice they name, until the
 exchange's `finished` event or until `cancel` returns.
 
@@ -1155,13 +1159,13 @@ The response's `outcome` says what happened to the exchange:
 
 | Outcome | What it means |
 | --- | --- |
-| `response` | The final response arrived whole: `status`, `body_received()`, and each wanted value. |
+| `response` | The final response arrived whole: `status`, `body_received()`, `headers` and `trailers`. |
 | `refused` | The server processed none of the request, so the program may send it on another connection. |
 | `reset` | The server reset the stream, and `error_code` names why. |
 | `closed` | The connection ended before the response was whole. The server may have processed the request. When no part of the response arrived, the pool first sent an idempotent request again, once ([decision 124](decisions.md)). |
 | `malformed` | colibri refused the response, because the protocol's rules make it malformed. |
 | `invalid` | The request is one the protocol refuses to send. |
-| `too_large` | The content did not fit `body`, or a wanted value did not fit `values`. A Content-Length larger than `body` ends the exchange at its head, and over h11 the connection with it ([decision 124](decisions.md)). |
+| `too_large` | The content did not fit `body`, or the headers or trailers did not fit their buffer. A Content-Length larger than `body` ends the exchange at its head, and over h11 the connection with it ([decision 124](decisions.md)). |
 
 The events:
 

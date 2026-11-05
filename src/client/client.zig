@@ -24,6 +24,7 @@ pub const constants = @import("constants.zig");
 const files = struct {
     pub const coding_pool = @import("coding_pool.zig");
     pub const event = @import("event.zig");
+    pub const headers = @import("headers.zig");
     pub const pool = @import("pool/pool.zig");
     pub const protocols = @import("protocols.zig");
 };
@@ -41,7 +42,8 @@ pub const Protocol = files.event.Protocol;
 /// What a program sends, and where the response goes and what arrived (decision 124).
 pub const Request = files.event.Request;
 pub const Response = files.event.Response;
-pub const WantedHeader = files.event.WantedHeader;
+pub const Headers = files.headers.Headers;
+pub const Trailers = files.headers.Trailers;
 pub const Result = files.event.Result;
 pub const Finished = files.event.Finished;
 /// A datagram `ConnectionPool.send_datagram` wrote, with its ECN codepoint and the address it goes to.
@@ -127,17 +129,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // to `Protocols`, and 23.4 renames `Pool`, `PoolOf`, `Values`, `Https`, `Wanted` and `Outcome`
     // to `ConnectionPool`, `ConnectionPoolOf`, `Destination`, `HttpsRecord`, `WantedHeader` and
     // `Result`. 23.5 folds `Options` into `Config`. Step 32 adds `Timeouts` (decision 146), and 35d
-    // adds `ResumeProvider`, `ResumeState` and `ResumeBounds` (decision 149).
+    // adds `ResumeProvider`, `ResumeState` and `ResumeBounds` (decision 149). Step 38 replaces
+    // `WantedHeader` with `Headers` and `Trailers` (decision 152).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",   "Config",             "Timeouts",         "Protocols",         "StartError",     "RequestError",
-        "Header",      "RequestId",          "Protocol",         "Request",           "Response",       "WantedHeader",
-        "Result",      "Finished",           "Sent",             "Address",           "Ecn",            "ResumeProvider",
-        "ResumeState", "ResumeBounds",       "ConnectionPool",   "ConnectionPoolOf",  "Capacity",       "Destination",
-        "HttpsRecord", "Alternative",        "Input",            "StreamBytes",       "Datagram",       "ReceiveResult",
-        "Event",       "Open",               "ConnectionHandle", "Connected",         "Transport",      "Phase",
-        "ReceivePool", "DefaultReceivePool", "ReceiveStorage",   "Coding",            "DecoderPool",    "DefaultDecoderPool",
-        "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",     "BrotliDecoderPool", "BrotliDecoders", "Features",
+        "constants",          "Config",      "Timeouts",           "Protocols",        "StartError",        "RequestError",
+        "Header",             "RequestId",   "Protocol",           "Request",          "Response",          "Headers",
+        "Trailers",           "Result",      "Finished",           "Sent",             "Address",           "Ecn",
+        "ResumeProvider",     "ResumeState", "ResumeBounds",       "ConnectionPool",   "ConnectionPoolOf",  "Capacity",
+        "Destination",        "HttpsRecord", "Alternative",        "Input",            "StreamBytes",       "Datagram",
+        "ReceiveResult",      "Event",       "Open",               "ConnectionHandle", "Connected",         "Transport",
+        "Phase",              "ReceivePool", "DefaultReceivePool", "ReceiveStorage",   "Coding",            "DecoderPool",
+        "DefaultDecoderPool", "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",     "BrotliDecoderPool", "BrotliDecoders",
+        "Features",
     });
 }
 

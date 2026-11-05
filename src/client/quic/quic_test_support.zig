@@ -81,6 +81,8 @@ pub var answer_open: bool = false;
 /// names more than the content, which RFC 9114 §4.1.2 makes malformed.
 pub var answer_interims: usize = 0;
 pub var answer_malformed: bool = false;
+/// A trailer field the server sends after a response with no content (RFC 9114 §4.1), or null.
+pub var answer_trailer: ?h3.http.Field align(@alignOf(h3.http.Field)) = null;
 
 /// One request the server read, and its answer: the kept frames, then the content.
 pub const Answer = struct {
@@ -164,6 +166,7 @@ pub fn prepare(client_protocols: []const []const u8, server_protocols: []const [
     answer_open = false;
     answer_interims = 0;
     answer_malformed = false;
+    answer_trailer = null;
     server_streams_bidi = server_streams_bidi_default;
     answers_len = 0;
     events_len = 0;
@@ -373,6 +376,12 @@ pub fn server_answer(answer: *Answer, status: u16, content: []const u8) !void {
     try write_interims(answer.id, &writer);
     try server_h3.write_response(&server, answer.id, &server_section, &.{}, &writer, now_ns);
     if (content.len > 0) try server_h3.write_data_header(answer.id, content.len, &writer, now_ns);
+    if (answer_trailer) |trailer| {
+        assert(content.len == 0);
+        server_section.init();
+        try server_section.append(trailer.name, trailer.value);
+        try server_h3.write_trailers(&server, answer.id, &server_section, &writer, now_ns);
+    }
     answer.prefix_len = writer.written().len;
     quic.connection_stream_send.supply(&server, .{ .value = answer.id }, answer.prefix_len + content.len, !answer_open) catch |failure| {
         // RFC 9000 §3.5: a stream the client stopped was reset by the server, and takes no answer.
