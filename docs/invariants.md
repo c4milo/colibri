@@ -58,7 +58,8 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Mechanism.** The module graph gives no module access to `std.posix`, `std.fs`, `std.net`,
   `std.Thread` or `std.time`. Every function that would block returns the I/O it needs instead.
 - **Check.** Lint rule (`tools/lint/io.zig`, an import denylist over `src/` excluding
-  `src/testing/`, which design §9 makes the one place a socket may be opened). Step 0.
+  `src/testing/`, which design §9 makes a place a socket may be opened, and `src/colibri/`, which
+  decision 150 makes the other). Step 0.
 - **Violation.** A convenience helper that takes a socket "just for the test server" and is written
   in a library module instead of in `src/testing/`.
 - See [decisions 6](decisions.md#what-the-caller-supplies).

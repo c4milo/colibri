@@ -2804,6 +2804,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       in a file of its own. A program that moves a stream and datagrams runs both links on one
       pair of loops, so each side's instants come from one clock.
 
+    - Amended on 2026-11-05, for design §8 step 37 (decision 150 ruling 7): `examples/colibri_server.zig`
+      binds 127.0.0.1 on port 0 through `colibri`, which a program uses to bind its sockets, and
+      fetches from it with `client` over h11, h2 and h3. `zig build examples` runs it. Every
+      other example still opens no socket.
+
     The alternatives refused:
     - Programs over real sockets that CI builds and never runs, as chapulin's are. They show a
       whole program, but a broken one passes CI, and they would make a second directory open
@@ -5780,7 +5785,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Bounds with no defaults, which every program would have to choose.
      - The server alone. A client that uploads sends too.
 
-150. **`serve` binds, reads its files and runs the loop, through a `std.Io` the program may pass.**
+150. **`colibri` binds, reads its files and runs the loop, through a `std.Io` the program may pass.**
      Ruled by the owner on 2026-11-04 (design §8 step 37), after a comparison of Zig's HTTP server
      libraries. The owner asked for the shape of httpx.zig's server: a host, a port and the
      server's certificate files in a configuration, a router, and one call that runs. Asked how
@@ -5788,7 +5793,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      the user doesn't provide one."
 
      The rulings:
-     1. A new library module, `serve`, above `server` and `client`. It is the one module that does
+     1. A new library module, `colibri`, above `server` and `client`. It is the one module that does
         I/O: it binds the TCP and the UDP socket of one port, reads the PEM files, accepts, reads,
         writes and sleeps, all through the `std.Io` its program passes. colibri still makes no
         system call itself: the `std.Io` implementation makes them.
@@ -5796,35 +5801,49 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         `quic`, `tls`, `server` and `client` own no I/O, and the simulator and the determinism
         checks cover them as before.
      3. A program that passes no `std.Io` gets Rotor's. Rotor becomes a dependency of the library,
-        for `serve` alone. Rotor's `std.Io` adapter is its decision 22, accepted on 2026-09-27 and
+        for `colibri` alone. Rotor's `std.Io` adapter is its decision 22, accepted on 2026-09-27 and
         deferred until the owner asks for it, so step 37 depends on it.
-     4. `serve`'s API names what httpx.zig's does where colibri has the same concept: a host, a
+     4. `colibri`'s API names what httpx.zig's does where colibri has the same concept: a host, a
         port, the certificate chain and key files, the router, and `run`. h11, h2 and h3 come
         from the one port, h3 over UDP.
-     5. Amended by the owner on 2026-11-05, for a dependent that runs its examples on `serve` in
+     5. Amended by the owner on 2026-11-05, for a dependent that runs its examples on `colibri` in
         memory, through a `std.Io` that fakes the network:
-        - `serve` reads the clock and waits only through the `std.Io` it holds, never through
+        - `colibri` reads the clock and waits only through the `std.Io` it holds, never through
           Rotor or the operating system. A program that passes a fake `std.Io` controls time.
-        - `serve.Config.identity` is a `serve.Identity`: `.files`, the names of the chain and the
+        - `colibri.ServerConfig.identity` is a `colibri.Identity`: `.files`, the names of the chain and the
           key, read through the `std.Io`, or `.pem`, the same PEM text as bytes the program holds.
           An in-memory `std.Io` then needs no file system.
         - The port may be 0. `Server.port()` returns the port the `std.Io` bound, once `run` has
           bound it, so a script can read it.
-     6. Amended by the owner on 2026-11-05, for the same dependent, which asked for `serve` before
-        Rotor's `std.Io` adapter exists: `serve` comes first on Rotor's own API, and the `std.Io`
+     6. Amended by the owner on 2026-11-05, for the same dependent, which asked for `colibri` before
+        Rotor's `std.Io` adapter exists: `colibri` comes first on Rotor's own API, and the `std.Io`
         a program passes comes later.
-        - With no `std.Io`, `serve` drives a Rotor loop through Rotor's own calls. It keeps what
+        - With no `std.Io`, `colibri` drives a Rotor loop through Rotor's own calls. It keeps what
           `std.Io` cannot express: UDP_GRO and UDP_SEGMENT on Linux (design §8 step 13f.6), and
           Rotor's one system call a tick. Rotor's adapter would lose both.
         - Once Rotor's adapter exists, `Server.init` takes a program's `std.Io` as rulings 1 and 5
-          say, and `serve` runs through it with no other I/O.
+          say, and `colibri` runs through it with no other I/O.
         - The program passes the `std.Random` that each TLS session draws from (non-negotiable
-          2), and `serve` reads the loop's clock.
-        - `serve` takes a router that `server.router` built, unchanged.
+          2), and `colibri` reads the loop's clock.
+        - `colibri` takes a router that `server.router` built, unchanged.
+     7. Amended by the owner on 2026-11-05, for design §8 step 37:
+        - `Server.run` runs one Rotor loop on the thread that calls it, and starts no thread. A
+          program that wants more cores starts more servers on one port.
+        - `colibri`'s example and its unit tests bind loopback sockets (decision 96 as amended), and
+          `src/colibri/` is the second directory, after `src/testing/`, that opens a socket.
+     8. Amended by the owner on 2026-11-05: the module is `colibri`, a facade in the shape of
+        httpx.zig's, so a program writes `colibri.Server` and, by decision 153, `colibri.Client`.
+        The sans-I/O modules stay underneath it. The owner found `serve.Server` hard to read, and
+        weighed it against Zig's own names, `std.http.Server` over a reader and a writer, and
+        `std.Io.net.Server`, a listening socket:
+        - `serve.Server` and `serve.Client` lost: the module and the type say the same thing.
+        - `net.Server` lost: std's `net.Server` is a bare listener, not an HTTP server.
+        - `http.Server` lost: colibri's `http` module is sans-I/O, and the protocol modules import
+          it.
 
      Alternatives that lost:
      - A separate package on colibri and Rotor. The owner wants the shape in colibri itself.
-     - Wait for Rotor's adapter before any `serve` (ruling 6). The dependent needs `serve` now,
+     - Wait for Rotor's adapter before any `colibri` (ruling 6). The dependent needs `colibri` now,
        and the adapter's calls cannot reach UDP batching.
      - Documentation alone: the program keeps writing its own loop.
      - Binding inside `server`, which would end non-negotiable 1 for the module the simulator
@@ -5884,11 +5903,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        them trailers.
      - Wait for streamed bodies. Trailers do not depend on them.
 153. **A client that runs on a `std.Io`, with streamed bodies under it.** Ruled by the owner on
-     2026-11-05 (design §8 step 39), as the client's counterpart of `serve` (decision 150). A
+     2026-11-05 (design §8 step 39), as the client's counterpart of `colibri` (decision 150). A
      dependent that implements Connect and gRPC streams request and response bodies, and runs its
      client both over sockets and in memory.
-     1. `serve.Client` runs a `client.ConnectionPool` through the `std.Io` its program passes, or
-        Rotor's when it passes none, as `serve.Server` runs an endpoint. It opens, reads, writes,
+     1. `colibri.Client` runs a `client.ConnectionPool` through the `std.Io` its program passes, or
+        Rotor's when it passes none, as `colibri.Server` runs an endpoint. It opens, reads, writes,
         reads the clock and waits only through that `std.Io`.
      2. Each exchange gives a `*std.Io.Writer` for the request body and a `*std.Io.Reader` for the
         response body. Each buffer is the program's own memory. A `std.Io.Writer` or
@@ -5909,7 +5928,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      4. `spec/tla/client_exchanges` (decision 105) gains the pieces: no `finished` while a piece is
         held, no piece written over before its release, and no exchange sent again after it gave
         up a piece.
-     5. The client lives in `serve`, beside the server, so that one module of the library does
+     5. The client lives in `colibri`, beside the server, so that one module of the library does
         I/O.
 
      Alternatives that lost:

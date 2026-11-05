@@ -29,7 +29,7 @@ The architecture depends on every rule in this section.
 1. **colibri owns no I/O.** No socket, no file descriptor, no `poll`, no thread. Frames and heads
    are written into storage the caller owns and parsed out of bytes the caller has already read.
    Every function that would block instead returns a value naming the I/O it needs. Do not
-   make a syscall in this repository. Decision 150 makes one exception: the `serve` module binds,
+   make a syscall in this repository. Decision 150 makes one exception: the `colibri` module binds,
    reads its certificate files and runs the loop through the `std.Io` its program passes, or
    Rotor's when it passes none. Every other module stays as this rule says.
 2. **chapulin is colibri's crypto, and colibri holds no key.** The library links chapulin as its
@@ -233,12 +233,14 @@ is added to the root and to the list in its test, which prints the name that dif
   over TLS read: it lives once in `src/testing/testdata/`, a test-only module no packaged module
   imports, beside the openssl commands that made it.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
-  library and is the only directory permitted to open a socket. Every endpoint there does its I/O
+  library and is one of two directories permitted to open a socket; `src/colibri/` is the other
+  (decision 150). Every endpoint there does its I/O
   without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
   58 and 83).
 - `examples/` holds programs a project that depends on colibri would write, importing the library
-  modules by name. They run on Rotor's loop over an in-memory link and open no socket, and `zig
-  build examples` runs every one (decision 96).
+  modules by name. They run on Rotor's loop over an in-memory link and open no socket, except
+  `colibri_server.zig`, which binds loopback through `colibri`, and `zig build examples` runs every one
+  (decision 96 as amended).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
@@ -288,8 +290,8 @@ tree. Design §11 holds the method and the numbers.
   calls `probe()` and depends on stdx itself to do it, and `tls` imports the module for its `Cpu`
   type alone and never probes. The package does not export it (decision 97 as amended).
   It has no allocator at all (decision 35). `server` imports stdx's `json` module too (decision
-  151), and `serve` imports Rotor, for its `std.Io` adapter, when a program passes no `std.Io`
-  (decision 150). Five more are ruled for the
+  151), and `colibri` imports Rotor for its loop, which it drives through Rotor's own calls until a
+  program can pass a `std.Io` (decision 150). Five more are ruled for the
   tooling and the tests, and the library imports none of them except as above: pepegrillo, the
   tooling `tools/` builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and
   `examples/` run on (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
