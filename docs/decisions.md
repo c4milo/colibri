@@ -5975,6 +5975,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         initial window and each step of growth, under CUBIC, NewReno and BBRv3 alike.
      5. The send buffers and the frame scratch grow from 1,200 octets to `datagram_len_max`, so
         each QUIC connection grows. Each new limit is named, and each new name goes on its list.
+     6. Amended by the owner on 2026-11-05, so a datacenter path with 9,000-octet frames is found:
+        `datagram_len_max` may go up to 65,527 octets, the largest `max_udp_payload_size` RFC 9000
+        §18.2 allows, and colibri advertises the option's value as its own
+        `max_udp_payload_size`. The send buffers, the frame scratch, and the receive buffers where
+        the kernel coalesces nothing size from the option, so memory grows with the ceiling a
+        program chooses and stays as the default sets it otherwise. The search reaches a high
+        ceiling in about 13 probes, by halving the interval it has left (RFC 8899 §5.3).
 
      Alternatives that lost:
      - PMTUD from ICMP (RFC 9000 §14.2.1). Rotor reads no ICMP, and §14.2.1 asks that a message be

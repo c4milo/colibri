@@ -12992,14 +12992,16 @@ library.
     example runs a gRPC-shaped stream in memory through `colibri.Client` and `colibri.Server`.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It comes after step 37 and before v0.14.0.
-  - **The public names.** A connection option `datagram_len_max`, which `server.Config` and
-    `client.Config` carry, and the search's limits in `quic.constants.limits`. Each goes on its
+  - **The public names.** A connection option `datagram_len_max`, 1,452 octets by default and up
+    to 65,527 (decision 155 ruling 6), which `server.Config` and `client.Config` carry, and the
+    search's limits in `quic.constants.limits`. Each goes on its
     list in the commit that adds it.
   - **The rules.** A path's search runs once the handshake is confirmed, from 1,200 octets, by
     padded PING probes, up to the smallest ceiling. A lost probe changes no window. Repeated
     losses of full-size packets return the path to 1,200 octets. The search starts again after
     PMTU_RAISE_TIMER.
-  - **The checks.** A simulator network with a path size below the probes, and one whose size
+  - **The checks.** A simulator network of 9,000-octet frames, which a ceiling of 8,952 finds. A
+    simulator network with a path size below the probes, and one whose size
     drops in the middle of a connection, each with every seed finishing. A TLA+ model of the
     search's states, with mutants. Mutations of each rule. A judge bulk run, beside step 34's
     numbers.
