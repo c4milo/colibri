@@ -320,7 +320,8 @@ CI runs every check on Ubuntu 26.04 on x86-64, and the module tests on Ubuntu 26
 on arm64. The HTTP Garden and the QUIC Interop Runner also run on Ubuntu 26.04 on x86-64.
 macOS on arm64 is also the development host, where every check runs, the TLS and QUIC ones
 included. Every module but `colibri` makes no system call, so it builds wherever Zig 0.16.0 does,
-but only these platforms are checked. `colibri` runs on Rotor, on Linux and macOS. Published performance numbers come from Linux alone.
+but only these platforms are checked. `colibri` runs on Rotor, on Linux and macOS. Published
+performance numbers come from Linux alone.
 
 ## Documentation
 

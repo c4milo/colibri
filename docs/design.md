@@ -13046,7 +13046,15 @@ library.
       a missing file reported as unreadable; the key read from the chain's name; a name with a
       zero octet accepted.
     - Rotor's `open_file` opens a file to read and to write, so a key file the program may only
-      read, such as one of mode 0400, is refused with `IdentityFileAccessDenied`.
+      read, such as one of mode 0400, is refused with `IdentityFileAccessDenied`. A test pins it.
+    - After the review of 37d and 37e: the name's length check off by one; no length check;
+      `AccessDenied` reported as unreadable; the key's text wiped on success alone; the key and
+      the cookie key kept when `init` fails after the read; a TLS connection accepted as
+      cleartext. The last one is caught by a fetch over TLS from std's client.
+    - **NOT CAUGHT:** no check for a file that became shorter after `file_size`. No test can
+      shorten a file within `read`, so the check stays without a test.
+    - **Not checked:** no test sends a datagram through `colibri.Server`, so its UDP receive and
+      send paths have no check. The fetch over h3 with `colibri.Client` in step 42 checks them.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open
     connections close. The simulator's checks of `server` stay as they are.
 - **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**

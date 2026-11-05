@@ -2806,8 +2806,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     - Amended on 2026-11-05, for design §8 step 37 (decision 150 ruling 7): `examples/colibri_server.zig`
       binds 127.0.0.1 on port 0 through `colibri`, which a program uses to bind its sockets, and
-      fetches from it with `client` over h11, h2 and h3. `zig build examples` runs it. Every
-      other example still opens no socket.
+      fetches from it over h11 with a client of `std.Io.Threaded`. The fetch over h2 and h3 comes
+      with `colibri.Client` in design §8 step 42. `zig build examples` runs it. Every other example
+      still opens no socket.
 
     The alternatives refused:
     - Programs over real sockets that CI builds and never runs, as chapulin's are. They show a

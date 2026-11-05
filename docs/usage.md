@@ -156,6 +156,10 @@ fn serve() void {
 }
 ```
 
+Once `init` returns, the server holds its sockets, and only `run` closes them. The server has no
+other call that closes them. A program that does not start `run` after `init` keeps the sockets
+open until the program exits.
+
 `colibri.ServerConfig` holds these fields:
 
 - `host` and `port`: an IPv4 or IPv6 literal, and the port of TCP and UDP. The defaults are

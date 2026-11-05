@@ -1,7 +1,7 @@
 //! The programs of `examples/` (decision 96): what a project that depends on colibri writes, each
 //! one importing the library modules by the names a dependent uses, and run over an in-memory link
-//! on rotor's loop. `colibri_server` alone binds a loopback port, through `colibri`. `zig build examples` builds and runs every one, and `zig build example-<name>`
-//! one of them.
+//! on rotor's loop. `colibri_server` alone binds a loopback port, through `colibri`. `zig build
+//! examples` builds and runs every one, and `zig build example-<name>` one of them.
 const std = @import("std");
 const modules = @import("modules.zig");
 
