@@ -111,6 +111,11 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             if (self.config.random == null) self.config.random = entropy.random();
             self.endpoint_config = config.endpoint;
             assert(self.endpoint_config.tls == null);
+            // A server that `init` does not return keeps no private key and no cookie key.
+            errdefer {
+                self.identity.key.wipe();
+                std.crypto.secureZero(u8, &self.identity.cookie_key);
+            }
             if (config.identity) |identity| {
                 self.endpoint_config.tls = try identity_module.load(identity, &self.identity, &self.loop_memory, config.cpu, self.config.random.?);
             }
@@ -240,6 +245,16 @@ test "decision 150: no identity serves cleartext" {
 test "decision 150: a host that is no IP literal is refused" {
     var counter: support.Counter = .{};
     try testing.expectError(error.HostInvalid, test_server.init(.{ .host = "localhost", .cpu = support.cpu(), .random = counter.random() }));
+}
+
+test "decision 150: an init that fails after it reads the key wipes the key and the cookie key" {
+    var counter: support.Counter = .{};
+    const identity: Identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } };
+    // The bind refuses the host after `load` has read the key and drawn the cookie key.
+    try testing.expectError(error.HostInvalid, test_server.init(.{ .host = "localhost", .identity = identity, .cpu = support.cpu(), .random = counter.random() }));
+    try testing.expect(counter.next != 0);
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
 }
 
 test {
