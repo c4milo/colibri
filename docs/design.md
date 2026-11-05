@@ -12905,14 +12905,18 @@ library.
     that is not JSON, is not `T`, or passes a limit answers 400. An example route shows both.
 - **Step 37 — `serve`, proposed 2026-11-04.** [Decision 150](decisions.md). It depends on Rotor's
   `std.Io` adapter, Rotor's decision 22.
-  - **The public names:** `serve.Server`, `serve.Config` with `host`, `port`, `chain_file`,
-    `key_file` and the `server.Config` it builds the endpoint from, `Server.init(io, config,
-    router)`, where `io` is optional, `Server.run()` and `Server.shutdown()`.
+  - **The public names:** `serve.Server`, `serve.Config` with `host`, `port`, `identity` and the
+    `server.Config` it builds the endpoint from, `serve.Identity` with `.files` and `.pem`,
+    `Server.init(io, config, router)`, where `io` is optional, `Server.run()`, `Server.port()`
+    and `Server.shutdown()`.
   - **The rules.** `run` binds TCP and UDP on the one port, reads the PEM files through `io` into
     `tls.pem`, and runs the endpoint and the router until `shutdown`. Without an `io`, it runs on
-    Rotor's adapter.
+    Rotor's adapter. It reads the clock and waits only through `io`. With port 0, `port()` returns
+    the port `io` bound (decision 150 as amended).
   - **The checks.** An example serves h11, h2 and h3 from one port to colibri's client, on
-    Rotor's adapter and on `std.Io.Threaded`. The simulator's checks of `server` stay as they are.
+    Rotor's adapter and on `std.Io.Threaded`. Another runs the server and `serve.Client` in one
+    process over a `std.Io` that keeps the network in memory, with the identity as `.pem` bytes
+    and port 0. The simulator's checks of `server` stay as they are.
 - **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**
   [Decision 152](decisions.md). A dependent that implements Connect and gRPC needs
   `grpc-status` and `grpc-message`.
@@ -12931,6 +12935,18 @@ library.
     h11 and with a `Trailer` header. A response with a trailer buffer sends `te: trailers`. A
     trailer named Content-Length is refused. The examples, docs/usage.md and the client trace
     run move to the new fields.
+- **Step 39 — a client on a `std.Io` and streamed bodies, proposed 2026-11-05.**
+  [Decision 153](decisions.md). It depends on step 37.
+  - **The public names:** `client.Streamed`, `Request.streamed`, `ConnectionPool.write_body`,
+    `ConnectionPool.release_body`, the events `headers`, `body` and `body_taken`, and
+    `serve.Client` with `init(io, config)`, `request`, `run` and `shutdown`. Each exchange of
+    `serve.Client` gives `writer()` and `reader()`.
+  - **The rules.** The pool copies no piece and holds one piece of each body at a time. It gives
+    back flow credit only after `release_body`. `serve.Client` waits only through its `std.Io`.
+  - **The checks.** A request body in pieces and a response body in pieces each arrive whole over
+    h11, h2 and h3. A server that sends faster than the program releases is held by flow
+    control. The TLA+ model finds each of decision 153's rules violated when the rule is off. An
+    example runs a gRPC-shaped stream in memory through `serve.Client` and `serve.Server`.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

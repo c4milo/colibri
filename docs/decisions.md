@@ -5801,6 +5801,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      4. `serve`'s API names what httpx.zig's does where colibri has the same concept: a host, a
         port, the certificate chain and key files, the router, and `run`. h11, h2 and h3 come
         from the one port, h3 over UDP.
+     5. Amended by the owner on 2026-11-05, for a dependent that runs its examples on `serve` in
+        memory, through a `std.Io` that fakes the network:
+        - `serve` reads the clock and waits only through the `std.Io` it holds, never through
+          Rotor or the operating system. A program that passes a fake `std.Io` controls time.
+        - `serve.Config.identity` is a `serve.Identity`: `.files`, the names of the chain and the
+          key, read through the `std.Io`, or `.pem`, the same PEM text as bytes the program holds.
+          An in-memory `std.Io` then needs no file system.
+        - The port may be 0. `Server.port()` returns the port the `std.Io` bound, once `run` has
+          bound it, so a script can read it.
 
      Alternatives that lost:
      - A separate package on colibri and Rotor. The owner wants the shape in colibri itself.
@@ -5861,3 +5870,41 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `trailing_headers`. RFC 9110 §6.5 calls them trailer fields, and Go, Node and curl call
        them trailers.
      - Wait for streamed bodies. Trailers do not depend on them.
+153. **A client that runs on a `std.Io`, with streamed bodies under it.** Ruled by the owner on
+     2026-11-05 (design §8 step 39), as the client's counterpart of `serve` (decision 150). A
+     dependent that implements Connect and gRPC streams request and response bodies, and runs its
+     client both over sockets and in memory.
+     1. `serve.Client` runs a `client.ConnectionPool` through the `std.Io` its program passes, or
+        Rotor's when it passes none, as `serve.Server` runs an endpoint. It opens, reads, writes,
+        reads the clock and waits only through that `std.Io`.
+     2. Each exchange gives a `*std.Io.Writer` for the request body and a `*std.Io.Reader` for the
+        response body. Each buffer is the program's own memory. A `std.Io.Writer` or
+        `std.Io.Reader` may wait, so only this layer offers them: the pool must not wait
+        (non-negotiable 1).
+     3. Under it, the pool streams bodies in pieces and copies none (decision 139):
+        - `Request.streamed` says which body goes in pieces. `ConnectionPool.write_body(id,
+          piece, end)` hands a request piece, which the program keeps until a `body_taken` event.
+          Over h11 with no Content-Length the request goes chunked (RFC 9112 §7.1).
+        - A `headers` event reports the status and headers first. Each `body` event says that
+          `Response.body` holds a piece, which the program gives back with `release_body(id)`.
+          Until then the pool gives back no flow credit over h2 and h3 (RFC 9113 §5.2, RFC 9000
+          §4.1), and over h11 it reads no more of that connection.
+        - The pool sends a streamed request again only before its first `body_taken`, because
+          after it the pool holds no copy (decision 124 ruling 3).
+        - Over h2 and h3 a request body may go on after the response headers arrive (RFC 9113
+          §8.1). Over h11, decision 124 ruling 2 stays.
+     4. `spec/tla/client_exchanges` (decision 105) gains the pieces: no `finished` while a piece is
+        held, no piece written over before its release, and no exchange sent again after it gave
+        up a piece.
+     5. The client lives in `serve`, beside the server, so that one module of the library does
+        I/O.
+
+     Alternatives that lost:
+     - A `std.Io.Writer` and a `std.Io.Reader` on the pool itself. `writeAll` and
+       `readSliceAll` call `drain` and `stream` again until they finish, so a pool that cannot
+       wait would loop without end.
+     - `write_body` copies each piece into the pool's output: one copy a piece, and memory for
+       each exchange, against decision 139.
+     - A provider that the pool calls inside `receive` for each piece. The pool reports events and
+       does not call the program back inside its loop.
+     - A module of its own for the client. Two modules would then do I/O.
