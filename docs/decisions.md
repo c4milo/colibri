@@ -5810,9 +5810,22 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           An in-memory `std.Io` then needs no file system.
         - The port may be 0. `Server.port()` returns the port the `std.Io` bound, once `run` has
           bound it, so a script can read it.
+     6. Amended by the owner on 2026-11-05, for the same dependent, which asked for `serve` before
+        Rotor's `std.Io` adapter exists: `serve` comes first on Rotor's own API, and the `std.Io`
+        a program passes comes later.
+        - With no `std.Io`, `serve` drives a Rotor loop through Rotor's own calls. It keeps what
+          `std.Io` cannot express: UDP_GRO and UDP_SEGMENT on Linux (design §8 step 13f.6), and
+          Rotor's one system call a tick. Rotor's adapter would lose both.
+        - Once Rotor's adapter exists, `Server.init` takes a program's `std.Io` as rulings 1 and 5
+          say, and `serve` runs through it with no other I/O.
+        - The program passes the `std.Random` that each TLS session draws from (non-negotiable
+          2), and `serve` reads the loop's clock.
+        - `serve` takes a router that `server.router` built, unchanged.
 
      Alternatives that lost:
      - A separate package on colibri and Rotor. The owner wants the shape in colibri itself.
+     - Wait for Rotor's adapter before any `serve` (ruling 6). The dependent needs `serve` now,
+       and the adapter's calls cannot reach UDP batching.
      - Documentation alone: the program keeps writing its own loop.
      - Binding inside `server`, which would end non-negotiable 1 for the module the simulator
        drives.

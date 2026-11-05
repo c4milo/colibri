@@ -12903,8 +12903,9 @@ library.
     and the decoder's limits in `server.constants.limits`.
   - **The checks.** Each value type the encoder takes round-trips through stdx's decoder. A body
     that is not JSON, is not `T`, or passes a limit answers 400. An example route shows both.
-- **Step 37 — `serve`, proposed 2026-11-04.** [Decision 150](decisions.md). It depends on Rotor's
-  `std.Io` adapter, Rotor's decision 22.
+- **Step 37 — `serve`, proposed 2026-11-04.** [Decision 150](decisions.md). Its first part runs
+  on Rotor's own API (decision 150 ruling 6). The `std.Io` a program passes waits for Rotor's
+  adapter, Rotor's decision 22.
   - **The public names:** `serve.Server`, `serve.Config` with `host`, `port`, `identity` and the
     `server.Config` it builds the endpoint from, `serve.Identity` with `.files` and `.pem`,
     `Server.init(io, config, router)`, where `io` is optional, `Server.run()`, `Server.port()`
