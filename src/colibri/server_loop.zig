@@ -9,6 +9,7 @@ const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
+const server_udp = @import("server_udp.zig");
 
 const Kind = socket_module.Kind;
 const kind_bits = socket_module.kind_bits;
@@ -41,6 +42,20 @@ pub fn bind(state: anytype) BindError!void {
     state.bound_port = local.port;
 }
 
+/// Empties what a run holds: no socket, entry or pending step, and the loop's instant as the last.
+pub fn reset(state: anytype) void {
+    for (&state.sockets) |*socket| socket.live = false;
+    for (&state.entries) |*entry| entry.* = .{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false };
+    state.entry_of = @splat(null);
+    state.pending = .initEmpty();
+    state.touched = .initEmpty();
+    state.accepting = false;
+    state.undrained = false;
+    state.shut_down = false;
+    state.over = false;
+    state.now_ns = state.loop.now_ns();
+}
+
 /// One turn of the loop: an accept when a socket is free, one tick, what its events ask for, and
 /// then the operations each socket it changed needs next.
 pub fn turn(run: anytype) !void {
@@ -60,13 +75,18 @@ pub fn turn(run: anytype) !void {
     }
     serve(run, now_ns);
     arm(state);
+    if (state.udp_open) server_udp.flush(state, now_ns);
 }
 
 /// Stops taking connections, and asks the endpoint to end each one it holds: its `closed` follows
 /// once every connection has ended, and `run` then returns.
 fn shut_down(state: anytype) void {
     state.shut_down = true;
+    if (state.udp_open) server_udp.stop(state);
     state.endpoint.shutdown(state.loop.now_ns());
+    // The endpoint reports what the shutdown ends, and `closed` once it holds no connection. With
+    // no socket to step, only a drain reads them, so this turn drains.
+    state.undrained = true;
 }
 
 /// How long the tick after `now_ns` may wait: until `deadline_ns`, the soonest deadline of a
@@ -81,6 +101,7 @@ fn wait_ns(state: anytype, deadline_ns: ?u64, now_ns: u64) u64 {
 fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
     const state = run.server;
     if (event.user_data == accept_user_data) return on_accept(run, event, now_ns);
+    if (server_udp.owns(event.user_data)) return server_udp.on_event(run, event, now_ns);
     const index: usize = @intCast(event.user_data >> kind_bits);
     const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data)));
     const socket = &state.sockets[index];

@@ -1,8 +1,7 @@
 //! The source a `colibri.Server` draws from when its program passes none (decision 150 ruling 9):
 //! the operating system's entropy, with no state kept here, so one source serves every session.
 //! Linux gives it through the `getrandom` system call, which needs no libc. macOS gives it through
-//! `getentropy`, in the libSystem every macOS program links. Once a program can pass a `std.Io`,
-//! its `randomSecure` takes this place.
+//! `getentropy`, in the libSystem every macOS program links.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;

@@ -1,7 +1,7 @@
 //! colibri's networked server (decision 150): the one module that binds sockets and runs a loop,
 //! over the sans-I/O modules underneath it. A program writes `colibri.Server`, gives it a host, a
-//! port, an identity and a router, and calls `run`. It runs on Rotor's own loop until a program
-//! can pass a `std.Io` (ruling 6), one loop on the thread that calls `run` (ruling 7).
+//! port, an identity and a router, and calls `run`. It runs on Rotor's own loop (rulings 6 and
+//! 10), one loop on the thread that calls `run` (ruling 7).
 pub const constants = @import("constants.zig");
 
 const files = struct {
@@ -10,6 +10,8 @@ const files = struct {
     pub const server = @import("server.zig");
     pub const server_loop = @import("server_loop.zig");
     pub const server_pump = @import("server_pump.zig");
+    pub const server_udp = @import("server_udp.zig");
+    pub const datagram_batch = @import("datagram_batch.zig");
     pub const socket = @import("socket.zig");
 };
 

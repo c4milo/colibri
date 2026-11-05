@@ -66,7 +66,7 @@ fn fetch(io: std.Io, request: []const u8, response: []u8) ![]const u8 {
 test "decision 150: a server on port 0 answers an h11 request through its router, and shuts down" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(null, .{ .cpu = support.cpu(), .random = counter.random() });
+    try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
     try testing.expect(test_server.port() != 0);
     const thread = try std.Thread.spawn(.{}, serve, .{});
     var threaded: std.Io.Threaded = .init_single_threaded;

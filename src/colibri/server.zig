@@ -11,6 +11,8 @@ const identity_module = @import("identity.zig");
 const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_loop = @import("server_loop.zig");
+const server_udp = @import("server_udp.zig");
+const batch_module = @import("datagram_batch.zig");
 const entropy = @import("entropy.zig");
 
 const Identity = identity_module.Identity;
@@ -34,13 +36,10 @@ pub const ServerConfig = struct {
     endpoint: server.Config = .{},
 };
 
-pub const InitError = identity_module.LoadError || server_loop.BindError || error{
-    /// A program passed a `std.Io`, which `colibri` takes once Rotor's adapter exists (decision 150
-    /// ruling 6).
-    IoUnavailable,
-};
+pub const InitError = identity_module.LoadError || server_loop.BindError || rotor.sync.SocketError;
 
-pub const RunError = rotor.Loop.InitError || rotor.Loop.TickError || rotor.Loop.DrainError || server.StartError;
+pub const RunError = rotor.Loop.InitError || rotor.Loop.TickError || rotor.Loop.DrainError ||
+    rotor.Loop.ProvideError || server.StartError;
 
 /// A server of the default capacity.
 pub const Server = ServerOf(.{});
@@ -52,14 +51,14 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
 
         const tcp_connections = capacity.tcp_connections;
         const Bits = std.bit_set.IntegerBitSet(tcp_connections);
-        /// The operations the loop holds in flight: an accept, and for each socket a receive, a
-        /// send and a close.
+        /// The operations the loop holds in flight: an accept, for each socket a receive, a send
+        /// and a close, and the UDP socket's receive and sends.
         const loop_options: rotor.Loop.Options = .{
-            .operations = tcp_connections * socket_module.operations_per_socket + 1,
+            .operations = tcp_connections * socket_module.operations_per_socket + 1 + server_udp.operations,
         };
         comptime {
             assert(tcp_connections > 0 and loop_options.operations <= rotor.constants.batch_max);
-            assert(tcp_connections < server_loop.accept_user_data >> socket_module.kind_bits);
+            assert(tcp_connections < server_udp.send_user_data_last >> socket_module.kind_bits);
         }
 
         loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
@@ -78,6 +77,16 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         bound_port: u16,
         accepting: bool,
         sockets: [tcp_connections]socket_module.Socket,
+        /// The UDP socket, open when the server has an identity and QUIC slots (design §8 step
+        /// 37c), its receive buffers, its batches and their destinations, and the room each
+        /// datagram is written in.
+        udp_open: bool,
+        udp_socket: rotor.Descriptor,
+        udp_receiving: rotor.Handle,
+        udp_group: [server_udp.group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
+        batches: batch_module.Batches,
+        udp_outbound: [constants.limits.udp_batches]rotor.datagram.Outbound,
+        udp_datagram: [constants.limits.udp_datagram_len_max]u8,
         /// The entries an event named since their last step, and the sockets a turn changed.
         pending: Bits,
         touched: Bits,
@@ -92,10 +101,9 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         over: bool,
 
         /// Reads the identity, keeps the configuration and binds the listener, so `port()` holds
-        /// the port bound once `init` returns. `io` must be null until Rotor's `std.Io` adapter
-        /// exists, and the server then runs on Rotor's own loop.
-        pub fn init(self: *Self, io: ?std.Io, config: ServerConfig) InitError!void {
-            if (io != null) return error.IoUnavailable;
+        /// the port bound once `init` returns. The server runs on Rotor's own loop (decision 150
+        /// ruling 10).
+        pub fn init(self: *Self, config: ServerConfig) InitError!void {
             self.config = config;
             if (self.config.random == null) self.config.random = entropy.random();
             self.endpoint_config = config.endpoint;
@@ -105,6 +113,8 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             }
             assert((self.endpoint_config.tls != null) == (config.identity != null));
             try server_loop.bind(self);
+            errdefer rotor.sync.close_now(self.listener);
+            try server_udp.open_when_served(self, capacity.quic_connections > 0);
             self.stopping = .init(false);
         }
 
@@ -125,25 +135,18 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         /// Rotor loop belongs to the thread that starts it.
         pub fn run(self: *Self, router: anytype, context: anytype) RunError!void {
             defer rotor.sync.close_now(self.listener);
+            defer if (self.udp_open) rotor.sync.close_now(self.udp_socket);
             try self.loop.init(&self.loop_memory, loop_options);
             defer self.loop.deinit();
             defer {
                 self.loop.cancel_all();
                 self.loop.drain(&self.events) catch {};
             }
-            for (&self.sockets) |*socket| socket.live = false;
-            for (&self.entries) |*entry| entry.* = .{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false };
-            self.entry_of = @splat(null);
-            self.pending = Bits.initEmpty();
-            self.touched = Bits.initEmpty();
-            self.accepting = false;
-            self.undrained = false;
-            self.shut_down = false;
-            self.over = false;
-            self.now_ns = self.loop.now_ns();
+            server_loop.reset(self);
             // The server issues no ticket unless the program gave a ticket key, so the instant in
             // seconds it judges tickets at is chapulin's 0 for none.
             try self.endpoint.init(&self.endpoint_config, self.config.random.?, 0, self.now_ns);
+            if (self.udp_open) try server_udp.start(self);
             const Run = struct { server: *Self, router: @TypeOf(router), context: @TypeOf(context) };
             var running: Run = .{ .server = self, .router = router, .context = context };
             while (!server_loop.finished(self)) try server_loop.turn(&running);
@@ -158,9 +161,25 @@ const support = @import("test_support.zig");
 /// A server the tests place, outside any stack frame. Test-only.
 threadlocal var test_server: Server align(@alignOf(Server)) = undefined;
 
+test "design §8 step 37c: an identity opens UDP on the listener's port, which Alt-Svc names" {
+    var counter: support.Counter = .{};
+    try test_server.init(.{
+        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .cpu = support.cpu(),
+        .random = counter.random(),
+    });
+    defer rotor.sync.close_now(test_server.listener);
+    try testing.expect(test_server.udp_open);
+    defer rotor.sync.close_now(test_server.udp_socket);
+    const local = try rotor.sync.local_address(test_server.udp_socket);
+    try testing.expectEqual(test_server.port(), local.port);
+    // RFC 7838 §3: the TCP connections over TLS advertise h3 on the same port.
+    try testing.expectEqual(test_server.port(), test_server.endpoint_config.h3_alternative.?.port);
+}
+
 test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
     var counter: support.Counter = .{};
-    try test_server.init(null, .{
+    try test_server.init(.{
         .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
         .cpu = support.cpu(),
         .random = counter.random(),
@@ -170,32 +189,36 @@ test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
     try testing.expectEqual(.ecdsa_secp256r1_sha256, values.identities[0].key.scheme);
     try testing.expectEqualSlices(u8, testdata.leaf, values.identities[0].chain[0]);
     rotor.sync.close_now(test_server.listener);
+    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
     // RFC 9846 §4.3.2: the cookie key comes from the program's source.
     try testing.expectEqual(0, values.cookie_key[0]);
     try testing.expectEqual(1, values.cookie_key[1]);
 }
 
 test "decision 150 ruling 9: a server given no source draws from the system" {
-    try test_server.init(null, .{ .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } }, .cpu = support.cpu() });
+    try test_server.init(.{ .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } }, .cpu = support.cpu() });
     try testing.expect(test_server.config.random != null);
     const values = test_server.endpoint_config.tls.?;
     // Thirty-two octets from the system are not the counter's 0, 1, 2, ...
     try testing.expect(!(values.cookie_key[0] == 0 and values.cookie_key[1] == 1 and values.cookie_key[2] == 2));
     rotor.sync.close_now(test_server.listener);
+    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
 }
 
-test "decision 150: no identity serves cleartext, and a std.Io waits for Rotor's adapter" {
+test "decision 150: no identity serves cleartext" {
     var counter: support.Counter = .{};
-    try test_server.init(null, .{ .cpu = support.cpu(), .random = counter.random() });
+    try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
     try testing.expectEqual(null, test_server.endpoint_config.tls);
+    // RFC 9001 §4: QUIC needs TLS, so a cleartext server opens no UDP socket.
+    try testing.expect(!test_server.udp_open);
+    try testing.expectEqual(null, test_server.endpoint_config.h3_alternative);
     rotor.sync.close_now(test_server.listener);
-    var threaded: std.Io.Threaded = .init_single_threaded;
-    try testing.expectError(error.IoUnavailable, test_server.init(threaded.io(), .{ .cpu = support.cpu(), .random = counter.random() }));
+    if (test_server.udp_open) rotor.sync.close_now(test_server.udp_socket);
 }
 
 test "decision 150: a host that is no IP literal is refused" {
     var counter: support.Counter = .{};
-    try testing.expectError(error.HostInvalid, test_server.init(null, .{ .host = "localhost", .cpu = support.cpu(), .random = counter.random() }));
+    try testing.expectError(error.HostInvalid, test_server.init(.{ .host = "localhost", .cpu = support.cpu(), .random = counter.random() }));
 }
 
 test {

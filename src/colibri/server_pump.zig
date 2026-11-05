@@ -105,7 +105,7 @@ fn read(run: anytype, entry: *Entry, input: []u8) Read {
         const bytes: server.StreamBytes = .{ .connection = entry.handle, .bytes = input[taken.consumed..] };
         const received = state.endpoint.receive(.{ .stream = bytes }, state.now_ns);
         taken.consumed += received.consumed;
-        if (received.event) |reported| on_event(run, reported);
+        if (received.event) |reported| route(run, reported);
         if (received.consumed == 0 and received.event == null) break;
         taken.moved = true;
     }
@@ -129,16 +129,19 @@ pub fn drain(run: anytype) void {
             state.undrained = false;
             return;
         };
-        on_event(run, reported);
+        route(run, reported);
     }
     state.undrained = true;
 }
 
-/// Hands an event to the router. The router writes each response itself, so the connection of a
-/// request's event is stepped. The router hands back the events of the connections, which are
-/// the server's I/O.
-fn on_event(run: anytype, reported: server.Event) void {
-    if (request_connection(reported)) |handle| _ = named(run.server, handle);
+/// Hands an event of a TCP or a QUIC connection to the router. The router writes each response
+/// itself, so the TCP connection of a request's event is stepped. The router hands back the events
+/// of the connections, which are the server's I/O. A QUIC connection's datagrams leave in the
+/// loop's flush.
+pub fn route(run: anytype, reported: server.Event) void {
+    if (request_connection(reported)) |handle| {
+        if (is_tcp(run.server, handle)) _ = named(run.server, handle);
+    }
     switch (run.router.handle(run.context, &run.server.endpoint, reported)) {
         .taken => {},
         .event => |other| on_connection_event(run.server, other),
@@ -161,8 +164,9 @@ fn on_connection_event(state: anytype, reported: server.Event) void {
     switch (reported) {
         .send => |handle| named(state, handle).send_owed = true,
         .close => |handle| named(state, handle).closing = true,
-        // The slot takes another connection from here on, and the entry stays its socket's.
-        .ended => |over| {
+        // A QUIC connection has no socket of its own, and its slot frees in the endpoint.
+        .ended => |over| if (is_tcp(state, over.connection)) {
+            // The slot takes another connection from here on, and the entry stays its socket's.
             named(state, over.connection).attached = false;
             state.entry_of[over.connection.slot] = null;
         },
@@ -171,6 +175,11 @@ fn on_connection_event(state: anytype, reported: server.Event) void {
         // The router takes every event of a request.
         .request, .body, .trailers, .writable, .finished => {},
     }
+}
+
+/// Whether `handle` names a TCP connection: the endpoint's TCP slots come first.
+fn is_tcp(state: anytype, handle: server.ConnectionHandle) bool {
+    return handle.slot < state.entries.len;
 }
 
 /// The entry of the connection `handle` names, which the loop steps.
