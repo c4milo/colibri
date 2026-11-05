@@ -5951,6 +5951,27 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           compose over them unchanged. Code that treats either failure as the end, such as
           `writeAll` with no retry, does not work over them, and the docs say so.
 
+     7. Ruled by the owner on 2026-11-05, for design §8 step 39:
+        - `client.Streamed` is `struct { request: bool = false, response: bool = false,
+          request_len: ?u64 = null }`. A stated length sends Content-Length, and h11 otherwise
+          sends the request chunked (RFC 9112 §7.1).
+        - A `body` event carries `{ id, len }`, the octets `Response.body` holds. Trailers land
+          in `Response.trailers`, and `finished` comes only after the last piece is released.
+        - While a response piece is held, h2 reads nothing more of the connection, and h2 and h3
+          hold back that stream's credit alone. The connection's credit flows on (RFC 9113 §6.9,
+          RFC 9000 §4.1), so one slow stream does not stop the others over h3.
+        - `client.WriteBodyError` names an unknown id, a second piece while one is held, a piece
+          after the end, and `BodyStopped`: an h3 STOP_SENDING with H3_NO_ERROR (RFC 9114
+          §4.1) ends the request body, and the exchange still finishes as a `response`.
+        - `cancel` gives back the request piece and a held response piece at once.
+        - `receive_events_without_input_max` grows to count four events for each streamed
+          exchange: `headers`, `body`, `body_taken` and `finished`.
+     8. Amended by the owner on 2026-11-05: `colibri.Client` comes back, on Rotor's own API, as
+        the client's counterpart of `colibri.Server` (decision 150 ruling 10). It owns the TCP
+        sockets, the UDP socket for h3, the loop, the clock and a `client.ConnectionPool`, and a
+        program hands it requests. Step 39's streamed bodies stay in the pool underneath it.
+        Design §8 step 42 plans it after step 39 and before step 40.
+
      Alternatives that lost:
      - A `std.Io.Writer` and a `std.Io.Reader` on the pool itself. `writeAll` and
        `readSliceAll` call `drain` and `stream` again until they finish, so a pool that cannot

@@ -12980,8 +12980,15 @@ library.
     run move to the new fields.
 - **Step 39 — streamed bodies in the pool, proposed 2026-11-05.** [Decision 153](decisions.md)
   as amended. It depends on no other step.
-  - **The public names:** `client.Streamed`, `Request.streamed`, `ConnectionPool.write_body`,
-    `ConnectionPool.release_body`, and the events `headers`, `body` and `body_taken`.
+  - **The public names:** `client.Streamed`, `client.WriteBodyError`, `Request.streamed`,
+    `ConnectionPool.write_body`, `ConnectionPool.release_body`, and the events `headers`, `body`
+    and `body_taken` (decision 153 ruling 7). `h11.Connection.write_chunk_head`,
+    `h2.Connection.release_stream` and `h3.Connection.release_data` serve them.
+  - **The commits:** 39a splits the files near the 500-line limit; 39b writes h11 chunk heads
+    with no copy; 39c holds h2 stream credit; 39d holds h3 DATA; 39e sends request bodies in
+    pieces; 39f receives response bodies in pieces; 39g lets a request body go on after the
+    response's headers over h2 and h3; 39h extends the TLA+ model and the trace; 39i adds the
+    example and the docs.
   - **The rules.** The pool copies no piece and holds one piece of each body at a time. It gives
     back flow credit only after `release_body`. A streamed request is sent again only before
     its first `body_taken`.
@@ -13012,6 +13019,15 @@ library.
   - **The checks.** stdx's gzip writer and JSON value encoder stream a request body through the
     writer, and stdx's decoders read a response body through the reader, over h11, h2 and h3.
     Each retry goes on from the octet it stopped at.
+- **Step 42 — `colibri.Client`, proposed 2026-11-05.** [Decision 153](decisions.md) ruling 8. It
+  comes after step 39 and before step 40, on Rotor's own API.
+  - **The public names:** `colibri.Client` and `colibri.ClientConfig`, with `init`, `request`,
+    `run` and `shutdown`, beside `colibri.Server`'s, listed in the root's test first.
+  - **The rules.** It owns the TCP sockets, the UDP socket for h3, the loop, the clock and a
+    `client.ConnectionPool`, which `colibri.Server`'s socket code and batches serve. A program
+    hands it requests, streamed as step 39 allows.
+  - **The checks.** `examples/colibri_server.zig` fetches through it over h11, h2 and h3 on
+    loopback. Its unit tests bind loopback, and each part's mutations are caught.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
