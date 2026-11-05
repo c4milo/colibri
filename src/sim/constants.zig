@@ -156,7 +156,7 @@ pub const network_datagram_len_max: u32 = 1500;
 
 /// Datagrams the network holds at once. A send with no slot left is a harness defect, not a
 /// network event, so the number is far above what one run puts in flight.
-pub const network_in_flight_max: u32 = 64;
+pub const network_in_flight_max: u32 = 128;
 
 /// The delay one datagram takes when a schedule names none, in nanoseconds: 5 to 45 milliseconds,
 /// a spread wide enough that a datagram sent later arrives first.

@@ -27,6 +27,7 @@ fn run_newreno(adversary: Adversary) !Census {
     check_storage.fault = .none;
     check_storage.adversary = adversary;
     check_storage.controller = .newreno;
+    check_storage.resumed_from = null;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;

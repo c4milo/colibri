@@ -79,6 +79,9 @@ pub const Result = struct {
     qlog_len: u64 = 0,
     qlog_crc32: u32 = 0,
     qlog_events: u64 = 0,
+    /// Whether the client jumped its window from a saved set, and whether it retreated.
+    jumped: bool = false,
+    retreated: bool = false,
 };
 
 /// What the whole run counted, which the test compares across build modes and hosts.
@@ -110,6 +113,10 @@ pub const Census = struct {
     qlog_len: u64 = 0,
     qlog_crc32: u32 = 0,
     qlog_events: u64 = 0,
+    /// Seeds whose client jumped its window from a saved set, and of them the ones that
+    /// retreated (RFC 9959 §3.3, §3.5).
+    resume_jumps: u64 = 0,
+    resume_retreats: u64 = 0,
 };
 
 /// What a run's network does beside, or instead of, its random schedule.
@@ -129,7 +136,18 @@ pub const Adversary = enum {
     rebind_port,
     /// The same, with a new host each time too, as the runner's rebind-addr case does.
     rebind_address,
+    /// A path that loses little: at most `light_drop_max` datagrams dropped out of
+    /// `schedule_denominator`, duplicates as the default schedule draws them, no ECN-CE mark, and
+    /// one delay, `light_delay_ns`, so nothing is reordered: a reordered packet three behind is
+    /// declared lost (RFC 9002 §6.1.1), and the random delays would end most resumes in RFC 9959's
+    /// Reconnaissance Phase. Most clients that resume jump, and some lose a packet after the jump
+    /// and retreat (design §8 step 35e).
+    light_loss,
 };
+
+/// The most datagrams `light_loss` drops, out of `schedule_denominator`, and its one delay.
+pub const light_drop_max: u64 = 5;
+pub const light_delay_ns: u64 = 15_000_000;
 
 /// When a rebinding run's NAT first gives the client a new binding, after the handshake is
 /// confirmed, and how often after that. A NAT drops what the server sends to a binding it has
@@ -173,6 +191,9 @@ pub const Storage = struct {
     adversary: Adversary,
     /// The congestion controller both endpoints run (decision 136).
     controller: quic.CongestionController,
+    /// RFC 9959's saved set the client, the sender of the stream, starts from, or null
+    /// (decision 149). With one, the client sends `resume_transfer_len` octets.
+    resumed_from: ?quic.ResumeState,
     endpoints: [sim.network.Endpoint.count]quic_endpoint.Endpoint,
     histories: [sim.network.Endpoint.count]quic_invariants.History,
     network: sim.Network,
@@ -186,6 +207,10 @@ pub const Storage = struct {
     /// (`qlog_records.zig`): as long as a log, so the longest of them fits.
     record_storage: [constants.quic_qlog_len]u8,
 };
+
+/// The octets the client sends when it resumes from a saved set: several windows, so the jump of
+/// RFC 9959 §3.3 has data to send.
+pub const resume_transfer_len: u64 = 262_144;
 
 /// The instant a run starts, and the longest step it takes when nothing is due sooner.
 pub const start_ns: u64 = 1_000_000;
@@ -222,6 +247,8 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.switched_seeds += switched(storage);
         census.qlog_len += result.qlog_len;
         census.qlog_events += result.qlog_events;
+        census.resume_jumps += @intFromBool(result.jumped);
+        census.resume_retreats += @intFromBool(result.retreated);
         census.qlog_crc32 = combine_qlog(census.qlog_crc32, result);
         census.crc32 = combine(census.crc32, result);
     }
@@ -240,6 +267,7 @@ fn exercised(adversary: Adversary, census: *const Census) bool {
         .rebind_port, .rebind_address => random and census.rebinds > 0 and census.migrations > 0,
         // The runner's scenario delays every datagram alike and marks none, so drops are all it has.
         .runner_handshake_loss => census.dropped > 0,
+        .light_loss => census.dropped > 0 and census.duplicated > 0,
     };
 }
 
@@ -293,6 +321,7 @@ test "two endpoints finish a handshake and a stream over a lossy network, invari
     check_storage.fault = .none;
     check_storage.adversary = .none;
     check_storage.controller = .cubic;
+    check_storage.resumed_from = null;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -319,6 +348,7 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     var failed_seed: ?u64 = null;
     fault_storage.adversary = .none;
     fault_storage.controller = .cubic;
+    fault_storage.resumed_from = null;
     fault_storage.logged = false;
     // An endpoint that stops ends the run, and the run keeps the error it stopped with.
     fault_storage.fault = .server_alert;
@@ -355,6 +385,7 @@ test "decisions 64 and 66: a network that drops every datagram of ACK frames alo
     check_storage.fault = .none;
     check_storage.adversary = .drop_ack_only;
     check_storage.controller = .cubic;
+    check_storage.resumed_from = null;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -381,6 +412,7 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
     check_storage.fault = .none;
     check_storage.adversary = .runner_handshake_loss;
     check_storage.controller = .cubic;
+    check_storage.resumed_from = null;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -408,6 +440,7 @@ fn run_rebinding(adversary: Adversary) !Census {
     check_storage.fault = .none;
     check_storage.adversary = adversary;
     check_storage.controller = .cubic;
+    check_storage.resumed_from = null;
     check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -448,6 +481,7 @@ test "decision 102: every check gives the same census when both endpoints write 
         check_storage.fault = .none;
         check_storage.adversary = logged.adversary;
         check_storage.controller = .cubic;
+        check_storage.resumed_from = null;
         check_storage.logged = true;
         var census: Census = .{};
         var failed_seed: ?u64 = null;

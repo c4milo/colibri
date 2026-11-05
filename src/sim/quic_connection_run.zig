@@ -34,9 +34,15 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
         const at = @intFromEnum(side);
         // Decision 136: the caller draws the probe waits. The seed is the draw here, which leaves
         // the generator's later draws, and so the census under CUBIC, as they were.
-        const congestion: quic_endpoint.Congestion = .{ .controller = storage.controller, .bandwidth_probe_waits = seed };
+        // Decision 149: the client, which sends the stream, starts from the run's saved set.
+        const resumed_from = if (side == .client) storage.resumed_from else null;
+        const congestion: quic_endpoint.Congestion = .{ .controller = storage.controller, .bandwidth_probe_waits = seed, .resumed_from = resumed_from };
         storage.endpoints[at].init(role_of(side), version, check.start_ns, log_of(storage, side), congestion);
         storage.histories[at].init(&storage.endpoints[at]);
+    }
+    if (storage.resumed_from != null) {
+        // Bounded by the two sides.
+        for (&storage.endpoints) |*endpoint| endpoint.transfer_len = check.resume_transfer_len;
     }
     apply_fault(storage);
     apply_adversary(storage);
@@ -76,7 +82,7 @@ fn apply_fault(storage: *Storage) void {
 fn apply_adversary(storage: *Storage) void {
     switch (storage.adversary) {
         // A rebind wants the stream long enough that the client is still sending when it lands.
-        .none, .rebind_port, .rebind_address => return,
+        .none, .rebind_port, .rebind_address, .light_loss => return,
         .drop_ack_only, .runner_handshake_loss => {},
     }
     // Bounded by the two sides.
@@ -96,6 +102,12 @@ fn schedule_of(adversary: check.Adversary, random: *Random) Schedule {
             return drawn;
         },
         .runner_handshake_loss => {},
+        .light_loss => return .{
+            .drop = @intCast(random.below(check.light_drop_max + 1)),
+            .duplicate = @intCast(random.below(check.duplicate_max + 1)),
+            .delay_min_ns = check.light_delay_ns,
+            .delay_max_ns = check.light_delay_ns,
+        },
     }
     return .{
         .drop = check.runner_drop,
@@ -233,7 +245,7 @@ const Run = struct {
     /// Whether the run's adversary drops the datagram `sent` describes (`check.Adversary`).
     fn adversary_drops(run: *const Run, sent: *const quic.connection_send.Sent) bool {
         switch (run.storage.adversary) {
-            .none, .runner_handshake_loss, .rebind_port, .rebind_address => return false,
+            .none, .runner_handshake_loss, .rebind_port, .rebind_address, .light_loss => return false,
             .drop_ack_only => {
                 // Bounded by the levels a datagram coalesces.
                 for (sent.written()) |packet| {
@@ -289,6 +301,14 @@ const Run = struct {
         return Violation.ConnectionError;
     }
 
+    /// Whether a BBRv3 client set RFC 9959 Appendix C's flag, which leaves its round recorded.
+    fn resumed_bbr(client: *const quic_endpoint.Endpoint) bool {
+        return switch (client.connection.recovery.congestion.state) {
+            .bbr => |*bbr| bbr.resuming.end_round != 0,
+            .cubic, .newreno => false,
+        };
+    }
+
     fn finish(run: *Run) Result {
         var result = run.result;
         result.finished_ns = run.now_ns - check.start_ns;
@@ -299,6 +319,10 @@ const Run = struct {
         const client = &run.storage.endpoints[@intFromEnum(Side.client)];
         result.round_trip_ns = client.connection.recovery.rtt.smoothed_ns;
         result.migrations = run.storage.endpoints[@intFromEnum(Side.server)].migrations;
+        // RFC 9959 §3.3: a packet sent in the Unvalidated Phase, or BBRv3's flag set, is a jump.
+        const careful = &client.connection.recovery.careful_resume;
+        result.jumped = careful.first_unvalidated != null or resumed_bbr(client);
+        result.retreated = careful.retreated;
         return result;
     }
 };

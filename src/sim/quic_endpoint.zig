@@ -89,6 +89,8 @@ const octet_seed: u64 = 0x2b;
 pub const Congestion = struct {
     controller: quic.CongestionController = .cubic,
     bandwidth_probe_waits: u64 = 0,
+    /// RFC 9959's saved set the connection starts from, or null (decision 149).
+    resumed_from: ?quic.ResumeState = null,
 };
 
 pub const Endpoint = struct {
@@ -151,6 +153,7 @@ pub const Endpoint = struct {
             .qlog = log,
             .congestion_controller = congestion.controller,
             .bandwidth_probe_waits = congestion.bandwidth_probe_waits,
+            .resumed_from = congestion.resumed_from,
         });
         endpoint.provider = .{
             .role = role,

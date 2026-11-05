@@ -12865,8 +12865,24 @@ library.
     - 10 mutations, each **CAUGHT**: on each side, no set taken, the set ignored, nothing put
       back and nothing dropped after a retreat; on the server, a drop after the put; on the
       client, a second close that puts twice.
+  - **35e, the simulator, 2026-11-04.** `quic_connection_resume_check.zig` runs the QUIC
+    connection check with the client resuming from a saved set, under each controller, over a new
+    network, `light_loss`: at most 5 drops in 1,000, the default duplicates, no ECN-CE mark, and
+    one delay of 15 ms. The client sends 256 KiB.
+    - The lossy network of the other checks ends every resume in Reconnaissance, rightly: its marks
+      and its random delays, which reorder packets past RFC 9002's threshold, are congestion events
+      before the initial window is acknowledged. `light_loss` lets most seeds jump.
+    - The saved window is 120,000 octets under CUBIC and NewReno, whose slow start has reached
+      about 35,000 when the path is confirmed, and 60,000 under BBRv3, whose window is twice the
+      probing rate's BDP. `network_in_flight_max` grows from 64 to 128 for BBRv3's window and the
+      acknowledgments.
+    - Of 256 seeds each, CUBIC and NewReno jumped on 239 and retreated on 14, and BBRv3 jumped on 233
+      and retreated on 32. The censuses are pinned, and Debug and `-Drelease` give the same ones.
+      The existing checks' censuses did not change.
+    - 2 mutations against the check, each **CAUGHT**: a jump that never widens the window, and a
+      retreat that does not halve PipeSize.
     - `quic.Connection` grows by 56 octets, to 208,376, and `server.Endpoint` at its default
-      capacity to 52,434,448. docs/performance.md lists each size.
+      capacity to 52,447,248 on main f5649a00. docs/performance.md lists each size.
     - 14 mutations, each **CAUGHT**: another version, another size, an empty window, a set from
       after now and one past its Lifetime each used; `init` taking an unusable set; a new path
       that keeps Careful Resume, in `Resume` and in `Recovery`; slow start saving the whole

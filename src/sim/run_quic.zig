@@ -15,6 +15,7 @@ pub const recovery_check_run = @import("recovery_check_run.zig");
 pub const quic_connection_check = @import("quic_connection_check.zig");
 pub const quic_connection_bbr_check = @import("quic_connection_bbr_check.zig");
 pub const quic_connection_newreno_check = @import("quic_connection_newreno_check.zig");
+pub const quic_connection_resume_check = @import("quic_connection_resume_check.zig");
 pub const quic_input_check = @import("quic_input_check.zig");
 pub const qlog_records = @import("qlog_records.zig");
 
@@ -27,6 +28,7 @@ test {
     _ = quic_connection_check;
     _ = quic_connection_bbr_check;
     _ = quic_connection_newreno_check;
+    _ = quic_connection_resume_check;
     _ = quic_input_check;
     _ = qlog_records;
 }
