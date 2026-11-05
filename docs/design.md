@@ -12872,6 +12872,22 @@ library.
       that keeps Careful Resume, in `Resume` and in `Recovery`; slow start saving the whole
       window; a small window saved; the smoothed round trip saved; a set saved with no sample;
       BBRv3's BDP in the wrong unit; and the option ignored.
+- **Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md).
+  - **The public names,** each listed beside its root before the code (decision 115):
+    `ResponseWriter.json(value)`, a route option `.json_body = T`, which hands the route a `T`,
+    and the decoder's limits in `server.constants.limits`.
+  - **The checks.** Each value type the encoder takes round-trips through stdx's decoder. A body
+    that is not JSON, is not `T`, or passes a limit answers 400. An example route shows both.
+- **Step 37 — `serve`, proposed 2026-11-04.** [Decision 150](decisions.md). It depends on Rotor's
+  `std.Io` adapter, Rotor's decision 22.
+  - **The public names:** `serve.Server`, `serve.Config` with `host`, `port`, `chain_file`,
+    `key_file` and the `server.Config` it builds the endpoint from, `Server.init(io, config,
+    router)`, where `io` is optional, `Server.run()` and `Server.shutdown()`.
+  - **The rules.** `run` binds TCP and UDP on the one port, reads the PEM files through `io` into
+    `tls.pem`, and runs the endpoint and the router until `shutdown`. Without an `io`, it runs on
+    Rotor's adapter.
+  - **The checks.** An example serves h11, h2 and h3 from one port to colibri's client, on
+    Rotor's adapter and on `std.Io.Threaded`. The simulator's checks of `server` stay as they are.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

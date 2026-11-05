@@ -5778,3 +5778,44 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Bounds with no defaults, which every program would have to choose.
      - The server alone. A client that uploads sends too.
 
+150. **`serve` binds, reads its files and runs the loop, through a `std.Io` the program may pass.**
+     Ruled by the owner on 2026-11-04 (design §8 step 37), after a comparison of Zig's HTTP server
+     libraries. The owner asked for the shape of httpx.zig's server: a host, a port and the
+     server's certificate files in a configuration, a router, and one call that runs. Asked how
+     that fits non-negotiable 1, the owner ruled: "IO is a parameter and we use rotor by default if
+     the user doesn't provide one."
+
+     The rulings:
+     1. A new library module, `serve`, above `server` and `client`. It is the one module that does
+        I/O: it binds the TCP and the UDP socket of one port, reads the PEM files, accepts, reads,
+        writes and sleeps, all through the `std.Io` its program passes. colibri still makes no
+        system call itself: the `std.Io` implementation makes them.
+     2. Non-negotiable 1 holds for every other module. `core`, `wire`, `http`, the protocol modules,
+        `quic`, `tls`, `server` and `client` own no I/O, and the simulator and the determinism
+        checks cover them as before.
+     3. A program that passes no `std.Io` gets Rotor's. Rotor becomes a dependency of the library,
+        for `serve` alone. Rotor's `std.Io` adapter is its decision 22, accepted on 2026-09-27 and
+        deferred until the owner asks for it, so step 37 depends on it.
+     4. `serve`'s API names what httpx.zig's does where colibri has the same concept: a host, a
+        port, the certificate chain and key files, the router, and `run`. h11, h2 and h3 come
+        from the one port, h3 over UDP.
+
+     Alternatives that lost:
+     - A separate package on colibri and Rotor. The owner wants the shape in colibri itself.
+     - Documentation alone: the program keeps writing its own loop.
+     - Binding inside `server`, which would end non-negotiable 1 for the module the simulator
+       drives.
+
+151. **`server` encodes and decodes JSON through stdx's `json` module.** Ruled by the owner on
+     2026-11-04 (design §8 step 36), with decision 150. `server` gains an edge to stdx's `json`
+     module, which `qlog` already imports (decision 102).
+     1. `ResponseWriter.json(value)` encodes a value into the response body with stdx's encoder,
+        with no allocator, and sets `content-type: application/json`.
+     2. A route can declare a JSON body type. The router decodes the request body into it with
+        stdx's decoder, and answers 400 when the body is not that type.
+     3. The decoder's limits are named constants, and a program can lower them.
+
+     Alternatives that lost:
+     - Responses alone.
+     - No edge: programs use `std.json` or stdx themselves, as they do now.
+

@@ -29,7 +29,9 @@ The architecture depends on every rule in this section.
 1. **colibri owns no I/O.** No socket, no file descriptor, no `poll`, no thread. Frames and heads
    are written into storage the caller owns and parsed out of bytes the caller has already read.
    Every function that would block instead returns a value naming the I/O it needs. Do not
-   make a syscall in this repository.
+   make a syscall in this repository. Decision 150 makes one exception: the `serve` module binds,
+   reads its certificate files and runs the loop through the `std.Io` its program passes, or
+   Rotor's when it passes none. Every other module stays as this rule says.
 2. **chapulin is colibri's crypto, and colibri holds no key.** The library links chapulin as its
    TLS stack and its packet protection, pinned by commit and hash in `build.zig.zon` and compiled
    by colibri's build (decision 94, which amends decisions 8, 9, 10 and 48; design §8 step 16
@@ -285,10 +287,12 @@ tree. Design §11 holds the method and the numbers.
   and 102). stdx's `platform` probes the CPU: a program
   calls `probe()` and depends on stdx itself to do it, and `tls` imports the module for its `Cpu`
   type alone and never probes. The package does not export it (decision 97 as amended).
-  It has no allocator at all (decision 35). Five more are ruled for the
-  tooling and the tests, and the library imports none of them: pepegrillo, the tooling `tools/`
-  builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and `examples/` run on
-  (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
+  It has no allocator at all (decision 35). `server` imports stdx's `json` module too (decision
+  151), and `serve` imports Rotor, for its `std.Io` adapter, when a program passes no `std.Io`
+  (decision 150). Five more are ruled for the
+  tooling and the tests, and the library imports none of them except as above: pepegrillo, the
+  tooling `tools/` builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and
+  `examples/` run on (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
   `qpackers/qifs`, the QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75); and the Lean
   toolchain, which `zig build lean` runs through pepegrillo (decision 77).
 - Weakening an assertion or an invariant to make a test pass.
