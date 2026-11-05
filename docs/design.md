@@ -12567,6 +12567,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       h3-many 0.9702 and 0.9691, and h3-bbr-many 0.9721 and 0.9685, each a win. h3-many fell from
       35,569 to 34,508 instructions a request in job 1. Every other input is within the noise in
       both jobs.
+    - **29d.14, a faster Huffman decoder, not built, 2026-11-05.** The same profile gave
+      `huffman_decode.decode` 3.1% and 3.7% of h3-many's own samples. Callgrind on a laptop counted
+      1,165 instructions a request for three strings of 47 octets. The checked `write_byte` took
+      about 330 of them.
+      - The owner asked for a decoder from the published methods. The code of RFC 7541 Appendix B
+        is canonical, so the Moffat and Turpin decoder applies (A. Moffat, "Huffman Coding", ACM
+        Computing Surveys 52(4), 2019, §3.2). It reads a window of the next bits, and a table of
+        its first eight bits gives each code of eight bits or fewer.
+      - A probe decoded the three strings under callgrind. Main's machine of four bits a step
+        took 928 instructions. Two forms of the canonical decoder took 1,784 and 1,557: each
+        symbol took about 23 instructions, against about 13 for the machine. A machine of eight
+        bits a step, which completes up to two symbols, took 694.
+      - The survey's full machine is the fastest form, and main already has one. The machine of
+        eight bits a step saves about 230 instructions a request, 0.7% of h3-many, but its table
+        is 256 KB against 4 KB, and its build at comptime took about 3 minutes. The owner ruled
+        on 2026-11-05 to keep main's decoder.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
