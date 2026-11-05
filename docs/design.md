@@ -12895,7 +12895,9 @@ library.
       that keeps Careful Resume, in `Resume` and in `Recovery`; slow start saving the whole
       window; a small window saved; the smoothed round trip saved; a set saved with no sample;
       BBRv3's BDP in the wrong unit; and the option ignored.
-- **Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md).
+- **Step 36 — JSON in the server, proposed 2026-11-04.** [Decision 151](decisions.md). It depends
+  on a layer stdx's `json` does not have yet, which maps a Zig value to JSON and back:
+  [stdx#22](https://github.com/c4milo/stdx/issues/22). colibri builds no such layer of its own.
   - **The public names,** each listed beside its root before the code (decision 115):
     `ResponseWriter.json(value)`, a route option `.json_body = T`, which hands the route a `T`,
     and the decoder's limits in `server.constants.limits`.
