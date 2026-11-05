@@ -72,10 +72,27 @@ pub fn load(
 const testing = std.testing;
 
 const support = @import("test_support.zig");
+const testdata = @import("testdata");
 
 test "decision 150: a file that is not PEM is refused" {
     var counter: support.Counter = .{};
     try testing.expectError(error.IdentityInvalid, load(.{ .pem = .{ .chain = "not PEM", .key = "" } }, &test_storage, &test_loop_memory, support.cpu(), counter.random()));
+}
+
+test "design §8 step 37e: the key's text is wiped when a file is refused" {
+    var directory: support.TestDirectory = .init();
+    defer directory.deinit();
+    var counter: support.Counter = .{};
+    const chain = try directory.write(.chain, testdata.chain_pem);
+    // `tls.pem.key` refuses the key after the read put its text in `files.key`.
+    const key = try directory.write(.key, "not a key");
+    try testing.expectError(error.IdentityInvalid, load(.{ .files = .{ .chain = chain, .key = key } }, &test_storage, &test_loop_memory, support.cpu(), counter.random()));
+    try testing.expect(std.mem.allEqual(u8, &test_storage.files.key, 0));
+    // `tls.pem.chain` refuses the chain, and the key's text is wiped before `tls.pem.key` reads it.
+    const not_chain = try directory.write(.chain, "not PEM");
+    const valid_key = try directory.write(.key, testdata.key_pem);
+    try testing.expectError(error.IdentityInvalid, load(.{ .files = .{ .chain = not_chain, .key = valid_key } }, &test_storage, &test_loop_memory, support.cpu(), counter.random()));
+    try testing.expect(std.mem.allEqual(u8, &test_storage.files.key, 0));
 }
 
 /// The storage and the loop memory the tests place, outside any stack frame. Test-only.

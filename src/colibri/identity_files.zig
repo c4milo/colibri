@@ -139,3 +139,40 @@ test "design §8 step 37e: a missing file, an empty name and a name with a zero 
     try testing.expectError(error.IdentityFileUnreadable, read(.{ .chain = chain, .key = "" }, &test_text, &test_loop_memory));
     try testing.expectError(error.IdentityFileUnreadable, read(.{ .chain = "chain\x00.pem", .key = chain }, &test_text, &test_loop_memory));
 }
+
+/// A name of `len` octets: "." and slashes, then a file that does not exist.
+fn long_name(comptime len: usize) [len]u8 {
+    const file = "colibri-no-such-file.pem";
+    var name: [len]u8 = @splat('/');
+    name[0] = '.';
+    @memcpy(name[len - file.len ..], file);
+    return name;
+}
+
+test "design §8 step 37e: a name of path_len_max octets is refused, and a shorter one is opened" {
+    // The name and its terminator fill `path_len_max` octets, so the system looks for the file.
+    const shorter = long_name(path_len_max - 1);
+    try testing.expectError(error.IdentityFileNotFound, read(.{ .chain = &shorter, .key = &shorter }, &test_text, &test_loop_memory));
+    // No room is left for the terminator.
+    const longest = long_name(path_len_max);
+    try testing.expectError(error.IdentityFileUnreadable, read(.{ .chain = &longest, .key = &longest }, &test_text, &test_loop_memory));
+}
+
+/// The mode of a file that its owner may read and nobody may write: "r--------".
+const owner_read_only: std.posix.mode_t = 0o400;
+
+test "design §8 step 37e: a key file the program may only read is refused, because Rotor opens it to write" {
+    var directory: support.TestDirectory = .init();
+    defer directory.deinit();
+    const chain = try directory.write(.chain, "chain");
+    const key = try directory.write(.key, "key");
+    const base = support.TestDirectory.base_name(.key);
+    try directory.directory.dir.setFilePermissions(testing.io, base, .fromMode(owner_read_only), .{});
+    // A process that may write the file all the same, such as one run as root, cannot show the
+    // refusal.
+    if (directory.directory.dir.openFile(testing.io, base, .{ .mode = .read_write })) |file| {
+        file.close(testing.io);
+        return error.SkipZigTest;
+    } else |_| {}
+    try testing.expectError(error.IdentityFileAccessDenied, read(.{ .chain = chain, .key = key }, &test_text, &test_loop_memory));
+}
