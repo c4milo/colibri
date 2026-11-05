@@ -341,11 +341,13 @@ fn on_response(connection: *Connection, transport: *QuicConnection, request: *Re
     if (!found.status.is_interim()) {
         request.phase = .content;
         request.content_length = found.content_length;
-        const code: http.status.Code = @enumFromInt(found.status.code);
+        // RFC 9110 §15: any three-digit status may arrive, so it is compared, never converted.
+        const code = found.status.code;
         // §4.1.2: "A response that is defined as never having content, even when a
         // Content-Length is present, can have a non-zero Content-Length header field", which
         // RFC 9110 §6.4.1 says of a response to HEAD and of 204 and 304.
-        request.no_content = request.head_request or code == .no_content or code == .not_modified;
+        request.no_content = request.head_request or code == @intFromEnum(http.status.Code.no_content) or
+            code == @intFromEnum(http.status.Code.not_modified);
     }
     return .{ .event = .{ .response = .{ .stream_id = request.id, .response = found } } };
 }

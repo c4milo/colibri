@@ -226,6 +226,20 @@ test "§4.1: interim responses come before the final one, and carry no content" 
     try testing.expectEqual(Event{ .end = id }, (try next(client)).?);
 }
 
+test "RFC 9110 §15: a status that RFC 9110 does not name reaches the client as it came" {
+    // 429 is RFC 6585 §4's, and 599 is a status of a class that no RFC defines (RFC 9110 §15).
+    for ([_][]const u8{ "429", "599" }, [_]u16{ 429, 599 }) |text, expected| {
+        try harness.pair(.{ .role = .client }, .{ .role = .server });
+        const id = try harness.request(&harness.get_lines, "");
+        try exchange();
+        try harness.respond(id, &.{.{ ":status", text }}, "no");
+        try exchange();
+        try testing.expectEqual(expected, (try next(client)).?.response.response.status.code);
+        try testing.expectEqualStrings("no", (try next(client)).?.data.octets);
+        try testing.expectEqual(Event{ .end = id }, (try next(client)).?);
+    }
+}
+
 test "§4.1.2: a response to HEAD carries a content-length and no content" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const head = [_]Line{ .{ ":method", "HEAD" }, .{ ":scheme", "https" }, .{ ":path", "/" }, .{ ":authority", "a" } };
