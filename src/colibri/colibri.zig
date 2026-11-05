@@ -8,6 +8,9 @@ const files = struct {
     pub const entropy = @import("entropy.zig");
     pub const identity = @import("identity.zig");
     pub const server = @import("server.zig");
+    pub const server_loop = @import("server_loop.zig");
+    pub const server_pump = @import("server_pump.zig");
+    pub const socket = @import("socket.zig");
 };
 
 pub const Server = files.server.Server;
@@ -15,12 +18,14 @@ pub const ServerOf = files.server.ServerOf;
 pub const ServerConfig = files.server.ServerConfig;
 pub const Identity = files.identity.Identity;
 pub const InitError = files.server.InitError;
+pub const RunError = files.server.RunError;
 
 test "decision 115: the root exports the names design §8 step 37 lists" {
-    // Step 37a adds `Server`, `ServerOf`, `ServerConfig`, `Identity` and `InitError`.
+    // Step 37a adds `Server`, `ServerOf`, `ServerConfig`, `Identity` and `InitError`, and 37b
+    // `RunError` and `run`, `port` and `shutdown`.
     const public_names = @import("core").public_names;
-    try public_names.expect(@This(), &.{ "constants", "Server", "ServerOf", "ServerConfig", "Identity", "InitError" });
-    try public_names.expect(Server, &.{"init"});
+    try public_names.expect(@This(), &.{ "constants", "Server", "ServerOf", "ServerConfig", "Identity", "InitError", "RunError" });
+    try public_names.expect(Server, &.{ "init", "port", "shutdown", "run" });
 }
 
 test {
