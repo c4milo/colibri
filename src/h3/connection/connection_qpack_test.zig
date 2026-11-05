@@ -4,6 +4,7 @@
 //! is `connection_test.zig`'s.
 const std = @import("std");
 const quic = @import("quic");
+const qpack = @import("qpack");
 const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const connection_local = @import("connection_local.zig");
@@ -138,6 +139,23 @@ test "RFC 9204 §4.2: a peer that stops colibri's encoder stream has closed it" 
     try exchange();
     try testing.expectError(error.ConnectionFailed, harness.respond(id, &custom_lines, ""));
     try testing.expectEqual(constants.protocol.error_closed_critical_stream, server.h3.failure.?);
+}
+
+test "design §8 step 29d.13: a section that may insert no line does not use the encoder stream" {
+    try harness.pair(table_client, .{ .role = .server });
+    const id = try harness.request(&harness.get_lines, "");
+    try exchange();
+    _ = (try next(server)).?.request;
+    // A stopped encoder stream fails the connection on the next use of it, so a section that
+    // writes without failure did not use it.
+    try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
+    try exchange();
+    const no_insert = [_]qpack.encoder.Indexing{ .no_insert, .never_indexed };
+    const section = try harness.section_of(&harness.test_section, &custom_lines);
+    var writer = server.writer_for(id);
+    try server.h3.write_response(&server.transport, id, section, &no_insert, &writer, harness.test_now_ns);
+    try testing.expect(server.h3.failure == null);
+    try testing.expectEqual(0, server.h3.encoder.table.insert_count());
 }
 
 test "a trailer section inserts nothing into the dynamic table" {

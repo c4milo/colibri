@@ -12545,6 +12545,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       h3-many 0.9822 and 0.9799, each a win, and h3-bbr-many 0.9788, a win, and 0.9871, within
       its noise. h3-many fell from 36,194 to 35,552 instructions a request in job 1. Every other
       input is within the noise in both jobs.
+    - **29d.13, no encoder stream for a section that inserts nothing, 2026-11-05.** The judge's
+      `profile` on cbd11528 (run 42076270070) gave h3's `write_headers` 3.1% and 3.5% of
+      h3-many's own samples. Callgrind on a laptop counted 1,619 instructions a request in it.
+      About 820 came from `connection_local.encoder_room`, which asks
+      `quic.connection_stream_credit.send_credit` for the encoder stream's credit. That call
+      walks every live stream of the connection.
+      - Only a line that may be inserted writes an encoder instruction (RFC 9204 §4.3). The
+        server writes each response line `no_insert`. The change: `write_headers` takes room on
+        the encoder stream only when a line of the section may be inserted.
+      - A peer that stops the encoder stream breaks RFC 9204 §4.2. colibri now finds it on the
+        next section that may insert a line, and not on a section that inserts none.
+      - The checks: a test writes a section of `no_insert` and `never_indexed` lines after the
+        peer stopped the encoder stream, and requires no failure. Four mutations, each CAUGHT:
+        the encoder stream always taken, never taken, an empty `indexing` read as no insert, and
+        a test for `no_insert` in place of `may_insert`. `zig build test-h3`, `test-server`,
+        `test-sim-run-quic` and `lint` pass.
+      - The judge's `--h3 --base cbd11528`, at 10 rounds. The step lands when h3-many wins and
+        no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

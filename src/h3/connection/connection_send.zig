@@ -139,7 +139,12 @@ fn write_headers(
         }
     }
     if (output.remaining_len() < frame_len_max(section)) return error.NoSpaceLeft;
-    var encoder_stream = try connection_local.encoder_room(connection, transport);
+    // Design §8 step 29d.13: only a line that may insert writes an encoder instruction, so a
+    // section without one needs no room on the encoder stream and no walk for its credit.
+    var encoder_stream = if (may_insert(indexing))
+        try connection_local.encoder_room(connection, transport)
+    else
+        Writer.init(&.{});
     var encoded = Writer.init(&connection.scratch);
     const result = connection.encoder.write_section(stream_id, &encoded, &encoder_stream, section, indexing);
     // Decision 76: what the encoder stream gained is owed either way.
@@ -151,6 +156,13 @@ fn write_headers(
     cursor.write_bytes(encoded.written()) catch unreachable;
     output.* = cursor;
     return encoded.written().len;
+}
+
+/// Whether a line of a section with `indexing` may be inserted into the dynamic table. An empty
+/// `indexing` lets every line be inserted (`qpack.Encoder.write_section`).
+fn may_insert(indexing: []const Indexing) bool {
+    if (indexing.len == 0) return true;
+    return std.mem.indexOfScalar(Indexing, indexing, .may_insert) != null;
 }
 
 /// The longest HEADERS frame `section` can make. §4.2.2's size counts 32 octets for each line
