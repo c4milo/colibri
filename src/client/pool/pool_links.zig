@@ -127,8 +127,8 @@ pub fn close_over(pool: anytype, slot: u32) void {
     finish_link(pool, slot);
 }
 
-/// The attempt ended: the next one tries QUIC first again (the model's `tried` and `fallback`
-/// cleared).
+/// The attempt ended: the next one tries the preferred transport first again (the model's `tried`
+/// and `fallback` cleared).
 pub fn end_attempt(pool: anytype) void {
     clear_tried(pool);
     pool.fallback = false;

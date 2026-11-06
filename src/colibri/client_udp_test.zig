@@ -13,13 +13,18 @@ const testing = std.testing;
 const test_client = &fixture.test_client;
 
 /// Fetches `count` greetings over TLS from a server with a UDP socket when `udp` is set, with
-/// `shutdown` before `run`. The pool's configuration leaves `ecn` false.
+/// `shutdown` before `run`. The pool's configuration asks for QUIC first, and leaves `ecn` false.
 fn fetch(udp: bool, count: u32, handler: *fixture.Handler) !void {
+    try fetch_speaking(.{ .prefer = .quic }, udp, count, handler);
+}
+
+/// As `fetch`, with the pool's configuration speaking `protocols`.
+fn fetch_speaking(protocols: client.Protocols, udp: bool, count: u32, handler: *fixture.Handler) !void {
     const limit_ms: u64 = if (udp) fixture.watchdog_ms else fixture.unanswered_quic_watchdog_ms;
     var counter: support.Counter = .{};
     try fixture.start_server(true, udp);
     defer fixture.stop_server();
-    const pool = fixture.pool_config(.{}, true);
+    const pool = fixture.pool_config(protocols, true);
     try testing.expect(!pool.ecn);
     try test_client.init(.{
         .host = "127.0.0.1",
@@ -37,7 +42,8 @@ fn fetch(udp: bool, count: u32, handler: *fixture.Handler) !void {
 
 test "design §8 step 42: a client fetches over h3 from a server's UDP socket" {
     var handler: fixture.Handler = .{};
-    // RFC 9114 §3.1: the pool tries QUIC first, and the server's QUIC handshake selects h3.
+    // RFC 9114 §3.1: the pool tries QUIC first, as it asks, and the server's QUIC handshake
+    // selects h3.
     try fetch(true, 1, &handler);
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h3, handler.connected.?);
@@ -56,7 +62,7 @@ test "design §8 step 42: twenty exchanges, one after another, go over one QUIC 
     var counter: support.Counter = .{};
     try fixture.start_server(true, true);
     defer fixture.stop_server();
-    try test_client.init(.{ .host = "127.0.0.1", .port = fixture.port(), .pool = fixture.pool_config(.{}, true), .random = counter.random(), .unix_seconds = testdata.now_seconds });
+    try test_client.init(.{ .host = "127.0.0.1", .port = fixture.port(), .pool = fixture.pool_config(.{ .prefer = .quic }, true), .random = counter.random(), .unix_seconds = testdata.now_seconds });
     defer test_client.deinit();
     // More datagrams go each way than the UDP socket has batches, so each batch is sent again
     // once its send has ended.
@@ -94,4 +100,14 @@ test "design §8 step 42: with no UDP socket at the server, the client falls bac
     try fetch(false, 1, &handler);
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h2, handler.connected.?);
+}
+
+test "decision 117 as amended: by default the client fetches over h2 from a server with a UDP socket" {
+    var handler: fixture.Handler = .{};
+    // `ClientConfig.pool.protocols.prefer` is `.tcp` by default, so TCP opens first and ALPN
+    // selects h2, though the server answers QUIC too.
+    try fetch_speaking(.{}, true, 1, &handler);
+    try testing.expect(handler.greeted());
+    try testing.expectEqual(client.Protocol.h2, handler.connected.?);
+    try testing.expectEqual(1, handler.connections);
 }

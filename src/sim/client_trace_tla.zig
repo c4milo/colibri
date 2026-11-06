@@ -47,6 +47,8 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.limits.moves_max });
     // The run's client speaks h2 over TCP, so TCP is allowed in every seed.
     try print(writer, "    QuicPolicy = \"{t}\"\n    TcpAllowed = TRUE\n", .{plan.policy});
+    // Design §8 step 43: the transport the pool opens first.
+    try print(writer, "    Prefer = \"{t}\"\n", .{plan.prefer});
     const all = "{\"quic\", \"tcp\"}";
     try print(writer, "    HandshakeFails = {s}\n    Breaks = {s}\n    Goaways = {s}\n", .{ all, all, all });
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {s}\n    Resets = {s}\n", .{ goaways, all, all });

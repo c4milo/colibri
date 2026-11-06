@@ -4,8 +4,10 @@
 const std = @import("std");
 const testing = std.testing;
 const event = @import("event.zig");
+const pool_choice = @import("pool/pool_choice.zig");
 
 const Protocol = event.Protocol;
+const Transport = pool_choice.Transport;
 
 /// Which of h11, h2 and h3 the client speaks, each true by default (decision 117). A TCP
 /// connection speaks h11 or h2, and h3 runs over QUIC alone (RFC 9114 §3.1). A pool opens TCP
@@ -16,6 +18,10 @@ pub const Protocols = struct {
     h11: bool = true,
     h2: bool = true,
     h3: bool = true,
+    /// The transport a pool opens first, when `versions` allows a version on each (decision 117
+    /// as amended). With `.tcp`, the pool opens QUIC only once TCP fails. With `.quic`, it opens
+    /// TCP once QUIC fails or the fallback delay passes during QUIC's handshake (RFC 9114 §3.1).
+    prefer: Transport = .tcp,
 };
 
 /// The version a TCP connection in cleartext speaks: h11 when `versions` allows it, and otherwise h2

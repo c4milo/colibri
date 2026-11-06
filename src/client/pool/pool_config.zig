@@ -44,10 +44,12 @@ pub const Config = struct {
     decoders: ?h11.coding.Storage = null,
     zstd_decoders: ?coding_pool.ZstdDecoders = null,
     br_decoders: ?coding_pool.BrotliDecoders = null,
-    /// Whether QUIC goes first when neither an HTTPS record nor Alt-Svc says whether the origin
-    /// speaks h3 (RFC 9114 §3.1). When false, QUIC waits for a TCP response's Alt-Svc.
+    /// Whether the pool may open QUIC when neither an HTTPS record nor Alt-Svc says whether the
+    /// origin speaks h3 (RFC 9114 §3.1). When false, QUIC waits for a TCP response's Alt-Svc.
+    /// `protocols.prefer` says which transport opens first.
     quic_first: bool = true,
-    /// How long QUIC's handshake runs before TCP opens beside it, in nanoseconds.
+    /// How long QUIC's handshake runs before TCP opens beside it, in nanoseconds, under
+    /// `protocols.prefer = .quic`.
     fallback_delay_ns: u64 = constants.policy.fallback_delay_ns_default,
     /// QUIC connections alone. Decision 68: whether the caller reads each datagram's ECN codepoint
     /// and sets the one `send_datagram` names.

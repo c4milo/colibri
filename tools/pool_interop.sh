@@ -2,7 +2,8 @@
 # The check of docs/design.md §8 step 17d: the test-only client's pool mode (§9) fetches over h3
 # from other implementations' servers, aioquic's and quic-go's, and falls back to h2 over TLS
 # against Go's server, which listens on TCP alone. Every exchange must end the way the plan says,
-# over the protocol its phase names, with the octets the server holds.
+# over the protocol its phase names, with the octets the server holds. The pool opens QUIC first,
+# and with `--tcp-first` it opens TCP first, as a pool does by default (decision 117 as amended).
 #
 # aioquic is pinned and installed once into the cached virtual environment tools/quic_aioquic.sh
 # uses. quic-go is the QUIC Interop Runner's image, pinned by digest and run outside the runner as
@@ -116,6 +117,15 @@ plan_h3() {
   expect_opened "closed=true quic_opens=1 tcp_opens=0"
 }
 
+# tcp_first_h3 <port>: with TCP first, the connect to the h3 server's port is refused, since the
+# server listens on UDP alone, so QUIC opens once TCP failed and carries every exchange.
+tcp_first_h3() {
+  run_client h3 "$1" --tcp-first --get /small --get /missing
+  expect "GET /small" "received=$(wc -c <"${scratch}/www/small" | tr -d ' ') received_crc32=$(file_crc32 "${scratch}/www/small") outcome=response"
+  expect "GET /missing" "status=404"
+  expect_opened "closed=true quic_opens=1 tcp_opens=1"
+}
+
 run_aioquic() {
   echo "pool_interop.sh: aioquic ${aioquic_version}"
   HQ_PEER_SCRATCH="${scratch}" "${venv}/bin/python" "${repository_root}/tools/quic_interop/h3_peer.py" \
@@ -124,6 +134,7 @@ run_aioquic() {
   local aioquic_port
   aioquic_port="$("${listening_port}" "${scratch}/aioquic.log")"
   plan_h3 "${aioquic_port}"
+  tcp_first_h3 "${aioquic_port}"
   stop_peer
 }
 
@@ -175,6 +186,10 @@ run_fallback() {
   content_crc32="$(pattern_crc32 "${content_len}")"
   expect "POST /echo" "sent=${content_len} sent_crc32=${content_crc32} received=${content_len} received_crc32=${content_crc32} outcome=response"
   expect_opened "closed=true quic_opens=1 tcp_opens=1"
+  # With TCP first, the h2 connection takes every exchange, and QUIC never opens.
+  run_client h2 "${go_port}" --tcp-first --get / --get /large
+  expect "GET /large" "received=${large_len} received_crc32=$(pattern_crc32 "${large_len}") outcome=response"
+  expect_opened "closed=true quic_opens=0 tcp_opens=1"
   stop_peer
 }
 
@@ -195,4 +210,4 @@ head -c 1000000 /dev/urandom >"${scratch}/www/large"
 run_aioquic
 run_quic_go
 run_fallback
-echo "pool_interop.sh: every exchange ended as planned: over h3 from aioquic and quic-go, and over h2 from Go's server with no UDP"
+echo "pool_interop.sh: every exchange ended as planned: over h3 from aioquic and quic-go, and over h2 from Go's server with no UDP, QUIC first and TCP first"

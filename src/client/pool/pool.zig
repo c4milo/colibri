@@ -4,10 +4,11 @@
 //! (decision 105).
 //!
 //! The caller passes what DNS knows as values and never a name to resolve: the server's addresses,
-//! and an HTTPS record's `alpn` and `port` (RFC 9460 §7.1, §7.2). QUIC goes first when h3 is known,
-//! or when the configuration says to try it (RFC 9114 §3.1), and TCP opens when QUIC fails or the
-//! fallback delay passes. The first connection whose handshake completes takes the exchanges, and
-//! the other closes. A TCP response's Alt-Svc teaches the pool h3 for its next connection (RFC
+//! and an HTTPS record's `alpn` and `port` (RFC 9460 §7.1, §7.2). QUIC may open when h3 is known,
+//! or when the configuration says to try it (RFC 9114 §3.1). `Protocols.prefer` says which
+//! transport opens first (decision 117 as amended). Under `.tcp`, QUIC opens only once TCP fails.
+//! Under `.quic`, TCP opens when QUIC fails or the fallback delay passes. The first connection
+//! whose handshake completes takes the exchanges, and the other closes. A TCP response's Alt-Svc teaches the pool h3 for its next connection (RFC
 //! 7838 §3). An exchange that a connection taking no new exchange refused unprocessed moves to
 //! another connection once (RFC 9113 §8.7, RFC 9114 §4.1.1). An idempotent request whose
 //! connection closed before any of its response arrived moves too (RFC 9110 §9.2.2, decision 124),

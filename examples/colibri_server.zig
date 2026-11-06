@@ -99,10 +99,11 @@ pub fn main() !void {
     defer http_server.shutdown();
 
     // h11 alone: ALPN offers `http/1.1`. Then h11 and h2, and the server selects h2. Then every
-    // version, and the client tries QUIC first.
+    // version: by default the client opens TCP first, and with `.prefer = .quic` QUIC first.
     try fetch(cpu, .{ .h2 = false, .h3 = false }, .h11);
     try fetch(cpu, .{ .h3 = false }, .h2);
-    try fetch(cpu, .{}, .h3);
+    try fetch(cpu, .{}, .h2);
+    try fetch(cpu, .{ .prefer = .quic }, .h3);
     std.debug.print("colibri_server: two GETs over h11, h2 and h3 to port {d}\n", .{http_server.port()});
 }
 

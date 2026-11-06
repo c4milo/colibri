@@ -44,6 +44,10 @@ pub const slow_delay_max_ns: u64 = 200_000_000;
 pub const lossy_drop: u32 = 100;
 pub const lossy_drop_run_max: u32 = 3;
 
+/// Design §8 step 43: one seed in `tcp_refused_one_in` whose QUIC can carry the exchanges has its
+/// TCP server refuse each connect, so a pool that prefers TCP opens QUIC once TCP failed.
+pub const tcp_refused_one_in: u64 = 3;
+
 /// The most a server waits before it answers or resets a request.
 pub const answer_delay_max_ns: u64 = 60_000_000;
 

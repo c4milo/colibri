@@ -1,5 +1,6 @@
-//! The tests of the pool to one origin (`pool.zig`, `pool_events.zig`) with QUIC offered:
-//! QUIC goes first, TCP opens after it fails or the fallback delay passes, the first handshake to
+//! The tests of the pool to one origin (`pool.zig`, `pool_events.zig`) with QUIC offered. Under
+//! `.quic`, QUIC goes first, and TCP opens after it fails or the fallback delay passes. Under
+//! `.tcp`, the default, TCP goes first and QUIC opens once it fails. The first handshake to
 //! complete takes the exchanges, and an exchange refused by a draining connection moves. The h3
 //! server of `quic_test_support.zig` answers in the same process, through
 //! `pool_quic_test_support.zig`.
@@ -54,6 +55,63 @@ test "RFC 9114 §3.1: with h3 offered, QUIC opens first and carries the exchange
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqual(null, opened(1));
+}
+
+/// A pool as `start` makes it, with `tcp_connections` TCP slots and the default preference: TCP
+/// first (decision 117 as amended).
+fn start_tcp_first(tcp_connections: u16) !void {
+    var given = fixture.configured(true);
+    given.protocols = .{};
+    given.tcp_connections = tcp_connections;
+    try fixture.start_configured(&quic_support.alpn_h3, values_at(https_port), given, fixture.receive_storage());
+}
+
+test "decision 117 as amended: by default TCP opens first, and no QUIC opens while its handshake runs" {
+    try start_tcp_first(1);
+    var exchange = get(&bodies[0]);
+    _ = try pool.request(&exchange.request, &exchange.response);
+    try collect();
+    try testing.expectEqual(Transport.tcp, opened(0).?.transport);
+    try testing.expectEqual(https_port, opened(0).?.to.port);
+    // No delay opens QUIC beside TCP, so the pool names no fallback instant.
+    try testing.expectEqual(null, pool.deadline_ns());
+    try pump(rounds_before_fallback + 1);
+    try testing.expectEqual(null, opened(1));
+    try testing.expectEqual(.pending, exchange.response.result);
+}
+
+test "decision 117 as amended: by default QUIC opens once TCP fails, and carries the exchange" {
+    try start_tcp_first(1);
+    var exchange = get(&bodies[0]);
+    const id = try pool.request(&exchange.request, &exchange.response);
+    try collect();
+    try testing.expectEqual(Transport.tcp, opened(0).?.transport);
+    // The connect fails, as a refused one does.
+    pool.transport_closed(pool_support.connection_of(pool, .tcp));
+    try collect();
+    try testing.expectEqual(Transport.quic, opened(1).?.transport);
+    // TCP failed, so no fallback delay opens it again beside QUIC.
+    try testing.expectEqual(null, pool.fallback_at_ns);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected.protocol);
+    try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
+    try testing.expectEqual(.response, exchange.response.result);
+    try testing.expectEqual(null, opened(2));
+}
+
+test "decision 117 as amended: by default QUIC opens once TCP fails, though another TCP slot is free" {
+    try start_tcp_first(fixture.tcp_connections_two);
+    var exchange = get(&bodies[0]);
+    _ = try pool.request(&exchange.request, &exchange.response);
+    try collect();
+    try testing.expectEqual(Transport.tcp, opened(0).?.transport);
+    pool.transport_closed(opened(0).?.connection);
+    try collect();
+    // The second slot waits: TCP failed once in this attempt, so QUIC goes next.
+    try testing.expectEqual(Transport.quic, opened(1).?.transport);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.response, exchange.response.result);
+    try testing.expectEqual(null, opened(2));
 }
 
 test "RFC 9114 §3.1: a QUIC handshake whose server speaks no h3 fails, and TCP opens" {

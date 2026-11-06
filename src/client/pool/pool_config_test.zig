@@ -223,5 +223,5 @@ fn expect_quic_after_cancel(protocols: protocols_module.Protocols) !void {
 
 test "an attempt ends when no exchange waits and no connection runs, so the next one opens QUIC" {
     try expect_quic_after_cancel(h3_alone);
-    try expect_quic_after_cancel(.{});
+    try expect_quic_after_cancel(.{ .prefer = .quic });
 }

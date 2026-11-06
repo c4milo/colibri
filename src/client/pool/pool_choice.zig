@@ -38,6 +38,10 @@ pub const View = struct {
     quic_allowed: bool,
     /// TCP may carry them: the client speaks h11 or h2 (RFC 9114 §3.1, decision 117).
     tcp_allowed: bool,
+    /// The transport the pool opens first (decision 117 as amended), and whether this attempt
+    /// opened a TCP slot.
+    prefer: Transport,
+    tcp_tried: bool,
     /// A TCP slot with no connection, which this attempt has not opened, or null.
     tcp_free: ?u32,
     /// The TCP slots whose handshake runs, and whether a TCP connection is open.
@@ -91,17 +95,25 @@ fn tcp_carries(view: *const View) bool {
     return view.tcp_open and view.quic != .open;
 }
 
-/// QUIC goes first when it is allowed (RFC 9114 §3.1), once an attempt, and not beside a TCP
-/// connection that runs.
+/// QUIC opens when it is allowed (RFC 9114 §3.1), once an attempt, and not beside a TCP
+/// connection that runs. Under `.quic` it goes first, and under `.tcp` it waits for TCP.
 fn can_open_quic(view: *const View) bool {
     if (!view.quic_allowed or view.quic_tried) return false;
-    return view.quic.idle() and !view.tcp_open and view.tcp_opening == 0;
+    if (!view.quic.idle() or view.tcp_open or view.tcp_opening > 0) return false;
+    return view.prefer == .quic or after_tcp(view);
 }
 
-/// A TCP slot opens once an attempt, and only when TCP is allowed: when QUIC is not allowed, when
-/// the fallback delay passed during QUIC's handshake, when this attempt's QUIC failed, when a QUIC
-/// connection still ends, or when TCP carries the exchanges and they need another connection: an
-/// h11 one with no room (decision 125). RFC 9114 §3.1: a client that cannot establish QUIC "SHOULD
+/// Whether TCP leaves QUIC to carry the exchanges under `.tcp` (decision 117 as amended): TCP is
+/// not allowed, this attempt's TCP failed, or no TCP slot is free.
+fn after_tcp(view: *const View) bool {
+    return !view.tcp_allowed or view.tcp_tried or view.tcp_free == null;
+}
+
+/// A TCP slot opens once an attempt, and only when TCP is allowed. Under `.tcp` it opens first,
+/// and not while QUIC's handshake runs. Under `.quic` it opens when QUIC is not allowed, when the
+/// fallback delay passed during QUIC's handshake, when this attempt's QUIC failed, or when a QUIC
+/// connection still ends. Under each, it opens when TCP carries the exchanges and they need
+/// another connection: an h11 one with no room (decision 125). RFC 9114 §3.1: a client that cannot establish QUIC "SHOULD
 /// attempt to use TCP-based versions", and a client that speaks h3 alone has none (the model's
 /// TcpWhenAllowed). Until TCP carries the exchanges, one TCP handshake runs at a time, so the pool
 /// learns whether ALPN picks h2 before it opens a second connection.
@@ -112,7 +124,12 @@ fn can_open_tcp(view: *const View) ?u32 {
     if (view.tcp_opening > 0 and !grows) return null;
     // Decision 125: no more handshakes run than exchanges wait.
     if (view.tcp_opening >= view.waiting) return null;
-    return if (grows or after_quic(view)) slot else null;
+    if (grows) return slot;
+    const first = switch (view.prefer) {
+        .tcp => view.quic != .handshake,
+        .quic => after_quic(view),
+    };
+    return if (first) slot else null;
 }
 
 /// Whether QUIC leaves TCP to carry the exchanges: QUIC is not allowed, the fallback delay passed
@@ -125,13 +142,16 @@ fn after_quic(view: *const View) bool {
 
 const testing = std.testing;
 
-/// A view with an exchange waiting, both transports allowed, and nothing opened. Test-only.
+/// A view with an exchange waiting, both transports allowed, QUIC preferred, and nothing
+/// opened. Test-only.
 fn fresh() View {
     return .{
         .quic = .none,
         .quic_tried = false,
         .quic_allowed = true,
         .tcp_allowed = true,
+        .prefer = .quic,
+        .tcp_tried = false,
         .tcp_free = 0,
         .tcp_opening = 0,
         .tcp_open = false,
@@ -285,6 +305,52 @@ test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP, and gives up o
     view.quic_allowed = false;
     try testing.expectEqual(null, next_open(&view));
     try testing.expect(give_up(&view));
+}
+
+test "decision 117 as amended: under .tcp TCP opens first, and QUIC only once TCP fails" {
+    var view = fresh();
+    view.prefer = .tcp;
+    try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
+    // TCP's handshake runs, so QUIC waits for it and no fallback delay opens QUIC.
+    view.tcp_free = null;
+    view.tcp_opening = 1;
+    view.tcp_tried = true;
+    view.fallback = true;
+    view.all_idle = false;
+    try testing.expectEqual(null, next_open(&view));
+    // This attempt's TCP failed, so QUIC opens, though another TCP slot is free.
+    view.tcp_opening = 0;
+    view.tcp_free = 1;
+    try testing.expectEqual(Choice.quic, next_open(&view).?);
+    // While QUIC's handshake runs, no TCP slot opens beside it.
+    view.quic = .handshake;
+    view.quic_tried = true;
+    try testing.expectEqual(null, next_open(&view));
+    // Once QUIC failed too, the free TCP slot opens.
+    view.quic = .failed;
+    try testing.expectEqual(Choice{ .tcp = 1 }, next_open(&view).?);
+}
+
+test "decision 117 as amended: under .tcp QUIC opens when no TCP slot is free or TCP is not allowed" {
+    var view = fresh();
+    view.prefer = .tcp;
+    // A TCP connection of an earlier attempt still ends in the one slot.
+    view.tcp_free = null;
+    view.all_idle = false;
+    try testing.expectEqual(Choice.quic, next_open(&view).?);
+    // RFC 9114 §3.1: a client that speaks h3 alone opens QUIC first.
+    view = fresh();
+    view.prefer = .tcp;
+    view.tcp_allowed = false;
+    try testing.expectEqual(Choice.quic, next_open(&view).?);
+    // QUIC never opens beside an open TCP connection.
+    view = fresh();
+    view.prefer = .tcp;
+    view.tcp_tried = true;
+    view.tcp_open = true;
+    view.tcp_free = null;
+    view.all_idle = false;
+    try testing.expectEqual(null, next_open(&view));
 }
 
 test "a slot is idle with no connection, and not while one runs" {
