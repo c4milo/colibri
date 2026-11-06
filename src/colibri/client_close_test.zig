@@ -239,3 +239,22 @@ test "decision 153 ruling 9: a connect past its deadline ends the exchange refus
     try testing.expectEqual(client.Result.refused, handler.exchanges[0].response.result);
     try testing.expectEqual(null, handler.connected);
 }
+
+test "decision 153 ruling 9: a connect limit past Rotor's longest deadline connects with one day" {
+    try unanswered.fill();
+    defer unanswered.release();
+    var counter: support.Counter = .{};
+    try start(&counter);
+    defer test_client.deinit();
+    defer client_loop.end(test_client);
+    var handler: fixture.Handler = .{};
+    var running: Run = .{ .client = test_client, .handler = &handler };
+    // A program may write the largest value to mean no practical limit. Rotor halts on a deadline
+    // past `timeout_ns_max` at the submit.
+    test_client.pool_config.timeouts.connect_ns = std.math.maxInt(u64);
+    open(1);
+    for (0..3) |_| try client_loop.turn(&running);
+    try testing.expect(test_client.connections[0].connecting);
+    client_tcp.close(test_client, handle(1));
+    try testing.expect(try turns_until_free(&running) <= freed_within_ns);
+}

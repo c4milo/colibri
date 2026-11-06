@@ -85,10 +85,12 @@ fn connect(state: anytype, slot: usize, asked: client.Open) void {
 }
 
 /// The deadline Rotor gives a connect: `connect_ns`, or 0, Rotor's none, for no limit. A limit of 0
-/// ends the connect at once, so it becomes Rotor's least deadline.
+/// ends the connect at once, so it becomes Rotor's least deadline. Rotor halts on a deadline past
+/// `timeout_ns_max`, one day, so a longer limit becomes that day. The system ends a connect far
+/// sooner, at about 75 s on macOS and 127 s on Linux, so the change is not visible.
 fn connect_timeout_ns(connect_ns: ?u64) u64 {
     const limit_ns = connect_ns orelse return 0;
-    return @max(limit_ns, 1);
+    return std.math.clamp(limit_ns, 1, rotor.constants.timeout_ns_max);
 }
 
 /// The pool is done with a connection: its socket sends what it owes and closes. The pool reads
@@ -249,4 +251,7 @@ test "decision 153 ruling 9: a connect's deadline is the pool's limit, none for 
     // Rotor reads a deadline of 0 as none.
     try std.testing.expectEqual(0, connect_timeout_ns(null));
     try std.testing.expectEqual(1, connect_timeout_ns(0));
+    // Rotor halts on a deadline past one day, so a longer limit becomes one day.
+    try std.testing.expectEqual(rotor.constants.timeout_ns_max, connect_timeout_ns(2 * rotor.constants.timeout_ns_max));
+    try std.testing.expectEqual(rotor.constants.timeout_ns_max, connect_timeout_ns(std.math.maxInt(u64)));
 }

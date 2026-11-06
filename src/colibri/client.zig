@@ -27,7 +27,8 @@ pub const ClientConfig = struct {
     /// What the pool starts from: the authority, the protocols, the TLS value, the codings and the
     /// timeouts. `init` sets its `tcp_connections` and `requests` to the client's own counts, and
     /// sets its `ecn`, because the client's loop reads and sets each datagram's ECN codepoint
-    /// (decision 68). `timeouts.connect_ns` bounds each TCP connect.
+    /// (decision 68). `timeouts.connect_ns` bounds each TCP connect, to one day at most, the
+    /// longest deadline Rotor takes.
     pool: client.Config,
     /// The source each TLS session and each QUIC connection draws from. Null draws from the
     /// operating system's entropy (decision 150 ruling 9).

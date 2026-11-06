@@ -270,7 +270,7 @@ the UDP socket when `run` did not close it.
 
 The pool's `timeouts.connect_ns` bounds each TCP connect, 10 s by default. A connect that does
 not complete in that time ends its attempt as a refused connect does, and null turns the limit
-off.
+off. A limit longer than one day becomes one day, the longest deadline Rotor takes.
 
 ## The server
 

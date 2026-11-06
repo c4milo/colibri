@@ -13197,7 +13197,8 @@ library.
       loop reads and sets each datagram's codepoint, and a pool that does not read ECN halts on
       a datagram marked ECT(0).
     - Each TCP connect goes to Rotor with the deadline `pool.timeouts.connect_ns`, 10 s by
-      default. A connect past it ends the attempt as a refused connect does.
+      default. A connect past it ends the attempt as a refused connect does. Rotor takes no
+      deadline past `rotor.constants.timeout_ns_max`, one day, so a longer limit becomes one day.
     - `run(handler)` runs one loop on the calling thread. The handler declares `on_finished` and
       may declare `on_connected`. Each runs on the loop's thread and may call `request` and
       `shutdown`. `shutdown` is the one call another thread may make. A program calls `run` once
@@ -13271,6 +13272,11 @@ library.
       earlier run's sockets live.
     - `unix_seconds` with no default is a compile error where a program leaves it out, so it has
       no mutation.
+  - **The second review, 2026-11-06.** Two reviews read the branch after the rulings. Each fix has
+    a test, and each mutation was **CAUGHT** by `zig build test-colibri`.
+    - A `connect_ns` past one day, such as `std.math.maxInt(u64)`, halted the program on Rotor's
+      assertion at the connect's submit. `colibri.Client` now passes one day at most. Caught: no
+      bound on the deadline.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default
