@@ -6121,6 +6121,20 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      10. Amended by decision 156 on 2026-11-06, for ruling 8: `colibri.Client` owns the loop only
          when the program passes none. Otherwise it runs on the program's loop, beside other
          libraries.
+     11. Ruled by the owner on 2026-11-06, after the review of step 39: over h3 a held piece keeps
+         the connection's credit, and that is correct. QUIC gives back MAX_DATA as octets are
+         consumed (RFC 9000 §4.1), and a held piece's octets still take room in the client's
+         receive pool. The gap was the window of a request stream: the client granted each one
+         the whole pool, so one held stream could fill the pool and stop the others. The client
+         grants each request stream `@min(quic_stream_window, capacity)`, as it grants each
+         unidirectional stream (RFC 9000 §18.2).
+     12. Ruled by the owner on 2026-11-06: over h3 a piece is copied once, as over h11 and h2. The
+         `data_available` event carries the octets that arrived and copies none of them, and
+         `h3.Connection.peek_data` copies them from QUIC straight into the caller's memory.
+         `client.ConnectionPool` calls it with `Response.body`.
+     13. Ruled by the owner on 2026-11-06: an h11 response that is not streamed and ends
+         `too_large` keeps in `Response.body` the octets that fit, as it did before step 39. Only
+         a held piece goes back to the caller at a drop.
 
      Alternatives that lost:
      - `unix_seconds` with a default of 0. A web PKI trust then refuses each chain, and a
@@ -6137,6 +6151,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A provider that the pool calls inside `receive` for each piece. The pool reports events and
        does not call the program back inside its loop.
      - A module of its own for the client. Two modules would then do I/O.
+     - For ruling 11: give back the connection's credit when a held piece arrives. The piece's
+       octets still take room in the receive pool, so the server could send more than the pool
+       holds.
+     - For ruling 12: an output for each held stream, given at `write_request`. h3 would then
+       write into the caller's memory after the exchange ended, as when a GOAWAY refuses the
+       stream (RFC 9114 §5.2) and h3 still reads it.
+     - For ruling 12: keep two copies, through the h3 connection's 16,384-octet buffer.
 
 154. **One reading of quic-go's congestion controller, to explain a gap the judge measured.**
      Ruled by the owner on 2026-11-05. It makes one exception to non-negotiable 10. At 1% loss on
