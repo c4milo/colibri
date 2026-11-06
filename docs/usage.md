@@ -1588,6 +1588,10 @@ The other rules of a streamed exchange:
   `body_taken` and before its `headers`. After that the pool holds no whole request, so an
   exchange that a server refused ends `closed`, not `refused`.
 - `cancel` gives back the request piece and the response piece at once.
+- A transport that closes while the program holds a piece ends the exchange after the release.
+  It ends `response` when the connection read the whole response, and `closed` when some of it
+  still waits in the input. Release each piece and pass the rest of the input before
+  `transport_closed`.
 - The client offers no content coding for a streamed response, so its pieces come as the server
   sent them.
 - One streamed exchange can report four events with no input: `headers`, `body`, `body_taken` and

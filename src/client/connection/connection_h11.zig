@@ -270,9 +270,18 @@ fn fail(connection: *Connection) void {
 }
 
 /// The transport closed. A body that runs until the close ends with it (RFC 9112 §6.3 rule 8), and
-/// a response cut short leaves its exchange `closed` (RFC 9112 §8).
+/// a response cut short leaves its exchange `closed` (RFC 9112 §8). A streamed response that h11
+/// read whole, whose end a held piece kept back, ended before the close (decision 153).
 pub fn transport_closed(connection: *Connection) void {
-    const closed = connection.session.h11.transport_closed();
+    const session = &connection.session.h11;
+    if (session.end_owed and !connection.tail.pending()) {
+        // RFC 9112 §6.3: the body's last octet arrived, and the caller has every octet of it, so
+        // the response is whole. h11 reports its end with no octets.
+        const received = session.receive(&.{}, &.{}) catch unreachable;
+        assert(received.event.? == .end);
+        _ = on_end(connection, connection.slots.oldest_awaiting().?);
+    }
+    const closed = session.transport_closed();
     const slot = connection.slots.oldest_awaiting() orelse return;
     if (closed.ended_body) _ = finish(connection, slot);
 }

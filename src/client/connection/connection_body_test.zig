@@ -171,6 +171,83 @@ test "decision 153 ruling 7: over TLS an h11 response's pieces wait in the opene
     try testing.expectEqual(1, finished_count);
 }
 
+/// Reads until the client reports the piece of exchange `id`, which it holds. Test-only.
+fn read_held(id: u64) !void {
+    support.events_len = 0;
+    try support.client_receive();
+    try testing.expectEqual(id, support.find(.body).?.body.id);
+}
+
+/// Releases the held piece of exchange `id`, and requires the exchange to finish only after the
+/// release. Test-only.
+fn finish_at_release(id: u64) !void {
+    try testing.expectEqual(null, support.find(.finished));
+    connection.release_body(id);
+    support.events_len = 0;
+    try support.client_receive();
+    try testing.expectEqual(id, support.find(.finished).?.finished.id);
+}
+
+/// An h11 answer whose body fits one piece. RFC 9112 §9.6: with the "close" option the server
+/// closes the connection after it.
+const closing_answer = [_]Header{
+    .{ .name = "Content-Length", .value = "3" },
+    .{ .name = "Connection", .value = "close" },
+};
+
+test "RFC 9112 §6.3: an h11 response read whole ends `response` when the transport closes while its last piece is held" {
+    try support.start_cleartext(.h11);
+    var get = streamed_get(&piece);
+    const id = try connection.request(&get.request, &get.response);
+    support.client_send();
+    try support.peer_h11_read();
+    try support.peer_h11_answer(ok, &closing_answer, "abc");
+    try read_held(id);
+    connection.transport_closed();
+    try finish_at_release(id);
+    try testing.expectEqual(.response, get.response.result);
+}
+
+test "RFC 9112 §8: an h11 response whose octets wait in the caller's input ends `closed` when the transport closes" {
+    try support.start_cleartext(.h11);
+    var get = streamed_get(&piece);
+    const id = try connection.request(&get.request, &get.response);
+    support.client_send();
+    try support.peer_h11_read();
+    try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "26" }}, alphabet);
+    try read_held(id);
+    // The rest of the body is in the caller's input, which the connection reads no more.
+    connection.transport_closed();
+    try finish_at_release(id);
+    try testing.expectEqual(.closed, get.response.result);
+}
+
+test "RFC 9846 §6.1: over TLS an h11 response read whole ends `response` when close_notify comes with its last piece" {
+    try tls_support.prepare_tls(&support.protocols_h11, &support.protocols_h11, "localhost", false);
+    try tls_support.run_handshake();
+    try tls_support.server_open();
+    tls_support.peer_plain_len = 0;
+    support.peer_h11.init(.server, .{});
+    try support.peer_h11.attach_tls(tls_support.server.provider());
+    var get = streamed_get(&piece);
+    const id = try connection.request(&get.request, &get.response);
+    support.client_send();
+    try tls_support.server_open();
+    _ = try support.peer_h11.receive(tls_support.peer_plain[0..tls_support.peer_plain_len], &.{});
+    const out = &tls_support.peer_out;
+    var written = try support.peer_h11.write_response(out, ok, "", &closing_answer);
+    written += try support.peer_h11.write_body(out[written..], "abc");
+    written += try support.peer_h11.write_end(out[written..], &.{});
+    try tls_support.server_seal(out[0..written]);
+    // RFC 9846 §6.1: the close_notify arrives in the same input as the last piece, so the client
+    // reads it while the caller holds the piece.
+    const provider = tls_support.server.provider();
+    support.to_client_len += try provider.vtable.send_close_notify(provider.context, support.to_client[support.to_client_len..]);
+    try read_held(id);
+    try finish_at_release(id);
+    try testing.expectEqual(.response, get.response.result);
+}
+
 test "decision 153: a streamed response is offered no content coding, and its pieces come as they were sent" {
     try support.start_coding(.h11);
     reset_counts();
