@@ -13013,14 +13013,15 @@ library.
     - `ServerConfig` holds `host`, an IPv4 or IPv6 literal, `port`, `identity`, `cpu`, `random`,
       which defaults to the system's entropy (ruling 9), and `endpoint`, the `server.Config` the
       endpoint starts from. `colibri` fills its `tls`.
-    - `Identity` is `.pem`, the chain and the key as PEM bytes, or `.files`, their names.
+    - `Identity` holds `chain` and `key`, the PEM text the program holds. The program reads its
+      own files (ruling 11).
     - `Server.init(config)` reads the identity and binds. `Server.run(router, context)` runs
       until `shutdown()`. `Server.port()` returns the port
       bound, for port 0. `Server.deinit()` closes each socket `run` did not close, and wipes the
       private key and the cookie key (the owner's ruling of 2026-11-05).
   - **37a: the module.** `src/colibri/` in the graph, importing `server`, `tls` and Rotor, which
     stops being lazy. The io and determinism lint rules exempt it as they exempt `src/testing/`.
-    The test that lists the names, and `init` with `.pem`.
+    The test that lists the names, and `init` with an identity of PEM text.
   - **37b: TCP.** h11 and h2 in cleartext, h2 and h11 over TLS by ALPN, port 0 and `port()`, from
     `src/testing/server/`'s socket and pump, moved into the library.
   - **37c: UDP.** h3 on the UDP socket of the same port, with UDP_GRO and UDP_SEGMENT on Linux,
@@ -13029,11 +13030,10 @@ library.
     a client of `std.Io.Threaded` fetches over h11 and checks each response octet for octet. The
     fetch over h2 and h3 comes with `colibri.Client` in step 42. docs/usage.md and README.md show
     the example, and `tools/consumer/` calls `colibri`.
-  - **37e: `.files`.** The identity read from PEM files at `init`, through Rotor's `open_file`,
-    `file_size` and `read`, into the server's memory. The key's text is wiped once `tls.pem.key`
-    has read it.
   - **The record, 2026-11-05.** Each mutation below was **CAUGHT** by `zig build test-colibri`, or
     by `zig build examples` for 37d.
+    - Ruling 11 removed 37e, `.files`, on 2026-11-05, with its code and its tests. The entries
+      for 37e stay as the record of that code.
     - 37a: a `std.Io` accepted; no default source; the cookie key not drawn; the identity ignored;
       the key not read; entropy that fills one call alone.
     - 37b, five of them as a hang: no accept armed; shutdown ignored; a send event ignored;
@@ -13047,7 +13047,8 @@ library.
       a missing file reported as unreadable; the key read from the chain's name; a name with a
       zero octet accepted.
     - Rotor's `open_file` opens a file to read and to write, so a key file the program may only
-      read, such as one of mode 0400, is refused with `IdentityFileAccessDenied`. A test pins it.
+      read, such as one of mode 0400, was refused with `IdentityFileAccessDenied`. A test pinned
+      it until ruling 11.
     - After the review of 37d and 37e: the name's length check off by one; no length check;
       `AccessDenied` reported as unreadable; the key's text wiped on success alone; the key and
       the cookie key kept when `init` fails after the read; a TLS connection accepted as
@@ -13055,7 +13056,9 @@ library.
     - `deinit`, on 2026-11-05: no listener close; no UDP close; no key wipe; no cookie key
       wipe; a second close after `run`, in three forms.
     - **NOT CAUGHT:** no check for a file that became shorter after `file_size`. No test can
-      shorten a file within `read`, so the check stays without a test.
+      shorten a file within `read`. Ruling 11 removed the check with 37e.
+    - Ruling 11, on 2026-11-05: the key's parse error ignored; the key read from the chain's text;
+      the cookie key drawn before the parse.
     - **Not checked:** no test sends a datagram through `colibri.Server`, so its UDP receive and
       send paths have no check. The fetch over h3 with `colibri.Client` in step 42 checks them.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open

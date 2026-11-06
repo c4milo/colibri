@@ -5845,9 +5845,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         memory, through a `std.Io` that fakes the network:
         - `colibri` reads the clock and waits only through the `std.Io` it holds, never through
           Rotor or the operating system. A program that passes a fake `std.Io` controls time.
-        - `colibri.ServerConfig.identity` is a `colibri.Identity`: `.files`, the names of the chain and the
-          key, read through the `std.Io`, or `.pem`, the same PEM text as bytes the program holds.
-          An in-memory `std.Io` then needs no file system.
+        - As amended by ruling 11, `colibri.ServerConfig.identity` is a `colibri.Identity`: the
+          chain and the key as PEM text the program holds. An in-memory `std.Io` then needs no file
+          system.
         - The port may be 0. `Server.port()` returns the port the `std.Io` bound, once `run` has
           bound it, so a script can read it.
      6. Amended by the owner on 2026-11-05, for the same dependent, which asked for `colibri` before
@@ -5885,8 +5885,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `Server.init` takes no `io`. Rulings 1 and 5 no longer pass a program's `std.Io`, and no
           example runs `colibri` over an in-memory `std.Io`. The examples stay in memory over
           `examples/link.zig`, which drives the sans-I/O modules.
-        - `colibri` reads `.files` at `init` through Rotor's own file calls, and the clock is the
-          loop's. Ruling 9's default source stays.
+        - The clock is the loop's, and ruling 9's default source stays. `colibri` reads no file, as
+          amended by ruling 11.
+
+     11. Amended by the owner on 2026-11-05: `colibri.Server` takes its PEM chain and key as bytes
+        alone, and the program reads its own files.
+        - `colibri.Identity` is a struct of two fields, `chain` and `key`, each the PEM text the
+          program holds. `.files`, its four `IdentityFile` errors and design §8 step 37e leave.
+        - `colibri` reads no file. The PEM files of rulings 1 and 4 are the program's to read.
+        - Rotor provides no file calls for `colibri`.
+          [rotor#11](https://github.com/c4milo/rotor/issues/11), which asked for them, was closed
+          as not needed.
+        - `init` reads the key's text in place and keeps no copy, so the program may wipe the text
+          once `init` returns.
 
      Alternatives that lost:
      - A separate package on colibri and Rotor. The owner wants the shape in colibri itself.
@@ -5895,6 +5906,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Documentation alone: the program keeps writing its own loop.
      - Binding inside `server`, which would end non-negotiable 1 for the module the simulator
        drives.
+     - `.files` read through Rotor's file calls (ruling 11). Rotor opens a file to read and to
+       write, so it refused a key file the program may only read, such as one of mode 0400.
+     - `.files` read through a local `std.Io.Threaded` (ruling 11): a second I/O implementation in
+       `colibri`, beside Rotor's loop.
 
 151. **`server` encodes and decodes JSON through stdx's `json` module.** Ruled by the owner on
      2026-11-04 (design §8 step 36), with decision 150. `server` gains an edge to stdx's `json`
