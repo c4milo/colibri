@@ -117,8 +117,8 @@ pub const Slot = struct {
 };
 
 /// Hands `slot` the next piece of its streamed request (decision 153), the last one when `last`
-/// is set. The caller keeps `piece` until the slot's `body_taken` event. `BodyStopped` says no more of the content goes out: the
-/// exchange ended, or the protocol refused the rest.
+/// is set. The caller keeps `piece` until the slot's `body_taken` event. `BodyStopped` says no
+/// more of the content goes out: the exchange ended, or the protocol refused the rest.
 pub fn hand(slot: *Slot, piece: []const u8, last: bool) error{BodyStopped}!void {
     assert(slot.request.streamed.request);
     // The pool refuses a second piece while one is held, and a piece after the end.

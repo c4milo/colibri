@@ -199,7 +199,8 @@ test "decision 95: a fixed body's octets the caller sends itself are counted, no
     try testing.expectEqual(0, try target.write_end(&test_output, &.{}));
     // RFC 9112 §6: once the body ends there is nothing to count.
     try testing.expectError(error.NoBody, target.count_body(1));
-    // RFC 9112 §7.1: a chunk needs its size line, so octets counted before a chunk head are refused.
+    // RFC 9112 §7.1: a chunk needs its size line, so octets counted before a chunk head are
+    // refused.
     target = client(.{});
     _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
     try testing.expectError(error.BodyTooLong, target.count_body(1));

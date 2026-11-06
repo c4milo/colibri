@@ -1,8 +1,9 @@
 //! The content and the skipped frames of a request stream (RFC 9114 §4.1, §7.2.1, §9). Part of
 //! design §8 step 12, split from `connection_request.zig` in design §8 step 39.
 //!
-//! A DATA frame's payload goes straight from `quic` into the caller's buffer, and an unknown frame's
-//! payload is taken unread. §4.1.2's content-length rule is checked here at each frame's header.
+//! A DATA frame's payload goes straight from `quic` into the caller's buffer, and an unknown
+//! frame's payload is taken unread. §4.1.2's content-length rule is checked here at each frame's
+//! header.
 //!
 //! A stream opened with `hold_data` copies its payload with `peek` and leaves it in `quic`, so the
 //! peer gets no credit for it (RFC 9000 §4.1). `release_data` takes it once the caller has used it

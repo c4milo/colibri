@@ -235,9 +235,10 @@ pub const Connection = struct {
 
     /// Ends exchange `id` before its response is whole, and reports nothing for it. The client
     /// reads and writes nothing of the request or the response after the call, so their memory is
-    /// the caller's again, a piece of each body it held included (decision 153 ruling 7). One not yet written is dropped. A written one: h2 resets its stream
-    /// with CANCEL (RFC 9113 §6.4), and h11 reads its response and drops it, or, while its content
-    /// is going out, ends the connection.
+    /// the caller's again, a piece of each body it held included (decision 153 ruling 7). One not
+    /// yet written is dropped. A written one: h2 resets its stream with CANCEL (RFC 9113 §6.4),
+    /// and h11 reads its response and drops it, or, while its content is going out, ends the
+    /// connection.
     /// `now_ns` starts the time of h11's drop (decision 146).
     pub fn cancel(connection: *Connection, id: RequestId, now_ns: u64) void {
         const slot = connection.slots.of_id(id) orelse return;

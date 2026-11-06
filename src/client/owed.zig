@@ -1,7 +1,7 @@
 //! The events a client connection owes its caller (decision 100), whichever transport carries it:
 //! the version it speaks, a resumption ticket, each request piece it reads no more, each streamed
-//! response's head and pieces (decision 153), each exchange's end, draining, and the close. They are reported one a call, in that order,
-//! before the connection reads anything more.
+//! response's head and pieces (decision 153), each exchange's end, draining, and the close. They
+//! are reported one a call, in that order, before the connection reads anything more.
 const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("event.zig");

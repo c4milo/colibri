@@ -332,8 +332,9 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
         }
 
         /// Ends exchange `id` at `now_ns`, and reports nothing for it. The memory of its request
-        /// and its response is the caller's again, a piece of each body it held included. An h11 connection reads the rest of the
-        /// response and drops it, within the bounds of decision 146.
+        /// and its response is the caller's again, a piece of each body it held included. An h11
+        /// connection reads the rest of the response and drops it, within the bounds of decision
+        /// 146.
         pub fn cancel(pool: *Self, id: RequestId, now_ns: u64) void {
             pool_calls.cancel(pool, id, now_ns);
         }

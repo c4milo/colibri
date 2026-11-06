@@ -136,8 +136,8 @@ pub const Plan = struct {
         assert(plan.requests >= 1 and plan.requests <= limits.requests_max);
     }
 
-    /// Draws which exchanges with content go in pieces (decision 153), from a generator of their own, so a seed's
-    /// other draws stay as they were before step 39.
+    /// Draws which exchanges with content go in pieces (decision 153), from a generator of their
+    /// own, so a seed's other draws stay as they were before step 39.
     pub fn draw_bodies(plan: *Plan, random: *Random) void {
         for (0..limits.requests_max) |index| {
             const content_len = plan.content_len[index];
