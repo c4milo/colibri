@@ -143,7 +143,7 @@ fn run_without_input() !Run {
                 if (finished == exchanges.len) pool.shutdown();
             },
             .closed => run.closed = true,
-            .send, .close, .connected, .ticket, .body_taken => return error.TestUnexpectedResult,
+            .send, .close, .connected, .ticket, .body_taken, .headers, .body => return error.TestUnexpectedResult,
         }
     }
     return run;

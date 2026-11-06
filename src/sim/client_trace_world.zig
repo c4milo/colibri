@@ -434,8 +434,8 @@ pub const World = struct {
             },
             .finished => |finished| try world.report(finished),
             .connected => {},
-            // No request of the run goes in pieces (decision 153).
-            .body_taken => unreachable,
+            // No body of the run goes in pieces (decision 153).
+            .body_taken, .headers, .body => unreachable,
             .closed => world.closed = true,
         }
     }

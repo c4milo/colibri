@@ -70,9 +70,13 @@ fn names(codings: []const Coding, coding: Coding) bool {
 
 /// The Accept-Encoding value for `slot`'s request, written into `into`, with a decoder taken for
 /// each coding it names; or null when the client offers nothing: its configuration names no
-/// codings, the caller's request names Accept-Encoding itself, or every pool is out of decoders.
+/// codings, the caller's request names Accept-Encoding itself or streams its response, or every pool
+/// is out of decoders.
 pub fn offer(codings: []const Coding, pools: Pools, slot: *Slot, into: *[offer_len_max]u8) ?[]const u8 {
     if (codings.len == 0) return null;
+    // Decision 153: a streamed response's pieces go to the caller as they came, which decodes them
+    // itself, so the client offers no coding for it.
+    if (slot.request.streamed.response) return null;
     // Decision 101: a request that names Accept-Encoding goes out as its caller wrote it.
     for (slot.request.headers) |field| {
         if (http.field.names_equal(field.name, accept_encoding)) return null;

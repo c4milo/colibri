@@ -206,8 +206,8 @@ pub const World = struct {
             .send => |connection| try world.client_send(connection),
             .close => |connection| world.client_close(connection),
             .connected, .ticket => {},
-            // No request of the run goes in pieces (decision 153).
-            .body_taken => unreachable,
+            // No body of the run goes in pieces (decision 153).
+            .body_taken, .headers, .body => unreachable,
             .finished => |finished| world.reported[world.index_of(finished.response)] = true,
             .closed => world.closed = true,
         }

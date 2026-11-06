@@ -14,6 +14,7 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const connection_h2_streamed = @import("connection_h2_streamed.zig");
+const connection_body = @import("connection_body.zig");
 const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
@@ -31,7 +32,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
     const session = &connection.session.h2;
     var consumed: usize = 0;
     for (0..constants.limits.frames_per_receive_max) |_| {
-        note_head(connection, plaintext[consumed..]);
+        const header = note_head(connection, plaintext[consumed..]);
         const received = session.receive(plaintext[consumed..], now_ns) catch {
             // RFC 9113 §5.4.1: a connection error ends every exchange, and h2's GOAWAY goes out.
             internal.fail(connection);
@@ -45,20 +46,42 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
             continue;
         }
         const h2_event = received.event orelse continue;
-        if (record(connection, h2_event)) return consumed;
+        if (record(connection, h2_event)) {
+            // Decision 153: the frame's octets after a piece that `Response.body` holds wait for
+            // the next call. h2 reads one frame a call, whose header `note_head` read.
+            consumed -= held_back(connection, header.?, h2_event);
+            return consumed;
+        }
     }
     return consumed;
 }
 
+/// The octets of the frame just read that its event left for the next call: the tail of a DATA
+/// frame's payload that did not fit `Response.body`, and the padding after it (RFC 9113 §6.1).
+fn held_back(connection: *Connection, header: h2.frame.Header, h2_event: h2.Event) usize {
+    const tail = &connection.tail;
+    if (tail.len == 0) return 0;
+    const payload_len = h2_event.data.payload.len;
+    // RFC 9113 §6.1: a PADDED frame carries the Pad Length octet, the data, then the padding.
+    const padded = h2.frame.has_flag(header, h2.constants.protocol.flag_padded);
+    tail.skip_len = if (padded) header.length - pad_length_len - payload_len else 0;
+    return tail.len + tail.skip_len;
+}
+
+/// RFC 9113 §6.1: the Pad Length field of a PADDED frame is one octet.
+const pad_length_len: usize = 1;
+
 /// Notes that a response began when `octets` start with the header of a HEADERS frame on the
 /// stream of an exchange, before h2 reads the frame. A field block that fails to decode (RFC 7541
-/// §6.1), or a frame that never arrives whole, still came (decision 124).
-fn note_head(connection: *Connection, octets: []const u8) void {
+/// §6.1), or a frame that never arrives whole, still came (decision 124). Returns the frame's
+/// header, or null when `octets` hold none whole.
+fn note_head(connection: *Connection, octets: []const u8) ?h2.frame.Header {
     var reader = h2.core.Reader.init(octets);
-    const header = h2.frame.read_header(&reader) catch return;
-    if (header.type != h2.constants.protocol.frame_type_headers) return;
-    const slot = connection.slots.of_stream(header.stream_id) orelse return;
+    const header = h2.frame.read_header(&reader) catch return null;
+    if (header.type != h2.constants.protocol.frame_type_headers) return header;
+    const slot = connection.slots.of_stream(header.stream_id) orelse return header;
     slot.response_began = true;
+    return header;
 }
 
 /// Records what h2's event means for the exchange it names. Returns whether the caller is owed an
@@ -107,7 +130,11 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
         return refuse(connection, slot, response_write.outcome_of(failure));
     };
+    // Decision 153 ruling 7: a streamed response's head is an event of its own, and its content
+    // comes in pieces, so no length is too large.
+    if (slot.request.streamed.response) slot.headers_owed = true;
     if (!head.end_stream) {
+        if (slot.headers_owed) return true;
         // RFC 9113 §8.1: a content that cannot fit ends its stream with CANCEL at the head
         // (https://github.com/c4milo/colibri/issues/106).
         if (response_write.too_large_at_head(slot, head.response.status.code, section)) return refuse(connection, slot, .too_large);
@@ -127,9 +154,21 @@ fn on_trailers(connection: *Connection, stream_id: u32) bool {
 
 fn on_data(connection: *Connection, data: h2.connection.Data) bool {
     const slot = connection.slots.of_stream(data.stream_id) orelse return false;
+    if (slot.request.streamed.response) return on_piece(connection, slot, data);
     response_write.append_body(slot, data.payload) catch |failure| return refuse(connection, slot, response_write.outcome_of(failure));
     if (!data.end_stream) return false;
     return finish(connection, slot);
+}
+
+/// A DATA frame of a streamed response: its payload is the next piece, and what does not fit
+/// `Response.body` is the tail, after which END_STREAM ends the response (decision 153 ruling 7).
+fn on_piece(connection: *Connection, slot: *Slot, data: h2.connection.Data) bool {
+    if (data.payload.len == 0) return data.end_stream and finish(connection, slot);
+    const tail_len = connection_body.hold(connection, slot, data.payload);
+    connection.tail.ends = data.end_stream;
+    // RFC 9113 §8.1: the response ends once the caller had the frame's last octet.
+    if (tail_len == 0 and data.end_stream) return finish(connection, slot);
+    return true;
 }
 
 fn on_reset(connection: *Connection, reset: h2.connection.StreamReset) bool {
@@ -158,7 +197,7 @@ fn on_goaway(connection: *Connection, last_stream_id: u32) bool {
 
 /// The response ended whole. A request whose content has not all gone out needs none of the rest,
 /// so CANCEL closes its stream (RFC 9113 §8.1, §6.4), which would otherwise stay open.
-fn finish(connection: *Connection, slot: *Slot) bool {
+pub fn finish(connection: *Connection, slot: *Slot) bool {
     if (!slot.content_done()) cancel_stream(connection, slot.stream_id);
     // Decision 101: coded content ends with its stream, or the exchange ends malformed.
     const outcome: event.Result = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
@@ -246,6 +285,9 @@ fn open(connection: *Connection, slot: *Slot) bool {
         .authority = connection.config.authority,
         // RFC 7541 §7.1.3: a value an intermediary must not index goes out never-indexed.
         .indexing = .{ .path = if (request.never_indexed.path) .never_indexed else .without_indexing },
+        // RFC 9113 §6.9.1: a streamed response's stream credit goes back as the caller releases
+        // each piece (decision 153 ruling 7).
+        .hold_credit = request.streamed.response,
     };
     // RFC 9113 §8.1: a request with no content ends its stream with its HEADERS frame, as does a
     // streamed one whose only piece is an empty last one.

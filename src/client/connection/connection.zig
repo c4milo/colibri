@@ -37,6 +37,7 @@ const connection_h2 = @import("connection_h2.zig");
 const connection_h11_streamed = @import("connection_h11_streamed.zig");
 const connection_h2_streamed = @import("connection_h2_streamed.zig");
 const connection_tls = @import("connection_tls.zig");
+const connection_body = @import("connection_body.zig");
 const connection_request = @import("connection_request.zig");
 const internal = @import("connection_internal.zig");
 const alt_svc = @import("../alt_svc.zig");
@@ -131,6 +132,9 @@ pub const Connection = struct {
     /// call with no octets, as the pool makes to read what the connection owes, reads nothing
     /// from h11 while any remain.
     unread_len: usize,
+    /// The rest of a run of a streamed response's content that did not fit `Response.body`, which
+    /// waits at the front of the next call's octets (decision 153).
+    tail: connection_body.Tail,
     /// What the connection wrote that `send` has not taken: the TLS flight's records first,
     /// `records_len` octets of them, then the protocol's octets, which `send` seals over TLS.
     output: [constants.limits.output_len]u8,
@@ -172,6 +176,7 @@ pub const Connection = struct {
         connection.session = .none;
         connection.plain_in_len = 0;
         connection.unread_len = 0;
+        connection.tail = .{};
         connection.output_len = 0;
         connection.records_len = 0;
         connection.peer_closed = false;
@@ -221,9 +226,16 @@ pub const Connection = struct {
         try slots_module.hand(slot, piece, end);
     }
 
+    /// Gives back the piece of exchange `id`'s streamed response that its `Response.body` holds,
+    /// which a `body` event reported (decision 153 ruling 7). Over h2 the stream's credit for it
+    /// goes back (RFC 9113 §6.9), and the next `receive` reads on.
+    pub fn release_body(connection: *Connection, id: RequestId) void {
+        connection_body.release(connection, id);
+    }
+
     /// Ends exchange `id` before its response is whole, and reports nothing for it. The client
     /// reads and writes nothing of the request or the response after the call, so their memory is
-    /// the caller's again. One not yet written is dropped. A written one: h2 resets its stream
+    /// the caller's again, a piece of each body it held included (decision 153 ruling 7). One not yet written is dropped. A written one: h2 resets its stream
     /// with CANCEL (RFC 9113 §6.4), and h11 reads its response and drops it, or, while its content
     /// is going out, ends the connection.
     /// `now_ns` starts the time of h11's drop (decision 146).
@@ -442,9 +454,10 @@ test "design §8 step 17f: the connection's public functions are the calls the m
     // may call.
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{
-        "init",       "request",          "write_body", "cancel",       "receive",
-        "send",       "owes_octets",      "shutdown",   "should_close", "deadline_ns",
-        "on_instant", "transport_closed", "protocol",   "take_ticket",  "take_alt_svc",
+        "init",         "request",    "write_body",       "release_body", "cancel",
+        "receive",      "send",       "owes_octets",      "shutdown",     "should_close",
+        "deadline_ns",  "on_instant", "transport_closed", "protocol",     "take_ticket",
+        "take_alt_svc",
     });
 }
 
@@ -459,4 +472,5 @@ test {
     _ = @import("connection_tls_test.zig");
     _ = @import("connection_records_test.zig");
     _ = @import("connection_streamed_test.zig");
+    _ = @import("connection_body_test.zig");
 }

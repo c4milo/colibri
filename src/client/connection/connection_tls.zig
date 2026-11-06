@@ -116,11 +116,17 @@ pub fn read(connection: *Connection, input: []const u8, now_ns: u64) usize {
 fn read_held(connection: *Connection, now_ns: u64) void {
     // Bounded: each pass takes octets, or ends the loop.
     for (0..connection.plain_in_len + 1) |_| {
-        if (connection.plain_in_len == 0) return;
+        if (connection.plain_in_len == 0 and !h11_end_owed(connection)) return;
         const taken = internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);
         internal.take_plaintext(connection, taken);
         if (taken == 0) return;
     }
+}
+
+/// Whether h11 owes the end of a body after its last octets, which it reports with no octets. A
+/// piece of a streamed response held that end back until its release (decision 153).
+fn h11_end_owed(connection: *const Connection) bool {
+    return connection.session == .h11 and connection.session.h11.end_owed;
 }
 
 /// The server's `close_notify` arrived and every octet before it is read: a body that runs until

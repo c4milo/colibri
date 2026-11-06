@@ -72,10 +72,16 @@ pub const Request = struct {
 };
 
 /// Which body of an exchange goes in pieces (decision 153 ruling 3). A streamed request body goes
-/// out through `ConnectionPool.write_body`, one piece at a time, and `Request.body` is empty.
+/// out through `ConnectionPool.write_body`, one piece at a time, and `Request.body` is empty. A
+/// streamed response body comes into `Response.body` one piece at a time, each reported by a
+/// `body` event and given back with `ConnectionPool.release_body`.
 pub const Streamed = struct {
     /// The request body goes in pieces.
     request: bool = false,
+    /// The response body comes in pieces. `Response.body` holds one piece at a time, so it is not
+    /// empty. The client offers no content coding for such a response (decision 101), and passes
+    /// its body on as it came.
+    response: bool = false,
     /// The length of the whole request body, which the request then states (RFC 9110 §8.6), or
     /// null for none. With none, h11 sends the body chunked (RFC 9112 §7.1), and h2 and h3 end it
     /// with the stream (RFC 9113 §8.1, RFC 9114 §4.1). The pieces add up to the length stated.
@@ -101,7 +107,8 @@ pub const Response = struct {
     status: u16 = 0,
     /// Interim responses read before the final one (RFC 9110 §15.2).
     interims: u32 = 0,
-    /// Bytes of `body` the response body filled.
+    /// Bytes of `body` the response body filled. For a streamed response, the bytes of the piece
+    /// `body` holds, from its `body` event until `release_body`, and 0 otherwise.
     body_len: usize = 0,
     /// Bytes of the request's `body` written, or of its pieces for a streamed request. Fewer than
     /// all when the response ended first (RFC 9113 §8.1, RFC 9112 §9.5) or the exchange ended
@@ -148,6 +155,13 @@ pub const Ended = struct {
     response_began: bool,
 };
 
+/// A piece of a streamed response that `Response.body` holds (decision 153 ruling 7): the
+/// exchange's id, and the bytes of the piece, `body[0..len]`.
+pub const Piece = struct {
+    id: RequestId,
+    len: usize,
+};
+
 pub const Event = union(enum) {
     /// The connection speaks `Protocol`: over TLS once the handshake completes, as ALPN selected
     /// (RFC 7301 §3.2), and in cleartext from the start. Reported once, before any `finished`.
@@ -157,6 +171,12 @@ pub const Event = union(enum) {
     /// The connection reads the exchange's request piece no more, and the caller may reuse its
     /// memory (decision 153 ruling 3).
     body_taken: RequestId,
+    /// A streamed response's final status and header section arrived in the exchange's `Response`
+    /// (decision 153 ruling 7).
+    headers: RequestId,
+    /// `Response.body` holds a piece of a streamed response, which the caller gives back with
+    /// `release_body`. The connection reads no more of the response until then.
+    body: Piece,
     /// An exchange ended. Its slot is free, and the caller may reuse its memory.
     finished: Ended,
     /// The connection takes no new request: the server sent a GOAWAY (RFC 9113 §6.8) or said it

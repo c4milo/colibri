@@ -220,3 +220,82 @@ test "decision 153 ruling 3: a streamed request refused after a take ends closed
 
 /// Rounds of moving octets both ways that start an h2 connection.
 const rounds: usize = 4;
+
+/// Where each piece of a streamed response lands. Test-only.
+var piece: [piece_len]u8 = undefined;
+const piece_len: usize = 4;
+const alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+/// A streamed GET, whose response comes in pieces of four octets.
+fn streamed_get() Exchange {
+    return .{ .request = .{ .method = "GET", .path = "/stream", .streamed = .{ .response = true } }, .response = .{ .body = &piece } };
+}
+
+test "decision 153 ruling 7: the pool reports a streamed response's head, then each piece, and finishes after the last release" {
+    try start();
+    var get = streamed_get();
+    const id = try pool.request(&get.request, &get.response);
+    try collect();
+    try send();
+    try peer_read();
+    try support.peer_h11_answer(200, &.{.{ .name = "Content-Length", .value = "26" }}, alphabet);
+    var received: [alphabet.len]u8 = undefined;
+    var received_len: usize = 0;
+    for (0..alphabet.len) |_| {
+        const before = events_len;
+        try collect();
+        const last = events[events_len - 1];
+        if (last == .finished) break;
+        try testing.expect(events_len > before);
+        try testing.expectEqual(id, last.body.id);
+        @memcpy(received[received_len..][0..last.body.len], piece[0..last.body.len]);
+        received_len += last.body.len;
+        // Decision 153 ruling 7: the pool reads no more of the response while the piece is held.
+        const held = pool.receive(.{ .stream = .{ .connection = pool_support.connection_of(&pool, .tcp), .bytes = support.to_client[0..support.to_client_len] } }, support.now_ns);
+        try testing.expectEqual(0, held.consumed);
+        try testing.expectEqual(null, held.event);
+        pool.release_body(id);
+    }
+    // The head came first, and once.
+    try testing.expectEqual(1, count(.headers));
+    for (events[0..events_len]) |reported| {
+        if (reported == .body) return error.TestUnexpectedResult;
+        if (reported == .headers) {
+            try testing.expectEqual(id, reported.headers);
+            break;
+        }
+    }
+    try testing.expectEqualStrings(alphabet, received[0..received_len]);
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(.response, get.response.result);
+    // An id the pool no longer holds changes nothing.
+    pool.release_body(id);
+}
+
+test "decision 153 ruling 7: a streamed response refused after its head ends closed, and is never sent again" {
+    try start_speaking(.h2);
+    var get = streamed_get();
+    _ = try pool.request(&get.request, &get.response);
+    try collect();
+    for (0..rounds) |_| {
+        try send();
+        try support.peer_h2_read();
+        try collect();
+    }
+    support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, 200, &.{}, false);
+    try collect();
+    try testing.expectEqual(1, count(.headers));
+    // RFC 9113 §6.8: the server takes no new stream, so the connection takes no new exchange.
+    // RFC 9113 §8.7 then lets a client send a refused request again on another connection, but
+    // the program has its head.
+    support.peer_h2.shutdown(h2.constants.protocol.error_no_error);
+    support.peer_h2_owe();
+    try support.peer_h2.reset_stream(1, h2.constants.protocol.error_refused_stream);
+    support.peer_h2_owe();
+    try collect();
+    try testing.expectEqual(.closed, get.response.result);
+    // The exchange never moved, so the head the program had is still in its response.
+    try testing.expectEqual(200, get.response.status);
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(1, count(.open));
+}

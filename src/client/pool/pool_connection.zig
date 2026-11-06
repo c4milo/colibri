@@ -28,6 +28,13 @@ pub fn write_body(pool: anytype, slot: u32, carried_id: RequestId, piece: []cons
     return pool.tcp[slot].write_body(carried_id, piece, end);
 }
 
+/// The connection of `slot` gets back the piece of its exchange `carried_id`'s response that the
+/// caller held (decision 153).
+pub fn release_body(pool: anytype, slot: u32, carried_id: RequestId) void {
+    if (is_quic(pool, slot)) return pool.quic.release_body(carried_id);
+    pool.tcp[slot].release_body(carried_id);
+}
+
 pub fn cancel(pool: anytype, slot: u32, carried_id: RequestId, now_ns: u64) void {
     if (is_quic(pool, slot)) return pool.quic.cancel(carried_id);
     pool.tcp[slot].cancel(carried_id, now_ns);

@@ -478,8 +478,8 @@ pub const World = struct {
             .close => world.socket_closed = true,
             // The run sends at its own actions, the model's.
             .send, .connected, .ticket, .finished => {},
-            // The run never shuts the pool down, and sends no request in pieces (decision 153).
-            .closed, .body_taken => unreachable,
+            // The run never shuts the pool down, and streams no body (decision 153).
+            .closed, .body_taken, .headers, .body => unreachable,
         }
     }
 

@@ -18,6 +18,7 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const connection_h11_streamed = @import("connection_h11_streamed.zig");
+const connection_body = @import("connection_body.zig");
 const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
@@ -54,7 +55,12 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
         };
         consumed += received.consumed;
         const h11_event = received.event orelse return consumed;
-        if (record(connection, h11_event, now_ns)) return consumed;
+        if (record(connection, h11_event, now_ns)) {
+            // Decision 153: the run's octets after a piece that `Response.body` holds are the
+            // last h11 took, and wait for the next call.
+            consumed -= connection.tail.len;
+            return consumed;
+        }
     }
     return consumed;
 }
@@ -86,6 +92,7 @@ fn record(connection: *Connection, h11_event: h11.connection.Event, now_ns: u64)
                 slot.dropped_len += octets.len;
                 return end_drop_past_bound(connection, slot);
             }
+            if (slot.request.streamed.response) return hold(connection, slot, octets);
             response_write.append_body(slot, octets) catch |failure| return start_dropping(connection, slot, response_write.outcome_of(failure), now_ns);
             return false;
         },
@@ -107,25 +114,49 @@ fn on_end(connection: *Connection, slot: *Slot) bool {
     return finish(connection, slot);
 }
 
+/// Holds `octets`, a run of a streamed response's content, as its next piece (decision 153).
+/// Returns whether the caller is owed an event.
+fn hold(connection: *Connection, slot: *Slot, octets: []const u8) bool {
+    if (octets.len == 0) return false;
+    _ = connection_body.hold(connection, slot, octets);
+    return true;
+}
+
 fn on_response(connection: *Connection, slot: *Slot, status: u16, now_ns: u64) bool {
     internal.note_alt_svc(connection, &connection.session.h11.section, 0);
     if (slot.stage == .sent) {
-        const section = &connection.session.h11.section;
-        response_write.record_head(slot, status, section, 0) catch |failure| {
-            if (start_dropping(connection, slot, response_write.outcome_of(failure), now_ns)) return true;
-        };
-        // RFC 9112 §9.3.1: "Connections can be closed at any time", so a content that cannot fit
-        // ends the exchange and the connection at its head, and is never read
-        // (https://github.com/c4milo/colibri/issues/106).
-        if (slot.stage == .sent and connection.session.h11.phase == .body and response_write.too_large_at_head(slot, status, section)) {
-            slots_module.end(slot, .too_large);
-            internal.fail(connection);
-            return true;
-        }
+        if (record_final(connection, slot, status, now_ns)) return true;
     }
     // A response without a body is read whole with its head (RFC 9112 §6.3).
-    if (connection.session.h11.phase == .body) return slot.stage == .dropping and end_drop_past_bound(connection, slot);
+    if (connection.session.h11.phase == .body) {
+        // Decision 153 ruling 7: a streamed response's head is an event of its own.
+        if (slot.headers_owed) return true;
+        return slot.stage == .dropping and end_drop_past_bound(connection, slot);
+    }
     return finish(connection, slot);
+}
+
+/// Records the final head of `slot`'s response. Returns whether the connection ended, which owes
+/// the caller an event.
+fn record_final(connection: *Connection, slot: *Slot, status: u16, now_ns: u64) bool {
+    const section = &connection.session.h11.section;
+    response_write.record_head(slot, status, section, 0) catch |failure| {
+        return start_dropping(connection, slot, response_write.outcome_of(failure), now_ns);
+    };
+    // Decision 153 ruling 7: a streamed response comes in pieces, so no length is too large.
+    if (slot.request.streamed.response) {
+        slot.headers_owed = true;
+        return false;
+    }
+    // RFC 9112 §9.3.1: "Connections can be closed at any time", so a content that cannot fit
+    // ends the exchange and the connection at its head, and is never read
+    // (https://github.com/c4milo/colibri/issues/106).
+    if (connection.session.h11.phase == .body and response_write.too_large_at_head(slot, status, section)) {
+        slots_module.end(slot, .too_large);
+        internal.fail(connection);
+        return true;
+    }
+    return false;
 }
 
 /// The content did not fit the caller's memory, or its coding is corrupt: the exchange ends with

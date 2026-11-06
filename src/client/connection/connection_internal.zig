@@ -11,6 +11,7 @@ const alt_svc = @import("../alt_svc.zig");
 const connection_module = @import("connection.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
+const connection_body = @import("connection_body.zig");
 
 const Connection = connection_module.Connection;
 const Protocol = event.Protocol;
@@ -39,6 +40,14 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
 /// the octets taken.
 pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64) usize {
     if (connection.stopped) return 0;
+    // Decision 153 ruling 7: while the caller holds a piece of a response, h11 reads no more of
+    // the connection, since its responses come in order (RFC 9112 §9.2), and h2 reads no more
+    // either. Every octet waits for the next call.
+    if (connection.slots.holding_body()) {
+        if (plaintext.len > 0) connection.unread_len = plaintext.len;
+        return 0;
+    }
+    if (connection.tail.pending()) return connection_body.read_tail(connection, plaintext);
     return switch (connection.session) {
         .h2 => connection_h2.receive(connection, plaintext, now_ns),
         .h11 => connection_h11.receive(connection, plaintext, now_ns),

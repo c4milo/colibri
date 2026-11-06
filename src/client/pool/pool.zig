@@ -144,7 +144,17 @@ pub const Event = union(enum) {
     /// out, and over h3 the server acknowledged it, since QUIC sends a lost octet again (RFC 9000
     /// §13.3).
     body_taken: RequestId,
+    /// A streamed response's final status and headers arrived in the exchange's `Response`
+    /// (decision 153 ruling 7). Its `body` events follow, then its `finished` event.
+    headers: RequestId,
+    /// The exchange's `Response.body` holds `body[0..len]`, the next piece of its streamed
+    /// response (decision 153 ruling 7). The caller gives it back with `release_body`, and the
+    /// pool reads no more of the response until then. Over h2 and h3 the server gets no flow
+    /// credit for the piece until then (RFC 9113 §5.2, RFC 9000 §4.1).
+    body: event.Piece,
     /// An exchange ended, and the caller may reuse the memory of its request and its response.
+    /// A streamed response's last piece was released before it, and its trailers are in
+    /// `Response.trailers`.
     finished: Finished,
     /// The pool was shut down, every exchange has finished, and every transport closed.
     closed,
@@ -312,8 +322,17 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
             return pool_calls.write_body(pool, id, piece, end);
         }
 
+        /// Gives back the piece of exchange `id`'s streamed response that its `Response.body`
+        /// holds, which a `body` event reported (decision 153 ruling 7). The pool reads the
+        /// response on: the caller then calls `receive` again, with the bytes it still holds of a
+        /// TCP connection. Over h2 and h3 the server gets the flow credit for the piece back (RFC
+        /// 9113 §6.9, RFC 9000 §4.1). An id the pool does not hold changes nothing.
+        pub fn release_body(pool: *Self, id: RequestId) void {
+            pool_calls.release_body(pool, id);
+        }
+
         /// Ends exchange `id` at `now_ns`, and reports nothing for it. The memory of its request
-        /// and its response is the caller's again. An h11 connection reads the rest of the
+        /// and its response is the caller's again, a piece of each body it held included. An h11 connection reads the rest of the
         /// response and drops it, within the bounds of decision 146.
         pub fn cancel(pool: *Self, id: RequestId, now_ns: u64) void {
             pool_calls.cancel(pool, id, now_ns);
@@ -410,19 +429,20 @@ test "design §8 step 17f: the pool's public names are the calls a program makes
     // Decision 125: step 22.3 adds `memory_alignment`, `memory_bytes` and
     // `receive_events_without_input_max`, which size a pool and bound a program's loop, and step
     // 22.7 adds `set_destination`, which a program calls after a later DNS answer. Step 39e adds
-    // `write_body`, which a program streams a request body with (decision 153).
+    // `write_body`, which a program streams a request body with, and 39f `release_body`, which it
+    // reads a streamed response body with (decision 153).
     const public_names = @import("core").public_names;
     // Decision 124: a pool with no QUIC names the same calls, and its `start_quic` does not
     // compile.
     inline for (.{ ConnectionPool, ConnectionPoolOf(.{ .quic = false }) }) |Type| {
         try public_names.expect(Type, &.{
-            "memory_alignment", "memory_bytes",     "receive_events_without_input_max",
-            "init",             "set_destination",  "request",
-            "write_body",       "cancel",           "shutdown",
-            "receive",          "send_datagram",    "send_stream",
-            "deadline_ns",      "on_instant",       "start_quic",
-            "start_tcp",        "transport_closed", "take_ticket",
-            "alternative",      "phase",
+            "memory_alignment", "memory_bytes",    "receive_events_without_input_max",
+            "init",             "set_destination", "request",
+            "write_body",       "release_body",    "cancel",
+            "shutdown",         "receive",         "send_datagram",
+            "send_stream",      "deadline_ns",     "on_instant",
+            "start_quic",       "start_tcp",       "transport_closed",
+            "take_ticket",      "alternative",     "phase",
         });
     }
 }

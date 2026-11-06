@@ -58,6 +58,13 @@ pub const Slot = struct {
     /// The content's end went out: h11 wrote its last octet or its last chunk, h2 its
     /// END_STREAM flag, and h3 supplied its FIN.
     content_ended: bool = false,
+    /// A streamed response (decision 153 ruling 7): its `headers` event is owed; `Response.body`
+    /// holds a piece the caller has not released; and that piece's `body` event is owed. While a
+    /// piece is held the connection reads no more of the response, and the exchange's `finished`
+    /// event waits for the release.
+    headers_owed: bool = false,
+    body_held: bool = false,
+    body_owed: bool = false,
     /// Some of the response arrived: an octet of it over h11, read or still held. Over h2, the
     /// header of a HEADERS frame on its stream, before h2 reads the frame. Over h3, a HEADERS
     /// frame h3 took, or the header of one first on its stream when the connection ends. Every
@@ -128,6 +135,9 @@ pub fn hand(slot: *Slot, piece: []const u8, last: bool) error{BodyStopped}!void 
     if (piece.len == 0 and !last) slot.piece_written();
 }
 
+/// The flags of a slot that each owe the caller one event (decision 153).
+pub const Owing = enum { taken_owed, headers_owed, body_owed };
+
 pub const Slots = struct {
     slots: [constants.limits.requests_max]Slot,
     /// The id the next exchange gets.
@@ -142,6 +152,8 @@ pub const Slots = struct {
     /// Takes a free slot for `request` and its `response`, and returns its id, or null when every
     /// slot is taken.
     pub fn take(slots: *Slots, request: *const Request, response: *Response) ?RequestId {
+        // Decision 153: a streamed response comes into `body` one piece at a time, so it has room.
+        assert(!request.streamed.response or response.body.len > 0);
         const slot = slots.first(.free) orelse return null;
         slot.* = .{ .stage = .queued, .id = slots.next_id, .request = request, .response = response };
         // A request that is not streamed has one piece, its whole body, which ends the content.
@@ -182,22 +194,32 @@ pub const Slots = struct {
     }
 
     /// The oldest ended slot whose octets no stream reads any more, whose `finished` event is owed
-    /// first, or null.
+    /// first, or null. Decision 153 ruling 7: a slot whose caller holds a piece of its response,
+    /// or whose `headers` event is owed, waits.
     pub fn oldest_reportable(slots: *Slots) ?*Slot {
         var found: ?*Slot = null;
         for (&slots.slots) |*slot| {
             if (slot.stage != .ended or slot.holds_octets) continue;
+            if (slot.body_held or slot.headers_owed) continue;
             if (found == null or slot.id < found.?.id) found = slot;
         }
         return found;
     }
 
-    /// The slot whose `body_taken` event is owed, or null.
-    pub fn taken(slots: *Slots) ?*Slot {
+    /// The slot that owes the event `flag` names, or null.
+    pub fn owing(slots: *Slots, comptime flag: Owing) ?*Slot {
         for (&slots.slots) |*slot| {
-            if (slot.stage != .free and slot.taken_owed) return slot;
+            if (slot.stage != .free and @field(slot, @tagName(flag))) return slot;
         }
         return null;
+    }
+
+    /// Whether the caller holds a piece of a streamed response (decision 153 ruling 7).
+    pub fn holding_body(slots: *const Slots) bool {
+        for (&slots.slots) |*slot| {
+            if (slot.stage != .free and slot.body_held) return true;
+        }
+        return false;
     }
 
     /// Where `slot` sits in the table, which keys a transport's storage for it.
@@ -281,6 +303,12 @@ pub fn drop(slot: *Slot, report: bool) void {
     assert(!report or slot.response.result != .pending);
     assert(slot.dropped_len == 0 and slot.drop_until_ns == null);
     give_back(slot);
+    // Decision 153 ruling 7: the caller gets back a piece it held with the exchange, and the
+    // rest of the response is read and dropped.
+    slot.headers_owed = false;
+    slot.body_held = false;
+    slot.body_owed = false;
+    slot.response.body_len = 0;
     slot.stage = .dropping;
     slot.report_after_drop = report;
 }

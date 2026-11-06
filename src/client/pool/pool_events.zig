@@ -154,6 +154,8 @@ fn handle(pool: anytype, slot: u32, reported: event.Event) ?Event {
         .connected => |protocol| return on_connected(pool, slot, protocol),
         .ticket => return .{ .ticket = pool_handle.handle_of(pool, slot) },
         .body_taken => |carried_id| return pool_body.on_taken(pool, slot, carried_id),
+        .headers => |carried_id| return pool_body.on_headers(pool, slot, carried_id),
+        .body => |piece| return pool_body.on_body(pool, slot, piece),
         .finished => |finished| return pool_body.on_finished(pool, slot, finished),
         // The phase reads the connection's own flag.
         .draining => return null,
@@ -213,10 +215,10 @@ fn abandon_other(pool: anytype, transport: choice.Transport) void {
 /// connection refused, or that no connection took, ends `closed`: the first server may have
 /// processed it, and `refused` says that no server did (decision 105). A streamed request refused
 /// after a piece was taken ends `closed` too: the program cannot send it again whole (decision 153
-/// ruling 3).
+/// ruling 3). So does a streamed response whose head the program had.
 pub fn deliver(entry: *Entry) event.Finished {
     assert(entry.stage == .carried or entry.stage == .ended);
-    const unsendable = entry.resent or entry.taken_any;
+    const unsendable = entry.resent or entry.taken_any or entry.headers_reported;
     if (unsendable and entry.response.result == .refused) entry.response.result = .closed;
     const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
     entry.* = .{};

@@ -1,7 +1,8 @@
-//! The tests of a streamed request body over h3 at the pool (decision 153, design §8 step 39e):
-//! each piece goes out in a DATA frame of its own, its `body_taken` event comes once the server
-//! acknowledged it, since QUIC sends a lost octet again by its offset (RFC 9000 §13.3), and a
-//! server that needs no more of the body stops it (RFC 9114 §4.1).
+//! The tests of streamed bodies over h3 at the pool (decision 153, design §8 steps 39e and 39f).
+//! Each request piece goes out in a DATA frame of its own, its `body_taken` event comes once the
+//! server acknowledged it, since QUIC sends a lost octet again by its offset (RFC 9000 §13.3), and
+//! a server that needs no more of the body stops it (RFC 9114 §4.1). Each response piece stays in
+//! QUIC, which gives the server no credit for it until the program releases it (RFC 9000 §4.1).
 const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
@@ -9,6 +10,7 @@ const quic_support = @import("../quic/quic_test_support.zig");
 const connection_support = @import("../connection/connection_test_support.zig");
 const fixture = @import("pool_quic_test_support.zig");
 const pool_module = @import("pool.zig");
+const event = @import("../event.zig");
 
 const testing = std.testing;
 const pool = &fixture.pool;
@@ -23,11 +25,16 @@ const whole = first ++ second ++ third;
 
 /// A pool that speaks h3 alone, with a streamed PUT written to its server, which holds its answer.
 fn start(put: *connection_support.Exchange) !pool_module.RequestId {
+    return start_streamed(put, .{ .request = true });
+}
+
+/// As `start`, with the bodies `streamed` names going in pieces.
+fn start_streamed(put: *connection_support.Exchange, streamed: event.Streamed) !pool_module.RequestId {
     var given = fixture.configured(true);
     given.protocols = .{ .h11 = false, .h2 = false };
     try fixture.start_configured(&quic_support.alpn_h3, fixture.values_at(fixture.https_port), given, fixture.receive_storage());
     quic_support.server_answers = false;
-    put.* = .{ .request = .{ .method = "PUT", .path = "/object", .streamed = .{ .request = true } }, .response = .{ .body = &fixture.bodies[0] } };
+    put.* = .{ .request = .{ .method = "PUT", .path = "/object", .streamed = streamed }, .response = .{ .body = &fixture.bodies[0] } };
     const id = try pool.request(&put.request, &put.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, quic_support.answers_len);
@@ -94,4 +101,109 @@ test "RFC 9114 §4.1: a server that asks the client to stop sending ends the bod
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.response, put.response.result);
     try testing.expectEqual(pieces[0].len, put.response.body_sent);
+}
+
+/// A receive pool smaller than the response, so the stream's window holds the server back
+/// (decision 61). Test-only.
+var small_pool: quic.stream.stream_incoming.Pool(small_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(small_pool_len))) = undefined;
+const small_pool_len: usize = 65_536;
+/// The response's content, and where each of its pieces lands: one h3 read's worth (decision 80).
+var content: [content_len]u8 = undefined;
+const content_len: usize = 163_840;
+var response_piece: [response_piece_len]u8 = undefined;
+const response_piece_len: usize = 16_384;
+
+/// What the pieces of the response added up to, and how many there were. Test-only.
+const Read = struct {
+    crc: std.hash.Crc32 = .init(),
+    len: usize = 0,
+    pieces: usize = 0,
+    finished: bool = false,
+};
+
+/// Keeps and releases the piece each new `body` event since event `from` reported, and notes the
+/// exchange's end. A piece is released before the next comes, and before the exchange finishes.
+fn read_new(id: pool_module.RequestId, from: usize, read: *Read) !void {
+    var held = false;
+    for (fixture.events[from..fixture.events_len]) |reported| {
+        switch (reported) {
+            .body => |body| {
+                // Decision 153 ruling 7: no piece comes while one is held, nor the end.
+                try testing.expect(!held);
+                try testing.expectEqual(id, body.id);
+                read.crc.update(response_piece[0..body.len]);
+                read.len += body.len;
+                read.pieces += 1;
+                held = true;
+            },
+            .finished => {
+                try testing.expect(!held);
+                read.finished = true;
+            },
+            else => {},
+        }
+    }
+    if (held) pool.release_body(id);
+}
+
+test "RFC 9000 §4.1: a server faster than the program waits for the stream's credit, which comes back as each piece is released" {
+    for (&content, 0..) |*octet, index| octet.* = @truncate(index);
+    var given = fixture.configured(true);
+    given.protocols = .{ .h11 = false, .h2 = false };
+    try fixture.start_configured(&quic_support.alpn_h3, fixture.values_at(fixture.https_port), given, small_pool.storage());
+    quic_support.answer_content = &content;
+    var get: connection_support.Exchange = .{ .request = .{ .method = "GET", .path = "/stream", .streamed = .{ .response = true } }, .response = .{ .body = &response_piece } };
+    const id = try pool.request(&get.request, &get.response);
+    try pump(fixture.rounds_past_probe);
+    try testing.expectEqual(1, count(.headers));
+    try testing.expectEqual(1, count(.body));
+    // RFC 9000 §4.1: the server gets no more credit while the program holds the piece. QUIC
+    // measures both limits from what it consumed, so the server spent the connection's window,
+    // which its control stream shares, and the stream's limit did not move.
+    const server = &quic_support.server;
+    const stream = server.streams.lookup(.{ .value = quic_support.answers[0].id }).live;
+    try testing.expectEqual(small_pool_len, stream.send_flow.limit);
+    try testing.expectEqual(small_pool_len, server.send_flow.limit);
+    try testing.expectEqual(server.send_flow.limit, server.send_flow.used);
+    var read: Read = .{};
+    try read_new(id, 0, &read);
+    // The next piece is in QUIC already, so the release reports it with no datagram.
+    var from = fixture.events_len;
+    try fixture.collect();
+    try testing.expectEqual(2, count(.body));
+    for (0..rounds_max) |_| {
+        const seen = fixture.events_len;
+        try read_new(id, from, &read);
+        from = seen;
+        if (read.finished) break;
+        try pump(1);
+    }
+    try testing.expect(read.finished);
+    try testing.expect(read.pieces >= content_len / response_piece_len);
+    try testing.expectEqual(content_len, read.len);
+    try testing.expectEqual(std.hash.Crc32.hash(&content), read.crc.final());
+    try testing.expectEqual(.response, get.response.result);
+}
+
+/// Rounds of releasing a piece and moving datagrams that the test of flow control takes at most.
+const rounds_max: usize = 256;
+
+test "decision 153 ruling 7: a cancel gives back the request piece and the response piece at once" {
+    var exchange: connection_support.Exchange = undefined;
+    const id = try start_streamed(&exchange, .{ .request = true, .response = true });
+    // The server answers at the head, and leaves the response open.
+    quic_support.server_answers = true;
+    quic_support.answer_early = true;
+    quic_support.answer_open = true;
+    try pool.write_body(id, pieces[0], false);
+    fixture.blocked = true;
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.body));
+    try testing.expectEqual(0, count(.body_taken));
+    pool.cancel(id, quic_support.now_ns);
+    fixture.blocked = false;
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(0, count(.body_taken));
+    try testing.expectEqual(0, count(.finished));
+    try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], true));
 }

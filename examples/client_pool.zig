@@ -184,8 +184,8 @@ fn report(event: client.Event, now_ns: u64) !void {
         .finished => |ended| try on_finished(ended),
         // A pool in cleartext gets no ticket.
         .ticket => return error.ExchangeWrong,
-        // No request of the program goes in pieces (decision 153).
-        .body_taken => return error.ExchangeWrong,
+        // No body of the program goes in pieces (decision 153).
+        .body_taken, .headers, .body => return error.ExchangeWrong,
         // The shut-down pool is over: every exchange ended and every connection closed.
         .closed => pool_closed = true,
     }

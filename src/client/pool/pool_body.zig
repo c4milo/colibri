@@ -1,8 +1,9 @@
-//! What the pool does with an exchange's request and response once a connection ends the
-//! exchange (decision 124), split from `pool_events.zig` in design §8 step 39. The pool sends the
-//! request again on another connection while it holds the whole request, or gives both back to the
-//! program. A streamed request's pieces give back their memory one at a time (decision 153), and
-//! after the first the pool holds no whole request. Each function takes a pool of any
+//! What the pool does with an exchange's request and response as a connection reports its pieces
+//! and its end (decisions 124 and 153), split from `pool_events.zig` in design §8 step 39. The
+//! pool sends the request again on another connection while it holds the whole request, or gives
+//! both back to the program. A streamed request's pieces give back their memory one at a time, and
+//! after the first the pool holds no whole request. After a streamed response's head, the program
+//! has some of the response, and the exchange never moves. Each function takes a pool of any
 //! `ConnectionPoolOf` type.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -26,6 +27,23 @@ pub fn on_taken(pool: anytype, slot: u32, carried_id: event.RequestId) ?Event {
     entry.piece_held = false;
     entry.taken_any = true;
     return .{ .body_taken = entry.id };
+}
+
+/// A streamed response's head arrived (decision 153 ruling 7). The program has it, so the exchange
+/// never moves to another connection.
+pub fn on_headers(pool: anytype, slot: u32, carried_id: event.RequestId) ?Event {
+    // A cancelled exchange reports nothing, so every reported one is carried.
+    const entry = pool_events.carried(pool, slot, carried_id).?;
+    assert(entry.request.streamed.response and !entry.headers_reported);
+    entry.headers_reported = true;
+    return .{ .headers = entry.id };
+}
+
+/// A piece of a streamed response is in the exchange's `Response.body` (decision 153 ruling 7).
+pub fn on_body(pool: anytype, slot: u32, piece: event.Piece) ?Event {
+    const entry = pool_events.carried(pool, slot, piece.id).?;
+    assert(entry.headers_reported);
+    return .{ .body = .{ .id = entry.id, .len = piece.len } };
 }
 
 /// A connection reported an exchange's end. One that moves goes to another connection (the model's
@@ -73,8 +91,9 @@ pub fn on_finished(pool: anytype, slot: u32, ended: event.Ended) ?Event {
 fn movable(pool: anytype, entry: *const Entry, slot: u32, response_began: bool) bool {
     // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
     if (entry.moves >= constants.limits.moves_max) return false;
-    // Decision 153 ruling 3: after its first `body_taken` the pool holds no copy of the request.
-    if (entry.taken_any) return false;
+    // Decision 153 ruling 3: after its first `body_taken` the pool holds no copy of the request,
+    // and after a streamed response's `headers` the program has some of the response.
+    if (entry.taken_any or entry.headers_reported) return false;
     if (pool.phase(slot) == .open) return false;
     return switch (entry.response.result) {
         // RFC 9113 §8.7: a client "MAY automatically retry" a request no server processed.

@@ -423,8 +423,8 @@ fn on_event(storage: *Storage, plan: *const Plan, reported: client.Event) Error!
         },
         // The run sends what the pool owes at each of its instants.
         .send, .connected, .ticket, .close => {},
-        // No request of the run goes in pieces (decision 153).
-        .body_taken => unreachable,
+        // No body of the run goes in pieces (decision 153).
+        .body_taken, .headers, .body => unreachable,
         // The peer never shuts its pool down.
         .closed => unreachable,
     }

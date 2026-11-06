@@ -57,6 +57,32 @@ pub fn append_body(slot: *Slot, octets: []const u8) Error!void {
     assert(response.body_len <= response.body.len);
 }
 
+/// Copies the start of `octets` into the caller's empty `body`, as much as it holds, as the next
+/// piece of a streamed response (decision 153 ruling 7), and returns the octets copied. The piece
+/// is held, and its `body` event owed, until the caller releases it.
+pub fn hold_piece(slot: *Slot, octets: []const u8) usize {
+    assert(slot.request.streamed.response and !slot.body_held);
+    assert(octets.len > 0);
+    const response = slot.response;
+    assert(response.body_len == 0 and response.body.len > 0);
+    const len = @min(octets.len, response.body.len);
+    @memcpy(response.body[0..len], octets[0..len]);
+    response.body_len = len;
+    slot.body_held = true;
+    slot.body_owed = true;
+    return len;
+}
+
+/// The caller gave back the piece `body` held. Returns its octets, the flow credit the connection
+/// gives back for it (RFC 9113 §6.9, RFC 9000 §4.1).
+pub fn release_piece(slot: *Slot) usize {
+    assert(slot.body_held and !slot.body_owed);
+    const len = slot.response.body_len;
+    slot.response.body_len = 0;
+    slot.body_held = false;
+    return len;
+}
+
 /// Whether the final response that `record_head` just read declares, in its Content-Length, more
 /// content than the room left in the caller's `body`, so the exchange ends `too_large` at its
 /// head (https://github.com/c4milo/colibri/issues/106). Decoded content has a length no head

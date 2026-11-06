@@ -119,6 +119,16 @@ pub fn write_body(pool: anytype, id: RequestId, piece: []const u8, end: bool) po
     pool_events.unblock_sends(pool);
 }
 
+pub fn release_body(pool: anytype, id: RequestId) void {
+    const entry = entry_of(pool, id) orelse return;
+    // Decision 153 ruling 7: a connection reported the piece, and the exchange waits for its
+    // release before it ends, so a connection carries it.
+    assert(entry.request.streamed.response and entry.stage == .carried);
+    pool_connection.release_body(pool, entry.carrier, entry.carried_id);
+    // Over h2 the connection then owes a WINDOW_UPDATE (RFC 9113 §6.9).
+    pool_events.unblock_sends(pool);
+}
+
 pub fn cancel(pool: anytype, id: RequestId, now_ns: u64) void {
     const entry = entry_of(pool, id) orelse return;
     if (entry.stage == .carried) pool_connection.cancel(pool, entry.carrier, entry.carried_id, now_ns);

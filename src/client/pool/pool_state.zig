@@ -53,6 +53,9 @@ pub const Entry = struct {
     body_ended: bool = false,
     taken_any: bool = false,
     handed_len: u64 = 0,
+    /// The `headers` event of the exchange's streamed response went out, so the program has some
+    /// of the response, and the exchange never moves (decision 153 ruling 7).
+    headers_reported: bool = false,
 };
 
 /// One slot's connection, as the pool tracks it.

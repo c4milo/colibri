@@ -335,8 +335,8 @@ fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.Event) Error!boo
         // The peer writes what the pool owes as its pace allows, so the `send` moves nothing.
         .send => return false,
         .connected, .ticket => return true,
-        // No request of the run goes in pieces (decision 153).
-        .body_taken => unreachable,
+        // No body of the run goes in pieces (decision 153).
+        .body_taken, .headers, .body => unreachable,
         .finished => |finished| {
             if (finished.response.result == .response) peer.requests_done += 1;
             const requests_left = one_at_a_time(plan) and peer.requests_made < plan.behaviour.requests_count;

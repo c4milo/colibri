@@ -143,6 +143,9 @@ pub const QuicConnection = struct {
     /// The connection sat idle until near its idle timeout with no exchange, so it takes no new
     /// one and closes (RFC 9114 §5.1).
     retired: bool,
+    /// The caller released a piece of a streamed response, so h3 reads that stream on at the next
+    /// `receive`, with no datagram too (decision 153).
+    read_owed: bool,
 
     /// Prepares a connection whose first datagram `send` writes. `receive_pool` holds the server's
     /// octets until h3 reads them (decision 61), and no other connection uses it while this one
@@ -165,6 +168,7 @@ pub const QuicConnection = struct {
         connection.ticket = null;
         connection.idle_acted_ns = null;
         connection.retired = false;
+        connection.read_owed = false;
         // RFC 9846 §4.7.1: chapulin refuses values it cannot run and a ticket too old. The session
         // chooses the original version, a ticket's when one is offered (decision 111), and the
         // transport starts in it.
@@ -237,6 +241,13 @@ pub const QuicConnection = struct {
         try slots_module.hand(slot, piece, end);
     }
 
+    /// Gives back the piece of exchange `id`'s streamed response that its `Response.body` holds,
+    /// which a `body` event reported (decision 153 ruling 7). QUIC gives the server credit for it
+    /// (RFC 9000 §4.1), and the next `receive` reads the stream on.
+    pub fn release_body(connection: *QuicConnection, id: RequestId) void {
+        quic_h3.release_body(connection, id);
+    }
+
     /// Ends exchange `id` and reports nothing for it. Its stream is reset with
     /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the request or writes the
     /// response, so their memory is the caller's again.
@@ -254,6 +265,10 @@ pub const QuicConnection = struct {
     pub fn receive(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_receive.Datagram.Ecn, from: PeerAddress, now_ns: u64) ReceiveResult {
         quic_streamed.note_taken(connection);
         if (connection.owed_event()) |owed| return .{ .consumed = 0, .event = owed };
+        if (connection.read_owed and !connection.closed) {
+            connection.read_owed = false;
+            connection.after_change(now_ns);
+        }
         if (datagram.len == 0 or connection.closed) return .{ .consumed = 0, .event = connection.owed_event() };
         const received = quic.connection_datagram.receive(
             &connection.transport,
@@ -470,8 +485,8 @@ const h3_alpn = "h3";
 test "design §8 step 17f: the QUIC connection's public functions are the calls the module's other files make" {
     const public_names = @import("core").public_names;
     try public_names.expect(QuicConnection, &.{
-        "init",             "request",     "write_body", "cancel",   "receive",
-        "send",             "deadline_ns", "on_instant", "shutdown", "should_close",
-        "transport_closed", "take_ticket",
+        "init",         "request",          "write_body",  "release_body", "cancel",
+        "receive",      "send",             "deadline_ns", "on_instant",   "shutdown",
+        "should_close", "transport_closed", "take_ticket",
     });
 }

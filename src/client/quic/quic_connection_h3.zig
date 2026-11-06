@@ -47,7 +47,10 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     };
     const stream = &connection.streams[connection.slots.index_of(slot)];
     var writer = quic.core.Writer.init(&stream.prefix);
-    const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], false, &writer, now_ns) catch |failure| {
+    // RFC 9000 §4.1: a streamed response's content stays in QUIC, which gives no credit for it,
+    // until the caller releases each piece (decision 153 ruling 7).
+    const hold_data = slot.request.streamed.response;
+    const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], hold_data, &writer, now_ns) catch |failure| {
         return refused(connection, slot, failure);
     };
     stream.prefix_len = writer.written().len;
@@ -187,8 +190,7 @@ fn record(connection: *QuicConnection, h3_event: h3.connection.Event) void {
         .goaway => |stream_id| on_goaway(connection, stream_id),
         // RFC 9114 §6.1: a client receives no request; h3 refuses one before it is an event.
         .request => unreachable,
-        // `open` asks h3 to hold no content yet (design §8 step 39f).
-        .data_available => unreachable,
+        .data_available => |data| on_piece(connection, data),
     }
 }
 
@@ -205,6 +207,12 @@ fn on_response(connection: *QuicConnection, head: h3.connection.Response) void {
     response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
         return refuse(connection, slot, response_write.outcome_of(failure));
     };
+    // Decision 153 ruling 7: a streamed response's head is an event of its own, and its content
+    // comes in pieces, so no length is too large.
+    if (slot.request.streamed.response) {
+        slot.headers_owed = true;
+        return;
+    }
     // RFC 9114 §4.1.1: a content that cannot fit ends its stream with H3_REQUEST_CANCELLED at the
     // head (https://github.com/c4milo/colibri/issues/106).
     if (response_write.too_large_at_head(slot, head.response.status.code, section)) refuse(connection, slot, .too_large);
@@ -221,6 +229,30 @@ fn on_trailers(connection: *QuicConnection, stream_id: u64) void {
 fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {
     const slot = connection.slots.of_stream(data.stream_id) orelse return;
     response_write.append_body(slot, data.octets) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
+}
+
+/// Content of a streamed response, which h3 left in QUIC (RFC 9000 §4.1): its first octets, as
+/// many as `Response.body` holds, are the next piece. QUIC takes them when the caller releases the
+/// piece, and h3 reads nothing more of the stream until then (decision 153 ruling 7).
+fn on_piece(connection: *QuicConnection, data: h3.connection.Data) void {
+    const slot = connection.slots.of_stream(data.stream_id) orelse {
+        // No exchange reads the stream any more, so QUIC takes the content at once.
+        connection.h3.release_data(&connection.transport, data.stream_id, data.octets.len);
+        return;
+    };
+    _ = response_write.hold_piece(slot, data.octets);
+}
+
+/// The caller gave back the piece of exchange `id` its `Response.body` held: QUIC takes its
+/// octets, which gives the server credit for them (RFC 9000 §4.1), and h3 reads the stream on.
+pub fn release_body(connection: *QuicConnection, id: event.RequestId) void {
+    // The pool releases only a piece the connection reported.
+    const slot = connection.slots.of_id(id).?;
+    const len = response_write.release_piece(slot);
+    // A stream that was reset, or whose connection ended, holds no content for the piece.
+    if (slot.stage != .sent or connection.stopped) return;
+    connection.h3.release_data(&connection.transport, slot.stream_id, len);
+    connection.read_owed = true;
 }
 
 /// The response ended whole. Decision 101: coded content ends with its stream, or the exchange
