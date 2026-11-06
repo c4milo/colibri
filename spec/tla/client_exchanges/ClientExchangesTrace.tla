@@ -16,7 +16,8 @@
 (* log with a state the model cannot reach leaves it holding.              *)
 (*                                                                         *)
 (* The log leaves out quiet: the run keeps KeepAlive, so the model never   *)
-(* sets it.                                                                *)
+(* sets it. A run with no streamed exchange logs handed and taken FALSE,   *)
+(* and pieces 0.                                                           *)
 (*                                                                         *)
 (* The log leaves out goaways. A server sends its GOAWAY before the client *)
 (* reads it, and the model counts it when the client does, so the run      *)
@@ -53,6 +54,8 @@ Matches(i) ==
     /\ phase = t.phase /\ opens = t.opens /\ tried = t.tried
     /\ fallback = t.fallback /\ learned = t.learned /\ shut = t.shut
     /\ stale = t.stale
+    /\ handed = AsFunction(t.handed) /\ taken = AsFunction(t.taken)
+    /\ pieces = AsFunction(t.pieces)
 
 TraceInit == Init /\ Matches(1) /\ index = 1 /\ since = 0
 
@@ -80,13 +83,14 @@ PhaseRank(p) ==
 
 (* No variable the model only moves one way has passed the logged state i: *)
 (* a path that did can never match it, so TLC stops extending it. An       *)
-(* exchange's stage goes back only when it moves, and a transport's phase  *)
-(* only when it opens again.                                               *)
+(* exchange's stage goes back only when it moves, a transport's phase only *)
+(* when it opens again, and a request piece once taken stays taken.        *)
 Toward(i) ==
     LET t == Trace[i] IN
     /\ (shut => t.shut) /\ (learned => t.learned)
     /\ \A e \in Exchanges :
         /\ processed[e] <= t.processed[e]
+        /\ taken[e] => t.taken[e]
         /\ \/ moved[e] < t.moved[e]
            \/ moved[e] = t.moved[e] /\ StageRank(stage[e]) <= StageRank(t.stage[e])
     /\ \A tr \in Transports :

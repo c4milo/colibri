@@ -40,6 +40,13 @@
 (* (RFC 9110 §9.2.2, decision 124), and a server may then process it a     *)
 (* second time. Both moves count against one budget: MovesMax in all.      *)
 (*                                                                         *)
+(* A streamed exchange (decision 153) sends its request body in pieces and *)
+(* reads its response body in pieces. The caller hands the pool one        *)
+(* request piece at a time, and keeps its memory until the pool reports it *)
+(* taken or gives the exchange back. Each piece of the response is in the  *)
+(* caller's memory until the caller releases it. Until then its connection *)
+(* reads no more of the response and gives back no flow credit for it.     *)
+(*                                                                         *)
 (* The model leaves out what other models cover: the streams of h2 and h3  *)
 (* (spec/tla/h2_connection, spec/tla/h3_connection) and QUIC's close       *)
 (* (spec/tla/quic_close).                                                  *)
@@ -115,6 +122,18 @@
 (*                      during a handshake that then failed left the       *)
 (*                      attempt open, and the next exchange ended refused  *)
 (*                      with no connection opened.                         *)
+(*   FinishWhenReleased an exchange is reported only once the caller has   *)
+(*                      released each piece of its response (decision 153  *)
+(*                      ruling 7).                                         *)
+(*   CreditAfterRelease a connection reads the next piece of a response     *)
+(*                      only after the caller released the one before, so  *)
+(*                      it never writes over a piece the caller holds      *)
+(*                      (decision 153 ruling 4, RFC 9113 §6.9, RFC 9000    *)
+(*                      §4.1).                                             *)
+(*   ResendBeforeTaken  an exchange moves to another connection only       *)
+(*                      before a piece of its request was taken: after     *)
+(*                      that the pool holds no whole request (decision 153 *)
+(*                      ruling 3).                                         *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -131,12 +150,14 @@ CONSTANTS
     Refusals,       \* the transports whose server may refuse a request it did not process
     Resets,         \* the transports whose server may reset a request
     Idempotent,     \* the exchanges whose method is idempotent (RFC 9110 §9.2.2)
+    Streamed,       \* the exchanges whose request and response bodies go in pieces (decision 153)
     TcpSlots,       \* the pool's TCP slots, each named apart from "quic" (decision 125)
     TcpCapacity,    \* the exchanges a TCP connection holds at once
     TcpDrops,       \* whether a TCP connection reads a cancelled response to its end, as h11 does
     ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases, SentFailsClosed,
     MoveRefused, RetireStale, KeepAlive, TakeAtHandshake, TcpWhenAllowed, ResendIdempotent,
-    OneBudget, TakeWithinRoom, TryOncePerWait, EndWhenIdle
+    OneBudget, TakeWithinRoom, TryOncePerWait, EndWhenIdle, FinishWhenReleased,
+    CreditAfterRelease, ResendBeforeTaken
 
 \* The connections a pool holds: its QUIC connection and one in each TCP slot. Each is named
 \* after its slot, as a transport is: "quic", and each TCP slot's name.
@@ -150,10 +171,11 @@ ASSUME \A set \in {HandshakeFails, Breaks, Goaways, Refusals, Resets} : set \sub
 ASSUME \A rule \in {ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases,
                     SentFailsClosed, MoveRefused, RetireStale, KeepAlive,
                     TakeAtHandshake, TcpWhenAllowed, ResendIdempotent,
-                    OneBudget, TakeWithinRoom, TryOncePerWait, EndWhenIdle} : rule \in BOOLEAN
+                    OneBudget, TakeWithinRoom, TryOncePerWait, EndWhenIdle,
+                    FinishWhenReleased, CreditAfterRelease, ResendBeforeTaken} : rule \in BOOLEAN
 
 Exchanges == 1..N
-ASSUME Idempotent \subseteq Exchanges
+ASSUME Idempotent \subseteq Exchanges /\ Streamed \subseteq Exchanges
 \* An exchange's stage: not made; held by the client, which no connection has given it to;
 \* held by a connection, its request not written; written; ended, its event owed; reported;
 \* cancelled.
@@ -186,9 +208,14 @@ VARIABLES
     tried, fallback, learned, shut,
     \* Whether the QUIC connection held no exchange until near its idle timeout, and whether it
     \* held one and heard nothing until then (RFC 9000 §10.1).
-    stale, quiet
+    stale, quiet,
+    \* A streamed exchange's bodies (decision 153): whether the pool holds a request piece the
+    \* caller handed and has not reported taken, whether a piece of the request was ever taken,
+    \* and the pieces of the response the caller holds and has not released.
+    handed, taken, pieces
 
-exchangeVars == <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent, drops>>
+bodyVars == <<handed, taken, pieces>>
+exchangeVars == <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent, drops, bodyVars>>
 idleVars == <<stale, quiet>>
 connectionVars == <<phase, opens, goaways, tried, fallback, learned, shut, stale, quiet>>
 vars == <<exchangeVars, connectionVars>>
@@ -210,6 +237,9 @@ TypeOK ==
     /\ tried \subseteq Transports
     /\ fallback \in BOOLEAN /\ learned \in BOOLEAN /\ shut \in BOOLEAN
     /\ stale \in BOOLEAN /\ quiet \in BOOLEAN
+    /\ handed \in [Exchanges -> BOOLEAN]
+    /\ taken \in [Exchanges -> BOOLEAN]
+    /\ pieces \in [Exchanges -> 0..2]
 
 Init ==
     /\ stage = [e \in Exchanges |-> "unmade"]
@@ -228,6 +258,9 @@ Init ==
     /\ tried = {}
     /\ fallback = FALSE /\ learned = FALSE /\ shut = FALSE
     /\ stale = FALSE /\ quiet = FALSE
+    /\ handed = [e \in Exchanges |-> FALSE]
+    /\ taken = [e \in Exchanges |-> FALSE]
+    /\ pieces = [e \in Exchanges |-> 0]
 
 Live(t) == phase[t] \in {"open", "draining"}
 Idle(t) == phase[t] \in {"none", "closed"}
@@ -254,7 +287,7 @@ Wanted == Waiting # {} /\ \A t \in OpenOnes : ~Room(t)
 Make(e) ==
     /\ stage[e] = "unmade" /\ ~shut
     /\ stage' = [stage EXCEPT ![e] = "waiting"]
-    /\ UNCHANGED <<carrier, holds, outcome, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<carrier, holds, outcome, moved, seen, processed, answered, resent, drops, bodyVars>>
     /\ UNCHANGED connectionVars
 
 (* An open connection with room takes an exchange made while it is open,   *)
@@ -266,7 +299,7 @@ Assign(e, t) ==
     /\ stage' = [stage EXCEPT ![e] = "queued"]
     /\ carrier' = [carrier EXCEPT ![e] = t]
     /\ tried' = {}
-    /\ UNCHANGED <<holds, outcome, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<holds, outcome, moved, seen, processed, answered, resent, drops, bodyVars>>
     /\ UNCHANGED <<phase, opens, goaways, fallback, learned, shut, stale, quiet>>
 
 (* The connection writes the request. Over QUIC, its stream holds the      *)
@@ -275,7 +308,7 @@ Send(e) ==
     /\ stage[e] = "queued" /\ Live(carrier[e])
     /\ stage' = [stage EXCEPT ![e] = "sent"]
     /\ holds' = [holds EXCEPT ![e] = (carrier[e] = "quic")]
-    /\ UNCHANGED <<carrier, outcome, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<carrier, outcome, moved, seen, processed, answered, resent, drops, bodyVars>>
     /\ UNCHANGED connectionVars
 
 (* The QUIC stream closes or is reset, and reads the exchange's octets no  *)
@@ -284,7 +317,7 @@ Send(e) ==
 Release(e) ==
     /\ holds[e] /\ stage[e] \in {"sent", "ended"}
     /\ holds' = [holds EXCEPT ![e] = FALSE]
-    /\ UNCHANGED <<stage, carrier, outcome, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<stage, carrier, outcome, moved, seen, processed, answered, resent, drops, bodyVars>>
     /\ UNCHANGED connectionVars
 
 (* The connection refused exchange e unprocessed (RFC 9113 §8.7).          *)
@@ -299,21 +332,28 @@ ClosedMove(e) ==
 (* Whether the client moves exchange e once its connection reports it: the *)
 (* connection refused it or closed before its response, takes no new       *)
 (* exchange, and e may move again. With OneBudget both moves count against *)
-(* MovesMax; without, a move after a close has a budget of its own.        *)
+(* MovesMax; without, a move after a close has a budget of its own. With   *)
+(* ResendBeforeTaken, no piece of e's request was taken.                   *)
 Movable(e) ==
     /\ RefusedMove(e) \/ ClosedMove(e)
     /\ IF OneBudget \/ RefusedMove(e) THEN moved[e] < MovesMax ELSE ~resent[e]
     /\ phase[carrier[e]] # "open"
+    /\ ResendBeforeTaken => ~taken[e]
 
 (* The connection reports exchange e's end once no stream holds its        *)
-(* octets, and the client passes the event to the caller. One the client   *)
-(* sent again that a later connection refused ends closed: the first       *)
-(* server may have processed it.                                           *)
+(* octets and, with FinishWhenReleased, once the caller released each      *)
+(* piece of its response. The client passes the event to the caller, which *)
+(* has a request piece it handed back. One the client sent again, or one a *)
+(* piece of whose request was taken, that a later connection refused ends  *)
+(* closed: a server may have processed it, or the caller cannot send it    *)
+(* again whole (decision 153 ruling 3).                                    *)
 Deliver(e) ==
     /\ stage[e] = "ended" /\ (ReportWhenReleased => ~holds[e]) /\ ~Movable(e)
+    /\ FinishWhenReleased => pieces[e] = 0
     /\ stage' = [stage EXCEPT ![e] = "reported"]
-    /\ outcome' = [outcome EXCEPT ![e] = IF resent[e] /\ @ = "refused" THEN "closed" ELSE @]
-    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops>>
+    /\ outcome' = [outcome EXCEPT ![e] = IF (resent[e] \/ taken[e]) /\ @ = "refused" THEN "closed" ELSE @]
+    /\ handed' = [handed EXCEPT ![e] = FALSE]
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops, taken, pieces>>
     /\ UNCHANGED connectionVars
 
 (* Or the client holds it again for another connection: as though it was   *)
@@ -327,20 +367,23 @@ MoveOn(e) ==
     /\ seen' = [seen EXCEPT ![e] = FALSE]
     /\ answered' = [answered EXCEPT ![e] = FALSE]
     /\ resent' = [resent EXCEPT ![e] = @ \/ outcome[e] = "closed"]
-    /\ UNCHANGED <<holds, processed, drops>>
+    /\ UNCHANGED <<holds, processed, drops, bodyVars>>
     /\ UNCHANGED connectionVars
 
 (* The caller cancels exchange e before its event, which then never comes. *)
 (* Its stream is reset (RFC 9114 §4.1.1), so nothing reads its memory      *)
 (* after. With TcpDrops, a TCP connection that wrote its request reads the *)
 (* rest of its response and drops it, and the exchange keeps its room      *)
-(* until then.                                                             *)
+(* until then. The caller has back the piece of each body the pool held   *)
+(* (decision 153 ruling 7).                                                *)
 Cancel(e) ==
     /\ stage[e] \in {"waiting", "queued", "sent", "ended"}
     /\ stage' = [stage EXCEPT ![e] = "cancelled"]
     /\ holds' = [holds EXCEPT ![e] = IF CancelReleases THEN FALSE ELSE @]
     /\ drops' = [drops EXCEPT ![e] = TcpDrops /\ stage[e] = "sent" /\ carrier[e] \in TcpSlots]
-    /\ UNCHANGED <<carrier, outcome, moved, seen, processed, answered, resent>>
+    /\ handed' = [handed EXCEPT ![e] = FALSE]
+    /\ pieces' = [pieces EXCEPT ![e] = 0]
+    /\ UNCHANGED <<carrier, outcome, moved, seen, processed, answered, resent, taken>>
     /\ UNCHANGED connectionVars
 
 (* The response to cancelled exchange e ends, and its TCP connection drops *)
@@ -348,7 +391,7 @@ Cancel(e) ==
 Drop(e) ==
     /\ drops[e] /\ seen[e] /\ Live(carrier[e])
     /\ drops' = [drops EXCEPT ![e] = FALSE]
-    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent>>
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent, bodyVars>>
     /\ UNCHANGED connectionVars
 
 -----------------------------------------------------------------------------
@@ -363,7 +406,7 @@ Process(e) ==
     /\ ~seen[e] /\ Live(carrier[e])
     /\ seen' = [seen EXCEPT ![e] = TRUE]
     /\ processed' = [processed EXCEPT ![e] = @ + 1]
-    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, answered, resent, drops>>
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, answered, resent, drops, bodyVars>>
     /\ UNCHANGED connectionVars
 
 (* The first of the response to a processed request arrives, and the rest  *)
@@ -371,18 +414,27 @@ Process(e) ==
 Answer(e) ==
     /\ stage[e] = "sent" /\ seen[e] /\ ~answered[e] /\ Live(carrier[e])
     /\ answered' = [answered EXCEPT ![e] = TRUE]
-    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, resent, drops>>
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, resent, drops, bodyVars>>
     /\ UNCHANGED connectionVars
 
+\* Ends exchange e with `how`. Each caller says what becomes of the pieces of its response.
 EndWith(e, how) ==
     /\ stage' = [stage EXCEPT ![e] = "ended"]
     /\ outcome' = [outcome EXCEPT ![e] = how]
-    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops, handed, taken>>
     /\ UNCHANGED connectionVars
 
-(* The response to a processed request arrives whole.                      *)
+\* With CreditAfterRelease, the connection reads more of streamed exchange e's response only once
+\* the caller holds none of it: until then it gives back no flow credit for the stream (RFC 9113
+\* §6.9, RFC 9000 §4.1), and over h11 and h2 it reads nothing more of the connection.
+Readable(e) == e \in Streamed /\ CreditAfterRelease => pieces[e] = 0
+
+(* The response to a processed request arrives whole. The last piece of a  *)
+(* streamed response may come with its end.                                *)
 Respond(e) ==
-    /\ stage[e] = "sent" /\ seen[e] /\ Live(carrier[e])
+    /\ stage[e] = "sent" /\ seen[e] /\ Live(carrier[e]) /\ Readable(e)
+    /\ \E last \in (IF e \in Streamed THEN {0, 1} ELSE {0}) :
+        pieces' = [pieces EXCEPT ![e] = @ + last]
     /\ EndWith(e, "response")
 
 (* The server refuses a request it did not process (RFC 9113 §8.7, RFC     *)
@@ -390,11 +442,52 @@ Respond(e) ==
 Refuse(e) ==
     /\ stage[e] = "sent" /\ ~seen[e] /\ carrier[e] \in Refusals /\ Live(carrier[e])
     /\ EndWith(e, "refused")
+    /\ UNCHANGED pieces
 
 (* The server resets the stream, or sends a response the client refuses.   *)
+(* Over h3 a reset may come while the caller holds a piece of the          *)
+(* response, which it then still releases.                                 *)
 Reset(e) ==
     /\ stage[e] = "sent" /\ carrier[e] \in Resets /\ Live(carrier[e])
     /\ EndWith(e, "failed")
+    /\ UNCHANGED pieces
+
+(* A piece of streamed exchange e's response is in the caller's memory: as *)
+(* much of the content as it holds. The caller has the response's head.    *)
+BodyArrives(e) ==
+    /\ e \in Streamed /\ stage[e] = "sent" /\ seen[e] /\ Live(carrier[e]) /\ Readable(e)
+    /\ pieces' = [pieces EXCEPT ![e] = @ + 1]
+    /\ answered' = [answered EXCEPT ![e] = TRUE]
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, resent, drops, handed, taken>>
+    /\ UNCHANGED connectionVars
+
+(* The caller releases the piece of e's response it holds.                 *)
+ReleaseBody(e) ==
+    /\ pieces[e] > 0
+    /\ pieces' = [pieces EXCEPT ![e] = 0]
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent, drops, handed, taken>>
+    /\ UNCHANGED connectionVars
+
+(* The caller hands the pool the next piece of streamed exchange e's       *)
+(* request, which it keeps until the pool reports it taken. The pool holds *)
+(* one piece at a time. A connection that ended e takes no more of it.     *)
+WriteBody(e) ==
+    /\ e \in Streamed /\ stage[e] \in {"waiting", "queued", "sent"} /\ ~handed[e]
+    /\ handed' = [handed EXCEPT ![e] = TRUE]
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent, drops, taken, pieces>>
+    /\ UNCHANGED connectionVars
+
+(* The connection carrying e reads the request piece no more: it wrote it  *)
+(* into its own memory, or over QUIC the server acknowledged it or the     *)
+(* stream sends no more (RFC 9000 §13.3). The caller has the piece back,   *)
+(* and the pool holds no whole request from now on. The connection may     *)
+(* have ended since: the event comes after it.                             *)
+TakeBody(e) ==
+    /\ handed[e] /\ stage[e] \in {"queued", "sent", "ended"}
+    /\ handed' = [handed EXCEPT ![e] = FALSE]
+    /\ taken' = [taken EXCEPT ![e] = TRUE]
+    /\ UNCHANGED <<stage, carrier, holds, outcome, moved, seen, processed, answered, resent, drops, pieces>>
+    /\ UNCHANGED connectionVars
 
 (* The server sends a GOAWAY (RFC 9113 §6.8, RFC 9114 §5.2): connection t  *)
 (* takes no new exchange, and ends refused each exchange it has not        *)
@@ -407,7 +500,7 @@ Goaway(t, unprocessed) ==
        /\ outcome' = [e \in Exchanges |-> IF e \in ended THEN "refused" ELSE outcome[e]]
     /\ phase' = [phase EXCEPT ![t] = "draining"]
     /\ goaways' = goaways + 1
-    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops, bodyVars>>
     /\ UNCHANGED <<opens, tried, fallback, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -461,7 +554,7 @@ Fallback ==
 Takes(t) ==
     IF TakeAtHandshake
     THEN LET count == IF Cardinality(Waiting) < Capacity(t) THEN Cardinality(Waiting) ELSE Capacity(t)
-         IN {taken \in SUBSET Waiting : Cardinality(taken) = count}
+         IN {chosen \in SUBSET Waiting : Cardinality(chosen) = count}
     ELSE {{}}
 
 (* Connection t's handshake completes. The first one open ends the attempt *)
@@ -473,12 +566,12 @@ Handshake(t) ==
     /\ IF OpenOnes = {} \/ (t \in TcpSlots /\ TcpCarries)
        THEN /\ phase' = [phase EXCEPT ![t] = "open"]
             /\ tried' = {} /\ fallback' = FALSE
-            /\ \E taken \in Takes(t) :
-               /\ stage' = [e \in Exchanges |-> IF e \in taken THEN "queued" ELSE stage[e]]
-               /\ carrier' = [e \in Exchanges |-> IF e \in taken THEN t ELSE carrier[e]]
+            /\ \E chosen \in Takes(t) :
+               /\ stage' = [e \in Exchanges |-> IF e \in chosen THEN "queued" ELSE stage[e]]
+               /\ carrier' = [e \in Exchanges |-> IF e \in chosen THEN t ELSE carrier[e]]
        ELSE /\ phase' = [phase EXCEPT ![t] = "draining"]
             /\ UNCHANGED <<tried, fallback, stage, carrier>>
-    /\ UNCHANGED <<holds, outcome, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<holds, outcome, moved, seen, processed, answered, resent, drops, bodyVars>>
     /\ UNCHANGED <<opens, goaways, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -521,7 +614,7 @@ Fail(t) ==
     /\ holds' = [e \in Exchanges |-> IF e \in Held(t) /\ ReleaseOnFail THEN FALSE ELSE holds[e]]
     /\ drops' = [e \in Exchanges |-> drops[e] /\ carrier[e] # t]
     /\ phase' = [phase EXCEPT ![t] = "failed"]
-    /\ UNCHANGED <<carrier, moved, seen, processed, answered, resent>>
+    /\ UNCHANGED <<carrier, moved, seen, processed, answered, resent, bodyVars>>
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -597,16 +690,17 @@ Close(t) ==
 
 (* No connection is left to take the waiting exchanges, and the attempt    *)
 (* may open no transport. The client ends each waiting exchange refused,   *)
-(* or closed when it sent it again, and reports it itself, and the next    *)
-(* exchange starts another attempt.                                        *)
+(* or closed when it sent it again, and reports it itself with the request *)
+(* piece it holds, and the next exchange starts another attempt.           *)
 GiveUp ==
     /\ Waiting # {} /\ \A t \in Transports : Idle(t)
     /\ ~CanOpenQuic /\ \A t \in TcpSlots : ~CanOpenTcp(t)
     /\ stage' = [e \in Exchanges |-> IF e \in Waiting THEN "reported" ELSE stage[e]]
     /\ outcome' = [e \in Exchanges |->
                     IF e \notin Waiting THEN outcome[e] ELSE IF resent[e] THEN "closed" ELSE "refused"]
+    /\ handed' = [e \in Exchanges |-> handed[e] /\ e \notin Waiting]
     /\ tried' = {} /\ fallback' = FALSE
-    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops>>
+    /\ UNCHANGED <<carrier, holds, moved, seen, processed, answered, resent, drops, taken, pieces>>
     /\ UNCHANGED <<phase, opens, goaways, learned, shut>>
     /\ UNCHANGED idleVars
 
@@ -628,6 +722,7 @@ Next ==
     \/ \E e \in Exchanges :
         \/ Make(e) \/ Send(e) \/ Release(e) \/ Deliver(e) \/ MoveOn(e) \/ Cancel(e) \/ Drop(e)
         \/ Process(e) \/ Answer(e) \/ Respond(e) \/ Refuse(e) \/ Reset(e)
+        \/ WriteBody(e) \/ TakeBody(e) \/ BodyArrives(e) \/ ReleaseBody(e)
         \/ \E t \in Transports : Assign(e, t)
     \/ \E t \in Transports :
         \/ Open(t) \/ Handshake(t) \/ Abandon(t) \/ FailHandshake(t) \/ Break(t) \/ DropBound(t)
@@ -639,13 +734,18 @@ Spec == Init /\ [][Next]_vars
 
 (* The client, its connections and the servers each take the next step     *)
 (* they can: a request is written and answered, a stream closes, a dropped *)
-(* response ends, a handshake completes, and an event is reported. The     *)
-(* caller, a failure, a refusal and a GOAWAY need not come.                *)
+(* response ends, a handshake completes, an event is reported, and the     *)
+(* caller releases each piece of a response. A response's pieces end. The  *)
+(* caller's other calls, a failure, a refusal and a GOAWAY need not come.  *)
 Fairness ==
     /\ \A e \in Exchanges :
         /\ WF_vars(\E t \in Transports : Assign(e, t))
         /\ WF_vars(Send(e)) /\ WF_vars(Release(e)) /\ WF_vars(Deliver(e)) /\ WF_vars(MoveOn(e))
         /\ WF_vars(Process(e)) /\ WF_vars(Respond(e)) /\ WF_vars(Drop(e))
+        /\ WF_vars(ReleaseBody(e))
+    \* A streamed response's pieces disable its end until each is released, so its end comes
+    \* once it is enabled again and again.
+    /\ \A e \in Streamed : SF_vars(Respond(e))
     /\ \A t \in Transports :
         /\ WF_vars(Open(t)) /\ WF_vars(Handshake(t)) /\ WF_vars(Drain(t)) /\ WF_vars(Close(t))
     /\ WF_vars(GiveUp) /\ WF_vars(EndAttempt)
@@ -662,7 +762,10 @@ FairSpec == Spec /\ Fairness
 (* after a close, and no other exchange is processed by two servers        *)
 (* (decision 124). The open connections are QUIC's alone or TCP ones       *)
 (* alone, and none holds more exchanges than it holds at once (decision    *)
-(* 125).                                                                   *)
+(* 125). The caller has back each piece of an exchange it has back, holds  *)
+(* one piece of a response at a time, and hears `refused` for no exchange  *)
+(* a piece of whose request was taken; and no such exchange waits to go    *)
+(* out again (decision 153).                                               *)
 
 Safe ==
     /\ \A e \in Exchanges : stage[e] \in {"reported", "cancelled"} => ~holds[e]
@@ -675,6 +778,10 @@ Safe ==
     /\ \A t \in Transports : phase[t] = "closed" => Held(t) \cup Dropping(t) = {}
     /\ OpenOnes \subseteq TcpSlots \/ OpenOnes = {"quic"}
     /\ \A t \in Transports : Cardinality(Held(t) \cup Dropping(t)) <= Capacity(t)
+    /\ \A e \in Exchanges : stage[e] \in {"reported", "cancelled"} => ~handed[e] /\ pieces[e] = 0
+    /\ \A e \in Exchanges : pieces[e] <= 1
+    /\ \A e \in Exchanges : stage[e] = "reported" /\ outcome[e] = "refused" => ~taken[e]
+    /\ \A e \in Exchanges : ~(taken[e] /\ stage[e] = "waiting")
 
 (* Bounded: each connection's slot opens at most once for each wait of an  *)
 (* exchange. `tried` is cleared only when an exchange leaves the wait: by  *)

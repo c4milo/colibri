@@ -22,6 +22,7 @@ const link_module = @import("client_trace_link.zig");
 const identity = @import("client_trace_identity.zig");
 const QuicServer = @import("client_trace_quic_server.zig").QuicServer;
 const TcpServer = @import("client_trace_tcp_server.zig").TcpServer;
+const body = @import("client_trace_world_body.zig");
 
 const limits = sim.constants.client_trace;
 const Random = sim.Random;
@@ -39,10 +40,10 @@ pub const Error = error{
     Stuck,
     /// An instant's receives and sends did not settle within `settle_rounds_max` rounds.
     Unsettled,
-} || link_module.Error || client.RequestError;
+} || link_module.Error || client.RequestError || client.WriteBodyError || body.Error;
 
-/// Octets of each exchange's response body, and of the content POSTs send.
-const body_len: usize = 64;
+/// Octets of each exchange's response body.
+pub const body_len: usize = 64;
 const datagram_len: usize = sim.constants.network_datagram_len_max;
 const segment_len: usize = 65_536;
 /// The addresses the pool is told of: one, as a caller that resolved one would pass.
@@ -50,9 +51,6 @@ const server_octet: u8 = 0x7f;
 const ipv4_len: usize = 4;
 const server_host: [ipv4_len]u8 = @splat(server_octet);
 const https_port: u16 = 443;
-/// The octets every POST's content is cut from.
-var content_source: [limits.content_len_max]u8 = @splat(content_octet);
-const content_octet: u8 = 'c';
 
 pub const World = struct {
     plan: Plan,
@@ -78,9 +76,11 @@ pub const World = struct {
     bodies: [limits.requests_max][body_len]u8,
     paths: [limits.requests_max][body_len]u8,
     ids: [limits.requests_max]?client.RequestId,
-    /// What the caller did with each exchange and heard of it.
+    /// What the caller did with each exchange and heard of it, and with each piece of a streamed
+    /// one (decision 153).
     cancelled: [limits.requests_max]bool,
     reported: [limits.requests_max]bool,
+    pieces: body.Pieces,
     /// The instant the last exchange was reported or cancelled.
     settled_ns: u64,
     shut: bool,
@@ -104,11 +104,14 @@ pub const World = struct {
     pub fn init(world: *World, seed: u64) !void {
         world.random = Random.init(seed);
         world.plan.draw(&world.random);
+        var bodies_random = Random.init(seed ^ bodies_seed_mark);
+        world.plan.draw_bodies(&bodies_random);
         world.tls_random = Random.init(seed ^ tls_seed_mark);
         world.now_ns = 0;
         world.ids = @splat(null);
         world.cancelled = @splat(false);
         world.reported = @splat(false);
+        world.pieces.init();
         world.settled_ns = 0;
         world.shut = false;
         world.closed = false;
@@ -173,13 +176,14 @@ pub const World = struct {
             at = earliest(at, world.quic_server.due_ns(&world.plan));
         }
         at = earliest(at, world.tcp_server.due_ns(&world.plan));
-        return at;
+        return earliest(at, world.pieces.due_ns());
     }
 
     /// Moves to `at` and runs everything due there until nothing moves.
     pub fn step(world: *World, at: u64) Error!void {
         world.now_ns = @max(world.now_ns, at);
         try world.act_on_plan();
+        body.release_due(world);
         try world.deliver();
         const deadline = world.pool.deadline_ns();
         if (deadline != null and deadline.? <= world.now_ns) world.fire_pool();
@@ -207,9 +211,7 @@ pub const World = struct {
             if (!world.plan.cancel_on_end[index] or world.cancelled[index] or world.reported[index]) continue;
             const id = world.ids[index] orelse continue;
             if (world.responses[index].result == .pending) continue;
-            world.pool.cancel(id, world.now_ns);
-            world.cancelled[index] = true;
-            world.settled_ns = world.now_ns;
+            world.cancel(index, id);
             cancelled = true;
         }
         return cancelled;
@@ -240,7 +242,7 @@ pub const World = struct {
 
     fn act_on_plan(world: *World) Error!void {
         for (0..world.plan.requests) |index| {
-            if (world.ids[index] == null and !world.shut and world.plan.make_at_ns[index] <= world.now_ns) try world.make(index);
+            if (world.ids[index] == null and !world.shut and world.plan.make_at_ns[index] <= world.now_ns) try body.make(world, index);
             world.cancel_if_due(index);
         }
         if (!world.shut and world.plan.shutdown_at_ns <= world.now_ns) {
@@ -276,8 +278,14 @@ pub const World = struct {
         const cancel_at = world.plan.cancel_at_ns[index] orelse return;
         const id = world.ids[index] orelse return;
         if (cancel_at > world.now_ns or world.cancelled[index] or world.reported[index]) return;
+        world.cancel(index, id);
+    }
+
+    /// Cancels exchange `index`: the caller has the memory of its request and its response back.
+    fn cancel(world: *World, index: usize, id: client.RequestId) void {
         world.pool.cancel(id, world.now_ns);
         world.cancelled[index] = true;
+        world.pieces.returned(index);
         world.settled_ns = world.now_ns;
     }
 
@@ -291,18 +299,6 @@ pub const World = struct {
             .quic => world.quic_server.started and (world.quic_server.send_goaway(&world.ledger, world.now_ns) catch false),
             .tcp => world.tcp_server.send_goaway(&world.ledger),
         };
-    }
-
-    fn make(world: *World, index: usize) Error!void {
-        const path = ledger_module.path_of(index, &world.paths[index]);
-        const content_len = world.plan.content_len[index];
-        world.requests[index] = .{
-            .method = if (world.plan.idempotent(index)) "GET" else "POST",
-            .path = path,
-            .body = content_source[0..content_len],
-        };
-        world.responses[index] = .{ .body = &world.bodies[index] };
-        world.ids[index] = try world.pool.request(&world.requests[index], &world.responses[index]);
     }
 
     /// Hands each side what arrived by now.
@@ -433,9 +429,9 @@ pub const World = struct {
                 held.wipe();
             },
             .finished => |finished| try world.report(finished),
-            .connected => {},
-            // No body of the run goes in pieces (decision 153).
-            .body_taken, .headers, .body => unreachable,
+            .connected, .headers => {},
+            .body_taken => |id| try body.on_taken(world, id),
+            .body => |piece| try body.on_body(world, piece),
             .closed => world.closed = true,
         }
     }
@@ -471,6 +467,7 @@ pub const World = struct {
         if (world.reported[index]) return error.ReportedTwice;
         if (world.cancelled[index]) return error.ReportedAfterCancel;
         world.reported[index] = true;
+        try body.on_finished(world, index);
         world.settled_ns = world.now_ns;
     }
 
@@ -482,8 +479,10 @@ pub const World = struct {
     }
 };
 
-/// Marks the TLS draws' seed apart from the caller's, so the two sequences differ.
+/// Marks the TLS draws' seed, and the streamed bodies' draws' seed, apart from the caller's, so
+/// the sequences differ.
 const tls_seed_mark: u64 = 0x746c_735f_7365_6564;
+const bodies_seed_mark: u64 = 0x626f_6469_6573_5f73;
 
 fn earliest(at: ?u64, candidate: ?u64) ?u64 {
     const held = candidate orelse return at;

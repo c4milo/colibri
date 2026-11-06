@@ -50,7 +50,8 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     const all = "{\"quic\", \"tcp\"}";
     try print(writer, "    HandshakeFails = {s}\n    Breaks = {s}\n    Goaways = {s}\n", .{ all, all, all });
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {s}\n    Resets = {s}\n", .{ goaways, all, all });
-    try write_idempotent(writer, plan);
+    try write_set(writer, "Idempotent", plan, Plan.idempotent);
+    try write_set(writer, "Streamed", plan, Plan.is_streamed);
     // Decision 125: the run's pool holds one TCP connection, which holds every exchange at once.
     try print(writer, "    TcpSlots = {{\"tcp\"}}\n    TcpCapacity = {d}\n", .{plan.requests});
     // h2 resets a cancelled exchange's stream with CANCEL (RFC 9113 §6.4), so its TCP connection
@@ -61,16 +62,18 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     try writer.write_bytes("    RetireStale = TRUE\n    KeepAlive = TRUE\n    TakeAtHandshake = TRUE\n");
     try writer.write_bytes("    TcpWhenAllowed = TRUE\n    ResendIdempotent = TRUE\n    OneBudget = TRUE\n");
     try writer.write_bytes("    TakeWithinRoom = TRUE\n    TryOncePerWait = TRUE\n    EndWhenIdle = TRUE\n");
+    try writer.write_bytes("    FinishWhenReleased = TRUE\n    CreditAfterRelease = TRUE\n    ResendBeforeTaken = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{steps_max});
 }
 
-/// The model's `Idempotent`: the exchanges the plan makes GETs, counted from 1 (decision 124).
-fn write_idempotent(writer: *Writer, plan: *const Plan) Error!void {
-    try writer.write_bytes("    Idempotent = {");
+/// The model's set `name` of the exchanges `member` holds for, counted from 1: `Idempotent`, the
+/// GETs (decision 124), and `Streamed`, whose bodies go in pieces (decision 153).
+fn write_set(writer: *Writer, name: []const u8, plan: *const Plan, member: fn (*const Plan, usize) bool) Error!void {
+    try print(writer, "    {s} = {{", .{name});
     var written: usize = 0;
     for (0..plan.requests) |index| {
-        if (!plan.idempotent(index)) continue;
+        if (!member(plan, index)) continue;
         try print(writer, "{s}{d}", .{ separator(written), index + 1 });
         written += 1;
     }
@@ -101,7 +104,13 @@ fn write_state(writer: *Writer, requests: u32, state: *const State) Error!void {
     if (state.tried[0] and state.tried[1]) try writer.write_bytes(", ");
     if (state.tried[1]) try writer.write_bytes("\"tcp\"");
     try print(writer, "}}, fallback |-> {s}, learned |-> {s}, shut |-> {s}, ", .{ boolean(state.fallback), boolean(state.learned), boolean(state.shut) });
-    try print(writer, "stale |-> {s}]", .{boolean(state.stale)});
+    try print(writer, "stale |-> {s}, ", .{boolean(state.stale)});
+    try write_booleans(writer, "handed", state.handed[0..n]);
+    try write_booleans(writer, "taken", state.taken[0..n]);
+    // The record's last field, with no separator after it.
+    try writer.write_bytes("pieces |-> <<");
+    for (state.pieces[0..n], 0..) |value, index| try print(writer, "{s}{d}", .{ separator(index), value });
+    try writer.write_bytes(">>]");
 }
 
 fn write_numbers(writer: *Writer, field: []const u8, values: []const u8) Error!void {

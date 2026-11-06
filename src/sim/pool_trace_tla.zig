@@ -64,6 +64,8 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State) Erro
     const goaways = plan.closes() * (@as(u32, client.constants.limits.moves_max) + 1);
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {{}}\n    Resets = {{}}\n", .{goaways});
     try write_idempotent(writer, plan);
+    // Decision 153: no body of the pool trace run goes in pieces.
+    try writer.write_bytes("    Streamed = {}\n");
     try write_slot_set(writer, "TcpSlots", plan);
     // Decision 125: an h11 connection in a pool of several slots holds one exchange at a time.
     try writer.write_bytes("    TcpCapacity = 1\n");
@@ -75,6 +77,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State) Erro
     try writer.write_bytes("    RetireStale = TRUE\n    KeepAlive = TRUE\n    TakeAtHandshake = TRUE\n");
     try writer.write_bytes("    TcpWhenAllowed = TRUE\n    ResendIdempotent = TRUE\n    OneBudget = TRUE\n");
     try writer.write_bytes("    TakeWithinRoom = TRUE\n    TryOncePerWait = TRUE\n    EndWhenIdle = TRUE\n");
+    try writer.write_bytes("    FinishWhenReleased = TRUE\n    CreditAfterRelease = TRUE\n    ResendBeforeTaken = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{limits.steps_max});
 }
@@ -130,7 +133,21 @@ fn write_state(writer: *Writer, plan: *const Plan, state: *const State) Error!vo
         try print(writer, "{s}\"{s}\"", .{ separator(written), slot_name });
         written += 1;
     }
-    try print(writer, "}}, fallback |-> FALSE, learned |-> FALSE, shut |-> {s}, stale |-> FALSE]", .{boolean(state.shut)});
+    try print(writer, "}}, fallback |-> FALSE, learned |-> FALSE, shut |-> {s}, stale |-> FALSE", .{boolean(state.shut)});
+    try write_no_pieces(writer, n);
+}
+
+/// Decision 153: no body of the run goes in pieces, so no exchange's piece is handed, taken or
+/// held. The record's last fields.
+fn write_no_pieces(writer: *Writer, n: usize) Error!void {
+    const Field = struct { name: []const u8, value: []const u8 };
+    const fields = [_]Field{ .{ .name = "handed", .value = "FALSE" }, .{ .name = "taken", .value = "FALSE" }, .{ .name = "pieces", .value = "0" } };
+    for (fields) |field| {
+        try print(writer, ", {s} |-> <<", .{field.name});
+        for (0..n) |index| try print(writer, "{s}{s}", .{ separator(index), field.value });
+        try writer.write_bytes(">>");
+    }
+    try writer.write_bytes("]");
 }
 
 fn write_numbers(writer: *Writer, field: []const u8, values: []const u8) Error!void {

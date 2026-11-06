@@ -35,6 +35,14 @@ pub const Violation = world_module.Error || error{
     MovedTooOften,
     /// A connection closed while it held an exchange.
     ClosedHolding,
+    /// Decision 153: the caller has an exchange back while the pool holds a piece of its request
+    /// or the caller holds one of its response, holds two pieces of one response, heard
+    /// `refused` for an exchange a piece of whose request was taken, or such an exchange waits to
+    /// go out again.
+    PieceAfterReturn,
+    PiecesHeld,
+    RefusedTaken,
+    MovedTaken,
     /// The run moved through more instants than `instants_max`, or through one instant more
     /// often than a step can revisit it, or kept more states than `states_max`.
     Unfinished,
@@ -83,6 +91,11 @@ pub const Result = struct {
     /// exchange outstanding from it (design §8 step 17g).
     retired: u64 = 0,
     keep_alives: u64 = 0,
+    /// Decision 153: exchanges whose bodies went in pieces, request pieces taken, and response
+    /// pieces the caller held.
+    streamed: u64 = 0,
+    taken: u64 = 0,
+    pieces: u64 = 0,
 };
 
 pub const Census = struct {
@@ -155,7 +168,18 @@ fn check_safe(state: *const State, plan: *const Plan) Violation!void {
     for (0..plan.requests) |index| {
         try check_exchange(state, index);
         try check_processed(state, index, plan.idempotent(index));
+        try check_pieces(state, index);
     }
+}
+
+/// Safe's rules of a streamed exchange's pieces (decision 153 rulings 3 and 7).
+fn check_pieces(state: *const State, index: usize) Violation!void {
+    const returned = state.stage[index] == .reported or state.stage[index] == .cancelled;
+    if (returned and (state.handed[index] or state.pieces[index] > 0)) return error.PieceAfterReturn;
+    if (state.pieces[index] > 1) return error.PiecesHeld;
+    const refused = state.stage[index] == .reported and state.outcome[index] == .refused;
+    if (refused and state.taken[index]) return error.RefusedTaken;
+    if (state.taken[index] and state.stage[index] == .waiting) return error.MovedTaken;
 }
 
 /// Safe's rules of what a server processed and how often an exchange moved. A connection refuses
@@ -211,6 +235,9 @@ fn result_of(storage: *const Storage) Result {
         .goaways = world.ledger.goaways,
         .learned = @intFromBool(world.plan.policy == .learn and world.pool.alternative() != null),
         .keep_alives = world.keep_alives,
+        .streamed = world.plan.streamed_count(),
+        .taken = world.pieces.taken_events,
+        .pieces = world.pieces.body_events,
     };
     // Each logged state that finds the QUIC connection stale where the one before did not.
     for (storage.states[1..storage.states_len], storage.states[0 .. storage.states_len - 1]) |now, before| {
@@ -257,22 +284,26 @@ test "client trace run: every seed closes the pool with each exchange reported o
     // The seeds reached the paths the model checks: QUIC and TCP carried exchanges, exchanges
     // moved after a refusal, GETs went out again after a close (decision 124), a GOAWAY went out,
     // the pool learned h3, some were cancelled, a QUIC connection retired near its idle
-    // timeout, and PINGs kept others from it. A seed replays in every build mode (invariant 5), so
-    // the census is pinned, as Debug and `-Drelease` both give it.
+    // timeout, and PINGs kept others from it. Streamed exchanges handed request pieces the pool
+    // took, and held response pieces (decision 153). A seed replays in every build mode (invariant
+    // 5), so the census is pinned, as Debug and `-Drelease` both give it.
     try testing.expectEqual(Result{
-        .states = 2582,
+        .states = 2707,
         .requests = 534,
-        .responses = 345,
-        .refused = 85,
-        .failed = 54,
-        .cancelled = 50,
-        .moved = 10,
-        .resent = 8,
+        .responses = 323,
+        .refused = 82,
+        .failed = 56,
+        .cancelled = 73,
+        .moved = 12,
+        .resent = 10,
         .quic_connections = 119,
-        .tcp_connections = 277,
+        .tcp_connections = 278,
         .goaways = 50,
         .learned = 61,
         .retired = 1,
-        .keep_alives = 6,
+        .keep_alives = 5,
+        .streamed = 80,
+        .taken = 122,
+        .pieces = 141,
     }, census.result);
 }

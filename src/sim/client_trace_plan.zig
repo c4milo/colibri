@@ -62,11 +62,16 @@ pub const Plan = struct {
     /// The instant each is made, and the instant it is cancelled, if it is.
     make_at_ns: [limits.requests_max]u64,
     cancel_at_ns: [limits.requests_max]?u64,
-    /// Octets of each request's content: none for a GET, some for a POST.
+    /// Octets of each request's content: none for a GET, some for a POST or a streamed PUT.
     content_len: [limits.requests_max]u32,
     /// Whether the caller cancels a POST once its connection ended it and before the pool
     /// reported it, while its stream may still send the content (RFC 9000 §3.1).
     cancel_on_end: [limits.requests_max]bool,
+    /// Decision 153: whether each exchange's request and response go in pieces, the pieces its
+    /// request content is cut into, and how long the caller holds a piece of its response.
+    streamed: [limits.requests_max]bool,
+    request_pieces: [limits.requests_max]u32,
+    release_delay_ns: [limits.requests_max]u64,
     policy: Policy,
     /// Whether the values carry an HTTPS record: one naming h3 under `first`, and one naming no h3
     /// under `learn`.
@@ -131,6 +136,31 @@ pub const Plan = struct {
         assert(plan.requests >= 1 and plan.requests <= limits.requests_max);
     }
 
+    /// Draws which exchanges with content go in pieces (decision 153), from a generator of their own, so a seed's
+    /// other draws stay as they were before step 39.
+    pub fn draw_bodies(plan: *Plan, random: *Random) void {
+        for (0..limits.requests_max) |index| {
+            const content_len = plan.content_len[index];
+            plan.streamed[index] = content_len > 0 and random.below(limits.streamed_one_in) == 0;
+            const pieces_max = @min(limits.request_pieces_max, content_len);
+            plan.request_pieces[index] = if (plan.streamed[index]) 1 + @as(u32, @intCast(random.below(pieces_max))) else 0;
+            plan.release_delay_ns[index] = random.below(limits.release_delay_max_ns);
+        }
+        assert(plan.request_pieces[0] <= limits.request_pieces_max);
+    }
+
+    /// Whether exchange `index`'s bodies go in pieces (decision 153).
+    pub fn is_streamed(plan: *const Plan, index: usize) bool {
+        return plan.streamed[index];
+    }
+
+    /// Exchanges whose bodies go in pieces.
+    pub fn streamed_count(plan: *const Plan) u32 {
+        var count: u32 = 0;
+        for (plan.streamed[0..plan.requests]) |streamed| count += @intFromBool(streamed);
+        return count;
+    }
+
     fn draw_answer(plan: *const Plan, random: *Random) Answer {
         if (plan.clean) return .respond;
         return @enumFromInt(random.below(std.meta.fields(Answer).len));
@@ -166,10 +196,12 @@ pub const Plan = struct {
         return index < plan.exchanges;
     }
 
-    /// Whether exchange `index` is a GET, which RFC 9110 §9.2.2 makes idempotent, so the pool
-    /// may send it again (decision 124). One with content is a POST, which it never sends again.
+    /// Whether exchange `index` is a GET or a PUT, which RFC 9110 §9.2.2 makes idempotent, so the
+    /// pool may send it again (decision 124). A streamed exchange is a PUT, which moves only before
+    /// a piece of it was taken (decision 153). Other content goes in a POST, which never moves
+    /// after a close.
     pub fn idempotent(plan: *const Plan, index: usize) bool {
-        return plan.content_len[index] == 0;
+        return plan.content_len[index] == 0 or plan.streamed[index];
     }
 };
 
@@ -181,9 +213,15 @@ test "a plan is drawn from its seed alone, and its caller shuts the pool down af
     for (0..sim.constants.check_seeds_default) |seed| {
         var random = Random.init(seed);
         first.draw(&random);
+        first.draw_bodies(&random);
         random = Random.init(seed);
         second.draw(&random);
+        second.draw_bodies(&random);
         try testing.expect(std.meta.eql(first, second));
+        // Decision 153: only an exchange with content goes in pieces, and each piece holds some.
+        for (first.streamed, first.content_len, first.request_pieces) |streamed, content_len, pieces| {
+            try testing.expect(!streamed or (content_len >= pieces and pieces > 0));
+        }
         for (first.make_at_ns[0..first.requests]) |make_at_ns| try testing.expect(make_at_ns < first.shutdown_at_ns);
         if (first.clean) for (first.quic_answers, first.tcp_answers) |quic, tcp| {
             try testing.expect(quic == .respond and tcp == .respond);

@@ -8,6 +8,7 @@ const quic = @import("quic");
 const sim = @import("sim");
 const client_trace_check = @import("client_trace_check.zig");
 const client_trace_tla = @import("client_trace_tla.zig");
+const client_trace_plan = @import("client_trace_plan.zig");
 
 const limits = sim.constants.client_trace;
 
@@ -37,7 +38,7 @@ pub fn check(seeds: u64) !void {
     std.debug.print(" moved={d} resent={d} quic={d} tcp={d} goaways={d} learned={d} retired={d}", .{
         result.moved, result.resent, result.quic_connections, result.tcp_connections, result.goaways, result.learned, result.retired,
     });
-    std.debug.print(" keep_alives={d}", .{result.keep_alives});
+    std.debug.print(" keep_alives={d} streamed={d} taken={d} pieces={d}", .{ result.keep_alives, result.streamed, result.taken, result.pieces });
     std.debug.print(" states={d} closing_ms_max={d}\n", .{ result.states, census.closing_max_ns / quic.constants.nanoseconds_per_millisecond });
 }
 
@@ -66,6 +67,12 @@ pub fn written_seeds(into: *[limits.written_seeds + limits.idle_seeds_written_ma
     return into[0..count];
 }
 
+/// The model's steps TLC may take between two logged states of a seed: more for each exchange
+/// whose bodies go in pieces (decision 153).
+fn steps_max(plan: *const client_trace_plan.Plan) u64 {
+    return limits.steps_between_max + plan.streamed_count() * limits.steps_per_streamed_exchange;
+}
+
 /// Runs `seed` and writes its trace as TLA+. The files stay valid until the next call.
 pub fn files_of(seed: u64) !Files {
     _ = client_trace_check.run_seed(&storage, seed) catch |failure| {
@@ -78,6 +85,6 @@ pub fn files_of(seed: u64) !Files {
     try client_trace_tla.write_module(&module_writer, name, &storage.world.plan, trace);
     const module_len = module_writer.written().len;
     var config_writer = quic.core.Writer.init(text[module_len..]);
-    try client_trace_tla.write_config(&config_writer, &storage.world.plan, &trace[trace.len - 1], storage.world.ledger.goaways, limits.steps_between_max);
+    try client_trace_tla.write_config(&config_writer, &storage.world.plan, &trace[trace.len - 1], storage.world.ledger.goaways, steps_max(&storage.world.plan));
     return .{ .name = name, .module = text[0..module_len], .config = config_writer.written() };
 }

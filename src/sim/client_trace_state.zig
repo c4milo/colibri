@@ -46,6 +46,11 @@ pub const State = struct {
     /// The running QUIC connection sat idle until near its idle timeout, and retired (RFC 9114
     /// §5.1).
     stale: bool,
+    /// Decision 153: the pool holds a request piece it has not reported taken, a piece of the
+    /// request was taken, and the pieces of the response the caller holds.
+    handed: [requests_max]bool,
+    taken: [requests_max]bool,
+    pieces: [requests_max]u8,
 };
 
 /// What the run remembers of each exchange across instants, which the pool forgets once the
@@ -106,6 +111,9 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
         state.moved[index] = tracker.moved[index];
         state.seen[index] = seen(world, tracker, index);
         state.processed[index] = world.ledger.processed[index];
+        state.handed[index] = if (entry_of(world, index)) |entry| entry.piece_held else false;
+        state.taken[index] = world.pieces.taken[index];
+        state.pieces[index] = world.pieces.held[index];
     }
     const pool = &world.pool;
     // Decision 125: the run's pool holds one TCP slot, the model's "tcp".

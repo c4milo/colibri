@@ -21,6 +21,16 @@ pub const shutdown_after_max_ns: u64 = 1_500_000_000;
 pub const content_len_max: u32 = 393_216;
 pub const post_one_in: u64 = 3;
 
+/// Decision 153: one exchange with content in `streamed_one_in` is a PUT that sends its content in
+/// pieces and reads its response in pieces. The caller cuts the content into at most
+/// `request_pieces_max` pieces, and reads each response piece into `response_piece_len` octets of
+/// its memory, fewer than any response's content. It holds each response piece at most
+/// `release_delay_max_ns` before it releases it.
+pub const streamed_one_in: u64 = 2;
+pub const request_pieces_max: u32 = 3;
+pub const response_piece_len: usize = 4;
+pub const release_delay_max_ns: u64 = 30_000_000;
+
 /// The fallback delay the origin is configured with: short, so a slow QUIC loses to TCP within a
 /// few round trips.
 pub const fallback_delay_ns: u64 = 100_000_000;
@@ -91,9 +101,14 @@ pub const idle_seeds_written_max: u64 = 16;
 pub const steps_between_max: u64 = steps_per_exchange * requests_max + steps_per_instant;
 const steps_per_exchange: u64 = 6;
 const steps_per_instant: u64 = 12;
+/// The model's steps a streamed exchange adds between two logged states: each request piece
+/// handed and taken, and a response piece that arrives and is released.
+pub const steps_per_streamed_exchange: u64 = steps_per_piece * (request_pieces_max + 1);
+const steps_per_piece: u64 = 2;
 
 comptime {
     assert(requests_max > 0 and cancel_one_in > 0 and post_one_in > 0);
+    assert(streamed_one_in > 0 and request_pieces_max > 0 and response_piece_len > 0);
     // A slow QUIC loses the race to TCP: its first round trip is past the fallback delay.
     assert(slow_delay_min_ns > fallback_delay_ns);
     assert(tcp_delay_ns < fallback_delay_ns);
