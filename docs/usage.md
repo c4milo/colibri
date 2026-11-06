@@ -173,7 +173,9 @@ another file of your program.
   With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
 - `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
 - `random`: the source each TLS session draws from. Null draws from the system's entropy.
-- `endpoint`: the `server.Config` the endpoint starts from. `colibri` fills its `tls`.
+- `endpoint`: the `server.Config` the endpoint starts from. `colibri` fills its `tls`, and sets
+  its `ecn`, because the server's loop reads and sets each datagram's ECN codepoint
+  ([decision 68](decisions.md)).
 
 A program that wants more cores starts more servers on one port: each one binds with
 SO_REUSEPORT. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,

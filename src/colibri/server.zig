@@ -32,7 +32,9 @@ pub const ServerConfig = struct {
     /// The source each TLS session and each QUIC connection draws from. Null draws from the
     /// operating system's entropy (decision 150 ruling 9).
     random: ?tls.Random = null,
-    /// What the endpoint starts from. `colibri` fills its `tls` from `identity`.
+    /// What the endpoint starts from. `colibri` fills its `tls` from `identity`, and sets its `ecn`:
+    /// the server's loop reads each datagram's ECN codepoint and sets the one the endpoint names
+    /// (decision 68).
     endpoint: server.Config = .{},
 };
 
@@ -111,6 +113,9 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             self.udp_open = false;
             if (self.config.random == null) self.config.random = entropy.random();
             self.endpoint_config = config.endpoint;
+            // Decision 68: the server's own loop reads each datagram's codepoint and sets the one
+            // the endpoint names, so the endpoint reads ECN whatever the program set.
+            self.endpoint_config.ecn = true;
             assert(self.endpoint_config.tls == null);
             // A server that `init` does not return keeps no private key and no cookie key.
             errdefer wipe_keys(self);
@@ -305,4 +310,5 @@ test "design §8 step 37: an init whose UDP open fails closes the listener and n
 test {
     _ = @import("server_tcp_test.zig");
     _ = @import("server_deinit_test.zig");
+    _ = @import("server_udp_test.zig");
 }

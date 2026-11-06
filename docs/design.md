@@ -13083,8 +13083,15 @@ library.
       the cookie key drawn before the parse.
     - After the review of ruling 11: the chain's parse error ignored. The key's check hid it, so a
       test now loads a valid chain first and then refuses a chain that is not PEM.
-    - **Not checked:** no test sends a datagram through `colibri.Server`, so its UDP receive and
-      send paths have no check. The fetch over h3 with `colibri.Client` in step 42 checks them.
+    - **Not checked:** no test sends a datagram through `colibri.Server`'s socket, so its UDP
+      receive and send paths have no check over a socket. The fetch over h3 with
+      `colibri.Client` in step 42 checks them.
+    - The ECN fix, after v0.14.0, on 2026-11-05. A dependent reported that a peer that marks its
+      datagrams ECT(0), such as quic-go, halted the server. The loop passed each codepoint to an
+      endpoint whose `ecn` was false, and decision 68's assertion refused it. `init` now sets
+      `ecn`. A test passes `take_delivery` RFC 9001 Appendix A.2's Initial, marked ECT(0). It
+      expects one ECT(0) count in the Initial space, and an answer marked ECT(0). Each mutation
+      was **CAUGHT**: the fix removed; the received codepoint passed as Not-ECT.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open
     connections close. The simulator's checks of `server` stay as they are.
 - **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**

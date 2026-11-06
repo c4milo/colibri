@@ -96,8 +96,9 @@ pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
 }
 
 /// Hands the endpoint each datagram of a delivery: the delivery itself, or each segment of one the
-/// kernel coalesced. A delivery cut short is dropped, as a lost datagram is.
-fn take_delivery(run: anytype, delivery: rotor.Delivery, now_ns: u64) void {
+/// kernel coalesced. A delivery cut short is dropped, as a lost datagram is. `server_udp_test.zig`
+/// calls it with a delivery it builds.
+pub fn take_delivery(run: anytype, delivery: rotor.Delivery, now_ns: u64) void {
     if (delivery.from.flags.truncated) return;
     const ecn = received_ecn(&delivery.from);
     const from = peer_address(delivery.from.peer);
