@@ -1093,6 +1093,36 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     `.github/workflows/bench.yml` stays on `ubuntu-24.04-arm` until the owner rules, because a new
     runner changes every baseline (decision 33).
 
+    Amended by the owner on 2026-11-05, with entry 67 as amended the same day. The TLA+ models
+    took 51 of the push job's 100 minutes. These rulings apply:
+
+    - The models at their full bounds, and every seed of each trace run, run in a job of their
+      own, `tla`, every night and when a person starts the workflow.
+    - The `tla` job is the fourth exception to the rule that a new check joins `tools/ci.sh`. Its
+      work is `zig build tla` and the seven trace scripts, which a person runs for the same answer.
+    - The report of `tools/ci.sh` gives the wall time of each section and of the whole run, so a
+      later change to a job's limit starts from a measured number.
+
+    A scheduled run starts every job whose condition holds. So each scheduled job's condition names
+    its own cron line, and the Monday jobs do not run every night.
+
+    The first ruling of that day also kept a quick tier of the models in the push job, for the
+    paths that changed since the newest push run that passed. The second ruling below replaces
+    that part.
+
+    Amended a second time by the owner on 2026-11-05. The push job runs no TLC:
+
+    - `tools/ci.sh` skips the TLA+ models and the seven trace checks by default. Its report has a
+      row that says so and names the nightly job.
+    - `CI_TLA=all` makes `tools/ci.sh` check every model and run the seven trace checks over every
+      seed. It refuses any other value, so a mistyped value does not skip the checks unseen.
+    - The push job has no Java step and does not read the earlier runs of the workflow. The `tla`
+      job is the one job that runs TLC.
+
+    The alternatives offered and not taken: the full set on each push, which took 51 minutes; and
+    the quick tier on each push, which the first ruling chose. Entry 67 as amended a second time
+    gives the cost.
+
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three
@@ -1821,6 +1851,32 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Two alternatives were refused. Committing the jar puts a binary in the history for what a
     pinned hash already fixes. Running the models by hand alone lets a specification fall out of
     date with no one noticing.
+
+    Amended by the owner on 2026-11-05, with entry 47 as amended the same day, because the models
+    took 51 of the push job's 100 minutes. The nightly `tla` job checks every configuration of
+    every model, and runs the seven trace checks over every seed. The first ruling of that day
+    also kept a quick tier in `tools/ci.sh`: a small configuration of each model, and 8 seeds of
+    each trace run, only for the paths that changed. The second ruling below replaces that part.
+
+    Amended a second time by the owner on 2026-11-05. `tools/ci.sh` checks no model and runs no
+    trace check by default, and the push job runs no TLC. With `CI_TLA=all`, `tools/ci.sh` checks
+    every configuration and runs each trace check over every seed. It fails when no Java runtime
+    is installed, because a person asked for every TLC check. The ruling also amends entries 87,
+    104, 105 and 125. `tools/ci.sh` runs their trace checks only with `CI_TLA=all`, and the
+    nightly job runs them every night.
+
+    The owner allowed the quick tier and the selection by changed paths to stay if they cost
+    nothing by default, and asked for fewer parts. Neither is kept, because the push job was their
+    one caller:
+
+    - The quick tier needed four copies of a configuration with a smaller bound, and each copy
+      must follow its original.
+    - The selection needed a table from each source path to the models and the trace runs that
+      depend on it. That table must follow each moved file, and its first version missed the
+      shared modules and the simulator files.
+
+    Cost: a change that breaks a model, or a trace check, fails the next nightly run and not its
+    push. Gain: the push job spends no time in TLC, and one job holds every TLC run.
 
 68. **A caller says, with two flags, whether it reads received ECN codepoints and whether it sets
     them on what it sends.** Ruled by the owner on 2026-09-24.

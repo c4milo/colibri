@@ -402,13 +402,17 @@ Everything below exists. Change this section when a step adds or renames a comma
   `zig build test`. CI runs each of them on every push, except `tools/interop.sh`, which it runs
   every Monday, and `tools/h3load.sh`, which only a person runs. A person runs each before calling
   a step done.
-- CI: `tools/ci.sh [report.md]` runs every check above that exists, except `tools/interop.sh` and
-  `tools/h3load.sh`, and writes the report; `.github/workflows/main.yml` runs it on each push to
-  main (decision 47). A new check joins `tools/ci.sh`, never the workflow file, so CI and a person
-  run the same thing. There are three exceptions (decision 47 as amended). The HTTP Garden and the
-  QUIC Interop Runner have jobs the workflow starts by hand and every Monday. The `arm64` job runs
-  `zig build test` on each push on Linux and macOS arm64, where a person on either machine runs
-  the same command.
+- CI: `[CI_TLA=all] tools/ci.sh [report.md]` runs every check above that exists, except
+  `tools/interop.sh` and `tools/h3load.sh`, and writes the report, with the wall time of each
+  section; `.github/workflows/main.yml` runs it on each push to main (decision 47). By default it
+  skips the TLA+ models and the trace checks below, and the report has a row that says so; with
+  `CI_TLA=all` it runs them too, and it refuses any other value (decision 67 as amended on
+  2026-11-05). The push job sets no `CI_TLA`, so it runs no TLC. A new check joins `tools/ci.sh`,
+  never the workflow file, so CI and a person run the same thing. There are four exceptions
+  (decision 47 as amended). The HTTP Garden and the QUIC Interop Runner have jobs the workflow
+  starts by hand and every Monday. The `arm64` job runs `zig build test` on each push on Linux and
+  macOS arm64, where a person on either machine runs the same command. The `tla` job runs `zig
+  build tla` and the seven trace scripts, by hand and every night.
 - Ports: no check `tools/ci.sh` runs binds a fixed port, so two runs on one machine do not collide
   (https://github.com/c4milo/colibri/issues/94). Each peer a script starts binds port 0 and prints
   `listening on port <port>` once its socket is bound. `tools/listening_port.sh <log> [seconds]`
@@ -630,10 +634,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   amended).
 - Models: `zig build tla [-- <configuration>...]` model-checks the TLA+ specifications in
   `spec/tla/` with TLC, through pepegrillo's `tla` tool. `tools/tla.zig` pins TLC by release and
-  SHA-256, and the jar is cached on first use; it needs Java. The first line of each
-  configuration says whether TLC must find its properties holding or violated, and a file in a
-  model's `mutants/` must find them violated. `tools/ci.sh` runs it where Java is installed
-  (decision 67).
+  SHA-256, and the jar is cached on first use; it needs Java. The first line of each configuration
+  says whether TLC must find its properties holding or violated, and a file in a model's `mutants/`
+  must find them violated. The workflow's `tla` job runs it every night and when a person starts
+  the workflow, and `tools/ci.sh` runs it only with `CI_TLA=all`, which fails with no Java
+  (decision 67 as amended on 2026-11-05).
 - Traces: `tools/h3_trace.sh` writes 64 seeds of the simulator's h3 trace run as TLA+ with `zig
   build sim -- --h3-trace-write <directory>`, and TLC checks that each is a behavior of
   `spec/tla/h3_connection` (decision 87). `tools/h2_trace.sh` does the same for the h2 trace run,
@@ -648,8 +653,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   `client.ConnectionPool` in cleartext and over TLS (https://github.com/c4milo/colibri/issues/79),
   and `tools/h3_deadline_trace.sh` for the h3 deadline trace run, with
   `--h3-deadline-trace-write` and `spec/tla/h3_deadlines`, whose logs hold only the variables
-  that map one to one onto colibri (design §8 step 20d). Each needs Java, and `tools/ci.sh` runs
-  all seven beside `zig build tla`.
+  that map one to one onto colibri (design §8 step 20d). Each needs Java. The workflow's `tla` job
+  runs all seven every night and when a person starts the workflow, and `tools/ci.sh` runs them
+  only with `CI_TLA=all`.
 - Proofs: `zig build lean` builds the Lean proofs in `spec/lean/` with lake, through pepegrillo's
   `lean` tool, and checks that the vector files the Zig tests read (such as
   `src/qpack/insert_count_vectors.txt` and the files beside `src/wire/varint.zig`) are what the
