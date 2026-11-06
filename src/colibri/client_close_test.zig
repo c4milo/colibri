@@ -258,3 +258,46 @@ test "decision 153 ruling 9: a connect limit past Rotor's longest deadline conne
     client_tcp.close(test_client, handle(1));
     try testing.expect(try turns_until_free(&running) <= freed_within_ns);
 }
+
+/// Reads the pool's events until its `open`, as the turn's drain does.
+fn pool_open() !client.Open {
+    for (0..fillers_max) |_| {
+        const received = test_client.pool.receive(.none, test_client.loop.now_ns());
+        const reported = received.event orelse return error.NoOpen;
+        switch (reported) {
+            .open => |asked| return asked,
+            else => {},
+        }
+    }
+    return error.NoOpen;
+}
+
+/// Opens the socket `asked` names while the process may open no descriptor, so the system
+/// refuses the socket with EMFILE.
+fn open_refused(asked: client.Open) !void {
+    const limits = try std.posix.getrlimit(.NOFILE);
+    try std.posix.setrlimit(.NOFILE, .{ .cur = 0, .max = limits.max });
+    client_tcp.open(test_client, asked);
+    try std.posix.setrlimit(.NOFILE, limits);
+}
+
+test "design §8 step 42: a socket the system refuses leaves the pool's events for the next tick" {
+    var counter: support.Counter = .{};
+    var pool = fixture.pool_config(.{ .h2 = false }, false);
+    pool.protocols.h3 = false;
+    // The system refuses the socket, so no connect names the port.
+    try test_client.init(.{ .host = "127.0.0.1", .port = 1, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds });
+    defer test_client.deinit();
+    try test_client.loop.init(&test_client.loop_memory, .{ .operations = test_client.events.len });
+    try client_loop.begin(test_client);
+    defer client_loop.end(test_client);
+    var handler: fixture.Handler = .{};
+    try handler.request(1);
+    const asked = try pool_open();
+    // The open waited for the slot, so `serve` makes it after the turn's drain read every event.
+    test_client.undrained = false;
+    try open_refused(asked);
+    try testing.expect(!test_client.sockets[0].live);
+    // The pool owes the exchange's end, so the next tick waits for nothing.
+    try testing.expect(test_client.undrained);
+}

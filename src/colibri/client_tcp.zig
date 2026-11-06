@@ -71,6 +71,9 @@ fn connect(state: anytype, slot: usize, asked: client.Open) void {
     };
     const descriptor = rotor.sync.open_socket(connection.address.family) catch {
         state.pool.transport_closed(asked.connection);
+        // The pool now owes events, such as the exchanges' `finished`. An open that waited for
+        // the slot comes from `serve`, after the turn's drain, so the next tick must not wait.
+        state.undrained = true;
         return;
     };
     // A socket that refuses the option is used as it is.

@@ -13256,6 +13256,7 @@ library.
       socket's `stop` at `closed`, and the `continue` after the pool took a datagram.
     - No test reaches four paths: `start_tcp` refused by the TLS stack, `open_socket` refused by
       the system, and the bounds of 1,024 events and 1,024 passes, which 4 requests cannot fill.
+      The second review below reaches `open_socket` refused.
   - **The rulings, 2026-11-06.** The branch moved onto v0.14.1, and the owner's rulings of decision
     153 ruling 9 were applied. Each mutation below was **CAUGHT** by `zig build test-colibri`.
     - v0.14.1's ECN fix and its tests moved with the UDP code into `datagram_socket.zig`. Caught:
@@ -13277,6 +13278,10 @@ library.
     - A `connect_ns` past one day, such as `std.math.maxInt(u64)`, halted the program on Rotor's
       assertion at the connect's submit. `colibri.Client` now passes one day at most. Caught: no
       bound on the deadline.
+    - A socket the system refused, in an open that waited for the slot, left the pool's events
+      until the next tick ended, 50 ms at most. The refusal now marks the pool undrained. A test
+      sets the process's descriptor limit to 0 to make the system refuse the socket. Caught: no
+      mark.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default
