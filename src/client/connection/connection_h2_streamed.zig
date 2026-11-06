@@ -2,7 +2,8 @@
 //! `connection_h2.zig` in design §8 step 39. Each request's content goes out in DATA frames as the
 //! windows allow (RFC 9113 §6.9). Over TLS, a small content fills the record of the heads in the
 //! connection's output. The rest goes from the caller's memory into the caller's output, each
-//! frame's data after the header h2 wrote, sealed over TLS (decisions 138 and 139).
+//! frame's data after the header h2 wrote, sealed over TLS (decisions 138 and 139). A streamed
+//! request's pieces go out the same way, each in DATA frames of its own (decision 153).
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
@@ -21,14 +22,25 @@ pub fn fill_record(connection: *Connection, slot: *Slot) void {
     const fill = internal.record_fill(connection);
     if (fill <= h2.constants.protocol.frame_header_len) return;
     const room = internal.room(connection);
-    const content = slot.request.body[slot.response.body_sent..];
-    const sent = connection.session.h2.write_data(room[0..@min(room.len, fill)], @intCast(slot.stream_id), content, true) catch {
+    const content = slot.piece[slot.piece_sent..];
+    const sent = connection.session.h2.write_data(room[0..@min(room.len, fill)], @intCast(slot.stream_id), content, slot.piece_end) catch {
         // RFC 9113 §5.1: the stream is no longer one the client may send on.
         slot.content_stopped = true;
         return;
     };
     connection.output_len += sent.written;
-    slot.response.body_sent += sent.consumed;
+    count_sent(slot, sent.consumed);
+}
+
+/// Counts `consumed` octets of `slot`'s piece written. RFC 9113 §6.1: the frame that carried the
+/// last octet of the last piece carried END_STREAM, which ends the content.
+fn count_sent(slot: *Slot, consumed: usize) void {
+    slot.piece_sent += consumed;
+    slot.response.body_sent += consumed;
+    assert(slot.piece_sent <= slot.piece.len);
+    if (slot.piece_sent < slot.piece.len) return;
+    slot.content_ended = slot.piece_end;
+    slot.piece_written();
 }
 
 /// Writes the content of each request going out into `output`, sealed over TLS, as the windows and
@@ -41,7 +53,7 @@ pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
     for (&connection.slots.slots) |*slot| {
         // A record that failed ended every exchange the connection held.
         if (connection.stopped) break;
-        if (slot.stage == .sent and !slot.content_done()) written += send_frames(connection, slot, output[written..], now_ns);
+        if (slot.stage == .sent and slot.content_ready()) written += send_frames(connection, slot, output[written..], now_ns);
     }
     assert(written <= output.len);
     return written;
@@ -50,16 +62,16 @@ pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
 /// Writes DATA frames of `slot`'s content into `output`, each one's data from the caller's memory
 /// after the header h2 wrote. Returns the octets written.
 fn send_frames(connection: *Connection, slot: *Slot, output: []u8, now_ns: u64) usize {
-    const content = slot.request.body;
-    const response = slot.response;
     var written: usize = 0;
-    // Bounded: each pass writes a frame, or stops.
-    for (0..content.len + 1) |_| {
-        if (slot.content_done()) return written;
-        const left = content[response.body_sent..];
+    // Bounded: each pass writes a frame that carries an octet of the piece or ends it, or stops.
+    for (0..slot.piece.len + 1) |_| {
+        if (!slot.content_ready()) return written;
+        const left = slot.piece[slot.piece_sent..];
         var header: [h2.constants.protocol.frame_header_len]u8 = undefined;
         const room_len = frame_room(connection, output.len - written);
-        const sent = connection.session.h2.write_data_header(&header, room_len, @intCast(slot.stream_id), left.len, true) catch {
+        // RFC 9113 §6.1: END_STREAM goes on the frame that carries the last octet of the last
+        // piece, and on no frame of a piece before it (decision 153).
+        const sent = connection.session.h2.write_data_header(&header, room_len, @intCast(slot.stream_id), left.len, slot.piece_end) catch {
             // RFC 9113 §5.1: the stream is no longer one the client may send on.
             slot.content_stopped = true;
             return written;
@@ -69,7 +81,7 @@ fn send_frames(connection: *Connection, slot: *Slot, output: []u8, now_ns: u64) 
         // Decision 138: the frame's data follows its header, before any other octet.
         written += put_frame(connection, &header, left[0..sent.consumed], output[written..], now_ns);
         if (connection.stopped) return written;
-        response.body_sent += sent.consumed;
+        count_sent(slot, sent.consumed);
     }
     return written;
 }

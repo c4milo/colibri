@@ -59,6 +59,8 @@ pub const RequestError = connection_module.CheckError || error{
     /// the caller cancels one.
     Full,
 };
+/// What `ConnectionPool.write_body` refuses (decision 153 ruling 7).
+pub const WriteBodyError = connection_module.WriteBodyError;
 pub const Config = pool_config.Config;
 pub const Timeouts = pool_config.Timeouts;
 pub const StartError = pool_config.StartError;
@@ -137,6 +139,11 @@ pub const Event = union(enum) {
     connected: Connected,
     /// The connection's server issued a resumption ticket, which `take_ticket` hands over.
     ticket: ConnectionHandle,
+    /// The pool reads the exchange's last request piece no more, and the caller may reuse its
+    /// memory and hand the next with `write_body` (decision 153). Over h11 and h2 the piece went
+    /// out, and over h3 the server acknowledged it, since QUIC sends a lost octet again (RFC 9000
+    /// §13.3).
+    body_taken: RequestId,
     /// An exchange ended, and the caller may reuse the memory of its request and its response.
     finished: Finished,
     /// The pool was shut down, every exchange has finished, and every transport closed.
@@ -296,6 +303,15 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
             return pool_calls.request(pool, message, response);
         }
 
+        /// Hands exchange `id`'s streamed request its next `piece` (decision 153), the last one
+        /// when `end` is set. The pool copies no octet of it: the caller keeps it in place until
+        /// the exchange's `body_taken` event, its `finished` event, or until `cancel` returns. The
+        /// pool holds one piece of each exchange at a time. With a length stated, the pieces add
+        /// up to it.
+        pub fn write_body(pool: *Self, id: RequestId, piece: []const u8, end: bool) WriteBodyError!void {
+            return pool_calls.write_body(pool, id, piece, end);
+        }
+
         /// Ends exchange `id` at `now_ns`, and reports nothing for it. The memory of its request
         /// and its response is the caller's again. An h11 connection reads the rest of the
         /// response and drops it, within the bounds of decision 146.
@@ -393,19 +409,20 @@ fn QuicField(comptime capacity: Capacity, comptime Type: type) type {
 test "design §8 step 17f: the pool's public names are the calls a program makes, and phase" {
     // Decision 125: step 22.3 adds `memory_alignment`, `memory_bytes` and
     // `receive_events_without_input_max`, which size a pool and bound a program's loop, and step
-    // 22.7 adds `set_destination`, which a program calls after a later DNS answer.
+    // 22.7 adds `set_destination`, which a program calls after a later DNS answer. Step 39e adds
+    // `write_body`, which a program streams a request body with (decision 153).
     const public_names = @import("core").public_names;
     // Decision 124: a pool with no QUIC names the same calls, and its `start_quic` does not
     // compile.
     inline for (.{ ConnectionPool, ConnectionPoolOf(.{ .quic = false }) }) |Type| {
         try public_names.expect(Type, &.{
-            "memory_alignment", "memory_bytes",    "receive_events_without_input_max",
-            "init",             "set_destination", "request",
-            "cancel",           "shutdown",        "receive",
-            "send_datagram",    "send_stream",     "deadline_ns",
-            "on_instant",       "start_quic",      "start_tcp",
-            "transport_closed", "take_ticket",     "alternative",
-            "phase",
+            "memory_alignment", "memory_bytes",     "receive_events_without_input_max",
+            "init",             "set_destination",  "request",
+            "write_body",       "cancel",           "shutdown",
+            "receive",          "send_datagram",    "send_stream",
+            "deadline_ns",      "on_instant",       "start_quic",
+            "start_tcp",        "transport_closed", "take_ticket",
+            "alternative",      "phase",
         });
     }
 }

@@ -41,6 +41,18 @@ pub const Entry = struct {
     /// It waits to go out again because its connection failed, and not because the server closed
     /// that connection in its last complete response, so h11 writes it alone (RFC 9112 §9.3.2).
     after_failure: bool = false,
+    /// A streamed request's piece, which the program keeps until its `body_taken` event, and
+    /// whether it ends the body (decision 153). The pool hands it to each connection that carries
+    /// the exchange, until it is taken.
+    piece: []const u8 = "",
+    piece_end: bool = false,
+    piece_held: bool = false,
+    /// A piece ended the body, a `body_taken` event went out, and the octets of the pieces handed.
+    /// After the first take the pool holds no copy of the request, so it never sends it again
+    /// (decision 153 ruling 3).
+    body_ended: bool = false,
+    taken_any: bool = false,
+    handed_len: u64 = 0,
 };
 
 /// One slot's connection, as the pool tracks it.
@@ -129,10 +141,11 @@ pub const Layout = struct {
 };
 
 /// The most `receive` calls in a row that report an event and take no octet, for a pool of
-/// `counts` that holds QUIC or not: one `finished` for each exchange, one `closed`, and
-/// `constants.limits.transport_events_max` for each transport.
+/// `counts` that holds QUIC or not: `constants.limits.exchange_events_max` for each exchange, one
+/// `closed`, and `constants.limits.transport_events_max` for each transport.
 pub fn events_without_input_max(counts: Counts, holds_quic: bool) usize {
     assert(counts.valid());
     const transports = @as(usize, counts.tcp_connections) + @intFromBool(holds_quic);
-    return @as(usize, counts.requests) + transports * constants.limits.transport_events_max + 1;
+    const exchanges = @as(usize, counts.requests) * constants.limits.exchange_events_max;
+    return exchanges + transports * constants.limits.transport_events_max + 1;
 }

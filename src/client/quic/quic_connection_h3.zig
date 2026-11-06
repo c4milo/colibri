@@ -3,9 +3,10 @@
 //! response whose stream they name (RFC 9114 §4.1).
 //!
 //! A request stream carries the HEADERS frame, then, when the request has content, one DATA frame
-//! whose header the connection keeps with it (decision 79) and whose content is the request's.
-//! QUIC reads them by offset and may read them again until the stream closes (RFC 9000 §3.1), so
-//! an ended exchange holds its octets, and its `finished` event, until then.
+//! for each piece, whose header the connection keeps with it (decision 79) and whose content is the
+//! piece's: the request's whole body, or each piece of a streamed one (decision 153). QUIC reads
+//! them by offset and may read them again until the stream closes (RFC 9000 §3.1), so an ended
+//! exchange holds its octets, and its `finished` event, until then.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -17,6 +18,7 @@ const slots_module = @import("../slots.zig");
 const response_write = @import("../response_write.zig");
 const coding = @import("../coding.zig");
 const quic_connection = @import("quic_connection.zig");
+const quic_streamed = @import("quic_connection_streamed.zig");
 const internal = @import("quic_connection_internal.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
@@ -38,7 +40,6 @@ pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
 /// QUIC. Returns whether the next exchange may be written: false when this one waits for the
 /// server's stream limit (RFC 9000 §4.6).
 fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
-    const content = slot.request.body;
     var indexing: [constants.limits.request_fields_max + pseudo_fields]Indexing = undefined;
     const lines = build_section(connection, slot, &indexing) orelse {
         slots_module.end(slot, .invalid);
@@ -49,16 +50,13 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], false, &writer, now_ns) catch |failure| {
         return refused(connection, slot, failure);
     };
-    // RFC 9114 §4.1: the content goes in DATA frames after the header section, here one.
-    if (content.len > 0) connection.h3.write_data_header(id, content.len, &writer, now_ns) catch unreachable;
     stream.prefix_len = writer.written().len;
+    stream.supplied_end = stream.prefix_len;
     slot.stream_id = id;
     slot.stage = .sent;
     slot.holds_octets = true;
-    // RFC 9000 §2.2: the stream ends with the last octet of the content, which carries FIN.
-    const stream_len = stream.prefix_len + content.len;
-    quic.connection_stream_send.supply(&connection.transport, .{ .value = id }, stream_len, true) catch unreachable;
-    slot.response.body_sent = content.len;
+    // The stream just opened, so its sending part takes octets (RFC 9000 §3.1).
+    quic_streamed.supply_piece(connection, slot, now_ns) catch unreachable;
     return true;
 }
 
@@ -226,9 +224,11 @@ fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {
 }
 
 /// The response ended whole. Decision 101: coded content ends with its stream, or the exchange
-/// ends malformed.
+/// ends malformed. A request whose content has not all gone out needs none of the rest, so its
+/// stream is reset (RFC 9114 §4.1.1), which would otherwise stay open.
 fn end_response(connection: *QuicConnection, stream_id: u64) void {
     const slot = connection.slots.of_stream(stream_id) orelse return;
+    if (!slot.content_done()) cancel_stream(connection, stream_id);
     const outcome: event.Result = if (response_write.end_body(slot)) .response else |failure| response_write.outcome_of(failure);
     slots_module.end(slot, outcome);
 }

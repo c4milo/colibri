@@ -230,13 +230,13 @@ With chapulin's host objects:
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2952880 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 332544 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1429992 | the connection each QUIC slot of an endpoint holds, without its receive pool |
-| `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp"))` | 315784 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
+| `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp"))` | 316168 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |
-| `std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))` | 40 | each exchange a pool holds at once |
-| `@FieldType(client.ConnectionPool, "quic")` | 808040 | a pool's QUIC connection, without its receive pool |
-| `client.ConnectionPool` | 825440 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
+| `std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))` | 72 | each exchange a pool holds at once |
+| `@FieldType(client.ConnectionPool, "quic")` | 809064 | a pool's QUIC connection, without its receive pool |
+| `client.ConnectionPool` | 826464 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
 | `client.ConnectionPoolOf(.{ .quic = false })` | 8744 | the fixed part of a pool with no QUIC state |
-| `client.ConnectionPool.memory_bytes(.{})` | 316480 | the memory a pool takes at the default counts: one TCP connection, its link and 16 requests |
+| `client.ConnectionPool.memory_bytes(.{})` | 317376 | the memory a pool takes at the default counts: one TCP connection, its link and 16 requests |
 | `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163520 | the h2 state inside a TCP connection |

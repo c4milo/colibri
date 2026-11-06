@@ -45,6 +45,19 @@ pub const Slot = struct {
     holds_octets: bool = false,
     /// The protocol refused the rest of the content, so no more of it is written.
     content_stopped: bool = false,
+    /// The part of the request's content the connection writes now (decision 153): the whole
+    /// `body` of a request that is not streamed, or the piece `write_body` handed. `piece_sent`
+    /// counts its octets written, and `piece_end` says the content ends after it.
+    piece: []const u8 = "",
+    piece_sent: usize = 0,
+    piece_end: bool = false,
+    /// A streamed request's piece is the caller's, and the connection still reads it.
+    piece_held: bool = false,
+    /// The connection reads the piece no more, and owes the caller its `body_taken` event.
+    taken_owed: bool = false,
+    /// The content's end went out: h11 wrote its last octet or its last chunk, h2 its
+    /// END_STREAM flag, and h3 supplied its FIN.
+    content_ended: bool = false,
     /// Some of the response arrived: an octet of it over h11, read or still held. Over h2, the
     /// header of a HEADERS frame on its stream, before h2 reads the frame. Over h3, a HEADERS
     /// frame h3 took, or the header of one first on its stream when the connection ends. Every
@@ -72,13 +85,48 @@ pub const Slot = struct {
     offered: std.EnumSet(http.content_coding.Coding) = .initEmpty(),
     coded_len: usize = 0,
 
-    /// Whether no more of the request's content is to be written: all of it went out, or the
+    /// Whether no more of the request's content is to be written: its end went out, or the
     /// protocol refused the rest.
     pub fn content_done(slot: *const Slot) bool {
         assert(slot.stage == .sent);
-        return slot.content_stopped or slot.response.body_sent == slot.request.body.len;
+        return slot.content_stopped or slot.content_ended;
+    }
+
+    /// Whether the connection has content to write now: octets of the piece, or the end after
+    /// it. A streamed request that waits for its next piece has none.
+    pub fn content_ready(slot: *const Slot) bool {
+        if (slot.content_done()) return false;
+        return slot.piece_sent < slot.piece.len or slot.piece_end;
+    }
+
+    /// The whole piece went out, so the connection reads it no more, and its `body_taken` event
+    /// is owed when the caller handed it.
+    pub fn piece_written(slot: *Slot) void {
+        assert(slot.piece_sent == slot.piece.len);
+        if (!slot.piece_held) return;
+        slot.piece_held = false;
+        slot.taken_owed = true;
     }
 };
+
+/// Hands `slot` the next piece of its streamed request (decision 153), the last one when `last`
+/// is set. The caller keeps `piece` until the slot's `body_taken` event. `BodyStopped` says no more of the content goes out: the
+/// exchange ended, or the protocol refused the rest.
+pub fn hand(slot: *Slot, piece: []const u8, last: bool) error{BodyStopped}!void {
+    assert(slot.request.streamed.request);
+    // The pool refuses a second piece while one is held, and a piece after the end.
+    assert(!slot.piece_held and !slot.taken_owed and !slot.piece_end);
+    // RFC 9113 §8.1 and RFC 9112 §9.5: once the exchange ended, no more of its request goes out.
+    if (slot.stage != .queued and slot.stage != .sent) return error.BodyStopped;
+    // RFC 9113 §5.1 and RFC 9114 §4.1: the stream takes no more of the request.
+    if (slot.content_stopped) return error.BodyStopped;
+    slot.piece = piece;
+    slot.piece_sent = 0;
+    slot.piece_end = last;
+    slot.piece_held = true;
+    // An empty piece that does not end the content has nothing to write, so it is taken at once.
+    if (piece.len == 0 and !last) slot.piece_written();
+}
 
 pub const Slots = struct {
     slots: [constants.limits.requests_max]Slot,
@@ -96,6 +144,11 @@ pub const Slots = struct {
     pub fn take(slots: *Slots, request: *const Request, response: *Response) ?RequestId {
         const slot = slots.first(.free) orelse return null;
         slot.* = .{ .stage = .queued, .id = slots.next_id, .request = request, .response = response };
+        // A request that is not streamed has one piece, its whole body, which ends the content.
+        if (!request.streamed.request) {
+            slot.piece = request.body;
+            slot.piece_end = true;
+        }
         slots.next_id += 1;
         assert(slot.id < slots.next_id);
         return slot.id;
@@ -139,6 +192,14 @@ pub const Slots = struct {
         return found;
     }
 
+    /// The slot whose `body_taken` event is owed, or null.
+    pub fn taken(slots: *Slots) ?*Slot {
+        for (&slots.slots) |*slot| {
+            if (slot.stage != .free and slot.taken_owed) return slot;
+        }
+        return null;
+    }
+
     /// Where `slot` sits in the table, which keys a transport's storage for it.
     pub fn index_of(slots: *const Slots, slot: *const Slot) usize {
         const index = (@intFromPtr(slot) - @intFromPtr(&slots.slots[0])) / @sizeOf(Slot);
@@ -163,11 +224,11 @@ pub const Slots = struct {
         return counted;
     }
 
-    /// Whether a request waits to be written, or has content left to write.
+    /// Whether a request waits to be written, or has content to write now.
     pub fn unwritten(slots: *const Slots) bool {
         for (&slots.slots) |*slot| {
             if (slot.stage == .queued) return true;
-            if (slot.stage == .sent and !slot.content_done()) return true;
+            if (slot.stage == .sent and slot.content_ready()) return true;
         }
         return false;
     }

@@ -27,6 +27,21 @@ pub const RequestError = CheckError || error{
     ConnectionClosed,
 };
 
+/// What `ConnectionPool.write_body` refuses (decision 153 ruling 7). A connection's own
+/// `write_body` returns `BodyStopped` alone: the pool refuses the rest before it asks.
+pub const WriteBodyError = error{
+    /// No exchange of the pool has the id: its `finished` event went out, or the caller
+    /// cancelled it.
+    UnknownRequest,
+    /// The last piece is still held, until its `body_taken` event.
+    PieceHeld,
+    /// A piece came after the one that ended the body.
+    BodyEnded,
+    /// No more of the body goes out: the exchange ended, the protocol refused the rest, or an h3
+    /// server asked the client to stop sending (RFC 9114 §4.1). The exchange still finishes.
+    BodyStopped,
+};
+
 /// The names of the field lines `request` refuses, lowercase.
 const reserved_names = [_][]const u8{
     // RFC 9112 §3.2 and RFC 9113 §8.3.1: the client names the authority itself.
@@ -45,6 +60,10 @@ const reserved_names = [_][]const u8{
 pub fn check_request(request: *const Request) CheckError!void {
     // The caller marks each of its field lines, or none.
     assert(request.never_indexed.headers.len == 0 or request.never_indexed.headers.len == request.headers.len);
+    // Decision 153: a streamed body goes through `write_body`, so `body` is empty, and only a
+    // streamed body states its length.
+    assert(!request.streamed.request or request.body.len == 0);
+    assert(request.streamed.request or request.streamed.request_len == null);
     // RFC 9110 §9.1: a method is a token, which is never empty.
     if (request.method.len == 0) return error.RequestUnsupported;
     // RFC 9113 §8.3.1: `:path` "MUST NOT be empty" for an http or https URI, and RFC 9112 §3.2.1's

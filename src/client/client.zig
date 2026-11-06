@@ -36,12 +36,16 @@ pub const Protocols = files.protocols.Protocols;
 /// Why `ConnectionPool.init`, `ConnectionPool.start_tcp` or `ConnectionPool.start_quic` refused (decisions 120 and 123).
 pub const StartError = files.pool.StartError;
 pub const RequestError = files.pool.RequestError;
+/// What `ConnectionPool.write_body` refuses (decision 153 ruling 7).
+pub const WriteBodyError = files.pool.WriteBodyError;
 pub const Header = files.event.Header;
 pub const RequestId = files.event.RequestId;
 pub const Protocol = files.event.Protocol;
 /// What a program sends, and where the response goes and what arrived (decision 124).
 pub const Request = files.event.Request;
 pub const Response = files.event.Response;
+/// Which body of an exchange goes in pieces (decision 153): `Request.streamed`.
+pub const Streamed = files.event.Streamed;
 pub const Headers = files.headers.Headers;
 pub const Trailers = files.headers.Trailers;
 pub const Result = files.event.Result;
@@ -130,18 +134,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // to `ConnectionPool`, `ConnectionPoolOf`, `Destination`, `HttpsRecord`, `WantedHeader` and
     // `Result`. 23.5 folds `Options` into `Config`. Step 32 adds `Timeouts` (decision 146), and 35d
     // adds `ResumeProvider`, `ResumeState` and `ResumeBounds` (decision 149). Step 38 replaces
-    // `WantedHeader` with `Headers` and `Trailers` (decision 152).
+    // `WantedHeader` with `Headers` and `Trailers` (decision 152). Step 39e adds `WriteBodyError`
+    // and `Streamed`, which a program streams a request body with (decision 153).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",      "Timeouts",           "Protocols",        "StartError",        "RequestError",
-        "Header",             "RequestId",   "Protocol",           "Request",          "Response",          "Headers",
-        "Trailers",           "Result",      "Finished",           "Sent",             "Address",           "Ecn",
-        "ResumeProvider",     "ResumeState", "ResumeBounds",       "ConnectionPool",   "ConnectionPoolOf",  "Capacity",
-        "Destination",        "HttpsRecord", "Alternative",        "Input",            "StreamBytes",       "Datagram",
-        "ReceiveResult",      "Event",       "Open",               "ConnectionHandle", "Connected",         "Transport",
-        "Phase",              "ReceivePool", "DefaultReceivePool", "ReceiveStorage",   "Coding",            "DecoderPool",
-        "DefaultDecoderPool", "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",     "BrotliDecoderPool", "BrotliDecoders",
-        "Features",
+        "constants",         "Config",         "Timeouts",           "Protocols",   "StartError",         "RequestError",
+        "WriteBodyError",    "Header",         "RequestId",          "Protocol",    "Request",            "Response",
+        "Streamed",          "Headers",        "Trailers",           "Result",      "Finished",           "Sent",
+        "Address",           "Ecn",            "ResumeProvider",     "ResumeState", "ResumeBounds",       "ConnectionPool",
+        "ConnectionPoolOf",  "Capacity",       "Destination",        "HttpsRecord", "Alternative",        "Input",
+        "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",       "Open",               "ConnectionHandle",
+        "Connected",         "Transport",      "Phase",              "ReceivePool", "DefaultReceivePool", "ReceiveStorage",
+        "Coding",            "DecoderPool",    "DefaultDecoderPool", "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",
+        "BrotliDecoderPool", "BrotliDecoders", "Features",
     });
 }
 
@@ -198,6 +203,27 @@ test "decision 121: RequestError names what ConnectionPool.request returns, and 
     }
 }
 
+test "decision 153: WriteBodyError names what ConnectionPool.write_body returns, and no other error" {
+    // A switch names each member of the set once. A member added to a set, or taken out of it,
+    // stops the test from compiling.
+    const names = struct {
+        fn of(comptime Set: type, failure: Set) []const u8 {
+            return switch (failure) {
+                error.UnknownRequest => "UnknownRequest",
+                error.PieceHeld => "PieceHeld",
+                error.BodyEnded => "BodyEnded",
+                error.BodyStopped => "BodyStopped",
+            };
+        }
+    };
+    const Returned = @typeInfo(@typeInfo(@TypeOf(ConnectionPool.write_body)).@"fn".return_type.?).error_union.error_set;
+    inline for (.{ WriteBodyError, Returned }) |Set| {
+        inline for (@typeInfo(Set).error_set.?) |member| {
+            try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));
+        }
+    }
+}
+
 test {
     // Every file's tests run, whether or not the root exports a name of it.
     std.testing.refAllDecls(files);
@@ -226,6 +252,8 @@ test {
     _ = @import("pool/pool_memory_test.zig");
     _ = @import("pool/pool_send_test.zig");
     _ = @import("pool/pool_send_h2_test.zig");
+    _ = @import("pool/pool_body_test.zig");
+    _ = @import("pool/pool_body_quic_test.zig");
     _ = @import("pool/pool_grow_test.zig");
     _ = @import("pool/pool_connection.zig");
     _ = @import("pool/pool_links.zig");

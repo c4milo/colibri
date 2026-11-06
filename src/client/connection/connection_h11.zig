@@ -279,8 +279,7 @@ fn write_request(connection: *Connection, slot: *Slot) bool {
         if (slot.stage != .sent) return true;
     }
     connection_h11_streamed.write_content(connection, slot);
-    if (!slot.content_done()) return false;
-    return connection_h11_streamed.end_content(connection);
+    return connection_h11_streamed.end_content(connection, slot);
 }
 
 /// Writes the head of `slot`'s request. Returns false when it must wait: for room, or for
@@ -318,8 +317,9 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
 }
 
 /// The field lines of `slot`'s request as h11 writes them: Host first, which RFC 9110 §7.2 asks
-/// of a user agent, the caller's, then the Content-Length and the Accept-Encoding the client adds
-/// (RFC 9110 §8.6, decision 101). Null when they pass `request_fields_max`.
+/// of a user agent, the caller's, then the Content-Length or Transfer-Encoding and the
+/// Accept-Encoding the client adds (RFC 9110 §8.6, RFC 9112 §6.1, decision 101). Null when they
+/// pass `request_fields_max`.
 fn request_fields(
     connection: *const Connection,
     slot: *Slot,
@@ -335,6 +335,12 @@ fn request_fields(
     var count = 1 + request.headers.len;
     if (event_internal.content_length(request, digits)) |length| {
         lines[count] = .{ .name = "Content-Length", .value = length };
+        count += 1;
+    }
+    // RFC 9112 §7.1: a body whose length is not known in advance goes in the chunked coding, and
+    // RFC 9112 §6.1 names it in Transfer-Encoding, in place of Content-Length (decision 153).
+    if (event_internal.chunked(request)) {
+        lines[count] = .{ .name = "Transfer-Encoding", .value = "chunked" };
         count += 1;
     }
     if (coding.offer(connection.config.codings, .of(connection.config), slot, offer)) |value| {

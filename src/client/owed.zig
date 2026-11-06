@@ -1,6 +1,7 @@
 //! The events a client connection owes its caller (decision 100), whichever transport carries it:
-//! the version it speaks, a resumption ticket, each exchange's end, draining, and the close. They
-//! are reported one a call, in that order, before the connection reads anything more.
+//! the version it speaks, a resumption ticket, each request piece it reads no more (decision 153),
+//! each exchange's end, draining, and the close. They are reported one a call, in that order,
+//! before the connection reads anything more.
 const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("event.zig");
@@ -31,6 +32,11 @@ pub const Owed = struct {
         if (owed.ticket) {
             owed.ticket = false;
             return .ticket;
+        }
+        // A piece's `body_taken` goes out before its exchange's `finished`, which frees the slot.
+        if (slots.taken()) |slot| {
+            slot.taken_owed = false;
+            return .{ .body_taken = slot.id };
         }
         if (slots.oldest_reportable()) |slot| {
             const ended: event.Ended = .{ .id = slot.id, .request = slot.request, .response = slot.response, .response_began = slot.response_began };
@@ -66,4 +72,22 @@ test "the version comes first, then the ticket, each exchange's end, draining, a
     try testing.expectEqual(null, owed.next(&slots, .h2, false));
     try testing.expectEqual(.closed, std.meta.activeTag(owed.next(&slots, .h2, true).?));
     try testing.expectEqual(null, owed.next(&slots, .h2, true));
+}
+
+test "decision 153: a piece's body_taken goes out before its exchange's finished" {
+    var slots: Slots = undefined;
+    slots.init();
+    const request: event.Request = .{ .method = "PUT", .path = "/", .streamed = .{ .request = true } };
+    var response: event.Response = .{};
+    const id = slots.take(&request, &response).?;
+    const slot = slots.of_id(id).?;
+    try slots_module.hand(slot, "piece", true);
+    slot.stage = .sent;
+    slot.piece_sent = slot.piece.len;
+    slot.piece_written();
+    slots_module.end(slot, .response);
+    var owed: Owed = .{};
+    try testing.expectEqual(id, owed.next(&slots, .h2, false).?.body_taken);
+    try testing.expectEqual(id, owed.next(&slots, .h2, false).?.finished.id);
+    try testing.expectEqual(null, owed.next(&slots, .h2, false));
 }

@@ -267,6 +267,8 @@ fn report(peer: *Peer, event: client.Event, now_ns: u64) void {
             peer.tickets += 1;
         },
         .closed => peer.closed = true,
+        // These peers send no request body in pieces (decision 153).
+        .body_taken => unreachable,
     }
 }
 

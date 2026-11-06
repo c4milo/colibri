@@ -69,13 +69,14 @@ test "decision 125: init keeps the TCP connection and the exchanges in the calle
 }
 
 test "decision 125: receive_events_without_input_max counts each exchange and each transport" {
-    // One `finished` for each exchange, the events of each transport, and one `closed`: the TCP
-    // connections and the QUIC connection.
+    // Decision 153 ruling 7: four events for each exchange, the events of each transport, and one
+    // `closed`: the TCP connections and the QUIC connection.
+    const per_exchange = constants.limits.exchange_events_max;
     const per_transport = constants.limits.transport_events_max;
     const closed = 1;
     const default_transports = 2;
-    try testing.expectEqual(constants.limits.requests_max + default_transports * per_transport + closed, ConnectionPool.receive_events_without_input_max(.{}));
+    try testing.expectEqual(constants.limits.requests_max * per_exchange + default_transports * per_transport + closed, ConnectionPool.receive_events_without_input_max(.{}));
     // A pool with no QUIC has no QUIC transport.
-    try testing.expectEqual(constants.limits.requests_max + per_transport + closed, TcpAlone.receive_events_without_input_max(.{}));
-    try testing.expectEqual(@as(usize, few_requests) + (@as(usize, counted_tcp) + 1) * per_transport + closed, ConnectionPool.receive_events_without_input_max(counted));
+    try testing.expectEqual(constants.limits.requests_max * per_exchange + per_transport + closed, TcpAlone.receive_events_without_input_max(.{}));
+    try testing.expectEqual(@as(usize, few_requests) * per_exchange + (@as(usize, counted_tcp) + 1) * per_transport + closed, ConnectionPool.receive_events_without_input_max(counted));
 }

@@ -92,6 +92,8 @@ pub const Answer = struct {
     /// Octets of the request's content the server read, the content-length it named, and whether
     /// its `:scheme` was https.
     received: usize = 0,
+    /// The CRC-32 of the octets of content the server read, in order.
+    received_crc: std.hash.Crc32 = .init(),
     content_length: ?u64 = null,
     https: bool = false,
     /// Whether the request offered gzip first in Accept-Encoding (decision 101).
@@ -336,6 +338,7 @@ fn server_read() !void {
             },
             .data => |held| if (answer_of(held.stream_id)) |answer| {
                 answer.received += held.octets.len;
+                answer.received_crc.update(held.octets);
             },
             .end => |id| if (answer_of(id)) |answer| {
                 answer.ended = true;

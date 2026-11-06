@@ -314,6 +314,8 @@ fn report(event: client.Event, now_ns: u64) !void {
             if (finished == requests_count) pool.shutdown();
         },
         .ticket => |connection| take_ticket(connection),
+        // No request of the program goes in pieces (decision 153).
+        .body_taken => return error.ExchangeWrong,
         // The shut-down pool is over: every exchange ended and every transport closed.
         .closed => pool_closed = true,
     }
@@ -389,7 +391,7 @@ fn connect_refused() !void {
             .open => |open| refused_pool.transport_closed(open.connection),
             .finished => refused_pool.shutdown(),
             .closed => return,
-            .send, .close, .connected, .ticket => return error.ExchangeWrong,
+            .send, .close, .connected, .ticket, .body_taken => return error.ExchangeWrong,
         }
     }
     return error.ExchangeWrong;

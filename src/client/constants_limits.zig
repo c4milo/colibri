@@ -60,7 +60,8 @@ pub const frames_per_receive_max: usize = plaintext_in_len / h2.constants.protoc
 pub const seals_per_send_max: usize = output_len / tls_provider.constants.protocol.record_header_len + 1;
 
 /// Field lines the client adds to a request's own: Host in h11 (RFC 9112 §3.2), Content-Length
-/// (RFC 9110 §8.6) and Accept-Encoding (decision 101).
+/// (RFC 9110 §8.6) or, for a chunked body, Transfer-Encoding (RFC 9112 §6.1), and Accept-Encoding
+/// (decision 101).
 pub const added_fields_max: usize = 3;
 
 /// Field lines a request may carry, the ones the client adds included.
@@ -137,6 +138,11 @@ pub const stream_output_len_min: usize = record_len_max;
 /// amended by decision 125).
 pub const transport_events_max: usize = 5;
 
+/// The events of one exchange in a run of `receive` calls that take no octet, at most: a streamed
+/// exchange's `headers`, `body` and `body_taken`, and its `finished` (decision 153 ruling 7).
+/// `ConnectionPool.receive_events_without_input_max` counts it for each exchange.
+pub const exchange_events_max: usize = 4;
+
 comptime {
     // A unit that waits for its last octets never stops the next record from opening: an h11 head
     // (RFC 9112 §2.1) or an h2 frame (RFC 9113 §4.1), each one octet short of its limit, then room
@@ -194,4 +200,5 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(32768, stream_input_len_min);
     try expectEqual(16645, stream_output_len_min);
     try expectEqual(5, transport_events_max);
+    try expectEqual(4, exchange_events_max);
 }

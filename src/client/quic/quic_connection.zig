@@ -225,6 +225,18 @@ pub const QuicConnection = struct {
         return connection.slots.take(message, response) orelse error.Full;
     }
 
+    /// Hands exchange `id`'s streamed request its next `piece`, the last one when `end` is set
+    /// (decision 153). `send` supplies it to QUIC, and the `body_taken` event comes once the server
+    /// acknowledged its last octet, since QUIC reads a lost octet again (RFC 9000 §13.3).
+    pub fn write_body(connection: *QuicConnection, id: RequestId, piece: []const u8, end: bool) error{BodyStopped}!void {
+        // The pool hands a piece only to an exchange the connection holds.
+        const slot = connection.slots.of_id(id).?;
+        // RFC 9000 §10.2: a connection that is closing sends no more stream data.
+        if (connection.stopped) return error.BodyStopped;
+        if (quic_streamed.sending_stopped(connection, slot)) slot.content_stopped = true;
+        try slots_module.hand(slot, piece, end);
+    }
+
     /// Ends exchange `id` and reports nothing for it. Its stream is reset with
     /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the request or writes the
     /// response, so their memory is the caller's again.
@@ -240,6 +252,7 @@ pub const QuicConnection = struct {
     /// Reports what the connection owes the caller, then takes `datagram`, which the server sent
     /// and which the suite opens in place, and reads every event h3 has for the exchanges.
     pub fn receive(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_receive.Datagram.Ecn, from: PeerAddress, now_ns: u64) ReceiveResult {
+        quic_streamed.note_taken(connection);
         if (connection.owed_event()) |owed| return .{ .consumed = 0, .event = owed };
         if (datagram.len == 0 or connection.closed) return .{ .consumed = 0, .event = connection.owed_event() };
         const received = quic.connection_datagram.receive(
@@ -262,7 +275,10 @@ pub const QuicConnection = struct {
     /// null when it owes none.
     pub fn send(connection: *QuicConnection, output: []u8, now_ns: u64) ?Sent {
         if (connection.closed) return null;
-        if (connection.started and !connection.stopped) quic_h3.write_requests(connection, now_ns);
+        if (connection.started and !connection.stopped) {
+            quic_h3.write_requests(connection, now_ns);
+            quic_streamed.supply_pieces(connection, now_ns);
+        }
         const sent = quic.connection_send.send(
             &connection.transport,
             connection.session.suite(),
@@ -380,6 +396,7 @@ pub const QuicConnection = struct {
         connection.collect_ticket();
         if (!connection.started) connection.start_h3(now_ns);
         if (connection.started and !connection.stopped) quic_h3.read_events(connection, now_ns);
+        quic_streamed.note_taken(connection);
         quic_streamed.release_closed(connection);
         // RFC 9000 §10: once the connection stops being active, nothing more comes on its streams.
         if (connection.transport.termination.state != .active and !connection.stopped) internal.fail(connection);
@@ -453,8 +470,8 @@ const h3_alpn = "h3";
 test "design §8 step 17f: the QUIC connection's public functions are the calls the module's other files make" {
     const public_names = @import("core").public_names;
     try public_names.expect(QuicConnection, &.{
-        "init",        "request",    "cancel",   "receive",      "send",
-        "deadline_ns", "on_instant", "shutdown", "should_close", "transport_closed",
-        "take_ticket",
+        "init",             "request",     "write_body", "cancel",   "receive",
+        "send",             "deadline_ns", "on_instant", "shutdown", "should_close",
+        "transport_closed", "take_ticket",
     });
 }

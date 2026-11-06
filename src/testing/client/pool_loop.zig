@@ -202,6 +202,8 @@ fn handle(reported: client.Event, now_ns: u64) void {
         },
         .finished => |finished| on_finished(finished.id),
         .closed => closed = true,
+        // No request of the run goes in pieces (decision 153).
+        .body_taken => unreachable,
     }
 }
 

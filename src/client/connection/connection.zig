@@ -96,6 +96,7 @@ pub const StartError = error{
 };
 
 pub const CheckError = connection_request.CheckError;
+pub const WriteBodyError = connection_request.WriteBodyError;
 pub const RequestError = connection_request.RequestError;
 pub const check_request = connection_request.check_request;
 
@@ -207,6 +208,17 @@ pub const Connection = struct {
         const id = connection.slots.take(message, response) orelse return error.Full;
         assert(connection.slots.of_id(id).?.stage == .queued);
         return id;
+    }
+
+    /// Hands exchange `id`'s streamed request its next `piece`, the last one when `end` is set
+    /// (decision 153). `send` writes it from the caller's memory, and the `body_taken` event says
+    /// when the caller may reuse it.
+    pub fn write_body(connection: *Connection, id: RequestId, piece: []const u8, end: bool) error{BodyStopped}!void {
+        // The pool hands a piece only to an exchange the connection holds.
+        const slot = connection.slots.of_id(id).?;
+        // RFC 9113 §5.4.1 and RFC 9112 §9.6: a connection that failed or closed sends nothing more.
+        if (connection.stopped) return error.BodyStopped;
+        try slots_module.hand(slot, piece, end);
     }
 
     /// Ends exchange `id` before its response is whole, and reports nothing for it. The client
@@ -430,9 +442,9 @@ test "design §8 step 17f: the connection's public functions are the calls the m
     // may call.
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{
-        "init",             "request",  "cancel",       "receive",      "send",
-        "owes_octets",      "shutdown", "should_close", "deadline_ns",  "on_instant",
-        "transport_closed", "protocol", "take_ticket",  "take_alt_svc",
+        "init",       "request",          "write_body", "cancel",       "receive",
+        "send",       "owes_octets",      "shutdown",   "should_close", "deadline_ns",
+        "on_instant", "transport_closed", "protocol",   "take_ticket",  "take_alt_svc",
     });
 }
 
@@ -446,4 +458,5 @@ test {
     _ = @import("connection_h11_drop_test.zig");
     _ = @import("connection_tls_test.zig");
     _ = @import("connection_records_test.zig");
+    _ = @import("connection_streamed_test.zig");
 }

@@ -219,7 +219,9 @@ pub fn write_requests(connection: *Connection) void {
         if (!open(connection, slot)) break;
     }
     for (&connection.slots.slots) |*slot| {
-        if (slot.stage == .sent and !slot.content_done()) connection_h2_streamed.fill_record(connection, slot);
+        // Decision 153: a streamed request's pieces go out with no copy, so none fills a record.
+        if (slot.stage != .sent or slot.request.streamed.request) continue;
+        if (!slot.content_done()) connection_h2_streamed.fill_record(connection, slot);
     }
 }
 
@@ -245,12 +247,19 @@ fn open(connection: *Connection, slot: *Slot) bool {
         // RFC 7541 §7.1.3: a value an intermediary must not index goes out never-indexed.
         .indexing = .{ .path = if (request.never_indexed.path) .never_indexed else .without_indexing },
     };
-    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], request.body.len == 0) catch |failure| {
+    // RFC 9113 §8.1: a request with no content ends its stream with its HEADERS frame, as does a
+    // streamed one whose only piece is an empty last one.
+    const ends = slot.piece_end and slot.piece.len == 0;
+    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], ends) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += sent.written;
     slot.stream_id = sent.stream_id;
     slot.stage = .sent;
+    if (ends) {
+        slot.content_ended = true;
+        slot.piece_written();
+    }
     return true;
 }
 

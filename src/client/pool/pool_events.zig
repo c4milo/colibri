@@ -153,6 +153,7 @@ fn handle(pool: anytype, slot: u32, reported: event.Event) ?Event {
     switch (reported) {
         .connected => |protocol| return on_connected(pool, slot, protocol),
         .ticket => return .{ .ticket = pool_handle.handle_of(pool, slot) },
+        .body_taken => |carried_id| return pool_body.on_taken(pool, slot, carried_id),
         .finished => |finished| return pool_body.on_finished(pool, slot, finished),
         // The phase reads the connection's own flag.
         .draining => return null,
@@ -210,10 +211,13 @@ fn abandon_other(pool: anytype, transport: choice.Transport) void {
 
 /// Gives `entry` back to the caller, and returns its event. A request sent again that a later
 /// connection refused, or that no connection took, ends `closed`: the first server may have
-/// processed it, and `refused` says that no server did (decision 105).
+/// processed it, and `refused` says that no server did (decision 105). A streamed request refused
+/// after a piece was taken ends `closed` too: the program cannot send it again whole (decision 153
+/// ruling 3).
 pub fn deliver(entry: *Entry) event.Finished {
     assert(entry.stage == .carried or entry.stage == .ended);
-    if (entry.resent and entry.response.result == .refused) entry.response.result = .closed;
+    const unsendable = entry.resent or entry.taken_any;
+    if (unsendable and entry.response.result == .refused) entry.response.result = .closed;
     const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
     entry.* = .{};
     return reported;
@@ -232,6 +236,9 @@ pub fn assign_waiting(pool: anytype) void {
         entry.stage = .carried;
         entry.carrier = slot;
         entry.carried_id = carried_id;
+        // Decision 153: the piece the program handed goes to the connection that carries it now. A
+        // queued exchange takes it.
+        if (entry.piece_held) pool_connection.write_body(pool, slot, carried_id, entry.piece, entry.piece_end) catch unreachable;
         pool_links.clear_tried(pool);
         if (pool_handle.transport_of(pool, slot) == .tcp) pool.tcp_links[slot].send_blocked = false;
     }

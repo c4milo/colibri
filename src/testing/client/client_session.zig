@@ -184,6 +184,8 @@ pub const Session = struct {
             },
             .closed => session.closed = true,
             .connected => |connected| session.protocol = connected.protocol,
+            // No request of the session goes in pieces (decision 153).
+            .body_taken => unreachable,
             // The pool holds no receive pool, so it offers TCP alone.
             .open => |open| {
                 assert(open.transport == .tcp and open.connection.slot < session.slots);

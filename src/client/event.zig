@@ -65,8 +65,21 @@ pub const Request = struct {
     /// credential: never-indexed literals in h2 (RFC 7541 §6.2.3, §7.1.3). h11 compresses nothing,
     /// and writes them as it writes any other.
     never_indexed: NeverIndexed = .{},
-    /// The request's body, sent whole. Empty for none.
+    /// The request's body, sent whole. Empty for none, and for a body that goes in pieces.
     body: []const u8 = "",
+    /// Which body goes in pieces (decision 153 ruling 7).
+    streamed: Streamed = .{},
+};
+
+/// Which body of an exchange goes in pieces (decision 153 ruling 3). A streamed request body goes
+/// out through `ConnectionPool.write_body`, one piece at a time, and `Request.body` is empty.
+pub const Streamed = struct {
+    /// The request body goes in pieces.
+    request: bool = false,
+    /// The length of the whole request body, which the request then states (RFC 9110 §8.6), or
+    /// null for none. With none, h11 sends the body chunked (RFC 9112 §7.1), and h2 and h3 end it
+    /// with the stream (RFC 9113 §8.1, RFC 9114 §4.1). The pieces add up to the length stated.
+    request_len: ?u64 = null,
 };
 
 /// Where the response to a request goes, and what arrived, in the program's memory (decision
@@ -90,8 +103,9 @@ pub const Response = struct {
     interims: u32 = 0,
     /// Bytes of `body` the response body filled.
     body_len: usize = 0,
-    /// Bytes of the request's `body` written. Fewer than all when the response ended first (RFC
-    /// 9113 §8.1, RFC 9112 §9.5) or the exchange ended another way.
+    /// Bytes of the request's `body` written, or of its pieces for a streamed request. Fewer than
+    /// all when the response ended first (RFC 9113 §8.1, RFC 9112 §9.5) or the exchange ended
+    /// another way.
     body_sent: usize = 0,
     /// The code of the RST_STREAM that reset the stream (RFC 9113 §7), for `reset`.
     error_code: u32 = 0,
@@ -140,6 +154,9 @@ pub const Event = union(enum) {
     connected: Protocol,
     /// The server issued a resumption ticket (RFC 9846 §4.7.1), which `take_ticket` hands over.
     ticket,
+    /// The connection reads the exchange's request piece no more, and the caller may reuse its
+    /// memory (decision 153 ruling 3).
+    body_taken: RequestId,
     /// An exchange ended. Its slot is free, and the caller may reuse its memory.
     finished: Ended,
     /// The connection takes no new request: the server sent a GOAWAY (RFC 9113 §6.8) or said it

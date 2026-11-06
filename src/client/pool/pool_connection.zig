@@ -22,6 +22,12 @@ pub fn request(pool: anytype, slot: u32, message: *const Request, response: *Res
     return pool.tcp[slot].request(message, response);
 }
 
+/// The connection of `slot` takes the next piece of its exchange `carried_id` (decision 153).
+pub fn write_body(pool: anytype, slot: u32, carried_id: RequestId, piece: []const u8, end: bool) error{BodyStopped}!void {
+    if (is_quic(pool, slot)) return pool.quic.write_body(carried_id, piece, end);
+    return pool.tcp[slot].write_body(carried_id, piece, end);
+}
+
 pub fn cancel(pool: anytype, slot: u32, carried_id: RequestId, now_ns: u64) void {
     if (is_quic(pool, slot)) return pool.quic.cancel(carried_id);
     pool.tcp[slot].cancel(carried_id, now_ns);

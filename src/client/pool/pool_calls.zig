@@ -94,6 +94,31 @@ pub fn request(pool: anytype, message: *const Request, response: *Response) Requ
     return entry.id;
 }
 
+pub fn write_body(pool: anytype, id: RequestId, piece: []const u8, end: bool) pool_module.WriteBodyError!void {
+    // RFC 9110 §3.4: content belongs to a request message, so a piece needs an exchange the pool
+    // holds.
+    const entry = entry_of(pool, id) orelse return error.UnknownRequest;
+    // Decision 153: only a streamed request's body goes in pieces.
+    assert(entry.request.streamed.request);
+    // RFC 9113 §6.9 and RFC 9000 §13.3: flow control may hold the piece back, and QUIC sends a
+    // lost octet again by its offset, so the pool reads the piece until its `body_taken`.
+    if (entry.piece_held) return error.PieceHeld;
+    // RFC 9112 §7.1, RFC 9113 §8.1 and RFC 9114 §4.1: nothing follows the end of the content.
+    if (entry.body_ended) return error.BodyEnded;
+    // RFC 9113 §8.7: the pool refused the exchange unprocessed, so no more of it goes out.
+    if (entry.stage == .ended) return error.BodyStopped;
+    const handed = entry.handed_len + piece.len;
+    // RFC 9110 §8.6: the octets of a body are the length it states, no more and no fewer.
+    if (entry.request.streamed.request_len) |stated| assert(handed <= stated and (!end or handed == stated));
+    if (entry.stage == .carried) try pool_connection.write_body(pool, entry.carrier, entry.carried_id, piece, end);
+    entry.piece = piece;
+    entry.piece_end = end;
+    entry.piece_held = true;
+    entry.body_ended = end;
+    entry.handed_len = handed;
+    pool_events.unblock_sends(pool);
+}
+
 pub fn cancel(pool: anytype, id: RequestId, now_ns: u64) void {
     const entry = entry_of(pool, id) orelse return;
     if (entry.stage == .carried) pool_connection.cancel(pool, entry.carrier, entry.carried_id, now_ns);
