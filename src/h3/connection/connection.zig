@@ -269,7 +269,8 @@ pub const Connection = struct {
 
     /// Copies the content the last `data_available` event on `stream_id` reported into `output`,
     /// as much as it holds, and returns the octets copied: the one copy of a held stream's content
-    /// (decision 153 ruling 12). The octets stay in `quic` until `release_data`.
+    /// (decision 153 ruling 12). The octets stay in `quic` until `release_data`. It copies none on
+    /// a stream reset, refused or closed since the event.
     pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, output: []u8) usize {
         return connection_request_data.peek_data(connection, transport, stream_id, output);
     }

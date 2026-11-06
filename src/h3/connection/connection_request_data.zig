@@ -87,13 +87,19 @@ fn arrived(transport: *QuicConnection, id: StreamId) ?stream_read.Read {
 
 /// Copies the content the last `data_available` event on `stream_id` reported into `output`, as
 /// much as it holds, and returns the octets copied. They stay unread in `quic` until
-/// `release_data` takes them.
+/// `release_data` takes them. It copies none on a stream that holds none: one reset, refused or
+/// closed since the event.
 pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, output: []u8) usize {
-    // The caller peeks only at content the last event reported, which nothing has taken since.
-    const request = connection.requests.find(stream_id).?;
-    assert(request.hold_data and request.held_len > 0);
+    const request = connection.requests.find(stream_id) orelse return 0;
+    if (request.held_len == 0) return 0;
+    assert(request.hold_data);
+    const id: StreamId = .{ .value = stream_id };
+    // RFC 9000 §19.4: a reset stream delivers no octets, and a peek here would say the reset
+    // first and lose it.
+    if (stream_read.reset_code(transport, id) != null) return 0;
     const window = output[0..@intCast(@min(output.len, request.held_len))];
-    const peeked = stream_read.peek(transport, .{ .value = stream_id }, window) catch unreachable;
+    // `hold_arrived` found the stream live, and only a reset or a close ends it since.
+    const peeked = stream_read.peek(transport, id, window) catch return 0;
     // `hold_arrived` measured every held octet as arrived.
     assert(peeked.len == window.len);
     return peeked.len;
@@ -242,6 +248,8 @@ test "RFC 9000 §19.4: a reset while content is held is reported once the conten
     try quic.connection_stream_send.reset(&server.transport, .{ .value = id }, constants.protocol.error_internal);
     try exchange();
     try testing.expectEqual(null, try next(client));
+    // The reset stream delivers no octets, and a peek keeps the reset to report.
+    try testing.expectEqual(0, client.h3.peek_data(&client.transport, id, &copied));
     client.h3.release_data(&client.transport, id, 10);
     const reset = (try next(client)).?.reset;
     try testing.expectEqual(constants.protocol.error_internal, reset.error_code);
@@ -309,6 +317,9 @@ test "RFC 9000 §2.2: a held stream reports its content up to the first octet mi
     try exchange();
     _ = (try next(client)).?.response;
     const head_len = answer.written().len;
+    // The first frame's header alone reports no content.
+    try arrive(id, head_len, 0, 2);
+    try testing.expectEqual(null, try next(client));
     // The first frame's header and "he" arrive, then "world"'s frame, and "ll" is missing.
     try arrive(id, head_len, 0, 4);
     try arrive(id, head_len, 6, two_frames.len);
