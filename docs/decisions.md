@@ -6094,7 +6094,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         the client's counterpart of `colibri.Server` (decision 150 ruling 10). It owns the TCP
         sockets, the UDP socket for h3, the loop, the clock and a `client.ConnectionPool`, and a
         program hands it requests. Step 39's streamed bodies stay in the pool underneath it.
-        Design §8 step 42 plans it after step 39 and before step 40.
+        Design §8 step 42 plans it after step 39 and before step 40. Amended by the owner on
+        2026-11-05, so that a program fetches through `colibri.Client` sooner: step 42 comes
+        before step 39, with whole bodies, and a later commit adds step 39's streamed bodies.
 
      Alternatives that lost:
      - A `std.Io.Writer` and a `std.Io.Reader` on the pool itself. `writeAll` and

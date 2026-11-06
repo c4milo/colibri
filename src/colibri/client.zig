@@ -32,6 +32,8 @@ pub const ClientConfig = struct {
     random: ?tls.Random = null,
     /// The seconds since 1970-01-01T00:00:00Z when `run` starts. A web PKI trust judges the dates
     /// of each chain at it, plus the time the loop has run since. A trust in pins reads no clock.
+    /// The default, 0, is before every certificate's notBefore, so a web PKI trust refuses each
+    /// chain at it (RFC 5280 §4.1.2.5).
     unix_seconds: u64 = 0,
 };
 

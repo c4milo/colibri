@@ -73,6 +73,7 @@ h2, h3, tls, rotor <- testing_udp
 h2, quic, tls    <- testing_quic
 core, qpack      <- testing_qif
 core, http, h11, h2, h3, quic, tls <- client, server
+core, http, server, client, tls, rotor <- colibri
 testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and client compile from
 ```
 
@@ -94,6 +95,7 @@ testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and clie
 | `dnssec` | DNSSEC's signature checks and DS digests over chapulin's TCP object, the one `tls` links ([decision 142](decisions.md)) | `core` for its tests' lists, and chapulin's TCP object, built `DNSSEC=on` on arm64 and x86-64 | 4034, 3110, 4509, 5155, 5702, 6605, 8080 |
 | `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838, 9460 |
 | `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838 |
+| `colibri` | the one library module that does I/O: `colibri.Server` and `colibri.Client` bind the sockets and run `server` and `client` on Rotor's loop ([decisions 150 and 153](decisions.md)) | `core`, `http`, `server`, `client`, `tls`, and Rotor ([decision 150](decisions.md) ruling 6) | — |
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, chapulin's TCP and QUIC objects built `KEYLOG=on`, and `testdata` for its tests | — |
 | `testdata` | the test identity the handshake tests of `tls`, `tls_keylog`, `server` and `client` and the client trace run read: a CA, a leaf for `localhost` and the leaf's key pair, valid from 2026-01-01 to 2126-01-01 and made once with openssl (`src/testing/testdata/README.md`). One copy serves them all, because `@embedFile` reads only inside the directory of the module that calls it. Test-only: the tests of `tls`, `server` and `client` compile from roots of their own that import it (`build/modules_test_roots.zig`). No packaged module imports it, and only colibri's own build makes it, so a project that depends on colibri never reaches its private key (the owner's ruling of 2026-09-28) | nothing | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
@@ -130,8 +132,9 @@ The architecture depends on four of these edges and forbids one.
   ([decision 97](decisions.md)).
 - **Nothing imports `h2`, `h3` or `h11` but `client` and `server`.** The protocol modules are the
   roots a consumer picks from, and `client` and `server` are consumers above all three, which
-  choose the version for their caller ([decision 100](decisions.md)). No library module imports
-  `client` or `server` in turn. `testing` is a consumer like any other: the library it drives cannot use the
+  choose the version for their caller ([decision 100](decisions.md)). No library module but
+  `colibri` imports `client` or `server` in turn, and no library module imports `colibri`
+  ([decision 150](decisions.md) ruling 1). `testing` is a consumer like any other: the library it drives cannot use the
   socket it opens, because the edge runs one way and nothing imports `testing` back.
 
 ## 4. What the caller supplies
@@ -13189,7 +13192,10 @@ library.
       time the loop has run.
     - `run(handler)` runs one loop on the calling thread. The handler declares `on_finished` and
       may declare `on_connected`. Each runs on the loop's thread and may call `request` and
-      `shutdown`. `shutdown` is the one call another thread may make.
+      `shutdown`. `shutdown` is the one call another thread may make. A program calls `run` once
+      for each `init`.
+    - After `shutdown`, `request` returns `error.ShutDown`, which `client.RequestError` does not
+      hold. The pool asserts that no request comes after its own shutdown.
     - `init` returns an inferred error set, and `run` returns `colibri.RunError`.
     - A shutdown steps each running TCP socket. The pool sends no `send` event for h2's GOAWAY
       after a `send_stream` that wrote nothing.
@@ -13220,6 +13226,25 @@ library.
       ignored; port 0 kept; the client's shutdown ignored; the client's datagrams not flushed.
     - 42f: a closing server socket kept open was **NOT CAUGHT** by the example, because the client
       now closes its own side. `zig build test-colibri` still catches it, as a hang, as in 37b.
+  - **The review, 2026-11-06.** Two reviews found the defects below. Each fix has a test, and each
+    mutation was **CAUGHT** by `zig build test-colibri` unless it says otherwise.
+    - A connect the pool closed in flight kept its slot and `run` until the system's connect
+      timeout, about 75 s on macOS and 127 s on Linux. Its close now goes at once, and Rotor's
+      close cancels the connect. Caught: the close held back; the slot freed before the connect's
+      final event; a connect that succeeds after the close starts its connection.
+    - A request from a handler after `shutdown` halted on the pool's assertion. Caught: no
+      refusal.
+    - A second `run` after one `init` waited without end. `run` now asserts that it runs once for
+      each `init`. Its mutation is **NOT CAUGHT**, because a test cannot survive the assertion.
+    - A run that failed left its TCP sockets open. Its end now closes each socket whose close was
+      never submitted. Caught: no close; no call at the end; `init` leaves an earlier run's
+      sockets live.
+    - New tests guard the close of a stale handle, the drop of an open that waits, the loop's time
+      in `unix_seconds`, no wait while a socket is pending, and one pass of a shutdown.
+    - No test could see three checks, so they were removed: the generation in `owed`, the UDP
+      socket's `stop` at `closed`, and the `continue` after the pool took a datagram.
+    - No test reaches four paths: `start_tcp` refused by the TLS stack, `open_socket` refused by
+      the system, and the bounds of 1,024 events and 1,024 passes, which 4 requests cannot fill.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default

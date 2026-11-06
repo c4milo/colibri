@@ -54,7 +54,7 @@ test "design §8 step 42: a client fetches over h2 in cleartext by prior knowled
 
 test "design §8 step 42: over TLS, ALPN selects h2 when the client offers both" {
     var handler: fixture.Handler = .{};
-    // RFC 7301 §3.2: the server selects h2, the first of the client's list it speaks.
+    // RFC 7301 §3.2: the server selects by its own order, and h2 is the first in it.
     try fetch(.{}, true, 2, &handler);
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h2, handler.connected.?);

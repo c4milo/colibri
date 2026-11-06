@@ -239,7 +239,9 @@ try http_client.run(&fetched);
 ```
 
 `shutdown` is the one call another thread may make. `request` comes before `run` or from a
-handler. `deinit` closes the UDP socket when `run` did not close it.
+handler. After `shutdown`, `request` returns `error.ShutDown`, so a handler that makes a request
+learns that the client takes no more. A program calls `run` once for each `init`. `deinit` closes
+the UDP socket when `run` did not close it.
 
 `colibri.ClientConfig` holds these fields:
 
@@ -250,7 +252,9 @@ handler. `deinit` closes the UDP socket when `run` did not close it.
 - `random`: the source each TLS session and each QUIC connection draws from. Null draws from the
   system's entropy.
 - `unix_seconds`: the seconds since 1970 when `run` starts. A web PKI trust judges each chain's
-  dates at it, plus the time the loop has run since. A trust in pins reads no clock.
+  dates at it, plus the time the loop has run since. A trust in pins reads no clock. The default
+  is 0, which comes before every certificate's notBefore, so a web PKI trust then refuses each
+  chain (RFC 5280 §4.1.2.5).
 
 ## The server
 
