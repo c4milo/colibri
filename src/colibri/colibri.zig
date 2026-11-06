@@ -7,7 +7,6 @@ pub const constants = @import("constants.zig");
 const files = struct {
     pub const entropy = @import("entropy.zig");
     pub const identity = @import("identity.zig");
-    pub const identity_files = @import("identity_files.zig");
     pub const server = @import("server.zig");
     pub const server_loop = @import("server_loop.zig");
     pub const server_pump = @import("server_pump.zig");

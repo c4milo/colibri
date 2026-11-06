@@ -93,7 +93,7 @@ version.
 ### A server that binds its port
 
 `colibri.Server` does a server's I/O for you ([decision 150](docs/decisions.md)). It binds one
-port, reads the certificate chain and the key from PEM text or from files, and runs a router of
+port, reads the certificate chain and the key from PEM text your program holds, and runs a router of
 `server.router` on [Rotor](https://github.com/c4milo/rotor)'s loop: h11 and h2 over TCP, and h3
 over UDP on the same port. These lines are from
 [`examples/colibri_server.zig`](examples/colibri_server.zig):

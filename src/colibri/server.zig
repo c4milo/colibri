@@ -8,7 +8,6 @@ const tls = @import("tls");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const identity_module = @import("identity.zig");
-const identity_files = @import("identity_files.zig");
 const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_loop = @import("server_loop.zig");
@@ -59,8 +58,6 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         };
         comptime {
             assert(tcp_connections > 0 and loop_options.operations <= rotor.constants.batch_max);
-            // `init` reads `.files` on a loop of one slot in the memory `run`'s loop takes later.
-            assert(identity_files.loop_memory_bytes <= rotor.Loop.memory_bytes(loop_options));
             assert(tcp_connections < server_udp.send_user_data_last >> socket_module.kind_bits);
         }
 
@@ -118,7 +115,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             // A server that `init` does not return keeps no private key and no cookie key.
             errdefer wipe_keys(self);
             if (config.identity) |identity| {
-                self.endpoint_config.tls = try identity_module.load(identity, &self.identity, &self.loop_memory, config.cpu, self.config.random.?);
+                self.endpoint_config.tls = try identity_module.load(identity, &self.identity, config.cpu, self.config.random.?);
             }
             assert((self.endpoint_config.tls != null) == (config.identity != null));
             try server_loop.bind(self);
@@ -199,7 +196,7 @@ threadlocal var test_server: Server align(@alignOf(Server)) = undefined;
 test "design §8 step 37c: an identity opens UDP on the listener's port, which Alt-Svc names" {
     var counter: support.Counter = .{};
     try test_server.init(.{
-        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     });
@@ -214,7 +211,7 @@ test "design §8 step 37c: an identity opens UDP on the listener's port, which A
 test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
     var counter: support.Counter = .{};
     try test_server.init(.{
-        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     });
@@ -228,25 +225,8 @@ test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
     test_server.deinit();
 }
 
-test "design §8 step 37e: init reads the identity from PEM files, and wipes the key's text" {
-    var directory: support.TestDirectory = .init();
-    defer directory.deinit();
-    const chain = try directory.write(.chain, testdata.chain_pem);
-    const key = try directory.write(.key, testdata.key_pem);
-    var counter: support.Counter = .{};
-    try test_server.init(.{ .identity = .{ .files = .{ .chain = chain, .key = key } }, .cpu = support.cpu(), .random = counter.random() });
-    test_server.deinit();
-    const values = test_server.endpoint_config.tls.?;
-    try testing.expectEqual(.ecdsa_secp256r1_sha256, values.identities[0].key.scheme);
-    try testing.expectEqualSlices(u8, testdata.leaf, values.identities[0].chain[0]);
-    try testing.expect(std.mem.allEqual(u8, &test_server.identity.files.key, 0));
-    // A missing key file ends `init` before it binds.
-    const missing = ".zig-cache/tmp/colibri-no-such-directory/key.pem";
-    try testing.expectError(error.IdentityFileNotFound, test_server.init(.{ .identity = .{ .files = .{ .chain = chain, .key = missing } }, .cpu = support.cpu(), .random = counter.random() }));
-}
-
 test "decision 150 ruling 9: a server given no source draws from the system" {
-    try test_server.init(.{ .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } }, .cpu = support.cpu() });
+    try test_server.init(.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu() });
     try testing.expect(test_server.config.random != null);
     const values = test_server.endpoint_config.tls.?;
     // Thirty-two octets from the system are not the counter's 0, 1, 2, ...
@@ -271,7 +251,7 @@ test "decision 150: a host that is no IP literal is refused" {
 
 test "decision 150: an init that fails after it reads the key wipes the key and the cookie key" {
     var counter: support.Counter = .{};
-    const identity: Identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } };
+    const identity: Identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     // The bind refuses the host after `load` has read the key and drawn the cookie key.
     try testing.expectError(error.HostInvalid, test_server.init(.{ .host = "localhost", .identity = identity, .cpu = support.cpu(), .random = counter.random() }));
     try testing.expect(counter.next != 0);
@@ -282,7 +262,7 @@ test "decision 150: an init that fails after it reads the key wipes the key and 
 test "design §8 step 37: deinit closes the listener and the UDP socket, and wipes both keys" {
     var counter: support.Counter = .{};
     try test_server.init(.{
-        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     });
@@ -309,7 +289,7 @@ test "design §8 step 37: an init whose UDP open fails closes the listener and n
     test_server.udp_socket = holder;
     try testing.expectError(error.AddressInUse, test_server.init(.{
         .port = held.port,
-        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     }));

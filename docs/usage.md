@@ -166,12 +166,11 @@ another file of your program.
 
 - `host` and `port`: an IPv4 or IPv6 literal, and the port of TCP and UDP. The defaults are
   127.0.0.1 and 0.
-- `identity`: the certificate chain and the key. `.pem` takes the PEM text your program holds.
-  `.files` takes the names of the two files, which `init` reads into the server's memory, each at
-  most `colibri.constants.limits.pem_file_len_max` octets. `init` wipes the key's text once it has
-  read the key. Rotor opens each file to read and to write, so your program needs both
-  permissions. With no identity the server speaks h11 and h2 in cleartext, and opens no UDP
-  socket. With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
+- `identity`: the certificate chain and the key, `.chain` and `.key`, as PEM text your program
+  holds. Your program reads its own files ([decision 150](decisions.md) ruling 11). `init` reads
+  the key's text in place and keeps no copy, so your program may wipe the text once `init`
+  returns. With no identity the server speaks h11 and h2 in cleartext, and opens no UDP socket.
+  With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
 - `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
 - `random`: the source each TLS session draws from. Null draws from the system's entropy.
 - `endpoint`: the `server.Config` the endpoint starts from. `colibri` fills its `tls`.

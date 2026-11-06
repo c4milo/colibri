@@ -48,7 +48,7 @@ test "design §8 step 37: deinit after run closes no socket a second time" {
     var counter: support.Counter = .{};
     router = .{};
     try test_server.init(.{
-        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     });
