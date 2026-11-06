@@ -12609,6 +12609,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         `test-sim-run`, `test-sim-run-quic`, `test-testing-quic` and `test-golden` pass.
       - The judge's `--h3 --base` 29d.13's tree, at 10 rounds. The step lands when h3-many wins
         and no input loses.
+    - **29d.15, the judge, 2026-11-05.** Run 42135404302, `--h3 --base bde26625` at 10 rounds:
+      h3-many 0.9117 and 0.9155, and h3-bbr-many 0.9096 and 0.9153, each a win. h3-many fell from
+      34,598 to 31,543 instructions a request in job 1. Every other input is within the noise in
+      both jobs. The saving is larger than one poll's setup: a request that ends at its head also
+      starts no body deadline, and no empty `body` passes through the server.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
