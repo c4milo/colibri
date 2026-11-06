@@ -97,7 +97,7 @@ test "each event carries the instant of the call that wrote or read its frame" {
     client_log.clear();
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, later_ns);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, later_ns);
     try client.h3.write_data_header(id, 0, &writer, latest_ns);
     // The stream's type and its HEADERS frame 2.5 milliseconds after the log's first instant, and
     // its DATA frame 4.5.
@@ -119,7 +119,7 @@ test "a reserved or unknown frame, or stream, is logged with its type" {
     try pair_logged();
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), false);
     // RFC 9114 §7.2.8's reserved type 0x21 and a type no RFC defines, each with an empty payload,
     // after the request.
@@ -143,7 +143,7 @@ test "a trailer section is logged as a HEADERS frame of its own" {
     const post = [_]harness.Line{ .{ ":method", "POST" }, .{ ":scheme", "https" }, .{ ":path", "/upload" }, .{ ":authority", "a" } };
     const section = try harness.section_of(&harness.test_section, &post);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, harness.test_now_ns);
     try client.h3.write_trailers(&client.transport, id, try harness.section_of(&harness.test_section, &.{.{ "x-checksum", "1" }}), &writer, harness.test_now_ns);
     try expect_record(&client_log, "\"frame\":{\"frame_type\":\"headers\",\"headers\":[{\"name\":\"x-checksum\",\"value\":\"1\"}]");
 }

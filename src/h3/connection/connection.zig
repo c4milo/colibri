@@ -34,6 +34,7 @@ const message = @import("../message/message.zig");
 const connection_local = @import("connection_local.zig");
 const connection_peer = @import("connection_peer.zig");
 const connection_request = @import("connection_request.zig");
+const connection_request_data = @import("connection_request_data.zig");
 const connection_request_deadline = @import("connection_request_deadline.zig");
 const connection_send = @import("connection_send.zig");
 const connection_qlog = @import("connection_qlog.zig");
@@ -82,6 +83,10 @@ pub const Event = union(enum) {
     response: Response,
     /// Content (§4.1, §7.2.1), written to the front of the buffer `receive` was given.
     data: Data,
+    /// Content of a stream opened with `hold_data`, written to the front of the buffer `receive`
+    /// was given and still unread in `quic`. The stream reports nothing more, and the peer gets no
+    /// credit for it (RFC 9000 §4.1), until `release_data` takes it.
+    data_available: Data,
     /// A trailer section (§4.1). `field_section` holds its lines until the next call.
     trailers: u64,
     /// The peer ended the stream after a whole message (§4.1).
@@ -209,18 +214,21 @@ pub const Connection = struct {
     }
 
     /// Opens a request stream and writes a HEADERS frame carrying `section` into `output`, at a
-    /// client (RFC 9114 §4.1). `indexing` gives each line's QPACK choice, or is empty. The caller
-    /// keeps the octets as the stream's first, and returns the stream's ID to `quic`'s `supply`.
+    /// client (RFC 9114 §4.1). `indexing` gives each line's QPACK choice, or is empty. With
+    /// `hold_data`, the response's content comes as `data_available` events, each held until
+    /// `release_data`. The caller keeps the octets as the stream's first, and returns the stream's
+    /// ID to `quic`'s `supply`.
     pub fn write_request(
         connection: *Connection,
         transport: *QuicConnection,
         section: *const FieldSection,
         indexing: []const qpack.encoder.Indexing,
+        hold_data: bool,
         output: *Writer,
         now_ns: u64,
     ) SendError!u64 {
         connection.now_ns = now_ns;
-        return connection_send.write_request(connection, transport, section, indexing, output);
+        return connection_send.write_request(connection, transport, section, indexing, hold_data, output);
     }
 
     /// Writes a HEADERS frame carrying a response on `stream_id` into `output`, at a server
@@ -256,6 +264,13 @@ pub const Connection = struct {
     pub fn write_data_header(connection: *Connection, stream_id: u64, len: u64, output: *Writer, now_ns: u64) SendError!void {
         connection.now_ns = now_ns;
         return connection_send.write_data_header(connection, stream_id, len, output);
+    }
+
+    /// Takes the first `len` octets of the content the last `data_available` event on `stream_id`
+    /// reported, at most all of them, which gives the peer credit for them (RFC 9000 §4.1). The
+    /// stream then reads on. It does nothing on a stream reset, refused or closed since the event.
+    pub fn release_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, len: u64) void {
+        connection_request_data.release_data(connection, transport, stream_id, len);
     }
 
     /// Cancels the message on `stream_id` (§4.1.1): resets colibri's side and asks the peer to
@@ -327,10 +342,11 @@ pub fn initiator(connection: *const Connection) quic.stream.Initiator {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        "init",             "start",            "provider",       "receive",           "field_section",
-        "write_request",    "write_response",   "write_trailers", "write_data_header", "cancel",
-        "oldest_head_wait", "delay_head_waits", "stop_reading",   "shutdown",          "goaway_acknowledged",
-        "fail",             "no_error_code",
+        // Design §8 step 39 adds `release_data` (decision 153).
+        "init",                "start",            "provider",         "receive",           "field_section",
+        "write_request",       "write_response",   "write_trailers",   "write_data_header", "release_data",
+        "cancel",              "oldest_head_wait", "delay_head_waits", "stop_reading",      "shutdown",
+        "goaway_acknowledged", "fail",             "no_error_code",
     });
 }
 

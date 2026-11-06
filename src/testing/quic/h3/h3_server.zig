@@ -126,8 +126,9 @@ pub const Server = struct {
             .reset, .refused => |held| server.release(held.stream_id),
             // Content and trailers the client sends are read and dropped; the rest asks nothing.
             .data, .trailers, .settings, .goaway => {},
-            // A server reads requests; `h3` refuses a response on a request stream.
-            .response => unreachable,
+            // A server reads requests; `h3` refuses a response on a request stream. Only a
+            // client's `write_request` asks h3 to hold content.
+            .response, .data_available => unreachable,
         }
     }
 

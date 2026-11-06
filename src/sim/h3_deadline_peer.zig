@@ -313,7 +313,7 @@ pub const Peer = struct {
         for (lines) |line| peer.section.append(line.name, line.value) catch return error.PeerFailed;
         const indexing: [request_lines]h3.qpack.encoder.Indexing = @splat(.no_insert);
         var writer = quic.core.Writer.init(&fetch.prefix);
-        fetch.id = peer.h3.write_request(&peer.connection, &peer.section, &indexing, &writer, now_ns) catch |failure| {
+        fetch.id = peer.h3.write_request(&peer.connection, &peer.section, &indexing, false, &writer, now_ns) catch |failure| {
             // RFC 9000 §4.6: the server's limit on streams is no failure of the peer's.
             if (failure == error.StreamsExhausted) return null;
             return error.PeerFailed;

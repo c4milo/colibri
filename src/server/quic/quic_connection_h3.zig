@@ -78,7 +78,8 @@ fn report(connection: *QuicConnection, h3_event: h3.connection.Event) ?event.Con
         // nothing a GOAWAY could limit (RFC 9114 §5.2).
         .settings, .goaway => null,
         // RFC 9114 §4.1: a server reads requests; h3 refuses a response before it is an event.
-        .response => unreachable,
+        // Only a client's `write_request` asks h3 to hold content.
+        .response, .data_available => unreachable,
     };
 }
 

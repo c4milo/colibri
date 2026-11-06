@@ -69,6 +69,12 @@ pub const RequestStream = struct {
     cancel_owed: bool = false,
     /// Whether colibri has taken the stream's FIN (RFC 9000 §3.2), so its end comes next.
     fin_read: bool = false,
+    /// At a client, whether the stream holds its content in `quic` until `release_data`, so the
+    /// peer gets no credit for it before then (RFC 9000 §4.1).
+    hold_data: bool = false,
+    /// Octets of content a `data_available` event reported and `release_data` has not taken. The
+    /// stream reads nothing more while it holds some.
+    held_len: u64 = 0,
     /// At a server, the instant colibri first saw the stream, from which the server's deadline
     /// for the request's head runs (decision 110 as amended).
     opened_ns: u64 = 0,
@@ -179,6 +185,8 @@ pub fn step(connection: *Connection, transport: *QuicConnection, body: []u8) Err
 /// Reads one stream's frames until one produces an event or none is whole.
 fn step_stream(connection: *Connection, transport: *QuicConnection, request: *RequestStream, body: []u8) Error!?Event {
     if (request.cancel_owed) owe_cancel(connection, request);
+    // The caller holds content of the stream, so nothing more is read until it releases it.
+    if (request.held_len > 0) return null;
     // A blocked section decodes no sooner than the decoder's insert count moves.
     if (request.blocked_at) |at| {
         if (at == connection.decoder.table.insert_count()) return null;
@@ -199,7 +207,10 @@ fn advance(connection: *Connection, transport: *QuicConnection, request: *Reques
     // The peer's code is read before the reset is reported, which forgets the stream.
     if (stream_read.reset_code(transport, .{ .value = request.id })) |code| return on_reset(connection, transport, request, code);
     if (request.phase == .abandoned) return discard(connection, transport, request);
-    if (request.data_left > 0) return connection_request_data.read_data(connection, transport, request, body);
+    if (request.data_left > 0) {
+        if (request.hold_data) return connection_request_data.peek_data(connection, transport, request, body);
+        return connection_request_data.read_data(connection, transport, request, body);
+    }
     if (request.skip_left > 0) return connection_request_data.skip(connection, transport, request);
     if (request.fin_read) return on_end(connection, transport, request);
     return read_frame(connection, transport, request);
@@ -397,6 +408,7 @@ fn refuse_stream(connection: *Connection, transport: *QuicConnection, request: *
     request.phase = .abandoned;
     request.data_left = 0;
     request.skip_left = 0;
+    request.held_len = 0;
     request.blocked_at = null;
 }
 

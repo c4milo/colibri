@@ -155,7 +155,7 @@ pub const Endpoint = struct {
             const kept = &endpoint.kept[index];
             var writer = Writer.init(&kept.prefix);
             const section = try endpoint.request_section(&endpoint.section, index);
-            const id = endpoint.h3.write_request(&endpoint.transport.connection, section, &.{}, &writer, endpoint.now_ns) catch |failure| switch (failure) {
+            const id = endpoint.h3.write_request(&endpoint.transport.connection, section, &.{}, false, &writer, endpoint.now_ns) catch |failure| switch (failure) {
                 // RFC 9000 §4.6: the server has not raised its stream limit yet, so the client
                 // waits for its MAX_STREAMS frame. Nothing was written.
                 error.StreamsExhausted => return,
@@ -209,7 +209,7 @@ pub const Endpoint = struct {
             .data => |held| try endpoint.on_data(held.stream_id, held.octets),
             .trailers => |id| try endpoint.on_trailers(id),
             .end => |id| try endpoint.on_end(id),
-            .reset, .refused, .goaway => return error.UnexpectedEvent,
+            .reset, .refused, .goaway, .data_available => return error.UnexpectedEvent,
         }
     }
 

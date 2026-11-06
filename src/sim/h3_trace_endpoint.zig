@@ -158,7 +158,7 @@ pub const Endpoint = struct {
                 indexing[pseudo_lines] = .may_insert;
             }
             const lines = endpoint.section.len();
-            const id = endpoint.h3.write_request(&endpoint.transport.connection, &endpoint.section, indexing[0..lines], &writer, endpoint.now_ns) catch |failure| switch (failure) {
+            const id = endpoint.h3.write_request(&endpoint.transport.connection, &endpoint.section, indexing[0..lines], false, &writer, endpoint.now_ns) catch |failure| switch (failure) {
                 // RFC 9114 §5.2: no request opens after the server's GOAWAY.
                 error.GoawayReceived => return,
                 else => return failure,
@@ -216,7 +216,7 @@ pub const Endpoint = struct {
                 endpoint.answer_read[index_of(held.stream_id)] = true;
                 endpoint.settle(held.stream_id, .rejected);
             },
-            .request, .data, .trailers, .refused => return error.UnexpectedEvent,
+            .request, .data, .trailers, .refused, .data_available => return error.UnexpectedEvent,
         }
     }
 
@@ -237,7 +237,7 @@ pub const Endpoint = struct {
             .data => |held| endpoint.read[index_of(held.stream_id)].content_len += held.octets.len,
             .end => |id| try endpoint.respond(id),
             .reset => |held| endpoint.read[index_of(held.stream_id)].reset = true,
-            .response, .trailers, .refused, .goaway => return error.UnexpectedEvent,
+            .response, .trailers, .refused, .goaway, .data_available => return error.UnexpectedEvent,
         }
     }
 

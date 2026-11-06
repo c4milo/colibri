@@ -46,7 +46,7 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     };
     const stream = &connection.streams[connection.slots.index_of(slot)];
     var writer = quic.core.Writer.init(&stream.prefix);
-    const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], &writer, now_ns) catch |failure| {
+    const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], false, &writer, now_ns) catch |failure| {
         return refused(connection, slot, failure);
     };
     // RFC 9114 §4.1: the content goes in DATA frames after the header section, here one.
@@ -189,6 +189,8 @@ fn record(connection: *QuicConnection, h3_event: h3.connection.Event) void {
         .goaway => |stream_id| on_goaway(connection, stream_id),
         // RFC 9114 §6.1: a client receives no request; h3 refuses one before it is an event.
         .request => unreachable,
+        // `open` asks h3 to hold no content yet (design §8 step 39f).
+        .data_available => unreachable,
     }
 }
 

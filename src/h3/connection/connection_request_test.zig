@@ -260,7 +260,7 @@ test "§4.1.1: a request the client cancels reaches the server as a reset with i
     const lines = harness.get_lines;
     const section = try harness.section_of(&harness.test_section, &lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), false);
     try exchange();
     _ = (try next(server)).?.request;

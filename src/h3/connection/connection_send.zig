@@ -54,6 +54,7 @@ pub fn write_request(
     transport: *QuicConnection,
     section: *const FieldSection,
     indexing: []const Indexing,
+    hold_data: bool,
     output: *Writer,
 ) Error!u64 {
     assert(connection.options.role == .client);
@@ -78,7 +79,7 @@ pub fn write_request(
     connection_qlog.request_stream_set(connection, .local, id.value);
     connection_qlog.frame_event(connection, .created, id.value, .{ .headers = .{ .section = section, .payload_len = payload_len } });
     // RFC 9110 §9.3.2: a response to HEAD carries no content, whatever its content-length.
-    slot.* = .{ .id = id.value, .head_request = std.mem.eql(u8, found.method, "HEAD") };
+    slot.* = .{ .id = id.value, .head_request = std.mem.eql(u8, found.method, "HEAD"), .hold_data = hold_data };
     return id.value;
 }
 

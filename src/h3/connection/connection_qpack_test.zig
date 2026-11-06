@@ -161,7 +161,7 @@ test "a trailer section inserts nothing into the dynamic table" {
     try harness.pair(.{ .role = .client }, .{ .role = .server, .qpack = table_client.qpack });
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, harness.test_now_ns);
     const inserted = client.h3.encoder.table.insert_count();
     try testing.expect(inserted > 0);
     try client.h3.write_trailers(&client.transport, id, try harness.section_of(&harness.test_section, &custom_lines[1..].*), &writer, harness.test_now_ns);

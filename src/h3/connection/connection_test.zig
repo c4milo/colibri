@@ -26,7 +26,8 @@ const testing = std.testing;
 const pool_blocks: usize = 64;
 const pool_capacity: usize = pool_blocks * quic.stream.stream_incoming.block_len;
 const kept_max: usize = 8;
-pub const kept_len: usize = 16384;
+/// More than half the window, so a test can give back enough credit to owe a MAX_STREAM_DATA.
+pub const kept_len: usize = 40960;
 /// Enough credit and streams that no test reaches a limit it does not set. A window is at most
 /// the pool (decision 61).
 const window: u64 = pool_capacity;
@@ -229,7 +230,7 @@ pub fn request(lines: []const Line, content: []const u8) !u64 {
     const section = try section_of(&test_section, lines);
     const next_id = StreamId.of(.client, .bidirectional, client.transport.streams.next_index[0]).value;
     var writer = client.writer_for(next_id);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, test_now_ns);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, test_now_ns);
     try testing.expectEqual(next_id, id);
     if (content.len > 0) {
         try client.h3.write_data_header(id, content.len, &writer, test_now_ns);
@@ -303,7 +304,7 @@ test "§4.1: a request's content and trailers arrive in order, and content-lengt
     const post = [_]Line{ .{ ":method", "POST" }, .{ ":scheme", "https" }, .{ ":path", "/upload" }, .{ ":authority", "a" }, .{ "content-length", "7" } };
     const section = try section_of(&test_section, &post);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, test_now_ns);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, test_now_ns);
     // The content in two DATA frames, then a trailer section.
     try client.h3.write_data_header(id, 3, &writer, test_now_ns);
     try writer.write_bytes("abc");
