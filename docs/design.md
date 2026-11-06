@@ -13111,6 +13111,10 @@ library.
     `iterator`, the fields `Response.headers`, `Response.trailers` and `Request.trailers`, and
     `RequestError.InvalidTrailer`. `Response.wanted`,
     `Response.values`, `Response.values_len` and `client.WantedHeader` leave the root's list.
+  - **The commits.** Step 38a, the response's header and trailer sections, shipped in v0.14.0.
+    Step 38b, `Request.trailers`, `RequestError.InvalidTrailer` and `te: trailers`, ships in
+    v0.15.0, after step 39, because both change the client's request path (the owner's ruling of
+    2026-11-05).
   - **The rules.** The client copies each field line into its section's buffer before
     `finished`: the header section over each protocol, and the trailer section from h11's
     chunked trailer section (RFC 9112 §7.1.2) and from the trailing HEADERS frame of h2 (RFC 9113
