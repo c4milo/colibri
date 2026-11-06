@@ -6129,7 +6129,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          grants each request stream `@min(quic_stream_window, capacity)`, as it grants each
          unidirectional stream (RFC 9000 §18.2).
      12. Ruled by the owner on 2026-11-06: over h3 a piece is copied once, as over h11 and h2. The
-         `data_available` event carries the octets that arrived and copies none of them, and
+         `data_available` event carries the count of octets that arrived and copies none, and
          `h3.Connection.peek_data` copies them from QUIC straight into the caller's memory.
          `client.ConnectionPool` calls it with `Response.body`.
      13. Ruled by the owner on 2026-11-06: an h11 response that is not streamed and ends
