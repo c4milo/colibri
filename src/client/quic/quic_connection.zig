@@ -38,6 +38,7 @@ const coding_pool = @import("../coding_pool.zig");
 const owed_module = @import("../owed.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_h3 = @import("quic_connection_h3.zig");
+const quic_streamed = @import("quic_connection_streamed.zig");
 const internal = @import("quic_connection_internal.zig");
 
 pub const RequestId = event.RequestId;
@@ -50,7 +51,6 @@ pub const PeerAddress = quic.PeerAddress;
 /// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
 /// of a `quic.stream.stream_incoming.Pool` the caller places.
 pub const ReceiveStorage = quic.stream.stream_incoming.Storage;
-const Parameters = quic.transport_parameters.Parameters;
 
 /// What every QUIC connection to one origin borrows. The caller keeps it alive while any
 /// connection holds it.
@@ -120,7 +120,7 @@ pub const QuicConnection = struct {
     section: h3.http.FieldSection,
     body: [constants.limits.quic_read_len]u8,
     /// Each slot's request stream frames, at the slot's index.
-    streams: [constants.limits.requests_max]quic_h3.RequestStream,
+    streams: [constants.limits.requests_max]quic_streamed.RequestStream,
     slots: slots_module.Slots,
     owed: owed_module.Owed,
     start_values: Start,
@@ -172,7 +172,7 @@ pub const QuicConnection = struct {
         connection.transport.init(.{
             .role = .client,
             .version = connection.session.original_version(),
-            .local_parameters = parameters(config, receive_pool.capacity),
+            .local_parameters = internal.parameters(config, receive_pool.capacity),
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = &connection.start_values.source_id, .original_destination = &connection.start_values.original_destination_id },
             // RFC 9000 §21.4: the intervals between skipped packet numbers come from the
@@ -267,7 +267,7 @@ pub const QuicConnection = struct {
             &connection.transport,
             connection.session.suite(),
             connection.session.provider(),
-            quic_h3.provider(connection),
+            quic_streamed.provider(connection),
             &connection.send_scratch,
             output,
             now_ns,
@@ -310,7 +310,7 @@ pub const QuicConnection = struct {
         const deadline = quic.connection_idle.deadline_ns(transport) orelse return null;
         if (connection.idle_acted_ns == deadline) return null;
         const timeout = quic.connection_idle.timeout_ns(transport).?;
-        return deadline - idle_margin_ns(transport, timeout);
+        return deadline - internal.idle_margin_ns(transport, timeout);
     }
 
     /// Acts on an idle deadline `now_ns` is within the margin of. RFC 9114 §5.1: a client keeps a
@@ -380,7 +380,7 @@ pub const QuicConnection = struct {
         connection.collect_ticket();
         if (!connection.started) connection.start_h3(now_ns);
         if (connection.started and !connection.stopped) quic_h3.read_events(connection, now_ns);
-        quic_h3.release_closed(connection);
+        quic_streamed.release_closed(connection);
         // RFC 9000 §10: once the connection stops being active, nothing more comes on its streams.
         if (connection.transport.termination.state != .active and !connection.stopped) internal.fail(connection);
     }
@@ -449,28 +449,6 @@ pub const QuicConnection = struct {
 
 /// RFC 9114 §3.1: the ALPN token of h3.
 const h3_alpn = "h3";
-
-/// The margin before the idle deadline RFC 9114 §5.1's rules act at: one PTO (RFC 9002 §6.2.1)
-/// and at least `quic_idle_margin_ns_min`, as the owner ruled on 2026-09-28, and at most the
-/// effective idle timeout `timeout_ns` over `quic_idle_margin_timeout_divisor`.
-fn idle_margin_ns(transport: *const quic.Connection, timeout_ns: u64) u64 {
-    const margin = @max(constants.policy.quic_idle_margin_ns_min, quic.connection_idle.probe_timeout_ns(transport));
-    return @min(margin, timeout_ns / constants.policy.quic_idle_margin_timeout_divisor);
-}
-
-/// What the client grants the server (RFC 9000 §18.2): its receive pool of `capacity` octets for
-/// the responses on the streams it opens, and h3's unidirectional streams (RFC 9114 §6.2).
-fn parameters(config: *const Config, capacity: u64) Parameters {
-    var held = Parameters.initial();
-    // RFC 9000 §4.1: flow control keeps a sender within "a receiver's buffer capacity", and the
-    // pool is all the client holds (decision 61), so no window grants more than it.
-    held.initial_max_data = capacity;
-    held.initial_max_stream_data_bidi_local = capacity;
-    held.initial_max_stream_data_uni = @min(constants.policy.quic_stream_window, capacity);
-    held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
-    held.max_idle_timeout_ms = config.idle_timeout_ms;
-    return held;
-}
 
 test "design §8 step 17f: the QUIC connection's public functions are the calls the module's other files make" {
     const public_names = @import("core").public_names;

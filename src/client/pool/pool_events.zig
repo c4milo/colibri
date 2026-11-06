@@ -9,15 +9,13 @@
 //! opens QUIC, so its code holds no step on a QUIC connection: each one is out at build time.
 const std = @import("std");
 const assert = std.debug.assert;
-const http = @import("http");
-const constants = @import("../constants.zig");
 const event = @import("../event.zig");
-const event_internal = @import("../event_internal.zig");
 const pool_module = @import("pool.zig");
 const choice = @import("pool_choice.zig");
 const pool_handle = @import("pool_handle.zig");
 const pool_connection = @import("pool_connection.zig");
 const pool_links = @import("pool_links.zig");
+const pool_body = @import("pool_body.zig");
 
 const Event = pool_module.Event;
 const Entry = pool_module.Entry;
@@ -155,7 +153,7 @@ fn handle(pool: anytype, slot: u32, reported: event.Event) ?Event {
     switch (reported) {
         .connected => |protocol| return on_connected(pool, slot, protocol),
         .ticket => return .{ .ticket = pool_handle.handle_of(pool, slot) },
-        .finished => |finished| return on_finished(pool, slot, finished),
+        .finished => |finished| return pool_body.on_finished(pool, slot, finished),
         // The phase reads the connection's own flag.
         .draining => return null,
         .closed => {
@@ -210,69 +208,10 @@ fn abandon_other(pool: anytype, transport: choice.Transport) void {
     }
 }
 
-/// A connection reported an exchange's end. One that moves goes to another connection (the model's
-/// MoveOn), and any other goes to the caller (its Deliver), which frees its room for a waiting one.
-fn on_finished(pool: anytype, slot: u32, ended: event.Ended) ?Event {
-    // A cancelled exchange reports nothing, so every reported one is carried.
-    const entry = carried(pool, slot, ended.id).?;
-    assert(entry.request == ended.request and entry.response == ended.response);
-    if (movable(pool, entry, slot, ended.response_began)) {
-        // RFC 9114 §4.1.1: a refused request is treated "as though [it] had never been sent". A
-        // request sent again starts its response anew, and counts its content again.
-        const closed = entry.response.result == .closed;
-        // RFC 9112 §9.3.2: a failed connection is one "not explicitly closed by the server in its
-        // last complete response", which leaves the connection draining instead.
-        const after_failure = closed and pool.phase(slot) == .failed;
-        event_internal.clear(entry.response);
-        entry.* = .{
-            .stage = .waiting,
-            .id = entry.id,
-            .request = entry.request,
-            .response = entry.response,
-            .moves = entry.moves + 1,
-            .resent = entry.resent or closed,
-            .after_failure = after_failure,
-        };
-        assign_waiting(pool);
-        return null;
-    }
-    const reported: Event = .{ .finished = deliver(entry) };
-    assign_waiting(pool);
-    return reported;
-}
-
-/// Whether a reported exchange moves: the connection that reported it takes no new exchange, the
-/// exchange moved fewer than `moves_max` times, refusals and resends together, and the connection
-/// refused it unprocessed, or closed before any of its response arrived and its method is
-/// idempotent (decision 124).
-fn movable(pool: anytype, entry: *const Entry, slot: u32, response_began: bool) bool {
-    // RFC 9110 §9.2.2: "A client SHOULD NOT automatically retry a failed automatic retry."
-    if (entry.moves >= constants.limits.moves_max) return false;
-    if (pool.phase(slot) == .open) return false;
-    return switch (entry.response.result) {
-        // RFC 9113 §8.7: a client "MAY automatically retry" a request no server processed.
-        .refused => true,
-        // RFC 9110 §9.2.2, RFC 9112 §9.3.1: an idempotent request is repeated after a failure
-        // "before the client is able to read the server's response".
-        .closed => !response_began and idempotent(entry.request),
-        .pending, .response, .reset, .malformed, .invalid, .too_large => false,
-    };
-}
-
-/// RFC 9110 §9.2.2: "PUT, DELETE, and safe request methods are idempotent", and §9.2.1 names GET,
-/// HEAD, OPTIONS and TRACE safe. A method that RFC 9110 §9.1 does not define is not known to be.
-fn idempotent(request: *const event.Request) bool {
-    const method = http.method.standard(request.method) orelse return false;
-    return switch (method) {
-        .get, .head, .options, .trace, .put, .delete => true,
-        .post, .connect => false,
-    };
-}
-
 /// Gives `entry` back to the caller, and returns its event. A request sent again that a later
 /// connection refused, or that no connection took, ends `closed`: the first server may have
 /// processed it, and `refused` says that no server did (decision 105).
-fn deliver(entry: *Entry) event.Finished {
+pub fn deliver(entry: *Entry) event.Finished {
     assert(entry.stage == .carried or entry.stage == .ended);
     if (entry.resent and entry.response.result == .refused) entry.response.result = .closed;
     const reported: event.Finished = .{ .id = entry.id, .request = entry.request, .response = entry.response };
@@ -390,7 +329,7 @@ fn oldest(pool: anytype, stage: Stage) ?*Entry {
     return found;
 }
 
-fn carried(pool: anytype, slot: u32, carried_id: event.RequestId) ?*Entry {
+pub fn carried(pool: anytype, slot: u32, carried_id: event.RequestId) ?*Entry {
     for (pool.entries) |*entry| {
         if (entry.stage == .carried and entry.carrier == slot and entry.carried_id == carried_id) return entry;
     }

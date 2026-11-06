@@ -34,6 +34,8 @@ const coding_pool = @import("../coding_pool.zig");
 const owed_module = @import("../owed.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
+const connection_h11_streamed = @import("connection_h11_streamed.zig");
+const connection_h2_streamed = @import("connection_h2_streamed.zig");
 const connection_tls = @import("connection_tls.zig");
 const connection_request = @import("connection_request.zig");
 const internal = @import("connection_internal.zig");
@@ -267,8 +269,8 @@ pub const Connection = struct {
     /// the connection's own output is empty. Returns the octets written.
     fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
         return switch (connection.session) {
-            .h11 => connection_h11.send_content(connection, output, now_ns),
-            .h2 => connection_h2.send_content(connection, output, now_ns),
+            .h11 => connection_h11_streamed.send_content(connection, output, now_ns),
+            .h2 => connection_h2_streamed.send_content(connection, output, now_ns),
             // No protocol runs before the handshake completes.
             .none => 0,
         };
