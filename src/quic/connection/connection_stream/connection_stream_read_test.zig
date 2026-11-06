@@ -264,6 +264,18 @@ test "decision 49 as amended: a stream's window grows to the pool less one strea
     try testing.expectEqual(pool_capacity - stream_window, receiver.window);
 }
 
+test "decision 49 as amended: unidirectional and locally initiated streams leave one starting window too" {
+    open_pair();
+    // RFC 9000 §18.2: initial_max_stream_data_uni sets the window of a stream the peer opened.
+    const uni = try stream_send.open(&client, .unidirectional);
+    try stream_send.supply(&client, uni, body_len, true);
+    for (0..try send_all(&client)) |index| try deliver(index, &server);
+    try testing.expectEqual(pool_capacity - stream_window, server.streams.lookup(uni).live.receive_flow.window_max);
+    // RFC 9000 §18.2: initial_max_stream_data_bidi_local sets the window of a stream it opened.
+    const local = try stream_send.open(&client, .bidirectional);
+    try testing.expectEqual(pool_capacity - stream_window, client.streams.lookup(local).live.receive_flow.window_max);
+}
+
 test "decision 49 as amended: a pool no larger than two starting windows keeps a stream's window where it starts" {
     open_pair();
     const half = pool_capacity / 2;

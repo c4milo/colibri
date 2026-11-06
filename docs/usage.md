@@ -1545,8 +1545,11 @@ Three events carry a streamed response:
   receive pool, so the connection's credit for them waits too (RFC 9000 §4.1). Each request stream
   starts with a window of `client.constants.policy.quic_stream_window` octets, 65,536. The window
   of a stream whose pieces the program releases quickly grows, up to the pool's capacity less one
-  such window ([decision 49](decisions.md) as amended). A held stream thus leaves at least 65,536
-  octets of the pool to the other streams, and one download alone can use nearly the whole pool.
+  such window ([decision 49](decisions.md) as amended). A held stream thus keeps at least 65,536
+  octets of the pool free, and one download alone can use nearly the whole pool. The other
+  streams get at most those 65,536 octets while the piece is held, and possibly none. The
+  client sends MAX_DATA only after half the pool is consumed since the last one, so the octets
+  that the other streams consumed since then come off what they can get.
 - `finished` comes only after the program released the last piece. The trailers are then in
   `Response.trailers`.
 

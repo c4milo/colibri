@@ -13285,8 +13285,15 @@ library.
         window where it starts.
       - In a pool of 262,144 octets, a request stream grows to 196,608 octets. A test holds a
         piece of that stream, and a second exchange of 32,768 octets finishes. The client sends
-        MAX_DATA once half the connection's window is consumed, so the other streams together
-        get one starting window until the program releases the held piece.
+        MAX_DATA once half the connection's window is consumed. Until the program releases the
+        held piece, the other streams together thus get at most one starting window, less the
+        octets consumed since the last MAX_DATA. The test consumes little before the hold.
+      - A review on 2026-11-06 found that the other streams can get no octets at all. This
+        occurs when they consumed one starting window or more since the last MAX_DATA. The
+        records now state that limit. The owner rules whether MAX_DATA must count held octets.
+      - A test reads the cap on a unidirectional stream and on a locally initiated stream. Both
+        mutations that grow one of them to the whole pool are **CAUGHT** by the `quic` tests,
+        and each was **NOT CAUGHT** before the test.
       - `h3.Connection.peek_data` returns 0 on a stream reset, refused or closed since its
         `data_available` event, as `release_data` takes none. The owner accepted this, with no
         error.

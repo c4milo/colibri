@@ -1213,8 +1213,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     Amended by the owner on 2026-11-06, with decision 153 ruling 11. A stream's receive window
     grows up to the receive pool's capacity less the stream's starting window, and not up to the
-    whole pool. A stream that the program holds thus leaves at least one starting window of the
-    pool to the other streams (RFC 9000 §4.1), and one download still uses nearly the whole pool.
+    whole pool. A stream that the program holds thus keeps at least one starting window of the
+    pool free, and one download still uses nearly the whole pool. The connection's credit limits
+    what the other streams get of that room (RFC 9000 §4.1). colibri sends MAX_DATA only after
+    half the connection's window is consumed since the last one (`flow_credit_fraction`). While a
+    piece is held, the other streams thus get at most one starting window, less the octets
+    consumed since the last MAX_DATA. They can get none until the program releases the piece.
     The rule applies to the streams of a client and of a server. A pool of two starting windows
     or less keeps each stream's window where it starts. The connection's window still grows up to
     the whole pool. `quic.Connection` computes the cap from the stream's own starting window, so
@@ -6142,7 +6146,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          grants each request stream `@min(quic_stream_window, capacity)`, as it grants each
          unidirectional stream (RFC 9000 §18.2). Amended by the owner on 2026-11-06, with
          decision 49: the window grows up to the pool's capacity less that starting window, so a
-         held stream leaves the other streams at least one starting window of the pool.
+         held stream keeps at least one starting window of the pool free. The connection's
+         credit gives the other streams at most that window of it, and possibly none.
      12. Ruled by the owner on 2026-11-06: over h3 a piece is copied once, as over h11 and h2. The
          `data_available` event carries the count of octets that arrived and copies none, and
          `h3.Connection.peek_data` copies them from QUIC straight into the caller's memory.

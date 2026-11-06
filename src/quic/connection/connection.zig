@@ -401,9 +401,11 @@ pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
 }
 
 /// The largest a stream's receive window starting at `window` grows to (decision 49 as amended
-/// on 2026-11-06): the receive pool's capacity less one stream's starting window. Every other
-/// stream thus keeps at least one starting window of the pool. A pool no larger than two
-/// starting windows keeps the window where it starts, and so does a connection with no pool.
+/// on 2026-11-06): the receive pool's capacity less one stream's starting window. A held stream
+/// thus keeps at least one starting window of the pool free. The connection's credit gives the
+/// other streams at most that much of it, and none when they consumed one window since the last
+/// MAX_DATA (`flow_credit_fraction`). A pool no larger than two starting windows keeps the
+/// window where it starts, and so does a connection with no pool.
 pub fn stream_receive_window_max(connection: *const Connection, window: u64) u64 {
     const storage = connection.receive_storage orelse return window;
     // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.

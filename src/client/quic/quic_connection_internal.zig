@@ -66,8 +66,8 @@ pub fn parameters(config: *const Config, capacity: u64) Parameters {
     // pool is all the client holds (decision 61), so no window grants more than it.
     held.initial_max_data = capacity;
     // RFC 9000 §18.2: one request stream starts with one stream's window (decision 153 ruling 11).
-    // Decision 49 as amended grows it up to the pool less that window, so a held stream leaves
-    // the other streams at least one window of the pool.
+    // Decision 49 as amended grows it up to the pool less that window, so a held stream keeps
+    // one window of the pool free. MAX_DATA limits what the other streams get of it.
     held.initial_max_stream_data_bidi_local = @min(constants.policy.quic_stream_window, capacity);
     held.initial_max_stream_data_uni = @min(constants.policy.quic_stream_window, capacity);
     held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
