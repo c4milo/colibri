@@ -13099,8 +13099,9 @@ library.
       read none. Each mutation was **CAUGHT**: `outbound`'s flag always false; ECT(0) sent as
       Not-ECT; CE sent as ECT(1); CE read as ECT(1); `received_ecn` without its check of the flag.
     - **NOT CAUGHT on macOS:** the batch match without the codepoint. On macOS each batch holds
-      one datagram, so the mutant sends the same datagrams. On Linux the test of
-      `datagram_batch.zig` that gives one peer two codepoints expects two batches.
+      one datagram, so the mutant sends the same datagrams. **CAUGHT on Linux arm64**, in an
+      Ubuntu 26.04 container on 2026-11-05: the test of `datagram_batch.zig` that gives one
+      peer two codepoints expects two batches, and the mutant opens one.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open
     connections close. The simulator's checks of `server` stay as they are.
 - **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**
