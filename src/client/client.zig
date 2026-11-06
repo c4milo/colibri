@@ -254,6 +254,7 @@ test {
     _ = @import("pool/pool_send_h2_test.zig");
     _ = @import("pool/pool_body_test.zig");
     _ = @import("pool/pool_body_quic_test.zig");
+    _ = @import("pool/pool_body_quic_goaway_test.zig");
     _ = @import("pool/pool_grow_test.zig");
     _ = @import("pool/pool_connection.zig");
     _ = @import("pool/pool_links.zig");
