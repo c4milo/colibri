@@ -166,7 +166,7 @@ pub fn take_delivery(delivery: rotor.Delivery, context: anytype, comptime take: 
 fn outbound(batch: *const batch_module.Batch) rotor.datagram.Outbound {
     const ecn = sent_ecn(batch.ecn);
     return .{
-        .peer = udp_address(batch.to),
+        .peer = rotor_address(batch.to),
         .local = undefined,
         .segment_bytes = batch.segment_bytes(),
         .ecn = ecn,
@@ -182,8 +182,8 @@ pub fn peer_address(address: rotor.Address) PeerAddress {
     return peer;
 }
 
-/// The socket address colibri named, back in Rotor's form.
-pub fn udp_address(address: PeerAddress) rotor.Address {
+/// A peer's address as colibri names it, back in Rotor's form, for a UDP send or a TCP connect.
+pub fn rotor_address(address: PeerAddress) rotor.Address {
     if (address.len == rotor.Address.ipv4_bytes) return rotor.Address.ipv4(address.octets[0..rotor.Address.ipv4_bytes].*, address.port);
     assert(address.len == address.octets.len);
     return rotor.Address.ipv6(address.octets, address.port, address.scope_id);

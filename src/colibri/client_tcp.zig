@@ -64,7 +64,7 @@ fn connect(state: anytype, slot: usize, asked: client.Open) void {
     assert(!state.sockets[slot].live);
     connection.* = .{
         .handle = asked.connection,
-        .address = datagram_socket.udp_address(asked.to),
+        .address = datagram_socket.rotor_address(asked.to),
         .connecting = false,
         .started = false,
         .waiting = null,
