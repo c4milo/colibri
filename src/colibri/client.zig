@@ -25,22 +25,24 @@ pub const ClientConfig = struct {
     /// §4.2.2).
     port: u16 = 443,
     /// What the pool starts from: the authority, the protocols, the TLS value, the codings and the
-    /// timeouts. `init` sets its `tcp_connections` and `requests` to the client's own counts.
+    /// timeouts. `init` sets its `tcp_connections` and `requests` to the client's own counts, and
+    /// sets its `ecn`, because the client's loop reads and sets each datagram's ECN codepoint
+    /// (decision 68).
     pool: client.Config,
     /// The source each TLS session and each QUIC connection draws from. Null draws from the
     /// operating system's entropy (decision 150 ruling 9).
     random: ?tls.Random = null,
-    /// The seconds since 1970-01-01T00:00:00Z when `run` starts. A web PKI trust judges the dates
-    /// of each chain at it, plus the time the loop has run since. A trust in pins reads no clock.
-    /// The default, 0, is before every certificate's notBefore, so a web PKI trust refuses each
-    /// chain at it (RFC 5280 §4.1.2.5).
-    unix_seconds: u64 = 0,
+    /// The seconds since 1970-01-01T00:00:00Z when `run` starts, which the program reads from its
+    /// clock. The client reads no clock (non-negotiable 3), so the field has no default. A web
+    /// PKI trust judges the dates of each chain at it, plus the time the loop has run since (RFC
+    /// 5280 §4.1.2.5). A trust in pins judges no date.
+    unix_seconds: u64,
 };
 
 /// What a client holds, fixed at build time: whether it holds a QUIC connection, the TCP
-/// connections, and the requests at once. The root exports no name for it: `Client` holds the
-/// defaults.
-pub const Capacity = struct {
+/// connections, and the requests at once. `Client` holds the defaults, and `ClientOf` takes
+/// another capacity.
+pub const ClientCapacity = struct {
     quic: bool = true,
     tcp_connections: u16 = 1,
     requests: u16 = client.constants.limits.requests_max,
@@ -50,7 +52,7 @@ pub const Capacity = struct {
 pub const Client = ClientOf(.{});
 
 /// A client whose pool holds `capacity`'s connections and requests.
-pub fn ClientOf(comptime capacity: Capacity) type {
+pub fn ClientOf(comptime capacity: ClientCapacity) type {
     return struct {
         const Self = @This();
 
@@ -115,6 +117,10 @@ pub fn ClientOf(comptime capacity: Capacity) type {
             self.pool_config = config.pool;
             self.pool_config.tcp_connections = capacity.tcp_connections;
             self.pool_config.requests = capacity.requests;
+            // Decision 68: the client's loop reads each datagram's codepoint and sets the one the
+            // pool names, so the pool reads ECN whatever the program set. A pool that does not
+            // read it halts on a datagram marked ECT(0), as a `colibri.Server` marks them.
+            self.pool_config.ecn = true;
             const destination: client.Destination = .{ .addresses = &self.addresses, .port = config.port };
             try self.pool.init(&self.pool_memory, &self.pool_config, destination, self.receive_storage());
             if (self.offers_quic()) try self.udp.bind(&unspecified(address.family));
@@ -187,7 +193,7 @@ fn udp_operations(quic: bool) u32 {
 
 /// Whether each count of `capacity` is inside the pool's limits, and the loop holds every
 /// operation the client submits.
-fn capacity_valid(capacity: Capacity, loop_options: rotor.Loop.Options) bool {
+fn capacity_valid(capacity: ClientCapacity, loop_options: rotor.Loop.Options) bool {
     if (capacity.tcp_connections == 0 or capacity.tcp_connections > client.constants.limits.pool_tcp_connections_max) return false;
     if (capacity.requests == 0 or capacity.requests > client.constants.limits.pool_requests_max) return false;
     if (loop_options.operations > rotor.constants.batch_max) return false;
@@ -207,10 +213,14 @@ const testing = std.testing;
 const testdata = @import("testdata");
 const support = @import("test_support.zig");
 
-/// A client the tests place, outside any stack frame, and one with no QUIC. Test-only.
-const TcpClient = ClientOf(.{ .quic = false });
-threadlocal var test_client: Client align(@alignOf(Client)) = undefined;
-threadlocal var tcp_client: TcpClient align(@alignOf(TcpClient)) = undefined;
+const fixture = @import("client_test_support.zig");
+
+/// A client of the default capacity, and one with no QUIC, which the tests place outside any stack
+/// frame (`client_test_support.zig`). Test-only.
+const test_client = &fixture.default_client;
+const tcp_client = &fixture.tcp_client;
+/// The instant the tests pass as `unix_seconds`, inside the test identity's dates. Test-only.
+const now_seconds = testdata.now_seconds;
 
 /// A pool configuration over TLS that trusts the test identity's root for `localhost`. Test-only.
 const anchors = [_]tls.Anchor{.{ .subject = testdata.root_name, .spki = testdata.root_spki }};
@@ -224,7 +234,7 @@ fn tls_pool(protocols: client.Protocols) client.Config {
 
 test "design §8 step 42: a client over TLS opens a UDP socket of the host's family" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "::1", .pool = tls_pool(.{}), .random = counter.random() });
+    try test_client.init(.{ .host = "::1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds });
     defer test_client.deinit();
     try testing.expect(test_client.udp.open);
     const local = try rotor.sync.local_address(test_client.udp.descriptor);
@@ -238,7 +248,7 @@ test "design §8 step 42: a client over TLS opens a UDP socket of the host's fam
 
 test "design §8 step 42: a cleartext client opens no UDP socket" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .port = 8080, .pool = .{ .authority = "localhost" }, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .port = 8080, .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds });
     defer test_client.deinit();
     // RFC 9001 §4: QUIC needs TLS, so a cleartext pool offers TCP alone.
     try testing.expect(!test_client.udp.open);
@@ -251,14 +261,16 @@ test "design §8 step 42: init takes the counts of the client's capacity" {
     var counter: support.Counter = .{};
     var config: client.Config = .{ .authority = "localhost", .tcp_connections = 3, .requests = 2 };
     config.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .pool = config, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .pool = config, .random = counter.random(), .unix_seconds = now_seconds });
     defer test_client.deinit();
     try testing.expectEqual(1, test_client.pool.counts.tcp_connections);
     try testing.expectEqual(client.constants.limits.requests_max, test_client.pool.counts.requests);
+    // Decision 68: the client's loop reads and sets each codepoint, whatever the program set.
+    try testing.expect(!config.ecn and test_client.pool_config.ecn);
 }
 
 test "decision 150 ruling 9: a client given no source draws from the system" {
-    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" } });
+    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .unix_seconds = now_seconds });
     defer test_client.deinit();
     var first: [32]u8 = undefined;
     var second: [32]u8 = undefined;
@@ -270,14 +282,14 @@ test "decision 150 ruling 9: a client given no source draws from the system" {
 
 test "design §8 step 42: a host that is no IP literal is refused" {
     var counter: support.Counter = .{};
-    try testing.expectError(error.HostInvalid, test_client.init(.{ .host = "localhost", .pool = .{ .authority = "localhost" }, .random = counter.random() }));
+    try testing.expectError(error.HostInvalid, test_client.init(.{ .host = "localhost", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }));
 }
 
 test "decision 124: a client with no QUIC refuses h3" {
     var counter: support.Counter = .{};
     // RFC 9114 §3.1: h3 runs over QUIC alone.
-    try testing.expectError(error.VersionUnavailable, tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random() }));
-    try tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{ .h3 = false }), .random = counter.random() });
+    try testing.expectError(error.VersionUnavailable, tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds }));
+    try tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{ .h3 = false }), .random = counter.random(), .unix_seconds = now_seconds });
     defer tcp_client.deinit();
     try testing.expect(!tcp_client.udp.open);
 }
@@ -290,7 +302,7 @@ test {
 
 test "design §8 step 42: a request leaves the pool's events for the next turn to read at once" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds });
     defer test_client.deinit();
     try testing.expect(!test_client.undrained);
     const request: client.Request = .{ .method = "GET", .path = "/" };
@@ -302,27 +314,27 @@ test "design §8 step 42: a request leaves the pool's events for the next turn t
 
 test "design §8 step 42: a turn passes a shutdown to the pool once, and steps each running socket" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds });
     defer test_client.deinit();
     test_client.connections = @splat(.empty);
     test_client.connections[0].started = true;
     test_client.pending = .initEmpty();
     test_client.shut_down = false;
-    client_loop.pass_shutdown(&test_client);
+    client_loop.pass_shutdown(test_client);
     // No shutdown was asked.
     try testing.expectEqual(0, test_client.pending.count());
     test_client.shutdown();
-    client_loop.pass_shutdown(&test_client);
+    client_loop.pass_shutdown(test_client);
     try testing.expect(test_client.pool.shut and test_client.pending.isSet(0));
     // A step of each running socket on each turn would leave the loop no wait until the run ends.
     test_client.pending = .initEmpty();
-    client_loop.pass_shutdown(&test_client);
+    client_loop.pass_shutdown(test_client);
     try testing.expectEqual(0, test_client.pending.count());
 }
 
 test "design §8 step 42: deinit closes the UDP socket" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds });
     const udp_socket = test_client.udp.descriptor;
     test_client.deinit();
     // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.

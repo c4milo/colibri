@@ -26,7 +26,6 @@ const filler_wait_ns: u64 = 200_000_000;
 const freed_within_ns: u64 = 2_000_000_000;
 /// The turns a test runs at most while it waits for a slot. Each tick waits 50 ms at most.
 const turns_max = 1000;
-
 const filler_options: rotor.Loop.Options = .{ .operations = fillers_max };
 
 /// The listener, its address, and the connects that fill its backlog, with the loop that runs
@@ -76,7 +75,7 @@ const Run = struct { client: *fixture.TestClient, handler: *fixture.Handler };
 fn start(counter: *support.Counter) !void {
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .port = unanswered.address.port, .pool = pool, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .port = unanswered.address.port, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds });
     try test_client.loop.init(&test_client.loop_memory, .{ .operations = test_client.events.len });
     try client_loop.begin(test_client);
 }
@@ -206,7 +205,7 @@ test "design §8 step 42: init leaves no TCP socket live, so a run that fails at
     test_client.sockets[0].descriptor = descriptor;
     test_client.sockets[0].close_submitted = false;
     test_client.sockets[0].live = true;
-    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = fixture.now_seconds });
     defer test_client.deinit();
     // The run's first tick failed, so no turn reset the sockets before its end.
     try test_client.loop.init(&test_client.loop_memory, .{ .operations = test_client.events.len });

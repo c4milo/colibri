@@ -42,8 +42,11 @@ var server_output: [4096]u8 = undefined;
 // A `colibri.Server` of one TCP connection, which binds a port the system chooses.
 const BoundServer = colibri.ServerOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 var bound_server: BoundServer align(@alignOf(BoundServer)) = undefined;
-// A `colibri.Client` of the default capacity, which the program places the same way.
-var bound_client: colibri.Client align(@alignOf(colibri.Client)) = undefined;
+// A `colibri.Client` of one TCP connection, four requests and no QUIC, which the program places
+// the same way. `colibri.Client` is `ClientOf` of the default capacity.
+const client_capacity: colibri.ClientCapacity = .{ .quic = false, .tcp_connections = 1, .requests = 4 };
+const BoundClient = colibri.ClientOf(client_capacity);
+var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
 
 /// Rounds of moving octets between the client and the server before the exchange must have ended.
 const exchange_rounds_max = 8;
@@ -146,8 +149,14 @@ pub fn main() !void {
     defer bound_server.deinit();
     if (bound_server.port() == 0) return error.BindWrong;
     // `colibri.Client` (decision 153 ruling 8): `init` prepares the pool for the server's port, in
-    // cleartext, so it opens no UDP socket. The program does not call `run`, so it fetches nothing.
-    const bound_client_config: colibri.ClientConfig = .{ .host = "127.0.0.1", .port = bound_server.port(), .pool = .{ .authority = "localhost" } };
+    // cleartext and with no h3, which a client with no QUIC refuses. The program passes its own
+    // instant, because the client reads no clock. It does not call `run`, so it fetches nothing.
+    const bound_client_config: colibri.ClientConfig = .{
+        .host = "127.0.0.1",
+        .port = bound_server.port(),
+        .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } },
+        .unix_seconds = now_seconds,
+    };
     try bound_client.init(bound_client_config);
     defer bound_client.deinit();
     std.debug.print("consumer: h11, h2, tls, gzip, server, client and colibri link and run as a dependency\n", .{});

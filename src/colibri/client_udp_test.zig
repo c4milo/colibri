@@ -13,14 +13,14 @@ const testing = std.testing;
 const test_client = &fixture.test_client;
 
 /// Fetches `count` greetings over TLS from a server with a UDP socket when `udp` is set, with
-/// `ecn` on both sides, and `shutdown` before `run`.
-fn fetch(udp: bool, ecn: bool, count: u32, handler: *fixture.Handler) !void {
+/// `shutdown` before `run`. The pool's configuration leaves `ecn` false.
+fn fetch(udp: bool, count: u32, handler: *fixture.Handler) !void {
     const limit_ms: u64 = if (udp) fixture.watchdog_ms else fixture.unanswered_quic_watchdog_ms;
     var counter: support.Counter = .{};
-    try fixture.start_server_ecn(true, udp, ecn);
+    try fixture.start_server(true, udp);
     defer fixture.stop_server();
-    var pool = fixture.pool_config(.{}, true);
-    pool.ecn = ecn;
+    const pool = fixture.pool_config(.{}, true);
+    try testing.expect(!pool.ecn);
     try test_client.init(.{
         .host = "127.0.0.1",
         .port = fixture.port(),
@@ -38,7 +38,7 @@ fn fetch(udp: bool, ecn: bool, count: u32, handler: *fixture.Handler) !void {
 test "design §8 step 42: a client fetches over h3 from a server's UDP socket" {
     var handler: fixture.Handler = .{};
     // RFC 9114 §3.1: the pool tries QUIC first, and the server's QUIC handshake selects h3.
-    try fetch(true, false, 1, &handler);
+    try fetch(true, 1, &handler);
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h3, handler.connected.?);
     try testing.expectEqual(1, handler.connections);
@@ -46,7 +46,7 @@ test "design §8 step 42: a client fetches over h3 from a server's UDP socket" {
 
 test "design §8 step 42: three exchanges go over one QUIC connection" {
     var handler: fixture.Handler = .{};
-    try fetch(true, false, 3, &handler);
+    try fetch(true, 3, &handler);
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h3, handler.connected.?);
     try testing.expectEqual(1, handler.connections);
@@ -78,8 +78,10 @@ comptime {
 
 test "design §8 step 42: ECN codepoints cross both UDP sockets, and the exchange ends whole" {
     var handler: fixture.Handler = .{};
-    // RFC 9000 §13.4: each side marks its datagrams ECT(0) and counts what it reads.
-    try fetch(true, true, 2, &handler);
+    // RFC 9000 §13.4: each side marks its datagrams ECT(0) and counts what it reads. The pool's
+    // configuration leaves `ecn` false, and the client sets it (decision 68), so the server's
+    // first datagram marked ECT(0) does not halt the pool.
+    try fetch(true, 2, &handler);
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h3, handler.connected.?);
     try testing.expect(fixture.ecn_read_as_ect0());
@@ -89,7 +91,7 @@ test "design §8 step 42: with no UDP socket at the server, the client falls bac
     var handler: fixture.Handler = .{};
     // RFC 9114 §3.1: QUIC gets no answer, so TCP opens once the fallback delay passes, and ALPN
     // selects h2.
-    try fetch(false, false, 1, &handler);
+    try fetch(false, 1, &handler);
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h2, handler.connected.?);
 }

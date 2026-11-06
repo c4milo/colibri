@@ -170,7 +170,7 @@ test "design §8 step 42: a refused connect ends the exchange refused" {
     var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .port = closed_port, .pool = pool, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .port = closed_port, .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds });
     defer test_client.deinit();
     var handler: fixture.Handler = .{};
     try handler.request(1);
@@ -268,7 +268,7 @@ fn fetch_raw(action: PeerAction, method: []const u8, handler: *fixture.Handler) 
     var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random() });
+    try test_client.init(.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds });
     defer test_client.deinit();
     handler.method = method;
     try handler.request(1);

@@ -202,6 +202,17 @@ connection, one QUIC connection, and `client.constants.limits.requests_max` requ
 var http_client: colibri.Client align(@alignOf(colibri.Client)) = undefined;
 ```
 
+`colibri.ClientOf` makes a client of another size from a `colibri.ClientCapacity`: whether it
+holds a QUIC connection, its TCP connections, and its requests at once. `colibri.Client` is
+`ClientOf` of the default capacity. These lines are from
+[`tools/consumer/main.zig`](../tools/consumer/main.zig), a client with no QUIC:
+
+```zig
+const client_capacity: colibri.ClientCapacity = .{ .quic = false, .tcp_connections = 1, .requests = 4 };
+const BoundClient = colibri.ClientOf(client_capacity);
+var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
+```
+
 `init` takes the server's address and port, and the pool's configuration. It opens the UDP socket
 when the pool offers QUIC: h3 allowed, and a TLS value. `request` takes a `client.Request` and the
 `client.Response` it fills, which your program keeps in place until the exchange's `finished`:
@@ -248,13 +259,14 @@ the UDP socket when `run` did not close it.
 - `host` and `port`: the server's IPv4 or IPv6 literal, and its port, 443 by default. The client
   looks up no name.
 - `pool`: the `client.Config` the pool starts from. `init` sets its `tcp_connections` and
-  `requests` to the client's own counts.
+  `requests` to the client's own counts. It also sets its `ecn`, because the client's loop reads
+  and sets each datagram's ECN codepoint ([decision 68](decisions.md)).
 - `random`: the source each TLS session and each QUIC connection draws from. Null draws from the
   system's entropy.
-- `unix_seconds`: the seconds since 1970 when `run` starts. A web PKI trust judges each chain's
-  dates at it, plus the time the loop has run since. A trust in pins reads no clock. The default
-  is 0, which comes before every certificate's notBefore, so a web PKI trust then refuses each
-  chain (RFC 5280 §4.1.2.5).
+- `unix_seconds`: the seconds since 1970 when `run` starts, which your program reads from its
+  clock. The field has no default, because the client reads no clock. A web PKI trust judges
+  each chain's dates at it, plus the time the loop has run since (RFC 5280 §4.1.2.5). A trust in
+  pins judges no date.
 
 ## The server
 

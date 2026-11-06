@@ -12,6 +12,8 @@ const client_module = @import("client.zig");
 const support = @import("test_support.zig");
 
 pub const greeting = "hello from colibri";
+/// The instant the tests pass as `unix_seconds`, inside the test identity's dates.
+pub const now_seconds = testdata.now_seconds;
 /// The requests a test makes at most, and the room of each response's body.
 pub const requests_max = 4;
 const body_len = 64;
@@ -75,17 +77,18 @@ var server_thread: std.Thread align(@alignOf(std.Thread)) = undefined;
 pub const TestClient = client_module.ClientOf(.{ .tcp_connections = 1, .requests = requests_max });
 pub var test_client: TestClient align(@alignOf(TestClient)) = undefined;
 
-/// Starts a server on 127.0.0.1 port 0 on a thread of its own: over TLS with the test identity
-/// when `identity` is set, and with a UDP socket for h3 when `udp` is set too.
-pub fn start_server(identity: bool, udp: bool) !void {
-    return start_server_ecn(identity, udp, false);
-}
+/// The clients `client.zig`'s tests place: one of the default capacity, and one with no QUIC.
+/// Neither is `threadlocal`: glibc places the static TLS of each new thread on that thread's
+/// stack, and these tests spawn threads (`server_test_support.zig`).
+pub const TcpClient = client_module.ClientOf(.{ .quic = false });
+pub var default_client: client_module.Client align(@alignOf(client_module.Client)) = undefined;
+pub var tcp_client: TcpClient align(@alignOf(TcpClient)) = undefined;
 
-/// Starts a server as `start_server` does, whose QUIC connections read and set ECN codepoints
-/// when `ecn` is set (decision 68).
-pub fn start_server_ecn(identity: bool, udp: bool, ecn: bool) !void {
+/// Starts a server on 127.0.0.1 port 0 on a thread of its own: over TLS with the test identity
+/// when `identity` is set, and with a UDP socket for h3 when `udp` is set too. Its QUIC
+/// connections read and set ECN codepoints, as each `colibri.Server`'s do (decision 68).
+pub fn start_server(identity: bool, udp: bool) !void {
     var config: server_module.ServerConfig = .{ .cpu = support.cpu() };
-    config.endpoint.ecn = ecn;
     if (identity) config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     router = .{};
     udp_served = udp;
