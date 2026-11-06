@@ -13282,6 +13282,17 @@ library.
       until the next tick ended, 50 ms at most. The refusal now marks the pool undrained. A test
       sets the process's descriptor limit to 0 to make the system refuse the socket. Caught: no
       mark.
+  - **The third review, 2026-11-06.** A review of the branch on v0.14.1 found the items below.
+    - Rotor splits what the kernel coalesced, so `datagram_socket.take_delivery` now hands a
+      delivery to the server or the client whole, as v0.14.1 did in `server_udp.zig`.
+    - No test required `finished` to wait for live sockets. An h2 peer now records the client's
+      GOAWAY, which the socket sends after the pool reports `closed`. Caught: `finished` ignores
+      live sockets.
+    - Two client checks were **NOT CAUGHT**, and were removed: the `started` guard before
+      `transport_closed`, and the clear of `started` in `close`. `pool_calls.zig` shows why. After
+      the pool's `close`, `resolve` names no connection, so `receive` drops the octets and
+      `send_stream` writes 0. A second `transport_closed` of a running connection calls the
+      connection's again, which changes nothing (`pool_links.close_over`).
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default

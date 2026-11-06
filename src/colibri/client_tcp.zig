@@ -26,8 +26,9 @@ pub const Connection = struct {
     address: rotor.Address,
     /// The connect is in flight. The socket receives and sends nothing until its event.
     connecting: bool,
-    /// The pool's connection runs on the socket: `start_tcp` took it, and the pool has not asked
-    /// for the close nor heard that the transport closed.
+    /// The pool's connection runs on the socket: `start_tcp` took it. The flag stays set after the
+    /// pool's `close` and after a failure, and the pool changes nothing more for the connection.
+    /// After `close` its handle names none, and a second `transport_closed` changes nothing.
     started: bool,
     /// An open the pool asked for while the slot's last socket was still closing.
     waiting: ?client.Open,
@@ -112,7 +113,6 @@ pub fn close(state: anytype, handle: client.ConnectionHandle) void {
     }
     const socket = &state.sockets[slot];
     if (!socket.live or !std.meta.eql(connection.handle, handle)) return;
-    connection.started = false;
     socket.closing = true;
     state.pending.set(slot);
 }
@@ -136,15 +136,16 @@ pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
         .send => socket.on_sent(event),
         .close => socket.closed = true,
     }
-    // The peer closed first, or a call failed: the pool ends the connection.
-    if (socket.failed) transport_closed(state, slot);
+    // The peer closed first, or a call failed: the pool ends the connection. The pool changes
+    // nothing for a handle it already ended, so each later event of the socket may call again.
+    if (socket.failed) state.pool.transport_closed(state.connections[slot].handle);
     state.pending.set(slot);
 }
 
 /// Starts the pool's connection on a socket whose connect succeeded. A connect that failed ends
-/// the attempt, whether the peer refused it or its deadline passed (Rotor's `timeout`), and so does
-/// a start the TLS stack refuses: the pool owes no `close` for a
-/// connection that never started, so the socket closes here.
+/// the attempt, whether the peer refused it or its deadline passed (Rotor's `timeout`). A start
+/// the TLS stack refuses ends it too. The pool owes no `close` for a connection that never
+/// started, so the socket closes here.
 fn on_connected(state: anytype, slot: usize, event: rotor.Event, now_ns: u64) void {
     const connection = &state.connections[slot];
     const socket = &state.sockets[slot];
@@ -163,14 +164,6 @@ fn on_connected(state: anytype, slot: usize, event: rotor.Event, now_ns: u64) vo
         return;
     };
     connection.started = true;
-}
-
-/// Tells the pool once that the transport of a running connection closed.
-fn transport_closed(state: anytype, slot: usize) void {
-    const connection = &state.connections[slot];
-    if (!connection.started) return;
-    connection.started = false;
-    state.pool.transport_closed(connection.handle);
 }
 
 /// Steps every socket an event named, until none is named.
@@ -213,7 +206,7 @@ fn step(run: anytype, slot: usize, now_ns: u64) void {
         const received = state.pool.receive(input, now_ns);
         socket.consume(received.consumed);
         if (received.event) |reported| client_loop.handle(run, reported, now_ns);
-        if (!connection.started or socket.stopped()) return;
+        if (socket.stopped()) return;
         const written = write(state, slot, now_ns);
         if (received.consumed == 0 and received.event == null and written == 0) return;
     } else state.pending.set(slot);
