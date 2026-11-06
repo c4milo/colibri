@@ -15,8 +15,8 @@ const datagram_socket = @import("datagram_socket.zig");
 const Kind = socket_module.Kind;
 const kind_bits = socket_module.kind_bits;
 
-/// The user data of the one accept the server keeps in flight. No socket's user data reaches it.
-pub const accept_user_data: u64 = std.math.maxInt(u64);
+/// The user data of the one accept the server keeps in flight. `socket.end_loop` reads it too.
+pub const accept_user_data = socket_module.accept_user_data;
 
 pub const BindError = rotor.sync.ListenError || rotor.sync.AddressError || error{
     /// `host` is not an IPv4 or IPv6 literal.

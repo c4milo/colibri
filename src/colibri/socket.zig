@@ -41,6 +41,10 @@ pub fn user_data(index: usize, kind: Kind) u64 {
     return (@as(u64, index) << kind_bits) | @intFromEnum(kind);
 }
 
+/// The user data of the one accept a server keeps in flight (`server_loop.zig`). No socket's user
+/// data reaches it, and the UDP socket's are below it.
+pub const accept_user_data: u64 = std.math.maxInt(u64);
+
 /// The unread octets a socket holds at most: one receive buffer's.
 const input_capacity = constants.limits.socket_input_len;
 /// A socket's receive buffers: the input, and the one the receive in flight writes.
@@ -236,9 +240,12 @@ pub fn end_loop(loop: *rotor.Loop, events: []rotor.Event, sockets: []Socket) voi
 /// Reads one event of a run's last ticks. A close that ended canceled or timed out did not run
 /// (Rotor's decision 5, rules 2 and 4), so `close_left` closes its socket. A close that failed
 /// otherwise ran, and the system released the descriptor, so a second close could close another
-/// descriptor with the same number. Every other event changes nothing.
+/// descriptor with the same number. An accept that succeeded gave a socket no entry holds, so it
+/// closes here. Every other event changes nothing. A connect that succeeded leaves its socket
+/// live with no close submitted, so `close_left` closes it.
 pub fn on_last_event(sockets: []Socket, event: rotor.Event) void {
     if (event.flags.message) return;
+    if (event.user_data == accept_user_data) return close_accepted(event);
     // The accept and the UDP socket's operations have user data above every socket's.
     const index = event.user_data >> kind_bits;
     if (index >= sockets.len) return;
@@ -250,6 +257,13 @@ pub fn on_last_event(sockets: []Socket, event: rotor.Event) void {
         error.Canceled, error.Timeout => socket.close_submitted = false,
         else => {},
     };
+}
+
+/// Closes the socket an accept delivered after the run ended. An accept that failed or was
+/// canceled delivered none.
+fn close_accepted(event: rotor.Event) void {
+    const descriptor: rotor.Descriptor = @intCast(event.outcome() catch return);
+    rotor.sync.close_now(descriptor);
 }
 
 /// Closes each socket whose close was never submitted or did not run, once a run ended and the
@@ -343,6 +357,31 @@ test "design §8 step 42: the end of a run closes no socket whose close ran" {
     close_left(sockets);
     // The test's own socket is still open, so no second close reached it.
     _ = try rotor.sync.local_address(descriptor);
+}
+
+test "design §8 step 42: the end of a run closes a socket an accept delivered" {
+    const sockets = (&test_socket)[0..1];
+    test_socket.live = false;
+    const descriptor = try rotor.sync.open_socket(.ipv4);
+    on_last_event(sockets, rotor.Event.success(accept_user_data, @intCast(descriptor)));
+    try testing.expectError(error.Unexpected, rotor.sync.local_address(descriptor));
+    // An accept that was canceled delivered no socket, so nothing closes.
+    const kept = try rotor.sync.open_socket(.ipv4);
+    defer rotor.sync.close_now(kept);
+    on_last_event(sockets, rotor.Event.failure(accept_user_data, .canceled));
+    _ = try rotor.sync.local_address(kept);
+}
+
+test "design §8 step 42: the end of a run closes a socket whose connect succeeded" {
+    const sockets = (&test_socket)[0..1];
+    const descriptor = try rotor.sync.open_socket(.ipv4);
+    test_socket.open(descriptor);
+    // The connect ended before `cancel_all` reached it, and no close was submitted.
+    on_last_event(sockets, rotor.Event.success(user_data(0, .connect), 0));
+    try testing.expect(!test_socket.close_submitted);
+    close_left(sockets);
+    try testing.expect(!test_socket.live);
+    try testing.expectError(error.Unexpected, rotor.sync.local_address(descriptor));
 }
 
 /// One step of the fuzz script: a kind octet and two octets of a count. Test-only.

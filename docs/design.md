@@ -13310,6 +13310,21 @@ library.
       filter: a canceled close treated as done; `close_now` dropped; a failed close treated as
       not run; a receive's event read as a close. The final events discarded, as before the fix,
       was **CAUGHT** on Linux alone, where a test cancels a close that io_uring holds.
+  - **An accept at a run's end, 2026-11-06.** A server's accept that succeeded during the end
+    left its new descriptor open, on each backend.
+    - `socket.end_loop` read the final event of a close alone. An accept that a peer's connection
+      completes before `cancel_all` reaches it ends with success, and no entry holds its socket.
+    - `socket.on_last_event` now closes the descriptor of a successful accept with
+      `rotor.sync.close_now`. `socket.accept_user_data` names the accept, and `server_loop.zig`
+      reads it from there.
+    - A client's connect that succeeds during the end needs no change. Its socket is live with no
+      close submitted, so `close_left` closes it. A test of `socket.zig` holds this.
+    - The test of the server's end connects a peer, then submits a send of the peer and the
+      accept. The tick reads one event, the send's, so the accept's success stays for the end.
+    - Each mutation below was **CAUGHT** by `zig build test-colibri` on macOS arm64, and on Linux
+      arm64 under io_uring as above: the accept's descriptor not closed; the accept's event not
+      read; the same with the test of `socket.zig` removed, so the server's test alone reads it; a
+      connect that succeeded read as a close that ran.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default

@@ -9,6 +9,7 @@ const server = @import("server");
 const testdata = @import("testdata");
 const server_module = @import("server.zig");
 const server_loop = @import("server_loop.zig");
+const socket_module = @import("socket.zig");
 const support = @import("test_support.zig");
 
 const testing = std.testing;
@@ -114,6 +115,50 @@ test "design §8 step 42: the end of a run closes an accepted socket whose close
     try testing.expect(!socket.live);
     // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.
     try testing.expectError(error.Unexpected, rotor.sync.local_address(descriptor));
+}
+
+/// The user data of the test's own operations on the server's loop: a socket index past the
+/// server's one socket, so the end of the run reads none of them as its own.
+const test_user_data = socket_module.user_data(test_server.sockets.len, .connect);
+
+/// Connects a socket of the test's own to the server's listener, through the server's loop, and
+/// returns it once the connection waits in the listener's backlog.
+fn connect_to_listener() !rotor.Descriptor {
+    const address = try server_loop.address_of("127.0.0.1", test_server.port());
+    const descriptor = try rotor.sync.open_socket(.ipv4);
+    errdefer rotor.sync.close_now(descriptor);
+    const connect = rotor.Operation.connect(test_user_data, descriptor, &address);
+    try testing.expectEqual(1, test_server.loop.submit(&.{connect}, &.{}));
+    // Rotor reads the address until the event, so the test waits for it here.
+    try testing.expectEqual(1, try test_server.loop.tick(test_server.events[0..1], connect_wait_ns));
+    _ = try test_server.events[0].outcome();
+    return descriptor;
+}
+const connect_wait_ns: u64 = 2_000_000_000;
+
+test "design §8 step 42: the end of a run closes a socket an accept delivered after the run" {
+    var counter: support.Counter = .{};
+    try begin_cleartext(&counter);
+    defer test_server.deinit();
+    server_loop.reset(&test_server);
+    const peer = try connect_to_listener();
+    defer rotor.sync.close_now(peer);
+    // The peer sends in the tick of the accept, ahead of it, so that tick's one event is the
+    // send's, and the accept's event stays for the end of the run.
+    const free = try rotor.sync.open_socket(.ipv4);
+    // The lowest free number, which the accept takes.
+    rotor.sync.close_now(free);
+    const operations = [_]rotor.Operation{
+        rotor.Operation.send(test_user_data, peer, "GET"),
+        rotor.Operation.accept(server_loop.accept_user_data, test_server.listener, false),
+    };
+    try testing.expectEqual(2, test_server.loop.submit(&operations, &.{}));
+    try testing.expectEqual(1, try test_server.loop.tick(test_server.events[0..1], 0));
+    try testing.expectEqual(test_user_data, test_server.events[0].user_data);
+    // The connection waits in the backlog, so the accept succeeds before `cancel_all` reaches it.
+    server_loop.end(&test_server);
+    // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.
+    try testing.expectError(error.Unexpected, rotor.sync.local_address(free));
 }
 
 test "design §8 step 37: init leaves no TCP socket live, so a run that fails at once closes none" {
