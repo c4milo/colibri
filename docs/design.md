@@ -13209,13 +13209,45 @@ library.
       refusal after a take reported `refused`, h2 that reads on while a piece is held, and a move
       after a take. The last was **NOT CAUGHT** first, while each streamed exchange was a POST;
       the run then made them PUTs, which move after a close.
-    - **Not run yet:** TLC, on the new configurations, the three mutants and `tools/client_trace.sh`.
-      Another TLC held the machine for the whole layer. SANY parsed the model, the trace module
-      and one written seed of each trace run. A person runs `zig build tla` on the model and
-      `tools/client_trace.sh` before the step is called done.
-  - **39i, the example and the docs,** this commit. `examples/client_stream.zig` streams a
+    - **Not run yet:** TLC, on the new configurations, the three mutants and
+      `tools/client_trace.sh`. Another TLC held the machine for the whole layer. SANY parsed the
+      model, the trace module and one written seed of each trace run. A person runs `zig build
+      tla` on the model and `tools/client_trace.sh` before the step is called done.
+  - **39i, the example and the docs,** `341b18a1`. `examples/client_stream.zig` streams a
     gRPC-shaped call both ways over h2 in cleartext, and docs/usage.md describes streamed bodies.
     - 4 breaks of the example **CAUGHT**, and 1 **NOT CAUGHT**, which examples/README.md lists.
+  - **39j, the review,** `49fc6ea2` to this commit. Two reviewers checked the step.
+    - An h11 response that h11 read whole ended `closed` when the transport closed while the
+      caller held its last piece, in cleartext and over TLS. `49fc6ea2` reads the owed end at the
+      close. 2 mutations **CAUGHT**.
+    - A piece held when a GOAWAY ended its h3 exchange never went back to QUIC, so the stream
+      never closed and `finished` never came. `af159fcb` always releases the piece. 2 mutations
+      **CAUGHT**: the release skipped, and the content of such a stream left in QUIC, which was
+      **NOT CAUGHT** in the review.
+    - The review found 8 more mutations **NOT CAUGHT**. A test for each makes it **CAUGHT**:
+      - in `test-h2`: an `.open` stream read as ended, padding held, credit queued after a
+        failure, and the `stream_credit_waiting` term of `owes_window_update` removed;
+      - in `test-client`: no `BodyStopped` on an exchange the pool ended, no unblock in
+        `write_body` or in `release_body`, and no h3 reset when a response ends before the
+        request body.
+    - 4 mutations stay **NOT CAUGHT**. Three are equivalent:
+      - the `stream_credit_waiting` term of `has_pending`: the flag is set only on a full reply
+        queue, and a reset that empties the queue owes its RST_STREAM;
+      - `release_data` that drops the FIN: the next frame read sees it;
+      - `finished` before `headers`: `Owed.next` reports `headers` first.
+    - The fourth, a drop that keeps `body_len`, has no test. A cancelled exchange's `body_len`
+      is read by no one. The h11 drop of a response too large for `body` now reports 0 octets,
+      where it reported the octets that fit before step 39.
+    - A `release_body` starts a new run of the calls `receive_events_without_input_max` counts.
+      docs/usage.md says so, and a test over h3 reads more pieces with no input than the bound.
+    - **Open, for the owner:** over h3 a held piece holds the connection's credit too, against
+      ruling 7. QUIC gives back MAX_DATA only at `consume`, and `release_data` consumes at the
+      release (RFC 9000 §4.1). A fix credits the connection when the octets arrive, and caps what
+      one held stream keeps in the receive pool (decision 61). That cap is a named limit, so it
+      waits for a ruling. docs/usage.md states the gap.
+    - **Open:** over h3 each response piece is copied twice: `peek_data` copies it into the
+      connection's 16,384-octet buffer, and `hold_piece` copies it into `Response.body`. One copy
+      needs an h3 call that peeks into the held stream's own buffer, which is a new public name.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps

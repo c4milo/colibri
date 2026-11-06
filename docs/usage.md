@@ -1541,7 +1541,8 @@ Three events carry a streamed response:
   piece back with `release_body(id)`. Until then, the connection reads no more of the response.
   Over h11 and h2 it reads no more of the connection. Over h2 and h3 the server gets no flow
   credit back for the piece (RFC 9113 §5.2, RFC 9000 §4.1), so a fast server waits for the
-  program.
+  program. Over h2 only the stream's credit waits. Over h3 the connection's credit waits too, so a
+  piece held long stops the other streams of the connection. Release each piece soon.
 - `finished` comes only after the program released the last piece. The trailers are then in
   `Response.trailers`.
 
