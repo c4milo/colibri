@@ -21,8 +21,9 @@
 (* connection is still ending, and only when it speaks a version TCP       *)
 (* carries (RFC 9114 §3.1). Under "tcp" it opens TCP first, and not while  *)
 (* QUIC's handshake runs. It opens QUIC, when its policy allows h3, only   *)
-(* when this attempt's TCP failed, when no TCP slot is free, or when it    *)
-(* speaks no version TCP carries. The first connection whose handshake     *)
+(* when this attempt's TCP failed, or when it speaks no version TCP        *)
+(* carries. A TCP connection that still ends is no failure: the attempt    *)
+(* waits for its slot. The first connection whose handshake                *)
 (* completes takes the waiting exchanges, and the other closes. An attempt *)
 (* ends when a connection takes the waiting exchanges, or when every       *)
 (* transport it may open failed, which ends each waiting exchange refused. *)
@@ -517,14 +518,14 @@ TcpOpening == {t \in TcpSlots : phase[t] = "handshake"}
 
 (* QUIC opens once an attempt, not beside a TCP connection that runs.      *)
 (* Under "tcp" it waits until TCP leaves the exchanges to it: this         *)
-(* attempt's TCP failed, no TCP slot is free, or TCP is not allowed.       *)
+(* attempt's TCP failed, or TCP is not allowed. A TCP connection that      *)
+(* still ends is no failure, so QUIC waits for its slot to close.          *)
 CanOpenQuic ==
     /\ Wanted /\ QuicAllowed /\ "quic" \notin tried /\ Free("quic")
     /\ OpenOnes = {} /\ TcpOpening = {}
     /\ \/ Prefer = "quic"
        \/ ~TcpAllowed
        \/ tried \cap TcpSlots # {}
-       \/ \A t \in TcpSlots : ~Free(t)
 
 (* TCP slot t opens when an exchange waits, as the attempt allows: first   *)
 (* under "tcp" while QUIC runs no handshake, after QUIC as above under     *)

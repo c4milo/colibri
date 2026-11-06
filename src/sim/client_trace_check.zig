@@ -343,7 +343,7 @@ test "client trace run: every seed closes the pool with each exchange reported o
     // replays in every build mode (invariant 5), so the census is pinned, as Debug and
     // `-Drelease` both give it.
     try testing.expectEqual(Result{
-        .states = 2632,
+        .states = 2630,
         .requests = 534,
         .responses = 328,
         .refused = 85,
@@ -351,7 +351,7 @@ test "client trace run: every seed closes the pool with each exchange reported o
         .cancelled = 70,
         .moved = 11,
         .resent = 9,
-        .quic_connections = 82,
+        .quic_connections = 81,
         .tcp_connections = 295,
         .goaways = 50,
         .learned = 61,
