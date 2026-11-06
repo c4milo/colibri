@@ -30,24 +30,21 @@ pub fn start(state: anytype, now_ns: u64) void {
     }
 }
 
-/// Hands an event of the UDP socket to it. A client whose pool has closed starts no receive.
+/// Hands an event of the UDP socket to it. The receive goes on until the run's end cancels it: a
+/// pool that has closed drops each datagram it is given.
 pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
     const state = run.client;
-    state.udp.on_event(&state.loop, event, !state.closed, run, take, now_ns);
+    state.udp.on_event(&state.loop, event, true, run, take, now_ns);
 }
 
 /// Passes a datagram to the pool, then does what each event it reports asks, until it reports none.
 /// The pool takes a datagram whole, and may first report an event it owes, with the datagram
-/// left.
+/// left. The turn's drain reads the events the pool reports after it.
 fn take(run: anytype, received: datagram_socket.Received, now_ns: u64) void {
     var input: client.Input = .{ .datagram = .{ .bytes = received.bytes, .ecn = received.ecn, .from = received.from } };
     for (0..constants.limits.events_per_step_max) |_| {
         const result = run.client.pool.receive(input, now_ns);
         if (result.consumed > 0) input = .none;
-        const reported = result.event orelse {
-            if (result.consumed == 0) return;
-            continue;
-        };
-        client_loop.handle(run, reported, now_ns);
+        client_loop.handle(run, result.event orelse return, now_ns);
     }
 }

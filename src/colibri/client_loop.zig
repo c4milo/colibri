@@ -136,11 +136,8 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
             held.wipe();
         },
         .finished => |ended| run.handler.on_finished(state, ended),
-        .closed => {
-            state.closed = true;
-            // The pool holds no connection, so the UDP socket reads nothing more.
-            if (state.udp.open) state.udp.stop(&state.loop);
-        },
+        // The run's end cancels the UDP socket's receive (`end`).
+        .closed => state.closed = true,
     }
 }
 
@@ -158,3 +155,4 @@ pub fn finished(state: anytype) bool {
     }
     return true;
 }
+

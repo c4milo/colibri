@@ -103,10 +103,10 @@ pub fn close(state: anytype, handle: client.ConnectionHandle) void {
     state.pending.set(slot);
 }
 
-/// Marks the socket of a TCP connection that owes octets, so the turn steps it.
+/// Marks the socket of a TCP connection that owes octets, so the turn steps it. A step of a slot
+/// whose connection owes nothing writes nothing, so the handle's generation is not checked.
 pub fn owed(state: anytype, handle: client.ConnectionHandle) void {
-    if (handle.slot >= state.sockets.len) return;
-    if (std.meta.eql(state.connections[handle.slot].handle, handle)) state.pending.set(handle.slot);
+    if (handle.slot < state.sockets.len) state.pending.set(handle.slot);
 }
 
 /// Hands an event to the socket its user data names.
