@@ -2,8 +2,9 @@
 //! from the test-only UDP server for design §8 step 37c. A server and a client share them (step
 //! 42). Each turn, the socket takes every datagram the endpoint or the pool owes, and adds it to a
 //! batch for its peer and its codepoint. A server's endpoint takes its connections in turn, so two
-//! datagrams in a row seldom go to one peer, and a batch for each peer collects them. Each open batch then goes to the kernel
-//! as one send, which cuts it into datagrams of the batch's first length.
+//! datagrams in a row seldom go to one peer, and a batch for each peer collects them. Each open
+//! batch then goes to the kernel as one send, which cuts it into datagrams of the batch's first
+//! length.
 //!
 //! The kernel requires each segment but the last to have one length, so a datagram longer than
 //! the first one starts a new batch, and a shorter one closes its batch. On macOS, which has no
