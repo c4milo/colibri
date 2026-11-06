@@ -24,6 +24,7 @@ const connection_module = @import("connection.zig");
 const connection_local = @import("connection_local.zig");
 const connection_qlog = @import("connection_qlog.zig");
 const head = @import("connection_request_head.zig");
+const connection_request_data = @import("connection_request_data.zig");
 
 const Reader = core.Reader;
 const Writer = core.Writer;
@@ -198,8 +199,8 @@ fn advance(connection: *Connection, transport: *QuicConnection, request: *Reques
     // The peer's code is read before the reset is reported, which forgets the stream.
     if (stream_read.reset_code(transport, .{ .value = request.id })) |code| return on_reset(connection, transport, request, code);
     if (request.phase == .abandoned) return discard(connection, transport, request);
-    if (request.data_left > 0) return read_data(connection, transport, request, body);
-    if (request.skip_left > 0) return skip(connection, transport, request);
+    if (request.data_left > 0) return connection_request_data.read_data(connection, transport, request, body);
+    if (request.skip_left > 0) return connection_request_data.skip(connection, transport, request);
     if (request.fin_read) return on_end(connection, transport, request);
     return read_frame(connection, transport, request);
 }
@@ -224,8 +225,8 @@ fn read_frame(connection: *Connection, transport: *QuicConnection, request: *Req
     try check_sequence(connection, transport, request, header.frame_type);
     return switch (header.frame_type) {
         constants.protocol.frame_headers => read_headers(connection, transport, request, header, header_len),
-        constants.protocol.frame_data => start_data(connection, request, transport, header, header_len),
-        else => start_skip(connection, transport, request, header, header_len),
+        constants.protocol.frame_data => connection_request_data.start_data(connection, request, transport, header, header_len),
+        else => connection_request_data.start_skip(connection, transport, request, header, header_len),
     };
 }
 
@@ -317,7 +318,7 @@ fn on_section(connection: *Connection, transport: *QuicConnection, request: *Req
         .content => {
             message.validate_trailers(&connection.section) catch |reason| return refuse(connection, transport, request, message.verdict(reason));
             // §4.1.2: the content is whole once the trailer section arrives.
-            if (!content_length_matches(request)) return refuse(connection, transport, request, constants.protocol.error_message_error);
+            if (!connection_request_data.content_length_matches(request)) return refuse(connection, transport, request, constants.protocol.error_message_error);
             request.phase = .trailers_read;
             return .{ .event = .{ .trailers = request.id } };
         },
@@ -325,57 +326,6 @@ fn on_section(connection: *Connection, transport: *QuicConnection, request: *Req
         // reads no frame.
         .trailers_read, .abandoned => unreachable,
     }
-}
-
-fn start_data(connection: *Connection, request: *RequestStream, transport: *QuicConnection, header: frame.Header, header_len: usize) Error!Step {
-    connection_qlog.frame_event(connection, .parsed, request.id, .{ .data = header.length });
-    request.fin_read = (stream_read.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
-    request.data_left = header.length;
-    request.content_received +|= header.length;
-    // §4.1.2: content past the content-length is malformed, which the frame's header shows.
-    if (!request.no_content) {
-        if (request.content_length) |expected| {
-            if (request.content_received > expected) return refuse(connection, transport, request, constants.protocol.error_message_error);
-        }
-    }
-    // §7.1: the stream ended inside the DATA frame.
-    if (request.fin_read and request.data_left > 0) return connection.fail(transport, constants.protocol.error_frame_error);
-    return .again;
-}
-
-/// Hands the caller what has arrived of the current DATA frame's payload (§7.2.1).
-fn read_data(connection: *Connection, transport: *QuicConnection, request: *RequestStream, body: []u8) Error!Step {
-    const window = body[0..@intCast(@min(body.len, request.data_left))];
-    const read = stream_read.read(transport, .{ .value = request.id }, window) catch return on_closed(connection, request);
-    request.data_left -= read.len;
-    request.fin_read = read.fin;
-    // §7.1: a stream that ended inside a DATA frame is H3_FRAME_ERROR.
-    if (read.fin and request.data_left > 0) return connection.fail(transport, constants.protocol.error_frame_error);
-    if (read.len == 0) return .wait;
-    return .{ .event = .{ .data = .{ .stream_id = request.id, .octets = window[0..read.len] } } };
-}
-
-fn start_skip(connection: *Connection, transport: *QuicConnection, request: *RequestStream, header: frame.Header, header_len: usize) Step {
-    connection_qlog.frame_event(connection, .parsed, request.id, .{ .other = .{ .frame_type = header.frame_type, .payload_len = header.length } });
-    request.fin_read = (stream_read.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
-    // §9: "Implementations MUST ignore unknown or unsupported values in all extensible protocol
-    // elements", so an unknown frame's payload is skipped unread.
-    request.skip_left = header.length;
-    return .again;
-}
-
-/// Takes what has arrived of an unknown frame's payload.
-fn skip(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
-    const id: StreamId = .{ .value = request.id };
-    const window = connection.scratch[0..@intCast(@min(request.skip_left, connection.scratch.len))];
-    const peeked = stream_read.peek(transport, id, window) catch return on_closed(connection, request);
-    const taken = stream_read.consume(transport, id, peeked.len) catch unreachable;
-    request.skip_left -= peeked.len;
-    request.fin_read = taken.fin;
-    // §7.1: a stream that ended inside a frame is H3_FRAME_ERROR.
-    if (taken.fin and request.skip_left > 0) return connection.fail(transport, constants.protocol.error_frame_error);
-    if (peeked.len == 0) return .wait;
-    return .again;
 }
 
 /// The stream ended cleanly at a frame's end (§4.1).
@@ -393,16 +343,10 @@ pub fn on_end(connection: *Connection, transport: *QuicConnection, request: *Req
         return refuse(connection, transport, request, code);
     }
     // §4.1.2: a content-length that is not "the sum of the DATA frame lengths received".
-    if (!content_length_matches(request)) return refuse(connection, transport, request, constants.protocol.error_message_error);
+    if (!connection_request_data.content_length_matches(request)) return refuse(connection, transport, request, constants.protocol.error_message_error);
     const id = request.id;
     connection.requests.release(id);
     return .{ .event = .{ .end = id } };
-}
-
-fn content_length_matches(request: *const RequestStream) bool {
-    if (request.no_content) return true;
-    const expected = request.content_length orelse return true;
-    return expected == request.content_received;
 }
 
 /// The peer reset the stream (RFC 9000 §19.4), which cancels its message (§4.1.1). RFC 9204
@@ -419,7 +363,7 @@ fn on_reset(connection: *Connection, transport: *QuicConnection, request: *Reque
 }
 
 /// `quic` has closed the stream, so there is nothing more to read on it.
-fn on_closed(connection: *Connection, request: *RequestStream) Step {
+pub fn on_closed(connection: *Connection, request: *RequestStream) Step {
     if (!request.cancel_owed) connection.requests.release(request.id);
     return .wait;
 }
