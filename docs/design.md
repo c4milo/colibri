@@ -13574,9 +13574,14 @@ library.
   - **The build, 2026-11-06.** `client.Protocols.prefer` takes `client.Transport`, which the
     root already exports, so no name joins a public list. `Config.quic_first` stays: it says
     whether QUIC may open at all with no HTTPS record and no Alt-Svc.
-    - Under `.tcp`, QUIC opens when this attempt's TCP failed, when no TCP slot is free, or when
-      TCP is not allowed. No TCP slot opens while QUIC's handshake runs, and the pool sets no
-      fallback instant.
+    - Under `.tcp`, QUIC opens when this attempt's TCP failed, or when TCP is not allowed. No TCP
+      slot opens while QUIC's handshake runs, and the pool sets no fallback instant.
+    - A review found that the first build also opened QUIC when no TCP slot was free. A TCP
+      connection that drained after a GOAWAY then opened QUIC, though TCP did not fail. With UDP
+      blocked, the exchange then waited for QUIC's idle timeout. Now QUIC waits for the slot to
+      close, and TCP opens in it again. Removal of the fix is **CAUGHT** by `zig build
+      test-client`. The client trace check now prints `quic=81` and `states=2630`, and every
+      other count stays.
     - The QUIC fixture of `src/client/pool/` asks for `.quic`, and so do `examples/client_exchange.zig`
       and the h3 tests of `src/colibri/`. `examples/colibri_server.zig` fetches over h2 by
       default and over h3 with `.quic`. The test-only client's pool mode keeps `.quic`, and

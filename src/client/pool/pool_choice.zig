@@ -104,9 +104,10 @@ fn can_open_quic(view: *const View) bool {
 }
 
 /// Whether TCP leaves QUIC to carry the exchanges under `.tcp` (decision 117 as amended): TCP is
-/// not allowed, this attempt's TCP failed, or no TCP slot is free.
+/// not allowed, or this attempt's TCP failed. A TCP connection that still ends is no failure, so
+/// QUIC waits for its slot to close, and TCP opens in it again.
 fn after_tcp(view: *const View) bool {
-    return !view.tcp_allowed or view.tcp_tried or view.tcp_free == null;
+    return !view.tcp_allowed or view.tcp_tried;
 }
 
 /// A TCP slot opens once an attempt, and only when TCP is allowed. Under `.tcp` it opens first,
@@ -331,15 +332,24 @@ test "decision 117 as amended: under .tcp TCP opens first, and QUIC only once TC
     try testing.expectEqual(Choice{ .tcp = 1 }, next_open(&view).?);
 }
 
-test "decision 117 as amended: under .tcp QUIC opens when no TCP slot is free or TCP is not allowed" {
+test "decision 117 as amended: under .tcp QUIC waits for a TCP connection that still ends" {
     var view = fresh();
     view.prefer = .tcp;
-    // A TCP connection of an earlier attempt still ends in the one slot.
+    // A TCP connection of an earlier attempt drains after a GOAWAY in the one slot. It did not
+    // fail, so QUIC does not open, and the exchange waits for the slot.
     view.tcp_free = null;
     view.all_idle = false;
-    try testing.expectEqual(Choice.quic, next_open(&view).?);
+    try testing.expectEqual(null, next_open(&view));
+    try testing.expect(!give_up(&view));
+    // The connection closed, and TCP opens again in its slot.
+    view.tcp_free = 0;
+    view.all_idle = true;
+    try testing.expectEqual(Choice{ .tcp = 0 }, next_open(&view).?);
+}
+
+test "decision 117 as amended: under .tcp QUIC opens first when TCP is not allowed" {
     // RFC 9114 §3.1: a client that speaks h3 alone opens QUIC first.
-    view = fresh();
+    var view = fresh();
     view.prefer = .tcp;
     view.tcp_allowed = false;
     try testing.expectEqual(Choice.quic, next_open(&view).?);
