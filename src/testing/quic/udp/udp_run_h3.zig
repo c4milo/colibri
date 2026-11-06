@@ -11,8 +11,8 @@
 //! which RFC 9002 recovers.
 //!
 //! On Linux the socket asks the kernel to coalesce datagrams (UDP_GRO), and each batch goes out as
-//! one segmented send (UDP_SEGMENT, `udp_batch.zig`, design §8 step 13f.6). A coalesced delivery
-//! holds segments of one length, and each goes to the endpoint as a datagram of its own.
+//! one segmented send (UDP_SEGMENT, `udp_batch.zig`, design §8 step 13f.6). Rotor splits what the
+//! kernel coalesced, so each delivery holds one datagram (Rotor's decision 15 as amended).
 //!
 //! With `qlogdir`, each connection writes its qlog there: the endpoint asks its log provider for a
 //! log as each connection starts, and hands it back once the connection is over (decision 102 as

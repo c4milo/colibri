@@ -308,9 +308,11 @@ var test_coalesced_memory: CoalescedMemory align(@alignOf(CoalescedMemory)) = un
 const test_segment_len: u16 = 100;
 /// The shorter last segment. Test-only.
 const test_last_len: u16 = 50;
+/// The segments of the send. Test-only.
+const test_segments_count: usize = 3;
 const test_segments = [_]u8{'a'} ** test_segment_len ++ [_]u8{'b'} ** test_segment_len ++ [_]u8{'c'} ** test_last_len;
 
-test "design §8 step 13f.6: a segmented send arrives coalesced at a receiver that asks for it" {
+test "design §8 step 13f.6: a segmented send arrives as its segments at a receiver that coalesces" {
     // UDP_SEGMENT and UDP_GRO are Linux's; macOS refuses the one and ignores the other.
     if (builtin.os.tag != .linux) return;
     const receiver = &test_endpoints[0];
@@ -328,12 +330,25 @@ test "design §8 step 13f.6: a segmented send arrives coalesced at a receiver th
     try testing.expect(sender.send(test_send_user_data, &test_segments, &outbound));
     const sent = try sender.tick(&events, test_wait_ns);
     try testing.expectEqual(@as(u32, test_segments.len), try sent[0].outcome());
-    const arrived = try receiver.tick(&events, test_wait_ns);
-    try testing.expectEqual(1, arrived.len);
-    const got = receiver.delivery(arrived[0]);
-    try testing.expectEqualStrings(&test_segments, got.bytes);
-    try testing.expectEqual(test_segment_len, got.from.segment_bytes);
-    receiver.finish_receive(arrived[0]);
+    // Rotor splits what the kernel coalesced: each segment arrives as an event of its own
+    // (Rotor's decision 15 as amended on 2026-11-05).
+    var offset: usize = 0;
+    var segments_seen: usize = 0;
+    // Bounded: each tick delivers at least one segment, or its wait ends and fails the test.
+    while (segments_seen < test_segments_count) {
+        const arrived = try receiver.tick(&events, test_wait_ns);
+        try testing.expect(arrived.len > 0 and segments_seen + arrived.len <= test_segments_count);
+        for (arrived) |event| {
+            const got = receiver.delivery(event);
+            const expected_len: usize = if (segments_seen + 1 < test_segments_count) test_segment_len else test_last_len;
+            try testing.expectEqualStrings(test_segments[offset..][0..expected_len], got.bytes);
+            try testing.expectEqual(0, got.from.segment_bytes);
+            receiver.finish_receive(event);
+            offset += expected_len;
+            segments_seen += 1;
+        }
+    }
+    try testing.expectEqual(test_segments.len, offset);
     try receiver.close();
     try sender.close();
 }

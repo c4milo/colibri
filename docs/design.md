@@ -5025,6 +5025,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
             1.01 and 1.07, and 1.09 and 1.07. Its two jobs differ by up to 0.04, and it moves in
             no one direction from commit to commit. So no change moved the rate past the noise of
             this ratio, which is about 5% from one run to the next.
+        - Rotor v0.9.0, 2026-11-05. The pin moves from `4f818b7` to `5a5d7d7`. Rotor now splits
+          a coalesced datagram itself (its decision 15 as amended on 2026-11-05). Each segment
+          arrives as an event of its own, and `segment_bytes` on a received datagram is always 0.
+          - The `udp.zig` test now requires three events for the segmented send, each with its
+            own octets and a `segment_bytes` of 0.
+          - `Segments.of` takes 0 as one datagram, so the servers need no change.
+          - `coalesce` is now true by default. Every socket with a group of 2,048-octet buffers
+            sets it false or holds no group. Each buffer size is a multiple of 8, as Rotor now
+            requires.
+          - The test ran in an Ubuntu 24.04 arm64 container, on io_uring, and passed.
   - **13h**, a profile of the server on the judge, which the owner ruled on 2026-10-27, to find
     where colibri spends its time. `bench/run.sh --profile` runs each input once after the
     warm-up, under `perf record` at 1,999 Hz with the call stacks, in place of `perf stat`. Each
