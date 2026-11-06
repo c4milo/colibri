@@ -96,12 +96,15 @@ pub fn ClientOf(comptime capacity: Capacity) type {
         stopping: std.atomic.Value(bool),
         shut_down: bool,
         closed: bool,
+        /// `run` was called since `init`.
+        ran: bool,
 
         /// Keeps the configuration, prepares the pool, and opens the UDP socket when the pool
         /// offers QUIC: h3 allowed, a TLS value, and a client that holds QUIC (RFC 9114 §3.1).
         pub fn init(self: *Self, config: ClientConfig) !void {
             self.config = config;
             self.udp.open = false;
+            self.ran = false;
             // A run that fails before its first turn closes the sockets that are live (`close_left`).
             for (&self.sockets) |*socket| socket.live = false;
             if (self.config.random == null) self.config.random = entropy.random();
@@ -117,9 +120,9 @@ pub fn ClientOf(comptime capacity: Capacity) type {
             self.undrained = false;
         }
 
-        /// Closes the UDP socket when `run` did not close it. The program calls it after `init`
-        /// returns, and after `run` returns when it calls `run`. The client keeps no ticket and no
-        /// private key, so it wipes nothing.
+        /// Closes the UDP socket when `run` did not close it. The program calls it once after
+        /// `init` returns, and after `run` returns when it calls `run`. The client keeps no ticket
+        /// and no private key, so it wipes nothing. The next `run` comes after the next `init`.
         pub fn deinit(self: *Self) void {
             // `init` sets the source on each path, before any step that can fail.
             assert(self.config.random != null);
@@ -129,16 +132,19 @@ pub fn ClientOf(comptime capacity: Capacity) type {
         /// Hands the pool a request and the response it fills, and returns the exchange's id. The
         /// program keeps both in place, and each slice they name, until the exchange's `finished`
         /// event (decision 124). It calls `request` before `run`, or from a handler `run` calls,
-        /// on the loop's thread.
-        pub fn request(self: *Self, message: *const client.Request, response: *client.Response) client.RequestError!client.RequestId {
+        /// on the loop's thread. After `shutdown`, from any thread, it returns `ShutDown`.
+        pub fn request(self: *Self, message: *const client.Request, response: *client.Response) (client.RequestError || error{ShutDown})!client.RequestId {
+            // The pool takes no request after its own shutdown, which the loop passes it at its
+            // next turn (`ConnectionPool.request`).
+            if (self.stopping.load(.acquire)) return error.ShutDown;
             const id = try self.pool.request(message, response);
             // The pool reports the open or the send the request needs at the next read.
             self.undrained = true;
             return id;
         }
 
-        /// Asks the client to stop: it takes no new request, and `run` returns once each exchange
-        /// has finished and each connection has closed. Any thread may call it.
+        /// Asks the client to stop: `request` returns `ShutDown` from now on, and `run` returns
+        /// once each exchange has finished and each connection has closed. Any thread may call it.
         pub fn shutdown(self: *Self) void {
             self.stopping.store(true, .release);
         }
@@ -148,7 +154,8 @@ pub fn ClientOf(comptime capacity: Capacity) type {
         /// program's struct, which declares `on_finished(handler, *Client, client.Finished)` and
         /// may declare `on_connected(handler, *Client, client.Connected)`. Each runs on this
         /// thread, and may call `request` and `shutdown`. The loop runs here because a Rotor loop
-        /// belongs to the thread that starts it (decision 150 ruling 7).
+        /// belongs to the thread that starts it (decision 150 ruling 7). A program calls `run`
+        /// once for each `init`.
         pub fn run(self: *Self, handler: anytype) server_module.RunError!void {
             return client_loop.run_loop(self, handler, loop_options);
         }

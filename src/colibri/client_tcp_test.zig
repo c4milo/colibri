@@ -103,6 +103,40 @@ test "design §8 step 42: a slot's next connection opens once its last socket ha
     try testing.expectEqual(3, handler.connections);
 }
 
+/// A handler that shuts the client down as each exchange ends, and then makes a request.
+const StopHandler = struct {
+    recorded: fixture.Handler = .{},
+    refused: u32 = 0,
+    exchange: fixture.Exchange = .{},
+
+    pub fn on_finished(handler: *StopHandler, running: *fixture.TestClient, finished: client.Finished) void {
+        handler.recorded.on_finished(running, finished);
+        running.shutdown();
+        handler.exchange.response = .{ .body = &handler.exchange.body };
+        _ = running.request(&handler.exchange.request, &handler.exchange.response) catch |failure| {
+            if (failure == error.ShutDown) handler.refused += 1;
+            return;
+        };
+    }
+};
+
+test "design §8 step 42: a request after shutdown is refused, before and after the pool's shutdown" {
+    var counter: support.Counter = .{};
+    try fixture.start_server(false, false);
+    defer fixture.stop_server();
+    try start_client(.{ .h11 = false }, false, &counter);
+    defer test_client.deinit();
+    var handler: StopHandler = .{};
+    try handler.recorded.request(2);
+    var watchdog: fixture.Watchdog = .{};
+    try watchdog.start();
+    defer watchdog.stop();
+    try test_client.run(&handler);
+    try testing.expect(handler.recorded.greeted());
+    try testing.expectEqual(2, handler.recorded.finished);
+    try testing.expectEqual(2, handler.refused);
+}
+
 fn shutdown_later(started: *std.atomic.Value(bool)) void {
     // Bounded: the test's run starts within the watchdog's time.
     for (0..std.math.maxInt(u32)) |_| {

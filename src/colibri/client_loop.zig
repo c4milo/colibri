@@ -24,6 +24,9 @@ pub fn run_loop(state: anytype, handler: anytype, comptime options: rotor.Loop.O
     const Handler = @typeInfo(@TypeOf(handler)).pointer.child;
     comptime assert(@hasDecl(Handler, "on_finished"));
     assert(state.config.random != null);
+    // The pool reports `closed` once, so a second run would wait for it without end.
+    assert(!state.ran);
+    state.ran = true;
     defer state.udp.close();
     try state.loop.init(&state.loop_memory, options);
     defer end(state);
