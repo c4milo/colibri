@@ -22,6 +22,7 @@ const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 const StreamId = stream_module.StreamId;
 const testing = std.testing;
+const assert = std.debug.assert;
 
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
@@ -232,10 +233,44 @@ test "decision 61: every receive window grows no further than the pool holds" {
     const id = try client_stream(body_len, true);
     const count = try send_all(&client);
     for (0..count) |index| try deliver(index, &server);
-    try testing.expectEqual(pool_capacity, server.streams.lookup(id).live.receive_flow.window_max);
+    // Decision 49 as amended: a stream leaves one stream's starting window to the others.
+    try testing.expectEqual(pool_capacity - stream_window, server.streams.lookup(id).live.receive_flow.window_max);
     // A connection given no pool keeps its windows where they start.
     open_one(&client, .client, null);
     try testing.expectEqual(connection_window, client.receive_flow.window_max);
+    try testing.expectEqual(stream_window, connection_module.stream_receive_window_max(&client, stream_window));
+}
+
+/// Credits that each come inside one round trip of the last, which is more than the doublings
+/// from `stream_window` to the cap. Test-only.
+const growth_credits: usize = 8;
+comptime {
+    // The cap is no doubling of `stream_window`, so a window that grows to the pool shows.
+    assert(pool_capacity - stream_window > 2 * stream_window);
+}
+
+test "decision 49 as amended: a stream's window grows to the pool less one stream's starting window" {
+    open_pair();
+    const id = try client_stream(body_len, true);
+    const count = try send_all(&client);
+    for (0..count) |index| try deliver(index, &server);
+    const receiver = &server.streams.lookup(id).live.receive_flow;
+    // The application takes the whole window inside each round trip, so each credit grows it.
+    for (0..growth_credits) |credit| {
+        try receiver.use(receiver.limit, error.FlowControlExceeded);
+        receiver.consume(receiver.used - receiver.consumed);
+        _ = receiver.credit_frame_limit(clock_ns + credit, round_ns);
+    }
+    try testing.expectEqual(pool_capacity - stream_window, receiver.window);
+}
+
+test "decision 49 as amended: a pool no larger than two starting windows keeps a stream's window where it starts" {
+    open_pair();
+    const half = pool_capacity / 2;
+    try testing.expectEqual(half, connection_module.stream_receive_window_max(&server, half));
+    try testing.expectEqual(half + 1, connection_module.stream_receive_window_max(&server, half + 1));
+    try testing.expectEqual(pool_capacity, connection_module.stream_receive_window_max(&server, pool_capacity));
+    try testing.expectEqual(pool_capacity - 1, connection_module.stream_receive_window_max(&server, 1));
 }
 
 /// The application error code the client resets its stream with (RFC 9000 §19.4). Test-only.

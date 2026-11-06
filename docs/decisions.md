@@ -1211,6 +1211,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     colibri against msquic and quiche on transfers where it would lose for a reason that is a
     policy choice rather than a design one.
 
+    Amended by the owner on 2026-11-06, with decision 153 ruling 11. A stream's receive window
+    grows up to the receive pool's capacity less the stream's starting window, and not up to the
+    whole pool. A stream that the program holds thus leaves at least one starting window of the
+    pool to the other streams (RFC 9000 §4.1), and one download still uses nearly the whole pool.
+    The rule applies to the streams of a client and of a server. A pool of two starting windows
+    or less keeps each stream's window where it starts. The connection's window still grows up to
+    the whole pool. `quic.Connection` computes the cap from the stream's own starting window, so
+    `quic` needs no value from the client or the server. Two alternatives lost:
+    - Growth up to the whole pool, as before. One held stream could then fill the pool and stop
+      every other stream of the connection.
+    - A fixed stream window of 64 KiB, with no growth. It holds one stream at `window / round
+      trip`, which is the cost this decision removed.
+
 50. **Where RFC 9002 disagrees with itself about the round trip variation, colibri follows
     Appendix A.7.** This is design §12 question 4, which step 10 was required to settle in writing
     and pin with a test.
@@ -6127,7 +6140,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          receive pool. The gap was the window of a request stream: the client granted each one
          the whole pool, so one held stream could fill the pool and stop the others. The client
          grants each request stream `@min(quic_stream_window, capacity)`, as it grants each
-         unidirectional stream (RFC 9000 §18.2).
+         unidirectional stream (RFC 9000 §18.2). Amended by the owner on 2026-11-06, with
+         decision 49: the window grows up to the pool's capacity less that starting window, so a
+         held stream leaves the other streams at least one starting window of the pool.
      12. Ruled by the owner on 2026-11-06: over h3 a piece is copied once, as over h11 and h2. The
          `data_available` event carries the count of octets that arrived and copies none, and
          `h3.Connection.peek_data` copies them from QUIC straight into the caller's memory.

@@ -13277,6 +13277,22 @@ library.
       - 4 mutations **CAUGHT**, each **NOT CAUGHT** before these tests: no wait on a DATA frame
         header alone, `peek_data` with no reset check, and `body_len` cleared at an h2 or an h3
         refusal.
+    - The owner's rulings of 2026-11-06 on the review:
+      - Decision 49 as amended: a stream's receive window grows up to the receive pool's capacity
+        less the stream's starting window, and not up to the whole pool (RFC 9000 §4.1). The rule
+        applies to client and server streams alike. `quic.Connection` takes the cap from the
+        stream's own starting window, and a pool of two starting windows or less keeps the
+        window where it starts.
+      - In a pool of 262,144 octets, a request stream grows to 196,608 octets. A test holds a
+        piece of that stream, and a second exchange of 32,768 octets finishes. The client sends
+        MAX_DATA once half the connection's window is consumed, so the other streams together
+        get one starting window until the program releases the held piece.
+      - `h3.Connection.peek_data` returns 0 on a stream reset, refused or closed since its
+        `data_available` event, as `release_data` takes none. The owner accepted this, with no
+        error.
+      - 3 mutations **CAUGHT** by the `quic` tests: growth back to the pool's capacity, the floor
+        removed, and the floor and its assertion removed. Growth back to the capacity is also
+        **CAUGHT** by the client test, with its two window checks removed too.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps

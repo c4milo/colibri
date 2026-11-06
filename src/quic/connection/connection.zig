@@ -400,6 +400,21 @@ pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
     return storage.capacity;
 }
 
+/// The largest a stream's receive window starting at `window` grows to (decision 49 as amended
+/// on 2026-11-06): the receive pool's capacity less one stream's starting window. Every other
+/// stream thus keeps at least one starting window of the pool. A pool no larger than two
+/// starting windows keeps the window where it starts, and so does a connection with no pool.
+pub fn stream_receive_window_max(connection: *const Connection, window: u64) u64 {
+    const storage = connection.receive_storage orelse return window;
+    // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
+    assert(window <= storage.capacity);
+    // RFC 9000 §4.1: one stream's credit leaves room in the pool for one more stream's window.
+    const grown = @max(window, storage.capacity - window);
+    assert(grown >= window);
+    assert(grown <= storage.capacity);
+    return grown;
+}
+
 /// RFC 9001 §4.1.2's confirmed state, which a server reaches when the handshake completes and
 /// a client when a HANDSHAKE_DONE frame arrives.
 pub fn confirm_handshake(connection: *Connection) void {

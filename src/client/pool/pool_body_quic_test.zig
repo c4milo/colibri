@@ -290,6 +290,61 @@ test "RFC 9000 §4.1: a held h3 stream keeps one stream's window of the receive 
     try testing.expectEqual(.pending, held.response.result);
 }
 
+/// A receive pool of four request stream windows, so a stream's window grows past one window
+/// and still leaves one to the other streams (decision 49 as amended). Test-only.
+const grown_pool_len: usize = grown_pool_windows * h3_stream_window;
+const grown_pool_windows: usize = 4;
+var grown_pool: quic.stream.stream_incoming.Pool(grown_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(grown_pool_len))) = undefined;
+/// The largest window a request stream grows to in that pool. Test-only.
+const grown_window_max: u64 = grown_pool_len - h3_stream_window;
+/// The held stream's content: more than the grown window. Test-only.
+var long_content: [grown_pool_len]u8 = undefined;
+/// The other exchange's content, which fits in one stream's window with its frames. The client
+/// sends MAX_DATA only once half the connection's window is consumed (RFC 9000 §4.2 leaves the
+/// time to it), so the held piece leaves the other stream one window and no more. Test-only.
+const short_body_len: usize = h3_stream_window / short_body_fraction;
+const short_body_fraction: usize = 2;
+
+test "decision 49 as amended: a held h3 stream whose window grew leaves one stream's window, and the next exchange finishes" {
+    for (&long_content, 0..) |*octet, index| octet.* = @truncate(index);
+    var given = fixture.configured(true);
+    given.protocols = .{ .h11 = false, .h2 = false };
+    try fixture.start_configured(&quic_support.alpn_h3, fixture.values_at(fixture.https_port), given, grown_pool.storage());
+    quic_support.server_answers = false;
+    var held: connection_support.Exchange = .{ .request = .{ .method = "GET", .path = "/held", .streamed = .{ .response = true } }, .response = .{ .body = &response_piece } };
+    var other = fixture.get(&other_body);
+    _ = try pool.request(&held.request, &held.response);
+    _ = try pool.request(&other.request, &other.response);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(2, quic_support.answers_len);
+    const stream_id: quic.stream.StreamId = .{ .value = (try answer_at("/held")).id };
+    // Decision 49 grows a window only as far as `window_max`. The test grows it there at once,
+    // since the test link carries too little in a round trip to make the window grow.
+    const receiver = &pool.quic.transport.streams.lookup(stream_id).live.receive_flow;
+    try testing.expectEqual(grown_window_max, receiver.window_max);
+    receiver.window = receiver.window_max;
+    // The held stream's content is larger than its window, and the program never releases a piece.
+    try quic_support.server_answer(try answer_at("/held"), 200, &long_content);
+    const stream = quic_support.server.streams.lookup(stream_id).live;
+    for (0..rounds_max) |_| {
+        if (stream.send_flow.is_blocked()) break;
+        try pump(1);
+    }
+    try testing.expect(stream.send_flow.is_blocked());
+    try testing.expectEqual(grown_window_max, stream.send_flow.limit);
+    try testing.expectEqual(1, count(.body));
+    // RFC 9000 §4.1: one stream's window of the pool is left, so the other exchange finishes.
+    try quic_support.server_answer(try answer_at("/dns-query"), 200, long_content[0..short_body_len]);
+    for (0..rounds_max) |_| {
+        if (count(.finished) > 0) break;
+        try pump(1);
+    }
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(.response, other.response.result);
+    try testing.expectEqualSlices(u8, long_content[0..short_body_len], other.response.body[0..other.response.body_len]);
+    try testing.expectEqual(.pending, held.response.result);
+}
+
 test "decision 153 ruling 7: a cancel gives back the request piece and the response piece at once" {
     var exchange: connection_support.Exchange = undefined;
     const id = try start_streamed(&exchange, .{ .request = true, .response = true });
