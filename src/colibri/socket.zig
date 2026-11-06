@@ -26,9 +26,15 @@ pub const Kind = enum(u8) { receive, send, close, connect };
 pub const kind_bits = @bitSizeOf(Kind);
 
 /// The operations a loop holds in flight for each socket: a receive, a send and a close. A
-/// connect is in flight alone, before the socket receives or sends, and a close waits for its
-/// event, so it takes no more room.
-pub const operations_per_socket: u32 = 3;
+/// connect is in flight before the socket receives or sends, alone or with the close that cancels
+/// it, so it takes no more room.
+pub const operations_per_socket: u32 = @typeInfo(Kind).@"enum".fields.len - 1;
+
+comptime {
+    // The connect is the one kind that is never in flight beside a receive or a send.
+    const fields = @typeInfo(Kind).@"enum".fields;
+    assert(std.mem.eql(u8, fields[fields.len - 1].name, "connect"));
+}
 
 /// The user data of the operation of `kind` the socket at `index` has in flight.
 pub fn user_data(index: usize, kind: Kind) u64 {

@@ -85,7 +85,7 @@ fn connect(state: anytype, slot: usize, asked: client.Open) void {
 /// The pool is done with a connection: its socket sends what it owes and closes. The pool reads
 /// nothing more of it, and the slot's next socket starts with no input (`Socket.open`), so the next
 /// connection gets none of its octets. An open still waiting for the slot's last close is the one
-/// the pool gave up, and never starts.
+/// the pool gave up, and never starts. A socket whose connect is in flight closes at once (`arm`).
 pub fn close(state: anytype, handle: client.ConnectionHandle) void {
     if (handle.slot >= state.sockets.len) return;
     const slot: usize = handle.slot;
@@ -135,11 +135,9 @@ fn on_connected(state: anytype, slot: usize, event: rotor.Event, now_ns: u64) vo
     const socket = &state.sockets[slot];
     assert(connection.connecting);
     connection.connecting = false;
-    // The pool asked for the close while the connect ran.
-    if (socket.closing) {
-        socket.failed = true;
-        return;
-    }
+    // The pool asked for the close while the connect ran, and `arm` submits it or did. The connect
+    // ended with `canceled`, or it succeeded first: either way the connection never starts.
+    if (socket.closing) return;
     _ = event.outcome() catch {
         socket.failed = true;
         state.pool.transport_closed(connection.handle);
@@ -150,6 +148,15 @@ fn on_connected(state: anytype, slot: usize, event: rotor.Event, now_ns: u64) vo
         return;
     };
     connection.started = true;
+}
+
+/// Closes each socket whose close was never submitted, once a run ended and the loop holds no
+/// operation: a run that failed leaves them open. A socket whose close was submitted has closed.
+pub fn close_left(state: anytype) void {
+    for (&state.sockets) |*socket| {
+        if (socket.live and !socket.close_submitted) rotor.sync.close_now(socket.descriptor);
+        socket.live = false;
+    }
 }
 
 /// Tells the pool once that the transport of a running connection closed.
@@ -170,13 +177,13 @@ pub fn serve(run: anytype, now_ns: u64) void {
 }
 
 /// Steps the socket of `slot`. A socket Rotor has finished with frees the slot, and the open that
-/// waited for it starts.
+/// waited for it starts. A connect the close cancelled still owes its final event (Rotor's rule 1).
 fn serve_slot(run: anytype, slot: usize, now_ns: u64) void {
     const state = run.client;
     const socket = &state.sockets[slot];
     const connection = &state.connections[slot];
     if (!socket.live) return;
-    if (socket.finished()) {
+    if (socket.finished() and !connection.connecting) {
         socket.live = false;
         const asked = connection.waiting orelse return;
         connection.waiting = null;
@@ -216,12 +223,17 @@ fn write(state: anytype, slot: usize, now_ns: u64) usize {
     return written;
 }
 
-/// Submits what each socket this turn changed needs next. A socket that connects needs nothing.
+/// Submits what each socket this turn changed needs next. A socket that connects receives and
+/// sends nothing. Once the pool closed its connection, the socket's close goes at once: Rotor's
+/// close cancels the connect in flight, which could otherwise wait for the system's own limit.
 pub fn arm(state: anytype) void {
     for (0..state.sockets.len) |_| {
         const slot = state.touched.toggleFirstSet() orelse return;
         const socket = &state.sockets[slot];
-        if (socket.live and !state.connections[slot].connecting) socket.arm(&state.loop, slot);
+        const connecting = state.connections[slot].connecting;
+        // A connecting socket wrote nothing, so `Socket.arm` submits its close alone.
+        assert(!connecting or socket.output_len == 0);
+        if (socket.live and (!connecting or socket.closing)) socket.arm(&state.loop, slot);
     }
 }
 

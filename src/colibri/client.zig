@@ -102,6 +102,8 @@ pub fn ClientOf(comptime capacity: Capacity) type {
         pub fn init(self: *Self, config: ClientConfig) !void {
             self.config = config;
             self.udp.open = false;
+            // A run that fails before its first turn closes the sockets that are live (`close_left`).
+            for (&self.sockets) |*socket| socket.live = false;
             if (self.config.random == null) self.config.random = entropy.random();
             const address = try server_loop.address_of(config.host, 0);
             self.addresses = .{datagram_socket.peer_address(address)};
@@ -272,6 +274,7 @@ test "decision 124: a client with no QUIC refuses h3" {
 }
 
 test {
+    _ = @import("client_close_test.zig");
     _ = @import("client_tcp_test.zig");
     _ = @import("client_udp_test.zig");
 }

@@ -26,18 +26,28 @@ pub fn run_loop(state: anytype, handler: anytype, comptime options: rotor.Loop.O
     assert(state.config.random != null);
     defer state.udp.close();
     try state.loop.init(&state.loop_memory, options);
-    defer state.loop.deinit();
-    defer {
-        state.loop.cancel_all();
-        state.loop.drain(&state.events) catch {};
-    }
-    // The first tick waits for nothing: it reads the clock, whose instant the run starts at.
-    assert(try state.loop.tick(&state.events, 0) == 0);
-    reset(state);
-    if (state.udp.open) try state.udp.start(&state.loop);
+    defer end(state);
+    try begin(state);
     const Run = struct { client: @TypeOf(state), handler: @TypeOf(handler) };
     var running: Run = .{ .client = state, .handler = handler };
     while (!finished(state)) try turn(&running);
+}
+
+/// Starts a run on the loop `init` prepared: the first tick, which waits for nothing, reads the
+/// clock, whose instant the run starts at.
+pub fn begin(state: anytype) !void {
+    assert(try state.loop.tick(&state.events, 0) == 0);
+    reset(state);
+    if (state.udp.open) try state.udp.start(&state.loop);
+}
+
+/// Ends a run, whether it finished or failed: it cancels what is in flight, waits for each final
+/// event, closes each TCP socket whose close was never submitted, and frees the loop.
+pub fn end(state: anytype) void {
+    state.loop.cancel_all();
+    state.loop.drain(&state.events) catch {};
+    client_tcp.close_left(state);
+    state.loop.deinit();
 }
 
 /// The nanoseconds in a second, which turn the loop's clock into seconds.
