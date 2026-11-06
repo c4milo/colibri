@@ -1464,6 +1464,135 @@ deadlines of [decision 110](decisions.md) are the server's.
 A client that decodes content codings names them in `Config.codings`, and places the pool
 of decoders each needs ([decision 101](decisions.md)).
 
+### Streamed bodies
+
+A streamed exchange sends its request body in pieces and reads its response body in pieces
+([decision 153](decisions.md)). The pool copies no piece of either body. A gRPC or Connect client
+needs this, because one call can send and receive messages for as long as it runs. The code here
+is from [`examples/client_stream.zig`](../examples/client_stream.zig), which streams a gRPC-shaped
+call both ways over h2 in cleartext. Its server, in
+[`examples/client_stream_peer.zig`](../examples/client_stream_peer.zig), sends back each message
+when it arrives.
+
+`Request.streamed` says which body goes in pieces. A streamed request has an empty `body`. The
+`body` of a streamed response holds one piece at a time, so it can be shorter than the response:
+
+```zig
+const call: client.Request = .{
+    .method = "POST",
+    .path = peer.path,
+    .headers = &.{.{ .name = "content-type", .value = peer.content_type }},
+    .streamed = .{ .request = true, .response = true },
+};
+var piece: [piece_len]u8 = undefined;
+var header_buffer: [section_len]u8 = undefined;
+var trailer_buffer: [section_len]u8 = undefined;
+var response: client.Response align(@alignOf(client.Response)) = .{
+    .body = &piece,
+    .headers = .{ .buffer = &header_buffer },
+    .trailers = .{ .buffer = &trailer_buffer },
+};
+```
+
+`client.Streamed` has three fields:
+
+- `request`: the request body goes out through `write_body`.
+- `response`: the response body comes in through `body` events.
+- `request_len`: the length of the request body, when the program knows it. The request then
+  carries a Content-Length, and its pieces add up to that length. Without it, h11 sends the
+  request chunked (RFC 9112 §7.1), with one chunk for each piece. h2 and h3 send each piece in
+  DATA frames.
+
+`write_body(id, piece, end)` hands the pool the next piece of the request body, and `end` says
+that it is the last piece. The program keeps the piece in place until the exchange's
+`body_taken` event. Over h11 and h2, that event comes when the connection has written the piece.
+Over h3, it comes when the server has acknowledged the piece, because QUIC sends a lost octet again
+from the program's memory (RFC 9000 §13.3). The pool holds one piece of each exchange at a time.
+A piece that the program hands before a connection takes the exchange waits in the pool. The
+example hands the next message when the pool took the message before it and the server sent
+that message back whole:
+
+```zig
+fn hand_next() !void {
+    if (handed == payloads.len or taken < handed) return;
+    if (received_len < end_of(handed)) return;
+    const last = handed + 1 == payloads.len;
+    // The pool copies none of the message: `chat` stays in place until its `body_taken`.
+    try pool.write_body(call_id, chat[end_of(handed)..end_of(handed + 1)], last);
+    handed += 1;
+}
+```
+
+`write_body` returns a `client.WriteBodyError`:
+
+- `UnknownRequest`: the pool holds no exchange with that id.
+- `PieceHeld`: the pool holds a piece of the exchange that it has not taken.
+- `BodyEnded`: an earlier piece ended the body.
+- `BodyStopped`: no more of the body goes out. The exchange ended, or an h3 server sent
+  STOP_SENDING with H3_NO_ERROR (RFC 9114 §4.1). The exchange still finishes, and a response that
+  arrived whole ends `response`.
+
+Three events carry a streamed response:
+
+- `headers` says that the status and the headers are in the `Response`. It comes before the
+  first piece.
+- `body` carries the id and `len`, and `body[0..len]` holds the next piece. The program gives the
+  piece back with `release_body(id)`. Until then, the connection reads no more of the response.
+  Over h11 and h2 it reads no more of the connection. Over h2 and h3 the server gets no flow
+  credit back for the piece (RFC 9113 §5.2, RFC 9000 §4.1), so a fast server waits for the
+  program.
+- `finished` comes only after the program released the last piece. The trailers are then in
+  `Response.trailers`.
+
+```zig
+// The response's status and headers arrived, before any of its body.
+.headers => |id| try on_headers(id),
+// The connection reads the message no more: its memory is the program's again.
+.body_taken => |id| {
+    if (id != call_id) return error.ExchangeWrong;
+    taken += 1;
+    try hand_next();
+},
+// `body` holds a piece of the response. The program copies it out and releases it, and
+// the pool reads no more of the response until then.
+.body => |held| {
+    if (held.id != call_id or !heard_headers) return error.ExchangeWrong;
+    if (received_len + held.len > received.len) return error.ExchangeWrong;
+    @memcpy(received[received_len..][0..held.len], response.body[0..held.len]);
+    received_len += held.len;
+    pool.release_body(held.id);
+    try hand_next();
+},
+```
+
+A gRPC call ends with its status in the trailers:
+
+```zig
+fn on_finished(ended: client.Finished) !void {
+    if (ended.response.result != .response) return error.ExchangeWrong;
+    const status = ended.response.trailers.get("grpc-status") orelse return error.ExchangeWrong;
+    if (!std.mem.eql(u8, status, "0")) return error.ExchangeWrong;
+    finished = true;
+    pool.shutdown();
+}
+```
+
+The other rules of a streamed exchange:
+
+- The program can call `release_body` while it reads the pool's events, as the example does. The
+  next `receive` reads the response on.
+- Over h2 and h3 the request body can go on after the response's head arrives (RFC 9113 §8.1),
+  as it does in the example. Over h11, a response that ends while the request body goes out ends
+  the connection ([decision 124](decisions.md) ruling 2).
+- The pool sends a streamed exchange again on another connection only before its first
+  `body_taken` and before its `headers`. After that the pool holds no whole request, so an
+  exchange that a server refused ends `closed`, not `refused`.
+- `cancel` gives back the request piece and the response piece at once.
+- The client offers no content coding for a streamed response, so its pieces come as the server
+  sent them.
+- One streamed exchange can report four events with no input: `headers`, `body`, `body_taken` and
+  `finished`. `receive_events_without_input_max` counts them.
+
 ## The protocol modules
 
 The sections below are for a program that wants one version by itself: h11 or h2 with no TLS or

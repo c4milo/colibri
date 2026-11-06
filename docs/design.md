@@ -13149,6 +13149,73 @@ library.
     h11, h2 and h3, and over h2 and h3 both at once. A server that sends faster than the program
     releases is held by flow control. The TLA+ model finds each of decision 153's rules
     violated when the rule is off. An example streams a gRPC-shaped exchange both ways in memory.
+  - **39a, the splits,** `bf04b944` and `f6234007`. Files near 500 lines move their request
+    content and the resend rule into files of their own, with no change in behaviour.
+  - **39b, h11 chunk heads,** `8bfd33a3`. `h11.Connection.write_chunk_head` writes the CRLF that
+    ends the chunk before, then the size line, and the piece goes out from the program's memory.
+    `BodyChunked` leaves `h11.connection.SendError`, and `BodyNotChunked`, `ChunkEmpty` and
+    `ChunkIncomplete` join it.
+    - 8 mutations **CAUGHT**: the CRLF before the next head dropped, the size written in decimal,
+      the last chunk with no CRLF before it, a count past the chunk, and a head of length 0, a
+      head before the last chunk's data, an end before it, and a head on a body that is not
+      chunked each accepted.
+  - **39c, h2 stream credit,** `50a86daf`. A stream opened with `hold_credit` gives back its
+    stream credit only at `h2.Connection.release_stream`. The connection's credit goes back at
+    each frame (RFC 9113 §6.9.1).
+    - 5 mutations **CAUGHT**: stream credit given back at receipt, connection credit held too, the
+      room check before the queue removed, a WINDOW_UPDATE after the peer ended the stream, and
+      credit that waited for room never queued.
+  - **39d, h3 DATA held in quic,** `4d903807`. A request opened with `hold_data` reports
+    `data_available`, and `h3.Connection.release_data` takes its octets from quic.
+    `h3.Connection` grows by 16 octets for each request stream, to 147,112.
+    - 6 mutations **CAUGHT**: `read` in place of `peek`, the held stream not skipped, a FIN inside
+      a held DATA frame accepted, a refused stream that keeps its hold, and `release_data` that
+      takes a reset stream's octets or takes none.
+  - **39e, request bodies in pieces,** `fd4eee7e`. `client.Streamed`, `client.WriteBodyError`,
+    `ConnectionPool.write_body` and the `body_taken` event. `exchange_events_max` is 4, and
+    `receive_events_without_input_max` counts it for each exchange.
+    - 13 mutations **CAUGHT**: a resend after a take, END_STREAM or FIN on a piece that is not the
+      last, `body_taken` over h3 before the acknowledgment, chunked framing with a stated length,
+      a refusal after a take reported `refused`, an h11 piece never taken, STOP_SENDING not read
+      as the end of the body, a piece handed while the exchange waited never given to the
+      connection, a second piece or a piece after the end accepted, `body_taken` after
+      `finished`, and one event counted for each exchange.
+  - **39f, response bodies in pieces,** `2f204d36`. `Streamed.response`, the `headers` and `body`
+    events, and `ConnectionPool.release_body`.
+    - 13 mutations **CAUGHT**: `finished` while a piece is held, h11 that reads past a held piece,
+      h2 stream credit at receipt, h3 content read at receipt, h2 padding not skipped, the
+      held-back part counted as taken, a coding offered for a streamed response, a drop that
+      keeps the piece, a move after `headers` (**NOT CAUGHT** first, until its test sent the
+      GOAWAY before the reset), a refusal after `headers` reported `refused`, h3 that reads
+      nothing after a release until a datagram arrives, the end of an h11 body over TLS never
+      read, and END_STREAM after the held-back part ignored.
+  - **39g, a request body after the response's head,** `32fcbcd9`. Tests only: h2 and h3 servers
+    echo each request piece while the response streams.
+    - 2 mutations **CAUGHT**: h2 CANCEL and h3's reset at the response's head.
+  - **39h, the model and the trace,** `ccbe829b` and `2441d636`.
+    - `spec/tla/client_exchanges` gains `Streamed`, `handed`, `taken` and `pieces`, the actions
+      `WriteBody`, `TakeBody`, `BodyArrives` and `ReleaseBody`, and three rules, each with a
+      mutant: `FinishWhenReleased` (`finish_with_piece.cfg`), `CreditAfterRelease`
+      (`credit_before_release.cfg`) and `ResendBeforeTaken` (`resend_after_taken.cfg`).
+      `ClientExchanges_streamed.cfg` and `ClientExchanges_streamed_rough.cfg` must hold.
+    - The client trace run makes one exchange with content in two a streamed PUT. It hands the
+      next piece at each `body_taken`, reads each response piece into 4 octets, and holds each
+      piece up to 30 ms. Over 256 seeds, 80 exchanges were streamed, 122 pieces were taken and
+      141 response pieces were held.
+    - The run found a bug in 39e. A piece handed at `body_taken`, before the next `send`, was
+      taken over h3 before it went out, and an assertion failed. `ccbe829b` fixes it, and 2
+      mutations of the fix are **CAUGHT** by `test-client`.
+    - 4 mutations of the client **CAUGHT** by the trace run: `finished` while a piece is held, a
+      refusal after a take reported `refused`, h2 that reads on while a piece is held, and a move
+      after a take. The last was **NOT CAUGHT** first, while each streamed exchange was a POST;
+      the run then made them PUTs, which move after a close.
+    - **Not run yet:** TLC, on the new configurations, the three mutants and `tools/client_trace.sh`.
+      Another TLC held the machine for the whole layer. SANY parsed the model, the trace module
+      and one written seed of each trace run. A person runs `zig build tla` on the model and
+      `tools/client_trace.sh` before the step is called done.
+  - **39i, the example and the docs,** this commit. `examples/client_stream.zig` streams a
+    gRPC-shaped call both ways over h2 in cleartext, and docs/usage.md describes streamed bodies.
+    - 4 breaks of the example **CAUGHT**, and 1 **NOT CAUGHT**, which examples/README.md lists.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps

@@ -11,6 +11,8 @@ server against each other.
 | [`server_peers.zig`](server_peers.zig) | Not an example by itself, but the two clients the server example answers: one `client.ConnectionPool` over TCP alone, and one over QUIC alone. |
 | [`client_exchange.zig`](client_exchange.zig) | The `client` module through one `client.ConnectionPool`, on a network that drops every UDP datagram. The pool offers h3 over QUIC and h2 over TCP. It opens QUIC first, opens TCP once the fallback delay passes, and carries a GET and a POST over h2. Three more requests get 405 with an Allow value, 404 and 501, because no route serves them. The client starts the connection each `open` asks for, closes each transport at its `close`, takes the server's ticket, and calls `shutdown`. The abandoned QUIC connection ends after its closing period, so the run takes about 3 s. A second pool shows a connect that fails: the client calls `transport_closed`, and the exchange ends `refused`. |
 | [`client_pool.zig`](client_pool.zig) | The `client` module through one `client.ConnectionPoolOf(.{ .quic = false })` of four TCP connections, over h11 in cleartext. Two GETs open two connections, one for each, since h11 carries one exchange at a time on a connection. A later DNS answer goes to the pool through `set_destination`, and four more GETs take the two open connections and open two more, to the new address. The client keeps one socket for each slot that an `open` names, writes what a connection owes at its `send`, and closes the socket at its `close`. |
+| [`client_stream.zig`](client_stream.zig) | Streamed bodies through one `client.ConnectionPoolOf(.{ .quic = false })`, over h2 in cleartext ([decision 153](../docs/decisions.md)). A gRPC-shaped POST sends three messages, each a request piece that `write_body` hands and the pool reports taken. The server answers at the request's head and sends back each message when it arrives. The response comes in pieces of 16 octets, and the client releases each one with `release_body`. The client hands the next message when the one before came back whole, so the request body goes on after the response's head. The call ends with `grpc-status` in its trailers. |
+| [`client_stream_peer.zig`](client_stream_peer.zig) | Not an example by itself, but the server the stream example sends to: one `server.Endpoint` with one TCP slot in cleartext, which answers the call at its head, writes each piece of the request body back with `write_body`, and ends with `write_trailers`. |
 | [`client_pool_peer.zig`](client_pool_peer.zig) | Not an example by itself, but the server the pool example sends to: one `server.Endpoint` with four TCP slots in cleartext, which accepts each socket the client connects. |
 | [`client_peer.zig`](client_peer.zig) | Not an example by itself, but the server the client example sends to: one `server.Endpoint` with one TCP slot and no UDP socket. Each of its routes names the function that answers the request, and it answers 405, 404 or 501 to a request that no route serves. |
 | [`dnssec_check.zig`](dnssec_check.zig) | The `dnssec` module by itself. A resolver checks RFC 6605's P-256 RRSIG over www.example.net's A record, which it builds and streams into a `dnssec.Hash`, sees one changed octet fail, and checks the DS digest of the DNSKEY. |
@@ -28,11 +30,14 @@ zig build example-server_exchange
 
 Each example checks what arrived against what was sent, octet for octet, and exits with an error
 when anything differs. `tools/ci.sh` runs them on every push, so an example that stops working fails
-CI. Sixty-one deliberate breaks each made `zig build examples` fail: 28 of the server example, 24
-of the client example and 9 of the pool example. They break the calls each example makes, its
-peers and the links. Two more breaks made no example fail: the client keeps the octets of a socket
-after its `close`, and the stream link keeps a stream's octets after its close. No socket holds
-octets then.
+CI. Sixty-five deliberate breaks each made `zig build examples` fail: 28 of the server example, 24
+of the client example, 9 of the pool example and 4 of the stream example. They break the calls
+each example makes, its peers and the links. Three more breaks made no example fail:
+- the client keeps the octets of a socket after its `close`, and the stream link keeps a stream's
+  octets after its close. No socket holds octets then.
+- the stream example hands a message before the pool took the one before. Over h2 the server
+  sends a message back only after the connection wrote it, so the take always comes first. Over
+  h3 the take waits for the server's acknowledgment, and the check is needed.
 
 The code in README.md and docs/usage.md is quoted from these programs, and `tools/doc_snippets.sh`
 fails when a quote no longer matches them.
