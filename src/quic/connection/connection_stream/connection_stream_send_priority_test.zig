@@ -96,3 +96,22 @@ test "RFC 9000 §2.3: a stream first in order with nothing to read gives way to 
     const ready = try send_test.open_supplied(provider_len, true);
     try testing.expectEqual(ready.value, try next_stream_id(&body));
 }
+
+test "design §8 step 29d.16: the send walk clears the mark of a stream that sent its FIN" {
+    send_test.open_pair(.{});
+    var body: Body = .{ .len = send_test.short_body_len };
+    const ended = try send_test.open_supplied(send_test.short_body_len, true);
+    // A stream with no octets yet stays in "Ready" and keeps its mark.
+    const waiting = try stream_send.open(&send_test.client, .bidirectional);
+    const streams = &send_test.client.streams;
+    const ended_slot = streams.pool.index_of(send_test.stream_of(ended));
+    const waiting_slot = streams.pool.index_of(send_test.stream_of(waiting));
+    try testing.expect(streams.may_send_new.isSet(ended_slot));
+    try testing.expectEqual(ended.value, try next_stream_id(&body));
+    // RFC 9000 §3.1: the FIN moved the stream to "Data Sent", which sends no new octets.
+    try testing.expectEqual(.data_sent, send_test.stream_of(ended).sending.state);
+    var output: [send_test.datagram.len]u8 = undefined;
+    try testing.expectEqual(0, stream_send.write(&send_test.client, body.provider(), &output).len);
+    try testing.expect(!streams.may_send_new.isSet(ended_slot));
+    try testing.expect(streams.may_send_new.isSet(waiting_slot));
+}

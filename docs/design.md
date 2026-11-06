@@ -12641,6 +12641,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       34,598 to 31,543 instructions a request in job 1. Every other input is within the noise in
       both jobs. The saving is larger than one poll's setup: a request that ends at its head also
       starts no body deadline, and no empty `body` passes through the server.
+    - **29d.16, a walk over the streams that may send, 2026-11-06.** Callgrind on a laptop, on
+      29d.15's tree, counted about 2,340 instructions a request of h3-many in
+      `connection_stream_send.write`. Most of them are `choose`, which `write_new` calls for each
+      STREAM frame. `choose` walks every live stream, and the scan of the pool's live flags alone
+      took about 980. Most streams it reads have sent their FIN and wait for an acknowledgment.
+      - The change, the owner's choice of 2026-11-06: `quic`'s `Streams` keeps `may_send_new`,
+        a bit for each slot. `open_local` and `open_peer` set the bit of each stream this
+        endpoint sends on, and `close` clears it. `choose` walks the set bits alone, and clears
+        the bit of a stream it finds out of "Ready" and "Send" (RFC 9000 §3.1). No stream goes
+        back to those states, so a cleared bit stays correct. No public name changes.
+      - `write_new` copies the bits and clears each stream it tries in the copy, in place of
+        an array of 128 flags it filled for each frame.
+      - The order of the frames does not change, because the walk skips only streams that
+        `owed_new` refuses. So each pinned census stays as it is.
+      - The tests of `stream_table.zig` move to `stream_table_test.zig` for the file's length.
+      - The checks: a test in `stream_table_test.zig` counts the bits as streams of each type
+        open and close. A send test requires `choose` to clear the bit of a stream that sent
+        its FIN. Mutations, by `zig build test-quic`, each reported CAUGHT or NOT CAUGHT.
+      - Each QUIC connection grows by 16 octets, the 128 bits, in docs/performance.md.
+      - The judge's `--h3 --base` 29d.15's tree, at 10 rounds. The step lands when h3-many wins
+        and no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

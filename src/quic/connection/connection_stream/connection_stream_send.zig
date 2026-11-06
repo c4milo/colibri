@@ -190,11 +190,13 @@ fn drop_unneeded(streams: *Streams) void {
 /// turns. A stream that frames nothing, for want of room or of octets from the provider, gives way
 /// to the next.
 fn write_new(connection: *Connection, stream_provider: StreamProvider, output: []u8) Written {
-    var tried: [constants.limits.streams_per_connection_max]bool = @splat(false);
+    // Design §8 step 29d.16: only a marked slot may owe new octets, and a slot this call tried
+    // leaves the copy.
+    var untried = connection.streams.may_send_new;
     // Bounded by the table's capacity: each pass tries one stream it has not tried, or ends.
     for (0..constants.limits.streams_per_connection_max) |_| {
-        const chosen = choose(connection, &tried) orelse return .{};
-        tried[chosen.slot] = true;
+        const chosen = choose(connection, &untried) orelse return .{};
+        untried.unset(chosen.slot);
         const written = frame(stream_provider, chosen.owed, output);
         if (written.len == 0) continue;
         on_new_framed(connection, chosen.stream, written);
@@ -211,18 +213,31 @@ const Choice = struct {
     owed: Range,
 };
 
-/// The untried stream with new octets that sends next, or null when there is none.
-fn choose(connection: *Connection, tried: *const [constants.limits.streams_per_connection_max]bool) ?Choice {
+/// The slots `choose` reads.
+const Slots = std.StaticBitSet(constants.limits.streams_per_connection_max);
+
+/// The untried stream with new octets that sends next, or null when there is none. It clears the
+/// mark of each stream it finds out of "Ready" and "Send", in `untried` and in the table.
+fn choose(connection: *Connection, untried: *Slots) ?Choice {
+    const streams = &connection.streams;
     var best: ?Choice = null;
     var best_rank: u64 = 0;
-    var walk = connection.streams.pool.iterator();
+    // The walk reads a copy, because it clears marks.
+    const marked = untried.*;
+    var walk = marked.iterator(.{});
     // Bounded by the table's capacity, `streams_per_connection_max`.
-    while (walk.next()) |stream| {
-        // The iterator has moved one past the slot it returned.
-        const slot = walk.slot - 1;
-        if (tried[slot]) continue;
+    while (walk.next()) |index| {
+        const slot: u32 = @intCast(index);
+        const stream = streams.pool.at(slot);
+        // RFC 9000 §3.1: new data leaves from "Ready" or "Send" alone, and no stream returns to
+        // either state.
+        if (!stream.sending.may_send_data()) {
+            untried.unset(slot);
+            streams.may_send_new.unset(slot);
+            continue;
+        }
         const owed = owed_new(connection, stream) orelse continue;
-        const rank = rank_of(stream.priority, slot, connection.streams.send_turn);
+        const rank = rank_of(stream.priority, slot, streams.send_turn);
         if (best != null and rank >= best_rank) continue;
         best = .{ .stream = stream, .slot = slot, .owed = owed };
         best_rank = rank;
@@ -253,8 +268,8 @@ pub fn set_priority(connection: *Connection, id: StreamId, priority: u8) Error!v
 
 /// The new octets of `stream` that may go out now, or null when there are none.
 fn owed_new(connection: *const Connection, stream: *const Stream) ?Range {
-    // RFC 9000 §3.1: new data leaves from "Ready" or "Send" alone.
-    if (!stream.sending.may_send_data()) return null;
+    // `choose` passed over each stream out of "Ready" and "Send".
+    assert(stream.sending.may_send_data());
     const outgoing = &stream.outgoing;
     // RFC 9000 §4.1: "Senders MUST NOT send data in excess of either limit."
     const credit = @min(stream.send_flow.available(), connection.send_flow.available());
