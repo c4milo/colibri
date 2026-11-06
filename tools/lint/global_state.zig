@@ -15,10 +15,11 @@
 //!      several files' tests share in `*_test_support.zig`, and `*_fuzz.zig`.
 //!
 //! A test fixture declared in a library file is still read, because the rule cannot tell it from
-//! the file's other declarations. One that a single file uses is `threadlocal`, which costs a test
-//! binary nothing. One that several files share cannot be: their tests name it through a `const`
-//! holding its address, which a `threadlocal` does not have at compile time. So it lives in a
-//! `*_test_support.zig` file beside them.
+//! the file's other declarations. A small one that a single file uses is `threadlocal`. One that
+//! several files share cannot be: their tests name it through a `const` holding its address,
+//! which a `threadlocal` does not have at compile time. So it lives in a `*_test_support.zig` file
+//! beside them. A large one lives there too: glibc places a thread's static TLS on that thread's
+//! stack, and a test binary whose TLS is larger than the stack cannot spawn a thread.
 //!
 //! This file holds colibri's configuration of the rule and the fixtures that pin it.
 

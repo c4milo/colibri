@@ -191,7 +191,7 @@ const testdata = @import("testdata");
 const support = @import("test_support.zig");
 
 /// A server the tests place, outside any stack frame. Test-only.
-threadlocal var test_server: Server align(@alignOf(Server)) = undefined;
+const test_server = &@import("server_test_support.zig").test_server;
 
 test "design §8 step 37c: an identity opens UDP on the listener's port, which Alt-Svc names" {
     var counter: support.Counter = .{};
