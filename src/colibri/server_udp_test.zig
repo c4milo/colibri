@@ -8,6 +8,7 @@ const server = @import("server");
 const testdata = @import("testdata");
 const server_module = @import("server.zig");
 const server_udp = @import("server_udp.zig");
+const datagram_socket = @import("datagram_socket.zig");
 const pump = @import("server_pump.zig");
 const support = @import("test_support.zig");
 
@@ -123,17 +124,17 @@ test "design §8 step 37: the endpoint takes a datagram marked ECT(0) and counts
         .router = &router,
         .context = &context,
     };
-    server_udp.take_delivery(&running, delivery, 1);
+    datagram_socket.take_delivery(delivery, &running, server_udp.take, 1);
     // RFC 9000 §13.4.1: the Initial space counts one ECT(0) packet. No program reads the count, so
     // the test reads the field of the endpoint's one QUIC connection.
     const transport = &test_server.endpoint.state.connections.connections[0].transport;
     try testing.expectEqual(1, transport.spaces[0].ecn.ect_0);
     // The endpoint opened the Initial and owes the client an answer in its own Initial.
-    const sent = test_server.endpoint.send_datagram(&test_server.udp_datagram, 1).?;
+    const sent = test_server.endpoint.send_datagram(&test_server.udp.datagram, 1).?;
     try testing.expect(sent.bytes.len > 0);
     try testing.expectEqual(4433, sent.to.port);
     // RFC 9000 §13.4.2: an endpoint that reads ECN marks what it sends ECT(0) while it tests the
-    // path. The endpoint names ECT(0) here, and a test in `server_udp.zig` checks that the loop
+    // path. The endpoint names ECT(0) here, and a test in `datagram_socket.zig` checks that the loop
     // asks Rotor to set it.
     try testing.expectEqual(server.Ecn.ect_0, sent.ecn);
 }

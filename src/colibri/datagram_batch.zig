@@ -1,8 +1,8 @@
-//! The segmented sends of a `colibri.Server`'s UDP socket (UDP_SEGMENT, design §8 step 13f.6),
-//! moved from the test-only UDP server for design §8 step 37c. Each
-//! turn, the server takes every datagram the endpoint owes and adds it to a batch for its peer and
-//! its codepoint. The endpoint takes its connections in turn, so two datagrams in a row seldom go
-//! to one peer, and a batch for each peer collects them. Each open batch then goes to the kernel
+//! The segmented sends of a UDP socket of `colibri` (UDP_SEGMENT, design §8 step 13f.6), moved
+//! from the test-only UDP server for design §8 step 37c. A server and a client share them (step
+//! 42). Each turn, the socket takes every datagram the endpoint or the pool owes, and adds it to a
+//! batch for its peer and its codepoint. A server's endpoint takes its connections in turn, so two
+//! datagrams in a row seldom go to one peer, and a batch for each peer collects them. Each open batch then goes to the kernel
 //! as one send, which cuts it into datagrams of the batch's first length.
 //!
 //! The kernel requires each segment but the last to have one length, so a datagram longer than
@@ -40,14 +40,14 @@ pub const Batch = struct {
         return if (batch.count > 1) @intCast(batch.segment_len) else 0;
     }
 
-    fn takes(batch: *const Batch, sent: server.Sent) bool {
+    fn takes(batch: *const Batch, sent: anytype) bool {
         if (batch.state != .open or batch.closed) return false;
         if (batch.count == constants.limits.udp_segments_max) return false;
         if (sent.bytes.len > batch.segment_len or batch.len + sent.bytes.len > batch.bytes.len) return false;
         return batch.ecn == sent.ecn and batch.to.eql(&sent.to);
     }
 
-    fn append(batch: *Batch, sent: server.Sent, segments: bool) void {
+    fn append(batch: *Batch, sent: anytype, segments: bool) void {
         assert(batch.state == .open and sent.bytes.len > 0);
         assert(segmented or !segments);
         @memcpy(batch.bytes[batch.len..][0..sent.bytes.len], sent.bytes);
@@ -78,8 +78,10 @@ pub const Batches = struct {
     }
 
     /// Adds `sent` to the open batch for its peer and its codepoint, or to a free batch. A free
-    /// batch must exist (`has_free`).
-    pub fn add(batches: *Batches, sent: server.Sent) void {
+    /// batch must exist (`has_free`). `sent` is a `server.Sent` or a `client.Sent`: each one's
+    /// `to` and `ecn` have the types a batch holds.
+    pub fn add(batches: *Batches, sent: anytype) void {
+        comptime assert(@FieldType(@TypeOf(sent), "to") == Peer and @FieldType(@TypeOf(sent), "ecn") == Ecn);
         for (&batches.batches) |*batch| {
             if (batch.takes(sent)) return batch.append(sent, batches.segments);
         }
@@ -188,7 +190,7 @@ test "design §8 step 13i: without segments, each datagram of one peer is a batc
 test "design §8 step 13f.6: datagrams of one peer with another codepoint start another batch" {
     var batches: Batches = .{};
     batches.add(sent_of(&full, peer_a));
-    batches.add(.{ .bytes = &full, .ecn = .ect_0, .to = peer_a });
+    batches.add(server.Sent{ .bytes = &full, .ecn = .ect_0, .to = peer_a });
     try testing.expectEqual(2, open_count(&batches));
     try testing.expectEqual(Ecn.ect_0, batches.batches[1].ecn);
 }

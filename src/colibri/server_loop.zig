@@ -10,6 +10,7 @@ const constants = @import("constants.zig");
 const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_udp = @import("server_udp.zig");
+const datagram_socket = @import("datagram_socket.zig");
 
 const Kind = socket_module.Kind;
 const kind_bits = socket_module.kind_bits;
@@ -75,14 +76,14 @@ pub fn turn(run: anytype) !void {
     }
     serve(run, now_ns);
     arm(state);
-    if (state.udp_open) server_udp.flush(state, now_ns);
+    if (state.udp.open) state.udp.flush(&state.loop, &state.endpoint, now_ns);
 }
 
 /// Stops taking connections, and asks the endpoint to end each one it holds: its `closed` follows
 /// once every connection has ended, and `run` then returns.
 fn shut_down(state: anytype) void {
     state.shut_down = true;
-    if (state.udp_open) server_udp.stop(state);
+    if (state.udp.open) state.udp.stop(&state.loop);
     state.endpoint.shutdown(state.loop.now_ns());
     // The endpoint reports what the shutdown ends, and `closed` once it holds no connection. With
     // no socket to step, only a drain reads them, so this turn drains.
@@ -101,7 +102,7 @@ fn wait_ns(state: anytype, deadline_ns: ?u64, now_ns: u64) u64 {
 fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
     const state = run.server;
     if (event.user_data == accept_user_data) return on_accept(run, event, now_ns);
-    if (server_udp.owns(event.user_data)) return server_udp.on_event(run, event, now_ns);
+    if (datagram_socket.owns(event.user_data)) return server_udp.on_event(run, event, now_ns);
     const index: usize = @intCast(event.user_data >> kind_bits);
     const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data)));
     const socket = &state.sockets[index];
@@ -110,6 +111,8 @@ fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
         .receive => socket.on_received(event),
         .send => socket.on_sent(event),
         .close => socket.closed = true,
+        // A server's sockets come from its listener, so it connects none.
+        .connect => unreachable,
     }
     // The peer closed first, or the socket failed: the endpoint ends the connection.
     if (socket.failed) pump.peer_closed(run, index, now_ns);

@@ -52,9 +52,9 @@ test "design §8 step 37: deinit after run closes no socket a second time" {
         .cpu = support.cpu(),
         .random = counter.random(),
     });
-    try testing.expect(test_server.udp_open);
+    try testing.expect(test_server.udp.open);
     const listener = test_server.listener;
-    const udp_socket = test_server.udp_socket;
+    const udp_socket = test_server.udp.descriptor;
     const thread = try std.Thread.spawn(.{}, serve, .{});
     test_server.shutdown();
     thread.join();

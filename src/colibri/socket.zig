@@ -20,12 +20,15 @@ const rotor = @import("rotor");
 const constants = @import("constants.zig");
 
 /// What an operation a socket has in flight does. It rides in the operation's user data, below
-/// the socket's index.
-pub const Kind = enum(u8) { receive, send, close };
+/// the socket's index. A client's socket connects (design §8 step 42), and a server's comes from
+/// its listener.
+pub const Kind = enum(u8) { receive, send, close, connect };
 pub const kind_bits = @bitSizeOf(Kind);
 
-/// The operations a loop holds in flight for each socket: a receive, a send and a close.
-pub const operations_per_socket: u32 = @typeInfo(Kind).@"enum".fields.len;
+/// The operations a loop holds in flight for each socket: a receive, a send and a close. A
+/// connect is in flight alone, before the socket receives or sends, and a close waits for its
+/// event, so it takes no more room.
+pub const operations_per_socket: u32 = 3;
 
 /// The user data of the operation of `kind` the socket at `index` has in flight.
 pub fn user_data(index: usize, kind: Kind) u64 {
@@ -199,6 +202,8 @@ pub const Socket = struct {
                 socket.close_submitted = true;
                 break :blk rotor.Operation.close(user_data(index, kind), socket.descriptor);
             },
+            // A client submits its connect itself, with the address it holds until the event.
+            .connect => unreachable,
         };
         const taken = loop.submit(&.{operation}, &.{});
         assert(taken == 1);

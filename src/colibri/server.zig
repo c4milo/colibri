@@ -12,7 +12,7 @@ const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_loop = @import("server_loop.zig");
 const server_udp = @import("server_udp.zig");
-const batch_module = @import("datagram_batch.zig");
+const datagram_socket = @import("datagram_socket.zig");
 const entropy = @import("entropy.zig");
 
 const Identity = identity_module.Identity;
@@ -56,11 +56,11 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         /// The operations the loop holds in flight: an accept, for each socket a receive, a send
         /// and a close, and the UDP socket's receive and sends.
         const loop_options: rotor.Loop.Options = .{
-            .operations = tcp_connections * socket_module.operations_per_socket + 1 + server_udp.operations,
+            .operations = tcp_connections * socket_module.operations_per_socket + 1 + datagram_socket.operations,
         };
         comptime {
             assert(tcp_connections > 0 and loop_options.operations <= rotor.constants.batch_max);
-            assert(tcp_connections < server_udp.send_user_data_last >> socket_module.kind_bits);
+            assert(tcp_connections < datagram_socket.send_user_data_last >> socket_module.kind_bits);
         }
 
         loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
@@ -82,15 +82,8 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         accepting: bool,
         sockets: [tcp_connections]socket_module.Socket,
         /// The UDP socket, open when the server has an identity and QUIC slots (design §8 step
-        /// 37c), its receive buffers, its batches and their destinations, and the room each
-        /// datagram is written in. `run` or `deinit` closes the socket once.
-        udp_open: bool,
-        udp_socket: rotor.Descriptor,
-        udp_receiving: rotor.Handle,
-        udp_group: [server_udp.group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
-        batches: batch_module.Batches,
-        udp_outbound: [constants.limits.udp_batches]rotor.datagram.Outbound,
-        udp_datagram: [constants.limits.udp_datagram_len_max]u8,
+        /// 37c). `run` or `deinit` closes it once.
+        udp: datagram_socket.DatagramSocket,
         /// The entries an event named since their last step, and the sockets a turn changed.
         pending: Bits,
         touched: Bits,
@@ -110,7 +103,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         pub fn init(self: *Self, config: ServerConfig) InitError!void {
             self.config = config;
             self.listener_open = false;
-            self.udp_open = false;
+            self.udp.open = false;
             if (self.config.random == null) self.config.random = entropy.random();
             self.endpoint_config = config.endpoint;
             // Decision 68: the server's own loop reads each datagram's codepoint and sets the one
@@ -169,7 +162,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             // The server issues no ticket unless the program gave a ticket key, so the instant in
             // seconds it judges tickets at is chapulin's 0 for none.
             try self.endpoint.init(&self.endpoint_config, self.config.random.?, 0, self.now_ns);
-            if (self.udp_open) try server_udp.start(self);
+            if (self.udp.open) try self.udp.start(&self.loop);
             const Run = struct { server: *Self, router: @TypeOf(router), context: @TypeOf(context) };
             var running: Run = .{ .server = self, .router = router, .context = context };
             while (!server_loop.finished(self)) try server_loop.turn(&running);
@@ -187,8 +180,7 @@ fn wipe_keys(state: anytype) void {
 fn close_sockets(state: anytype) void {
     if (state.listener_open) rotor.sync.close_now(state.listener);
     state.listener_open = false;
-    if (state.udp_open) rotor.sync.close_now(state.udp_socket);
-    state.udp_open = false;
+    state.udp.close();
 }
 
 const testing = std.testing;
@@ -206,8 +198,8 @@ test "design §8 step 37c: an identity opens UDP on the listener's port, which A
         .random = counter.random(),
     });
     defer test_server.deinit();
-    try testing.expect(test_server.udp_open);
-    const local = try rotor.sync.local_address(test_server.udp_socket);
+    try testing.expect(test_server.udp.open);
+    const local = try rotor.sync.local_address(test_server.udp.descriptor);
     try testing.expectEqual(test_server.port(), local.port);
     // RFC 7838 §3: the TCP connections over TLS advertise h3 on the same port.
     try testing.expectEqual(test_server.port(), test_server.endpoint_config.h3_alternative.?.port);
@@ -244,7 +236,7 @@ test "decision 150: no identity serves cleartext" {
     try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
     try testing.expectEqual(null, test_server.endpoint_config.tls);
     // RFC 9001 §4: QUIC needs TLS, so a cleartext server opens no UDP socket.
-    try testing.expect(!test_server.udp_open);
+    try testing.expect(!test_server.udp.open);
     try testing.expectEqual(null, test_server.endpoint_config.h3_alternative);
     test_server.deinit();
 }
@@ -271,9 +263,9 @@ test "design §8 step 37: deinit closes the listener and the UDP socket, and wip
         .cpu = support.cpu(),
         .random = counter.random(),
     });
-    try testing.expect(test_server.udp_open);
+    try testing.expect(test_server.udp.open);
     const listener = test_server.listener;
-    const udp_socket = test_server.udp_socket;
+    const udp_socket = test_server.udp.descriptor;
     try testing.expect(!std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
     try testing.expect(!std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
     test_server.deinit();
@@ -291,14 +283,14 @@ test "design §8 step 37: an init whose UDP open fails closes the listener and n
     const holder = try rotor.sync.open_datagram(address.family, &address, .{});
     const held = try rotor.sync.local_address(holder);
     // The number of an earlier server's UDP socket, which the program now uses for another file.
-    test_server.udp_socket = holder;
+    test_server.udp.descriptor = holder;
     try testing.expectError(error.AddressInUse, test_server.init(.{
         .port = held.port,
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     }));
-    try testing.expect(!test_server.listener_open and !test_server.udp_open);
+    try testing.expect(!test_server.listener_open and !test_server.udp.open);
     // getsockname(2) on the closed listener fails with EBADF, which Rotor reports as unexpected.
     try testing.expectError(error.Unexpected, rotor.sync.local_address(test_server.listener));
     _ = try rotor.sync.local_address(holder);

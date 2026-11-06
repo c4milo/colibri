@@ -12,6 +12,7 @@ const files = struct {
     pub const server_pump = @import("server_pump.zig");
     pub const server_udp = @import("server_udp.zig");
     pub const datagram_batch = @import("datagram_batch.zig");
+    pub const datagram_socket = @import("datagram_socket.zig");
     pub const socket = @import("socket.zig");
 };
 
