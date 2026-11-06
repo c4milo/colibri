@@ -61,16 +61,28 @@ pub fn append_body(slot: *Slot, octets: []const u8) Error!void {
 /// piece of a streamed response (decision 153 ruling 7), and returns the octets copied. The piece
 /// is held, and its `body` event owed, until the caller releases it.
 pub fn hold_piece(slot: *Slot, octets: []const u8) usize {
-    assert(slot.request.streamed.response and !slot.body_held);
     assert(octets.len > 0);
-    const response = slot.response;
-    assert(response.body_len == 0 and response.body.len > 0);
-    const len = @min(octets.len, response.body.len);
-    @memcpy(response.body[0..len], octets[0..len]);
-    response.body_len = len;
+    const room = piece_room(slot);
+    const len = @min(octets.len, room.len);
+    @memcpy(room[0..len], octets[0..len]);
+    hold_len(slot, len);
+    return len;
+}
+
+/// The caller's empty `body`, where the next piece of a streamed response goes.
+pub fn piece_room(slot: *const Slot) []u8 {
+    assert(slot.request.streamed.response and !slot.body_held);
+    assert(slot.response.body_len == 0 and slot.response.body.len > 0);
+    return slot.response.body;
+}
+
+/// Holds the first `len` octets of the caller's `body` as the next piece, which the connection
+/// wrote there itself, as `hold_piece` does once it copied them.
+pub fn hold_len(slot: *Slot, len: usize) void {
+    assert(len > 0 and len <= piece_room(slot).len);
+    slot.response.body_len = len;
     slot.body_held = true;
     slot.body_owed = true;
-    return len;
 }
 
 /// The caller gave back the piece `body` held. Returns its octets, the flow credit the connection

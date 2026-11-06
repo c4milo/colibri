@@ -5,9 +5,9 @@
 //! frame's payload is taken unread. §4.1.2's content-length rule is checked here at each frame's
 //! header.
 //!
-//! A stream opened with `hold_data` copies its payload with `peek` and leaves it in `quic`, so the
-//! peer gets no credit for it (RFC 9000 §4.1). `release_data` takes it once the caller has used it
-//! (design §8 step 39d).
+//! A stream opened with `hold_data` leaves its payload in `quic`, so the peer gets no credit for it
+//! (RFC 9000 §4.1). The caller copies it with `peek_data` into its own memory, and `release_data`
+//! takes it once the caller has used it (design §8 step 39d).
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -54,17 +54,49 @@ pub fn read_data(connection: *Connection, transport: *QuicConnection, request: *
     return .{ .event = .{ .data = .{ .stream_id = request.id, .octets = window[0..read.len] } } };
 }
 
-/// Copies what has arrived of the current DATA frame's payload, as `read_data` does, but leaves it
-/// unread in `quic` until `release_data` (RFC 9000 §4.1).
-pub fn peek_data(connection: *Connection, transport: *QuicConnection, request: *RequestStream, body: []u8) Error!Step {
+/// Reports what has arrived of the current DATA frame's payload, and copies none of it: the octets
+/// stay unread in `quic` until `release_data` (RFC 9000 §4.1). The caller copies them with
+/// `peek_data` straight into its own memory (decision 153 ruling 12).
+pub fn hold_arrived(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
     assert(request.hold_data and request.held_len == 0);
-    const window = body[0..@intCast(@min(body.len, request.data_left))];
-    const peeked = stream_read.peek(transport, .{ .value = request.id }, window) catch return connection_request.on_closed(connection, request);
+    const found = arrived(transport, .{ .value = request.id }) orelse return connection_request.on_closed(connection, request);
     // §7.1: a stream that ended inside a DATA frame is H3_FRAME_ERROR.
-    if (peeked.fin and peeked.len < request.data_left) return connection.fail(transport, constants.protocol.error_frame_error);
-    if (peeked.len == 0) return .wait;
-    request.held_len = peeked.len;
-    return .{ .event = .{ .data_available = .{ .stream_id = request.id, .octets = window[0..peeked.len] } } };
+    if (found.fin and found.len < request.data_left) return connection.fail(transport, constants.protocol.error_frame_error);
+    const len = @min(found.len, request.data_left);
+    if (len == 0) return .wait;
+    request.held_len = len;
+    return .{ .event = .{ .data_available = .{ .stream_id = request.id, .len = len } } };
+}
+
+/// What `peek` would copy of stream `id` with no bound on its output, measured in `quic`'s
+/// receive pool without a copy, or null when the stream is closed. `advance` reports a reset
+/// before the stream gets here.
+fn arrived(transport: *QuicConnection, id: StreamId) ?stream_read.Read {
+    const stream = switch (transport.streams.lookup(id)) {
+        .live => |stream| stream,
+        .closed, .unopened => return null,
+    };
+    const consumed = stream.receive_flow.consumed;
+    // Design §8 step 29d.9: no octet past `consumed` arrived, so the pool holds none.
+    const end = if (stream.receive_flow.used > consumed) stream.incoming.contiguous_end(transport.receive_storage.?, id.value, consumed) else consumed;
+    assert(end >= consumed);
+    const final_size = stream.receiving.final_size orelse return .{ .len = @intCast(end - consumed), .fin = false };
+    assert(end <= final_size);
+    return .{ .len = @intCast(end - consumed), .fin = end == final_size };
+}
+
+/// Copies the content the last `data_available` event on `stream_id` reported into `output`, as
+/// much as it holds, and returns the octets copied. They stay unread in `quic` until
+/// `release_data` takes them.
+pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, output: []u8) usize {
+    // The caller peeks only at content the last event reported, which nothing has taken since.
+    const request = connection.requests.find(stream_id).?;
+    assert(request.hold_data and request.held_len > 0);
+    const window = output[0..@intCast(@min(output.len, request.held_len))];
+    const peeked = stream_read.peek(transport, .{ .value = stream_id }, window) catch unreachable;
+    // `hold_arrived` measured every held octet as arrived.
+    assert(peeked.len == window.len);
+    return peeked.len;
 }
 
 /// Takes the first `len` octets of the content a `data_available` event reported on `stream_id`,
@@ -162,16 +194,30 @@ fn owes_stream_credit(id: u64) bool {
     return client.transport.streams.lookup(.{ .value = id }).live.receive_flow.owes_credit();
 }
 
+/// Where the tests copy held content with `peek_data`. Test-only.
+threadlocal var copied: [held_content_len]u8 = undefined;
+
+/// The octet `receive`'s buffer is filled with, which no held stream may change. Test-only.
+const untouched_octet: u8 = 0xa5;
+
 test "RFC 9000 §4.1: a held stream gives no credit before release_data, and owes a MAX_STREAM_DATA after it" {
     const id = try held_exchange(&held_content);
+    // Decision 153 ruling 12: the held content is copied once, by `peek_data`, and never into the
+    // buffer `receive` was given.
+    @memset(&client.body, untouched_octet);
     const held = (try next(client)).?.data_available;
     try testing.expectEqual(id, held.stream_id);
-    try testing.expectEqualSlices(u8, &held_content, held.octets);
+    try testing.expectEqual(held_content_len, held.len);
+    try testing.expect(std.mem.allEqual(u8, &client.body, untouched_octet));
+    try testing.expectEqual(held_content_len, client.h3.peek_data(&client.transport, id, &copied));
+    try testing.expectEqualSlices(u8, &held_content, &copied);
+    // A smaller output takes the first octets.
+    try testing.expectEqual(10, client.h3.peek_data(&client.transport, id, copied[0..10]));
     // The stream reads nothing more while the caller holds its content.
     try testing.expectEqual(null, try next(client));
     try testing.expectEqual(held_content_len, unread(id));
     try testing.expect(!owes_stream_credit(id));
-    client.h3.release_data(&client.transport, id, held.octets.len);
+    client.h3.release_data(&client.transport, id, held.len);
     try testing.expectEqual(0, unread(id));
     try testing.expect(owes_stream_credit(id));
     try testing.expectEqual(null, try next(client));
@@ -183,8 +229,10 @@ test "a release of part of the content reports the rest next, from where the rel
     _ = (try next(client)).?.data_available;
     client.h3.release_data(&client.transport, id, part);
     const rest = (try next(client)).?.data_available;
-    try testing.expectEqualSlices(u8, held_content[part..], rest.octets);
-    client.h3.release_data(&client.transport, id, rest.octets.len);
+    try testing.expectEqual(held_content_len - part, rest.len);
+    const len = client.h3.peek_data(&client.transport, id, &copied);
+    try testing.expectEqualSlices(u8, held_content[part..], copied[0..len]);
+    client.h3.release_data(&client.transport, id, rest.len);
     try testing.expectEqual(0, unread(id));
 }
 
@@ -230,4 +278,51 @@ test "§4.1.1: a cancel while content is held drops the hold, and the stream's s
     try testing.expectEqual(null, client.h3.requests.find(id));
     // The caller's release after the cancel finds nothing to take.
     client.h3.release_data(&client.transport, id, 10);
+}
+
+/// Two DATA frames of five octets each, as the server's content. Test-only.
+const two_frames = [_]u8{ constants.protocol.frame_data, frame_payload_len } ++ "hello" ++ [_]u8{ constants.protocol.frame_data, frame_payload_len } ++ "world";
+const frame_payload_len: u8 = 5;
+
+/// Has the client's QUIC receive `two_frames[from..to]` on stream `id`, after the `head_len`
+/// octets of the response's head, in a STREAM frame of its own (RFC 9000 §19.8). Test-only.
+fn arrive(id: u64, head_len: usize, from: usize, to: usize) !void {
+    try quic.connection_stream_frames.apply(&client.transport, .{ .stream = .{
+        .stream_id = id,
+        .offset = head_len + from,
+        .data = two_frames[from..to],
+        .fin = false,
+        .has_length = true,
+    } });
+}
+
+test "RFC 9000 §2.2: a held stream reports its content up to the first octet missing, and no further than its DATA frame" {
+    try harness.pair(.{ .role = .client }, .{ .role = .server });
+    var writer = client.writer_for(0);
+    const id = try client.h3.write_request(&client.transport, try harness.section_of(&harness.test_section, &harness.get_lines), &.{}, true, &writer, harness.test_now_ns);
+    try client.commit(id, writer.written(), true);
+    try exchange();
+    try testing.expect((try next(server)).?.request.end);
+    var answer = server.writer_for(id);
+    try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &harness.ok_lines), &.{}, &answer, harness.test_now_ns);
+    try server.commit(id, answer.written(), false);
+    try exchange();
+    _ = (try next(client)).?.response;
+    const head_len = answer.written().len;
+    // The first frame's header and "he" arrive, then "world"'s frame, and "ll" is missing.
+    try arrive(id, head_len, 0, 4);
+    try arrive(id, head_len, 6, two_frames.len);
+    try testing.expectEqual(2, (try next(client)).?.data_available.len);
+    try testing.expectEqual(2, client.h3.peek_data(&client.transport, id, &copied));
+    try testing.expectEqualStrings("he", copied[0..2]);
+    client.h3.release_data(&client.transport, id, 2);
+    try arrive(id, head_len, 4, 6);
+    // The rest of the first frame, and not the second frame's header.
+    try testing.expectEqual(3, (try next(client)).?.data_available.len);
+    try testing.expectEqual(3, client.h3.peek_data(&client.transport, id, &copied));
+    try testing.expectEqualStrings("llo", copied[0..3]);
+    client.h3.release_data(&client.transport, id, 3);
+    try testing.expectEqual(5, (try next(client)).?.data_available.len);
+    try testing.expectEqual(5, client.h3.peek_data(&client.transport, id, &copied));
+    try testing.expectEqualStrings("world", copied[0..5]);
 }

@@ -190,7 +190,7 @@ fn record(connection: *QuicConnection, h3_event: h3.connection.Event) void {
         .goaway => |stream_id| on_goaway(connection, stream_id),
         // RFC 9114 §6.1: a client receives no request; h3 refuses one before it is an event.
         .request => unreachable,
-        .data_available => |data| on_piece(connection, data),
+        .data_available => |held| on_piece(connection, held.stream_id, held.len),
     }
 }
 
@@ -232,15 +232,17 @@ fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {
 }
 
 /// Content of a streamed response, which h3 left in QUIC (RFC 9000 §4.1): its first octets, as
-/// many as `Response.body` holds, are the next piece. QUIC takes them when the caller releases the
-/// piece, and h3 reads nothing more of the stream until then (decision 153 ruling 7).
-fn on_piece(connection: *QuicConnection, data: h3.connection.Data) void {
-    const slot = connection.slots.of_stream(data.stream_id) orelse {
+/// many as `Response.body` holds, are the next piece. h3 copies them from QUIC straight into
+/// `Response.body`, the one copy (decision 153 ruling 12). QUIC takes them when the caller releases
+/// the piece, and h3 reads nothing more of the stream until then (decision 153 ruling 7).
+fn on_piece(connection: *QuicConnection, stream_id: u64, len: u64) void {
+    const slot = connection.slots.of_stream(stream_id) orelse {
         // No exchange reads the stream any more, so QUIC takes the content at once.
-        connection.h3.release_data(&connection.transport, data.stream_id, data.octets.len);
+        connection.h3.release_data(&connection.transport, stream_id, len);
         return;
     };
-    _ = response_write.hold_piece(slot, data.octets);
+    const copied = connection.h3.peek_data(&connection.transport, stream_id, response_write.piece_room(slot));
+    response_write.hold_len(slot, copied);
 }
 
 /// The caller gave back the piece of exchange `id` its `Response.body` held: QUIC takes its
@@ -386,3 +388,18 @@ test "RFC 9114 §5.2: a piece held when a GOAWAY refuses its stream goes back to
     support.connection.release_body(id);
     try expect_refused(id, &exchange);
 }
+
+test "decision 153 ruling 12: h3 copies a streamed piece once, into `Response.body`, and not into the connection's buffer" {
+    var exchange: support.Exchange = undefined;
+    const id = try start_streamed_get(&exchange);
+    @memset(&support.connection.body, untouched_octet);
+    support.server_answers = true;
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(id, support.find(.body).?.body.id);
+    try testing.expectEqualStrings(support.answer_content[0..piece_len], exchange.response.body[0..exchange.response.body_len]);
+    try testing.expect(std.mem.allEqual(u8, &support.connection.body, untouched_octet));
+}
+
+/// The octet the connection's buffer is filled with, which a streamed piece may not change.
+/// Test-only.
+const untouched_octet: u8 = 0xa5;

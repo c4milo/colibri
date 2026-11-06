@@ -83,10 +83,11 @@ pub const Event = union(enum) {
     response: Response,
     /// Content (§4.1, §7.2.1), written to the front of the buffer `receive` was given.
     data: Data,
-    /// Content of a stream opened with `hold_data`, written to the front of the buffer `receive`
-    /// was given and still unread in `quic`. The stream reports nothing more, and the peer gets no
-    /// credit for it (RFC 9000 §4.1), until `release_data` takes it.
-    data_available: Data,
+    /// Content of a stream opened with `hold_data`: `len` octets arrived and are unread in
+    /// `quic`, and none was copied. `peek_data` copies them into the caller's memory. The stream
+    /// reports nothing more, and the peer gets no credit for them (RFC 9000 §4.1), until
+    /// `release_data` takes them.
+    data_available: struct { stream_id: u64, len: u64 },
     /// A trailer section (§4.1). `field_section` holds its lines until the next call.
     trailers: u64,
     /// The peer ended the stream after a whole message (§4.1).
@@ -266,6 +267,13 @@ pub const Connection = struct {
         return connection_send.write_data_header(connection, stream_id, len, output);
     }
 
+    /// Copies the content the last `data_available` event on `stream_id` reported into `output`,
+    /// as much as it holds, and returns the octets copied: the one copy of a held stream's content
+    /// (decision 153 ruling 12). The octets stay in `quic` until `release_data`.
+    pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id: u64, output: []u8) usize {
+        return connection_request_data.peek_data(connection, transport, stream_id, output);
+    }
+
     /// Takes the first `len` octets of the content the last `data_available` event on `stream_id`
     /// reported, at most all of them, which gives the peer credit for them (RFC 9000 §4.1). The
     /// stream then reads on. It does nothing on a stream reset, refused or closed since the event.
@@ -342,11 +350,11 @@ pub fn initiator(connection: *const Connection) quic.stream.Initiator {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        // Design §8 step 39 adds `release_data` (decision 153).
-        "init",                "start",            "provider",         "receive",           "field_section",
-        "write_request",       "write_response",   "write_trailers",   "write_data_header", "release_data",
-        "cancel",              "oldest_head_wait", "delay_head_waits", "stop_reading",      "shutdown",
-        "goaway_acknowledged", "fail",             "no_error_code",
+        // Design §8 step 39 adds `peek_data` and `release_data` (decision 153).
+        "init",          "start",               "provider",         "receive",           "field_section",
+        "write_request", "write_response",      "write_trailers",   "write_data_header", "peek_data",
+        "release_data",  "cancel",              "oldest_head_wait", "delay_head_waits",  "stop_reading",
+        "shutdown",      "goaway_acknowledged", "fail",             "no_error_code",
     });
 }
 

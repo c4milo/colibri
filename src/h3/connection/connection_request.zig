@@ -208,7 +208,7 @@ fn advance(connection: *Connection, transport: *QuicConnection, request: *Reques
     if (stream_read.reset_code(transport, .{ .value = request.id })) |code| return on_reset(connection, transport, request, code);
     if (request.phase == .abandoned) return discard(connection, transport, request);
     if (request.data_left > 0) {
-        if (request.hold_data) return connection_request_data.peek_data(connection, transport, request, body);
+        if (request.hold_data) return connection_request_data.hold_arrived(connection, transport, request);
         return connection_request_data.read_data(connection, transport, request, body);
     }
     if (request.skip_left > 0) return connection_request_data.skip(connection, transport, request);
