@@ -280,11 +280,15 @@ fn on_reset(connection: *QuicConnection, ended: h3.connection.Ended) void {
 }
 
 /// RFC 9114 §5.2: the server processes no request stream at or above `stream_id`, so each
-/// exchange on one, and each not yet written, may go on another connection.
+/// exchange on one, and each not yet written, may go on another connection. The client cancels
+/// each such stream, which would otherwise stay open until the idle timeout.
 fn on_goaway(connection: *QuicConnection, stream_id: u64) void {
     internal.start_draining(connection);
     for (&connection.slots.slots) |*slot| {
         const unprocessed = slot.stage == .sent and slot.stream_id >= stream_id;
+        // RFC 9114 §5.2: "The endpoint that initiated these requests can cancel them to clean up
+        // transport state", with H3_REQUEST_CANCELLED in each open direction (§4.1.1).
+        if (unprocessed and slot.holds_octets) cancel_stream(connection, slot.stream_id);
         if (slot.stage == .queued or unprocessed) slots_module.end(slot, .refused);
     }
 }

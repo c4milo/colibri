@@ -264,6 +264,7 @@ test {
     _ = @import("pool/pool_quic_flow_test.zig");
     _ = @import("quic/quic_connection_test.zig");
     _ = @import("quic/quic_connection_flow_test.zig");
+    _ = @import("quic/quic_connection_goaway_test.zig");
     _ = @import("quic/quic_connection_idle_test.zig");
     _ = @import("quic/quic_resume_test.zig");
     _ = @import("quic/quic_coding_test.zig");

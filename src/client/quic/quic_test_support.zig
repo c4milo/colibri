@@ -101,6 +101,8 @@ pub const Answer = struct {
     /// Whether the request offered gzip first in Accept-Encoding (decision 101).
     offers_gzip: bool = false,
     ended: bool = false,
+    /// The error code of the client's RESET_STREAM on the request's stream, or null.
+    reset_code: ?u64 = null,
     answered: bool = false,
     prefix: [prefix_len_max]u8 = undefined,
     prefix_len: usize = 0,
@@ -234,7 +236,8 @@ fn client_to_server() !void {
     }
 }
 
-fn server_to_client() !void {
+/// Passes each datagram the server owes to the client, and keeps the client's events.
+pub fn server_to_client() !void {
     for (0..datagrams_per_round_max) |_| {
         const len = (try server_send(&datagram)) orelse return;
         @memcpy(crossing[0..len], datagram[0..len]);
@@ -323,33 +326,40 @@ fn server_parameters() quic.transport_parameters.Parameters {
 fn server_read() !void {
     for (0..support.buffer_len) |_| {
         const read = server_h3.receive(&server, &server_body, now_ns) catch return;
-        const got = read orelse break;
-        switch (got) {
-            .request => |held| {
-                const answer = &answers[answers_len];
-                answer.* = .{ .id = held.stream_id };
-                const path = held.request.path orelse "";
-                @memcpy(answer.path[0..path.len], path);
-                answer.path_len = path.len;
-                answer.content_length = held.request.content_length;
-                answer.https = std.mem.eql(u8, held.request.scheme orelse "", "https");
-                const offer = server_h3.field_section().find("accept-encoding");
-                answer.offers_gzip = offer != null and std.mem.startsWith(u8, offer.?.value, "gzip");
-                // Design §8 step 29d.15: a head that ended its stream is the whole request.
-                answer.ended = held.end;
-                answers_len += 1;
-            },
-            .data => |held| if (answer_of(held.stream_id)) |answer| {
-                answer.received += held.octets.len;
-                answer.received_crc.update(held.octets);
-            },
-            .end => |id| if (answer_of(id)) |answer| {
-                answer.ended = true;
-            },
-            else => {},
-        }
+        take_event(read orelse break);
     }
     try answer_due();
+}
+
+/// Records what one h3 event of the server says about the request it names.
+fn take_event(got: h3.connection.Event) void {
+    switch (got) {
+        .request => |held| {
+            const answer = &answers[answers_len];
+            answer.* = .{ .id = held.stream_id };
+            const path = held.request.path orelse "";
+            @memcpy(answer.path[0..path.len], path);
+            answer.path_len = path.len;
+            answer.content_length = held.request.content_length;
+            answer.https = std.mem.eql(u8, held.request.scheme orelse "", "https");
+            const offer = server_h3.field_section().find("accept-encoding");
+            answer.offers_gzip = offer != null and std.mem.startsWith(u8, offer.?.value, "gzip");
+            // Design §8 step 29d.15: a head that ended its stream is the whole request.
+            answer.ended = held.end;
+            answers_len += 1;
+        },
+        .data => |held| if (answer_of(held.stream_id)) |answer| {
+            answer.received += held.octets.len;
+            answer.received_crc.update(held.octets);
+        },
+        .end => |id| if (answer_of(id)) |answer| {
+            answer.ended = true;
+        },
+        .reset => |held| if (answer_of(held.stream_id)) |answer| {
+            answer.reset_code = held.error_code;
+        },
+        else => {},
+    }
 }
 
 /// The server answers each request that is due, once a test lets it.

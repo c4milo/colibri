@@ -14,9 +14,6 @@ const pump = fixture.pump;
 /// The first piece of the PUT's body. Test-only.
 const first = "hello";
 
-/// The rounds of the fixture's link that pass the idle timeout of 30 s, with a margin. Test-only.
-const rounds_to_idle_max: usize = 1_100;
-
 fn count(tag: std.meta.Tag(pool_module.Event)) usize {
     var counted: usize = 0;
     for (fixture.events[0..fixture.events_len]) |reported| counted += @intFromBool(reported == tag);
@@ -44,14 +41,14 @@ test "decision 153 ruling 3: a GOAWAY at or below a taken h3 PUT's stream refuse
     try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
     try testing.expectEqual(put_stream, quic_support.server_h3.goaway_sent.?);
     pool.shutdown();
-    try pump(fixture.rounds_past_probe);
-    try testing.expectEqual(.refused, put.response.result);
-    // The PUT's body did not end and no side reset its stream, so its stream stays open. The
-    // connection reports the PUT once QUIC closes it at the idle timeout (RFC 9000 §10.1).
-    for (0..rounds_to_idle_max) |_| {
+    // RFC 9114 §5.2: the client cancels the refused stream, so the PUT finishes within a few
+    // rounds and not at the idle timeout (RFC 9000 §10.1).
+    for (0..quic_support.rounds_default) |_| {
         if (count(.finished) > 0) break;
         try pump(1);
     }
+    try testing.expectEqual(1, count(.finished));
+    try pump(fixture.rounds_past_probe);
     // Decision 153 ruling 3: a piece of the PUT was taken, so the refused PUT does not move to
     // TCP and ends closed. The cancelled GET has no event.
     try testing.expectEqual(1, count(.finished));
