@@ -199,6 +199,17 @@ pub const Receiver = struct {
         assert(receiver.in_range());
         return increment;
     }
+
+    /// The application consumed `len` octets, as `release` counts them, but the credit stays in
+    /// `released`, whatever its size, until a later `release` gives it back. The connection calls
+    /// it when it has no room to queue the WINDOW_UPDATE now.
+    pub fn release_later(receiver: *Receiver, len: u32) void {
+        assert(receiver.in_range());
+        assert(len <= receiver.unreleased);
+        receiver.unreleased -= len;
+        receiver.released += len;
+        assert(receiver.in_range());
+    }
 };
 
 // Tests.
@@ -374,4 +385,15 @@ test "the smallest window the contract admits, once filled and freed, earns a WI
     const threshold = constants.policy.window_update_threshold;
     try testing.expectEqual(threshold, receiver.release(constants.policy.window_update_threshold));
     try testing.expectEqual(constants.policy.window_update_threshold, receiver.window.available);
+}
+
+test "credit released later stays in released, and the next release gives all of it back" {
+    var receiver = Receiver.init(constants.policy.window_initial);
+    try receiver.receive(constants.policy.window_update_threshold + 1);
+    receiver.release_later(constants.policy.window_update_threshold);
+    try testing.expectEqual(constants.policy.window_update_threshold, receiver.released);
+    try testing.expectEqual(1, receiver.unreleased);
+    try testing.expectEqual(constants.policy.window_update_threshold + 1, receiver.release(1).?);
+    try testing.expectEqual(0, receiver.released);
+    try testing.expectEqual(constants.policy.window_initial, receiver.window.available);
 }

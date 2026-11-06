@@ -77,6 +77,9 @@ pub const Stream = struct {
     final_sent: bool = false,
     /// The error code of the RST_STREAM the caller asked for, until it is written, or null.
     reset_owed: ?u32 = null,
+    /// Whether the caller gives back the stream's receive credit with `release_stream`, and not
+    /// each DATA frame as it arrives (RFC 9113 §6.9.1). This table only stores it.
+    hold_credit: bool = false,
 };
 
 /// The field sections that have arrived on one stream, in the order RFC 9113 §8.1 allows. A

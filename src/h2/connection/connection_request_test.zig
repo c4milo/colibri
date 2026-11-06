@@ -1,12 +1,16 @@
-//! The tests that hold `connection_request.zig`'s `validate_field_line` to the code it replaced,
-//! split off that file for length. That code read a name twice: once for uppercase letters, then
-//! through `http.field.validate_name`. It stays here as the reference: `validate_field_line` must
-//! accept every line the reference accepts and refuse every line it refuses.
+//! Tests of `connection_request.zig`, split off that file for length.
+//!
+//! Most of them hold `validate_field_line` to the code it replaced. That code read a name twice:
+//! once for uppercase letters, then through `http.field.validate_name`. It stays here as the
+//! reference: `validate_field_line` must accept every line the reference accepts and refuse every
+//! line it refuses.
 const std = @import("std");
 const core = @import("core");
 const http = @import("http");
 const hpack = @import("hpack");
+const constants = @import("../constants.zig");
 const connection_request = @import("connection_request.zig");
+const support = @import("connection_test_support.zig");
 
 const Error = connection_request.Error;
 
@@ -89,4 +93,20 @@ test "validate_field_line gives the reference's verdict with every octet at ever
         }
         name[position] = 'a';
     }
+}
+
+test "RFC 7541 §4.2: a table-size change is declared once and not repeated on the next request" {
+    try support.start_client();
+    const request: connection_request.Request = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
+    const output = &support.test_output;
+    // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
+    const settings = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
+    _ = try support.feed(settings);
+    _ = try support.test_connection.write_request(output, request, &.{}, &.{}, true);
+    // RFC 7541 §4.2: the block opens with the size update the change owes.
+    try std.testing.expectEqual(0x3f, output[constants.protocol.frame_header_len]);
+    try std.testing.expectEqual(0x45, output[constants.protocol.frame_header_len + 1]);
+    _ = try support.test_connection.write_request(output, request, &.{}, &.{}, true);
+    // The first block reached the peer, so the second owes nothing.
+    try std.testing.expect(output[constants.protocol.frame_header_len] != 0x3f);
 }

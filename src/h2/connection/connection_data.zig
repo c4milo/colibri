@@ -5,7 +5,9 @@
 //! the two are not the same error: §6.9.1 makes the connection's a connection error of
 //! FLOW_CONTROL_ERROR and the stream's a stream error of the same code. Both windows count the
 //! whole payload, padding included (§6.1, §10.7), and both are released as soon as the frame is
-//! handed to the caller, because colibri holds no octet of it (design §4.1).
+//! handed to the caller, because colibri holds no octet of it (design §4.1). A stream opened with
+//! `hold_credit` is the one exception: its stream credit for the data waits for the caller's
+//! `release_stream` (`connection_data_release.zig`).
 //!
 //! A DATA frame on a stream colibri has already closed still costs connection window, which §5.1
 //! requires: the peer sent it before it read the close, and a receiver that did not count it would
@@ -34,7 +36,8 @@ pub fn on_data(target: *Connection, header: frame.Header, payload: frame.Data, n
         .open => unreachable,
         .act => |acting| {
             const record = acting.record;
-            if (try count_stream_window(target, header, record, now_ns)) |refused| return refused;
+            const padding_len: u32 = @intCast(header.length - payload.data.len);
+            if (try count_stream_window(target, header, record, padding_len, now_ns)) |refused| return refused;
             // RFC 9113 §8.1: a message begins with the HEADERS frame of its field section, and at a
             // client zero or more interim responses come before it. DATA that arrives before the
             // final field section belongs to no message, which §8.1.1 makes a stream error of
@@ -74,15 +77,20 @@ fn count_connection_window(target: *Connection, payload_len: u32) Error!void {
     }
 }
 
-/// Counts the whole payload against the stream's receive window and releases it. The event it
-/// returns is the stream's refusal, when the peer sent more than the window held.
-fn count_stream_window(target: *Connection, header: frame.Header, record: *Stream, now_ns: u64) Error!?Event {
+/// Counts the whole payload against the stream's receive window and releases it. A stream that
+/// holds its credit releases only `padding_len`, the octets around the data, which the caller
+/// never sees. The event it returns is the stream's refusal, when the peer sent more than the
+/// window held.
+fn count_stream_window(target: *Connection, header: frame.Header, record: *Stream, padding_len: u32, now_ns: u64) Error!?Event {
     record.receive.receive(header.length) catch {
         // RFC 9113 §6.9.1: a stream sent more than its window is a stream error of
         // FLOW_CONTROL_ERROR.
         return try stream_frames.reset_stream(target, header.stream_id, constants.protocol.error_flow_control_error, now_ns);
     };
-    if (record.receive.release(header.length)) |increment| {
+    assert(padding_len <= header.length);
+    const released = if (record.hold_credit) padding_len else header.length;
+    if (released == 0) return null;
+    if (record.receive.release(released)) |increment| {
         target.replies.push_stream_reply(.{
             .stream_id = header.stream_id,
             .kind = .window_update,
@@ -123,6 +131,8 @@ const start_client = support.start_client;
 const feed_response = support.feed_response;
 const write_queued = support.write_queued;
 const test_input = &support.test_input;
+const feed_data = support.feed_data;
+const updates_on = support.updates_on;
 
 /// Feeds a POST request declaring `content_length` on `stream_id`. Test-only.
 fn feed_post(stream_id: u32, content_length: []const u8) !?Event {
@@ -137,13 +147,6 @@ fn feed_post(stream_id: u32, content_length: []const u8) !?Event {
     try support.test_encoder.write_field(&writer, "content-length", content_length, .without_indexing);
     support.test_encoder.commit_block();
     const bytes = try frame_bytes(test_input, constants.protocol.frame_type_headers, constants.protocol.flag_end_headers, stream_id, writer.written());
-    return feed(bytes);
-}
-
-/// Feeds one DATA frame of `payload` on `stream_id`. Test-only.
-fn feed_data(stream_id: u32, payload: []const u8, end_stream: bool) !?Event {
-    const flags: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
-    const bytes = try frame_bytes(test_input, constants.protocol.frame_type_data, flags, stream_id, payload);
     return feed(bytes);
 }
 
@@ -277,19 +280,6 @@ fn owe_stream_credit() !void {
     var payload: [constants.limits.frame_size_max]u8 = @splat('x');
     _ = try feed_data(1, &payload, false);
     _ = try feed_data(1, &payload, false);
-}
-
-/// How many WINDOW_UPDATE frames in `queued` name stream `stream_id`. Test-only.
-fn updates_on(queued: []const u8, stream_id: u32) !usize {
-    var reader = core.Reader.init(queued);
-    var count: usize = 0;
-    for (0..queued.len) |_| {
-        if (reader.remaining_len() == 0) return count;
-        const header = try frame.frame_header.read(&reader);
-        _ = try reader.take(header.length);
-        if (header.type == constants.protocol.frame_type_window_update and header.stream_id == stream_id) count += 1;
-    }
-    return count;
 }
 
 /// A trailer section of one field, which ends the request (RFC 9113 §8.1). Test-only.

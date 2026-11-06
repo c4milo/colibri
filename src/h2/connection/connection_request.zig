@@ -81,6 +81,9 @@ pub const Request = struct {
     path: ?[]const u8 = null,
     authority: ?[]const u8 = null,
     indexing: PseudoIndexing = .{},
+    /// Whether the stream's receive credit waits for `release_stream`, and does not go back as
+    /// each DATA frame arrives (RFC 9113 §6.9.1). The connection's credit goes back either way.
+    hold_credit: bool = false,
 };
 
 /// What `write_request` did.
@@ -134,6 +137,7 @@ pub fn write_request(
     target.streams.transition(record, verdict, .send, .headers, end_stream);
     // RFC 9113 §8.1: a request's header section is its final one, and a trailer section may follow.
     record.final_sent = true;
+    record.hold_credit = request.hold_credit;
     return .{ .stream_id = stream_id, .written = written };
 }
 
@@ -477,21 +481,6 @@ test "§8.5: a CONNECT block carries :method and :authority alone" {
         .{ .name = ":method", .value = "CONNECT" },
         .{ .name = ":authority", .value = "example.com:443" },
     });
-}
-
-test "RFC 7541 §4.2: a table-size change is declared once and not repeated on the next request" {
-    try start_client();
-    // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
-    const settings = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
-    _ = try support.feed(settings);
-    const first = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
-    // RFC 7541 §4.2: the block opens with the size update the change owes.
-    try testing.expectEqual(0x3f, test_output[constants.protocol.frame_header_len]);
-    try testing.expectEqual(0x45, test_output[constants.protocol.frame_header_len + 1]);
-    _ = first;
-    _ = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
-    // The first block reached the peer, so the second owes nothing.
-    try testing.expect(test_output[constants.protocol.frame_header_len] != 0x3f);
 }
 
 test {

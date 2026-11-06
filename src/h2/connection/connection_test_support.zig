@@ -119,3 +119,23 @@ pub fn write_queued() []const u8 {
     const queued_len = test_connection.write_pending(&test_output, 0);
     return test_output[0..queued_len];
 }
+
+/// Feeds one DATA frame of `payload` on `stream_id`. Test-only.
+pub fn feed_data(stream_id: u32, payload: []const u8, end_stream: bool) !?Event {
+    const flags: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
+    const bytes = try frame_bytes(&test_input, constants.protocol.frame_type_data, flags, stream_id, payload);
+    return feed(bytes);
+}
+
+/// How many WINDOW_UPDATE frames in `queued` name stream `stream_id`. Test-only.
+pub fn updates_on(queued: []const u8, stream_id: u32) !usize {
+    var reader = core.Reader.init(queued);
+    var count: usize = 0;
+    for (0..queued.len) |_| {
+        if (reader.remaining_len() == 0) return count;
+        const header = try frame.frame_header.read(&reader);
+        _ = try reader.take(header.length);
+        if (header.type == constants.protocol.frame_type_window_update and header.stream_id == stream_id) count += 1;
+    }
+    return count;
+}

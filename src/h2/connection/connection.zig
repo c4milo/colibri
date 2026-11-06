@@ -42,6 +42,7 @@ const reply = @import("connection_reply.zig");
 const connection_altsvc = @import("connection_altsvc.zig");
 const connection_event = @import("connection_event.zig");
 const connection_send_data = @import("connection_send_data.zig");
+const connection_data_release = @import("connection_data_release.zig");
 const internal = @import("connection_internal.zig");
 
 const Role = @import("../role.zig").Role;
@@ -137,6 +138,9 @@ pub const Connection = struct {
     receive_window: window.Receiver,
     /// The frames colibri owes the peer (`connection_reply.zig`).
     replies: reply.Replies,
+    /// Whether a stream that holds its credit keeps a WINDOW_UPDATE back, because the reply queue
+    /// had no room when the caller released it (`connection_data_release.zig`).
+    stream_credit_waiting: bool,
     /// Whether the section of the field block in progress is dropped once it is decoded: the
     /// stream it belongs to was refused, reset or never opened (`connection_headers.zig`).
     block_discarded: bool,
@@ -205,6 +209,7 @@ pub const Connection = struct {
         connection.send_window = window.Window.init(constants.protocol.initial_window_size_initial);
         connection.receive_window = window.Receiver.init(constants.protocol.initial_window_size_initial);
         connection.replies.init();
+        connection.stream_credit_waiting = false;
         connection.block_discarded = false;
         connection.provider = null;
         connection.records_without_data = 0;
@@ -328,6 +333,13 @@ pub const Connection = struct {
         connection.streams.peer_active_max = max;
     }
 
+    /// Gives back `len` octets of the receive credit of a stream opened with `hold_credit`, once
+    /// the caller has used them (RFC 9113 §6.9.1): see `connection_data_release.zig`. It does
+    /// nothing on a closed stream (§5.1).
+    pub fn release_stream(connection: *Connection, stream_id: u32, len: u32) void {
+        connection_data_release.release_stream(connection, stream_id, len);
+    }
+
     /// Owes the peer a RST_STREAM for `stream_id` (RFC 9113 §6.4), which `write_pending` writes:
     /// see `connection_send.zig`. It needs no room, so a caller may reset every stream it holds
     /// between two writes.
@@ -358,19 +370,23 @@ pub const Connection = struct {
         // RFC 9113 §3.4: no frame goes ahead of the preface. RFC 9846 §6: after the record layer
         // failed, no frame goes out.
         if (!connection.preface_done() or connection.tls_failed) return 0;
-        return connection.replies.write(&connection.streams, output);
+        const written = connection.replies.write(&connection.streams, output);
+        if (!connection.stream_credit_waiting) return written;
+        // The first write made room for the credit a full queue kept back.
+        connection_data_release.queue_waiting(connection);
+        return written + connection.replies.write(&connection.streams, output[written..]);
     }
 
     /// Whether anything is waiting to be written. Nothing is once the record layer failed.
     pub fn has_pending(connection: *const Connection) bool {
         if (connection.tls_failed) return false;
         return !connection.preface_done() or !connection.replies.is_empty() or
-            connection.streams.resets_owed > 0;
+            connection.streams.resets_owed > 0 or connection.stream_credit_waiting;
     }
 
     /// Whether colibri owes the peer a WINDOW_UPDATE it has not written (RFC 9113 §6.9).
     pub fn owes_window_update(connection: *const Connection) bool {
-        return connection.replies.owes_window_update();
+        return connection.replies.owes_window_update() or connection.stream_credit_waiting;
     }
 
     /// Whether the peer broke the protocol and the connection is closing (RFC 9113 §5.4.1), or
@@ -416,13 +432,13 @@ pub const Connection = struct {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        // Design §8 step 21b.4 adds `sendable_len` (decision 119), and step 17c adds
-        // `write_data_header` (decision 138).
-        "init",                 "receive",            "write_response", "attach_tls",     "write_request",
-        "write_data",           "write_data_header",  "sendable_len",   "write_trailers", "write_alt_svc",
-        "limit_peer_streams",   "reset_stream",       "shutdown",       "write_pending",  "write_replies",
-        "has_pending",          "owes_window_update", "has_failed",     "field_section",  "fail",
-        "settings_deadline_ns", "preface_done",
+        // Design §8 step 21b.4 adds `sendable_len` (decision 119), step 17c adds
+        // `write_data_header` (decision 138), and step 39 adds `release_stream` (decision 153).
+        "init",               "receive",              "write_response",     "attach_tls",     "write_request",
+        "write_data",         "write_data_header",    "sendable_len",       "write_trailers", "write_alt_svc",
+        "limit_peer_streams", "release_stream",       "reset_stream",       "shutdown",       "write_pending",
+        "write_replies",      "has_pending",          "owes_window_update", "has_failed",     "field_section",
+        "fail",               "settings_deadline_ns", "preface_done",
     });
 }
 
@@ -430,4 +446,5 @@ test {
     _ = @import("connection_test.zig");
     _ = @import("connection_internal.zig");
     _ = @import("connection_send_data.zig");
+    _ = connection_data_release;
 }
