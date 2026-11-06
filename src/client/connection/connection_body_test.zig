@@ -1,8 +1,8 @@
 //! The tests of a streamed response body on a TCP connection (`connection_body.zig`, decision 153
 //! ruling 7, design §8 step 39f). Each piece fills `Response.body` at most, the connection reads
 //! no more while the caller holds it, and the exchange finishes only once the last piece is
-//! released. Over h2 the stream's credit goes back only as the caller releases, and a cancel
-//! gives back a held piece.
+//! released. Over h2 the stream's credit goes back only as the caller releases, a cancel gives
+//! back a held piece, and a request body goes on after the response's head (design §8 step 39g).
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("connection_test_support.zig");
@@ -28,6 +28,7 @@ var received_len: usize = 0;
 var headers_count: usize = 0;
 var pieces_count: usize = 0;
 var finished_count: usize = 0;
+var taken_count: usize = 0;
 
 /// The content the h2 peer sends in the test of flow control: more than the stream's window.
 var content: [content_len]u8 = undefined;
@@ -53,6 +54,7 @@ fn reset_counts() void {
     headers_count = 0;
     pieces_count = 0;
     finished_count = 0;
+    taken_count = 0;
 }
 
 /// Reads what the peer sent until the client reads nothing more, keeps the piece of exchange `id`
@@ -73,6 +75,7 @@ fn read_piece(id: u64) !bool {
                 held = true;
                 held_len = body.len;
             },
+            .body_taken => taken_count += 1,
             .finished => |finished| {
                 // Decision 153 ruling 7: the exchange finishes only once its last piece is back.
                 try testing.expect(!held);
@@ -297,4 +300,58 @@ test "decision 153 ruling 7: a cancel gives back an h2 piece, and the stream's t
     var resets: usize = 0;
     for (support.peer_events[0..support.peer_events_len]) |peer_event| resets += @intFromBool(peer_event == .stream_reset);
     try testing.expectEqual(1, resets);
+}
+
+/// The h2 peer reads every whole frame the client sent, and sends back each DATA frame's payload
+/// on the stream it came on, ending its own side when the client ended its. Returns the octets of
+/// the request's content it read.
+fn peer_h2_echo() !usize {
+    var echoed: usize = 0;
+    var consumed: usize = 0;
+    // Bounded: each pass consumes an octet or writes what the peer owes, and both are finite.
+    for (0..support.to_peer_len + support.events_max) |_| {
+        const read = try support.peer_h2.receive(support.to_peer[consumed..support.to_peer_len], support.now_ns);
+        if (read.consumed == 0) {
+            if (!support.peer_h2.has_pending()) break;
+            support.peer_h2_owe();
+            continue;
+        }
+        consumed += read.consumed;
+        const data = switch (read.event orelse continue) {
+            .data => |data| data,
+            else => continue,
+        };
+        const sent = try support.peer_h2.write_data(support.to_client[support.to_client_len..], data.stream_id, data.payload, data.end_stream);
+        try testing.expectEqual(data.payload.len, sent.consumed);
+        support.to_client_len += sent.written;
+        echoed += data.payload.len;
+    }
+    support.to_peer_len = 0;
+    support.peer_h2_owe();
+    return echoed;
+}
+
+test "RFC 9113 §8.1: over h2 a request body goes on after the response's head, and both bodies arrive whole" {
+    var echo: Exchange = .{
+        .request = .{ .method = "POST", .path = "/echo", .streamed = .{ .request = true, .response = true } },
+        .response = .{ .body = &piece },
+    };
+    const id = try start_h2(&echo);
+    // The response's head comes first, and the request's content goes on after it.
+    try read_pieces(id);
+    try testing.expectEqual(1, headers_count);
+    const parts = [_][]const u8{ alphabet[0..5], alphabet[5..20], alphabet[20..] };
+    var echoed: usize = 0;
+    for (parts, 1..) |part, handed| {
+        try connection.write_body(id, part, handed == parts.len);
+        support.client_send();
+        echoed += try peer_h2_echo();
+        try read_pieces(id);
+        try testing.expectEqual(handed, taken_count);
+    }
+    try testing.expectEqual(alphabet.len, echoed);
+    try testing.expectEqualStrings(alphabet, received[0..received_len]);
+    try testing.expectEqual(1, finished_count);
+    try testing.expectEqual(.response, echo.response.result);
+    try testing.expectEqual(alphabet.len, echo.response.body_sent);
 }

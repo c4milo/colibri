@@ -3,6 +3,7 @@
 //! server acknowledged it, since QUIC sends a lost octet again by its offset (RFC 9000 §13.3), and
 //! a server that needs no more of the body stops it (RFC 9114 §4.1). Each response piece stays in
 //! QUIC, which gives the server no credit for it until the program releases it (RFC 9000 §4.1).
+//! A request body goes on after the response's head (design §8 step 39g).
 const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
@@ -121,18 +122,19 @@ const Read = struct {
     finished: bool = false,
 };
 
-/// Keeps and releases the piece each new `body` event since event `from` reported, and notes the
-/// exchange's end. A piece is released before the next comes, and before the exchange finishes.
-fn read_new(id: pool_module.RequestId, from: usize, read: *Read) !void {
+/// Keeps and releases the piece each new `body` event since event `from` reported into `body`,
+/// and notes the exchange's end. A piece is released before the next comes, and before the
+/// exchange finishes.
+fn read_new(id: pool_module.RequestId, body: []const u8, from: usize, read: *Read) !void {
     var held = false;
     for (fixture.events[from..fixture.events_len]) |reported| {
         switch (reported) {
-            .body => |body| {
+            .body => |piece| {
                 // Decision 153 ruling 7: no piece comes while one is held, nor the end.
                 try testing.expect(!held);
-                try testing.expectEqual(id, body.id);
-                read.crc.update(response_piece[0..body.len]);
-                read.len += body.len;
+                try testing.expectEqual(id, piece.id);
+                read.crc.update(body[0..piece.len]);
+                read.len += piece.len;
                 read.pieces += 1;
                 held = true;
             },
@@ -154,6 +156,7 @@ test "RFC 9000 §4.1: a server faster than the program waits for the stream's cr
     quic_support.answer_content = &content;
     var get: connection_support.Exchange = .{ .request = .{ .method = "GET", .path = "/stream", .streamed = .{ .response = true } }, .response = .{ .body = &response_piece } };
     const id = try pool.request(&get.request, &get.response);
+    const read_body: []const u8 = &response_piece;
     try pump(fixture.rounds_past_probe);
     try testing.expectEqual(1, count(.headers));
     try testing.expectEqual(1, count(.body));
@@ -166,14 +169,14 @@ test "RFC 9000 §4.1: a server faster than the program waits for the stream's cr
     try testing.expectEqual(small_pool_len, server.send_flow.limit);
     try testing.expectEqual(server.send_flow.limit, server.send_flow.used);
     var read: Read = .{};
-    try read_new(id, 0, &read);
+    try read_new(id, read_body, 0, &read);
     // The next piece is in QUIC already, so the release reports it with no datagram.
     var from = fixture.events_len;
     try fixture.collect();
     try testing.expectEqual(2, count(.body));
     for (0..rounds_max) |_| {
         const seen = fixture.events_len;
-        try read_new(id, from, &read);
+        try read_new(id, read_body, from, &read);
         from = seen;
         if (read.finished) break;
         try pump(1);
@@ -206,4 +209,40 @@ test "decision 153 ruling 7: a cancel gives back the request piece and the respo
     try testing.expectEqual(0, count(.body_taken));
     try testing.expectEqual(0, count(.finished));
     try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], true));
+}
+
+test "RFC 9114 §4.1: over h3 a request body goes on after the response's head, and both bodies arrive whole" {
+    var exchange: connection_support.Exchange = undefined;
+    const id = try start_streamed(&exchange, .{ .request = true, .response = true });
+    const read_body: []const u8 = exchange.response.body;
+    // The server answers at the request's head, before its content, and leaves its stream open.
+    quic_support.server_answers = true;
+    quic_support.answer_early = true;
+    quic_support.answer_open = true;
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.headers));
+    var read: Read = .{};
+    try read_new(id, read_body, 0, &read);
+    var from = fixture.events_len;
+    for (pieces, 1..) |handed_piece, handed| {
+        try pool.write_body(id, handed_piece, handed == pieces.len);
+        try pump(quic_support.rounds_default);
+        try testing.expectEqual(handed, count(.body_taken));
+    }
+    const answer = &quic_support.answers[0];
+    try testing.expectEqual(whole.len, answer.received);
+    try testing.expectEqual(std.hash.Crc32.hash(whole), answer.received_crc.final());
+    // The server ends its response once it read the request whole.
+    try quic.connection_stream_send.supply(&quic_support.server, .{ .value = answer.id }, answer.prefix_len + answer.content.len, true);
+    for (0..rounds_max) |_| {
+        const seen = fixture.events_len;
+        try read_new(id, read_body, from, &read);
+        from = seen;
+        if (read.finished) break;
+        try pump(1);
+    }
+    try testing.expect(read.finished);
+    try testing.expectEqual(std.hash.Crc32.hash(quic_support.answer_content), read.crc.final());
+    try testing.expectEqual(.response, exchange.response.result);
+    try testing.expectEqual(whole.len, exchange.response.body_sent);
 }
