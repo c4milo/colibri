@@ -13067,7 +13067,9 @@ library.
     releases is held by flow control. The TLA+ model finds each of decision 153's rules
     violated when the rule is off. An example streams a gRPC-shaped exchange both ways in memory.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
-  §14.3 and §14.4 and RFC 8899 §4 and §5. It comes after step 37 and before v0.14.0.
+  §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
+  step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps
+  39 and 42 ship as v0.15.0.
   - **The public names.** A connection option `datagram_len_max`, 1,452 octets by default and up
     to 65,527 (decision 155 ruling 6), which `server.Config` and `client.Config` carry, and the
     search's limits in `quic.constants.limits`. Each goes on its
