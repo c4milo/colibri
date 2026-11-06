@@ -249,8 +249,11 @@ pub fn release_body(connection: *QuicConnection, id: event.RequestId) void {
     // The pool releases only a piece the connection reported.
     const slot = connection.slots.of_id(id).?;
     const len = response_write.release_piece(slot);
-    // A stream that was reset, or whose connection ended, holds no content for the piece.
-    if (slot.stage != .sent or connection.stopped) return;
+    // A connection that ended holds no content for the piece.
+    if (connection.stopped) return;
+    // The exchange may have ended while the caller held the piece: RFC 9114 §5.2's GOAWAY refuses
+    // a stream that h3 still reads, so QUIC takes the piece's octets all the same. h3 takes
+    // nothing of a stream that was reset or closed since.
     connection.h3.release_data(&connection.transport, slot.stream_id, len);
     connection.read_owed = true;
 }
@@ -337,4 +340,49 @@ test "RFC 9114 §5.2: a GOAWAY refuses the streams at or past its ID and those n
     try testing.expectEqual(.refused, responses[1].result);
     try testing.expectEqual(.refused, responses[2].result);
     try testing.expect(connection.draining and connection.owed.draining);
+}
+
+/// Where the pieces of the tests' streamed responses land: two octets, so the server's content
+/// comes in more than one. Test-only.
+threadlocal var piece: [piece_len]u8 = undefined;
+const piece_len: usize = 2;
+
+/// Starts a connection and writes a streamed GET to a server that holds its answer. Test-only.
+fn start_streamed_get(exchange: *support.Exchange) !event.RequestId {
+    try support.start(&support.alpn_h3, &support.alpn_h3, false);
+    support.server_answers = false;
+    exchange.* = .{ .request = .{ .method = "GET", .path = "/", .streamed = .{ .response = true } }, .response = .{ .body = &piece } };
+    const id = try support.connection.request(&exchange.request, &exchange.response);
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(1, support.answers_len);
+    return id;
+}
+
+/// Moves datagrams until the exchange `id` finishes, and requires it to end `refused`. Test-only.
+fn expect_refused(id: event.RequestId, exchange: *const support.Exchange) !void {
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(id, support.find(.finished).?.finished.id);
+    try testing.expectEqual(.refused, exchange.response.result);
+}
+
+test "RFC 9114 §5.2: content on a stream a GOAWAY refused goes to QUIC unread, so the exchange finishes" {
+    var exchange: support.Exchange = undefined;
+    const id = try start_streamed_get(&exchange);
+    // The server refuses the stream in a GOAWAY, and answers it all the same.
+    record(&support.connection, .{ .goaway = 0 });
+    support.server_answers = true;
+    // No exchange reads the content, and the stream closes only once QUIC took all of it.
+    try expect_refused(id, &exchange);
+    try testing.expectEqual(null, support.find(.body));
+}
+
+test "RFC 9114 §5.2: a piece held when a GOAWAY refuses its stream goes back to QUIC at its release" {
+    var exchange: support.Exchange = undefined;
+    const id = try start_streamed_get(&exchange);
+    support.server_answers = true;
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(id, support.find(.body).?.body.id);
+    record(&support.connection, .{ .goaway = 0 });
+    support.connection.release_body(id);
+    try expect_refused(id, &exchange);
 }
