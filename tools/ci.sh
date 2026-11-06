@@ -4,15 +4,24 @@
 # same answer. It runs every section even after one fails, so the report is whole, and exits
 # non-zero when any section failed. The HTTP Garden and the QUIC Interop Runner run outside it,
 # each in a job of its own that the workflow starts by hand and every Monday (entry 47 as
-# amended).
+# amended). The TLA+ models and the seven trace checks run only with CI_TLA=all, and the nightly
+# job of the workflow runs them (entries 47 and 67 as amended on 2026-11-05).
 #
 # The report separates two kinds of number. The counted costs and the simulator's checksums are
 # exact: a change in one is a change in the code. The h2load throughput is indicative: a hosted
 # runner pins no core and fixes no governor, which decision 33 requires of a published number, so
 # it shows a large regression and proves nothing about a small one.
 #
-# Usage: tools/ci.sh [report.md]
+# Usage: [CI_TLA=all] tools/ci.sh [report.md]
 set -uo pipefail
+
+case "${CI_TLA:-}" in
+  "" | all) ;;
+  *)
+    echo "ci.sh: CI_TLA is ${CI_TLA}, not all or empty" >&2
+    exit 2
+    ;;
+esac
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly report="${1:-${repository_root}/ci-report.md}"
@@ -30,16 +39,23 @@ cd "${repository_root}"
 
 failed_sections=()
 
-# section <title> <command...>: runs the command, keeps its output, and writes the verdict.
+# minutes <seconds>: prints a wall time as minutes and seconds, such as 12:05.
+minutes() {
+  printf '%d:%02d' "$(($1 / 60))" "$(($1 % 60))"
+}
+
+# section <title> <command...>: runs the command, keeps its output, and writes the verdict and the
+# wall time the command took.
 section() {
   local title="$1"
   shift
   local log="${scratch}/section.log"
+  local started="${SECONDS}"
   echo "ci.sh: ${title}"
   if "$@" >"${log}" 2>&1; then
-    echo "| ${title} | passed |" >>"${scratch}/verdicts"
+    echo "| ${title} | passed | $(minutes $((SECONDS - started))) |" >>"${scratch}/verdicts"
   else
-    echo "| ${title} | **failed** |" >>"${scratch}/verdicts"
+    echo "| ${title} | **failed** | $(minutes $((SECONDS - started))) |" >>"${scratch}/verdicts"
     failed_sections+=("${title}")
     { echo; echo "### Failed: ${title}"; echo; echo '```text'; tail -40 "${log}"; echo '```'; } >>"${scratch}/failures"
   fi
@@ -191,8 +207,15 @@ if command -v python3 >/dev/null 2>&1; then
 else
   qif_lines="No python3 on PATH, so this run made no QIF interop."
 fi
-# Decision 67: the TLA+ specifications of spec/tla/, model-checked by TLC through pepegrillo.
-if command -v java >/dev/null 2>&1; then
+# Decision 67 as amended on 2026-11-05: the TLA+ specifications of spec/tla/, model-checked by TLC
+# through pepegrillo, and the seven trace checks, only with CI_TLA=all. The nightly job of
+# .github/workflows/main.yml runs them every night.
+if [ "${CI_TLA:-}" != "all" ]; then
+  echo "ci.sh: TLA+ models and trace checks skipped; the nightly job runs them"
+  echo "| TLA+ models and trace checks | skipped: the nightly job runs them | 0:00 |" >>"${scratch}/verdicts"
+  tla_lines="This run checked no TLA+ model and ran no trace check, because CI_TLA is not all."
+  tla_lines="${tla_lines}"$'\n'"The nightly job of .github/workflows/main.yml runs them every night."
+elif command -v java >/dev/null 2>&1; then
   section "TLA+ models" zig build tla
   tla_lines="$(grep -E "\[tla\]" "${scratch}/last.log")"
   # https://github.com/c4milo/colibri/issues/58: the h3 trace run's logs against the h3 model.
@@ -220,7 +243,9 @@ if command -v java >/dev/null 2>&1; then
   section "TCP traces against the TLA+ model" tools/tcp_trace.sh
   tla_lines="${tla_lines}"$'\n'"$(grep -E "^tcp_trace.sh: " "${scratch}/last.log")"
 else
-  tla_lines="No Java runtime on PATH, so this run checked no TLA+ model."
+  # CI_TLA=all asks for every TLC check, so a run with no Java to start TLC fails.
+  section "TLA+ models and trace checks" sh -c 'echo "CI_TLA is all, but no Java runtime is on PATH"; exit 1'
+  tla_lines="CI_TLA is all, but no Java runtime is on PATH, so this run checked no TLA+ model."
 fi
 # Decision 77: the Lean proofs of spec/lean/, and the vectors the Zig tests read from them.
 if command -v lake >/dev/null 2>&1 || [ -x "${HOME}/.elan/bin/lake" ]; then
@@ -241,9 +266,11 @@ fi
   echo
   machine
   echo
-  echo "| Section | Verdict |"
-  echo "|---|---|"
+  echo "| Section | Verdict | Wall time |"
+  echo "|---|---|---|"
   cat "${scratch}/verdicts"
+  echo
+  echo "The whole run took $(minutes "${SECONDS}") of wall time, in minutes and seconds."
   echo
   echo "## Exact numbers"
   echo
@@ -305,9 +332,10 @@ fi
   echo "## TLA+ models"
   echo
   echo "Each configuration of spec/tla/ states whether TLC must find its properties holding or"
-  echo "violated (docs/decisions.md entry 67). The last four lines count, for each of the"
-  echo "simulator's trace runs, the seeds whose logs TLC found to be behaviors of its model: h3"
-  echo "(entry 87), h2 (entry 104), the client (entry 105) and the deadlines (issue 86)."
+  echo "violated (docs/decisions.md entry 67). Each line that ends in \"behaviors of the model\""
+  echo "counts the seeds of one trace run whose logs TLC found to be behaviors of its model. A run"
+  echo "checks them only with CI_TLA=all, and the nightly job checks them every night (entry 67 as"
+  echo "amended)."
   echo
   echo "${tla_lines}" | fenced
   echo

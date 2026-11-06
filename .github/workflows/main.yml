@@ -1,17 +1,21 @@
 # Every check of this repository, with a report (docs/decisions.md entry 47): tools/ci.sh, and the
-# unit tests on Linux and macOS arm64, on each push to main, and the HTTP Garden and the QUIC
-# Interop Runner by hand and every Monday. Each job's work is one script or one zig build step,
-# which a person can run by hand for the same answer; this file only installs what that work
-# needs, each download pinned by checksum or commit.
+# unit tests on Linux and macOS arm64, on each push to main, the TLA+ models and the trace checks
+# by hand and every night, and the HTTP Garden and the QUIC Interop Runner by hand and every
+# Monday. Each job's work is one script or one zig build step, which a person can run by hand for
+# the same answer; this file only installs what that work needs, each download pinned by checksum
+# or commit.
 name: main
 on:
   push:
     branches: [main]
   workflow_dispatch:
   # The HTTP Garden's job and the QUIC Interop Runner's, every Monday (decision 47 as amended for
-  # design §8 steps 15d and 9e).
+  # design §8 steps 15d and 9e), and the TLA+ job, every night (decision 47 as amended on
+  # 2026-11-05). Each job's condition names its own cron line, because a scheduled run starts every
+  # job whose condition holds.
   schedule:
     - cron: "0 6 * * 1"
+    - cron: "0 4 * * *"
 permissions:
   contents: read
 env:
@@ -24,14 +28,15 @@ env:
   ZIG_CACHE_MEGABYTES_MAX: 2048
 jobs:
   checks:
-    # The scheduled run is the Garden's and the runner's alone.
+    # The scheduled runs are the Garden's, the runner's and the TLA+ job's alone.
     if: github.event_name != 'schedule'
     # tools/tls_openssl.sh needs an OpenSSL that offers ML-KEM-1024 and speaks QUIC, 3.5 or newer.
     # Ubuntu 26.04 packages 3.5; Ubuntu 24.04 packages 3.0
     # (https://github.com/c4milo/colibri/issues/115).
     runs-on: ubuntu-26.04
-    # The job takes about 100 minutes on this runner, 51 of them in the TLA+ models. A limit of 90
-    # cancelled the four jobs from 3d240941 to 3599733f before their last checks ran.
+    # The job took about 100 minutes on this runner, 51 of them in the TLA+ models, before the
+    # models moved to the tla job. A limit of 90 cancelled the four jobs from 3d240941 to 3599733f
+    # before their last checks ran.
     timeout-minutes: 150
     # One run of each job at a time, and each job its own queue, so the Garden's hours never hold
     # up a push's checks.
@@ -87,10 +92,6 @@ jobs:
           echo "${HOME}/lean/bin" >>"${GITHUB_PATH}"
       - name: Install h2load
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nghttp2-client
-      # tools/ci.sh runs the TLA+ models and traces where java is on the path (decision 67), and
-      # skips them where it is not, so this step fails unless the runner's image has Java.
-      - name: Require Java
-        run: java -version
       # Zig's caches are addressed by content, so a restored entry is reused only when its inputs
       # are the same octets. A cache entry cannot be overwritten, so each commit saves its own and
       # a run restores the newest one.
@@ -118,6 +119,8 @@ jobs:
       - name: Load the image
         if: steps.peers.outputs.cache-hit == 'true'
         run: docker load -i "${HOME}/peers.tar"
+      # This job runs no TLC: CI_TLA is not set, so tools/ci.sh skips the TLA+ models and the trace
+      # checks, and the tla job runs them (decisions 47 and 67 as amended on 2026-11-05).
       - name: Run every check
         run: tools/ci.sh ci-report.md
       - name: Save the image, and keep the Zig cache from growing without bound
@@ -204,7 +207,7 @@ jobs:
   # source, which takes hours and tens of GB (decision 47 as amended). The work is
   # tools/http_garden.sh, which a person on Linux runs for the same answer.
   http-garden:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '0 6 * * 1' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     timeout-minutes: 360
     concurrency:
@@ -270,7 +273,7 @@ jobs:
   # because each pairing of a server and a client takes about 7 minutes and the push job already
   # takes 30 of its 60. The work is tools/interop.sh, which a person runs for the same answer.
   quic-interop-runner:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '0 6 * * 1' || github.event_name == 'workflow_dispatch'
     # The runner reads its packet captures with tshark 4.5.0 or newer. Ubuntu 26.04 packages 4.6;
     # Ubuntu 24.04 packages 4.2.
     runs-on: ubuntu-26.04
@@ -334,3 +337,58 @@ jobs:
             interop-report.txt
             interop-logs
           retention-days: 90
+
+  # Every configuration of the TLA+ models and the seven trace checks over every seed, by hand and
+  # every night (decisions 47 and 67 as amended on 2026-11-05). tools/ci.sh runs them only with
+  # CI_TLA=all, so the checks job runs no TLC. The work is `zig build tla` and the seven trace
+  # scripts, which a person runs for the same answer.
+  tla:
+    if: github.event.schedule == '0 4 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-26.04
+    # The TLA+ models took 51 minutes of the checks job before they moved here.
+    timeout-minutes: 150
+    concurrency:
+      group: tla
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install Zig
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
+          mkdir -p "${HOME}/zig" && tar -xJf zig.tar.xz -C "${HOME}/zig" --strip-components=1
+          rm zig.tar.xz
+          echo "${HOME}/zig" >>"${GITHUB_PATH}"
+      # TLC needs Java, so this step fails unless the runner's image has it.
+      - name: Require Java
+        run: java -version
+      # The checks job's caches, under keys of this job's own, so the two jobs never save one key.
+      - name: Restore the Zig caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/zig
+            .zig-cache
+            zig-pkg
+          key: zig-tla-${{ runner.os }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-${{ github.sha }}
+          restore-keys: |
+            zig-tla-${{ runner.os }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-
+            zig-${{ runner.os }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-
+      - name: Check every configuration of every model
+        run: zig build tla
+      - name: Check every seed of each trace run
+        if: always()
+        run: |
+          rc=0
+          for trace in h3_trace h2_trace client_trace pool_trace deadline_trace \
+            h3_deadline_trace tcp_trace; do
+            "tools/${trace}.sh" || rc=1
+          done
+          exit "${rc}"
+      - name: Keep the Zig cache from growing without bound
+        if: always()
+        run: |
+          megabytes="$(du -sm .zig-cache 2>/dev/null | cut -f1)"
+          if [ "${megabytes:-0}" -gt "${ZIG_CACHE_MEGABYTES_MAX}" ]; then
+            rm -rf .zig-cache
+          fi
