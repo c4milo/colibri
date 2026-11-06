@@ -362,6 +362,28 @@ test "decision 153 ruling 7: a cancel gives back the request piece and the respo
     try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], true));
 }
 
+test "decision 153 ruling 3: a cancel, a refusal after a take, a GOAWAY and a shutdown report the PUT and close" {
+    var put: connection_support.Exchange = undefined;
+    const put_id = try start(&put);
+    var get = fixture.get(&fixture.bodies[1]);
+    const get_id = try pool.request(&get.request, &get.response);
+    try pool.write_body(put_id, pieces[0], false);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.body_taken));
+    pool.cancel(get_id, quic_support.now_ns);
+    // RFC 9114 §4.1.1: the server rejects the PUT unprocessed, then sends a GOAWAY (§5.2).
+    quic_support.server_h3.cancel(&quic_support.server, quic_support.answers[0].id, h3.constants.protocol.error_request_rejected);
+    try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
+    pool.shutdown();
+    try pump(fixture.rounds_past_probe);
+    // A piece of the PUT was taken, so it does not move and ends closed. The GET has no event.
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(put_id, fixture.nth(.finished, 0).?.finished.id);
+    try testing.expectEqual(.closed, put.response.result);
+    try testing.expectEqual(1, count(.close));
+    try testing.expectEqual(1, count(.open));
+}
+
 test "RFC 9114 §4.1: over h3 a request body goes on after the response's head, and both bodies arrive whole" {
     var exchange: connection_support.Exchange = undefined;
     const id = try start_streamed(&exchange, .{ .request = true, .response = true });

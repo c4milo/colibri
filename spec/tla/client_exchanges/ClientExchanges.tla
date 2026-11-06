@@ -809,10 +809,14 @@ Fresh ==
 Closes == shut ~> \A t \in Transports : Idle(t)
 
 (* Every exchange made ends in a response, or was cancelled: step 17d's    *)
-(* "one completed request per request made", where only QUIC fails.        *)
+(* "one completed request per request made", where only QUIC fails. A      *)
+(* streamed exchange with a piece of its request taken can end closed: a   *)
+(* GOAWAY or a failure of QUIC then ends it, and it cannot move to TCP     *)
+(* (decision 153 ruling 3).                                                *)
 Completes ==
     \A e \in Exchanges :
         stage[e] = "waiting" ~> \/ stage[e] = "reported" /\ outcome[e] = "response"
+                                \/ stage[e] = "reported" /\ outcome[e] = "closed" /\ taken[e]
                                 \/ stage[e] = "cancelled"
 
 =============================================================================
