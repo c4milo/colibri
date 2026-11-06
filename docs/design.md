@@ -13151,9 +13151,9 @@ library.
     h11, h2 and h3, and over h2 and h3 both at once. A server that sends faster than the program
     releases is held by flow control. The TLA+ model finds each of decision 153's rules
     violated when the rule is off. An example streams a gRPC-shaped exchange both ways in memory.
-  - **39a, the splits,** `f1b15e5d` and `f0b5666d`. Files near 500 lines move their request
+  - **39a, the splits,** `6145fb2b` and `9f7747ab`. Files near 500 lines move their request
     content and the resend rule into files of their own, with no change in behaviour.
-  - **39b, h11 chunk heads,** `6c967099`. `h11.Connection.write_chunk_head` writes the CRLF that
+  - **39b, h11 chunk heads,** `cca376cd`. `h11.Connection.write_chunk_head` writes the CRLF that
     ends the chunk before, then the size line, and the piece goes out from the program's memory.
     `BodyChunked` leaves `h11.connection.SendError`, and `BodyNotChunked`, `ChunkEmpty` and
     `ChunkIncomplete` join it.
@@ -13161,19 +13161,19 @@ library.
       the last chunk with no CRLF before it, a count past the chunk, and a head of length 0, a
       head before the last chunk's data, an end before it, and a head on a body that is not
       chunked each accepted.
-  - **39c, h2 stream credit,** `2aba9fec`. A stream opened with `hold_credit` gives back its
+  - **39c, h2 stream credit,** `a167707e`. A stream opened with `hold_credit` gives back its
     stream credit only at `h2.Connection.release_stream`. The connection's credit goes back at
     each frame (RFC 9113 §6.9.1).
     - 5 mutations **CAUGHT**: stream credit given back at receipt, connection credit held too, the
       room check before the queue removed, a WINDOW_UPDATE after the peer ended the stream, and
       credit that waited for room never queued.
-  - **39d, h3 DATA held in quic,** `f260e225`. A request opened with `hold_data` reports
+  - **39d, h3 DATA held in quic,** `0c2d8490`. A request opened with `hold_data` reports
     `data_available`, and `h3.Connection.release_data` takes its octets from quic.
     `h3.Connection` grows by 16 octets for each request stream, to 147,112.
     - 6 mutations **CAUGHT**: `read` in place of `peek`, the held stream not skipped, a FIN inside
       a held DATA frame accepted, a refused stream that keeps its hold, and `release_data` that
       takes a reset stream's octets or takes none.
-  - **39e, request bodies in pieces,** `0a9085d7`. `client.Streamed`, `client.WriteBodyError`,
+  - **39e, request bodies in pieces,** `b96909b7`. `client.Streamed`, `client.WriteBodyError`,
     `ConnectionPool.write_body` and the `body_taken` event. `exchange_events_max` is 4, and
     `receive_events_without_input_max` counts it for each exchange.
     - 13 mutations **CAUGHT**: a resend after a take, END_STREAM or FIN on a piece that is not the
@@ -13182,7 +13182,7 @@ library.
       as the end of the body, a piece handed while the exchange waited never given to the
       connection, a second piece or a piece after the end accepted, `body_taken` after
       `finished`, and one event counted for each exchange.
-  - **39f, response bodies in pieces,** `0b88861f`. `Streamed.response`, the `headers` and `body`
+  - **39f, response bodies in pieces,** `24700a95`. `Streamed.response`, the `headers` and `body`
     events, and `ConnectionPool.release_body`.
     - 13 mutations **CAUGHT**: `finished` while a piece is held, h11 that reads past a held piece,
       h2 stream credit at receipt, h3 content read at receipt, h2 padding not skipped, the
@@ -13191,10 +13191,10 @@ library.
       GOAWAY before the reset), a refusal after `headers` reported `refused`, h3 that reads
       nothing after a release until a datagram arrives, the end of an h11 body over TLS never
       read, and END_STREAM after the held-back part ignored.
-  - **39g, a request body after the response's head,** `43029b1d`. Tests only: h2 and h3 servers
+  - **39g, a request body after the response's head,** `39e3ff7c`. Tests only: h2 and h3 servers
     echo each request piece while the response streams.
     - 2 mutations **CAUGHT**: h2 CANCEL and h3's reset at the response's head.
-  - **39h, the model and the trace,** `6c2dbe34` and `9fc10d8d`.
+  - **39h, the model and the trace,** `1f5f3377` and `c91b80a3`.
     - `spec/tla/client_exchanges` gains `Streamed`, `handed`, `taken` and `pieces`, the actions
       `WriteBody`, `TakeBody`, `BodyArrives` and `ReleaseBody`, and three rules, each with a
       mutant: `FinishWhenReleased` (`finish_with_piece.cfg`), `CreditAfterRelease`
@@ -13205,7 +13205,7 @@ library.
       piece up to 30 ms. Over 256 seeds, 80 exchanges were streamed, 122 pieces were taken and
       141 response pieces were held.
     - The run found a bug in 39e. A piece handed at `body_taken`, before the next `send`, was
-      taken over h3 before it went out, and an assertion failed. `6c2dbe34` fixes it, and 2
+      taken over h3 before it went out, and an assertion failed. `1f5f3377` fixes it, and 2
       mutations of the fix are **CAUGHT** by `test-client`.
     - 4 mutations of the client **CAUGHT** by the trace run: `finished` while a piece is held, a
       refusal after a take reported `refused`, h2 that reads on while a piece is held, and a move
@@ -13215,15 +13215,15 @@ library.
       `tools/client_trace.sh`. Another TLC held the machine for the whole layer. SANY parsed the
       model, the trace module and one written seed of each trace run. A person runs `zig build
       tla` on the model and `tools/client_trace.sh` before the step is called done.
-  - **39i, the example and the docs,** `8d512f79`. `examples/client_stream.zig` streams a
+  - **39i, the example and the docs,** `257c5f69`. `examples/client_stream.zig` streams a
     gRPC-shaped call both ways over h2 in cleartext, and docs/usage.md describes streamed bodies.
     - 4 breaks of the example **CAUGHT**, and 1 **NOT CAUGHT**, which examples/README.md lists.
-  - **39j, the review,** `02fe3213` to `7c61c75d`. Two reviewers checked the step.
+  - **39j, the review,** `72ea33aa` to `6f63b842`. Two reviewers checked the step.
     - An h11 response that h11 read whole ended `closed` when the transport closed while the
-      caller held its last piece, in cleartext and over TLS. `02fe3213` reads the owed end at the
+      caller held its last piece, in cleartext and over TLS. `72ea33aa` reads the owed end at the
       close. 2 mutations **CAUGHT**.
     - A piece held when a GOAWAY ended its h3 exchange never went back to QUIC, so the stream
-      never closed and `finished` never came. `9160b7af` always releases the piece. 2 mutations
+      never closed and `finished` never came. `0eacd216` always releases the piece. 2 mutations
       **CAUGHT**: the release skipped, and the content of such a stream left in QUIC, which was
       **NOT CAUGHT** in the review.
     - The review found 8 more mutations **NOT CAUGHT**. A test for each makes it **CAUGHT**:
@@ -13243,23 +13243,23 @@ library.
       docs/usage.md says so, and a test over h3 reads more pieces with no input than the bound.
     - Two questions went to the owner: the h3 connection's credit that a held piece keeps, and
       the two copies of each h3 piece. 39k carries his rulings.
-  - **39k, the owner's rulings of 2026-11-06,** `afcd7fe4` to this commit, after a rebase onto
-    `940c93f8`. Decision 153 rulings 11, 12 and 13.
+  - **39k, the owner's rulings of 2026-11-06,** `8ed50064` to this commit, after a rebase onto
+    `48d67790`. Decision 153 rulings 11, 12 and 13.
     - Ruling 11: a held piece keeps the h3 connection's credit, which is correct, since its octets
       take room in the receive pool (RFC 9000 §4.1). Each request stream now gets
       `quic_stream_window`, 65,536 octets, as its window, and not the whole pool (RFC 9000
-      §18.2). `c24929af` makes the change. A test holds one stream's piece while a second
+      §18.2). `305b3031` makes the change. A test holds one stream's piece while a second
       exchange finishes. docs/usage.md no longer states a gap. 1 mutation **CAUGHT**: the window
       restored to the pool's capacity.
     - Ruling 12: `data_available` reports a count of octets, and `h3.Connection.peek_data`
       copies them from QUIC straight into `Response.body`. h3's 16,384-octet buffer takes none.
-      `79382d0e` makes the change. 7 mutations **CAUGHT**: the count past the DATA frame, the
+      `92bddaf1` makes the change. 7 mutations **CAUGHT**: the count past the DATA frame, the
       count measured past a gap, a FIN inside the frame accepted, `peek_data` past the held
       octets, a copy into the buffer `receive` was given, the client's two copies, and a held
       count less than the copy. The first two were **NOT CAUGHT** until a test delivered two DATA
       frames out of order.
     - Ruling 13: an h11 response that is not streamed and ends `too_large` keeps the octets that
-      fit, and a drop clears `body_len` only for a held piece. `6052252e` makes the change. h2
+      fit, and a drop clears `body_len` only for a held piece. `1e688f65` makes the change. h2
       and h3 end such an exchange without a drop. 1 mutation **CAUGHT**: `body_len` cleared at
       each drop. 1 **NOT CAUGHT**, as in 39j: a drop that keeps a held piece's `body_len`.
     - Each commit's memory table was measured again after the rebase, and `server.Endpoint` is
