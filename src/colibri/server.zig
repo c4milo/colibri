@@ -298,6 +298,29 @@ test "design §8 step 37: deinit closes the listener and the UDP socket, and wip
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
 }
 
+test "design §8 step 37: an init whose UDP open fails closes the listener and no other socket" {
+    var counter: support.Counter = .{};
+    // A UDP socket of the test holds a port, so the server's UDP open on that port fails.
+    const address = rotor.Address.ipv4(.{ 127, 0, 0, 1 }, 0);
+    const holder = try rotor.sync.open_datagram(address.family, &address, .{});
+    const held = try rotor.sync.local_address(holder);
+    // The number of an earlier server's UDP socket, which the program now uses for another file.
+    test_server.udp_socket = holder;
+    try testing.expectError(error.AddressInUse, test_server.init(.{
+        .port = held.port,
+        .identity = .{ .pem = .{ .chain = testdata.chain_pem, .key = testdata.key_pem } },
+        .cpu = support.cpu(),
+        .random = counter.random(),
+    }));
+    try testing.expect(!test_server.listener_open and !test_server.udp_open);
+    // getsockname(2) on the closed listener fails with EBADF, which Rotor reports as unexpected.
+    try testing.expectError(error.Unexpected, rotor.sync.local_address(test_server.listener));
+    _ = try rotor.sync.local_address(holder);
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
+    rotor.sync.close_now(holder);
+}
+
 test {
     _ = @import("server_tcp_test.zig");
     _ = @import("server_deinit_test.zig");

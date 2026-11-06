@@ -71,4 +71,5 @@ test "design §8 step 37: deinit after run closes no socket a second time" {
     rotor.sync.close_now(first);
     rotor.sync.close_now(second);
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
+    try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
 }
