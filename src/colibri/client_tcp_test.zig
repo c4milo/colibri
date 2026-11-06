@@ -293,3 +293,93 @@ test "design §8 step 42: the client closes its socket once the pool closes the 
     try testing.expectEqual(client.Result.response, handler.exchanges[0].response.result);
     try testing.expectEqualStrings("hi", handler.exchanges[0].response.body_received());
 }
+
+/// What an h2 peer reads and writes, by RFC 9113: the client's preface (§3.4), each frame's head
+/// and the length at its start, which the type follows (§4.1), and the types of HEADERS (§6.2) and
+/// GOAWAY (§6.8).
+const h2_preface_len = 24;
+const h2_frame_head_len = 9;
+const h2_length_len = 3;
+const h2_headers: u8 = 0x1;
+const h2_goaway: u8 = 0x7;
+/// The room an h2 peer reads the client's octets into.
+const h2_received_len = raw_read_len;
+
+/// What an h2 peer writes once it reads the request: its SETTINGS with no parameter, the ACK of the
+/// client's SETTINGS (RFC 9113 §6.5), and a 200 on stream 1 with END_STREAM and END_HEADERS
+/// (§6.2). 0x88 is HPACK's static entry 8, `:status: 200` (RFC 7541 Appendix A).
+const h2_answer = "\x00\x00\x00\x04\x00\x00\x00\x00\x00" ++
+    "\x00\x00\x00\x04\x01\x00\x00\x00\x00" ++
+    "\x00\x00\x01\x01\x05\x00\x00\x00\x01\x88";
+
+/// Whether `bytes`, the client's octets from its preface on, hold a frame of `kind`. A frame whose
+/// head is whole counts, though its payload may still be on the way.
+fn has_frame(bytes: []const u8, kind: u8) bool {
+    var at: usize = h2_preface_len;
+    // Bounded: each pass moves past one frame's head.
+    for (0..bytes.len) |_| {
+        if (at + h2_frame_head_len > bytes.len) return false;
+        if (bytes[at + h2_length_len] == kind) return true;
+        const length = std.mem.readInt(u24, bytes[at..][0..h2_length_len], .big);
+        at += h2_frame_head_len + length;
+    }
+    return false;
+}
+
+/// Accepts one connection, answers its first request over h2, and reads until the client closes
+/// the connection. It then records whether the client sent a GOAWAY.
+fn h2_peer(listener: *std.Io.net.Server, read_goaway: *bool) void {
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    const stream = listener.accept(io) catch return;
+    defer stream.close(io);
+    var read_buffer: [raw_read_len]u8 = undefined;
+    var reader = stream.reader(io, &read_buffer);
+    var write_buffer: [raw_read_len]u8 = undefined;
+    var writer = stream.writer(io, &write_buffer);
+    var received: [h2_received_len]u8 = undefined;
+    var len: usize = 0;
+    var answered = false;
+    // Bounded: each pass reads at least one octet into `received`.
+    for (0..h2_received_len) |_| {
+        const read = reader.interface.peekGreedy(1) catch break;
+        const taken = @min(read.len, received.len - len);
+        if (taken == 0) break;
+        @memcpy(received[len..][0..taken], read[0..taken]);
+        reader.interface.toss(taken);
+        len += taken;
+        if (answered or !has_frame(received[0..len], h2_headers)) continue;
+        answered = true;
+        writer.interface.writeAll(h2_answer) catch return;
+        writer.interface.flush() catch return;
+    }
+    read_goaway.* = has_frame(received[0..len], h2_goaway);
+}
+
+test "design §8 step 42: a run returns only once the socket has sent the h2 GOAWAY" {
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", 0);
+    var listener = try address.listen(io, .{});
+    defer listener.deinit(io);
+    var read_goaway = false;
+    const thread = try std.Thread.spawn(.{}, h2_peer, .{ &listener, &read_goaway });
+    var counter: support.Counter = .{};
+    var pool = fixture.pool_config(.{ .h11 = false }, false);
+    pool.protocols.h3 = false;
+    try test_client.init(.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds });
+    defer test_client.deinit();
+    var handler: fixture.Handler = .{};
+    try handler.request(1);
+    test_client.shutdown();
+    // The pool reports `closed` once it has written the GOAWAY (RFC 9113 §6.8) into the socket.
+    // The socket still owes the send, so the run waits for it and for the close. A run that ends
+    // first leaves the peer to wait for a close, and the watchdog halts the test.
+    var watchdog: fixture.Watchdog = .{};
+    try watchdog.start();
+    defer watchdog.stop();
+    try test_client.run(&handler);
+    thread.join();
+    try testing.expectEqual(client.Result.response, handler.exchanges[0].response.result);
+    try testing.expect(read_goaway);
+}
