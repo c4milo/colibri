@@ -4169,6 +4169,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      must find its soonest deadline among all its connections without reading each one on
      every call.
 
+     Amended by the owner on 2026-11-05: `client.Protocols` gains `prefer`, `.quic` by default
+     or `.tcp`, which says which transport a pool opens first. h3 gains most on paths that lose
+     packets, such as mobile networks, and on a datacenter path with no loss QUIC costs more CPU
+     than TCP and gains nothing.
+     - `.quic`: as before, QUIC first, and TCP once QUIC fails or the fallback delay passes.
+     - `.tcp`: TCP first, and QUIC only once TCP fails.
+     - h2 stays before h11 in the ALPN list (decision 120). Design §8 step 43 builds it in
+       v0.15.0.
+     The alternatives that lost: an ordered list of protocols, which needs rules for repeats and
+     for h3 between the TCP versions, and a preference for each destination alone.
+
 119. **How one endpoint serves TCP and QUIC.** Adopted on 2026-10-09 for design §8 step 21b,
      which decision 117 rules; the owner may overrule any part of it.
      - A request's `Id` is a packed struct: a `ConnectionHandle` and the request's number on
