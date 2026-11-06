@@ -3,7 +3,8 @@
 //! content cut from one source, and a GET sends none. A streamed exchange (decision 153) is a PUT,
 //! which hands its content in pieces, the next one once the pool reports the one before taken.
 //! The caller holds each piece of its response for the plan's delay, then releases it. What the
-//! caller records gives the model's `taken` and `pieces`.
+//! caller records gives the model's `taken` and `pieces`. A request with content carries a trailer
+//! section after its last octet (decision 152).
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
@@ -155,6 +156,7 @@ pub fn make(world: *World, index: usize) world_module.Error!void {
         .path = path,
         .body = if (streamed) "" else content,
         .streamed = .{ .request = streamed, .response = streamed },
+        .trailers = if (world.plan.carries_trailers(index)) &ledger_module.request_trailers else &.{},
     };
     const response_len = if (streamed) limits.response_piece_len else world_module.body_len;
     world.responses[index] = .{ .body = world.bodies[index][0..response_len] };

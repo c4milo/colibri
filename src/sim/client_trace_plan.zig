@@ -178,6 +178,13 @@ pub const Plan = struct {
         return plan.streamed[index];
     }
 
+    /// Whether exchange `index`'s request carries a trailer section (decision 152): every request
+    /// with content, a POST or a streamed PUT, does. No draw decides it, so the seeds draw what
+    /// they drew before step 38b.
+    pub fn carries_trailers(plan: *const Plan, index: usize) bool {
+        return plan.content_len[index] > 0;
+    }
+
     /// Exchanges whose bodies go in pieces.
     pub fn streamed_count(plan: *const Plan) u32 {
         var count: u32 = 0;

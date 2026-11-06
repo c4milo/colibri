@@ -53,14 +53,41 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], hold_data, &writer, now_ns) catch |failure| {
         return refused(connection, slot, failure);
     };
-    stream.prefix_len = writer.written().len;
+    stream.prefix_len = @intCast(writer.written().len);
     stream.supplied_end = stream.prefix_len;
     slot.stream_id = id;
     slot.stage = .sent;
     slot.holds_octets = true;
+    if (!write_trailers(connection, slot, &writer, now_ns)) return true;
     // The stream just opened, so its sending part takes octets (RFC 9000 §3.1).
     quic_streamed.supply_piece(connection, slot, now_ns) catch unreachable;
     return true;
+}
+
+/// Writes the trailer section of `slot`'s request into its stream's frames, after the HEADERS
+/// frame, and the stream supplies it after the last piece (RFC 9114 §4.1, decision 152). The
+/// section is known at `request`, so it is encoded once with the head, and QUIC may read it again
+/// from the same octets (RFC 9000 §13.3). Returns false when the exchange ended invalid.
+fn write_trailers(connection: *QuicConnection, slot: *Slot, writer: *quic.core.Writer, now_ns: u64) bool {
+    const stream = &connection.streams[connection.slots.index_of(slot)];
+    stream.trailers_len = 0;
+    const trailers = slot.request.trailers;
+    if (trailers.len == 0) return true;
+    const section = &connection.section;
+    section.init();
+    for (trailers) |field| section.append(field.name, field.value) catch return refuse_trailers(connection, slot);
+    connection.h3.write_trailers(&connection.transport, slot.stream_id, section, writer, now_ns) catch return refuse_trailers(connection, slot);
+    stream.trailers_len = @intCast(writer.written().len - stream.prefix_len);
+    assert(stream.trailers_len > 0);
+    return true;
+}
+
+/// A trailer section h3 would send malformed, or that does not fit the stream's frames, ends the
+/// exchange invalid, and H3_REQUEST_CANCELLED closes the stream it opened (RFC 9114 §4.1.1).
+fn refuse_trailers(connection: *QuicConnection, slot: *Slot) bool {
+    slot.holds_octets = false;
+    refuse(connection, slot, .invalid);
+    return false;
 }
 
 /// What a refused head means for its exchange. Returns whether the next exchange may be written.
@@ -86,8 +113,8 @@ fn refused(connection: *QuicConnection, slot: *Slot, failure: h3.connection.Send
 const pseudo_fields: usize = 4;
 
 /// Builds `slot`'s field section in the connection's section, and how each line is written: the
-/// pseudo-header fields first (RFC 9114 §4.3), then the caller's lines and the content-length and
-/// accept-encoding the client adds (decision 101). Returns the line count, or null when the
+/// pseudo-header fields first (RFC 9114 §4.3), then the caller's lines and the content-length,
+/// trailer, te and accept-encoding the client adds (decisions 101 and 152). Returns the line count, or null when the
 /// section does not fit.
 fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants.limits.request_fields_max + pseudo_fields]Indexing) ?usize {
     const request = slot.request;
@@ -99,6 +126,19 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
     var digits: [constants.limits.content_length_digits_max]u8 = undefined;
     if (event_internal.content_length(request, &digits)) |value| {
         section.append("content-length", value) catch return null;
+        indexing[count] = .no_insert;
+        count += 1;
+    }
+    for (request.trailers) |field| {
+        // RFC 9110 §6.6.2: a sender of trailer fields names each one in a Trailer header field.
+        section.append("trailer", field.name) catch return null;
+        indexing[count] = .no_insert;
+        count += 1;
+    }
+    if (event_internal.adds_te(request, slot.response)) {
+        // RFC 9110 §10.1.4: the client reads a trailer section. RFC 9114 §4.2: "trailers" is the
+        // one TE value h3 allows.
+        section.append("te", "trailers") catch return null;
         indexing[count] = .no_insert;
         count += 1;
     }

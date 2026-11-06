@@ -258,10 +258,34 @@ pub fn write_requests(connection: *Connection) void {
         if (!open(connection, slot)) break;
     }
     for (&connection.slots.slots) |*slot| {
+        if (slot.stage != .sent) continue;
         // Decision 153: a streamed request's pieces go out with no copy, so none fills a record.
-        if (slot.stage != .sent or slot.request.streamed.request) continue;
-        if (!slot.content_done()) connection_h2_streamed.fill_record(connection, slot);
+        const fills = !slot.request.streamed.request and !slot.content_done() and !slot.trailers_next();
+        if (fills) connection_h2_streamed.fill_record(connection, slot);
+        if (slot.trailers_next()) write_trailers(connection, slot);
     }
+}
+
+/// Writes the trailer section of `slot`'s request after its last DATA frame, in a HEADERS frame
+/// that ends the stream (RFC 9113 §8.1, decision 152).
+fn write_trailers(connection: *Connection, slot: *Slot) void {
+    const trailers = slot.request.trailers;
+    var lines: [constants.limits.request_fields_max]h2.hpack.Field = undefined;
+    // `request_fields` refused a request whose lines pass `request_fields_max`.
+    assert(trailers.len <= lines.len);
+    for (trailers, lines[0..trailers.len]) |field, *line| line.* = .{ .name = field.name, .value = field.value };
+    const written = connection.session.h2.write_trailers(internal.room(connection), @intCast(slot.stream_id), lines[0..trailers.len]) catch |failure| {
+        // The section goes out once `send` has taken what the output holds.
+        if (failure == error.OutputTooSmall and connection.output_len > 0) return;
+        // RFC 9113 §5.1: the stream takes no more, or a section that never fits: CANCEL ends it,
+        // and the exchange with it (RFC 9113 §6.4).
+        _ = refuse(connection, slot, .invalid);
+        return;
+    };
+    connection.output_len += written;
+    slot.content_ended = true;
+    // An empty last piece went out with the section.
+    slot.piece_written();
 }
 
 /// Writes the head of `slot`'s request, which opens its stream. Returns whether the next exchange
@@ -290,8 +314,8 @@ fn open(connection: *Connection, slot: *Slot) bool {
         .hold_credit = request.streamed.response,
     };
     // RFC 9113 §8.1: a request with no content ends its stream with its HEADERS frame, as does a
-    // streamed one whose only piece is an empty last one.
-    const ends = slot.piece_end and slot.piece.len == 0;
+    // streamed one whose only piece is an empty last one, unless a trailer section ends it.
+    const ends = slot.ends_with_piece() and slot.piece.len == 0;
     const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], ends) catch |failure| {
         return refused(connection, slot, failure);
     };
@@ -332,8 +356,8 @@ fn refused(connection: *Connection, slot: *Slot, failure: h2.connection.RequestE
     return true;
 }
 
-/// The field lines of `slot`'s request as h2 writes them, with the content-length and the
-/// accept-encoding the client adds (decision 101), and how each is written, or null when they
+/// The field lines of `slot`'s request as h2 writes them, with the content-length, trailer, te and
+/// accept-encoding the client adds (decisions 101 and 152), and how each is written, or null when they
 /// pass `request_fields_max`.
 fn request_fields(
     connection: *const Connection,
@@ -344,7 +368,7 @@ fn request_fields(
     offer: *[coding.offer_len_max]u8,
 ) ?[]const h2.hpack.Field {
     const request = slot.request;
-    if (request.headers.len + constants.limits.added_fields_max > lines.len) return null;
+    if (request.headers.len + request.trailers.len + constants.limits.added_fields_max > lines.len) return null;
     const marked = request.never_indexed.headers;
     for (request.headers, lines[0..request.headers.len], indexing[0..request.headers.len], 0..) |field, *line, *how, index| {
         line.* = .{ .name = field.name, .value = field.value };
@@ -355,6 +379,19 @@ fn request_fields(
     var count = request.headers.len;
     if (event_internal.content_length(request, digits)) |length| {
         lines[count] = .{ .name = "content-length", .value = length };
+        indexing[count] = .without_indexing;
+        count += 1;
+    }
+    for (request.trailers) |field| {
+        // RFC 9110 §6.6.2: a sender of trailer fields names each one in a Trailer header field.
+        lines[count] = .{ .name = "trailer", .value = field.name };
+        indexing[count] = .without_indexing;
+        count += 1;
+    }
+    if (event_internal.adds_te(request, slot.response)) {
+        // RFC 9110 §10.1.4: the client reads a trailer section. RFC 9113 §8.2.2: "trailers" is
+        // the one TE value h2 allows.
+        lines[count] = .{ .name = "te", .value = "trailers" };
         indexing[count] = .without_indexing;
         count += 1;
     }

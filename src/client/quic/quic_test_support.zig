@@ -100,6 +100,12 @@ pub const Answer = struct {
     https: bool = false,
     /// Whether the request offered gzip first in Accept-Encoding (decision 101).
     offers_gzip: bool = false,
+    /// Whether the request's head asked for trailers, the trailer fields it named, and the
+    /// trailer sections the server read with the lines of the last one (decision 152).
+    te: bool = false,
+    named: u32 = 0,
+    trailer_sections: u32 = 0,
+    trailer_lines: u32 = 0,
     ended: bool = false,
     /// The error code of the client's RESET_STREAM on the request's stream, or null.
     reset_code: ?u64 = null,
@@ -344,6 +350,7 @@ fn take_event(got: h3.connection.Event) void {
             answer.https = std.mem.eql(u8, held.request.scheme orelse "", "https");
             const offer = server_h3.field_section().find("accept-encoding");
             answer.offers_gzip = offer != null and std.mem.startsWith(u8, offer.?.value, "gzip");
+            note_trailer_fields(answer);
             // Design §8 step 29d.15: a head that ended its stream is the whole request.
             answer.ended = held.end;
             answers_len += 1;
@@ -352,6 +359,7 @@ fn take_event(got: h3.connection.Event) void {
             answer.received += held.octets.len;
             answer.received_crc.update(held.octets);
         },
+        .trailers => |id| if (answer_of(id)) |answer| note_trailers(answer),
         .end => |id| if (answer_of(id)) |answer| {
             answer.ended = true;
         },
@@ -360,6 +368,25 @@ fn take_event(got: h3.connection.Event) void {
         },
         else => {},
     }
+}
+
+/// The trailer field a request's tests send, which the server looks for (decision 152).
+pub const request_trailer: h3.http.Field = .{ .name = "grpc-status", .value = "0" };
+
+/// Notes whether a request's head asked for trailers, and the trailer fields it named (RFC 9110
+/// §10.1.4, §6.6.2).
+fn note_trailer_fields(answer: *Answer) void {
+    const section = server_h3.field_section();
+    answer.te = section.find("te") != null;
+    for (0..section.len()) |index| answer.named += @intFromBool(std.mem.eql(u8, section.get(@intCast(index)).name, "trailer"));
+}
+
+/// Counts a trailer section the server read, and its lines when it holds `request_trailer`.
+fn note_trailers(answer: *Answer) void {
+    const section = server_h3.field_section();
+    answer.trailer_sections += 1;
+    const found = section.find(request_trailer.name) orelse return;
+    if (std.mem.eql(u8, found.value, request_trailer.value)) answer.trailer_lines = section.len();
 }
 
 /// The server answers each request that is due, once a test lets it.

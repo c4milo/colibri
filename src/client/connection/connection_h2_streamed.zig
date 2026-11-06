@@ -23,7 +23,7 @@ pub fn fill_record(connection: *Connection, slot: *Slot) void {
     if (fill <= h2.constants.protocol.frame_header_len) return;
     const room = internal.room(connection);
     const content = slot.piece[slot.piece_sent..];
-    const sent = connection.session.h2.write_data(room[0..@min(room.len, fill)], @intCast(slot.stream_id), content, slot.piece_end) catch {
+    const sent = connection.session.h2.write_data(room[0..@min(room.len, fill)], @intCast(slot.stream_id), content, slot.ends_with_piece()) catch {
         // RFC 9113 §5.1: the stream is no longer one the client may send on.
         slot.content_stopped = true;
         return;
@@ -33,13 +33,14 @@ pub fn fill_record(connection: *Connection, slot: *Slot) void {
 }
 
 /// Counts `consumed` octets of `slot`'s piece written. RFC 9113 §6.1: the frame that carried the
-/// last octet of the last piece carried END_STREAM, which ends the content.
+/// last octet of the last piece carried END_STREAM, which ends the content, unless a trailer
+/// section ends it (RFC 9113 §8.1).
 fn count_sent(slot: *Slot, consumed: usize) void {
     slot.piece_sent += consumed;
     slot.response.body_sent += consumed;
     assert(slot.piece_sent <= slot.piece.len);
     if (slot.piece_sent < slot.piece.len) return;
-    slot.content_ended = slot.piece_end;
+    slot.content_ended = slot.ends_with_piece();
     slot.piece_written();
 }
 
@@ -53,7 +54,9 @@ pub fn send_content(connection: *Connection, output: []u8, now_ns: u64) usize {
     for (&connection.slots.slots) |*slot| {
         // A record that failed ended every exchange the connection held.
         if (connection.stopped) break;
-        if (slot.stage == .sent and slot.content_ready()) written += send_frames(connection, slot, output[written..], now_ns);
+        // Decision 152: `write_requests` writes a trailer section into the connection's output.
+        const frames = slot.stage == .sent and slot.content_ready() and !slot.trailers_next();
+        if (frames) written += send_frames(connection, slot, output[written..], now_ns);
     }
     assert(written <= output.len);
     return written;
@@ -65,13 +68,14 @@ fn send_frames(connection: *Connection, slot: *Slot, output: []u8, now_ns: u64) 
     var written: usize = 0;
     // Bounded: each pass writes a frame that carries an octet of the piece or ends it, or stops.
     for (0..slot.piece.len + 1) |_| {
-        if (!slot.content_ready()) return written;
+        if (!slot.content_ready() or slot.trailers_next()) return written;
         const left = slot.piece[slot.piece_sent..];
         var header: [h2.constants.protocol.frame_header_len]u8 = undefined;
         const room_len = frame_room(connection, output.len - written);
         // RFC 9113 §6.1: END_STREAM goes on the frame that carries the last octet of the last
-        // piece, and on no frame of a piece before it (decision 153).
-        const sent = connection.session.h2.write_data_header(&header, room_len, @intCast(slot.stream_id), left.len, slot.piece_end) catch {
+        // piece, and on no frame of a piece before it (decision 153), nor before a trailer
+        // section (RFC 9113 §8.1).
+        const sent = connection.session.h2.write_data_header(&header, room_len, @intCast(slot.stream_id), left.len, slot.ends_with_piece()) catch {
             // RFC 9113 §5.1: the stream is no longer one the client may send on.
             slot.content_stopped = true;
             return written;

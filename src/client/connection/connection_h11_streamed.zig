@@ -14,6 +14,7 @@ const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const connection_tls = @import("connection_tls.zig");
 const slots_module = @import("../slots.zig");
+const event_internal = @import("../event_internal.zig");
 
 const Connection = connection_module.Connection;
 const Slot = slots_module.Slot;
@@ -35,7 +36,15 @@ pub fn end_content(connection: *Connection, slot: *Slot) bool {
     const session = &connection.session.h11;
     // RFC 9112 §6.2: a body of a declared length ends with its last octet, and RFC 9112 §7.1: a
     // chunked body ends with the last chunk. The next head may follow.
-    if (session.writer.open()) connection.output_len += session.write_end(internal.room(connection), &.{}) catch return false;
+    // RFC 9112 §7.1.2: the last chunk carries the request's trailer section (decision 152).
+    if (session.writer.open()) connection.output_len += session.write_end(internal.room(connection), slot.request.trailers) catch {
+        // The end goes out once `send` has taken what the output holds.
+        if (connection.output_len > 0) return false;
+        // A trailer section that does not fit an empty output never will, and the server waits
+        // for the body's end (RFC 9112 §7.1), so the connection ends.
+        internal.fail(connection);
+        return false;
+    };
     slot.content_ended = true;
     // An empty last piece went out with the end.
     slot.piece_written();
@@ -47,7 +56,9 @@ pub fn end_content(connection: *Connection, slot: *Slot) bool {
 /// `send_content` writes the rest from the caller's memory, with no copy into the output
 /// (https://github.com/c4milo/colibri/issues/105).
 pub fn write_content(connection: *Connection, slot: *Slot) void {
-    if (slot.request.streamed.request) return open_chunk(connection, slot);
+    // Decision 153: a streamed piece goes out with no copy. Decision 152: a whole body before a
+    // trailer section goes as one chunk, with no copy too (RFC 9112 §7.1.2).
+    if (slot.request.streamed.request or event_internal.chunked(slot.request)) return open_chunk(connection, slot);
     const left = slot.piece.len - slot.piece_sent;
     const take = @min(left, internal.room(connection).len, internal.record_fill(connection));
     if (take == 0) return;

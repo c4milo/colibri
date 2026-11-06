@@ -357,9 +357,9 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
 }
 
 /// The field lines of `slot`'s request as h11 writes them: Host first, which RFC 9110 §7.2 asks
-/// of a user agent, the caller's, then the Content-Length or Transfer-Encoding and the
-/// Accept-Encoding the client adds (RFC 9110 §8.6, RFC 9112 §6.1, decision 101). Null when they
-/// pass `request_fields_max`.
+/// of a user agent, the caller's, then the Content-Length or Transfer-Encoding, the Trailer, TE
+/// and Connection, and the Accept-Encoding the client adds (RFC 9110 §8.6, RFC 9112 §6.1,
+/// decisions 101 and 152). Null when they pass `request_fields_max`.
 fn request_fields(
     connection: *const Connection,
     slot: *Slot,
@@ -368,24 +368,50 @@ fn request_fields(
     offer: *[coding.offer_len_max]u8,
 ) ?[]const Header {
     const request = slot.request;
-    if (request.headers.len + constants.limits.added_fields_max > lines.len) return null;
+    if (request.headers.len + request.trailers.len + constants.limits.added_fields_max > lines.len) return null;
     // RFC 9112 §3.2: "A client MUST send a Host header field in all HTTP/1.1 request messages."
     lines[0] = .{ .name = "Host", .value = connection.config.authority };
     @memcpy(lines[1..][0..request.headers.len], request.headers);
     var count = 1 + request.headers.len;
-    if (event_internal.content_length(request, digits)) |length| {
-        lines[count] = .{ .name = "Content-Length", .value = length };
-        count += 1;
-    }
     // RFC 9112 §7.1: a body whose length is not known in advance goes in the chunked coding, and
-    // RFC 9112 §6.1 names it in Transfer-Encoding, in place of Content-Length (decision 153).
+    // RFC 9112 §6.1 names it in Transfer-Encoding, in place of Content-Length (decision 153). RFC
+    // 9112 §7.1.2: only a chunked body carries a trailer section (decision 152).
     if (event_internal.chunked(request)) {
         lines[count] = .{ .name = "Transfer-Encoding", .value = "chunked" };
         count += 1;
+    } else if (event_internal.content_length(request, digits)) |length| {
+        lines[count] = .{ .name = "Content-Length", .value = length };
+        count += 1;
     }
+    count += trailer_fields(slot, lines[count..]);
     if (coding.offer(connection.config.codings, .of(connection.config), slot, offer)) |value| {
         lines[count] = .{ .name = "Accept-Encoding", .value = value };
         count += 1;
     }
     return lines[0..count];
+}
+
+/// Writes into `lines` the Trailer, TE and Connection field lines the client adds to `slot`'s
+/// request, and returns their count (decision 152).
+fn trailer_fields(slot: *const Slot, lines: []Header) usize {
+    const request = slot.request;
+    var count: usize = 0;
+    for (request.trailers) |field| {
+        // RFC 9110 §6.6.2: a sender of trailer fields names each one in a Trailer header field.
+        lines[count] = .{ .name = "Trailer", .value = field.name };
+        count += 1;
+    }
+    const adds_te = event_internal.adds_te(request, slot.response);
+    if (adds_te) {
+        // RFC 9110 §10.1.4: "trailers" says the client reads a trailer section.
+        lines[count] = .{ .name = "TE", .value = "trailers" };
+        count += 1;
+    }
+    if (adds_te or event_internal.names_te(request)) {
+        // RFC 9110 §10.1.4: "a sender of TE MUST also send a "TE" connection option within the
+        // Connection header field" (RFC 9110 §7.6.1).
+        lines[count] = .{ .name = "Connection", .value = "TE" };
+        count += 1;
+    }
+    return count;
 }

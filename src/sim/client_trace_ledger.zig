@@ -5,10 +5,15 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
+const client = @import("client");
 
 const limits = sim.constants.client_trace;
 
 pub const Transport = enum { quic, tcp };
+
+/// The trailer section a request with content carries, which each server looks for (decision
+/// 152).
+pub const request_trailers = [_]client.Header{.{ .name = "grpc-status", .value = "0" }};
 
 /// One connection of the run: its transport, and which of that transport's connections it is,
 /// counting from 1.
@@ -23,11 +28,26 @@ pub const Ledger = struct {
     processed_by: [limits.requests_max]?Connection,
     /// GOAWAY frames the servers sent.
     goaways: u32,
+    /// Requests whose end each exchange's servers read, and those of them that ended with the
+    /// trailer section the run sends (decision 152).
+    ends: [limits.requests_max]u8,
+    trailer_ends: [limits.requests_max]u8,
 
     pub fn init(ledger: *Ledger) void {
         ledger.processed = @splat(0);
         ledger.processed_by = @splat(null);
         ledger.goaways = 0;
+        ledger.ends = @splat(0);
+        ledger.trailer_ends = @splat(0);
+    }
+
+    /// A server read the end of exchange `index`'s request, after the run's trailer section when
+    /// `with_trailers`.
+    pub fn request_ended(ledger: *Ledger, index: usize, with_trailers: bool) void {
+        assert(index < limits.requests_max);
+        ledger.ends[index] += 1;
+        ledger.trailer_ends[index] += @intFromBool(with_trailers);
+        assert(ledger.trailer_ends[index] <= ledger.ends[index]);
     }
 
     /// A server passed exchange `index`'s request to its application.

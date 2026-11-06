@@ -1,7 +1,9 @@
 //! What a client connection refuses before an exchange takes a slot (decision 100): a request no
-//! protocol could send, or one naming a field line the client writes itself.
+//! protocol could send, one naming a field line the client writes itself, or a trailer field no
+//! protocol may send (decision 152).
 const std = @import("std");
 const assert = std.debug.assert;
+const http = @import("http");
 const event = @import("../event.zig");
 
 const Request = event.Request;
@@ -14,6 +16,9 @@ pub const CheckError = error{
     /// A field line the client writes itself, Host or Content-Length, or a connection-specific
     /// one, which h2 forbids (RFC 9113 §8.2.2), so a request means the same in every version.
     FieldReserved,
+    /// A trailer field that frames or routes the message, which RFC 9110 §6.5.1 forbids in a
+    /// trailer section, or one that h2 or h3 would send malformed (decision 152).
+    InvalidTrailer,
 };
 
 /// What a connection's `request` returns. The pool gives an exchange only to an open
@@ -77,5 +82,38 @@ pub fn check_request(request: *const Request) CheckError!void {
             // are case-insensitive (RFC 9110 §5.1).
             if (std.ascii.eqlIgnoreCase(field.name, reserved)) return error.FieldReserved;
         }
+    }
+    for (request.trailers) |field| try check_trailer(field);
+}
+
+/// The names of the trailer fields `request` refuses beside the connection-specific ones,
+/// lowercase. RFC 9110 §6.5.1: a sender must not generate a trailer field that frames the message,
+/// routes it or says how to process its trailers.
+const trailer_forbidden_names = [_][]const u8{
+    // RFC 9110 §6.5.1 and §8.6: the content's length.
+    "content-length",
+    // RFC 9110 §6.5.1 and §7.2: the request's routing.
+    "host",
+    // RFC 9110 §6.6.2: the client names the trailer fields itself.
+    "trailer",
+};
+
+/// Refuses a trailer field that no protocol may send, before the exchange takes a slot. The pool
+/// chooses the protocol, so a trailer section goes out on h11, h2 or h3 alike.
+fn check_trailer(field: event.Header) CheckError!void {
+    // RFC 9110 §5.1: a field name is a token.
+    http.field.validate_name(field.name) catch return error.InvalidTrailer;
+    // RFC 9110 §5.5 and RFC 9113 §8.2.1: the octets a field value admits.
+    http.field.validate_value(field.value) catch return error.InvalidTrailer;
+    for (field.name) |octet| {
+        // RFC 9113 §8.2.1 and RFC 9114 §4.2: a field name with an uppercase letter is malformed.
+        if (std.ascii.isUpper(octet)) return error.InvalidTrailer;
+    }
+    // RFC 9110 §6.5.1, RFC 9113 §8.2.2 and RFC 9114 §4.2: a connection-specific field, TE
+    // included, never goes in a trailer section.
+    if (http.connection_specific.classify(field.name) != null) return error.InvalidTrailer;
+    for (trailer_forbidden_names) |forbidden| {
+        // RFC 9110 §6.5.1: see `trailer_forbidden_names`.
+        if (std.mem.eql(u8, field.name, forbidden)) return error.InvalidTrailer;
     }
 }

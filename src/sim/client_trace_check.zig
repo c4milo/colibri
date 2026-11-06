@@ -48,6 +48,9 @@ pub const Violation = world_module.Error || error{
     /// where TCP refuses each connect.
     OpenedOutOfOrder,
     ConnectedOutOfOrder,
+    /// Decision 152: a server read the end of a request with content and no trailer section
+    /// before it, or a trailer section on a request that carries none.
+    TrailersLost,
     /// The run moved through more instants than `instants_max`, or through one instant more
     /// often than a step can revisit it, or kept more states than `states_max`.
     Unfinished,
@@ -105,6 +108,8 @@ pub const Result = struct {
     /// refuses each connect, so that QUIC carries the exchanges.
     prefer_tcp: u64 = 0,
     quic_after_tcp: u64 = 0,
+    /// Decision 152: requests whose server read their trailer section before their end.
+    trailers: u64 = 0,
 };
 
 pub const Census = struct {
@@ -158,6 +163,7 @@ fn run_once(storage: *Storage, seed: u64) Violation!Result {
     } else return error.Unfinished;
     try check_end(world);
     try check_order(world);
+    try check_trailers(world);
     return result_of(storage);
 }
 
@@ -247,6 +253,16 @@ fn check_order(world: *const World) Violation!void {
     if (plan.tcp == .works and plan.clean and connected != .h2) return error.ConnectedOutOfOrder;
 }
 
+/// Decision 152: each request whose end a server read carried its trailer section to it, over h2
+/// (RFC 9113 §8.1) and over h3 (RFC 9114 §4.1), and no other request carried one.
+fn check_trailers(world: *const World) Violation!void {
+    const ledger = &world.ledger;
+    for (0..world.plan.requests) |index| {
+        const expected = if (world.plan.carries_trailers(index)) ledger.ends[index] else 0;
+        if (ledger.trailer_ends[index] != expected) return error.TrailersLost;
+    }
+}
+
 /// Whether the pool's first connection spoke h3.
 fn connected_h3(world: *const World) bool {
     const connected = world.first_connected orelse return false;
@@ -283,6 +299,7 @@ fn result_of(storage: *const Storage) Result {
         result.cancelled += @intFromBool(world.cancelled[index]);
         result.moved += last.moved[index];
         result.resent += @intFromBool(storage.tracker.resent[index]);
+        result.trailers += world.ledger.trailer_ends[index];
         if (!world.reported[index]) continue;
         switch (world.responses[index].result) {
             .response => result.responses += 1,
@@ -321,7 +338,8 @@ test "client trace run: every seed closes the pool with each exchange reported o
     // the pool learned h3, some were cancelled, a QUIC connection retired near its idle
     // timeout, and PINGs kept others from it. Streamed exchanges handed request pieces the pool
     // took, and held response pieces (decision 153). Pools that prefer TCP opened it first, and
-    // QUIC carried the exchanges where TCP refused each connect (design §8 step 43). A seed
+    // QUIC carried the exchanges where TCP refused each connect (design §8 step 43). Requests
+    // with content carried their trailer sections to the servers (decision 152). A seed
     // replays in every build mode (invariant 5), so the census is pinned, as Debug and
     // `-Drelease` both give it.
     try testing.expectEqual(Result{
@@ -344,5 +362,6 @@ test "client trace run: every seed closes the pool with each exchange reported o
         .pieces = 141,
         .prefer_tcp = 137,
         .quic_after_tcp = 11,
+        .trailers = 113,
     }, census.result);
 }
