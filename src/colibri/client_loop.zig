@@ -93,8 +93,10 @@ pub fn turn(run: anytype) !void {
 }
 
 /// Passes a `shutdown` to the pool once. A connection the shutdown ends owes its last octets, such
-/// as h2's GOAWAY (RFC 9113 §6.8). The pool sends no `send` for a connection whose last
-/// `send_stream` wrote nothing, so the turn steps each running socket.
+/// as h2's GOAWAY (RFC 9113 §6.8). The turn steps each running socket, because of a bug of the
+/// pool: after `shutdown`, an idle h2 connection never sends its GOAWAY. Its last `send_stream`
+/// wrote nothing and set `send_blocked`, and `shutdown` does not clear it, so the pool reports no
+/// `send` event. The fix belongs in `src/client/pool/`, which design §8 step 39 changes.
 pub fn pass_shutdown(state: anytype) void {
     if (!state.stopping.load(.acquire) or state.shut_down) return;
     state.shut_down = true;

@@ -6095,10 +6095,28 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         sockets, the UDP socket for h3, the loop, the clock and a `client.ConnectionPool`, and a
         program hands it requests. Step 39's streamed bodies stay in the pool underneath it.
         Design §8 step 42 plans it after step 39 and before step 40. Amended by the owner on
-        2026-11-05, so that a program fetches through `colibri.Client` sooner: step 42 comes
-        before step 39, with whole bodies, and a later commit adds step 39's streamed bodies.
+        2026-11-06, so that a program fetches through `colibri.Client` sooner: step 42 lands
+        before step 39, with whole bodies. Streamed bodies come to `colibri.Client` with step 39.
+     9. Ruled by the owner on 2026-11-06, for design §8 step 42:
+        - `ClientConfig.unix_seconds` is a `u64` with no default. The program reads its clock and
+          passes it, and the client reads no clock (non-negotiable 3). A web PKI trust judges the
+          dates of each chain against it (RFC 5280 §4.1.2.5). A trust in pins judges no date.
+        - The root exports `colibri.ClientOf` and `colibri.ClientCapacity`, so a program sizes
+          its client as it sizes its server. `colibri.Client` stays `ClientOf(.{})`.
+          `ClientCapacity` holds `quic`, `tcp_connections` and `requests`: QUIC, one TCP
+          connection and `client.constants.limits.requests_max` requests by default.
+        - `client.Timeouts.connect_ns` bounds each TCP connect, in nanoseconds as the other fields
+          of `Timeouts`. Its default is 10 s, `client.constants.policy.connect_timeout_ns`, and
+          null turns it off. The pool opens no socket, so `colibri.Client` passes the limit to
+          Rotor's connect. A connect past it ends the attempt as a refused connect does.
 
      Alternatives that lost:
+     - `unix_seconds` with a default of 0. A web PKI trust then refuses each chain, and a
+       program learns of the field only from the refusal.
+     - `ClientOf` and its capacity kept inside `client.zig`. A program that needs more TCP
+       connections, or no QUIC, could then not have them.
+     - The system's own connect timeout, about 75 s on macOS and 127 s on Linux. A server that
+       answers no connect then holds the run for that long.
      - A `std.Io.Writer` and a `std.Io.Reader` on the pool itself. `writeAll` and
        `readSliceAll` call `drain` and `stream` again until they finish, so a pool that cannot
        wait would loop without end.

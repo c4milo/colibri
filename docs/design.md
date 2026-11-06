@@ -13175,21 +13175,29 @@ library.
     writer, and stdx's decoders read a response body through the reader, over h11, h2 and h3.
     Each retry goes on from the octet it stopped at.
 - **Step 42 — `colibri.Client`, proposed 2026-11-05.** [Decision 153](decisions.md) ruling 8. It
-  runs on Rotor's own API. It was built on 2026-11-05 before step 39, so that a program fetches
-  over h11, h2 and h3 before streamed bodies exist. Step 39's bodies come in a later commit, in the
-  pool underneath.
-  - **The public names:** `colibri.Client` and `colibri.ClientConfig`, with `init`, `deinit`,
-    `request`, `shutdown` and `run`, beside `colibri.Server`'s, listed in the root's test first.
-    No other name is public: `ClientOf` and its capacity stay in `client.zig`, and `Client` holds
-    QUIC, one TCP connection and `client.constants.limits.requests_max` requests.
+  runs on Rotor's own API. The owner ruled on 2026-11-06 that it lands before step 39, so that a
+  program fetches over h11, h2 and h3 before streamed bodies exist. Streamed bodies come to
+  `colibri.Client` with step 39, in the pool underneath.
+  - **The public names:** `colibri.Client`, `colibri.ClientOf`, `colibri.ClientCapacity` and
+    `colibri.ClientConfig`, with `init`, `deinit`, `request`, `shutdown` and `run`, beside
+    `colibri.Server`'s, listed in the root's test first. `Client` is `ClientOf(.{})`: QUIC, one
+    TCP connection and `client.constants.limits.requests_max` requests. A program that needs
+    another size names a `ClientCapacity` (decision 153 ruling 9). `client.Timeouts` gains the
+    field `connect_ns`.
   - **The rules.** It owns the TCP sockets, the UDP socket for h3, the loop, the clock and a
     `client.ConnectionPool`. `socket.zig`, `datagram_socket.zig` and `datagram_batch.zig` serve the
     server and the client alike. `colibri` imports `client`, as decision 150 ruling 1 puts it above
     both.
     - `ClientConfig` holds `host`, an IP literal, `port`, `pool`, the `client.Config` whose counts
-      `init` sets, `random`, which defaults to the system's entropy, and `unix_seconds`, the
-      program's instant at the start of `run`. A web PKI trust judges each chain at it, plus the
-      time the loop has run.
+      and `ecn` `init` sets, `random`, which defaults to the system's entropy, and `unix_seconds`.
+      `unix_seconds` is the program's instant at the start of `run`, and it has no default. A web
+      PKI trust judges each chain at it, plus the time the loop has run. A trust in pins judges no
+      date.
+    - `init` sets the pool's `ecn`, as `colibri.Server` sets its endpoint's (decision 68). The
+      loop reads and sets each datagram's codepoint, and a pool that does not read ECN halts on
+      a datagram marked ECT(0).
+    - Each TCP connect goes to Rotor with the deadline `pool.timeouts.connect_ns`, 10 s by
+      default. A connect past it ends the attempt as a refused connect does.
     - `run(handler)` runs one loop on the calling thread. The handler declares `on_finished` and
       may declare `on_connected`. Each runs on the loop's thread and may call `request` and
       `shutdown`. `shutdown` is the one call another thread may make. A program calls `run` once
@@ -13197,8 +13205,10 @@ library.
     - After `shutdown`, `request` returns `error.ShutDown`, which `client.RequestError` does not
       hold. The pool asserts that no request comes after its own shutdown.
     - `init` returns an inferred error set, and `run` returns `colibri.RunError`.
-    - A shutdown steps each running TCP socket. The pool sends no `send` event for h2's GOAWAY
-      after a `send_stream` that wrote nothing.
+    - A shutdown steps each running TCP socket. This works around a bug of the pool: after
+      `shutdown`, an idle h2 connection never sends its GOAWAY, because `send_blocked` stays set
+      and the pool reports no `send` event. Step 39 changes the pool's files, so the fix goes
+      there.
   - **The checks.** `examples/colibri_server.zig` fetches through it over h11, h2 and h3 on
     loopback, over TLS with the test identity. Its unit tests bind loopback.
   - **The record, 2026-11-05.** Each mutation below was **CAUGHT** by `zig build test-colibri`,
@@ -13245,6 +13255,22 @@ library.
       socket's `stop` at `closed`, and the `continue` after the pool took a datagram.
     - No test reaches four paths: `start_tcp` refused by the TLS stack, `open_socket` refused by
       the system, and the bounds of 1,024 events and 1,024 passes, which 4 requests cannot fill.
+  - **The rulings, 2026-11-06.** The branch moved onto v0.14.1, and the owner's rulings of decision
+    153 ruling 9 were applied. Each mutation below was **CAUGHT** by `zig build test-colibri`.
+    - v0.14.1's ECN fix and its tests moved with the UDP code into `datagram_socket.zig`. Caught:
+      the server's `ecn` not set; the sent ECT(0) and ECT(1) swapped; a codepoint read with no
+      flag.
+    - `colibri.Client` had the server's ECN defect: the pool halted on the server's first
+      datagram marked ECT(0). `init` now sets the pool's `ecn`, and the h3 tests leave it false
+      in the program's configuration. Caught: the `ecn` not set.
+    - A connect to a listener whose backlog is full ends the exchange refused within a deadline
+      of 200 ms, under a watchdog of 3 s. Caught: the deadline not passed to Rotor; Rotor's
+      `timeout` not taken as a failed connect; a limit of 0 passed as Rotor's none.
+    - `Server.run` left its accepted sockets open when it failed. `server_loop.end` now closes
+      them with the client's `socket.close_left`. Caught: no close at the end; `init` leaves an
+      earlier run's sockets live.
+    - `unix_seconds` with no default is a compile error where a program leaves it out, so it has
+      no mutation.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default
