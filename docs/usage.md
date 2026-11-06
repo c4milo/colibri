@@ -1543,8 +1543,10 @@ Three events carry a streamed response:
   credit back for the piece (RFC 9113 §5.2, RFC 9000 §4.1), so a fast server waits for the
   program. Over h2 only the stream's credit waits. Over h3 the octets of a held piece stay in the
   receive pool, so the connection's credit for them waits too (RFC 9000 §4.1). Each request stream
-  holds at most `client.constants.policy.quic_stream_window` octets, 65,536, of the pool, so the
-  other streams of the connection still receive.
+  starts with a window of `client.constants.policy.quic_stream_window` octets, 65,536, so a stream
+  held early leaves the rest of the pool to the other streams. The window of a stream whose
+  pieces the program releases quickly grows up to the whole pool ([decision 49](decisions.md)).
+  A piece held after that growth can fill the pool and stop the other streams.
 - `finished` comes only after the program released the last piece. The trailers are then in
   `Response.trailers`.
 

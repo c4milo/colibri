@@ -13264,6 +13264,19 @@ library.
       each drop. 1 **NOT CAUGHT**, as in 39j: a drop that keeps a held piece's `body_len`.
     - Each commit's memory table was measured again after the rebase, and `server.Endpoint` is
       52,461,840 octets with step 39. Rulings 11, 12 and 13 change no size.
+    - After the review of 39k:
+      - Ruling 11 sets only a request stream's first window. Decision 49 grows it up to the pool
+        when the program releases pieces quickly, so a piece held after that growth can fill the
+        pool. docs/usage.md now says so, and the question went to the owner. A cap on the growth
+        is the fixed window that decision 49 rejected.
+      - `h3.Connection.peek_data` failed an assertion on a stream that the peer reset after the
+        `data_available` event. It now copies none, as `release_data` takes none, and the reset
+        stays to be reported. A test resets a held stream and peeks.
+      - New tests: a DATA frame header that arrives alone reports no content, and an h2 or h3
+        response that ends `too_large` keeps the octets that fit.
+      - 4 mutations **CAUGHT**, each **NOT CAUGHT** before these tests: no wait on a DATA frame
+        header alone, `peek_data` with no reset check, and `body_len` cleared at an h2 or an h3
+        refusal.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps

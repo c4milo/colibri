@@ -65,9 +65,9 @@ pub fn parameters(config: *const Config, capacity: u64) Parameters {
     // RFC 9000 §4.1: flow control keeps a sender within "a receiver's buffer capacity", and the
     // pool is all the client holds (decision 61), so no window grants more than it.
     held.initial_max_data = capacity;
-    // RFC 9000 §18.2: one request stream gets one stream's window, so a stream whose content the
-    // caller holds keeps at most that much of the pool, and the other streams still receive
-    // (decision 153 ruling 11).
+    // RFC 9000 §18.2: one request stream starts with one stream's window, so a stream held early
+    // leaves the rest of the pool to the other streams (decision 153 ruling 11). Decision 49 grows
+    // the window up to the pool when the caller takes its content quickly.
     held.initial_max_stream_data_bidi_local = @min(constants.policy.quic_stream_window, capacity);
     held.initial_max_stream_data_uni = @min(constants.policy.quic_stream_window, capacity);
     held.initial_max_streams_uni = h3.constants.limits.uni_streams_max;
