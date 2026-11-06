@@ -236,7 +236,7 @@ pub fn add(
     client.addImport("brotli", stdx.module("brotli"));
 
     const rotor = b.dependency("rotor", .{ .target = target, .release = optimize == .ReleaseSafe });
-    const colibri = modules_colibri.add(b, .{ .core = core, .http = http, .server = server, .tls = tls }, rotor, target, optimize);
+    const colibri = modules_colibri.add(b, .{ .core = core, .http = http, .server = server, .client = client, .tls = tls }, rotor, target, optimize);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
