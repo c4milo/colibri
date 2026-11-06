@@ -86,11 +86,7 @@ pub fn turn(run: anytype) !void {
     drain(run, now_ns);
     client_tcp.serve(run, now_ns);
     client_tcp.arm(state);
-    if (state.udp.open) {
-        state.udp.flush(&state.loop, &state.pool, now_ns);
-        // A datagram sent can end a connection, whose events the next turn reads at once.
-        drain(run, now_ns);
-    }
+    if (state.udp.open) state.udp.flush(&state.loop, &state.pool, now_ns);
 }
 
 /// How long the tick after `now_ns` may wait: until `deadline_ns`, the pool's next deadline, and

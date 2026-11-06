@@ -273,6 +273,7 @@ test "decision 124: a client with no QUIC refuses h3" {
 
 test {
     _ = @import("client_tcp_test.zig");
+    _ = @import("client_udp_test.zig");
 }
 
 test "design §8 step 42: a request leaves the pool's events for the next turn to read at once" {

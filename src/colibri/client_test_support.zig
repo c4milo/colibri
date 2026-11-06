@@ -24,7 +24,11 @@ const internal_server_error = 500;
 /// How long a test's run may last before the watchdog halts the test, and the step it checks in.
 /// It is shorter than the server's deadlines of 10 s (decision 110), so a run that ends only when
 /// the server cuts an idle connection fails.
-const watchdog_ms = 8_000;
+pub const watchdog_ms = 8_000;
+/// How long a run may last whose QUIC connection the server never answers. The pool closes it once
+/// TCP takes the exchanges, and it stays closing for three PTOs (RFC 9000 §10.2), which its lost
+/// Initial packets have doubled (RFC 9002 §6.2.1).
+pub const unanswered_quic_watchdog_ms = 30_000;
 const watchdog_step_ms = 50;
 
 const routes = server.router(void, .{
@@ -74,7 +78,14 @@ pub var test_client: TestClient align(@alignOf(TestClient)) = undefined;
 /// Starts a server on 127.0.0.1 port 0 on a thread of its own: over TLS with the test identity
 /// when `identity` is set, and with a UDP socket for h3 when `udp` is set too.
 pub fn start_server(identity: bool, udp: bool) !void {
+    return start_server_ecn(identity, udp, false);
+}
+
+/// Starts a server as `start_server` does, whose QUIC connections read and set ECN codepoints
+/// when `ecn` is set (decision 68).
+pub fn start_server_ecn(identity: bool, udp: bool, ecn: bool) !void {
     var config: server_module.ServerConfig = .{ .cpu = support.cpu() };
+    config.endpoint.ecn = ecn;
     if (identity) config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     router = .{};
     udp_served = udp;
@@ -97,6 +108,15 @@ pub fn stop_server() void {
 fn serve() void {
     const result = if (udp_served) test_server.run(&router, &context) else tcp_server.run(&router, &context);
     result catch |failure| std.debug.panic("run failed: {t}", .{failure});
+}
+
+/// Whether the client's last QUIC connection read each of the server's 1-RTT datagrams as ECT(0),
+/// the codepoint the server sets (RFC 9000 §13.4.1). It reads the counts of the connection's
+/// application space, a field no program reads.
+pub fn ecn_read_as_ect0() bool {
+    const spaces = &test_client.pool.quic.transport.spaces;
+    const counts = spaces[spaces.len - 1].ecn;
+    return counts.ect_0 > 0 and counts.ect_1 == 0 and counts.ecn_ce == 0;
 }
 
 /// The anchor that trusts the test identity's root.
@@ -128,13 +148,15 @@ pub const Handler = struct {
     stop_after: u32 = std.math.maxInt(u32),
     connected: ?client.Protocol = null,
     connections: u32 = 0,
+    greetings: u32 = 0,
     path: []const u8 = "/greeting",
     method: []const u8 = "GET",
 
     /// Requests `count` GETs of `/greeting` through the client.
     pub fn request(handler: *Handler, count: u32) !void {
         for (0..count) |_| {
-            const exchange = &handler.exchanges[handler.requested];
+            // A test that makes more requests than this makes each after the one before ended.
+            const exchange = &handler.exchanges[handler.requested % requests_max];
             exchange.request.path = handler.path;
             exchange.request.method = handler.method;
             exchange.response = .{ .body = &exchange.body };
@@ -146,11 +168,11 @@ pub const Handler = struct {
     pub fn on_finished(handler: *Handler, running: *TestClient, finished: client.Finished) void {
         std.debug.assert(running == &test_client);
         handler.finished += 1;
+        if (greeting_in(finished.response)) handler.greetings += 1;
         if (handler.more > 0) {
             handler.more -= 1;
             handler.request(1) catch |failure| std.debug.panic("request failed: {t}", .{failure});
         }
-        _ = finished;
         if (handler.finished == handler.stop_after) running.shutdown();
     }
 
@@ -161,18 +183,20 @@ pub const Handler = struct {
 
     /// Whether each exchange requested ended with the greeting.
     pub fn greeted(handler: *const Handler) bool {
-        if (handler.finished != handler.requested) return false;
-        for (handler.exchanges[0..handler.requested]) |*exchange| {
-            if (exchange.response.result != .response or exchange.response.status != ok) return false;
-            if (!std.mem.eql(u8, greeting, exchange.response.body_received())) return false;
-        }
-        return true;
+        return handler.finished == handler.requested and handler.greetings == handler.finished;
     }
 };
+
+/// Whether `response` holds the greeting, whole.
+fn greeting_in(response: *const client.Response) bool {
+    if (response.result != .response or response.status != ok) return false;
+    return std.mem.eql(u8, greeting, response.body_received());
+}
 
 /// Halts the test binary when a run lasts longer than `watchdog_ms`: a run that never returns
 /// fails at once, not at the mutation runner's limit.
 pub const Watchdog = struct {
+    limit_ms: u64 = watchdog_ms,
     done: std.atomic.Value(bool) = .init(false),
     thread: std.Thread = undefined,
 
@@ -188,7 +212,7 @@ pub const Watchdog = struct {
     fn watch(watchdog: *Watchdog) void {
         var threaded: std.Io.Threaded = .init_single_threaded;
         const io = threaded.io();
-        for (0..watchdog_ms / watchdog_step_ms) |_| {
+        for (0..watchdog.limit_ms / watchdog_step_ms) |_| {
             if (watchdog.done.load(.acquire)) return;
             io.sleep(.fromMilliseconds(watchdog_step_ms), .awake) catch {};
         }
@@ -198,7 +222,12 @@ pub const Watchdog = struct {
 
 /// Runs the client with `handler` on this thread, under a watchdog.
 pub fn run(handler: *Handler) !void {
-    var watchdog: Watchdog = .{};
+    return run_within(handler, watchdog_ms);
+}
+
+/// Runs the client as `run` does, under a watchdog of `limit_ms`.
+pub fn run_within(handler: *Handler, limit_ms: u64) !void {
+    var watchdog: Watchdog = .{ .limit_ms = limit_ms };
     try watchdog.start();
     defer watchdog.stop();
     try test_client.run(handler);
