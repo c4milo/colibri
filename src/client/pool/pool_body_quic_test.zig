@@ -83,6 +83,42 @@ test "RFC 9000 §13.3: a piece over h3 is taken once the server acknowledged it,
     try testing.expectEqual(std.hash.Crc32.hash(pieces[1]), quic_support.answers[0].received_crc.final());
 }
 
+test "RFC 9000 §13.3: a piece handed at the last one's `body_taken` waits for its own acknowledgment" {
+    var put: connection_support.Exchange = undefined;
+    const id = try start(&put);
+    try pool.write_body(id, pieces[0], false);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.body_taken));
+    // The program hands the next piece as it reads the event, and calls `receive` again before
+    // the piece goes out: the server acknowledged every octet the stream holds so far.
+    try pool.write_body(id, pieces[1], false);
+    const received = pool.receive(.none, quic_support.now_ns);
+    try testing.expectEqual(null, received.event);
+    try testing.expectError(error.PieceHeld, pool.write_body(id, pieces[2], true));
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(2, count(.body_taken));
+    try testing.expectEqual(pieces[0].len + pieces[1].len, quic_support.answers[0].received);
+}
+
+test "RFC 9000 §3.5: a piece handed before the server stopped the body is taken once QUIC reset the stream" {
+    var put: connection_support.Exchange = undefined;
+    const id = try start(&put);
+    try pool.write_body(id, pieces[0], false);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.body_taken));
+    const stream: quic.stream.StreamId = .{ .value = quic_support.answers[0].id };
+    try quic.connection_stream_send.stop_sending(&quic_support.server, stream, h3.constants.protocol.error_no_error);
+    // The program hands the next piece, and the STOP_SENDING arrives before the piece goes out.
+    try pool.write_body(id, pieces[1], false);
+    const len = (try quic_support.server_send(&fixture.datagram)).?;
+    @memcpy(fixture.crossing[0..len], fixture.datagram[0..len]);
+    try fixture.deliver(fixture.crossing[0..len]);
+    // QUIC reset the stream's sending part (RFC 9000 §3.5), so it reads none of the piece.
+    try fixture.collect();
+    try testing.expectEqual(2, count(.body_taken));
+    try testing.expectError(error.BodyStopped, pool.write_body(id, pieces[2], true));
+}
+
 test "RFC 9114 §4.1: a server that asks the client to stop sending ends the body, and the exchange still finishes" {
     var put: connection_support.Exchange = undefined;
     const id = try start(&put);

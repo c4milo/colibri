@@ -90,8 +90,10 @@ pub fn note_taken(connection: *QuicConnection) void {
         const acknowledged = quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, .{ .value = slot.stream_id });
         // Null when QUIC reads none of the stream's octets again: it closed, or it was reset.
         if (acknowledged) |end| {
-            if (end < stream.supplied_end) continue;
-        }
+            // RFC 9000 §13.3: a piece handed since the last supply is in no octet the server
+            // acknowledged, though it acknowledged every octet before it.
+            if (slot.piece_sent < slot.piece.len or end < stream.supplied_end) continue;
+        } else slot.piece_sent = slot.piece.len;
         slot.piece_written();
     }
 }
