@@ -13530,6 +13530,37 @@ library.
     fallback delay. The tests and examples that expect QUIC first ask for `.quic`.
   - **The checks.** The simulator's pool run with `.tcp` connects over TCP when both work, and
     over QUIC when TCP fails. A mutation that opens QUIC first under `.tcp` is caught.
+  - **The build, 2026-11-06.** `client.Protocols.prefer` takes `client.Transport`, which the
+    root already exports, so no name joins a public list. `Config.quic_first` stays: it says
+    whether QUIC may open at all with no HTTPS record and no Alt-Svc.
+    - Under `.tcp`, QUIC opens when this attempt's TCP failed, when no TCP slot is free, or when
+      TCP is not allowed. No TCP slot opens while QUIC's handshake runs, and the pool sets no
+      fallback instant.
+    - The QUIC fixture of `src/client/pool/` asks for `.quic`, and so do `examples/client_exchange.zig`
+      and the h3 tests of `src/colibri/`. `examples/colibri_server.zig` fetches over h2 by
+      default and over h3 with `.quic`. The test-only client's pool mode keeps `.quic`, and
+      `--tcp-first` gives the default.
+    - The client trace run draws `prefer` and a TCP server that refuses each connect from a
+      generator of their own. It requires the first `open` to name the preferred transport. Under
+      `.tcp` it requires h2 first in a clean seed where TCP works, and h3 where TCP refuses.
+    - spec/tla/client_exchanges gains the constant `Prefer`, and every configuration names it.
+      The old configurations name `"quic"`. Four new ones name `"tcp"`: `ClientExchanges_prefer_tcp`,
+      `ClientExchanges_prefer_tcp_completes`, `ClientExchanges_prefer_tcp_pool` and
+      `ClientExchanges_h3_alone_prefer_tcp`. The client and pool trace runs write `Prefer`. TLC did
+      not run here; the nightly job checks every configuration and both trace runs.
+  - **What was run, 2026-11-06,** on macOS 26.6.2 arm64 with Zig 0.16.0. Each exited 0:
+    `zig build lint`, `zig fmt --check build.zig bench build examples src tools`, `zig build
+    test`, `zig build test-sim-run`, `zig build examples`, `tools/doc_snippets.sh`,
+    `tools/consumer_check.sh` and `tools/pool_interop.sh`. The client trace check printed
+    `seeds=256 requests=534 responses=328 quic=82 tcp=295 prefer_tcp=137 quic_after_tcp=11
+    states=2632`. `tools/pool_interop.sh` read `quic_opens=1 tcp_opens=1` with `--tcp-first`
+    against aioquic, and `quic_opens=0 tcp_opens=1` against Go.
+  - **The mutations.** Each was **CAUGHT** by `zig build test-client`: QUIC first under `.tcp`;
+    TCP beside a QUIC handshake under `.tcp`; QUIC after every TCP slot; QUIC that waits for TCP
+    with no slot free; the preference ignored; `tcp_tried` never set; `.quic` as the default; the
+    fallback instant set under `.tcp`. `tcp_tried` never set was **NOT CAUGHT** at first, and a
+    pool test of two TCP slots now catches it. `zig build test-sim-run` **CAUGHT** QUIC first
+    under `.tcp`, the preference ignored, and TCP beside a QUIC handshake.
 - **Step 44 — colibri on a shared Rotor loop, proposed 2026-11-06.** [Decision 156](decisions.md).
   `colibri.Client` and `colibri.Server` run on a `rotor.Loop` that the program may share with
   other libraries, such as a resolver. It ships in v0.15.0. Commit 44b waits for Rotor: see "The
