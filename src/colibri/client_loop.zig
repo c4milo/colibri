@@ -117,11 +117,15 @@ fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
     client_tcp.on_event(run, event, now_ns);
 }
 
-/// Reads the pool's events until it reports none, and does what each asks. A read that reaches
-/// its bound leaves the rest for the next turn, which then waits for nothing.
+/// Reads the pool's events until it reports none, and does what each asks. The reads are bounded
+/// by `receive_events_without_input_max` of the pool's counts, and one more read that reports no
+/// event. A handler that calls `request` starts a new count, so a drain that reaches the bound
+/// leaves the rest for the next turn, which then waits for nothing.
 pub fn drain(run: anytype, now_ns: u64) void {
     const state = run.client;
-    for (0..constants.limits.events_per_step_max) |_| {
+    const Pool = @TypeOf(state.pool);
+    const reads_max = Pool.receive_events_without_input_max(state.pool.counts) + 1;
+    for (0..reads_max) |_| {
         const received = state.pool.receive(.none, now_ns);
         assert(received.consumed == 0);
         const reported = received.event orelse {
@@ -149,6 +153,8 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
             var held = ticket;
             held.wipe();
         },
+        // `Client.request` takes no streamed exchange, so no exchange has pieces.
+        .headers, .body, .body_taken => unreachable,
         .finished => |ended| run.handler.on_finished(state, ended),
         // The run's end cancels the UDP socket's receive (`end`).
         .closed => state.closed = true,

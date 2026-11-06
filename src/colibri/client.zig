@@ -142,8 +142,12 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         /// Hands the pool a request and the response it fills, and returns the exchange's id. The
         /// program keeps both in place, and each slice they name, until the exchange's `finished`
         /// event (decision 124). It calls `request` before `run`, or from a handler `run` calls,
-        /// on the loop's thread. After `shutdown`, from any thread, it returns `ShutDown`.
+        /// on the loop's thread. After `shutdown`, from any thread, it returns `ShutDown`. The
+        /// request and its response have whole bodies: `message.streamed` asks for nothing.
         pub fn request(self: *Self, message: *const client.Request, response: *client.Response) (client.RequestError || error{ShutDown})!client.RequestId {
+            // The client has no call that hands a piece or gives one back, so a streamed exchange
+            // could never finish (design §8 step 42).
+            assert(!message.streamed.request and !message.streamed.response);
             // The pool takes no request after its own shutdown, which the loop passes it at its
             // next turn (`ConnectionPool.request`).
             if (self.stopping.load(.acquire)) return error.ShutDown;
