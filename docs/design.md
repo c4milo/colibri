@@ -12662,6 +12662,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - Each QUIC connection grows by 16 octets, the 128 bits, in docs/performance.md.
       - The judge's `--h3 --base` 29d.15's tree, at 10 rounds. The step lands when h3-many wins
         and no input loses.
+    - **29d.16, the judge, 2026-11-06.** Run 42309659935, `--h3 --base 4fa8d78a` at 10 rounds:
+      h3-many 0.9718 and 0.9710, and h3-bbr-many 0.9708 and 0.9649, each a win. h3-many fell
+      from 31,692 to 30,799 instructions a request in job 1. Every other input is within the
+      noise in both jobs. Callgrind on a laptop counted `connection_stream_send.write` at about
+      750 instructions a request, from 2,330.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
