@@ -27,8 +27,10 @@ pub const quic_idle_margin_ns_min: u64 = constants.nanoseconds_per_second;
 /// once.
 pub const quic_idle_margin_timeout_divisor: u64 = 2;
 
-/// The window the QUIC client grants each unidirectional stream the server opens: h3's control
-/// stream and QPACK's two (RFC 9114 §6.2), whose frames are small.
+/// The window the QUIC client grants each stream (RFC 9000 §18.2): each request stream it opens,
+/// and each unidirectional stream the server opens, h3's control stream and QPACK's two (RFC 9114
+/// §6.2). A request stream whose content the caller holds keeps at most this much of the receive
+/// pool (decision 153 ruling 11).
 pub const quic_stream_window: u64 = 65_536;
 
 /// How long a pool lets QUIC's handshake run before TCP opens beside it, unless the caller

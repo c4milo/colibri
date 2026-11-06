@@ -243,6 +243,53 @@ test "RFC 9000 §4.1: a server faster than the program waits for the stream's cr
 /// Rounds of releasing a piece and moving datagrams that the test of flow control takes at most.
 const rounds_max: usize = 256;
 
+/// A receive pool twice the window of one request stream, so a stream that held the whole pool
+/// would leave the other streams no credit. Test-only.
+const shared_pool_len: usize = shared_streams * h3_stream_window;
+const shared_streams: usize = 2;
+const h3_stream_window: usize = 65_536;
+var shared_pool: quic.stream.stream_incoming.Pool(shared_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(shared_pool_len))) = undefined;
+
+/// The other exchange's content: more than the receive pool has left once a held stream took
+/// the whole pool's window. Test-only.
+const other_body_len: usize = h3_stream_window;
+var other_body: [other_body_len]u8 = undefined;
+
+fn answer_at(path: []const u8) !*quic_support.Answer {
+    for (quic_support.answers[0..quic_support.answers_len]) |*answer| {
+        if (std.mem.eql(u8, answer.path[0..answer.path_len], path)) return answer;
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "RFC 9000 §4.1: a held h3 stream keeps one stream's window of the receive pool, and the next exchange finishes" {
+    for (&content, 0..) |*octet, index| octet.* = @truncate(index);
+    var given = fixture.configured(true);
+    given.protocols = .{ .h11 = false, .h2 = false };
+    try fixture.start_configured(&quic_support.alpn_h3, fixture.values_at(fixture.https_port), given, shared_pool.storage());
+    quic_support.server_answers = false;
+    var held: connection_support.Exchange = .{ .request = .{ .method = "GET", .path = "/held", .streamed = .{ .response = true } }, .response = .{ .body = &response_piece } };
+    var other = fixture.get(&other_body);
+    _ = try pool.request(&held.request, &held.response);
+    _ = try pool.request(&other.request, &other.response);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(2, quic_support.answers_len);
+    // The held stream's content is larger than the pool, and the program never releases a piece.
+    try quic_support.server_answer(try answer_at("/held"), 200, &content);
+    try pump(fixture.rounds_past_probe);
+    try testing.expectEqual(1, count(.body));
+    // RFC 9000 §18.2: the held stream's window is one stream's, so the server keeps connection
+    // credit for the other stream.
+    const stream = quic_support.server.streams.lookup(.{ .value = (try answer_at("/held")).id }).live;
+    try testing.expectEqual(h3_stream_window, stream.send_flow.limit);
+    try quic_support.server_answer(try answer_at("/dns-query"), 200, content[0..other_body_len]);
+    try pump(fixture.rounds_past_probe);
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(.response, other.response.result);
+    try testing.expectEqualSlices(u8, content[0..other_body_len], other.response.body[0..other.response.body_len]);
+    try testing.expectEqual(.pending, held.response.result);
+}
+
 test "decision 153 ruling 7: a cancel gives back the request piece and the response piece at once" {
     var exchange: connection_support.Exchange = undefined;
     const id = try start_streamed(&exchange, .{ .request = true, .response = true });

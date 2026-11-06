@@ -196,7 +196,8 @@ test "RFC 9000 §4.1: every window the client advertises fits the receive pool i
     try support.start_with_pool(answer_pool.storage(), &support.alpn_h3, &support.alpn_h3, false);
     var granted = connection.transport.local_parameters;
     try testing.expectEqual(answer_pool_len, granted.initial_max_data);
-    try testing.expectEqual(answer_pool_len, granted.initial_max_stream_data_bidi_local);
+    // Decision 153 ruling 11: a request stream gets one stream's window, which the pool holds.
+    try testing.expectEqual(constants.policy.quic_stream_window, granted.initial_max_stream_data_bidi_local);
     try testing.expectEqual(constants.policy.quic_stream_window, granted.initial_max_stream_data_uni);
     connection.transport_closed();
     try support.start_with_pool(small_pool.storage(), &support.alpn_h3, &support.alpn_h3, false);
