@@ -5030,7 +5030,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
           arrives as an event of its own, and `segment_bytes` on a received datagram is always 0.
           - The `udp.zig` test now requires three events for the segmented send, each with its
             own octets and a `segment_bytes` of 0.
-          - `Segments.of` takes 0 as one datagram, so the servers need no change.
+          - `Segments.of` took 0 as one datagram, so it never split a delivery again. On
+            2026-11-06 it went from `udp_batch.zig` and `datagram_batch.zig`, with its test. Each
+            server now hands a delivery to its endpoint whole, and asserts a `segment_bytes` of 0.
           - `coalesce` is now true by default. Every socket with a group of 2,048-octet buffers
             sets it false or holds no group. Each buffer size is a multiple of 8, as Rotor now
             requires.

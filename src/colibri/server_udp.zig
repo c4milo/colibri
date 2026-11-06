@@ -1,8 +1,8 @@
 //! The UDP socket of a `colibri.Server` (design §8 step 37c): h3 over QUIC on the UDP port of the
 //! same number as the TCP listener's, on the same Rotor loop. One multishot receive reads into a
 //! group of buffers the server holds. On Linux the kernel coalesces datagrams from one peer
-//! (UDP_GRO) and cuts each batch the server sends into datagrams (UDP_SEGMENT, design §8 step
-//! 13f.6). Moved from the test-only UDP server's `udp.zig`, `udp_run_h3.zig` and `udp_peer.zig`.
+//! (UDP_GRO), which Rotor splits again, and cuts each batch the server sends into datagrams
+//! (UDP_SEGMENT, design §8 step 13f.6). Moved from the test-only UDP server's `udp.zig`, `udp_run_h3.zig` and `udp_peer.zig`.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -95,19 +95,15 @@ pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
     if (!event.flags.more and !state.shut_down) start_receive(state);
 }
 
-/// Hands the endpoint each datagram of a delivery: the delivery itself, or each segment of one the
-/// kernel coalesced. A delivery cut short is dropped, as a lost datagram is. `server_udp_test.zig`
-/// calls it with a delivery it builds.
+/// Hands the endpoint the datagram of a delivery. Rotor splits what the kernel coalesced, so each
+/// delivery holds one datagram (Rotor's decision 15 as amended). A delivery cut short is dropped,
+/// as a lost datagram is. `server_udp_test.zig` calls it with a delivery it builds.
 pub fn take_delivery(run: anytype, delivery: rotor.Delivery, now_ns: u64) void {
+    assert(delivery.from.segment_bytes == 0);
     if (delivery.from.flags.truncated) return;
     const ecn = received_ecn(&delivery.from);
     const from = peer_address(delivery.from.peer);
-    var segments = batch_module.Segments.of(delivery.bytes, delivery.from.segment_bytes);
-    // Bounded: each pass takes one segment, and a delivery holds at most `udp_segments_max`.
-    for (0..constants.limits.udp_segments_max) |_| {
-        const bytes = segments.next() orelse return;
-        take(run, .{ .datagram = .{ .bytes = bytes, .ecn = ecn, .from = from } }, now_ns);
-    }
+    take(run, .{ .datagram = .{ .bytes = delivery.bytes, .ecn = ecn, .from = from } }, now_ns);
 }
 
 /// Passes `input` to the endpoint, then routes every event it reports until it reports none.

@@ -98,25 +98,6 @@ pub const Batches = struct {
     }
 };
 
-/// The datagrams of one delivery: the delivery itself, or each segment of one the kernel coalesced
-/// (UDP_GRO), each of `segment_bytes` but the last, which may be shorter.
-pub const Segments = struct {
-    bytes: []u8,
-    segment_len: usize,
-    offset: usize = 0,
-
-    pub fn of(bytes: []u8, segment_bytes: u16) Segments {
-        return .{ .bytes = bytes, .segment_len = if (segment_bytes == 0) bytes.len else segment_bytes };
-    }
-
-    pub fn next(segments: *Segments) ?[]u8 {
-        if (segments.offset == segments.bytes.len) return null;
-        const start = segments.offset;
-        segments.offset = @min(start + segments.segment_len, segments.bytes.len);
-        return segments.bytes[start..segments.offset];
-    }
-};
-
 const testing = std.testing;
 
 /// Two peers and the datagrams a test adds. Test-only.
@@ -202,21 +183,6 @@ test "design §8 step 13i: without segments, each datagram of one peer is a batc
     try testing.expectEqual(2, open_count(&batches));
     try testing.expectEqual(1, batches.batches[0].count);
     try testing.expectEqual(0, batches.batches[0].segment_bytes());
-}
-
-/// The segment length of the coalesced delivery the test splits. Test-only.
-const test_segment_bytes: u16 = 4;
-
-test "design §8 step 13f.6: a coalesced delivery splits into its segments, and a plain one stays whole" {
-    var coalesced = "aaaabbbbcc".*;
-    var segments = Segments.of(&coalesced, test_segment_bytes);
-    try testing.expectEqualStrings("aaaa", segments.next().?);
-    try testing.expectEqualStrings("bbbb", segments.next().?);
-    try testing.expectEqualStrings("cc", segments.next().?);
-    try testing.expectEqual(null, segments.next());
-    var plain = Segments.of(&coalesced, 0);
-    try testing.expectEqualStrings(&coalesced, plain.next().?);
-    try testing.expectEqual(null, plain.next());
 }
 
 test "design §8 step 13f.6: datagrams of one peer with another codepoint start another batch" {

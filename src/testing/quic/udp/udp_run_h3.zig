@@ -119,19 +119,14 @@ fn on_event(asked: udp_arguments.Server, socket: *udp.Endpoint, event: udp.Event
     socket.finish_receive(event);
 }
 
-/// Hands the endpoint each datagram of a delivery: the delivery itself, or each segment of one the
-/// kernel coalesced, the last of which may be shorter. A delivery cut short is dropped, as a lost
-/// datagram is.
+/// Hands the endpoint the datagram of a delivery, which holds one (Rotor's decision 15 as
+/// amended). A delivery cut short is dropped, as a lost datagram is.
 fn take_delivery(asked: udp_arguments.Server, delivery: udp.Delivery, now_ns: u64) void {
+    std.debug.assert(delivery.from.segment_bytes == 0);
     if (delivery.from.flags.truncated) return;
     const ecn = udp_peer.received_ecn(&delivery.from);
     const from = udp_peer.peer_address(delivery.from.peer);
-    var segments = udp_batch.Segments.of(delivery.bytes, delivery.from.segment_bytes);
-    // Bounded: each pass takes one segment, and a delivery holds at most `udp_segments_max`.
-    for (0..constants.udp_segments_max) |_| {
-        const bytes = segments.next() orelse return;
-        take(asked, .{ .datagram = .{ .bytes = bytes, .ecn = ecn, .from = from } }, now_ns);
-    }
+    take(asked, .{ .datagram = .{ .bytes = delivery.bytes, .ecn = ecn, .from = from } }, now_ns);
 }
 
 /// Passes `input` to the endpoint, then answers every event it reports until it reports none.
