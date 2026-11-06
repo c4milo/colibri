@@ -185,13 +185,15 @@ test "decision 124: StartError names what ConnectionPool.init and the two starts
 test "decision 121: RequestError names what ConnectionPool.request returns, and no other error" {
     // A switch names each member of the set once. A member added to a set, or taken out of it,
     // stops the test from compiling. A connection that drains or closes gets no new exchange from
-    // its pool, so `request` never returns `Draining` or `ConnectionClosed`.
+    // its pool, so `request` never returns `Draining` or `ConnectionClosed`. Step 38b adds
+    // `InvalidTrailer` (decision 152).
     const names = struct {
         fn of(comptime Set: type, failure: Set) []const u8 {
             return switch (failure) {
                 error.Full => "Full",
                 error.RequestUnsupported => "RequestUnsupported",
                 error.FieldReserved => "FieldReserved",
+                error.InvalidTrailer => "InvalidTrailer",
             };
         }
     };
@@ -268,6 +270,7 @@ test {
     _ = @import("quic/quic_connection_idle_test.zig");
     _ = @import("quic/quic_resume_test.zig");
     _ = @import("quic/quic_coding_test.zig");
+    _ = @import("quic/quic_trailers_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

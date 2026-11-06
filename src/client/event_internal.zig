@@ -1,5 +1,6 @@
 //! What the client's own files call on a `Request` and a `Response`, and no program does
-//! (decision 115): the Content-Length a request sends, and clearing a response before an exchange
+//! (decision 115): the Content-Length a request sends, how it frames its body and whether it says
+//! it accepts trailers, and clearing a response before an exchange
 //! writes it. `client.zig` does not export this file, so a program reaches neither.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -27,9 +28,26 @@ pub fn content_length(request: *const Request, digits: []u8) ?[]const u8 {
 }
 
 /// Whether h11 sends `request`'s body chunked: it goes in pieces and states no length (RFC 9112
-/// §7.1, decision 153 ruling 7).
+/// §7.1, decision 153 ruling 7), or a trailer section follows it, which only a chunked body
+/// carries (RFC 9112 §7.1.2, decision 152).
 pub fn chunked(request: *const Request) bool {
+    if (request.trailers.len > 0) return true;
     return request.streamed.request and request.streamed.request_len == null;
+}
+
+/// Whether the client adds `te: trailers` to `request`: its response has a buffer for trailers,
+/// and the request's own headers name no TE (RFC 9110 §10.1.4, decision 152 ruling 7).
+pub fn adds_te(request: *const Request, response: *const Response) bool {
+    if (response.trailers.buffer.len == 0) return false;
+    return !names_te(request);
+}
+
+/// Whether `request`'s own headers name TE (RFC 9110 §10.1.4).
+pub fn names_te(request: *const Request) bool {
+    for (request.headers) |field| {
+        if (http.connection_specific.classify(field.name) == .te) return true;
+    }
+    return false;
 }
 
 /// Clears what the client writes into `response`, so an exchange writes it anew, and keeps where
@@ -83,4 +101,19 @@ test "decision 153: a streamed request states the length it names, and none when
     const unstated: Request = .{ .method = "POST", .path = "/", .streamed = .{ .request = true } };
     try testing.expectEqual(null, content_length(&unstated, &digits));
     try testing.expect(chunked(&unstated));
+}
+
+test "decision 152: a request with trailers goes chunked, and a trailer buffer asks for te: trailers" {
+    const trailers = [_]event.Header{.{ .name = "grpc-status", .value = "0" }};
+    const with_trailers: Request = .{ .method = "POST", .path = "/", .body = "abc", .trailers = &trailers };
+    try testing.expect(chunked(&with_trailers));
+    var buffer: [8]u8 = undefined;
+    const reads_trailers: Response = .{ .trailers = .{ .buffer = &buffer } };
+    const drops_trailers: Response = .{};
+    try testing.expect(adds_te(&with_trailers, &reads_trailers));
+    try testing.expect(!adds_te(&with_trailers, &drops_trailers));
+    // RFC 9110 §10.1.4: the program's own TE stands.
+    const te = [_]event.Header{.{ .name = "TE", .value = "trailers" }};
+    const names_its_own: Request = .{ .method = "GET", .path = "/", .headers = &te };
+    try testing.expect(!adds_te(&names_its_own, &reads_trailers));
 }

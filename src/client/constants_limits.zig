@@ -59,10 +59,11 @@ pub const frames_per_receive_max: usize = plaintext_in_len / h2.constants.protoc
 /// provider that seals one record a call needs one pass per record the output holds.
 pub const seals_per_send_max: usize = output_len / tls_provider.constants.protocol.record_header_len + 1;
 
-/// Field lines the client adds to a request's own: Host in h11 (RFC 9112 §3.2), Content-Length
-/// (RFC 9110 §8.6) or, for a chunked body, Transfer-Encoding (RFC 9112 §6.1), and Accept-Encoding
-/// (decision 101).
-pub const added_fields_max: usize = 3;
+/// Field lines the client adds to a request's own, beside one Trailer for each trailer field
+/// (RFC 9110 §6.6.2): Host in h11 (RFC 9112 §3.2), Content-Length (RFC 9110 §8.6) or, for a
+/// chunked body, Transfer-Encoding (RFC 9112 §6.1), TE and, in h11, Connection (RFC 9110
+/// §10.1.4, decision 152), and Accept-Encoding (decision 101).
+pub const added_fields_max: usize = 5;
 
 /// Field lines a request may carry, the ones the client adds included.
 pub const request_fields_max: usize = core.constants.limits.field_count_max;
@@ -189,7 +190,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(49161, output_len);
     try expectEqual(5490, frames_per_receive_max);
     try expectEqual(9833, seals_per_send_max);
-    try expectEqual(3, added_fields_max);
+    try expectEqual(5, added_fields_max);
     try expectEqual(128, request_fields_max);
     try expectEqual(20, content_length_digits_max);
     try expectEqual(16436, request_prefix_len_max);

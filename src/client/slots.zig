@@ -106,6 +106,19 @@ pub const Slot = struct {
         return slot.piece_sent < slot.piece.len or slot.piece_end;
     }
 
+    /// Whether the content ends with its last piece: the request carries no trailer section, which
+    /// would end it instead (RFC 9113 §8.1, RFC 9114 §4.1, decision 152).
+    pub fn ends_with_piece(slot: *const Slot) bool {
+        return slot.piece_end and slot.request.trailers.len == 0;
+    }
+
+    /// Whether the request's trailer section goes out next: the last piece went out whole, and
+    /// the content's end waits for the section (RFC 9112 §7.1.2, RFC 9113 §8.1).
+    pub fn trailers_next(slot: *const Slot) bool {
+        if (slot.request.trailers.len == 0 or slot.content_done()) return false;
+        return slot.piece_end and slot.piece_sent == slot.piece.len;
+    }
+
     /// The whole piece went out, so the connection reads it no more, and its `body_taken` event
     /// is owed when the caller handed it.
     pub fn piece_written(slot: *Slot) void {

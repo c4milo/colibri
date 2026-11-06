@@ -474,4 +474,5 @@ test {
     _ = @import("connection_records_test.zig");
     _ = @import("connection_streamed_test.zig");
     _ = @import("connection_body_test.zig");
+    _ = @import("connection_trailers_test.zig");
 }

@@ -18,9 +18,12 @@ const StreamProvider = quic.stream.StreamProvider;
 
 /// The frames of one request stream the connection keeps (decision 79).
 pub const RequestStream = struct {
-    /// The HEADERS frame.
+    /// The HEADERS frame, and after it the HEADERS frame of the trailer section, which the stream
+    /// carries after the last piece (RFC 9114 §4.1, decision 152): `trailers_len` octets, 0 for
+    /// none.
     prefix: [constants.limits.request_prefix_len_max]u8,
-    prefix_len: usize,
+    prefix_len: u32,
+    trailers_len: u32,
     /// The header of the DATA frame that carries the slot's piece, empty for an empty piece, and
     /// the stream offset it starts at.
     data_header: [h3.constants.protocol.frame_header_len_max]u8,
@@ -29,6 +32,11 @@ pub const RequestStream = struct {
     /// The stream's octets QUIC was told of (RFC 9000 §4.5): the end of the piece's frame.
     supplied_end: u64,
 };
+
+comptime {
+    // The frames a stream keeps count their octets in a `u32`.
+    assert(constants.limits.request_prefix_len_max <= std.math.maxInt(u32));
+}
 
 /// Supplies QUIC the DATA frame of `slot`'s piece, after the octets supplied before it, with FIN
 /// when the piece is the last (RFC 9114 §4.1, RFC 9000 §2.2). `BodyStopped` says the stream's
@@ -46,8 +54,11 @@ pub fn supply_piece(connection: *QuicConnection, slot: *Slot, now_ns: u64) error
         connection.h3.write_data_header(slot.stream_id, slot.piece.len, &writer, now_ns) catch unreachable;
         stream.data_header_len = writer.written().len;
     }
-    const end = stream.piece_base + stream.data_header_len + slot.piece.len;
-    // RFC 9000 §2.2: the stream ends with the last octet of the content, which carries FIN.
+    // RFC 9114 §4.1: the trailer section follows the last piece.
+    const trailers_len: u64 = if (slot.piece_end) stream.trailers_len else 0;
+    const end = stream.piece_base + stream.data_header_len + slot.piece.len + trailers_len;
+    // RFC 9000 §2.2: the stream ends with the last octet of the content, or of the trailer
+    // section after it, which carries FIN.
     quic.connection_stream_send.supply(&connection.transport, .{ .value = slot.stream_id }, end, slot.piece_end) catch {
         slot.content_stopped = true;
         // RFC 9114 §4.1: the server asked the client to stop sending, and QUIC reset the stream's
@@ -107,7 +118,7 @@ pub fn provider(connection: *QuicConnection) StreamProvider {
 const vtable: quic.stream.stream_provider.VTable = .{ .read = read_request };
 
 /// A request stream's octets from `offset`: its HEADERS frame, then the DATA frame's header and
-/// the piece. Every call at one offset answers the same octets, which RFC 9000 §2.2 asks of a
+/// the piece, and after the last piece the trailer section's HEADERS frame. Every call at one offset answers the same octets, which RFC 9000 §2.2 asks of a
 /// retransmission. QUIC reads no octet between the two: the pieces before the current one were
 /// acknowledged before it was handed (`note_taken`).
 fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
@@ -131,6 +142,12 @@ fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) 
     const piece_from = offset + written - stream.piece_base;
     if (piece_from < header.len) return written;
     written += copy_part(slot.piece, piece_from - header.len, output[written..]);
+    // RFC 9114 §4.1: the trailer section follows the last piece, up to the stream's end.
+    const trailers_base = stream.piece_base + header.len + slot.piece.len;
+    const at = offset + written;
+    if (at < trailers_base or at >= stream.supplied_end) return written;
+    const trailers = stream.prefix[stream.prefix_len..][0..stream.trailers_len];
+    written += copy_part(trailers, at - trailers_base, output[written..]);
     return written;
 }
 

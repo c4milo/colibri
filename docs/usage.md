@@ -1021,6 +1021,22 @@ response's trailers go into `trailers` the same way, apart from its headers, and
 `grpc-status` with `response.trailers.get("grpc-status")`. An empty buffer drops its section, and
 a section that does not fit its buffer ends the exchange `too_large`. The request's `body` is its
 own body.
+
+A request sends its own trailers in `Request.trailers`, a list of `client.Header` such as
+`headers` is ([decision 152](decisions.md)). The client sends them after the whole body:
+
+- Over h11 the request goes chunked, with no Content-Length, and the trailers follow the last
+  chunk (RFC 9112 §7.1.2).
+- Over h2 and h3 the trailers go in a HEADERS frame that ends the stream (RFC 9113 §8.1, RFC 9114
+  §4.1).
+- The client names each trailer in a `Trailer` header (RFC 9110 §6.6.2).
+
+When `Response.trailers` has a buffer, the client sends `te: trailers` (RFC 9110 §10.1.4), and
+over h11 `Connection: TE` with it. A gRPC server over h2 refuses a request without it. The client
+adds none when the request's own headers name TE. `request` returns `error.InvalidTrailer` for a
+trailer that RFC 9110 §6.5.1 forbids: Content-Length, Transfer-Encoding, Host, TE, Trailer and the
+other connection-specific fields. It also returns it for a name with an uppercase letter, which
+h2 and h3 refuse, and for a name or a value that is not valid.
 The program keeps the request and the response in place, with each slice they name, until the
 exchange's `finished` event or until `cancel` returns.
 
@@ -1495,6 +1511,7 @@ const call: client.Request = .{
     .path = peer.path,
     .headers = &.{.{ .name = "content-type", .value = peer.content_type }},
     .streamed = .{ .request = true, .response = true },
+    .trailers = &.{.{ .name = peer.count_trailer, .value = peer.count_value }},
 };
 var piece: [piece_len]u8 = undefined;
 var header_buffer: [section_len]u8 = undefined;
@@ -1513,7 +1530,10 @@ var response: client.Response align(@alignOf(client.Response)) = .{
 - `request_len`: the length of the request body, when the program knows it. The request then
   carries a Content-Length, and its pieces add up to that length. Without it, h11 sends the
   request chunked (RFC 9112 §7.1), with one chunk for each piece. h2 and h3 send each piece in
-  DATA frames.
+  DATA frames. A request with trailers goes chunked over h11 even with a length.
+
+The request's trailers go after its last piece. The example's call says in a trailer how many
+messages it sent, and its server reads the trailer before it ends the response.
 
 `write_body(id, piece, end)` hands the pool the next piece of the request body, and `end` says
 that it is the last piece. The program keeps the piece in place until the exchange's

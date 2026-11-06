@@ -44,6 +44,8 @@ const Request = struct {
     answer: plan_module.Answer,
     /// The request's end arrived, the instant the server acts on it, and whether it has.
     ended: bool = false,
+    /// The request's trailer section arrived, holding the run's trailer field (decision 152).
+    trailers_read: bool = false,
     due_ns: u64,
     acted: bool = false,
     prefix: [prefix_len_max]u8 = undefined,
@@ -191,18 +193,24 @@ pub const QuicServer = struct {
                 .request => |held| {
                     try server.take(held, plan, ledger, now_ns);
                     // Design §8 step 29d.15: a head that ended its stream is the whole request.
-                    if (held.end) server.mark_ended(held.stream_id);
+                    if (held.end) server.mark_ended(held.stream_id, ledger);
                 },
-                .end => |id| server.mark_ended(id),
+                .trailers => |id| if (server.request_of(id)) |request| {
+                    request.trailers_read = holds_trailer(server.h3.field_section());
+                },
+                .end => |id| server.mark_ended(id, ledger),
                 else => {},
             }
         }
     }
 
-    /// The request on stream `id` ended, when the server still holds it.
-    fn mark_ended(server: *QuicServer, id: u64) void {
+    /// The request on stream `id` ended, when the server still holds it, and the ledger notes
+    /// whether its trailer section came before the end (RFC 9114 §4.1).
+    fn mark_ended(server: *QuicServer, id: u64, ledger: *Ledger) void {
         const request = server.request_of(id) orelse return;
+        if (request.ended) return;
         request.ended = true;
+        ledger.request_ended(request.exchange, request.trailers_read);
     }
 
     /// A request's head arrived: the server rejects it unprocessed, or processes it and answers
@@ -262,6 +270,13 @@ pub const QuicServer = struct {
         return null;
     }
 };
+
+/// Whether a trailer section holds the run's trailer field and its value (decision 152).
+pub fn holds_trailer(section: *const h3.http.FieldSection) bool {
+    const expected = ledger_module.request_trailers[0];
+    const found = section.find(expected.name) orelse return false;
+    return std.mem.eql(u8, found.value, expected.value);
+}
 
 /// Each exchange's response content, which names it.
 pub const contents = [_][]const u8{ "response 0", "response 1", "response 2" };

@@ -3,8 +3,8 @@
 //!
 //! The server is one `server.Endpoint` with one TCP slot in cleartext, which reads h2 from the
 //! client's preface (decision 117). It answers the gRPC-shaped POST at its head, then sends back
-//! each piece of the request's body as it arrives, and ends the response with a trailer section
-//! that carries `grpc-status` once the request's body ends. It answers any other request with
+//! each piece of the request's body as it arrives, reads the request's trailer section, and ends
+//! the response with a trailer section that carries `grpc-status` once the request's body ends. It answers any other request with
 //! 404. `docs/usage.md` shows the server's calls with the server example, so the comments here
 //! are short.
 const std = @import("std");
@@ -18,6 +18,9 @@ const Link = link_module.Link;
 /// The method and the path of the call, and the content type of its messages.
 pub const path = "/echo.Echo/Chat";
 pub const content_type = "application/grpc";
+/// The request's trailer field, which says how many messages the call sent.
+pub const count_trailer = "x-message-count";
+pub const count_value = "3";
 
 /// The octets the server writes before it sends them, at most.
 const output_len = 16384;
@@ -51,7 +54,9 @@ var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) 
 var call: ?server.RequestId align(@alignOf(server.RequestId)) = null;
 var echo: [echo_len_max]u8 = undefined;
 var echo_len: usize = 0;
-/// Responses that are whole, and connections that are over.
+/// Whether the call's trailer section named its messages, responses that are whole, and
+/// connections that are over.
+var counted: bool = false;
 var answered: u32 = 0;
 var ended: u32 = 0;
 
@@ -99,6 +104,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
         .request => |request| try answer(request),
         .body => |body| try send_back(body),
+        .trailers => |trailers| try read_trailers(trailers),
         .finished => |finished| answered += @intFromBool(finished.result == .sent),
         .send => |connection| try flush(connection, now_ns),
         .ended => |connection| {
@@ -107,8 +113,8 @@ fn serve(event: server.Event, now_ns: u64) !void {
         },
         // The client closes the socket, so the server is never the first to say `close`.
         .close => return error.ExchangeWrong,
-        // The call has no trailers, and each write of the server finds room.
-        .trailers, .writable => return error.ExchangeWrong,
+        // Each write of the server finds room.
+        .writable => return error.ExchangeWrong,
         // Only a shutdown ends in `closed`.
         .closed => unreachable,
     }
@@ -127,7 +133,7 @@ fn answer(request: server.Request) !void {
 }
 
 /// Sends back a piece of the call's body as soon as it arrives, from the server's own memory,
-/// and ends the response with `grpc-status` once the body ends.
+/// and ends the response once the body ends.
 fn send_back(body: server.RequestBody) !void {
     if (call == null or body.id != call.?) return error.ExchangeWrong;
     if (echo_len + body.bytes.len > echo.len) return error.ExchangeWrong;
@@ -138,9 +144,22 @@ fn send_back(body: server.RequestBody) !void {
         const written = try endpoint.write_body(body.id, .{ .bytes = piece, .end = false });
         if (written != piece.len) return error.ExchangeWrong;
     }
-    if (!body.end) return;
+    if (body.end) try end_call(body.id);
+}
+
+/// Ends the response with `grpc-status` in its trailer section.
+fn end_call(id: server.RequestId) !void {
     const trailers = [_]http.Field{.{ .name = "grpc-status", .value = "0" }};
-    try endpoint.write_trailers(body.id, &trailers);
+    try endpoint.write_trailers(id, &trailers);
+}
+
+/// Reads the call's trailer section, which ends its body (RFC 9113 §8.1), and ends the response.
+fn read_trailers(trailers: server.Trailers) !void {
+    if (call == null or trailers.id != call.?) return error.ExchangeWrong;
+    const count = trailers.headers.find(count_trailer) orelse return error.ExchangeWrong;
+    if (!std.mem.eql(u8, count.value, count_value)) return error.ExchangeWrong;
+    counted = true;
+    try end_call(trailers.id);
 }
 
 fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {
@@ -163,10 +182,10 @@ pub fn over() bool {
     return ended == 1;
 }
 
-/// Whether the server answered the call whole, read `sent` octets of its body and saw its
-/// connection end.
+/// Whether the server answered the call whole, read `sent` octets of its body and its trailer
+/// section, and saw its connection end.
 pub fn check(sent: []const u8) bool {
-    if (answered == 1 and ended == 1 and std.mem.eql(u8, echo[0..echo_len], sent)) return true;
-    std.debug.print("client_stream_peer: answered {d}, ended {d}, echoed {d} octets\n", .{ answered, ended, echo_len });
+    if (counted and answered == 1 and ended == 1 and std.mem.eql(u8, echo[0..echo_len], sent)) return true;
+    std.debug.print("client_stream_peer: counted {}, answered {d}, ended {d}, echoed {d} octets\n", .{ counted, answered, ended, echo_len });
     return false;
 }

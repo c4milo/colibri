@@ -69,6 +69,12 @@ pub const Request = struct {
     body: []const u8 = "",
     /// Which body goes in pieces (decision 153 ruling 7).
     streamed: Streamed = .{},
+    /// The request's trailer section (RFC 9110 §6.5), sent after the whole body, after the last
+    /// piece of a streamed one (decision 152). Empty for none. Over h11 such a request goes
+    /// chunked (RFC 9112 §7.1.2), and over h2 and h3 the section ends the stream (RFC 9113 §8.1,
+    /// RFC 9114 §4.1). The client names each field in a Trailer header field (RFC 9110 §6.6.2),
+    /// and `request` refuses a field RFC 9110 §6.5.1 forbids here with `InvalidTrailer`.
+    trailers: []const Header = &.{},
 };
 
 /// Which body of an exchange goes in pieces (decision 153 ruling 3). A streamed request body goes
@@ -95,7 +101,8 @@ pub const Response = struct {
     /// Each field line takes its name, its value and four octets. An empty buffer drops it.
     headers: headers_module.Headers = .{},
     /// The response's trailer section (RFC 9110 §6.5), kept apart from its headers (§6.5.1), in
-    /// the same way.
+    /// the same way. With a buffer, the request says it accepts trailers with `te: trailers`
+    /// (RFC 9110 §10.1.4), unless its own headers name TE (decision 152).
     trailers: headers_module.Trailers = .{},
     /// Where the response's body is copied.
     body: []u8 = &.{},

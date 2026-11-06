@@ -39,7 +39,7 @@ pub fn check(seeds: u64) !void {
         result.moved, result.resent, result.quic_connections, result.tcp_connections, result.goaways, result.learned, result.retired,
     });
     std.debug.print(" keep_alives={d} streamed={d} taken={d} pieces={d}", .{ result.keep_alives, result.streamed, result.taken, result.pieces });
-    std.debug.print(" prefer_tcp={d} quic_after_tcp={d}", .{ result.prefer_tcp, result.quic_after_tcp });
+    std.debug.print(" prefer_tcp={d} quic_after_tcp={d} trailers={d}", .{ result.prefer_tcp, result.quic_after_tcp, result.trailers });
     std.debug.print(" states={d} closing_ms_max={d}\n", .{ result.states, census.closing_max_ns / quic.constants.nanoseconds_per_millisecond });
 }
 

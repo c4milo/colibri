@@ -15,7 +15,8 @@
 //!    in the program's `body`, which holds 16 octets. The program copies the piece out and
 //!    releases it.
 //! 4. Once a message came back whole, the program hands the next, so its request body goes on
-//!    after the response's head (RFC 9113 §8.1). The last message ends the request's body.
+//!    after the response's head (RFC 9113 §8.1). The last message ends the request's body, and
+//!    the request's trailer section follows it (decision 152).
 //! 5. The server ends the response with `grpc-status` in its trailers. The pool reports
 //!    `finished`, and the program calls `shutdown`.
 //!
@@ -89,12 +90,14 @@ var output: [client.constants.limits.stream_output_len_min]u8 = undefined;
 const receive_calls_max = (link_module.queue_len_max + 1) * (ConnectionPool.receive_events_without_input_max(.{}) + 1);
 
 /// The call. Both of its bodies go in pieces, so `body` is empty and the response's `body` holds
-/// one piece at a time.
+/// one piece at a time. Its trailer section goes after the last piece, and says how many messages
+/// the call sent.
 const call: client.Request = .{
     .method = "POST",
     .path = peer.path,
     .headers = &.{.{ .name = "content-type", .value = peer.content_type }},
     .streamed = .{ .request = true, .response = true },
+    .trailers = &.{.{ .name = peer.count_trailer, .value = peer.count_value }},
 };
 var piece: [piece_len]u8 = undefined;
 var header_buffer: [section_len]u8 = undefined;

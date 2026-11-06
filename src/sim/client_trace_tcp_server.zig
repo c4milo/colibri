@@ -184,11 +184,20 @@ pub const TcpServer = struct {
             const got = received.event orelse continue;
             if (got == .request) try server.take_request(got.request, plan, ledger, now_ns);
             if (got.ended_stream()) |stream_id| {
-                if (server.request_of(stream_id)) |request| request.ended = true;
+                if (server.request_of(stream_id)) |request| server.mark_ended(request, got == .trailers, ledger);
             }
         }
         std.mem.copyForwards(u8, &server.plain, server.plain[consumed..server.plain_used]);
         server.plain_used -= consumed;
+    }
+
+    /// The request ended, after a trailer section when `trailers` (RFC 9113 §8.1). The ledger
+    /// notes whether the section holds the run's trailer field (decision 152).
+    fn mark_ended(server: *TcpServer, request: *Request, trailers: bool, ledger: *Ledger) void {
+        if (request.ended) return;
+        request.ended = true;
+        const with_trailers = trailers and quic_server.holds_trailer(server.h2.field_section());
+        ledger.request_ended(request.exchange, with_trailers);
     }
 
     fn take_request(server: *TcpServer, held: h2.connection.Request, plan: *const Plan, ledger: *Ledger, now_ns: u64) !void {

@@ -33,6 +33,35 @@ test "RFC 9113 §8.2.2: a request naming a field the client writes, or a connect
     _ = try connection.request(&exchange.request, &exchange.response);
 }
 
+test "RFC 9110 §6.5.1: a trailer field that frames or routes the message is refused" {
+    try support.start_cleartext(.h11);
+    // Each name is lowercase, so only the rule that names it refuses it.
+    const names = [_][]const u8{ "content-length", "host", "trailer", "te", "transfer-encoding", "connection", "keep-alive", "proxy-connection", "upgrade" };
+    for (names) |name| {
+        const trailers = [_]Header{.{ .name = name, .value = "x" }};
+        var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .trailers = &trailers } };
+        try testing.expectError(error.InvalidTrailer, connection.request(&exchange.request, &exchange.response));
+    }
+    // RFC 9113 §8.2.1 and RFC 9114 §4.2: a name h2 and h3 would send malformed; RFC 9110 §5.1
+    // and §5.5: a name that is no token, or a value with a line feed.
+    const malformed = [_]Header{
+        .{ .name = "Content-Length", .value = "0" },
+        .{ .name = "Grpc-Status", .value = "0" },
+        .{ .name = ":path", .value = "/" },
+        .{ .name = "", .value = "0" },
+        .{ .name = "grpc-status", .value = "0\n" },
+    };
+    for (malformed) |field| {
+        const trailers = [_]Header{field};
+        var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .trailers = &trailers } };
+        try testing.expectError(error.InvalidTrailer, connection.request(&exchange.request, &exchange.response));
+    }
+    // A trailer field no rule forbids goes out.
+    const status = [_]Header{.{ .name = "grpc-status", .value = "0" }};
+    var exchange: Exchange = .{ .request = .{ .method = "POST", .path = "/", .trailers = &status } };
+    _ = try connection.request(&exchange.request, &exchange.response);
+}
+
 test "RFC 9110 §9.3.6: CONNECT, an empty method and an empty path are refused" {
     try support.start_cleartext(.h11);
     var connect: Exchange = .{ .request = .{ .method = "CONNECT", .path = "example.com:443" } };
