@@ -298,6 +298,26 @@ test "design §8 step 42: a request leaves the pool's events for the next turn t
     try testing.expect(test_client.undrained);
 }
 
+test "design §8 step 42: a turn passes a shutdown to the pool once, and steps each running socket" {
+    var counter: support.Counter = .{};
+    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random() });
+    defer test_client.deinit();
+    test_client.connections = @splat(.empty);
+    test_client.connections[0].started = true;
+    test_client.pending = .initEmpty();
+    test_client.shut_down = false;
+    client_loop.pass_shutdown(&test_client);
+    // No shutdown was asked.
+    try testing.expectEqual(0, test_client.pending.count());
+    test_client.shutdown();
+    client_loop.pass_shutdown(&test_client);
+    try testing.expect(test_client.pool.shut and test_client.pending.isSet(0));
+    // A step of each running socket on each turn would leave the loop no wait until the run ends.
+    test_client.pending = .initEmpty();
+    client_loop.pass_shutdown(&test_client);
+    try testing.expectEqual(0, test_client.pending.count());
+}
+
 test "design §8 step 42: deinit closes the UDP socket" {
     var counter: support.Counter = .{};
     try test_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random() });

@@ -79,17 +79,7 @@ pub fn unix_seconds(state: anytype, now_ns: u64) u64 {
 /// One turn of the loop. See the header.
 pub fn turn(run: anytype) !void {
     const state = run.client;
-    if (state.stopping.load(.acquire) and !state.shut_down) {
-        state.shut_down = true;
-        state.pool.shutdown();
-        state.undrained = true;
-        // A connection the shutdown ends owes its last octets, such as h2's GOAWAY (RFC 9113
-        // §6.8). The pool sends no `send` for a connection whose last `send_stream` wrote
-        // nothing, so the turn steps each running socket.
-        for (state.connections, 0..) |connection, slot| {
-            if (connection.started) state.pending.set(slot);
-        }
-    }
+    pass_shutdown(state);
     const deadline_ns = state.pool.deadline_ns();
     const count = try state.loop.tick(&state.events, wait_ns(state, deadline_ns, state.loop.now_ns()));
     const now_ns = state.loop.now_ns();
@@ -100,6 +90,19 @@ pub fn turn(run: anytype) !void {
     client_tcp.serve(run, now_ns);
     client_tcp.arm(state);
     if (state.udp.open) state.udp.flush(&state.loop, &state.pool, now_ns);
+}
+
+/// Passes a `shutdown` to the pool once. A connection the shutdown ends owes its last octets, such
+/// as h2's GOAWAY (RFC 9113 §6.8). The pool sends no `send` for a connection whose last
+/// `send_stream` wrote nothing, so the turn steps each running socket.
+pub fn pass_shutdown(state: anytype) void {
+    if (!state.stopping.load(.acquire) or state.shut_down) return;
+    state.shut_down = true;
+    state.pool.shutdown();
+    state.undrained = true;
+    for (state.connections, 0..) |connection, slot| {
+        if (connection.started) state.pending.set(slot);
+    }
 }
 
 /// How long the tick after `now_ns` may wait: until `deadline_ns`, the pool's next deadline, and
@@ -169,3 +172,35 @@ pub fn finished(state: anytype) bool {
     return true;
 }
 
+const testing = std.testing;
+
+/// The fields `unix_seconds` and `wait_ns` read, with nothing else of a client. Test-only.
+const Clock = struct {
+    config: struct { unix_seconds: u64 },
+    started_ns: u64,
+};
+const Waits = struct {
+    undrained: bool,
+    pending: std.bit_set.IntegerBitSet(1),
+};
+
+test "design §8 step 42: a chain is judged at the program's instant plus the loop's time since" {
+    const clock: Clock = .{ .config = .{ .unix_seconds = 1_000 }, .started_ns = 5 * ns_per_s };
+    try testing.expectEqual(1_000, unix_seconds(&clock, 5 * ns_per_s));
+    // Two and a half seconds of the loop count as two whole seconds.
+    try testing.expectEqual(1_002, unix_seconds(&clock, 7 * ns_per_s + ns_per_s / 2));
+}
+
+test "design §8 step 42: a tick waits for the pool's deadline, and for nothing while work is left" {
+    var waits: Waits = .{ .undrained = false, .pending = .initEmpty() };
+    const limit_ns = constants.limits.stop_wait_ns_max;
+    try testing.expectEqual(limit_ns, wait_ns(&waits, null, 0));
+    try testing.expectEqual(limit_ns / 2, wait_ns(&waits, 3 * limit_ns / 2, limit_ns));
+    try testing.expectEqual(limit_ns, wait_ns(&waits, 3 * limit_ns, 0));
+    // A socket an event named waits for its step, and so do the pool's events left unread.
+    waits.pending.set(0);
+    try testing.expectEqual(0, wait_ns(&waits, null, 0));
+    waits.pending = .initEmpty();
+    waits.undrained = true;
+    try testing.expectEqual(0, wait_ns(&waits, null, 0));
+}
