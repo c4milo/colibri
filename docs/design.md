@@ -13372,7 +13372,7 @@ library.
   program fetches over h11, h2 and h3 before streamed bodies exist. Streamed bodies come to
   `colibri.Client` with step 39, in the pool underneath. Step 44 amends the loop rules below
   ([decision 156](decisions.md)): the client runs on a loop the program may share, and owns the
-  loop when its type names `.owned`.
+  loop when its type names `.private`.
   - **The public names:** `colibri.Client`, `colibri.ClientOf`, `colibri.ClientCapacity` and
     `colibri.ClientConfig`, with `init`, `deinit`, `request`, `shutdown` and `run`, beside
     `colibri.Server`'s, listed in the root's test first. `Client` is `ClientOf(.{})`: QUIC, one
@@ -13381,7 +13381,7 @@ library.
     `ClientOf` to `Client`, a type function, in step 44. `client.Timeouts` gains the field
     `connect_ns`.
   - **The rules.** It owns the TCP sockets, the UDP socket for h3, the loop, the clock and a
-    `client.ConnectionPool`. After step 44 it owns the loop only when its type names `.owned`. `socket.zig`, `datagram_socket.zig` and `datagram_batch.zig` serve the
+    `client.ConnectionPool`. After step 44 it owns the loop only when its type names `.private`. `socket.zig`, `datagram_socket.zig` and `datagram_batch.zig` serve the
     server and the client alike. `colibri` imports `client`, as decision 150 ruling 1 puts it above
     both.
     - `ClientConfig` holds `host`, an IP literal, `port`, `pool`, the `client.Config` whose counts
@@ -13544,11 +13544,11 @@ library.
     - The root re-exports no `rotor`. A second Rotor pin gives a different `*rotor.Loop` type,
       and the compiler refuses it.
     - `Server`: `init`, `deinit`, `port`, `run`, `shutdown`, `stopped` and `loop_operations`.
-      `run` compiles only on `.owned`.
+      `run` compiles only on `.private`.
     - `Client`: `init`, `deinit`, `request`, `fetch`, `cancel`, `set_destination`, `run`,
       `shutdown`, `stopped`, `loop_operations`, `InitError`, `RunError`, `FetchOptions`,
-      `FetchResult` and `FetchError`. `fetch` and `run` compile only on `.owned`.
-    - Each list is the same for `.owned` and `.shared`. On `.shared`, the body of `run` and of
+      `FetchResult` and `FetchError`. `fetch` and `run` compile only on `.private`.
+    - Each list is the same for `.private` and `.shared`. On `.shared`, the body of `run` and of
       `fetch` is a `@compileError` with colibri's message, so only a call fails.
     - Never public: `start`, `on_events`, `wait_ns`, `StartError`, `ClientHandler`, `Record`,
       `Share`, `LoopIds` and `Host`. None of them shipped, so their absence breaks no dependent.
@@ -13557,16 +13557,16 @@ library.
     - `Client(capacity, loop)` and `Server(capacity, loop)` are type functions, named after the
       thing itself as Zig's std names `std.ArrayList(T)`. In v0.14.0, `Client` and `Server` were
       the types of the default capacity.
-    - `loop` is the second comptime argument, of type `enum { owned, shared }`. The enum has no
+    - `loop` is the second comptime argument, of type `enum { private, shared }`. The enum has no
       public name, and `loop` has no default. There is no Loop type (decision 156 ruling 1).
     - A capacity holds comptime sizes alone. `ClientCapacity` holds `quic`, `tcp_connections` and
       `requests`. The first argument of `Server` stays a `server.Capacity`. The `server` module
       owns no I/O, so the loop kind is not a field of `server.Capacity`.
-    - A program that named `ServerOf(capacity)` writes `Server(capacity, .owned)`, and one that
-      named `Client` writes `Client(.{}, .owned)`. For example:
+    - A program that named `ServerOf(capacity)` writes `Server(capacity, .private)`, and one that
+      named `Client` writes `Client(.{}, .private)`. For example:
 
       ```zig
-      var client: colibri.Client(.{}, .owned) = undefined;
+      var client: colibri.Client(.{}, .private) = undefined;
       const SharedClient = colibri.Client(.{ .tcp_connections = 4 }, .shared);
       ```
   - **The configuration.**
@@ -13577,7 +13577,7 @@ library.
       with one more field, `loop: struct { rotor: *rotor.Loop, buffer_group: u16 }`, with no
       default. comptime makes the type, and it is private. The program gives each Client and
       each Server a different `buffer_group`.
-    - With `.owned`, the configuration is `ClientConfig` or `ServerConfig`, with no `loop` and no
+    - With `.private`, the configuration is `ClientConfig` or `ServerConfig`, with no `loop` and no
       `buffer_group`. colibri picks its own group.
     - `pool`, `random` and `unix_seconds` stay.
   - **`init`.** `Client.init(config, handler)` and `Server.init(config, router, context)`.
@@ -13585,14 +13585,14 @@ library.
       The struct declares `on_finished` and may declare `on_connected`.
     - colibri keeps the handler or the context as an `*anyopaque` and a trampoline that comptime
       makes. Both are private.
-    - With `.owned`, `init` makes the loop in `loop_memory` and owns it.
+    - With `.private`, `init` makes the loop in `loop_memory` and owns it.
     - `init` does these steps in order:
       1. Bind. On the client, open one UDP socket for each family.
       2. Call `provide_buffers(buffer_group)`.
       3. Arm the receives and the accept.
       4. Call `add_poller`. Its `error.PollersFull` is an error of `init`.
     - `init` runs on the loop's thread. The poller does all other work. On a shared loop it runs
-      on the program's first tick, and on an owned loop on the first tick of `run` or `fetch`.
+      on the program's first tick, and on a private loop on the first tick of `run` or `fetch`.
   - **The completion records.** `user_data.zig` and its `Kind` tags leave. Each operation names a
     `rotor.Completion` with `Operation.completion`.
 
@@ -13610,7 +13610,7 @@ library.
     - A callback never calls the pool or the endpoint, never submits and never ticks. So a socket
       steps once for each tick, as it does on main.
     - `Share` replaces `LoopShare`. It holds `loop`, `in_flight`, `pending`, `poller`, the timer
-      handles, `in_turn` and `started_ns`. The type's `loop` argument makes `owned` comptime.
+      handles, `in_turn` and `started_ns`. The type's `loop` argument makes `private` comptime.
   - **The poller.** Each Client and each Server adds one `rotor.Poller`. A program with a server,
     a client and a resolver uses 3 of Rotor's 8. Each poll sets `in_turn`, then does these steps
     in order:
@@ -13660,10 +13660,10 @@ library.
   - **`run`, `fetch`, `stopped` and `deinit`.**
     - Only the program ticks a shared loop. colibri never calls `tick` on it (Rotor's decision
       27). On `.shared`, a call of `run` or `fetch` is a compile error with colibri's message.
-    - `run()`, on `.owned`, ticks the loop with a wait of `stop_wait_ns_max` until `stopped()`.
+    - `run()`, on `.private`, ticks the loop with a wait of `stop_wait_ns_max` until `stopped()`.
       It asserts that each tick returns 0 events. The halt says "an operation on a loop that
       colibri owns names no record". docs/usage.md states the rule.
-    - `fetch(options)`, on `.owned`, asserts `!in_turn`, so a call from the handler or a poller
+    - `fetch(options)`, on `.private`, asserts `!in_turn`, so a call from the handler or a poller
       halts with colibri's message. It calls `request`, sets `fetching` and ticks until the
       drain records that exchange's `finished`. A stop returns `error.ShutDown`. The handler
       gets every other `finished`.
@@ -13677,13 +13677,13 @@ library.
       `in_flight` is 0 and the task is not queued.
     - At `closed`, colibri cancels its own handles: the receives, the accept and the timers. The
       TCP operations end with their closes. colibri never calls `cancel_all` on a shared loop.
-      On an owned loop, the error path of `end` keeps `cancel_all`, `drain` and the fix for
+      On a private loop, the error path of `end` keeps `cancel_all`, `drain` and the fix for
       accepts of step 42.
     - On a shared loop, the program ends colibri in two parts. It calls `shutdown` and ticks the
       loop until `stopped()` returns true. Then it calls colibri's `deinit`, and after that the
       loop's `deinit`, which halts while a poller or a task is still queued.
     - `deinit` asserts `!in_turn`, then does these steps in order:
-      1. On `.shared`, assert `stopped()`, and never tick. On `.owned`, if colibri did not stop,
+      1. On `.shared`, assert `stopped()`, and never tick. On `.private`, if colibri did not stop,
          call `shutdown` and tick until `stopped()`.
       2. Call `remove_poller`. Rotor allows it in a callback, not in a poller. docs/usage.md
          says that a program never calls `deinit` from a poller.
@@ -13691,8 +13691,8 @@ library.
          group's last operation had its final event.
       4. Close the UDP sockets and the listener.
       5. Wipe the keys.
-      6. On `.owned`, call `loop.deinit`.
-    - A tick error inside `deinit` on `.owned` falls back to `cancel_all` and `drain`. On
+      6. On `.private`, call `loop.deinit`.
+    - A tick error inside `deinit` on `.private` falls back to `cancel_all` and `drain`. On
       `.shared`, `deinit` has no tick.
   - **`set_destination`, `cancel` and UDP.**
     - `set_destination(destination)` calls `pool.set_destination` and sets `undrained`. The pool
@@ -13712,7 +13712,7 @@ library.
       `InitError` adds `rotor.Loop.InitError`, `rotor.Loop.ProvideError`, `server.StartError` and
       `error{PollersFull}` to main's set.
     - `RunError` is `rotor.Loop.TickError` on both types. `FetchError` is `RunError ||
-      client.RequestError || error{ShutDown}`. Both apply to `.owned` alone.
+      client.RequestError || error{ShutDown}`. Both apply to `.private` alone.
   - **The Rotor bump.** Commit 44b runs `zig fetch --save=rotor
     git+https://github.com/c4milo/rotor#<tag>`. Rotor main holds the code of Rotor's decision 26
     at d1657ce, of decision 27 at a03d95d, and b5a7804 (`release_buffers`).
@@ -13724,7 +13724,7 @@ library.
     assertion or a Rotor halt is recorded as **NOT CAUGHT**, with the reason.
     1. 44a `docs`: decision 156 and this entry.
     2. 44b `build(colibri)`: the Rotor bump and the memory table, with no change of behaviour.
-    3. 44c `refactor(colibri)`: the completion records and the poller on the owned loop.
+    3. 44c `refactor(colibri)`: the completion records and the poller on the private loop.
        `user_data.zig` leaves.
        - Tests: a tick returns 0 events; each record reaches its own socket; `in_flight` is 0
          after `run`; the close and accept tests of step 42 still pass.
@@ -13768,7 +13768,7 @@ library.
          (caught under the halt harness alone; with no harness, **NOT CAUGHT**).
     5. 44e `feat(colibri)`: the `in_turn` flag, which colibri sets while its poller or its task
        runs.
-       - Test: on `.owned`, a `fetch` from `on_finished` halts with colibri's message, under the
+       - Test: on `.private`, a `fetch` from `on_finished` halts with colibri's message, under the
          halt harness. With no harness, record **NOT CAUGHT**.
     6. 44f `feat(colibri)`: one UDP socket for each family.
        - Tests: both families open; h3 to 127.0.0.1 works when the IPv6 open fails.
@@ -13777,7 +13777,7 @@ library.
        - Tests: a new destination takes the next open; an open connection keeps its exchange.
        - Mutations: `undrained` not set; the old address list read after the call.
     8. 44h `feat(colibri)`: `fetch` and `cancel`.
-       - Tests: GET and POST over h11, h2 and h3 on an owned loop; the same exchanges on a shared
+       - Tests: GET and POST over h11, h2 and h3 on a private loop; the same exchanges on a shared
          loop through `request` and the handler, with the program's ticks; a body longer than
          `response_body`; a fetch beside an exchange of `request`; a `cancel` that gives no
          `finished`.

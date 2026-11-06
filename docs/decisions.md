@@ -6158,7 +6158,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           null turns it off. The pool opens no socket, so `colibri.Client` passes the limit to
           Rotor's connect. A connect past it ends the attempt as a refused connect does.
      10. Amended by decision 156 on 2026-11-06, for rulings 8 and 9: `colibri.Client` owns the
-         loop when its type names `.owned`. With `.shared` it runs on the program's loop, beside
+         loop when its type names `.private`. With `.shared` it runs on the program's loop, beside
          other libraries, and the program ticks the loop. Decision 156 also renames `ClientOf` to
          `Client`, a type function, and `ClientCapacity` keeps its three sizes.
      11. Ruled by the owner on 2026-11-06, after the review of step 39: over h3 a held piece keeps
@@ -6267,12 +6267,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      1. A generic type takes the name of the thing itself, as Zig's std names `std.ArrayList(T)`
         and `std.BoundedArray(T, n)`. `colibri.Client(capacity, loop)` and
         `colibri.Server(capacity, loop)` are type functions, and a program writes
-        `colibri.Client(.{}, .owned)`.
+        `colibri.Client(.{}, .private)`.
         - `ClientOf` and `ServerOf` shipped in v0.14.0, and v0.15.0 removes them from the root's
           list. `Client` and `Server` were the types of the default capacity in v0.14.0, and
           v0.15.0 makes them the type functions.
         - The second comptime argument, `loop`, names the owner of the loop. Its type is
-          `enum { owned, shared }`, with no public name.
+          `enum { private, shared }`, with no public name.
         - A capacity holds comptime sizes alone. `ClientCapacity` holds `quic`, `tcp_connections`
           and `requests`. The first argument of `Server` stays a `server.Capacity`.
         - colibri takes no Loop type parameter, for the reasons that follow.
@@ -6287,11 +6287,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           `loop: struct { rotor: *rotor.Loop, buffer_group: u16 }`, with no default. The program
           gives each Client and each Server on its loop a different `buffer_group`. Rotor halts
           when two users provide one group.
-        - With `.owned`, the configuration has no `loop` field. colibri makes the loop at `init`,
+        - With `.private`, the configuration has no `loop` field. colibri makes the loop at `init`,
           owns it and picks its own group.
         - The configuration of `.shared` is a private type. A program writes it as a literal, so
           it needs no new public name. `ClientConfig` and `ServerConfig` stay the configurations
-          of `.owned`.
+          of `.private`.
         - The `server` module owns no I/O and knows no loop, so `server.Capacity` holds no loop
           kind. The kind is the second argument of `colibri.Server`.
      3. Only the program ticks a shared loop. colibri never calls `tick` on a loop that it does
@@ -6299,7 +6299,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         returns. It does its work in its completion records, its poller and its Rotor task.
      4. `run` and `fetch` exist only for an object whose loop colibri owns. On a type whose
         `loop` is `.shared`, a call of `Client.run`, `Client.fetch` or `Server.run` is a
-        compile error with colibri's message. The names stay on each type's list. On an owned
+        compile error with colibri's message. The names stay on each type's list. On a private
         loop, `run`, `fetch` and `deinit` tick the loop, and an event with no completion record
         halts with a message.
      5. `init` takes the handler or the router, so no event comes before one exists.
@@ -6327,7 +6327,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         for v0.15.0.
      9. One thread runs a colibri object for its whole life: `init`, `run`, `fetch`,
         `set_destination`, `cancel` and `deinit` run on the loop's thread. `shutdown` is the one
-        call another thread may make. colibri makes its owned loop at `init`, not at `run`.
+        call another thread may make. colibri makes its private loop at `init`, not at `run`.
      10. colibri counts its own operations and cancels only its own handles. It never calls
          `cancel_all` on a shared loop.
          - On a shared loop, `deinit` does not tick. It asserts `stopped()`. The program reaches
@@ -6337,12 +6337,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - `deinit` then removes the poller and gives the group back with `release_buffers`.
            Rotor's `deinit` halts while a poller or a task is still queued, so the program calls
            colibri's `deinit` before the loop's `deinit`.
-         - On an owned loop, `deinit` calls `shutdown` and ticks until `stopped()` when the program
+         - On a private loop, `deinit` calls `shutdown` and ticks until `stopped()` when the program
            did not.
      11. `ClientConfig.destination`, a `client.Destination`, replaces `host` and `port`.
          `Client.set_destination` gives the pool new addresses, for example from a resolver's
          callback. colibri resolves nothing (decision 100).
-     12. `Client.fetch(options)` runs one exchange on an owned loop, and ticks the loop until it
+     12. `Client.fetch(options)` runs one exchange on a private loop, and ticks the loop until it
          finishes.
          - `FetchOptions` has the shape of `std.http.Client.fetch`, with no heap and with decision
            126's words: `method`, `path`, `headers`, `never_indexed`, `request_body`,
@@ -6380,7 +6380,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        only the program ticks a shared loop.
      - `loop: ?*rotor.Loop = null` in each configuration, in the first text of ruling 1. A
        `fetch` or a `run` on a shared loop was then a halt at run time, not a compile error. A
-       program on an owned loop also had to set a `buffer_group` that colibri does not read.
+       program on a private loop also had to set a `buffer_group` that colibri does not read.
      - `deinit` that ticks a shared loop until colibri stops. It breaks ruling 3.
      - `deinit` that cancels colibri's handles and returns before their final events.
        `release_buffers` is valid only after the group's last operation had its final event, so
@@ -6394,6 +6394,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        trampoline needs no public name.
      - A Loop type parameter (ruling 1).
      - The field `loop` in `server.Capacity`. The `server` module owns no I/O (ruling 2).
+     - `.owned` for colibri's own loop, the first name of the kind. It names who owns the loop,
+       which a reader of `Client(.{}, .owned)` cannot see. The owner renamed it `.private` on
+       2026-11-06. `.standalone` and `.embedded` lost, and so did a second argument of `null` or
+       a loop type.
      - `ClientOf` and `ServerOf` kept, with `Client` and `Server` as the types of the default
        capacity. Zig's std names a type function after the thing itself, and the suffix `Of`
        says nothing to a program.
