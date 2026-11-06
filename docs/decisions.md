@@ -6011,8 +6011,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           once `init` returns.
 
      12. Amended by decision 156 on 2026-11-06, for rulings 6 and 7:
-        - A program may pass its own `rotor.Loop`, and `colibri` then shares it with other
-          libraries.
+        - A program whose `colibri.Client` or `colibri.Server` type names `.shared` passes its own
+          `rotor.Loop`, and `colibri` then shares it with other libraries. Only the program ticks
+          that loop.
         - `colibri` makes the loop it owns at `init`, not at `run`. So `init`, `run` and `deinit`
           run on one thread.
 
@@ -6156,9 +6157,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           of `Timeouts`. Its default is 10 s, `client.constants.policy.connect_timeout_ns`, and
           null turns it off. The pool opens no socket, so `colibri.Client` passes the limit to
           Rotor's connect. A connect past it ends the attempt as a refused connect does.
-     10. Amended by decision 156 on 2026-11-06, for ruling 8: `colibri.Client` owns the loop only
-         when the program passes none. Otherwise it runs on the program's loop, beside other
-         libraries.
+     10. Amended by decision 156 on 2026-11-06, for rulings 8 and 9: `colibri.Client` owns the
+         loop when its type names `.owned`. With `.shared` it runs on the program's loop, beside
+         other libraries, and the program ticks the loop. Decision 156 also renames `ClientOf` to
+         `Client`, a type function, and `ClientCapacity` keeps its three sizes.
      11. Ruled by the owner on 2026-11-06, after the review of step 39: over h3 a held piece keeps
          the connection's credit, and that is correct. QUIC gives back MAX_DATA as octets are
          consumed (RFC 9000 §4.1), and a held piece's octets still take room in the client's
@@ -6251,78 +6253,156 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Stay at 1,200 octets, as RFC 9000 §14.2 allows. It costs every controller.
 
 156. **`colibri.Client` and `colibri.Server` run on a Rotor loop that the program may share.**
-     Ruled by the owner on 2026-11-06 (design §8 step 44), for v0.15.0. A program that runs
-     colibri beside another library, such as a resolver, needs one Rotor loop on one thread for
-     both. Rotor's decision 26 (`docs/decisions/0026-a-shared-loop.md` in
-     https://github.com/c4milo/rotor) gives each operation a completion record, which any tick
-     calls. It answers [rotor#14](https://github.com/c4milo/rotor/issues/14). Rotor's b5a7804 adds
+     Ruled by the owner on 2026-11-06 (design §8 step 44), for v0.15.0, and amended by the owner
+     the same day. A program that runs colibri beside another library, such as a resolver, needs
+     one Rotor loop on one thread for both. Rotor's decision 26
+     (`docs/decisions/0026-a-shared-loop.md` in https://github.com/c4milo/rotor) gives each operation a completion record, which the tick
+     calls. Rotor's decision 27 adds `rotor.Task`, and rules that only the program ticks a shared
+     loop. It answers [rotor#14](https://github.com/c4milo/rotor/issues/14). Rotor's b5a7804 adds
      `release_buffers`, which takes a buffer group back
      ([rotor#13](https://github.com/c4milo/rotor/issues/13)). This decision amends decisions 96,
-     150 (rulings 6 and 7) and 153 (ruling 8).
+     150 (rulings 6 and 7) and 153 (rulings 8 and 9).
 
      The rulings:
-     1. `ClientConfig.loop` and `ServerConfig.loop` are `?*rotor.Loop`, null by default. With null,
-        colibri makes the loop at `init` and owns it. colibri takes no Loop type parameter:
-        - The completion records, the pollers and their dispatch are Rotor's behaviour. A stand-in
-          loop must copy them, so its tests prove the stand-in and not Rotor.
+     1. A generic type takes the name of the thing itself, as Zig's std names `std.ArrayList(T)`
+        and `std.BoundedArray(T, n)`. `colibri.Client(capacity, loop)` and
+        `colibri.Server(capacity, loop)` are type functions, and a program writes
+        `colibri.Client(.{}, .owned)`.
+        - `ClientOf` and `ServerOf` shipped in v0.14.0, and v0.15.0 removes them from the root's
+          list. `Client` and `Server` were the types of the default capacity in v0.14.0, and
+          v0.15.0 makes them the type functions.
+        - The second comptime argument, `loop`, names the owner of the loop. Its type is
+          `enum { owned, shared }`, with no public name.
+        - A capacity holds comptime sizes alone. `ClientCapacity` holds `quic`, `tcp_connections`
+          and `requests`. The first argument of `Server` stays a `server.Capacity`.
+        - colibri takes no Loop type parameter, for the reasons that follow.
+        - The completion records, the pollers, the tasks and their dispatch are Rotor's
+          behaviour. A stand-in loop must copy them, so its tests prove the stand-in and not
+          Rotor.
         - `src/colibri/` binds loopback (decision 150 ruling 7), so each test runs a real
           `rotor.Loop`.
-        - A parameter can come later with no break, as `ClientOf(capacity, Loop = rotor.Loop)`.
-     2. `init` takes the handler or the router, so no event comes before one exists.
+        - A Loop type can come later as a third argument.
+     2. The configuration follows the capacity.
+        - With `.shared`, the configuration that `init` takes requires the field
+          `loop: struct { rotor: *rotor.Loop, buffer_group: u16 }`, with no default. The program
+          gives each Client and each Server on its loop a different `buffer_group`. Rotor halts
+          when two users provide one group.
+        - With `.owned`, the configuration has no `loop` field. colibri makes the loop at `init`,
+          owns it and picks its own group.
+        - The configuration of `.shared` is a private type. A program writes it as a literal, so
+          it needs no new public name. `ClientConfig` and `ServerConfig` stay the configurations
+          of `.owned`.
+        - The `server` module owns no I/O and knows no loop, so `server.Capacity` holds no loop
+          kind. The kind is the second argument of `colibri.Server`.
+     3. Only the program ticks a shared loop. colibri never calls `tick` on a loop that it does
+        not own (Rotor's decision 27). On a shared loop, colibri submits its operations and
+        returns. It does its work in its completion records, its poller and its Rotor task.
+     4. `run` and `fetch` exist only for an object whose loop colibri owns. On a type whose
+        `loop` is `.shared`, a call of `Client.run`, `Client.fetch` or `Server.run` is a
+        compile error with colibri's message. The names stay on each type's list. On an owned
+        loop, `run`, `fetch` and `deinit` tick the loop, and an event with no completion record
+        halts with a message.
+     5. `init` takes the handler or the router, so no event comes before one exists.
         - `Client.init(config, handler)` takes a pointer to the program's struct, or null for a
           client that only fetches. The struct declares `on_finished` and may declare
           `on_connected`.
         - `Server.init(config, router, context)` and `Server.run()` replace v0.14.0's
           `Server.init(config)` and `Server.run(router, context)`. `Client.run()` takes no handler.
-     3. `init` binds, provides the buffer group, arms the receives and the accept, and adds one
+     6. `init` binds, provides the buffer group, arms the receives and the accept, and adds one
         `rotor.Poller`. Each operation names a `rotor.Completion` in colibri's own struct. A
-        callback only records the result. The poller does the work of a turn, and returns true
-        only when work is left. So an idle colibri never makes the loop spin.
-     4. `ClientConfig.buffer_group` and `ServerConfig.buffer_group` are a `u16` with no default. A
-        program that sets `.loop` must set it, with one id for each Client and each Server. On a
-        loop that colibri owns, colibri picks its own id. Rotor halts when two users provide one
-        group.
-     5. One one-shot timer with a record wakes colibri at its next deadline, at most
+        callback only records the result. The poller does the work of a turn: the deadlines, the
+        drain, the steps, the arms, the flush and the timer. It returns true only when work is
+        left, so an idle colibri never makes the loop spin.
+        - The poller reads `loop.now_ns()`. A tick that waits reads the clock again after its
+          wait and before the records (Rotor's decision 9 rule 4 as amended). The pollers see
+          that reading, the last of the tick.
+     7. The handler runs from a Rotor task, not from the poller. The poller copies each event for
+        the handler, and schedules the client's one `rotor.Task` with `loop.schedule`. Rotor runs
+        a task that a record or a poller queues in the same tick, after the records. The task
+        calls `on_finished` and `on_connected`. So the program's code never runs inside a poller,
+        where Rotor refuses `add_poller` and `remove_poller`.
+     8. One one-shot timer with a record wakes colibri at its next deadline, at most
         `stop_wait_ns_max` (50 ms) ahead. So a long wait in another library's tick does not delay
         a deadline. A `shutdown` from another thread takes effect within 50 ms. This wake stays
         for v0.15.0.
-     6. One thread runs a colibri object for its whole life: `init`, `run`, `fetch`,
+     9. One thread runs a colibri object for its whole life: `init`, `run`, `fetch`,
         `set_destination`, `cancel` and `deinit` run on the loop's thread. `shutdown` is the one
         call another thread may make. colibri makes its owned loop at `init`, not at `run`.
-     7. Any library may tick the loop, and colibri's `run`, `fetch` and `deinit` tick it. On a loop
-        that colibri ticks, an event with no completion record halts with a message, and
-        docs/usage.md says so. A program whose own operations have no record ticks the loop
-        itself.
-     8. colibri counts its own operations and cancels only its own handles. It never calls
-        `cancel_all` on a loop that the program passed. `deinit` ticks until colibri stops,
-        removes the poller and gives the group back with `release_buffers`. The program calls
-        colibri's `deinit` before the loop's `deinit`.
-     9. `ClientConfig.destination`, a `client.Destination`, replaces `host` and `port`.
-        `Client.set_destination` gives the pool new addresses, for example from a resolver's
-        callback. colibri resolves nothing (decision 100).
-     10. `Client.fetch(options)` runs one exchange, and ticks the loop until it finishes.
+     10. colibri counts its own operations and cancels only its own handles. It never calls
+         `cancel_all` on a shared loop.
+         - On a shared loop, `deinit` does not tick. It asserts `stopped()`. The program reaches
+           `stopped()` when it calls `shutdown` and ticks the loop until `stopped()` returns true.
+         - `stopped()` is true only when no operation and no task of colibri is in flight. So
+           `release_buffers` is valid, because the group's last operation had its final event.
+         - `deinit` then removes the poller and gives the group back with `release_buffers`.
+           Rotor's `deinit` halts while a poller or a task is still queued, so the program calls
+           colibri's `deinit` before the loop's `deinit`.
+         - On an owned loop, `deinit` calls `shutdown` and ticks until `stopped()` when the program
+           did not.
+     11. `ClientConfig.destination`, a `client.Destination`, replaces `host` and `port`.
+         `Client.set_destination` gives the pool new addresses, for example from a resolver's
+         callback. colibri resolves nothing (decision 100).
+     12. `Client.fetch(options)` runs one exchange on an owned loop, and ticks the loop until it
+         finishes.
          - `FetchOptions` has the shape of `std.http.Client.fetch`, with no heap and with decision
            126's words: `method`, `path`, `headers`, `never_indexed`, `request_body`,
            `response_body`, `response_headers` and `response_trailers`.
          - `FetchResult` holds `result`, `status`, `headers`, `trailers` and `body_len`. A protocol
            failure is a `result`, not an error (decision 126).
          - `Client.cancel(id)` ends one exchange, and the handler gets no `finished` for it.
-     11. With QUIC offered, the client opens one UDP socket for each family, both on its one buffer
+     13. With QUIC offered, the client opens one UDP socket for each family, both on its one buffer
          group. An open to a family that the system refuses falls back to TCP.
-     12. The root re-exports the modules `client` and `server`. Each type declares
+     14. The root re-exports the modules `client` and `server`. Each type declares
          `loop_operations`, so a program can size a shared loop. The examples name the variable
          `client`.
+     15. Rotor's main holds the code of decision 26 at d1657ce and of decision 27 at a03d95d. On
+         2026-11-06 Rotor had no tag for them, because the owner first makes Rotor's reactor
+         architecture stable. colibri pins Rotor's tag when the owner makes one, and v0.15.0
+         waits for it.
+
+     Amended by the owner on 2026-11-06, as Rotor's session first relayed it and the owner then
+     confirmed it. The first text let any library tick the loop, and let colibri's `run`, `fetch`
+     and `deinit` tick a shared loop. It put `loop: ?*rotor.Loop = null` and a `buffer_group`
+     with no default in each configuration, and called the handler from the poller. Rulings 1
+     to 4, 7 and 10 replace that text, and ruling 2 settles the `buffer_group` that the first
+     text left to commit 44d.
+
+     Amended again by the owner on 2026-11-06. The first amendment put the loop kind in a field
+     `loop` of `ClientCapacity` and of a new `colibri.ServerCapacity`, and kept `ClientOf` and
+     `ServerOf`. Ruling 1 replaces that text: the kind is the second comptime argument of
+     `Client` and `Server`. Rulings 1 and 2 drop `colibri.ServerCapacity`, which never shipped.
 
      Alternatives that lost:
      - Tags in `user_data`, with `LoopIds` and `Host`, in the first draft of this decision. Each
        library needs an agreed range of bits. A wrong tag takes another library's events with no
        halt. Two routers on one loop still need one owner of `tick`.
+     - Any library ticks the loop, in the first text of ruling 7. Rotor's decision 27 rules that
+       only the program ticks a shared loop.
+     - `loop: ?*rotor.Loop = null` in each configuration, in the first text of ruling 1. A
+       `fetch` or a `run` on a shared loop was then a halt at run time, not a compile error. A
+       program on an owned loop also had to set a `buffer_group` that colibri does not read.
+     - `deinit` that ticks a shared loop until colibri stops. It breaks ruling 3.
+     - `deinit` that cancels colibri's handles and returns before their final events.
+       `release_buffers` is valid only after the group's last operation had its final event, so
+       colibri would need a second call to end.
+     - The handler called from the poller that scans for events. The program's code would run
+       inside a poller, where Rotor refuses `add_poller` and `remove_poller`.
      - `start`, `on_events` and `wait_ns`. Every program would write the loop by hand.
      - The handler at `run`, or an implicit `start` inside `fetch`. Events that come before `run`
        would reach no handler, and a later `run` could not install one.
      - A public `ClientHandler` type. No program needs the name (decision 115), and a comptime
        trampoline needs no public name.
      - A Loop type parameter (ruling 1).
+     - The field `loop` in `server.Capacity`. The `server` module owns no I/O (ruling 2).
+     - `ClientOf` and `ServerOf` kept, with `Client` and `Server` as the types of the default
+       capacity. Zig's std names a type function after the thing itself, and the suffix `Of`
+       says nothing to a program.
+     - `Client` kept as the type of the default capacity, beside a new `ClientWith(capacity,
+       loop)`. A program then learns two names for one thing, and the default hides the loop
+       kind that each program must choose.
+     - A field `loop` in `ClientCapacity` and a new `colibri.ServerCapacity` that holds
+       `endpoint` and `loop`, in the first amendment. A capacity then holds more than sizes, and
+       the server needs a new public name.
      - The work of a turn inside each callback. A socket would step once for each event, not once
        for each tick.
      - A poller that returns "did work". It adds a tick that waits 0 ns to every turn: one more
@@ -6336,3 +6416,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `cancel_all` at the end on any loop. It cancels the operations of other libraries.
      - `payload`, `header_buffer` and a URL, as std names them. Decision 126 names the request
        body, and a pool serves one origin (RFC 9110 §4.3.1).
+
+     The alternative that won on the amendment:
+     - The type names the owner of the loop. The first draft of this decision refused a flag
+       `owns_loop`, as a third parameter of `ServerOf`. As the second comptime argument of
+       `Client` and `Server` it now wins for two reasons. The compiler refuses `fetch` and `run`
+       on a shared loop, and the configuration requires `loop` only where it applies.
