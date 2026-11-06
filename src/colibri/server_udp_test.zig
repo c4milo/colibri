@@ -133,6 +133,7 @@ test "design §8 step 37: the endpoint takes a datagram marked ECT(0) and counts
     try testing.expect(sent.bytes.len > 0);
     try testing.expectEqual(4433, sent.to.port);
     // RFC 9000 §13.4.2: an endpoint that reads ECN marks what it sends ECT(0) while it tests the
-    // path, and the server's loop sets that codepoint.
+    // path. The endpoint names ECT(0) here, and a test in `server_udp.zig` checks that the loop
+    // asks Rotor to set it.
     try testing.expectEqual(server.Ecn.ect_0, sent.ecn);
 }

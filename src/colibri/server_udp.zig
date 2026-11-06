@@ -203,3 +203,34 @@ comptime {
     assert(send_user_data_last > std.math.maxInt(u64) / 2);
     assert(constants.limits.udp_batches > 0);
 }
+
+const testing = std.testing;
+
+/// The peer of the tests of the codepoints, on loopback. Test-only.
+const test_port: u16 = 4433;
+const test_loopback_word: u32 = 0x7f00_0001;
+const test_peer = rotor.Address.ipv4(@bitCast(std.mem.nativeToBig(u32, test_loopback_word)), test_port);
+/// Each codepoint as Rotor names it, and as colibri names it, in the same order. Test-only.
+const rotor_codepoints = [_]rotor.datagram.Ecn{ .not_ect, .ect0, .ect1, .ce };
+const colibri_codepoints = [_]server.Ecn{ .not_ect, .ect_0, .ect_1, .ecn_ce };
+
+test "design §8 step 37: a batch goes to Rotor with the codepoint the endpoint named" {
+    for (colibri_codepoints, rotor_codepoints) |named, expected| {
+        const batch: batch_module.Batch = .{ .count = 1, .to = peer_address(test_peer), .ecn = named, .state = .open };
+        const sent = outbound(&batch);
+        // RFC 9000 §13.4: Rotor sets the codepoint in the IP header only when its flag is set.
+        try testing.expectEqual(expected, sent.ecn);
+        try testing.expectEqual(named != .not_ect, sent.flags.ecn);
+        try testing.expect(sent.flags.peer);
+        try testing.expectEqual(test_port, sent.peer.port);
+    }
+}
+
+test "design §8 step 37: the endpoint gets the codepoint Rotor read, and Not-ECT when Rotor read none" {
+    for (rotor_codepoints, colibri_codepoints) |read, expected| {
+        var from: rotor.datagram.Received = .{ .peer = test_peer, .local = undefined, .segment_bytes = 0, .ecn = read, .flags = .{ .ecn = true } };
+        try testing.expectEqual(expected, received_ecn(&from));
+        from.flags.ecn = false;
+        try testing.expectEqual(ReceivedEcn.not_ect, received_ecn(&from));
+    }
+}

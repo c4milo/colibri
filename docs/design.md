@@ -13090,8 +13090,17 @@ library.
       datagrams ECT(0), such as quic-go, halted the server. The loop passed each codepoint to an
       endpoint whose `ecn` was false, and decision 68's assertion refused it. `init` now sets
       `ecn`. A test passes `take_delivery` RFC 9001 Appendix A.2's Initial, marked ECT(0). It
-      expects one ECT(0) count in the Initial space, and an answer marked ECT(0). Each mutation
-      was **CAUGHT**: the fix removed; the received codepoint passed as Not-ECT.
+      expects one ECT(0) count in the Initial space, and the endpoint to name ECT(0) for its
+      answer. Each mutation was **CAUGHT**: the fix removed; the received codepoint passed as
+      Not-ECT.
+    - After the review of the ECN fix, on 2026-11-05: two tests in `server_udp.zig` check each
+      codepoint each way. `outbound` asks Rotor to set the codepoint the endpoint named, and sets
+      no flag for Not-ECT. `received_ecn` passes the codepoint Rotor read, and Not-ECT when Rotor
+      read none. Each mutation was **CAUGHT**: `outbound`'s flag always false; ECT(0) sent as
+      Not-ECT; CE sent as ECT(1); CE read as ECT(1); `received_ecn` without its check of the flag.
+    - **NOT CAUGHT on macOS:** the batch match without the codepoint. On macOS each batch holds
+      one datagram, so the mutant sends the same datagrams. On Linux the test of
+      `datagram_batch.zig` that gives one peer two codepoints expects two batches.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open
     connections close. The simulator's checks of `server` stay as they are.
 - **Step 38 — response headers and trailers in the client, proposed 2026-11-05.**
