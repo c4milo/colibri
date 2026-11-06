@@ -3,6 +3,7 @@
 //! protocol may send (decision 152).
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
 const http = @import("http");
 const event = @import("../event.zig");
 
@@ -17,7 +18,8 @@ pub const CheckError = error{
     /// one, which h2 forbids (RFC 9113 §8.2.2), so a request means the same in every version.
     FieldReserved,
     /// A trailer field that frames or routes the message, which RFC 9110 §6.5.1 forbids in a
-    /// trailer section, or one that h2 or h3 would send malformed (decision 152).
+    /// trailer section, or one that h2 or h3 would send malformed (decision 152). Also a trailer
+    /// section larger than `field_section_size_max`, which no protocol of colibri sends.
     InvalidTrailer,
 };
 
@@ -83,7 +85,15 @@ pub fn check_request(request: *const Request) CheckError!void {
             if (std.ascii.eqlIgnoreCase(field.name, reserved)) return error.FieldReserved;
         }
     }
-    for (request.trailers) |field| try check_trailer(field);
+    var trailers_size: u64 = 0;
+    for (request.trailers) |field| {
+        try check_trailer(field);
+        trailers_size += @as(u64, field.name.len) + field.value.len + core.constants.protocol.field_line_overhead;
+        // RFC 9113 §6.5.2 and RFC 9114 §4.2.2: a section's size counts each line's name, value
+        // and 32 octets. colibri encodes no section larger than its own limit, so h11, h2 and
+        // h3 each hold one this size whole after an empty output (decision 152).
+        if (trailers_size > core.constants.limits.field_section_size_max) return error.InvalidTrailer;
+    }
 }
 
 /// The names of the trailer fields `request` refuses beside the connection-specific ones,

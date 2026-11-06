@@ -9,7 +9,9 @@
 //! caller's memory (RFC 9112 §7.1).
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
 const tls_provider = @import("tls_provider");
+const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const internal = @import("connection_internal.zig");
 const connection_tls = @import("connection_tls.zig");
@@ -18,6 +20,13 @@ const event_internal = @import("../event_internal.zig");
 
 const Connection = connection_module.Connection;
 const Slot = slots_module.Slot;
+
+comptime {
+    // Decision 152: `check_request` refuses a trailer section past `field_section_size_max`. Each
+    // line's 32 octets of that size hold its ": " and CRLF, and the first line's hold the CRLF
+    // owed, the last chunk and the empty line (RFC 9112 §7.1), so an empty output holds the end.
+    assert(constants.limits.output_len >= core.constants.limits.field_section_size_max);
+}
 
 /// The written exchange whose content is still going out, or null. h11 writes the next head only
 /// after it, so there is one at most (RFC 9112 §9.3.2).
@@ -38,11 +47,10 @@ pub fn end_content(connection: *Connection, slot: *Slot) bool {
     // chunked body ends with the last chunk. The next head may follow.
     // RFC 9112 §7.1.2: the last chunk carries the request's trailer section (decision 152).
     if (session.writer.open()) connection.output_len += session.write_end(internal.room(connection), slot.request.trailers) catch {
+        // `check_request` refused every trailer h11 refuses, and a section past
+        // `field_section_size_max`, which an empty output holds whole (see the comptime block).
+        assert(connection.output_len > 0);
         // The end goes out once `send` has taken what the output holds.
-        if (connection.output_len > 0) return false;
-        // A trailer section that does not fit an empty output never will, and the server waits
-        // for the body's end (RFC 9112 §7.1), so the connection ends.
-        internal.fail(connection);
         return false;
     };
     slot.content_ended = true;

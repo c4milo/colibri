@@ -1036,7 +1036,11 @@ over h11 `Connection: TE` with it. A gRPC server over h2 refuses a request witho
 adds none when the request's own headers name TE. `request` returns `error.InvalidTrailer` for a
 trailer that RFC 9110 §6.5.1 forbids: Content-Length, Transfer-Encoding, Host, TE, Trailer and the
 other connection-specific fields. It also returns it for a name with an uppercase letter, which
-h2 and h3 refuse, and for a name or a value that is not valid.
+h2 and h3 refuse, for a name or a value that is not valid, and for a section larger than
+`field_section_size_max`, 16,384 octets as RFC 9113 §6.5.2 counts them. Over h3 the header
+section and the trailer section share one buffer of 16,436 octets. A request whose two sections do
+not fit in it together ends `invalid` before any of it goes out.
+
 The program keeps the request and the response in place, with each slice they name, until the
 exchange's `finished` event or until `cancel` returns.
 
