@@ -20,6 +20,7 @@ pub const Error = quic.core.writer.Error;
 /// The longest line one `print` writes.
 const line_len_max: usize = 256;
 const credit_fraction: u32 = quic.constants.policy.flow_credit_fraction;
+const reserve_windows: u32 = quic.constants.limits.stream_window_reserve_windows;
 /// The packets the model's colibri owes on a request stream at most besides the response's units:
 /// a 408, a RESET_STREAM and STOP_SENDING, and one more for the GOAWAY.
 const control_packets_per_request: u32 = 4;
@@ -51,9 +52,13 @@ pub fn write_config(writer: *Writer, plan: *const Plan, steps_max: u64) Error!vo
     try print(writer, "    N = {d}\n    HeadUnits = {d}\n    Content = {d}\n", .{ plan.requests, plan.head_units, plan.content_units });
     try print(writer, "    ResponseUnits = {d}\n", .{plan.response_units});
     // colibri owes credit once a window's fraction is read (`flow_credit_fraction`), so a window
-    // that many times past what a stream, or every stream, carries never owes it.
-    try print(writer, "    StreamWindow = {d}\n", .{credit_fraction * (units + 1)});
-    try print(writer, "    ConnectionWindow = {d}\n", .{credit_fraction * (plan.requests * units + 1)});
+    // that many times past what a stream, or every stream, carries never owes it. The connection
+    // also owes it once the credit left is below a stream's reserve (decision 49 as amended), so
+    // its window leaves that reserve past every stream's units too, as the run's pool does.
+    const stream_window = credit_fraction * (units + 1);
+    const connection_window = @max(credit_fraction * (plan.requests * units + 1), plan.requests * units + reserve_windows * stream_window);
+    try print(writer, "    StreamWindow = {d}\n", .{stream_window});
+    try print(writer, "    ConnectionWindow = {d}\n", .{connection_window});
     try print(writer, "    CongestionWindow = {d}\n", .{plan.requests * (plan.response_units + control_packets_per_request) + 1});
     try writer.write_bytes("    Fire = TRUE\n    ClientCancels = FALSE\n    RejectUnread = TRUE\n");
     try writer.write_bytes("    CloseAfterAck = TRUE\n    CloseAfterResets = TRUE\n");

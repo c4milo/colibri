@@ -13300,6 +13300,45 @@ library.
       - 3 mutations **CAUGHT** by the `quic` tests: growth back to the pool's capacity, the floor
         removed, and the floor and its assertion removed. Growth back to the capacity is also
         **CAUGHT** by the client test, with its two window checks removed too.
+    - The owner's two rulings of 2026-11-06 on that limit, in decision 49 as amended and
+      decision 153 ruling 11. A survey of 19 implementations' published defaults supports them:
+      HAProxy, which sizes windows from fixed buffers, keeps 10% of the connection from one
+      stream.
+      - The cap stays, and its reserve is a named limit: `stream_window_reserve_windows` in
+        `src/quic/constants_limits.zig`, 1, which the test of decision 137 pins. The unit is the
+        stream's own starting window, because that window is the reserve by definition. The cap
+        is the pool's capacity less that count of windows.
+      - MAX_DATA is also owed on low credit (RFC 9000 §4.1, §4.2). A connection with a receive
+        pool owes it when the credit left to the peer is below its floor, and one octet or more
+        was consumed since the last MAX_DATA (`receive_credit_floor` in
+        `src/quic/connection/connection.zig`, `flow.Receiver.owes_credit_below`). The limit is
+        still the octets consumed plus the window. The rule of the fraction stays beside it.
+        The floor is the part of the pool that a stream of the largest starting window leaves
+        free at its cap: one starting window in a pool of two windows or more, and 0 when a
+        stream can fill the pool. A first version took one window in every pool. The simulator's
+        h3 client, whose stream window is its whole pool, then sent MAX_DATA for each octet, and
+        the endpoint and h3 deadline censuses moved. With the floor at 0 there, they do not.
+      - The three RFC 9959 resume censuses moved, and are pinned again: `cubic` `0xd172ab1d`,
+        `newreno` `0xa6e99f3b` and `bbr` `0x029edec0`. The simulator's QUIC endpoint has a
+        connection window of two stream windows below its pool, so its credit falls below the
+        floor before half the window is consumed, and MAX_DATA goes out sooner.
+      - The guarantee: while a piece is held, the other streams together can keep one reserve
+        in the pool, and each octet they consume gives one octet of credit back. A test in
+        `quic` runs the review's probe: a pool of four windows, a window and a half consumed
+        before the hold, and the held stream filled to its cap. The other streams get credit
+        four times. The client test now finishes a second response of 65,536 octets, one
+        reserve and its frames, while the first stream's piece is held.
+      - `spec/tla/h3_deadlines` takes the low-credit rule into `ConnectionCreditOwed`, with
+        `Reserve` for `stream_window_reserve_windows` and `CreditFloor` for the floor of a pool
+        of `ConnectionWindow` units. Its trace writer sizes `ConnectionWindow` so that the
+        model's credit never falls below one `StreamWindow`, as the run's large pool never does.
+        TLC was not run.
+      - 6 mutations **CAUGHT** by the `quic` tests: the low-credit rule removed, the condition of
+        one consumed octet removed, the connection's floor at 0, the named reserve at 2, the
+        reserve written inline as two windows, and a floor of one reserve in every pool. The
+        client tests catch each of these but two. They do not read the named limit. The
+        condition of one consumed octet is **NOT CAUGHT** there: a MAX_DATA that repeats its
+        limit costs only a frame. The `quic` test catches it.
 - **Step 40 — DPLPMTUD, proposed 2026-11-05.** [Decision 155](decisions.md), from RFC 9000
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps

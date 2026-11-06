@@ -1212,21 +1212,42 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     policy choice rather than a design one.
 
     Amended by the owner on 2026-11-06, with decision 153 ruling 11. A stream's receive window
-    grows up to the receive pool's capacity less the stream's starting window, and not up to the
-    whole pool. A stream that the program holds thus keeps at least one starting window of the
-    pool free, and one download still uses nearly the whole pool. The connection's credit limits
-    what the other streams get of that room (RFC 9000 §4.1). colibri sends MAX_DATA only after
-    half the connection's window is consumed since the last one (`flow_credit_fraction`). While a
-    piece is held, the other streams thus get at most one starting window, less the octets
-    consumed since the last MAX_DATA. They can get none until the program releases the piece.
-    The rule applies to the streams of a client and of a server. A pool of two starting windows
-    or less keeps each stream's window where it starts. The connection's window still grows up to
-    the whole pool. `quic.Connection` computes the cap from the stream's own starting window, so
-    `quic` needs no value from the client or the server. Two alternatives lost:
+    grows up to the receive pool's capacity less the stream's reserve, and not up to the whole
+    pool. The reserve is `stream_window_reserve_windows` of the stream's own starting windows, a
+    named limit in `quic.constants.limits` that is 1. A stream that the program holds thus keeps
+    its reserve of the pool free, and one download still uses nearly the whole pool. The rule
+    applies to the streams of a client and of a server. A pool no larger than one window and its
+    reserve keeps each stream's window where it starts. The connection's window still grows up
+    to the whole pool. `quic.Connection` computes the cap from the stream's own starting window,
+    so `quic` needs no value from the client or the server.
+
+    The reserve is a count of starting windows, and not a count of octets. The reserve that a
+    stream leaves is by definition its own starting window, so the code reads the count and
+    multiplies. A program that sets a larger window thus keeps a larger reserve, and needs no
+    second setting that could disagree with the window.
+
+    Amended again by the owner on 2026-11-06: MAX_DATA is also owed on low credit. Before, it
+    went out only after half the connection's window was consumed since the last one
+    (`flow_credit_fraction`), so the other streams could get no credit at all while a stream was
+    held at its cap. Now a connection with a receive pool also owes MAX_DATA when the credit left
+    to the peer is below its floor, and the application consumed one octet or more since the
+    last MAX_DATA (RFC 9000 §4.2 leaves the time to the receiver). The floor is the part of the
+    pool that a stream of its largest starting window leaves free at its cap: one starting
+    window in a pool of two windows or more. A stream that can fill the pool leaves none, so a
+    floor there would cost a frame for each octet and keep nothing free. The new limit is still
+    the octets consumed plus the window, so it never passes the pool (RFC 9000 §4.1). The
+    guarantee is this: while a piece is held, the other streams together can keep the floor's
+    octets in the pool, and each octet they consume gives one octet of credit back. A connection with no pool caps no window and keeps no reserve, so the rule does
+    not apply to it. A survey of 19 implementations' published defaults supports the reserve:
+    HAProxy, which sizes windows from fixed buffers, keeps 10% of the connection from one stream.
+    Three alternatives lost:
     - Growth up to the whole pool, as before. One held stream could then fill the pool and stop
       every other stream of the connection.
     - A fixed stream window of 64 KiB, with no growth. It holds one stream at `window / round
       trip`, which is the cost this decision removed.
+    - MAX_DATA only after half the window is consumed, with the cap alone. The other streams then
+      get at most one reserve while a piece is held, less what they consumed since the last
+      MAX_DATA, and possibly none.
 
 50. **Where RFC 9002 disagrees with itself about the round trip variation, colibri follows
     Appendix A.7.** This is design §12 question 4, which step 10 was required to settle in writing
@@ -6145,9 +6166,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          the whole pool, so one held stream could fill the pool and stop the others. The client
          grants each request stream `@min(quic_stream_window, capacity)`, as it grants each
          unidirectional stream (RFC 9000 §18.2). Amended by the owner on 2026-11-06, with
-         decision 49: the window grows up to the pool's capacity less that starting window, so a
-         held stream keeps at least one starting window of the pool free. The connection's
-         credit gives the other streams at most that window of it, and possibly none.
+         decision 49: the window grows up to the pool's capacity less its reserve, one starting
+         window (`stream_window_reserve_windows`), so a held stream keeps that reserve of the pool
+         free. Amended again on 2026-11-06, with decision 49: MAX_DATA is also owed when the
+         credit left to the server is below that reserve and the client consumed one octet since
+         the last MAX_DATA. The other streams thus keep getting credit while a piece is held.
      12. Ruled by the owner on 2026-11-06: over h3 a piece is copied once, as over h11 and h2. The
          `data_available` event carries the count of octets that arrived and copies none, and
          `h3.Connection.peek_data` copies them from QUIC straight into the caller's memory.

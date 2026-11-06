@@ -214,7 +214,8 @@ test "RFC 9000 §4.1: a server faster than the program waits for the stream's cr
     try testing.expectEqual(1, count(.body));
     // RFC 9000 §4.1: the server gets no more credit while the program holds the piece. QUIC
     // measures both limits from what it consumed, so the server spent the connection's window,
-    // which its control stream shares, and the stream's limit did not move.
+    // which its control stream shares, and the stream's limit did not move. The stream's window
+    // is the whole pool, so it leaves no reserve and no credit floor (decision 49 as amended).
     const server = &quic_support.server;
     const stream = server.streams.lookup(.{ .value = quic_support.answers[0].id }).live;
     try testing.expectEqual(small_pool_len, stream.send_flow.limit);
@@ -291,21 +292,16 @@ test "RFC 9000 §4.1: a held h3 stream keeps one stream's window of the receive 
 }
 
 /// A receive pool of four request stream windows, so a stream's window grows past one window
-/// and still leaves one to the other streams (decision 49 as amended). Test-only.
+/// and still leaves its reserve to the other streams (decision 49 as amended). Test-only.
 const grown_pool_len: usize = grown_pool_windows * h3_stream_window;
 const grown_pool_windows: usize = 4;
 var grown_pool: quic.stream.stream_incoming.Pool(grown_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(grown_pool_len))) = undefined;
 /// The largest window a request stream grows to in that pool. Test-only.
-const grown_window_max: u64 = grown_pool_len - h3_stream_window;
+const grown_window_max: u64 = grown_pool_len - quic.constants.limits.stream_window_reserve_windows * h3_stream_window;
 /// The held stream's content: more than the grown window. Test-only.
 var long_content: [grown_pool_len]u8 = undefined;
-/// The other exchange's content, which fits in one stream's window with its frames. The client
-/// sends MAX_DATA only once half the connection's window is consumed (RFC 9000 §4.2 leaves the
-/// time to it), so the held piece leaves the other stream one window and no more. Test-only.
-const short_body_len: usize = h3_stream_window / short_body_fraction;
-const short_body_fraction: usize = 2;
 
-test "decision 49 as amended: a held h3 stream whose window grew leaves one stream's window, and the next exchange finishes" {
+test "decision 49 as amended: a held h3 stream whose window grew leaves its reserve, and a response larger than it finishes" {
     for (&long_content, 0..) |*octet, index| octet.* = @truncate(index);
     var given = fixture.configured(true);
     given.protocols = .{ .h11 = false, .h2 = false };
@@ -333,15 +329,16 @@ test "decision 49 as amended: a held h3 stream whose window grew leaves one stre
     try testing.expect(stream.send_flow.is_blocked());
     try testing.expectEqual(grown_window_max, stream.send_flow.limit);
     try testing.expectEqual(1, count(.body));
-    // RFC 9000 §4.1: one stream's window of the pool is left, so the other exchange finishes.
-    try quic_support.server_answer(try answer_at("/dns-query"), 200, long_content[0..short_body_len]);
+    // RFC 9000 §4.1, §4.2: the reserve is left, and its frames make the other response larger
+    // than it. MAX_DATA follows each octet consumed below the reserve, so the response finishes.
+    try quic_support.server_answer(try answer_at("/dns-query"), 200, long_content[0..other_body_len]);
     for (0..rounds_max) |_| {
         if (count(.finished) > 0) break;
         try pump(1);
     }
     try testing.expectEqual(1, count(.finished));
     try testing.expectEqual(.response, other.response.result);
-    try testing.expectEqualSlices(u8, long_content[0..short_body_len], other.response.body[0..other.response.body_len]);
+    try testing.expectEqualSlices(u8, long_content[0..other_body_len], other.response.body[0..other.response.body_len]);
     try testing.expectEqual(.pending, held.response.result);
 }
 

@@ -401,20 +401,40 @@ pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
 }
 
 /// The largest a stream's receive window starting at `window` grows to (decision 49 as amended
-/// on 2026-11-06): the receive pool's capacity less one stream's starting window. A held stream
-/// thus keeps at least one starting window of the pool free. The connection's credit gives the
-/// other streams at most that much of it, and none when they consumed one window since the last
-/// MAX_DATA (`flow_credit_fraction`). A pool no larger than two starting windows keeps the
-/// window where it starts, and so does a connection with no pool.
+/// on 2026-11-06): the receive pool's capacity less the stream's reserve (`stream_reserve`). A
+/// pool no larger than a window and its reserve keeps the window where it starts, and so does a
+/// connection with no pool.
 pub fn stream_receive_window_max(connection: *const Connection, window: u64) u64 {
     const storage = connection.receive_storage orelse return window;
     // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
     assert(window <= storage.capacity);
-    // RFC 9000 §4.1: one stream's credit leaves room in the pool for one more stream's window.
-    const grown = @max(window, storage.capacity - window);
+    // RFC 9000 §4.1: one stream's credit leaves its reserve of the pool to the other streams.
+    const grown = @max(window, storage.capacity -| stream_reserve(window));
     assert(grown >= window);
     assert(grown <= storage.capacity);
     return grown;
+}
+
+/// The octets of the receive pool that a stream whose window starts at `window` leaves free
+/// (decision 49 as amended): `stream_window_reserve_windows` of its starting windows.
+fn stream_reserve(window: u64) u64 {
+    return window *| constants.limits.stream_window_reserve_windows;
+}
+
+/// The connection's credit left to the peer below which one consumed octet is worth a MAX_DATA
+/// frame (decision 49 as amended, `flow.Receiver.owes_credit_below`): the part of the pool that
+/// a stream of the largest starting window leaves free at its cap. In a pool of two such windows
+/// or more, that is its reserve, so a held stream cannot keep the other streams from it. A
+/// stream that can fill the pool leaves none, and a connection with no pool caps no window, so
+/// neither has a floor.
+pub fn receive_credit_floor(connection: *const Connection) u64 {
+    const storage = connection.receive_storage orelse return 0;
+    const mine = connection.local_parameters;
+    // RFC 9000 §18.2: the three parameters that set the starting window of a stream it receives on.
+    const window = @max(mine.initial_max_stream_data_bidi_local, mine.initial_max_stream_data_bidi_remote, mine.initial_max_stream_data_uni);
+    const floor = storage.capacity - stream_receive_window_max(connection, @min(window, storage.capacity));
+    assert(floor <= stream_reserve(window));
+    return floor;
 }
 
 /// RFC 9001 §4.1.2's confirmed state, which a server reaches when the handshake completes and

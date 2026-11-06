@@ -32,9 +32,9 @@ fn saved_for(controller: quic.CongestionController) quic.ResumeState {
     };
 }
 
-pub const cubic_census_crc32_expected: u32 = 0xfd738679;
-pub const newreno_census_crc32_expected: u32 = 0x2c81a36a;
-pub const bbr_census_crc32_expected: u32 = 0xed131dca;
+pub const cubic_census_crc32_expected: u32 = 0xd172ab1d;
+pub const newreno_census_crc32_expected: u32 = 0xa6e99f3b;
+pub const bbr_census_crc32_expected: u32 = 0x029edec0;
 
 var check_storage: Storage align(@alignOf(Storage)) = undefined;
 

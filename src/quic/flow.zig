@@ -170,7 +170,14 @@ pub const Receiver = struct {
     /// A caller with none passes 0, which grows nothing: every interval is then at least as long
     /// as the test, so the window stays where it started.
     pub fn credit_frame_limit(receiver: *Receiver, now_ns: u64, round_trip_ns: u64) ?u64 {
-        if (!receiver.owes_credit()) return null;
+        return receiver.credit_frame_limit_below(now_ns, round_trip_ns, 0);
+    }
+
+    /// `credit_frame_limit`, with one more reason for a frame: the credit left to the peer is
+    /// below `credit_floor` (`owes_credit_below`). The new limit is the same, what was consumed
+    /// plus the window, so it never passes what the receiver holds.
+    pub fn credit_frame_limit_below(receiver: *Receiver, now_ns: u64, round_trip_ns: u64, credit_floor: u64) ?u64 {
+        if (!receiver.owes_credit_below(credit_floor)) return null;
         receiver.tune(now_ns, round_trip_ns);
         return receiver.advance(now_ns);
     }
@@ -200,10 +207,21 @@ pub const Receiver = struct {
     /// used `window / flow_credit_fraction` of its window. It changes nothing, so a caller may ask
     /// at any time whether credit waits to be sent.
     pub fn owes_credit(receiver: *const Receiver) bool {
+        return receiver.owes_credit_below(0);
+    }
+
+    /// `owes_credit`, or the credit left to the peer is below `credit_floor` and the
+    /// application consumed at least one octet since the limit last rose (decision 49 as
+    /// amended). RFC 9000 §4.2 leaves the timing to the receiver, and a connection whose held
+    /// stream keeps octets in the pool gives the other streams credit this way.
+    pub fn owes_credit_below(receiver: *const Receiver, credit_floor: u64) bool {
         const gain = receiver.consumed + receiver.window - receiver.limit;
         // RFC 9000 §4.1: a limit that does not rise "has no effect", so it is never worth a frame.
         // A window of 0 or 1 makes the fraction below 0, which alone would offer one every call.
         if (gain == 0) return false;
+        // RFC 9000 §4.2: "Implementations decide when and how much credit to advertise". Below
+        // the floor, a held stream keeps the peer's credit, so the other streams get it now.
+        if (receiver.available() < credit_floor) return true;
         return gain >= receiver.window / constants.policy.flow_credit_fraction;
     }
 
@@ -292,6 +310,22 @@ test "§4.1: a peer that passes the limit ends the connection, and one that does
     // RFC 9000 §20.1: FLOW_CONTROL_ERROR is 0x03 and STREAM_LIMIT_ERROR is 0x04.
     try testing.expectEqual(0x03, connection_error_code(error.FlowControlExceeded));
     try testing.expectEqual(0x04, connection_error_code(error.StreamLimitExceeded));
+}
+
+test "decision 49 as amended: credit left below the floor is worth a frame once one octet is consumed" {
+    var receiver = Receiver.init(test_window, test_window_max);
+    const credit_floor = half_window;
+    // The peer leaves less than the floor of its credit, and the application read nothing.
+    try receiver.use(test_window - credit_floor + 1, error.FlowControlExceeded);
+    try testing.expect(!receiver.owes_credit_below(credit_floor));
+    try testing.expectEqual(null, receiver.credit_frame_limit_below(0, 0, credit_floor));
+    // One octet read is far less than the fraction, and below the floor it is worth a frame.
+    receiver.consume(1);
+    try testing.expect(!receiver.owes_credit());
+    try testing.expectEqual(test_window + 1, receiver.credit_frame_limit_below(0, 0, credit_floor).?);
+    // The credit left is at the floor now, so the next octet waits for the fraction.
+    receiver.consume(1);
+    try testing.expect(!receiver.owes_credit_below(credit_floor));
 }
 
 test "§4.1, §4.2: credit follows what the application took, not what arrived" {

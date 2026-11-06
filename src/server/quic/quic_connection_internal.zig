@@ -302,6 +302,9 @@ fn parameters(config: *const Config, capacity: u64) Parameters {
     // RFC 9000 §4.1: flow control keeps a sender within "a receiver's buffer capacity", and the
     // pool is all the server holds (decision 61), so no window grants more than it.
     held.initial_max_data = capacity;
+    // RFC 9000 §18.2: one request stream starts with one stream's window. Decision 49 as amended
+    // grows it up to the pool less its reserve, that one window, and owes MAX_DATA once the credit
+    // left is below it. A request whose content the application holds thus leaves the others credit.
     held.initial_max_stream_data_bidi_remote = @min(constants.policy.quic_stream_window, capacity);
     held.initial_max_stream_data_uni = @min(constants.policy.quic_stream_window, capacity);
     // RFC 9000 §4.6: the client opens no more request streams at once than the server allows,

@@ -77,8 +77,8 @@ pub fn write_limits(connection: *Connection, level: Level, writer: *Writer, numb
 }
 
 /// Whether this endpoint owes its peer credit it has not sent: a MAX_DATA, MAX_STREAMS or
-/// MAX_STREAM_DATA frame whose new limit is worth one (`Receiver.owes_credit`), or one lost and
-/// owed again (§13.3). RFC 9002 §7 holds these back with every ack-eliciting frame while the
+/// MAX_STREAM_DATA frame whose new limit is worth one (`Receiver.owes_credit_below`), or one lost
+/// and owed again (§13.3). RFC 9002 §7 holds these back with every ack-eliciting frame while the
 /// congestion window is full, and a peer that needs the credit waits on this endpoint then
 /// (decision 110 as amended).
 pub fn credit_owed(connection: *Connection) bool {
@@ -100,7 +100,8 @@ pub fn count_credit_owed(connection: *const Connection) bool {
 /// peer open streams and sends no octet of an open one, and it is owed as each stream closes
 /// (decision 130).
 pub fn data_credit_owed(connection: *Connection) bool {
-    if (connection.receive_flow.owes_credit() or connection.max_data.owed) return true;
+    const credit_floor = connection_module.receive_credit_floor(connection);
+    if (connection.receive_flow.owes_credit_below(credit_floor) or connection.max_data.owed) return true;
     const streams = &connection.streams;
     // Design §8 step 29d.10: only a marked slot may owe credit. The walk reads a copy, because it
     // clears the marks of streams that left "Recv".
@@ -161,8 +162,11 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
 }
 
 /// RFC 9000 §19.9: the connection's limit, when new credit is worth a frame or a lost one is owed.
+/// Credit below `receive_credit_floor` is worth one too, so a held stream leaves the other streams
+/// its reserve of the pool (decision 49 as amended, RFC 9000 §4.1 and §4.2).
 fn write_max_data(connection: *Connection, writer: *Writer, number: u64, now_ns: u64, round_trip_ns: u64) bool {
-    const fresh = connection.receive_flow.credit_frame_limit(now_ns, round_trip_ns) != null;
+    const credit_floor = connection_module.receive_credit_floor(connection);
+    const fresh = connection.receive_flow.credit_frame_limit_below(now_ns, round_trip_ns, credit_floor) != null;
     if (!fresh and !connection.max_data.owed) return false;
     const frame: frame_module.Frame = .{ .max_data = .{ .maximum = connection.receive_flow.limit } };
     return connection.max_data.write(writer, frame, number);
@@ -339,4 +343,5 @@ fn frame_directionality(directionality: Directionality) frame_module.Directional
 
 test {
     _ = @import("connection_flow_test.zig");
+    _ = @import("connection_flow_floor_test.zig");
 }

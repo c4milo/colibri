@@ -135,8 +135,12 @@ Units == HeadUnits + Content
 NoGoaway == N + 1
 \* colibri's quic `flow_credit_fraction`.
 Fraction == 2
+\* colibri's quic `stream_window_reserve_windows`: the starting windows of the receive pool a
+\* stream leaves to the others (decision 49 as amended).
+Reserve == 1
 
 Max(a, b) == IF a > b THEN a ELSE b
+Min(a, b) == IF a < b THEN a ELSE b
 
 Sum(f) == LET s[i \in 0..N] == IF i = 0 THEN 0 ELSE s[i - 1] + f[i - 1] IN s[N]
 
@@ -283,14 +287,27 @@ ConsumedAll == Sum([r \in Requests |-> Consumed(r)])
 
 (* flow.Receiver's credit_frame_limit: new credit is worth a frame once    *)
 (* it reaches half the window. RFC 9000 §19.10: MAX_STREAM_DATA goes out   *)
-(* only while the stream's receiving part is in "Recv".                    *)
+(* only while the stream's receiving part is in "Recv". The connection's   *)
+(* new credit is also worth a frame once the credit left to the client is  *)
+(* below CreditFloor (credit_frame_limit_below, decision 49 as amended).   *)
+(* colibri's server keeps a receive pool of ConnectionWindow units, and    *)
+(* CreditFloor is the part of it that a stream leaves free at its cap.     *)
 StreamGain(r) == Consumed(r) + StreamWindow - advStream[r]
 StreamCreditOwed(r) ==
     /\ phase[r] # "unseen" /\ ~ReceivingDone(r)
     /\ StreamGain(r) > 0 /\ StreamGain(r) >= StreamWindow \div Fraction
 ConnectionGain == ConsumedAll + ConnectionWindow - advConnection
+(* What reached colibri's QUIC on r, which a reset raises to its final     *)
+(* size (RFC 9000 §4.5), and on every request stream together.            *)
+Received(r) == IF resetIn[r] THEN cliSent[r] ELSE atQuic[r]
+ReceivedAll == Sum([r \in Requests |-> Received(r)])
+StartWindow == Min(StreamWindow, ConnectionWindow)
+CreditFloor ==
+    ConnectionWindow - Max(StartWindow, ConnectionWindow - Reserve * StartWindow)
 ConnectionCreditOwed ==
-    ConnectionGain > 0 /\ ConnectionGain >= ConnectionWindow \div Fraction
+    /\ ConnectionGain > 0
+    /\ \/ ConnectionGain >= ConnectionWindow \div Fraction
+       \/ advConnection - ReceivedAll < CreditFloor
 CreditOwed == ConnectionCreditOwed \/ \E r \in Requests : StreamCreditOwed(r)
 
 (* RFC 9002 §7: the packets in flight leave room for one more.             *)

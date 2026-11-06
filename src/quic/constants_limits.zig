@@ -90,6 +90,14 @@ pub const stream_receive_block_len: usize = 1024;
 /// round trip it sustains about 80 Mbit/s per connection.
 pub const receive_pool_len_default: usize = 1_048_576;
 
+/// Starting windows of the receive pool that one stream's window leaves free (decision 49 as
+/// amended on 2026-11-06). A stream's receive window grows to the pool's capacity less this many
+/// of its own starting windows. While the connection's credit left to the peer is below as many
+/// starting windows, one consumed octet is worth a MAX_DATA frame. A held stream thus leaves the
+/// other streams this reserve. The unit is the stream's starting window, so a program that sets
+/// a larger window keeps a larger reserve with no second setting.
+pub const stream_window_reserve_windows: u64 = 1;
+
 /// Octets of its own handshake flow colibri keeps per encryption level, so a CRYPTO frame can be
 /// written again under a new packet number (RFC 9000 §13.3) and a client can repeat its first
 /// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it. Decision 64 has a PTO at a
@@ -137,6 +145,8 @@ pub const comptime_scan_branches_per_octet: u32 = 4;
 
 comptime {
     assert(coalesced_packets_max > 0);
+    // A reserve of no window would let one held stream fill the pool.
+    assert(stream_window_reserve_windows > 0);
     // `recovery_spurious.zig` marks each number acknowledged in one bit of a `u32`.
     assert(spurious_loss_numbers_max > 0 and spurious_loss_numbers_max <= 32);
     assert(frames_per_packet_max > 0);
@@ -165,6 +175,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(4096, crypto_buffer_len);
     try expectEqual(1024, stream_receive_block_len);
     try expectEqual(1048576, receive_pool_len_default);
+    try expectEqual(1, stream_window_reserve_windows);
     try expectEqual(16384, crypto_send_buffer_len);
     try expectEqual(256, sent_packets_max);
     try expectEqual(16, stream_frames_per_packet_max);
