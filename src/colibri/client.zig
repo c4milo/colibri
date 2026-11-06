@@ -10,6 +10,10 @@ const rotor = @import("rotor");
 const entropy = @import("entropy.zig");
 const server_loop = @import("server_loop.zig");
 const datagram_socket = @import("datagram_socket.zig");
+const socket_module = @import("socket.zig");
+const client_tcp = @import("client_tcp.zig");
+const client_loop = @import("client_loop.zig");
+const server_module = @import("server.zig");
 
 /// Where a client connects and how its pool runs. The program keeps each slice the pool's
 /// configuration names alive while the client runs: the authority, the TLS anchors and pins, and
@@ -50,10 +54,16 @@ pub fn ClientOf(comptime capacity: Capacity) type {
 
         const Pool = client.ConnectionPoolOf(.{ .quic = capacity.quic });
         const pool_memory_len = Pool.memory_bytes(.{ .tcp_connections = capacity.tcp_connections, .requests = capacity.requests });
-        const ReceivePool = if (capacity.quic) client.DefaultReceivePool else void;
+        const ReceivePool = receive_pool_type(capacity.quic);
+        const tcp_connections = capacity.tcp_connections;
+        const Bits = std.bit_set.IntegerBitSet(tcp_connections);
+        /// The operations the loop holds in flight: for each TCP socket a receive, a send and a
+        /// close, or its connect alone, and the UDP socket's receive and sends.
+        const loop_options: rotor.Loop.Options = .{
+            .operations = tcp_connections * socket_module.operations_per_socket + udp_operations(capacity.quic),
+        };
         comptime {
-            assert(capacity.tcp_connections > 0 and capacity.tcp_connections <= client.constants.limits.pool_tcp_connections_max);
-            assert(capacity.requests > 0 and capacity.requests <= client.constants.limits.pool_requests_max);
+            assert(capacity_valid(capacity, loop_options));
         }
 
         config: ClientConfig,
@@ -67,8 +77,25 @@ pub fn ClientOf(comptime capacity: Capacity) type {
         receive_pool: ReceivePool,
         /// The UDP socket, open when the pool offers QUIC. `run` or `deinit` closes it once.
         udp: datagram_socket.DatagramSocket,
-        /// `shutdown` asked.
+        /// The loop, and each TCP slot's socket and what the client holds for it
+        /// (`client_tcp.zig`).
+        loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+        loop: rotor.Loop,
+        events: [loop_options.operations]rotor.Event,
+        sockets: [tcp_connections]socket_module.Socket,
+        connections: [tcp_connections]client_tcp.Connection,
+        /// The sockets an event named since their last step, and the sockets a turn changed.
+        pending: Bits,
+        touched: Bits,
+        /// Whether a read of the pool's events stopped at its bound, or a call left events to
+        /// read.
+        undrained: bool,
+        /// The loop's instant when `run` started, which `unix_seconds` counts from.
+        started_ns: u64,
+        /// `shutdown` asked, the loop passed it to the pool, and the pool reported `closed`.
         stopping: std.atomic.Value(bool),
+        shut_down: bool,
+        closed: bool,
 
         /// Keeps the configuration, prepares the pool, and opens the UDP socket when the pool
         /// offers QUIC: h3 allowed, a TLS value, and a client that holds QUIC (RFC 9114 §3.1).
@@ -85,6 +112,7 @@ pub fn ClientOf(comptime capacity: Capacity) type {
             try self.pool.init(&self.pool_memory, &self.pool_config, destination, self.receive_storage());
             if (self.offers_quic()) try self.udp.bind(&unspecified(address.family));
             self.stopping = .init(false);
+            self.undrained = false;
         }
 
         /// Closes the UDP socket when `run` did not close it. The program calls it after `init`
@@ -101,7 +129,10 @@ pub fn ClientOf(comptime capacity: Capacity) type {
         /// event (decision 124). It calls `request` before `run`, or from a handler `run` calls,
         /// on the loop's thread.
         pub fn request(self: *Self, message: *const client.Request, response: *client.Response) client.RequestError!client.RequestId {
-            return self.pool.request(message, response);
+            const id = try self.pool.request(message, response);
+            // The pool reports the open or the send the request needs at the next read.
+            self.undrained = true;
+            return id;
         }
 
         /// Asks the client to stop: it takes no new request, and `run` returns once each exchange
@@ -110,18 +141,46 @@ pub fn ClientOf(comptime capacity: Capacity) type {
             self.stopping.store(true, .release);
         }
 
-        /// The receive pool the pool's QUIC connections use, or null for a client with no QUIC.
-        fn receive_storage(self: *Self) ?client.ReceiveStorage {
-            if (!capacity.quic) return null;
-            return self.receive_pool.storage();
+        /// Runs the pool on the thread that calls it until `shutdown`, and returns once each
+        /// exchange has finished and each connection has closed. `handler` points at the
+        /// program's struct, which declares `on_finished(handler, *Client, client.Finished)` and
+        /// may declare `on_connected(handler, *Client, client.Connected)`. Each runs on this
+        /// thread, and may call `request` and `shutdown`. The loop runs here because a Rotor loop
+        /// belongs to the thread that starts it (decision 150 ruling 7).
+        pub fn run(self: *Self, handler: anytype) server_module.RunError!void {
+            return client_loop.run_loop(self, handler, loop_options);
         }
 
-        /// Whether the pool offers QUIC, which the pool decided from the configuration.
+        /// The receive pool the pool's QUIC connections use, or null for a client with no QUIC.
+        fn receive_storage(self: *Self) ?client.ReceiveStorage {
+            return if (capacity.quic) self.receive_pool.storage() else null;
+        }
+
+        /// Whether the pool offers QUIC, which the pool decided from the configuration. A pool with
+        /// no QUIC offers none.
         fn offers_quic(self: *const Self) bool {
-            if (!capacity.quic) return false;
             return self.pool.offered.quic;
         }
     };
+}
+
+/// The type of the receive pool a client holds: the default one with QUIC, and none without.
+fn receive_pool_type(quic: bool) type {
+    return if (quic) client.DefaultReceivePool else void;
+}
+
+/// The operations the UDP socket holds in flight, or none for a client with no QUIC.
+fn udp_operations(quic: bool) u32 {
+    return if (quic) datagram_socket.operations else 0;
+}
+
+/// Whether each count of `capacity` is inside the pool's limits, and the loop holds every
+/// operation the client submits.
+fn capacity_valid(capacity: Capacity, loop_options: rotor.Loop.Options) bool {
+    if (capacity.tcp_connections == 0 or capacity.tcp_connections > client.constants.limits.pool_tcp_connections_max) return false;
+    if (capacity.requests == 0 or capacity.requests > client.constants.limits.pool_requests_max) return false;
+    if (loop_options.operations > rotor.constants.batch_max) return false;
+    return capacity.tcp_connections < datagram_socket.send_user_data_last >> socket_module.kind_bits;
 }
 
 /// The address that binds a UDP socket of `family` on every interface, on a port the system
@@ -210,6 +269,22 @@ test "decision 124: a client with no QUIC refuses h3" {
     try tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{ .h3 = false }), .random = counter.random() });
     defer tcp_client.deinit();
     try testing.expect(!tcp_client.udp.open);
+}
+
+test {
+    _ = @import("client_tcp_test.zig");
+}
+
+test "design §8 step 42: a request leaves the pool's events for the next turn to read at once" {
+    var counter: support.Counter = .{};
+    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random() });
+    defer test_client.deinit();
+    try testing.expect(!test_client.undrained);
+    const request: client.Request = .{ .method = "GET", .path = "/" };
+    var response: client.Response = .{};
+    _ = try test_client.request(&request, &response);
+    // A request from a handler would otherwise wait for the tick's longest wait.
+    try testing.expect(test_client.undrained);
 }
 
 test "design §8 step 42: deinit closes the UDP socket" {

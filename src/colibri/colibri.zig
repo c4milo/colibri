@@ -31,11 +31,12 @@ pub const ClientConfig = files.client.ClientConfig;
 test "decision 115: the root exports the names design §8 steps 37 and 42 list" {
     // Step 37a adds `Server`, `ServerOf`, `ServerConfig`, `Identity` and `InitError`, 37b
     // `RunError` and `run`, `port` and `shutdown`, and the owner's ruling of 2026-11-05 `deinit`.
-    // Step 42c adds `Client` and `ClientConfig`, with `init`, `deinit`, `request` and `shutdown`.
+    // Step 42c adds `Client` and `ClientConfig`, with `init`, `deinit`, `request` and `shutdown`,
+    // and 42d adds `run`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{ "constants", "Server", "ServerOf", "ServerConfig", "Identity", "InitError", "RunError", "Client", "ClientConfig" });
     try public_names.expect(Server, &.{ "init", "deinit", "port", "shutdown", "run" });
-    try public_names.expect(Client, &.{ "init", "deinit", "request", "shutdown" });
+    try public_names.expect(Client, &.{ "init", "deinit", "request", "shutdown", "run" });
 }
 
 test {
