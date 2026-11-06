@@ -140,6 +140,22 @@ test "RFC 9114 §4.1: a server that asks the client to stop sending ends the bod
     try testing.expectEqual(pieces[0].len, put.response.body_sent);
 }
 
+test "RFC 9114 §4.1.1: a response that ends before the request body resets the request stream, and the exchange finishes" {
+    var put: connection_support.Exchange = undefined;
+    const id = try start(&put);
+    try pool.write_body(id, pieces[0], false);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.body_taken));
+    // The server answers whole while the request body is still open, so the stream's sending part
+    // would stay open without the client's reset.
+    quic_support.server_answers = true;
+    quic_support.answer_early = true;
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.finished));
+    try testing.expectEqual(.response, put.response.result);
+    try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], true));
+}
+
 /// A receive pool smaller than the response, so the stream's window holds the server back
 /// (decision 61). Test-only.
 var small_pool: quic.stream.stream_incoming.Pool(small_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(small_pool_len))) = undefined;

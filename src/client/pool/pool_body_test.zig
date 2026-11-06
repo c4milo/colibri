@@ -5,6 +5,7 @@
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("../connection/connection_test_support.zig");
+const constants = @import("../constants.zig");
 const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
 
@@ -298,4 +299,89 @@ test "decision 153 ruling 7: a streamed response refused after its head ends clo
     try testing.expectEqual(200, get.response.status);
     try testing.expectEqual(1, count(.finished));
     try testing.expectEqual(1, count(.open));
+}
+
+test "decision 153 ruling 7: write_body on an exchange the pool ended returns BodyStopped" {
+    try start();
+    var first = streamed_put();
+    var second = streamed_put();
+    const first_id = try pool.request(&first.request, &first.response);
+    const second_id = try pool.request(&second.request, &second.response);
+    // The connect fails, so no connection is left to take either exchange. The pool ends both,
+    // and reports the end of one a call.
+    for (0..support.events_max) |_| {
+        const reported = pool.receive(.none, support.now_ns).event orelse return error.TestUnexpectedResult;
+        if (reported == .open) pool.transport_closed(reported.open.connection);
+        if (reported == .finished) break;
+    }
+    try testing.expectError(error.UnknownRequest, pool.write_body(first_id, first_piece, false));
+    // RFC 9113 §8.7: no server processed the exchange, and no more of it goes out.
+    try testing.expectError(error.BodyStopped, pool.write_body(second_id, first_piece, false));
+    try testing.expectEqual(.refused, second.response.result);
+}
+
+/// The least output a `send_stream` that writes nothing finds the connection blocked with
+/// (decision 125). Test-only.
+var blocked_output: [constants.limits.stream_output_len_min]u8 = undefined;
+
+/// Requires the pool's connection to owe nothing: a `send_stream` writes nothing, and no `send`
+/// follows until a call of the program gives it a debt.
+fn expect_blocked() !void {
+    try testing.expectEqual(0, pool.send_stream(pool_support.connection_of(&pool, .tcp), &blocked_output, support.now_ns));
+    events_len = 0;
+    try collect();
+    try testing.expectEqual(0, count(.send));
+}
+
+test "decision 125: write_body gives a connection that found nothing to send its next send" {
+    try start();
+    var put = streamed_put();
+    const id = try pool.request(&put.request, &put.response);
+    try pool.write_body(id, first_piece, false);
+    try collect();
+    try send();
+    try testing.expectEqual(1, count(.body_taken));
+    try expect_blocked();
+    try pool.write_body(id, last_piece, true);
+    try collect();
+    try testing.expectEqual(1, count(.send));
+}
+
+/// Where each piece lands in the test of a release's send: one full DATA frame (RFC 9113 §4.2).
+var frame_piece: [frame_piece_len]u8 = undefined;
+const frame_piece_len: usize = 16_384;
+const frame_content: [frame_piece_len]u8 = @splat('x');
+
+/// Writes one full DATA frame on stream 1 from the h2 peer, which leaves the stream open.
+fn peer_frame() !void {
+    const sent = try support.peer_h2.write_data(support.to_client[support.to_client_len..], 1, &frame_content, false);
+    try testing.expectEqual(frame_piece_len, sent.consumed);
+    support.to_client_len += sent.written;
+}
+
+test "decision 125: release_body gives a connection that found nothing to send its WINDOW_UPDATE's send" {
+    try start_speaking(.h2);
+    var get: Exchange = .{ .request = .{ .method = "GET", .path = "/stream", .streamed = .{ .response = true } }, .response = .{ .body = &frame_piece } };
+    const id = try pool.request(&get.request, &get.response);
+    try collect();
+    for (0..rounds) |_| {
+        try send();
+        try support.peer_h2_read();
+        try collect();
+    }
+    support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, 200, &.{}, false);
+    try peer_frame();
+    try peer_frame();
+    try collect();
+    try testing.expectEqual(1, count(.body));
+    pool.release_body(id);
+    try collect();
+    try testing.expectEqual(2, count(.body));
+    // The connection's WINDOW_UPDATE went out at receipt, and the stream's waits for the release.
+    try send();
+    try expect_blocked();
+    // RFC 9113 §6.9.1: the two pieces pass the threshold, so the release owes a WINDOW_UPDATE.
+    pool.release_body(id);
+    try collect();
+    try testing.expectEqual(1, count(.send));
 }
