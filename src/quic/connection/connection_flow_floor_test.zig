@@ -58,9 +58,13 @@ fn parameters(window: u64) Parameters {
 }
 
 fn open_server(receive: ?stream_module.stream_incoming.Storage, window: u64) void {
+    open_server_with(receive, parameters(window));
+}
+
+fn open_server_with(receive: ?stream_module.stream_incoming.Storage, local_parameters: Parameters) void {
     server.init(.{
         .role = .server,
-        .local_parameters = parameters(window),
+        .local_parameters = local_parameters,
         .now_ns = test_now_ns,
         .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
         .receive = receive,
@@ -138,4 +142,22 @@ test "decision 49 as amended: the floor is what the cap leaves free, and none wh
     const wide_window = pool_capacity - stream_window;
     open_server(pool.storage(), wide_window);
     try testing.expectEqual(stream_window, connection_module.receive_credit_floor(&server));
+}
+
+test "decision 49 as amended: the floor follows the largest of the three starting windows" {
+    // A server sets no bidi_local window and a client no bidi_remote window, so one of the
+    // three is 0 on each side. The floor must come from the largest one, whichever it is.
+    const windows_cases = [_][3]u64{
+        .{ stream_window, 0, 0 },
+        .{ 0, stream_window, 0 },
+        .{ 0, 0, stream_window },
+    };
+    for (windows_cases) |windows| {
+        var held = parameters(0);
+        held.initial_max_stream_data_bidi_local = windows[0];
+        held.initial_max_stream_data_bidi_remote = windows[1];
+        held.initial_max_stream_data_uni = windows[2];
+        open_server_with(pool.storage(), held);
+        try testing.expectEqual(stream_window, connection_module.receive_credit_floor(&server));
+    }
 }
