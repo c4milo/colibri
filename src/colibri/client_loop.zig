@@ -45,11 +45,10 @@ pub fn begin(state: anytype) !void {
 }
 
 /// Ends a run, whether it finished or failed: it cancels what is in flight, waits for each final
-/// event, closes each TCP socket whose close was never submitted, and frees the loop.
+/// event, closes each TCP socket whose close was never submitted or did not run, and frees the loop
+/// (`socket.end_loop`).
 pub fn end(state: anytype) void {
-    state.loop.cancel_all();
-    state.loop.drain(&state.events) catch {};
-    @import("socket.zig").close_left(&state.sockets);
+    @import("socket.zig").end_loop(&state.loop, &state.events, &state.sockets);
     state.loop.deinit();
 }
 

@@ -58,12 +58,10 @@ pub fn reset(state: anytype) void {
 }
 
 /// Ends a run, whether it finished or failed: it cancels what is in flight, waits for each final
-/// event, closes each socket whose close was never submitted, and frees the loop. A run that
-/// failed would otherwise leave each accepted socket open.
+/// event, closes each socket whose close was never submitted or did not run, and frees the loop
+/// (`socket.end_loop`). A run that failed would otherwise leave each accepted socket open.
 pub fn end(state: anytype) void {
-    state.loop.cancel_all();
-    state.loop.drain(&state.events) catch {};
-    socket_module.close_left(&state.sockets);
+    socket_module.end_loop(&state.loop, &state.events, &state.sockets);
     state.loop.deinit();
 }
 

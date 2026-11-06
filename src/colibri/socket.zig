@@ -216,9 +216,45 @@ pub const Socket = struct {
     }
 };
 
-/// Closes each socket whose close was never submitted, once a run ended and the loop holds no
-/// operation: a run that failed leaves them open. A socket whose close was submitted has closed.
-/// A server's run and a client's each end with it.
+/// Ends the run of `loop`, whose TCP sockets are `sockets`, whether it finished or failed. It
+/// cancels what is in flight, reads each final event until nothing is in flight, and closes each
+/// socket that is still open. A server's run and a client's each end with it.
+///
+/// On io_uring, a close the loop submitted is in flight, and `cancel_all` can cancel it before it
+/// runs. Then the descriptor stays open. kqueue and epoll close at submit. The ticks stop after
+/// `rotor.constants.drain_rounds_max`, as Rotor's own `drain` does, and `deinit` then halts.
+pub fn end_loop(loop: *rotor.Loop, events: []rotor.Event, sockets: []Socket) void {
+    loop.cancel_all();
+    for (0..rotor.constants.drain_rounds_max) |_| {
+        if (loop.in_flight() == 0) break;
+        const count = loop.tick(events, rotor.constants.drain_wait_ns) catch break;
+        for (events[0..count]) |event| on_last_event(sockets, event);
+    }
+    close_left(sockets);
+}
+
+/// Reads one event of a run's last ticks. A close that ended canceled or timed out did not run
+/// (Rotor's decision 5, rules 2 and 4), so `close_left` closes its socket. A close that failed
+/// otherwise ran, and the system released the descriptor, so a second close could close another
+/// descriptor with the same number. Every other event changes nothing.
+pub fn on_last_event(sockets: []Socket, event: rotor.Event) void {
+    if (event.flags.message) return;
+    // The accept and the UDP socket's operations have user data above every socket's.
+    const index = event.user_data >> kind_bits;
+    if (index >= sockets.len) return;
+    if (@as(u8, @truncate(event.user_data)) != @intFromEnum(Kind.close)) return;
+    const socket = &sockets[@intCast(index)];
+    assert(socket.live);
+    assert(socket.close_submitted);
+    _ = event.outcome() catch |failure| switch (failure) {
+        error.Canceled, error.Timeout => socket.close_submitted = false,
+        else => {},
+    };
+}
+
+/// Closes each socket whose close was never submitted or did not run, once a run ended and the
+/// loop holds no operation: a run that failed leaves them open. A socket whose close ran has
+/// closed.
 pub fn close_left(sockets: []Socket) void {
     for (sockets) |*socket| {
         if (socket.live and !socket.close_submitted) rotor.sync.close_now(socket.descriptor);
@@ -266,6 +302,47 @@ test "octets left unread take the next receive after them, moved to the front wh
     try testing.expectEqual(input_capacity, test_socket.unread().len);
     try testing.expectEqualStrings("efghz", test_socket.unread()[0..5]);
     try testing.expectEqual('z', test_socket.unread()[input_capacity - 1]);
+}
+
+/// Opens a socket into `test_socket`, as an accept or a connect does, with its close submitted.
+/// Test-only.
+fn test_open_closing() !rotor.Descriptor {
+    const descriptor = try rotor.sync.open_socket(.ipv4);
+    test_socket.open(descriptor);
+    test_socket.close_submitted = true;
+    return descriptor;
+}
+
+test "design §8 step 42: the end of a run closes a socket whose close was canceled" {
+    const sockets = (&test_socket)[0..1];
+    for ([_]rotor.Code{ .canceled, .timeout }) |code| {
+        const descriptor = try test_open_closing();
+        on_last_event(sockets, rotor.Event.failure(user_data(0, .close), code));
+        close_left(sockets);
+        try testing.expect(!test_socket.live);
+        // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.
+        try testing.expectError(error.Unexpected, rotor.sync.local_address(descriptor));
+    }
+}
+
+test "design §8 step 42: the end of a run closes no socket whose close ran" {
+    const sockets = (&test_socket)[0..1];
+    const descriptor = try test_open_closing();
+    defer rotor.sync.close_now(descriptor);
+    // A close that ran, and one that ran and failed: the system released the descriptor in each.
+    on_last_event(sockets, rotor.Event.success(user_data(0, .close), 0));
+    on_last_event(sockets, rotor.Event.failure(user_data(0, .close), .input_output));
+    // No other event changes the close: another kind, another socket, the accept, the UDP socket's
+    // operations and a message.
+    on_last_event(sockets, rotor.Event.failure(user_data(0, .receive), .canceled));
+    on_last_event(sockets, rotor.Event.failure(user_data(1, .close), .canceled));
+    on_last_event(sockets, rotor.Event.failure(std.math.maxInt(u64), .canceled));
+    on_last_event(sockets, rotor.Event.failure(std.math.maxInt(u64) - 1, .canceled));
+    on_last_event(sockets, rotor.Event.message(user_data(0, .close), 0));
+    try testing.expect(test_socket.close_submitted);
+    close_left(sockets);
+    // The test's own socket is still open, so no second close reached it.
+    _ = try rotor.sync.local_address(descriptor);
 }
 
 /// One step of the fuzz script: a kind octet and two octets of a count. Test-only.

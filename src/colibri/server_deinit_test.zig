@@ -97,6 +97,25 @@ test "design §8 step 37: the end of a run closes an accepted socket whose close
     try testing.expectError(error.Unexpected, rotor.sync.local_address(descriptor));
 }
 
+test "design §8 step 42: the end of a run closes an accepted socket whose close it canceled" {
+    var counter: support.Counter = .{};
+    try begin_cleartext(&counter);
+    defer test_server.deinit();
+    server_loop.reset(&test_server);
+    const descriptor = try rotor.sync.open_socket(.ipv4);
+    const socket = &test_server.sockets[0];
+    socket.open(descriptor);
+    // The socket failed, so its close is submitted. io_uring holds it until the next tick, and the
+    // end's `cancel_all` cancels it there. kqueue and epoll closed the socket at submit.
+    socket.failed = true;
+    socket.arm(&test_server.loop, 0);
+    try testing.expect(socket.close_submitted);
+    server_loop.end(&test_server);
+    try testing.expect(!socket.live);
+    // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.
+    try testing.expectError(error.Unexpected, rotor.sync.local_address(descriptor));
+}
+
 test "design §8 step 37: init leaves no TCP socket live, so a run that fails at once closes none" {
     var counter: support.Counter = .{};
     // A socket of the test's own, which an earlier run's entry still names.

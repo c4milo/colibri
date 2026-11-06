@@ -13293,6 +13293,23 @@ library.
       the pool's `close`, `resolve` names no connection, so `receive` drops the octets and
       `send_stream` writes 0. A second `transport_closed` of a running connection calls the
       connection's again, which changes nothing (`pool_links.close_over`).
+  - **The close at a run's end, 2026-11-06.** A run that failed after a socket's close was
+    submitted could leave the socket open on io_uring.
+    - `end` called `cancel_all` and then Rotor's `drain`, which discards the final events. On
+      io_uring a submitted close is in flight, so `cancel_all` can cancel it before it runs. Its
+      final event is then `canceled` (Rotor's decision 5, rule 2), and `close_left` skipped the
+      socket because its close was submitted. kqueue and epoll close at submit, so macOS does not
+      show it.
+    - `socket.end_loop` now serves the server's `end` and the client's. It ticks
+      `rotor.constants.drain_rounds_max` times at most, as Rotor's `drain` does, and reads each
+      event. A close that ended `canceled` or `timeout` did not run, so `close_left` closes its
+      socket with `rotor.sync.close_now`. A close that failed otherwise ran, and the system
+      released the descriptor, so a second close could close another descriptor.
+    - Each mutation below was **CAUGHT** by `zig build test-colibri` on macOS arm64, and by the
+      same command on Linux arm64 under io_uring, in an Ubuntu 26.04 container with no seccomp
+      filter: a canceled close treated as done; `close_now` dropped; a failed close treated as
+      not run; a receive's event read as a close. The final events discarded, as before the fix,
+      was **CAUGHT** on Linux alone, where a test cancels a close that io_uring holds.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default
