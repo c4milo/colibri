@@ -96,9 +96,15 @@ const full_payload: [constants.limits.frame_size_max]u8 = @splat('x');
 
 /// Opens stream 1 at a client with `hold_credit`, and reads the response's head. Test-only.
 fn open_held_stream() !void {
+    try open_held_stream_ending(true);
+}
+
+/// As `open_held_stream`, with the request's own side ended when `end_stream`, and left open for
+/// its content otherwise. Test-only.
+fn open_held_stream_ending(end_stream: bool) !void {
     try support.start_client();
-    const request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "a", .hold_credit = true };
-    const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, true);
+    const request: connection.Request_ = .{ .method = "POST", .scheme = "https", .path = "/", .authority = "a", .hold_credit = true };
+    const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, end_stream);
     try testing.expectEqual(1, sent.stream_id);
     _ = try support.feed_response(1, "200", false);
 }
@@ -148,16 +154,27 @@ test "§5.1: a release on a stream the peer ended, or one the table forgot, queu
     try testing.expect(!test_connection.has_pending());
 }
 
-test "a release while the reply queue is full keeps its credit until the queue empties" {
+/// The stream that gives its credit back at each frame, beside the held stream 1. Test-only.
+const plain_stream_id: u32 = 3;
+/// Full frames for each WINDOW_UPDATE a stream owes: two pass `window_update_threshold`.
+/// Test-only.
+const frames_per_update: usize = 2;
+
+/// Holds two full frames of credit on stream 1, and fills the reply queue with stream 3's
+/// WINDOW_UPDATE frames. Test-only.
+fn fill_reply_queue() !void {
     try open_held_stream();
     _ = try feed_data(1, &full_payload, false);
     _ = try feed_data(1, &full_payload, false);
-    // Stream 3 gives its credit back at each frame, and every second frame owes it a WINDOW_UPDATE.
     const plain: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "a" };
     _ = try test_connection.write_request(&support.test_output, plain, &.{}, &.{}, true);
-    _ = try support.feed_response(3, "200", false);
-    for (0..2 * constants.limits.stream_replies_max) |_| _ = try feed_data(3, &full_payload, false);
+    _ = try support.feed_response(plain_stream_id, "200", false);
+    for (0..frames_per_update * constants.limits.stream_replies_max) |_| _ = try feed_data(plain_stream_id, &full_payload, false);
     try testing.expectEqual(constants.limits.stream_replies_max, test_connection.replies.stream_reply_count);
+}
+
+test "a release while the reply queue is full keeps its credit until the queue empties" {
+    try fill_reply_queue();
     test_connection.release_stream(1, 2 * full_payload.len);
     try testing.expect(test_connection.owes_window_update());
     const queued = write_queued();
@@ -165,4 +182,54 @@ test "a release while the reply queue is full keeps its credit until the queue e
     try testing.expectEqual(constants.limits.stream_replies_max, try updates_on(queued, 3));
     try testing.expect(!test_connection.owes_window_update());
     try testing.expect(!test_connection.has_pending());
+}
+
+test "§6.9.1: a held stream that is open both ways gets its credit back at a release" {
+    try open_held_stream_ending(false);
+    try testing.expectEqual(.open, test_connection.streams.lookup(1).live.state);
+    try fill_stream_window();
+    _ = write_queued();
+    test_connection.release_stream(1, constants.protocol.initial_window_size_initial);
+    try testing.expectEqual(1, try updates_on(write_queued(), 1));
+}
+
+/// The data and the padding of the padded DATA frame the peer sends. Test-only.
+const padded_data_len: usize = 100;
+const padding_len: u8 = 50;
+
+test "§6.1: a held stream gets a DATA frame's padding back at once, and holds its data" {
+    try open_held_stream();
+    // RFC 9113 §6.1: the Pad Length octet, the data, then the padding.
+    var payload: [1 + padded_data_len + padding_len]u8 = @splat(0);
+    payload[0] = padding_len;
+    const bytes = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_data, constants.protocol.flag_padded, 1, &payload);
+    const data = (try support.feed(bytes)).?.data;
+    try testing.expectEqual(padded_data_len, data.payload.len);
+    const record = test_connection.streams.lookup(1).live;
+    try testing.expectEqual(padded_data_len, record.receive.unreleased);
+    test_connection.release_stream(1, padded_data_len);
+    try testing.expectEqual(0, record.receive.unreleased);
+}
+
+test "§6.8: a connection that failed queues none of the credit a full queue kept back" {
+    try fill_reply_queue();
+    test_connection.release_stream(1, 2 * full_payload.len);
+    try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.protocol.error_internal_error));
+    try testing.expectEqual(0, try updates_on(write_queued(), 1));
+    try testing.expect(!test_connection.owes_window_update());
+}
+
+test "§6.9: credit a full queue kept back is still owed once a reset empties the queue" {
+    try fill_reply_queue();
+    // Only the connection's WINDOW_UPDATE fits, so the queue stays full of stream 3's.
+    const update_len = constants.protocol.frame_header_len + constants.protocol.window_update_len;
+    _ = test_connection.write_replies(support.test_output[0..update_len]);
+    try testing.expectEqual(0, test_connection.replies.connection_increment);
+    test_connection.release_stream(1, 2 * full_payload.len);
+    // RFC 9113 §5.1: the caller's reset closes stream 3, and its WINDOW_UPDATE frames go.
+    try test_connection.reset_stream(3, constants.protocol.error_cancel);
+    try testing.expectEqual(0, test_connection.replies.stream_reply_count);
+    try testing.expect(test_connection.owes_window_update());
+    try testing.expectEqual(1, try updates_on(write_queued(), 1));
+    try testing.expect(!test_connection.owes_window_update());
 }
