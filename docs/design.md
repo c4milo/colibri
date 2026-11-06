@@ -13059,6 +13059,8 @@ library.
       shorten a file within `read`. Ruling 11 removed the check with 37e.
     - Ruling 11, on 2026-11-05: the key's parse error ignored; the key read from the chain's text;
       the cookie key drawn before the parse.
+    - After the review of ruling 11: the chain's parse error ignored. The key's check hid it, so a
+      test now loads a valid chain first and then refuses a chain that is not PEM.
     - **Not checked:** no test sends a datagram through `colibri.Server`, so its UDP receive and
       send paths have no check. The fetch over h3 with `colibri.Client` in step 42 checks them.
   - **The checks.** Each part's unit tests bind loopback. A shutdown ends `run` after the open

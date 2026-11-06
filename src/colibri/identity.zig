@@ -53,5 +53,14 @@ test "decision 150: a chain or a key that is not PEM is refused" {
     try testing.expectEqual(0, counter.next);
 }
 
+test "decision 150: the chain's own check refuses a chain that is not PEM" {
+    var counter: support.Counter = .{};
+    _ = try load(.{ .chain = testdata.chain_pem, .key = testdata.key_pem }, &test_storage, support.cpu(), counter.random());
+    defer test_storage.key.wipe();
+    // The storage still holds the chain the key matches. So only the chain's check can refuse the
+    // text, and the key's check cannot.
+    try testing.expectError(error.IdentityInvalid, load(.{ .chain = "not PEM", .key = testdata.key_pem }, &test_storage, support.cpu(), counter.random()));
+}
+
 /// The storage the tests place, outside any stack frame. Test-only.
 threadlocal var test_storage: Storage align(@alignOf(Storage)) = undefined;
