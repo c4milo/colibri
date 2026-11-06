@@ -4169,12 +4169,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      must find its soonest deadline among all its connections without reading each one on
      every call.
 
-     Amended by the owner on 2026-11-05: `client.Protocols` gains `prefer`, `.quic` by default
-     or `.tcp`, which says which transport a pool opens first. h3 gains most on paths that lose
+     Amended by the owner on 2026-11-05: `client.Protocols` gains `prefer`, `.tcp` by default
+     or `.quic`, which says which transport a pool opens first. The owner set `.tcp` as the
+     default the same day, so a pool that is not told otherwise opens TCP first, which changes
+     what a pool did before. h3 gains most on paths that lose
      packets, such as mobile networks, and on a datacenter path with no loss QUIC costs more CPU
      than TCP and gains nothing.
-     - `.quic`: as before, QUIC first, and TCP once QUIC fails or the fallback delay passes.
-     - `.tcp`: TCP first, and QUIC only once TCP fails.
+     - `.tcp`, the default: TCP first, and QUIC only once TCP fails.
+     - `.quic`: QUIC first, and TCP once QUIC fails or the fallback delay passes, as every pool
+       did before this ruling.
      - h2 stays before h11 in the ALPN list (decision 120). Design §8 step 43 builds it in
        v0.15.0.
      The alternatives that lost: an ordered list of protocols, which needs rules for repeats and

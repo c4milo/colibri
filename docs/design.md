@@ -13149,10 +13149,11 @@ library.
     loopback. Its unit tests bind loopback, and each part's mutations are caught.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
-  - **The public names:** the field `client.Protocols.prefer` and its type, `.quic` or `.tcp`.
-    `colibri.ClientConfig` passes it through.
-  - **The rules.** With `.tcp`, the pool opens TCP first and opens QUIC only once TCP fails.
-    With `.quic`, nothing changes.
+  - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default
+    or `.quic`. `colibri.ClientConfig` passes it through.
+  - **The rules.** With `.tcp`, the default, the pool opens TCP first and opens QUIC only once
+    TCP fails. With `.quic`, the pool does what it did before: QUIC first, and TCP after the
+    fallback delay. The tests and examples that expect QUIC first ask for `.quic`.
   - **The checks.** The simulator's pool run with `.tcp` connects over TCP when both work, and
     over QUIC when TCP fails. A mutation that opens QUIC first under `.tcp` is caught.
 ## 9. Test-only entry points
