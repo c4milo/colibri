@@ -170,6 +170,17 @@ test "RFC 9112 §9.2: chunked content past the caller's memory is dropped, and t
     try testing.expectEqual(null, support.find(.closed));
 }
 
+test "decision 153 ruling 13: content that ends too_large keeps the octets that fit in the caller's memory" {
+    try start();
+    var small = get(bodies[0][0..4]);
+    _ = try connection.request(&small.request, &small.response);
+    support.client_send();
+    // The first chunk fits, and the second passes the memory.
+    try peer_writes("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhe\r\n3\r\nllo\r\n0\r\n\r\n");
+    try testing.expectEqual(.too_large, small.response.result);
+    try testing.expectEqualStrings("he", small.response.body[0..small.response.body_len]);
+}
+
 test "issue 106: a Content-Length past the caller's memory ends the exchange and the connection at the head" {
     try start();
     var small = get(bodies[0][0..2]);

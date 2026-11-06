@@ -304,11 +304,12 @@ pub fn drop(slot: *Slot, report: bool) void {
     assert(slot.dropped_len == 0 and slot.drop_until_ns == null);
     give_back(slot);
     // Decision 153 ruling 7: the caller gets back a piece it held with the exchange, and the
-    // rest of the response is read and dropped.
+    // rest of the response is read and dropped. A response that is not streamed keeps the octets
+    // that fit in `body` (decision 153 ruling 13).
+    if (slot.body_held) slot.response.body_len = 0;
     slot.headers_owed = false;
     slot.body_held = false;
     slot.body_owed = false;
-    slot.response.body_len = 0;
     slot.stage = .dropping;
     slot.report_after_drop = report;
 }
