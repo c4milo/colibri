@@ -216,6 +216,16 @@ pub const Socket = struct {
     }
 };
 
+/// Closes each socket whose close was never submitted, once a run ended and the loop holds no
+/// operation: a run that failed leaves them open. A socket whose close was submitted has closed.
+/// A server's run and a client's each end with it.
+pub fn close_left(sockets: []Socket) void {
+    for (sockets) |*socket| {
+        if (socket.live and !socket.close_submitted) rotor.sync.close_now(socket.descriptor);
+        socket.live = false;
+    }
+}
+
 const testing = std.testing;
 
 /// The socket the tests drive, outside any stack frame: its buffers are larger than one should

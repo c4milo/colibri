@@ -160,15 +160,6 @@ fn on_connected(state: anytype, slot: usize, event: rotor.Event, now_ns: u64) vo
     connection.started = true;
 }
 
-/// Closes each socket whose close was never submitted, once a run ended and the loop holds no
-/// operation: a run that failed leaves them open. A socket whose close was submitted has closed.
-pub fn close_left(state: anytype) void {
-    for (&state.sockets) |*socket| {
-        if (socket.live and !socket.close_submitted) rotor.sync.close_now(socket.descriptor);
-        socket.live = false;
-    }
-}
-
 /// Tells the pool once that the transport of a running connection closed.
 fn transport_closed(state: anytype, slot: usize) void {
     const connection = &state.connections[slot];

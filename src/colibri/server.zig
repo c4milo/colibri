@@ -104,6 +104,8 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             self.config = config;
             self.listener_open = false;
             self.udp.open = false;
+            // A run that fails before `reset` closes the sockets that are live (`socket.close_left`).
+            for (&self.sockets) |*socket| socket.live = false;
             if (self.config.random == null) self.config.random = entropy.random();
             self.endpoint_config = config.endpoint;
             // Decision 68: the server's own loop reads each datagram's codepoint and sets the one
@@ -153,11 +155,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             assert(self.listener_open);
             defer close_sockets(self);
             try self.loop.init(&self.loop_memory, loop_options);
-            defer self.loop.deinit();
-            defer {
-                self.loop.cancel_all();
-                self.loop.drain(&self.events) catch {};
-            }
+            defer server_loop.end(self);
             server_loop.reset(self);
             // The server issues no ticket unless the program gave a ticket key, so the instant in
             // seconds it judges tickets at is chapulin's 0 for none.

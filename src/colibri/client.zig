@@ -109,7 +109,8 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
             self.config = config;
             self.udp.open = false;
             self.ran = false;
-            // A run that fails before its first turn closes the sockets that are live (`close_left`).
+            // A run that fails before its first turn closes the sockets that are live
+            // (`socket.close_left`).
             for (&self.sockets) |*socket| socket.live = false;
             if (self.config.random == null) self.config.random = entropy.random();
             const address = try server_loop.address_of(config.host, 0);

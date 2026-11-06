@@ -49,7 +49,7 @@ pub fn begin(state: anytype) !void {
 pub fn end(state: anytype) void {
     state.loop.cancel_all();
     state.loop.drain(&state.events) catch {};
-    client_tcp.close_left(state);
+    @import("socket.zig").close_left(&state.sockets);
     state.loop.deinit();
 }
 
