@@ -53,9 +53,6 @@ pub fn end(state: anytype) void {
     state.loop.deinit();
 }
 
-/// The nanoseconds in a second, which turn the loop's clock into seconds.
-const ns_per_s: u64 = 1_000_000_000;
-
 /// Empties what a run holds: no socket and no pending step. The caller has ticked the loop once,
 /// so its instant is the run's first.
 pub fn reset(state: anytype) void {
@@ -73,7 +70,7 @@ pub fn reset(state: anytype) void {
 /// The seconds since 1970 at `now_ns`: the program's instant at the start of `run`, and the time
 /// the loop has run since. chapulin judges a chain's dates at it (RFC 5280 §4.1.2.5).
 pub fn unix_seconds(state: anytype, now_ns: u64) u64 {
-    return state.config.unix_seconds + (now_ns -| state.started_ns) / ns_per_s;
+    return state.config.unix_seconds + (now_ns -| state.started_ns) / client.constants.nanoseconds_per_second;
 }
 
 /// One turn of the loop. See the header.
@@ -187,10 +184,11 @@ const Waits = struct {
 };
 
 test "design §8 step 42: a chain is judged at the program's instant plus the loop's time since" {
-    const clock: Clock = .{ .config = .{ .unix_seconds = 1_000 }, .started_ns = 5 * ns_per_s };
-    try testing.expectEqual(1_000, unix_seconds(&clock, 5 * ns_per_s));
+    const second_ns = client.constants.nanoseconds_per_second;
+    const clock: Clock = .{ .config = .{ .unix_seconds = 1_000 }, .started_ns = 5 * second_ns };
+    try testing.expectEqual(1_000, unix_seconds(&clock, 5 * second_ns));
     // Two and a half seconds of the loop count as two whole seconds.
-    try testing.expectEqual(1_002, unix_seconds(&clock, 7 * ns_per_s + ns_per_s / 2));
+    try testing.expectEqual(1_002, unix_seconds(&clock, 7 * second_ns + second_ns / 2));
 }
 
 test "design §8 step 42: a tick waits for the pool's deadline, and for nothing while work is left" {
