@@ -274,3 +274,43 @@ test "decision 152: a streamed request whose only piece is an empty last one end
     try testing.expectEqual(1, support.count(.body_taken));
     try expect_h2_trailers(&read, 0);
 }
+
+/// The value of each line of the largest trailer section: two lines of a one-octet name, each of
+/// size half of `field_section_size_max` as RFC 9113 §6.5.2 counts it. Test-only.
+const largest_value: [largest_value_len]u8 = @splat('v');
+const largest_value_len: usize = h2.core.constants.limits.field_section_size_max / largest_lines - 1 - h2.core.constants.protocol.field_line_overhead;
+const largest_lines: usize = 2;
+const largest = [_]Header{ .{ .name = "a", .value = &largest_value }, .{ .name = "b", .value = &largest_value } };
+
+/// A POST with the trailer section `section`.
+fn post_with(section: []const Header) Exchange {
+    return .{
+        .request = .{ .method = "POST", .path = "/upload", .body = content, .trailers = section },
+        .response = .{ .body = &body },
+    };
+}
+
+test "RFC 9113 §6.5.2: the largest trailer section goes out whole over h11 and h2, and one octet more is refused" {
+    try support.start_cleartext(.h11);
+    var exchange = post_with(&largest);
+    _ = try connection.request(&exchange.request, &exchange.response);
+    support.client_send();
+    try testing.expectEqual(1, try h11_server_read(support.to_peer[0..support.to_peer_len]));
+    try testing.expectEqual(largest.len, support.peer_h11.trailers.len());
+    try testing.expectEqual(.pending, exchange.response.result);
+    try support.start_cleartext(.h2);
+    try support.pump_h2();
+    exchange = post_with(&largest);
+    _ = try connection.request(&exchange.request, &exchange.response);
+    var read: H2Read = .{};
+    support.client_send();
+    try h2_server_read(&read);
+    try testing.expectEqual(content.len, read.data_len);
+    try testing.expectEqual(1, read.trailer_sections);
+    try testing.expectEqual(largest.len, support.peer_h2.field_section().len());
+    // One octet past the size refuses the request before it takes a slot, over any protocol.
+    const longer_value: [largest_value_len + 1]u8 = @splat('v');
+    const longer = [_]Header{ largest[0], .{ .name = "b", .value = &longer_value } };
+    exchange = post_with(&longer);
+    try testing.expectError(error.InvalidTrailer, connection.request(&exchange.request, &exchange.response));
+}

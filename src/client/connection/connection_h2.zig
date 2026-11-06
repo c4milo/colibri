@@ -266,6 +266,15 @@ pub fn write_requests(connection: *Connection) void {
     }
 }
 
+comptime {
+    // Decision 152: `check_request` refuses a trailer section past `field_section_size_max`. Each
+    // line's 32 octets of that size hold its HPACK representation's own (RFC 7541 §6.2), so the
+    // block fits h2's block buffer, and its frames fit an empty output.
+    const section_max = h2.core.constants.limits.field_section_size_max;
+    assert(h2.constants.limits.send_block_len_max >= section_max + section_max);
+    assert(constants.limits.output_len >= section_max + constants.limits.frame_len_max);
+}
+
 /// Writes the trailer section of `slot`'s request after its last DATA frame, in a HEADERS frame
 /// that ends the stream (RFC 9113 §8.1, decision 152).
 fn write_trailers(connection: *Connection, slot: *Slot) void {
@@ -275,11 +284,11 @@ fn write_trailers(connection: *Connection, slot: *Slot) void {
     assert(trailers.len <= lines.len);
     for (trailers, lines[0..trailers.len]) |field, *line| line.* = .{ .name = field.name, .value = field.value };
     const written = connection.session.h2.write_trailers(internal.room(connection), @intCast(slot.stream_id), lines[0..trailers.len]) catch |failure| {
+        // `check_request` refused every line h2 refuses, and a section past
+        // `field_section_size_max`, which an empty output holds whole (see the comptime block).
+        // A stream the server reset or ended ended its exchange, so it is not `.sent`.
+        assert(failure == error.OutputTooSmall and connection.output_len > 0);
         // The section goes out once `send` has taken what the output holds.
-        if (failure == error.OutputTooSmall and connection.output_len > 0) return;
-        // RFC 9113 §5.1: the stream takes no more, or a section that never fits: CANCEL ends it,
-        // and the exchange with it (RFC 9113 §6.4).
-        _ = refuse(connection, slot, .invalid);
         return;
     };
     connection.output_len += written;

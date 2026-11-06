@@ -13175,7 +13175,13 @@ library.
     - `request` refuses with `InvalidTrailer` the five names of decision 152 ruling 9 and the other
       connection-specific fields. It also refuses a name with an uppercase letter, which h2 and h3
       refuse (RFC 9113 §8.2.1, RFC 9114 §4.2), and a name or value RFC 9110 §5.1 or §5.5 refuses.
-      The pool chooses the protocol, so a section that one protocol refuses is refused on all.
+      The pool chooses the protocol, so a field that one protocol refuses is refused on all.
+    - A review found that `request` did not limit the size of a trailer section. A section too
+      large for h11's output ended the whole connection, and over h2 it ended the exchange after
+      the body went out. `request` now refuses a section larger than `field_section_size_max`, so
+      h11 and h2 always write it, and an assertion states it. Over h3 the two sections share the
+      stream's `prefix`, so a request whose sections do not fit it together ends `invalid` at
+      `open`. A test drives that path, and its removal is **CAUGHT**.
     - `examples/client_stream.zig` sends `x-message-count` as a request trailer, and its server
       reads it and then ends the response.
     - In the client trace run, each request with content carries `grpc-status: 0`. No draw decides
