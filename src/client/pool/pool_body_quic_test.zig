@@ -298,3 +298,50 @@ test "RFC 9114 §4.1: over h3 a request body goes on after the response's head, 
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqual(whole.len, exchange.response.body_sent);
 }
+
+/// The most `receive` calls in a row that report an event and take no octet, for the fixture's
+/// pool. Test-only.
+const events_bound = pool_module.ConnectionPool.receive_events_without_input_max(.{});
+/// Where each piece of the test of the event bound lands, and the content it reads: more pieces
+/// than the bound, all in QUIC before the first release. Test-only.
+var small_piece: [small_piece_len]u8 = undefined;
+const small_piece_len: usize = 16;
+var bound_content: [(events_bound + 1) * small_piece_len]u8 = undefined;
+
+/// Releases the piece of exchange `id`, then reads with no input until the next piece or the end.
+/// Returns that event, and requires the run of calls to stay within `events_bound`.
+fn next_after_release(id: pool_module.RequestId) !pool_module.Event {
+    pool.release_body(id);
+    for (0..events_bound) |_| {
+        const received = pool.receive(.none, quic_support.now_ns);
+        try testing.expectEqual(0, received.consumed);
+        const reported = received.event orelse return error.TestUnexpectedResult;
+        if (reported == .body or reported == .finished) return reported;
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "decision 153 ruling 7: each release starts a new run of the receive calls that take no input" {
+    for (&bound_content, 0..) |*octet, index| octet.* = @truncate(index);
+    var given = fixture.configured(true);
+    given.protocols = .{ .h11 = false, .h2 = false };
+    try fixture.start_configured(&quic_support.alpn_h3, fixture.values_at(fixture.https_port), given, fixture.receive_storage());
+    quic_support.answer_content = &bound_content;
+    var get: connection_support.Exchange = .{ .request = .{ .method = "GET", .path = "/stream", .streamed = .{ .response = true } }, .response = .{ .body = &small_piece } };
+    const id = try pool.request(&get.request, &get.response);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(1, count(.body));
+    var crc: std.hash.Crc32 = .init();
+    crc.update(&small_piece);
+    var pieces_read: usize = 1;
+    // Every piece after the first comes from QUIC with no datagram, one run after each release.
+    for (0..bound_content.len) |_| {
+        const reported = try next_after_release(id);
+        if (reported == .finished) break;
+        crc.update(small_piece[0..reported.body.len]);
+        pieces_read += 1;
+    }
+    try testing.expect(pieces_read > events_bound);
+    try testing.expectEqual(std.hash.Crc32.hash(&bound_content), crc.final());
+    try testing.expectEqual(.response, get.response.result);
+}

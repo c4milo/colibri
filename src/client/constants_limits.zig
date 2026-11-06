@@ -140,7 +140,9 @@ pub const transport_events_max: usize = 5;
 
 /// The events of one exchange in a run of `receive` calls that take no octet, at most: a streamed
 /// exchange's `headers`, `body` and `body_taken`, and its `finished` (decision 153 ruling 7).
-/// `ConnectionPool.receive_events_without_input_max` counts it for each exchange.
+/// `ConnectionPool.receive_events_without_input_max` counts it for each exchange. A call of the
+/// program ends the run: after a `release_body`, over TLS and h3, the next piece may come with no
+/// octet, and a new run starts.
 pub const exchange_events_max: usize = 4;
 
 comptime {

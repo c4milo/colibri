@@ -1251,7 +1251,8 @@ amended by [decision 125](decisions.md)):
   an h11 head, an h2 frame and a TLS record whole, and this is the largest of them.
 - `stream_output_len_min`: the least `output` for `send_stream`, the largest TLS record.
 - `ConnectionPool.receive_events_without_input_max(counts)`: the most `receive` calls in a row that
-  report an event and take no byte, for a pool of those counts.
+  report an event and take no byte, for a pool of those counts. Another call of the pool between
+  them, such as `release_body`, starts a new run.
 
 The example bounds each read of the socket with them:
 
@@ -1595,7 +1596,10 @@ The other rules of a streamed exchange:
 - The client offers no content coding for a streamed response, so its pieces come as the server
   sent them.
 - One streamed exchange can report four events with no input: `headers`, `body`, `body_taken` and
-  `finished`. `receive_events_without_input_max` counts them.
+  `finished`. `receive_events_without_input_max` counts them. Over TLS and h3 the next piece can
+  wait in the connection, so each `release_body` can give one more `body` with no input. The
+  release starts a new run, so a program that releases inside its loop counts the run again from
+  there.
 
 ## The protocol modules
 
