@@ -14,15 +14,19 @@
 (* 9114 §4.1.1).                                                           *)
 (*                                                                         *)
 (* The choice: when an exchange waits and no connection is open, the       *)
-(* client opens QUIC first when its policy allows h3. It opens TCP when    *)
-(* QUIC is not allowed, when this attempt's QUIC failed, when the fallback *)
-(* delay passed during QUIC's handshake, or when a QUIC connection is      *)
-(* still ending, and only when it speaks a version TCP carries (RFC 9114   *)
-(* §3.1). The first connection whose handshake completes takes the         *)
-(* waiting exchanges, and the other closes. An attempt ends when a         *)
-(* connection takes the waiting exchanges, or when every transport it may  *)
-(* open failed, which ends each waiting exchange refused. It also ends     *)
-(* when no exchange waits and no connection runs.                          *)
+(* client opens the transport Prefer names first (decision 117 as          *)
+(* amended). Under "quic" it opens QUIC first when its policy allows h3.   *)
+(* It opens TCP when QUIC is not allowed, when this attempt's QUIC failed, *)
+(* when the fallback delay passed during QUIC's handshake, or when a QUIC  *)
+(* connection is still ending, and only when it speaks a version TCP       *)
+(* carries (RFC 9114 §3.1). Under "tcp" it opens TCP first, and not while  *)
+(* QUIC's handshake runs. It opens QUIC, when its policy allows h3, only   *)
+(* when this attempt's TCP failed, when no TCP slot is free, or when it    *)
+(* speaks no version TCP carries. The first connection whose handshake     *)
+(* completes takes the waiting exchanges, and the other closes. An attempt *)
+(* ends when a connection takes the waiting exchanges, or when every       *)
+(* transport it may open failed, which ends each waiting exchange refused. *)
+(* It also ends when no exchange waits and no connection runs.             *)
 (*                                                                         *)
 (* A QUIC connection holding no exchange can sit idle until near its idle  *)
 (* timeout, after which the client gives it no new exchange and it drains  *)
@@ -141,7 +145,8 @@ CONSTANTS
     N,              \* exchanges the caller makes, 1..N
     Opens,          \* connections each transport opens at most
     MovesMax,       \* times an exchange moves to another connection at most
-    QuicPolicy,     \* "first": QUIC before TCP; "learn": QUIC once Alt-Svc named h3; "never"
+    QuicPolicy,     \* "first": QUIC allowed; "learn": QUIC once Alt-Svc named h3; "never"
+    Prefer,         \* the transport the client opens first: "quic" or "tcp" (decision 117)
     TcpAllowed,     \* whether the client speaks a version TCP carries (decision 117)
     HandshakeFails, \* the transports whose handshake may fail
     Breaks,         \* the transports whose open connection may fail
@@ -165,7 +170,7 @@ Transports == {"quic"} \cup TcpSlots
 
 ASSUME N \in Nat \ {0} /\ Opens \in Nat \ {0} /\ MovesMax \in Nat /\ GoawaysMax \in Nat
 ASSUME TcpSlots # {} /\ "quic" \notin TcpSlots /\ TcpCapacity \in Nat \ {0}
-ASSUME QuicPolicy \in {"first", "learn", "never"}
+ASSUME QuicPolicy \in {"first", "learn", "never"} /\ Prefer \in {"quic", "tcp"}
 ASSUME TcpAllowed \in BOOLEAN /\ TcpDrops \in BOOLEAN
 ASSUME \A set \in {HandshakeFails, Breaks, Goaways, Refusals, Resets} : set \subseteq Transports
 ASSUME \A rule \in {ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases,
@@ -510,25 +515,34 @@ Goaway(t, unprocessed) ==
 \* The TCP slots whose handshake runs.
 TcpOpening == {t \in TcpSlots : phase[t] = "handshake"}
 
+(* QUIC opens once an attempt, not beside a TCP connection that runs.      *)
+(* Under "tcp" it waits until TCP leaves the exchanges to it: this         *)
+(* attempt's TCP failed, no TCP slot is free, or TCP is not allowed.       *)
 CanOpenQuic ==
     /\ Wanted /\ QuicAllowed /\ "quic" \notin tried /\ Free("quic")
     /\ OpenOnes = {} /\ TcpOpening = {}
+    /\ \/ Prefer = "quic"
+       \/ ~TcpAllowed
+       \/ tried \cap TcpSlots # {}
+       \/ \A t \in TcpSlots : ~Free(t)
 
-(* TCP slot t opens when an exchange waits, as the attempt allows: after   *)
-(* QUIC as above, or once TCP carries the exchanges. Until TCP carries     *)
-(* them, one TCP handshake runs at a time, so the client learns whether    *)
-(* ALPN picks h2 first (RFC 9113 §9.1). A slot opens only while more       *)
-(* exchanges wait than the TCP handshakes running will take.               *)
+(* TCP slot t opens when an exchange waits, as the attempt allows: first   *)
+(* under "tcp" while QUIC runs no handshake, after QUIC as above under     *)
+(* "quic", or once TCP carries the exchanges. Until TCP carries them, one  *)
+(* TCP handshake runs at a time, so the client learns whether ALPN picks   *)
+(* h2 first (RFC 9113 §9.1). A slot opens only while more exchanges wait   *)
+(* than the TCP handshakes running will take.                              *)
 CanOpenTcp(t) ==
     /\ Wanted /\ (TryOncePerWait => t \notin tried) /\ Free(t)
     /\ (TcpWhenAllowed => TcpAllowed)
     /\ TcpOpening = {} \/ TcpCarries
     /\ Cardinality(TcpOpening) * TcpCapacity < Cardinality(Waiting)
-    /\ \/ ~QuicAllowed
-       \/ "quic" \in tried /\ phase["quic"] # "handshake"
-       \/ phase["quic"] = "handshake" /\ fallback
-       \/ ~Free("quic") /\ phase["quic"] # "handshake"
-       \/ TcpCarries
+    /\ \/ TcpCarries
+       \/ Prefer = "tcp" /\ phase["quic"] # "handshake"
+       \/ Prefer = "quic" /\ ~QuicAllowed
+       \/ Prefer = "quic" /\ "quic" \in tried /\ phase["quic"] # "handshake"
+       \/ Prefer = "quic" /\ phase["quic"] = "handshake" /\ fallback
+       \/ Prefer = "quic" /\ ~Free("quic") /\ phase["quic"] # "handshake"
 
 (* The client asks its caller to open connection t, and runs its           *)
 (* handshake.                                                              *)

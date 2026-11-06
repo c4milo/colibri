@@ -1,6 +1,6 @@
 //! One seed's plan for the client trace run (decision 105, design §8 step 17d): the exchanges the
-//! caller makes and cancels, how the pool chooses QUIC, what happens to QUIC on the network and
-//! at its server, how each server answers, and when the caller shuts the pool down. The plan is
+//! caller makes and cancels, how the pool chooses QUIC, the transport it opens first, what happens
+//! to QUIC on the network and at its server, whether the TCP server takes the connect, how each server answers, and when the caller shuts the pool down. The plan is
 //! drawn from the seed alone before the run, so a seed replays (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -34,6 +34,14 @@ pub const Quic = enum {
     slow,
     /// The network drops some datagrams each way.
     lossy,
+};
+
+/// What happens to a TCP connect (design §8 step 43).
+pub const Tcp = enum {
+    /// The server takes it.
+    works,
+    /// The server refuses it, as a host with no TCP listener on the port does.
+    refused,
 };
 
 /// How a connection breaks.
@@ -73,6 +81,10 @@ pub const Plan = struct {
     request_pieces: [limits.requests_max]u32,
     release_delay_ns: [limits.requests_max]u64,
     policy: Policy,
+    /// The transport the pool opens first: the model's `Prefer` (decision 117 as amended).
+    prefer: Transport,
+    /// Whether the TCP server takes each connect.
+    tcp: Tcp,
     /// Whether the values carry an HTTPS record: one naming h3 under `first`, and one naming no h3
     /// under `learn`.
     https: bool,
@@ -147,6 +159,18 @@ pub const Plan = struct {
             plan.release_delay_ns[index] = random.below(limits.release_delay_max_ns);
         }
         assert(plan.request_pieces[0] <= limits.request_pieces_max);
+    }
+
+    /// Draws the transport the pool opens first, and whether the TCP server refuses each connect
+    /// (design §8 step 43), from a generator of their own, so a seed's other draws stay as they
+    /// were before step 43. TCP refuses only where QUIC is allowed from the start and carries the
+    /// exchanges, so a clean seed still ends each exchange in a response.
+    pub fn draw_preference(plan: *Plan, random: *Random) void {
+        plan.prefer = @enumFromInt(random.below(std.meta.fields(Transport).len));
+        const quic_carries = plan.policy == .first and (plan.quic == .works or plan.quic == .lossy or plan.quic == .slow);
+        const refuses = quic_carries and random.below(limits.tcp_refused_one_in) == 0;
+        plan.tcp = if (refuses) .refused else .works;
+        assert(plan.tcp == .works or plan.policy == .first);
     }
 
     /// Whether exchange `index`'s bodies go in pieces (decision 153).
@@ -229,4 +253,20 @@ test "a plan is drawn from its seed alone, and its caller shuts the pool down af
         // A clean seed breaks no connection, so each of its exchanges can complete.
         if (first.clean) try testing.expectEqual(null, first.break_at_ns);
     }
+}
+
+test "design §8 step 43: each preference is drawn, and TCP refuses only where QUIC can carry the exchanges" {
+    var plan: Plan = undefined;
+    var drawn: [2]u32 = .{ 0, 0 };
+    var refused: u32 = 0;
+    for (0..sim.constants.check_seeds_default) |seed| {
+        var random = Random.init(seed);
+        plan.draw(&random);
+        plan.draw_preference(&random);
+        drawn[@intFromEnum(plan.prefer)] += 1;
+        if (plan.tcp == .works) continue;
+        refused += 1;
+        try testing.expect(plan.policy == .first and plan.quic != .blocked and plan.quic != .refused);
+    }
+    try testing.expect(drawn[0] > 0 and drawn[1] > 0 and refused > 0);
 }

@@ -57,6 +57,8 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State) Erro
     for (last.opens[0..plan.slots]) |slot_opens| opens = @max(opens, slot_opens);
     try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.requests, opens, client.constants.limits.moves_max });
     try writer.write_bytes("    QuicPolicy = \"never\"\n    TcpAllowed = TRUE\n");
+    // Design §8 step 43: the run's pools offer TCP alone and keep the default, TCP first.
+    try writer.write_bytes("    Prefer = \"tcp\"\n");
     try write_slot_set(writer, "HandshakeFails", plan);
     try write_slot_set(writer, "Breaks", plan);
     try write_slot_set(writer, "Goaways", plan);

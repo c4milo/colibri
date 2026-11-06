@@ -208,7 +208,9 @@ pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u
         return failure;
     };
     link.state = .running;
-    pool.fallback_at_ns = now_ns + pool.config.fallback_delay_ns;
+    // Decision 117 as amended: under `.tcp`, QUIC opens once TCP failed, so no TCP opens beside it
+    // after a delay.
+    if (pool.config.protocols.prefer == .quic) pool.fallback_at_ns = now_ns + pool.config.fallback_delay_ns;
 }
 
 pub fn start_tcp(pool: anytype, connection: ConnectionHandle, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {

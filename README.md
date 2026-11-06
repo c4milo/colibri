@@ -128,7 +128,9 @@ http_client.shutdown();
 try http_client.run(&fetched);
 ```
 
-The pool tries h3 over QUIC first, and h2 or h11 over TCP when QUIC gets no answer.
+The pool opens TCP first by default, and h3 over QUIC only once TCP fails. With
+`.prefer = .quic` in its `protocols`, it tries h3 over QUIC first, and h2 or h11 over TCP when
+QUIC gets no answer ([decision 117](docs/decisions.md) as amended).
 
 ### A server with the router
 
@@ -295,7 +297,7 @@ shape: octets in, at most one event out, and the frames colibri owes written int
 
 [`examples/`](examples/) holds whole programs, each a client and a server run over
 [Rotor](https://github.com/c4milo/rotor)'s loop: a server that serves TCP and QUIC through one
-endpoint, a client whose pool tries QUIC and then TCP, a `colibri.Server` on a loopback port, and
+endpoint, a client whose pool tries QUIC first and then TCP, a `colibri.Server` on a loopback port, and
 h11 and h2 by themselves. `zig build examples` runs them, and CI does too.
 
 ## How it is checked

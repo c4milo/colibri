@@ -31,11 +31,14 @@ pub const Run = struct {
     protocol: Protocol,
     /// Whether `--pool` adds QUIC: the plan goes to one `client.ConnectionPool` (`pool_loop.zig`),
     /// which tries h3 over QUIC first and falls back to TCP, where every other run's pools hold
-    /// TCP alone. It needs `--tls`, since h3 serves only "https" origins (RFC 9114 §3.1.2), and runs
+    /// TCP alone. `--tcp-first` makes the pool open TCP first, as a pool does by default. It needs `--tls`, since h3 serves only "https" origins (RFC 9114 §3.1.2), and runs
     /// one pool, so no `--connections`.
     pool: bool,
     /// How long the pool's QUIC handshake runs before TCP opens beside it: `--fallback-ms`.
     fallback_delay_ns: u64,
+    /// The transport the pool opens first (decision 117 as amended): QUIC, or TCP with
+    /// `--tcp-first`.
+    prefer: client.Transport,
     /// Whether the client offers gzip and deflate, and decodes a response coded in either:
     /// `--coded` (decision 101).
     coded: bool,
@@ -62,7 +65,7 @@ const loopback_first: u8 = 127;
 pub const usage =
     \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
     \\                 [--h11] [--coded] [--tls <anchor-prefix> --seconds <unix-seconds>]
-    \\                 [--pool [--fallback-ms <milliseconds>]]
+    \\                 [--pool [--fallback-ms <milliseconds>] [--tcp-first]]
     \\                 [--connections <count>] [--tcp-connections <count>]
     \\                 (--get <path> | --post <path> <octets>)...
     \\
@@ -84,6 +87,7 @@ pub fn read_run(arguments: anytype) ?Run {
         .protocol = .h2,
         .pool = false,
         .fallback_delay_ns = constants.pool_fallback_delay_ns,
+        .prefer = .quic,
         .coded = false,
     };
     for (0..constants.client_arguments_max) |_| {
@@ -101,6 +105,8 @@ fn run_ok(run: *const Run) bool {
     // A webpki chain is valid only at an instant, so the TLS mode needs one.
     const tls_ok = run.anchor_prefix == null or run.now_seconds > 0;
     const pool_ok = !run.pool or (run.anchor_prefix != null and run.connections_count == 1 and run.tcp_connections == 1);
+    // `--tcp-first` orders the transports of a pool that offers both, so it needs `--pool`.
+    if (!run.pool and run.prefer == .tcp) return false;
     return run.plans_count > 0 and connections_ok and tls_ok and pool_ok and slots_ok(run);
 }
 
@@ -118,6 +124,10 @@ fn read_flag(run: *Run, option: []const u8) bool {
     }
     if (std.mem.eql(u8, option, "--pool")) {
         run.pool = true;
+        return true;
+    }
+    if (std.mem.eql(u8, option, "--tcp-first")) {
+        run.prefer = .tcp;
         return true;
     }
     if (std.mem.eql(u8, option, "--coded")) {
@@ -216,6 +226,13 @@ test "--pool needs --tls and runs one pool" {
     const run = test_read(&([_][]const u8{"--pool"} ++ test_tls)).?;
     try testing.expect(run.pool and run.connections_count == 1);
     try testing.expectEqual(constants.pool_fallback_delay_ns, run.fallback_delay_ns);
+}
+
+test "decision 117 as amended: --tcp-first makes the pool open TCP first, and needs --pool" {
+    try testing.expectEqual(client.Transport.quic, test_read(&([_][]const u8{"--pool"} ++ test_tls)).?.prefer);
+    const run = test_read(&([_][]const u8{ "--pool", "--tcp-first" } ++ test_tls)).?;
+    try testing.expectEqual(client.Transport.tcp, run.prefer);
+    try testing.expect(test_read(&([_][]const u8{"--tcp-first"} ++ test_tls)) == null);
 }
 
 test "--fallback-ms sets how long QUIC's handshake runs before TCP opens" {

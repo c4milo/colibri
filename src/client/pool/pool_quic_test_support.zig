@@ -19,6 +19,10 @@ const Event = pool_module.Event;
 /// frame. Test-only.
 pub var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 pub var pool_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment) = undefined;
+/// The TCP slots of the second pool memory, and that memory (decision 125), which
+/// `start_configured` gives a configuration that names as many.
+pub const tcp_connections_two: u16 = 2;
+var pool_memory_two: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections_two })]u8 align(ConnectionPool.memory_alignment) = undefined;
 pub var config: pool_module.Config align(@alignOf(pool_module.Config)) = undefined;
 pub var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 pub var events_len: usize = 0;
@@ -53,16 +57,18 @@ pub const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0
 /// The receive pool of the pool's QUIC connections (decision 61). Test-only.
 var receive_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
 
-/// A pool offering every version over TLS, with a receive pool, whose QUIC server selects from
-/// `server_protocols`.
+/// A pool offering every version over TLS, QUIC first, with a receive pool, whose QUIC server
+/// selects from `server_protocols`.
 pub fn start(server_protocols: []const []const u8, values: pool_module.Destination, quic_first: bool) !void {
     try start_configured(server_protocols, values, configured(quic_first), receive_pool.storage());
 }
 
-/// The configuration `start` gives its pool, which a test changes before `start_configured`.
+/// The configuration `start` gives its pool, which a test changes before `start_configured`. It
+/// asks for QUIC first (decision 117 as amended), as every pool did before step 43.
 pub fn configured(quic_first: bool) pool_module.Config {
     return .{
         .tls = tls_support.client_values(support.authority),
+        .protocols = .{ .prefer = .quic },
         .authority = support.authority,
         .quic_first = quic_first,
         .fallback_delay_ns = fallback_delay_ns,
@@ -82,7 +88,8 @@ pub fn start_configured(server_protocols: []const []const u8, values: pool_modul
     // Every octet 1, so each flag of a connection the pool never started reads as set, and a
     // read of one shows. A configuration `init` leaves unwritten keeps the octet too.
     @memset(std.mem.asBytes(&pool), unstarted_octet);
-    try pool.init(&pool_memory, &config, values, given_pool);
+    const memory: []align(ConnectionPool.memory_alignment) u8 = if (given.tcp_connections == tcp_connections_two) &pool_memory_two else &pool_memory;
+    try pool.init(memory, &config, values, given_pool);
     events_len = 0;
     blocked = false;
 }

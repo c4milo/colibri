@@ -23,6 +23,7 @@ const identity = @import("client_trace_identity.zig");
 const QuicServer = @import("client_trace_quic_server.zig").QuicServer;
 const TcpServer = @import("client_trace_tcp_server.zig").TcpServer;
 const body = @import("client_trace_world_body.zig");
+const opens = @import("client_trace_world_open.zig");
 
 const limits = sim.constants.client_trace;
 const Random = sim.Random;
@@ -87,6 +88,10 @@ pub const World = struct {
     closed: bool,
     goaway_sent: bool,
     broken: bool,
+    /// The transport of the pool's first `open`, and the protocol of its first `connected` (design
+    /// §8 step 43).
+    first_open: ?Transport,
+    first_connected: ?client.Protocol,
     /// The PINGs the pool's QUIC connections owed to keep an idle timeout off while an exchange
     /// was outstanding (RFC 9000 §10.1.2, design §8 step 17g).
     keep_alives: u64,
@@ -106,6 +111,8 @@ pub const World = struct {
         world.plan.draw(&world.random);
         var bodies_random = Random.init(seed ^ bodies_seed_mark);
         world.plan.draw_bodies(&bodies_random);
+        var preference_random = Random.init(seed ^ preference_seed_mark);
+        world.plan.draw_preference(&preference_random);
         world.tls_random = Random.init(seed ^ tls_seed_mark);
         world.now_ns = 0;
         world.ids = @splat(null);
@@ -117,6 +124,8 @@ pub const World = struct {
         world.closed = false;
         world.goaway_sent = false;
         world.broken = false;
+        world.first_open = null;
+        world.first_connected = null;
         world.keep_alives = 0;
         world.ledger.init();
         world.to_server.clear();
@@ -135,8 +144,11 @@ pub const World = struct {
     fn configure(world: *World) !void {
         world.pool_config = .{
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .cpu = identity.cpu },
-            // TCP offers "h2" alone, and QUIC "h3".
-            .protocols = .{ .h11 = false },
+            // TCP offers "h2" alone, and QUIC "h3". The plan names the transport that opens first.
+            .protocols = .{ .h11 = false, .prefer = switch (world.plan.prefer) {
+                .quic => .quic,
+                .tcp => .tcp,
+            } },
             .authority = identity.authority,
             .quic_first = world.plan.policy == .first,
             .fallback_delay_ns = limits.fallback_delay_ns,
@@ -155,7 +167,7 @@ pub const World = struct {
     }
 
     /// How the network treats QUIC's datagrams, as the plan's QUIC fate says.
-    fn schedule(world: *const World) sim.network.Schedule {
+    pub fn schedule(world: *const World) sim.network.Schedule {
         return switch (world.plan.quic) {
             .works, .refused => .{},
             .blocked => .{ .drop = sim.constants.schedule_denominator },
@@ -406,9 +418,12 @@ pub const World = struct {
     /// What the caller does with each of the pool's events.
     fn handle(world: *World, reported: client.Event) Error!void {
         switch (reported) {
-            .open => |open| switch (open.transport) {
-                .quic => world.open_quic(open.connection),
-                .tcp => world.open_tcp(open.connection),
+            .open => |open| {
+                if (world.first_open == null) world.first_open = open.transport;
+                switch (open.transport) {
+                    .quic => opens.open_quic(world, open.connection),
+                    .tcp => opens.open_tcp(world, open.connection),
+                }
             },
             // The world sends what the pool owes at each of its steps, so it waits for none.
             .send => {},
@@ -429,7 +444,10 @@ pub const World = struct {
                 held.wipe();
             },
             .finished => |finished| try world.report(finished),
-            .connected, .headers => {},
+            .connected => |connected| {
+                if (world.first_connected == null) world.first_connected = connected.protocol;
+            },
+            .headers => {},
             .body_taken => |id| try body.on_taken(world, id),
             .body => |piece| try body.on_body(world, piece),
             .closed => world.closed = true,
@@ -441,24 +459,6 @@ pub const World = struct {
         if (connection.slot == world.quic_connection.slot and world.quic_connection.generation > 0) return .quic;
         assert(connection.slot == world.tcp_connection.slot);
         return .tcp;
-    }
-
-    /// Starts the QUIC connection the pool asked for, over a fresh flow to a fresh server.
-    fn open_quic(world: *World, connection: client.ConnectionHandle) void {
-        world.quic_connection = connection;
-        world.network.init(world.random.next(), world.schedule());
-        world.quic_server.reset(world.pool.quic_link.opens);
-        // The pool draws the grease value, then the two IDs, then the session's draws, from
-        // this one source (decision 120). A start chapulin refuses is the pool's to report.
-        world.pool.start_quic(tls_source(&world.tls_random), identity.now_seconds, world.now_ns, null) catch {};
-    }
-
-    fn open_tcp(world: *World, connection: client.ConnectionHandle) void {
-        world.tcp_connection = connection;
-        world.to_server.clear();
-        world.to_client.clear();
-        world.tcp_server.reset(world.pool.tcp_links[0].opens, tls_source(&world.tls_random)) catch {};
-        world.pool.start_tcp(connection, tls_source(&world.tls_random), identity.now_seconds, null) catch {};
     }
 
     fn report(world: *World, finished: client.Finished) Error!void {
@@ -479,10 +479,11 @@ pub const World = struct {
     }
 };
 
-/// Marks the TLS draws' seed, and the streamed bodies' draws' seed, apart from the caller's, so
-/// the sequences differ.
+/// Marks the TLS draws' seed, the streamed bodies' draws' seed, and the preference draws' seed
+/// apart from the caller's, so the sequences differ.
 const tls_seed_mark: u64 = 0x746c_735f_7365_6564;
 const bodies_seed_mark: u64 = 0x626f_6469_6573_5f73;
+const preference_seed_mark: u64 = 0x7072_6566_6572_5f73;
 
 fn earliest(at: ?u64, candidate: ?u64) ?u64 {
     const held = candidate orelse return at;
@@ -490,7 +491,7 @@ fn earliest(at: ?u64, candidate: ?u64) ?u64 {
 }
 
 /// The source a TLS session draws from: the simulator's generator, octet by octet.
-fn tls_source(random: *Random) tls.Random {
+pub fn tls_source(random: *Random) tls.Random {
     return tls.Random.init(random, fill);
 }
 

@@ -186,7 +186,8 @@ another file of your program.
 A program that wants more cores starts more servers on one port: each one binds with
 SO_REUSEPORT. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,
 UDP_SEGMENT and one system call a tick on Linux. The example fetches from the server through
-`colibri.Client`, over h11, h2 and h3.
+`colibri.Client`, over h11, h2 and h3. With every version allowed, the client opens TCP first,
+and h3 needs `.prefer = .quic`.
 
 ## colibri.Client
 
@@ -259,7 +260,8 @@ the UDP socket when `run` did not close it.
 - `host` and `port`: the server's IPv4 or IPv6 literal, and its port, 443 by default. The client
   looks up no name.
 - `pool`: the `client.Config` the pool starts from. `init` sets its `tcp_connections` and
-  `requests` to the client's own counts. It also sets its `ecn`, because the client's loop reads
+  `requests` to the client's own counts. Its `protocols.prefer` says which transport the client
+  opens first, `.tcp` by default or `.quic`, and the client keeps it as the program set it. It also sets its `ecn`, because the client's loop reads
   and sets each datagram's ECN codepoint ([decision 68](decisions.md)).
 - `random`: the source each TLS session and each QUIC connection draws from. Null draws from the
   system's entropy.
@@ -981,8 +983,8 @@ cleartext its connection speaks h11, or h2 with prior knowledge when `protocols`
 
 The code in this section is from [`examples/client_exchange.zig`](../examples/client_exchange.zig),
 where `link` and `datagram_link` stand in for a program's TCP and UDP sockets. Its network drops
-every UDP datagram. The pool tries QUIC first, and carries its exchanges over TCP once the
-fallback delay passes. Its server, in [`examples/client_peer.zig`](../examples/client_peer.zig), is
+every UDP datagram. The pool tries QUIC first, as its configuration asks, and carries its
+exchanges over TCP once the fallback delay passes. Its server, in [`examples/client_peer.zig`](../examples/client_peer.zig), is
 an endpoint with no UDP socket.
 
 For each exchange the program places two values in its own memory
@@ -1042,10 +1044,12 @@ and its port, and an HTTPS record's `alpn` and `port` when it has one.
 
 ```zig
 // One configuration serves both transports. Its TLS value names no protocol: the pool
-// offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them.
+// offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them. A pool opens
+// TCP first by default, and `.prefer = .quic` makes it open QUIC first.
 client_config = .{
     .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
     .authority = origin,
+    .protocols = .{ .prefer = .quic },
 };
 // The pool takes what DNS knows as values: the server's addresses and its port.
 const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };
@@ -1069,9 +1073,14 @@ The pool takes one `client.Config` ([decision 120](decisions.md)):
   while `protocols` allows h11 or h2, so a client that speaks h3 alone opens no TCP connection.
   Over TLS, a TCP server that selects no protocol is spoken to in h11 while `protocols` allows
   h11. With h11 off, that connection closes, as one whose handshake failed does (RFC 9113 §3.3).
+- `protocols.prefer` names the transport the pool opens first, when `protocols` allows a version
+  on each ([decision 117](decisions.md) as amended). With `.tcp`, the default, the pool opens TCP
+  first and QUIC only once TCP fails. With `.quic`, it opens QUIC first, and TCP once QUIC fails
+  or the fallback delay passes. On a path with no loss, QUIC costs more CPU than TCP and gains
+  nothing. h3 gains most on paths that lose packets, such as mobile networks.
 - `authority`, the content codings and their decoder pools are given once, for both transports.
-- `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it. Its default
-  is `client.constants.policy.fallback_delay_ns_default`, 250 ms.
+- `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it, under
+  `.prefer = .quic`. Its default is `client.constants.policy.fallback_delay_ns_default`, 250 ms.
 - `ecn`, `idle_timeout_ms` and `congestion_controller` are for QUIC connections alone.
   `congestion_controller` is `.bbr` for BBRv3, the default, `.cubic`, or `.newreno` for RFC
   9002's own controller ([decisions 133, 136 and 143](decisions.md)).
@@ -1333,9 +1342,11 @@ The events:
   connection's handle. `open.to` keeps the `scope_id` the program set on the address, the
   interface a link-local IPv6 address (fe80::/10) is reached through, which the program puts in
   the socket address's `sin6_scope_id`. A program turns Nagle's algorithm off on each TCP socket it connects, with
-  `TCP_NODELAY`, as a server does on each socket it accepts, so a small request leaves at once. Each later call and event about the connection names that handle. QUIC goes first when the origin is
-  known to speak h3, or when `Config.quic_first` says to try it. TCP opens when QUIC fails or
-  `fallback_delay_ns` passes. The first connection whose handshake completes takes the exchanges.
+  `TCP_NODELAY`, as a server does on each socket it accepts, so a small request leaves at once. Each later call and event about the connection names that handle. QUIC may open when the origin
+  is known to speak h3, or when `Config.quic_first` says to try it. Under `protocols.prefer =
+  .tcp`, the default, TCP opens first and QUIC opens once TCP fails. Under `.quic`, QUIC opens
+  first, and TCP opens when QUIC fails or `fallback_delay_ns` passes. The first connection whose
+  handshake completes takes the exchanges.
 - `send` names a TCP connection that owes octets. The program calls `send_stream` for it until a
   call leaves room in its output, which ends the debt. The pool says `send` again for the next
   debt, once the connection read octets or the program made another call.

@@ -302,6 +302,8 @@ fn view_of(pool: anytype, now_ns: u64) choice.View {
         .quic_tried = pool.quic_link.tried,
         .quic_allowed = pool_links.quic_allowed(pool, now_ns),
         .tcp_allowed = pool.offered.tcp,
+        .prefer = pool.config.protocols.prefer,
+        .tcp_tried = false,
         .tcp_free = null,
         .tcp_opening = 0,
         .tcp_open = false,
@@ -313,6 +315,7 @@ fn view_of(pool: anytype, now_ns: u64) choice.View {
     for (pool.tcp_links, 0..) |*link, index| {
         const slot: u32 = @intCast(index);
         const phase = pool.phase(slot);
+        if (link.tried) view.tcp_tried = true;
         if (phase.idle() and !link.tried and view.tcp_free == null) view.tcp_free = slot;
         if (phase == .handshake) view.tcp_opening += 1;
         if (phase == .open) view.tcp_open = true;

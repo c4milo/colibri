@@ -43,6 +43,11 @@ pub const Violation = world_module.Error || error{
     PiecesHeld,
     RefusedTaken,
     MovedTaken,
+    /// Design §8 step 43: the pool's first `open` named another transport than the one it
+    /// prefers, or, preferring TCP, its first connection was not h2 where TCP works, or not h3
+    /// where TCP refuses each connect.
+    OpenedOutOfOrder,
+    ConnectedOutOfOrder,
     /// The run moved through more instants than `instants_max`, or through one instant more
     /// often than a step can revisit it, or kept more states than `states_max`.
     Unfinished,
@@ -96,6 +101,10 @@ pub const Result = struct {
     streamed: u64 = 0,
     taken: u64 = 0,
     pieces: u64 = 0,
+    /// Design §8 step 43: seeds whose pool prefers TCP, and those of them whose TCP server
+    /// refuses each connect, so that QUIC carries the exchanges.
+    prefer_tcp: u64 = 0,
+    quic_after_tcp: u64 = 0,
 };
 
 pub const Census = struct {
@@ -148,6 +157,7 @@ fn run_once(storage: *Storage, seed: u64) Violation!Result {
         try record(storage);
     } else return error.Unfinished;
     try check_end(world);
+    try check_order(world);
     return result_of(storage);
 }
 
@@ -220,6 +230,29 @@ fn check_end(world: *const World) Violation!void {
     }
 }
 
+/// Design §8 step 43 (decision 117 as amended): the pool opens first the transport it prefers,
+/// where the plan allows it. Every seed's client speaks h2 over TCP. QUIC is allowed from the
+/// start only under the policy `first`. A pool that prefers TCP connects over h2 first in a clean
+/// seed where TCP works, and over h3 alone where TCP refuses each connect.
+fn check_order(world: *const World) Violation!void {
+    const plan = &world.plan;
+    const quic_first = plan.prefer == .quic and plan.policy == .first;
+    const expected: client.Transport = if (quic_first) .quic else .tcp;
+    if (world.first_open) |opened| {
+        if (opened != expected) return error.OpenedOutOfOrder;
+    }
+    if (plan.prefer != .tcp) return;
+    const connected = world.first_connected orelse return;
+    if (plan.tcp == .refused and connected != .h3) return error.ConnectedOutOfOrder;
+    if (plan.tcp == .works and plan.clean and connected != .h2) return error.ConnectedOutOfOrder;
+}
+
+/// Whether the pool's first connection spoke h3.
+fn connected_h3(world: *const World) bool {
+    const connected = world.first_connected orelse return false;
+    return connected == .h3;
+}
+
 /// The instant the pool has nothing left to carry: its shutdown, or its last exchange's end.
 fn closing_from_ns(world: *const World) u64 {
     return @max(world.plan.shutdown_at_ns, world.settled_ns);
@@ -238,6 +271,8 @@ fn result_of(storage: *const Storage) Result {
         .streamed = world.plan.streamed_count(),
         .taken = world.pieces.taken_events,
         .pieces = world.pieces.body_events,
+        .prefer_tcp = @intFromBool(world.plan.prefer == .tcp),
+        .quic_after_tcp = @intFromBool(world.plan.prefer == .tcp and world.plan.tcp == .refused and connected_h3(world)),
     };
     // Each logged state that finds the QUIC connection stale where the one before did not.
     for (storage.states[1..storage.states_len], storage.states[0 .. storage.states_len - 1]) |now, before| {
@@ -285,25 +320,29 @@ test "client trace run: every seed closes the pool with each exchange reported o
     // moved after a refusal, GETs went out again after a close (decision 124), a GOAWAY went out,
     // the pool learned h3, some were cancelled, a QUIC connection retired near its idle
     // timeout, and PINGs kept others from it. Streamed exchanges handed request pieces the pool
-    // took, and held response pieces (decision 153). A seed replays in every build mode (invariant
-    // 5), so the census is pinned, as Debug and `-Drelease` both give it.
+    // took, and held response pieces (decision 153). Pools that prefer TCP opened it first, and
+    // QUIC carried the exchanges where TCP refused each connect (design §8 step 43). A seed
+    // replays in every build mode (invariant 5), so the census is pinned, as Debug and
+    // `-Drelease` both give it.
     try testing.expectEqual(Result{
-        .states = 2707,
+        .states = 2632,
         .requests = 534,
-        .responses = 323,
-        .refused = 82,
-        .failed = 56,
-        .cancelled = 73,
-        .moved = 12,
-        .resent = 10,
-        .quic_connections = 119,
-        .tcp_connections = 278,
+        .responses = 328,
+        .refused = 85,
+        .failed = 51,
+        .cancelled = 70,
+        .moved = 11,
+        .resent = 9,
+        .quic_connections = 82,
+        .tcp_connections = 295,
         .goaways = 50,
         .learned = 61,
-        .retired = 1,
-        .keep_alives = 5,
+        .retired = 4,
+        .keep_alives = 10,
         .streamed = 80,
-        .taken = 122,
+        .taken = 120,
         .pieces = 141,
+        .prefer_tcp = 137,
+        .quic_after_tcp = 11,
     }, census.result);
 }

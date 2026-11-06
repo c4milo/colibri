@@ -1,9 +1,11 @@
 //! Example: a client sends two requests to one origin through a `client.ConnectionPool`, which tries
-//! QUIC first and carries the requests over TCP when no QUIC datagram gets through.
+//! QUIC first, as its configuration asks, and carries the requests over TCP when no QUIC datagram
+//! gets through.
 //!
 //! The pool carries exchanges to one origin over the QUIC and TCP connections it chooses
 //! between, and tells the program which transport to open (decision 120). This one has a receive
-//! pool and a TLS value, so it offers h3 over QUIC and h2 then h11 over TCP. The program places a
+//! pool and a TLS value, so it offers h3 over QUIC and h2 then h11 over TCP. A pool opens TCP first
+//! by default, and this one sets `.prefer = .quic` (decision 117 as amended). The program places a
 //! request and a response for a GET and for a POST, which the server's routes serve. It places
 //! three more, which no route serves: a GET of `/echo`, a GET of `/missing` and a DELETE. The
 //! pool sends each request over the first connection whose handshake completes.
@@ -208,10 +210,12 @@ fn start_client(cpu: tls.Cpu) !void {
     // The CA certificates the client trusts, each its subject Name and SubjectPublicKeyInfo.
     const anchors = try tls.pem.anchors(identity.bundle_pem, &anchor_der, &anchor_room);
     // One configuration serves both transports. Its TLS value names no protocol: the pool
-    // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them.
+    // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `protocols` allows them. A pool opens
+    // TCP first by default, and `.prefer = .quic` makes it open QUIC first.
     client_config = .{
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = anchors, .server_name = origin } }, .cpu = cpu },
         .authority = origin,
+        .protocols = .{ .prefer = .quic },
     };
     // The pool takes what DNS knows as values: the server's addresses and its port.
     const known: client.Destination = .{ .addresses = &server_addresses, .port = server_port };

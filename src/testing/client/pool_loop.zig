@@ -70,6 +70,7 @@ pub fn run_pool(run: *const Run, shared: *const client.Config) !bool {
     // `--h11` turns h2 off, so TCP offers `http/1.1` alone, and QUIC still offers h3.
     pool_config = shared.*;
     pool_config.fallback_delay_ns = run.fallback_delay_ns;
+    pool_config.protocols.prefer = run.prefer;
     addresses[0] = Address.of(&run.address, 0);
     now_seconds = run.now_seconds;
     try pool.init(&pool_memory, &pool_config, .{ .addresses = &addresses, .port = run.port }, receive_pool.storage());
