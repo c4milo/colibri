@@ -13172,14 +13172,54 @@ library.
     writer, and stdx's decoders read a response body through the reader, over h11, h2 and h3.
     Each retry goes on from the octet it stopped at.
 - **Step 42 — `colibri.Client`, proposed 2026-11-05.** [Decision 153](decisions.md) ruling 8. It
-  comes after step 39 and before step 40, on Rotor's own API.
-  - **The public names:** `colibri.Client` and `colibri.ClientConfig`, with `init`, `request`,
-    `run` and `shutdown`, beside `colibri.Server`'s, listed in the root's test first.
+  runs on Rotor's own API. It was built on 2026-11-05 before step 39, so that a program fetches
+  over h11, h2 and h3 before streamed bodies exist. Step 39's bodies come in a later commit, in the
+  pool underneath.
+  - **The public names:** `colibri.Client` and `colibri.ClientConfig`, with `init`, `deinit`,
+    `request`, `shutdown` and `run`, beside `colibri.Server`'s, listed in the root's test first.
+    No other name is public: `ClientOf` and its capacity stay in `client.zig`, and `Client` holds
+    QUIC, one TCP connection and `client.constants.limits.requests_max` requests.
   - **The rules.** It owns the TCP sockets, the UDP socket for h3, the loop, the clock and a
-    `client.ConnectionPool`, which `colibri.Server`'s socket code and batches serve. A program
-    hands it requests, streamed as step 39 allows.
+    `client.ConnectionPool`. `socket.zig`, `datagram_socket.zig` and `datagram_batch.zig` serve the
+    server and the client alike. `colibri` imports `client`, as decision 150 ruling 1 puts it above
+    both.
+    - `ClientConfig` holds `host`, an IP literal, `port`, `pool`, the `client.Config` whose counts
+      `init` sets, `random`, which defaults to the system's entropy, and `unix_seconds`, the
+      program's instant at the start of `run`. A web PKI trust judges each chain at it, plus the
+      time the loop has run.
+    - `run(handler)` runs one loop on the calling thread. The handler declares `on_finished` and
+      may declare `on_connected`. Each runs on the loop's thread and may call `request` and
+      `shutdown`. `shutdown` is the one call another thread may make.
+    - `init` returns an inferred error set, and `run` returns `colibri.RunError`.
+    - A shutdown steps each running TCP socket. The pool sends no `send` event for h2's GOAWAY
+      after a `send_stream` that wrote nothing.
   - **The checks.** `examples/colibri_server.zig` fetches through it over h11, h2 and h3 on
-    loopback. Its unit tests bind loopback, and each part's mutations are caught.
+    loopback, over TLS with the test identity. Its unit tests bind loopback.
+  - **The record, 2026-11-05.** Each mutation below was **CAUGHT** by `zig build test-colibri`,
+    or by `zig build example-colibri_server` for 42f, unless it says otherwise. A watchdog of 8 s
+    halts a test whose run does not return, so a hang fails before the server's deadlines of 10 s.
+    - 42b moved the server's UDP socket into `datagram_socket.zig` with no change of behaviour.
+      42e's tests check its paths.
+    - 42c: no default source; the UDP socket not opened, not closed, or bound in IPv4 alone; either
+      count not taken from the capacity; the host ignored.
+    - 42d, some of them as a hang: the connect event ignored; `start_tcp` not called;
+      `transport_closed` not called for a failed connect, or for a running socket that fails; the
+      `send` event not stepped; a closed connection's socket kept open; an open not held for the
+      slot's last close; the held open never started; shutdown ignored; no step of the running
+      sockets at shutdown; the deadline not passed to the tick; `on_finished` not called;
+      `unix_seconds` ignored; the run's first instant not read; a request left undrained.
+    - 42d: the drop of unread input at a close was removed, because `Socket.open` starts each
+      socket with no input. The first mutations of it were **NOT CAUGHT**.
+    - 42e: a datagram not given to the pool, or to the server's endpoint; no flush, in the client
+      or in the server; `start_quic` not called; a batch not released; the multishot receive not
+      restarted; `stop` that does not cancel; the received or the sent ECN codepoints swapped;
+      `on_instant` not called. These checks cover the UDP paths that 37c left with no check.
+    - 42e: a drain after each flush was removed. Its mutation was **NOT CAUGHT**, and the next
+      turn's drain reads the same events.
+    - 42f, by `zig build example-colibri_server`, two of them as a hang: the server's shutdown
+      ignored; port 0 kept; the client's shutdown ignored; the client's datagrams not flushed.
+    - 42f: a closing server socket kept open was **NOT CAUGHT** by the example, because the client
+      now closes its own side. `zig build test-colibri` still catches it, as a hang, as in 37b.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default

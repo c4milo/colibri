@@ -45,7 +45,7 @@ The library is seventeen modules, each exported by name:
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
 | `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). An `Endpoint` holds the TCP connections you accept, which serve h11 or h2, and the QUIC connections that serve h3 behind one UDP socket you own ([decision 119](decisions.md)). |
 | `dnssec` | The checks of a DNSSEC signature and of a DS digest over chapulin ([decision 142](decisions.md)) |
-| `colibri` | `colibri.Server`, which binds one port, reads the server's identity and runs `server` on Rotor's loop ([decision 150](decisions.md)). It is the one module that does I/O. |
+| `colibri` | `colibri.Server`, which binds one port, reads the server's identity and runs `server` on Rotor's loop ([decision 150](decisions.md)), and `colibri.Client`, which runs `client`'s pool on Rotor's loop ([decision 153](decisions.md) ruling 8). It is the one module that does I/O. |
 | `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
 The package also exports stdx's codecs, `codec`, `gzip`, `zlib`, `zstd` and `brotli`, from the stdx
@@ -66,7 +66,8 @@ assertions stay on in production.
 ## What your program owns
 
 colibri makes no system call, holds no allocator, and reads no clock. The `colibri` module is the
-one exception: it binds sockets and runs a loop for you (see [colibri.Server](#colibriserver)).
+one exception: it binds sockets and runs a loop for you (see [colibri.Server](#colibriserver) and
+[colibri.Client](#colibriclient)).
 Four things follow for every other module:
 
 - **Your program owns every struct and buffer.** Declare a server's endpoint, a client's pool
@@ -134,7 +135,7 @@ A program places the server once, outside any stack frame, as it places an endpo
 
 ```zig
 const connections = 4;
-const Server = colibri.ServerOf(.{ .tcp_connections = connections, .quic_connections = 0 });
+const Server = colibri.ServerOf(.{ .tcp_connections = connections, .quic_connections = connections });
 var http_server: Server align(@alignOf(Server)) = undefined;
 ```
 
@@ -144,7 +145,12 @@ until another thread calls `shutdown`. `run` then ends each connection and retur
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-try http_server.init(.{ .host = "127.0.0.1", .port = 0, .cpu = cpu });
+try http_server.init(.{
+    .host = "127.0.0.1",
+    .port = 0,
+    .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
+    .cpu = cpu,
+});
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
@@ -179,8 +185,72 @@ another file of your program.
 
 A program that wants more cores starts more servers on one port: each one binds with
 SO_REUSEPORT. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,
-UDP_SEGMENT and one system call a tick on Linux. The example fetches over h11 alone. The fetch
-over h2 and h3 comes with `colibri.Client` (design §8 step 42).
+UDP_SEGMENT and one system call a tick on Linux. The example fetches from the server through
+`colibri.Client`, over h11, h2 and h3.
+
+## colibri.Client
+
+`colibri.Client` does the I/O of a client for you ([decision 153](decisions.md) ruling 8). It owns
+the TCP sockets, the UDP socket for h3, Rotor's loop and its clock, and a `client.ConnectionPool`.
+Your program gives it a configuration, hands it requests, and calls `run`. The code in this section
+is from [`examples/colibri_server.zig`](../examples/colibri_server.zig).
+
+A program places the client once, outside any stack frame. `colibri.Client` holds one TCP
+connection, one QUIC connection, and `client.constants.limits.requests_max` requests at once:
+
+```zig
+var http_client: colibri.Client align(@alignOf(colibri.Client)) = undefined;
+```
+
+`init` takes the server's address and port, and the pool's configuration. It opens the UDP socket
+when the pool offers QUIC: h3 allowed, and a TLS value. `request` takes a `client.Request` and the
+`client.Response` it fills, which your program keeps in place until the exchange's `finished`:
+
+```zig
+try http_client.init(.{
+    .host = "127.0.0.1",
+    .port = http_server.port(),
+    .pool = .{
+        .authority = origin,
+        .protocols = protocols,
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+    },
+    .unix_seconds = now_seconds,
+});
+defer http_client.deinit();
+```
+
+`run` runs one Rotor loop on the thread that calls it. It gives each event to a handler, a pointer
+to your program's struct. The struct declares `on_finished`, and may declare `on_connected`:
+
+```zig
+pub fn on_finished(self: *Fetch, _: *colibri.Client, _: client.Finished) void {
+    self.finished += 1;
+}
+```
+
+Each handler runs on the loop's thread, and may call `request` and `shutdown`. `run` returns once
+`shutdown` was called, each exchange has finished, and each connection has closed. A `shutdown`
+before `run` makes `run` return when the requests already made have finished:
+
+```zig
+http_client.shutdown();
+try http_client.run(&fetched);
+```
+
+`shutdown` is the one call another thread may make. `request` comes before `run` or from a
+handler. `deinit` closes the UDP socket when `run` did not close it.
+
+`colibri.ClientConfig` holds these fields:
+
+- `host` and `port`: the server's IPv4 or IPv6 literal, and its port, 443 by default. The client
+  looks up no name.
+- `pool`: the `client.Config` the pool starts from. `init` sets its `tcp_connections` and
+  `requests` to the client's own counts.
+- `random`: the source each TLS session and each QUIC connection draws from. Null draws from the
+  system's entropy.
+- `unix_seconds`: the seconds since 1970 when `run` starts. A web PKI trust judges each chain's
+  dates at it, plus the time the loop has run since. A trust in pins reads no clock.
 
 ## The server
 

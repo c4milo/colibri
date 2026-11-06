@@ -1,8 +1,8 @@
 //! The program the consumer project builds: it reaches h11, h2, tls, server, client, colibri and
 //! stdx's gzip through the modules colibri exports, writes a request, reads a response, starts a
-//! TLS handshake, codes content, moves a request through the client and the server's endpoint, and
-//! binds a `colibri.Server` on a loopback port, which shows the modules link and run for a project
-//! that depends on colibri.
+//! TLS handshake, codes content, moves a request through the client and the server's endpoint,
+//! binds a `colibri.Server` on a loopback port, and prepares a `colibri.Client` for it. This shows
+//! that the modules link and run for a project that depends on colibri.
 const std = @import("std");
 const h11 = @import("h11");
 const h2 = @import("h2");
@@ -42,6 +42,8 @@ var server_output: [4096]u8 = undefined;
 // A `colibri.Server` of one TCP connection, which binds a port the system chooses.
 const BoundServer = colibri.ServerOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 var bound_server: BoundServer align(@alignOf(BoundServer)) = undefined;
+// A `colibri.Client` of the default capacity, which the program places the same way.
+var bound_client: colibri.Client align(@alignOf(colibri.Client)) = undefined;
 
 /// Rounds of moving octets between the client and the server before the exchange must have ended.
 const exchange_rounds_max = 8;
@@ -143,6 +145,11 @@ pub fn main() !void {
     try bound_server.init(config);
     defer bound_server.deinit();
     if (bound_server.port() == 0) return error.BindWrong;
+    // `colibri.Client` (decision 153 ruling 8): `init` prepares the pool for the server's port, in
+    // cleartext, so it opens no UDP socket. The program does not call `run`, so it fetches nothing.
+    const bound_client_config: colibri.ClientConfig = .{ .host = "127.0.0.1", .port = bound_server.port(), .pool = .{ .authority = "localhost" } };
+    try bound_client.init(bound_client_config);
+    defer bound_client.deinit();
     std.debug.print("consumer: h11, h2, tls, gzip, server, client and colibri link and run as a dependency\n", .{});
 }
 

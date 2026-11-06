@@ -100,7 +100,12 @@ over UDP on the same port. These lines are from
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-try http_server.init(.{ .host = "127.0.0.1", .port = 0, .cpu = cpu });
+try http_server.init(.{
+    .host = "127.0.0.1",
+    .port = 0,
+    .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
+    .cpu = cpu,
+});
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
@@ -110,6 +115,20 @@ defer http_server.shutdown();
 `run` serves on the thread that calls it until `shutdown`. `deinit` closes each socket that `run`
 did not close, and wipes the private key and the cookie key. The `colibri` module is the one module
 that does I/O. Every other module stays sans-I/O, for a program that brings its own loop.
+
+### A client that runs its own loop
+
+`colibri.Client` does a client's I/O for you ([decision 153](docs/decisions.md) ruling 8). It owns
+the TCP sockets, the UDP socket for h3 and Rotor's loop, and runs `client`'s pool. Your program
+hands it requests, and `run` gives each finished exchange to your handler. These lines are from
+[`examples/colibri_server.zig`](examples/colibri_server.zig):
+
+```zig
+http_client.shutdown();
+try http_client.run(&fetched);
+```
+
+The pool tries h3 over QUIC first, and h2 or h11 over TCP when QUIC gets no answer.
 
 ### A server with the router
 
