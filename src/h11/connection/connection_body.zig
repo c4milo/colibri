@@ -115,8 +115,11 @@ fn give_back(reader: *Reader, octets: usize) void {
 /// Where the writing of one body stands.
 pub const Writer = struct {
     kind: Kind = .none,
-    /// Octets of a fixed body still owed.
+    /// Octets of a fixed body still owed, or of the chunk whose head `write_chunk_head` wrote.
     remaining: u64 = 0,
+    /// The data of the chunk whose head `write_chunk_head` wrote went out, and the CRLF that ends
+    /// it goes before the next chunk or the last chunk (RFC 9112 §7.1).
+    crlf_owed: bool = false,
 
     pub const Kind = enum { none, fixed, chunked, close_delimited, tunnel };
 
@@ -126,16 +129,24 @@ pub const Writer = struct {
 };
 
 pub const WriteError = chunked.WriteError || error{
-    /// More octets than the Content-Length declared (RFC 9112 §6.2).
+    /// More octets than the Content-Length declared (RFC 9112 §6.2), or than the chunk head
+    /// declared (RFC 9112 §7.1).
     BodyTooLong,
     /// The body ended before the Content-Length declared it would (RFC 9112 §6.2).
     BodyIncomplete,
     /// Trailers after a body that is not chunked, which alone carries them (RFC 9112 §7.1.2).
     TrailersWithoutChunked,
-    /// Octets the caller sends itself, counted for a chunked body, whose every chunk needs a size
-    /// line before its data (RFC 9112 §7.1).
-    BodyChunked,
+    /// A chunk head for a body that is not chunked (RFC 9112 §6.1).
+    BodyNotChunked,
+    /// A chunk head of length 0, which is the last chunk that `end` writes (RFC 9112 §7.1).
+    ChunkEmpty,
+    /// A chunk head, or the end of the body, before the data the last chunk head declared went
+    /// out (RFC 9112 §7.1).
+    ChunkIncomplete,
 };
+
+/// The CRLF that ends a chunk's data (RFC 9112 §7.1).
+const chunk_data_end = "\r\n";
 
 /// Writes `data` framed as the body declared. Returns the octets written into `output`.
 pub fn write(writer: *Writer, output: []u8, data: []const u8) WriteError!usize {
@@ -152,7 +163,7 @@ pub fn write(writer: *Writer, output: []u8, data: []const u8) WriteError!usize {
             writer.remaining -= data.len;
             return data.len;
         },
-        .chunked => return chunked.write_chunk(output, data),
+        .chunked => return write_chunked(writer, output, data),
         .close_delimited, .tunnel => {
             // RFC 9112 §2.1: a body is written whole or not at all into one buffer.
             if (data.len > output.len) return error.OutputTooSmall;
@@ -163,6 +174,7 @@ pub fn write(writer: *Writer, output: []u8, data: []const u8) WriteError!usize {
 }
 
 /// Counts `len` body octets the caller sends from its own buffer, and writes nothing (decision 95).
+/// In a chunked body, they are the data of the chunk whose head `write_chunk_head` wrote.
 pub fn count(writer: *Writer, len: u64) WriteError!void {
     assert(writer.open());
     assert(len > 0);
@@ -173,10 +185,68 @@ pub fn count(writer: *Writer, len: u64) WriteError!void {
             if (len > writer.remaining) return error.BodyTooLong;
             writer.remaining -= len;
         },
-        // RFC 9112 §7.1: each chunk starts with its size, which the caller's octets lack.
-        .chunked => return error.BodyChunked,
+        .chunked => {
+            // RFC 9112 §7.1: the caller's octets are the data of the chunk whose head went out,
+            // and no more.
+            if (len > writer.remaining) return error.BodyTooLong;
+            writer.remaining -= len;
+            writer.crlf_owed = writer.remaining == 0;
+        },
         .close_delimited, .tunnel => {},
     }
+}
+
+/// Writes the head of a chunk of `len` octets, which the caller sends next from its own buffer and
+/// counts with `count` (decision 139). The head starts with the CRLF the chunk before owes. Returns
+/// the octets written into `output`.
+pub fn write_chunk_head(writer: *Writer, output: []u8, len: u64) WriteError!usize {
+    assert(writer.open());
+    // RFC 9112 §6.1: only a body in the chunked coding is written in chunks.
+    if (writer.kind != .chunked) return error.BodyNotChunked;
+    // RFC 9112 §7.1: a chunk-size of 0 is the last-chunk, which ends the body.
+    if (len == 0) return error.ChunkEmpty;
+    // RFC 9112 §7.1: the next chunk-size follows all the chunk-data the last one declared.
+    if (writer.remaining > 0) return error.ChunkIncomplete;
+    const written = try chunked.write_chunk_size(try after_owed(writer, output), len);
+    const closed = close_chunk(writer, output);
+    writer.remaining = len;
+    return closed + written;
+}
+
+/// Writes `data` into a chunked body: as more of the data of the chunk whose head went out, or as
+/// a whole chunk after it.
+fn write_chunked(writer: *Writer, output: []u8, data: []const u8) WriteError!usize {
+    assert(writer.kind == .chunked);
+    if (writer.remaining == 0) {
+        const written = try chunked.write_chunk(try after_owed(writer, output), data);
+        return close_chunk(writer, output) + written;
+    }
+    // RFC 9112 §7.1: the chunk-data is the octets its chunk-size declared, and no more.
+    if (data.len > writer.remaining) return error.BodyTooLong;
+    // RFC 9112 §2.1: a body is written whole or not at all into one buffer.
+    if (data.len > output.len) return error.OutputTooSmall;
+    @memcpy(output[0..data.len], data);
+    writer.remaining -= data.len;
+    writer.crlf_owed = writer.remaining == 0;
+    return data.len;
+}
+
+/// The part of `output` after the CRLF that the chunk before owes, which `close_chunk` writes once
+/// what follows it was written.
+fn after_owed(writer: *const Writer, output: []u8) WriteError![]u8 {
+    const owed = if (writer.crlf_owed) chunk_data_end.len else 0;
+    // RFC 9112 §7.1: the CRLF and what follows it are written together, or not at all.
+    if (output.len < owed) return error.OutputTooSmall;
+    return output[owed..];
+}
+
+/// Writes the CRLF the chunk before owes at the start of `output`, and returns its length: 0 when
+/// none is owed (RFC 9112 §7.1).
+fn close_chunk(writer: *Writer, output: []u8) usize {
+    if (!writer.crlf_owed) return 0;
+    @memcpy(output[0..chunk_data_end.len], chunk_data_end);
+    writer.crlf_owed = false;
+    return chunk_data_end.len;
 }
 
 /// Ends the body: the last chunk and `trailers` for a chunked body, nothing for the others.
@@ -185,7 +255,7 @@ pub fn end(writer: *Writer, output: []u8, trailers: []const http.Field) WriteErr
     assert(writer.open());
     const written: usize = switch (writer.kind) {
         .none => unreachable,
-        .chunked => try chunked.write_last_chunk(output, trailers),
+        .chunked => try end_chunked(writer, output, trailers),
         .fixed, .close_delimited, .tunnel => blk: {
             // RFC 9112 §7.1.2: only the chunked coding carries a trailer section.
             if (trailers.len > 0) return error.TrailersWithoutChunked;
@@ -196,6 +266,14 @@ pub fn end(writer: *Writer, output: []u8, trailers: []const http.Field) WriteErr
     };
     writer.kind = .none;
     return written;
+}
+
+/// Writes the last chunk and `trailers` after the CRLF the chunk before owes (RFC 9112 §7.1).
+fn end_chunked(writer: *Writer, output: []u8, trailers: []const http.Field) WriteError!usize {
+    // RFC 9112 §7.1: the last-chunk follows all the chunk-data the last chunk-size declared.
+    if (writer.remaining > 0) return error.ChunkIncomplete;
+    const written = try chunked.write_last_chunk(try after_owed(writer, output), trailers);
+    return close_chunk(writer, output) + written;
 }
 
 /// The body a head declares with its own fields, from the pass over them: chunked when

@@ -24,6 +24,7 @@ const chunked_write = @import("chunked_write.zig");
 pub const WriteError = chunked_write.Error;
 pub const write_chunk = chunked_write.write_chunk;
 pub const write_last_chunk = chunked_write.write_last_chunk;
+pub const write_chunk_size = chunked_write.write_chunk_size;
 
 const FieldSection = http.FieldSection;
 const Reader = core.Reader;

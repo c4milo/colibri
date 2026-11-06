@@ -261,7 +261,8 @@ pub const Connection = struct {
 
     /// Counts `len` body octets the caller sends from its own buffer, in place of `write_body`'s
     /// copy, and writes nothing (decision 95). The caller sends them next, before any other octet
-    /// of this connection. A chunked body refuses it.
+    /// of this connection. In a chunked body they are the data of the chunk whose head
+    /// `write_chunk_head` wrote.
     pub fn count_body(connection: *Connection, len: u64) SendError!void {
         const closed = connection.phase == .closed and connection.role == .server;
         // RFC 9112 §9.6: a server that closes the connection sends nothing after its last response.
@@ -269,6 +270,19 @@ pub const Connection = struct {
         // RFC 9112 §6: a message has a body only where its head declared one.
         if (!connection.writer.open()) return error.NoBody;
         return connection_body.count(&connection.writer, len);
+    }
+
+    /// Writes the head of a chunk of `len` octets into `output`, after the CRLF that ends the chunk
+    /// before (RFC 9112 §7.1). The caller sends the chunk's data next from its own buffer and
+    /// counts it with `count_body`, so no octet of it is copied (decision 139). `write_end` writes
+    /// the last chunk. Returns the octets written.
+    pub fn write_chunk_head(connection: *Connection, output: []u8, len: u64) SendError!usize {
+        const closed = connection.phase == .closed and connection.role == .server;
+        // RFC 9112 §9.6: a server that closes the connection sends nothing after its last response.
+        if (closed) return error.ConnectionClosed;
+        // RFC 9112 §6: a message has a body only where its head declared one.
+        if (!connection.writer.open()) return error.NoBody;
+        return connection_body.write_chunk_head(&connection.writer, output, len);
     }
 
     /// Ends the body the caller is writing, with `trailers` for a chunked one.
@@ -385,8 +399,8 @@ pub fn is_idempotent(method: []const u8) bool {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try @import("core").public_names.expect(Connection, &.{
-        "init",         "attach_tls",       "receive",   "write_request", "write_response",
-        "write_body",   "count_body",       "write_end", "has_pending",   "write_pending",
-        "should_close", "transport_closed", "fail",
+        "init",          "attach_tls",   "receive",          "write_request", "write_response",
+        "write_body",    "count_body",   "write_chunk_head", "write_end",     "has_pending",
+        "write_pending", "should_close", "transport_closed", "fail",
     });
 }

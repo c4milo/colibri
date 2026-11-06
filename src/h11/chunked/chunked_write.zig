@@ -42,10 +42,25 @@ pub fn write_chunk(output: []u8, data: []const u8) Error!usize {
 }
 
 fn write_chunk_octets(writer: *Writer, data: []const u8) core.writer.Error!void {
-    // RFC 9112 §7.1: chunk-size = 1*HEXDIG.
-    try writer.print("{x}\r\n", .{data.len});
+    try write_size_octets(writer, data.len);
     try writer.write_bytes(data);
     try writer.write_bytes("\r\n");
+}
+
+/// `chunk-size CRLF`: the size line of a chunk of `len` octets, whose data and CRLF the caller
+/// writes after it (RFC 9112 §7.1). `len` is not 0: a zero-size chunk is the last chunk. Returns
+/// the octets written.
+pub fn write_chunk_size(output: []u8, len: u64) Error!usize {
+    assert(len > 0);
+    var writer = Writer.init(output);
+    // RFC 9112 §7.1: a size line is written whole, or the chunk has none.
+    write_size_octets(&writer, len) catch return error.OutputTooSmall;
+    return writer.written().len;
+}
+
+fn write_size_octets(writer: *Writer, len: u64) core.writer.Error!void {
+    // RFC 9112 §7.1: chunk-size = 1*HEXDIG.
+    try writer.print("{x}\r\n", .{len});
 }
 
 /// `last-chunk trailer-section CRLF`, where `last-chunk = 1*("0") CRLF` (RFC 9112 §7.1, §7.1.2).
@@ -123,4 +138,10 @@ test "a chunk that does not fit is not written, and one that fits exactly is" {
     try testing.expectEqual(7, try write_chunk(test_output[0..7], "ab"));
     try testing.expectError(error.OutputTooSmall, write_last_chunk(test_output[0..4], &.{}));
     try testing.expectEqual(5, try write_last_chunk(test_output[0..5], &.{}));
+}
+
+test "RFC 9112 §7.1: a chunk's size line is its length in lowercase hex, written whole or not at all" {
+    try testing.expectEqualStrings("1a\r\n", test_output[0..try write_chunk_size(&test_output, 26)]);
+    try testing.expectEqualStrings("10000\r\n", test_output[0..try write_chunk_size(&test_output, 65_536)]);
+    try testing.expectError(error.OutputTooSmall, write_chunk_size(test_output[0..3], 26));
 }

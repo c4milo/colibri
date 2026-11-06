@@ -199,8 +199,89 @@ test "decision 95: a fixed body's octets the caller sends itself are counted, no
     try testing.expectEqual(0, try target.write_end(&test_output, &.{}));
     // RFC 9112 §6: once the body ends there is nothing to count.
     try testing.expectError(error.NoBody, target.count_body(1));
-    // RFC 9112 §7.1: a chunk needs its size line, which the caller's octets lack.
+    // RFC 9112 §7.1: a chunk needs its size line, so octets counted before a chunk head are refused.
     target = client(.{});
-    _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], .{ .name = "Transfer-Encoding", .value = "chunked" } });
-    try testing.expectError(error.BodyChunked, target.count_body(1));
+    _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
+    try testing.expectError(error.BodyTooLong, target.count_body(1));
+}
+
+const chunked_field: Field = .{ .name = "Transfer-Encoding", .value = "chunked" };
+
+/// The server that reads back what the client wrote, and the octets of the body it read.
+var test_server: Connection align(@alignOf(Connection)) = undefined;
+var test_read: [test_output_len]u8 = undefined;
+
+/// Writes a chunked POST whose body is `pieces`, each sent from the caller's memory after its chunk
+/// head and counted, and returns the octets written into `test_output`.
+fn write_pieces(target: *Connection, pieces: []const []const u8) !usize {
+    var length = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
+    for (pieces) |piece| {
+        length += try target.write_chunk_head(test_output[length..], piece.len);
+        // The caller sends the piece from its own memory, in place: here, after its head.
+        @memcpy(test_output[length..][0..piece.len], piece);
+        try target.count_body(piece.len);
+        length += piece.len;
+    }
+    return length + try target.write_end(test_output[length..], &.{});
+}
+
+/// Reads `input` with a server's h11 connection, and returns the request body it read.
+fn read_back(input: []const u8) ![]const u8 {
+    test_server.init(.server, .{});
+    var offset: usize = 0;
+    var read_len: usize = 0;
+    // Bounded: each event takes at least an octet, or ends the body.
+    for (0..input.len + 1) |_| {
+        const received = try test_server.receive(input[offset..], &.{});
+        offset += received.consumed;
+        switch (received.event orelse return error.TestBodyUnended) {
+            .request => {},
+            .data => |octets| {
+                @memcpy(test_read[read_len..][0..octets.len], octets);
+                read_len += octets.len;
+            },
+            .end => return test_read[0..read_len],
+            else => return error.TestEventUnexpected,
+        }
+    }
+    return error.TestBodyUnended;
+}
+
+test "RFC 9112 §7.1: chunk heads frame pieces the caller sends in place, and a server reads them whole" {
+    const target = client(.{});
+    // The middle piece is 26 octets long, which reads 0x1a in hex and 26 in decimal.
+    const pieces = [_][]const u8{ "first", "abcdefghijklmnopqrstuvwxyz", "end" };
+    const length = try write_pieces(target, &pieces);
+    const body = "5\r\nfirst\r\n1a\r\nabcdefghijklmnopqrstuvwxyz\r\n3\r\nend\r\n0\r\n\r\n";
+    try testing.expect(std.mem.endsWith(u8, test_output[0..length], "\r\n\r\n" ++ body));
+    try testing.expectEqualStrings("firstabcdefghijklmnopqrstuvwxyzend", try read_back(test_output[0..length]));
+    try testing.expect(!target.writer.open());
+}
+
+test "RFC 9112 §7.1: a chunk head of length 0 is refused, as is one before the last chunk's data" {
+    const target = client(.{});
+    _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
+    // A chunk-size of 0 is the last-chunk, which `write_end` writes.
+    try testing.expectError(error.ChunkEmpty, target.write_chunk_head(&test_output, 0));
+    try testing.expectEqualStrings("2\r\n", test_output[0..try target.write_chunk_head(&test_output, 2)]);
+    try testing.expectError(error.ChunkIncomplete, target.write_chunk_head(&test_output, 1));
+    try testing.expectError(error.ChunkIncomplete, target.write_end(&test_output, &.{}));
+    try testing.expectError(error.BodyTooLong, target.count_body(3));
+    // `write_body` copies more of the chunk's data, and the next head ends the chunk with CRLF.
+    try testing.expectEqual(1, try target.write_body(&test_output, "a"));
+    try target.count_body(1);
+    try testing.expectEqualStrings("\r\n1\r\n", test_output[0..try target.write_chunk_head(&test_output, 1)]);
+    // The CRLF and the head go out together, or not at all.
+    try target.count_body(1);
+    try testing.expectError(error.OutputTooSmall, target.write_chunk_head(test_output[0..4], 1));
+    try testing.expectEqualStrings("\r\n0\r\n\r\n", test_output[0..try target.write_end(&test_output, &.{})]);
+}
+
+test "RFC 9112 §6.1: a body that is not chunked takes no chunk head" {
+    const target = client(.{});
+    _ = try target.write_request(&test_output, "PUT", "/", &.{ host[0], .{ .name = "Content-Length", .value = "2" } });
+    try testing.expectError(error.BodyNotChunked, target.write_chunk_head(&test_output, 2));
+    _ = try target.write_body(&test_output, "ab");
+    _ = try target.write_end(&test_output, &.{});
+    try testing.expectError(error.NoBody, target.write_chunk_head(&test_output, 1));
 }

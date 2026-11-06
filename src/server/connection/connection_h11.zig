@@ -291,10 +291,10 @@ fn send_error(connection: *const Connection, failure: h11.connection.SendError) 
         error.NoRequest, error.BodyInProgress, error.NoBody => error.SectionOutOfOrder,
         error.ConnectionClosed => error.ConnectionClosed,
         error.TooManyFields => error.SectionTooLarge,
-        // A server writes no request line, counts no body octets it did not write, and pipelines
-        // nothing.
+        // A server writes no request line and no chunk head, and pipelines nothing.
         error.MethodInvalid, error.TargetInvalid, error.ReasonInvalid, error.HostInvalid => unreachable,
-        error.BodyChunked, error.PipelineFull, error.PipelineBlocked => unreachable,
+        error.BodyNotChunked, error.ChunkEmpty, error.ChunkIncomplete => unreachable,
+        error.PipelineFull, error.PipelineBlocked => unreachable,
     };
 }
 
