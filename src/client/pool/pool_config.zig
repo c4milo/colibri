@@ -68,12 +68,16 @@ pub const Config = struct {
     timeouts: Timeouts = .{},
 };
 
-/// Each limit on the time the client waits for what it no longer needs, or null to turn it off.
+/// Each limit on the time the client waits, or null to turn it off.
 pub const Timeouts = struct {
     /// h11 connections alone: how long a connection reads and drops a response the caller
     /// cancelled, or whose content did not fit, from the cancel or the call that found it did not
     /// fit (decision 146). When it runs out, the connection fails. 0 fails it at once.
     drop_ns: ?u64 = constants.policy.drop_timeout_ns,
+    /// How long a TCP connect may take before the attempt ends as a refused connect does
+    /// (decision 153 ruling 9). The pool opens no socket, so the program's loop bounds the
+    /// connect: `colibri.Client` passes it to Rotor. 0 ends the connect at once.
+    connect_ns: ?u64 = constants.policy.connect_timeout_ns,
 };
 
 /// Why `ConnectionPool.init`, `start_tcp` or `start_quic` refused. `init` returns every member but

@@ -26,6 +26,11 @@ const filler_wait_ns: u64 = 200_000_000;
 const freed_within_ns: u64 = 2_000_000_000;
 /// The turns a test runs at most while it waits for a slot. Each tick waits 50 ms at most.
 const turns_max = 1000;
+/// The connect deadline the test of a full backlog sets, and how long its run may last: less than
+/// the default deadline of 10 s, and far less than the system's own connect timeout.
+const connect_deadline_ns: u64 = 200_000_000;
+const deadline_watchdog_ms: u64 = 3_000;
+
 const filler_options: rotor.Loop.Options = .{ .operations = fillers_max };
 
 /// The listener, its address, and the connects that fill its backlog, with the loop that runs
@@ -212,4 +217,25 @@ test "design §8 step 42: init leaves no TCP socket live, so a run that fails at
     client_loop.end(test_client);
     // The end closed no descriptor the client does not hold.
     _ = try rotor.sync.local_address(descriptor);
+}
+
+test "decision 153 ruling 9: a connect past its deadline ends the exchange refused" {
+    try unanswered.fill();
+    defer unanswered.release();
+    var counter: support.Counter = .{};
+    var pool = fixture.pool_config(.{ .h2 = false }, false);
+    pool.protocols.h3 = false;
+    pool.timeouts.connect_ns = connect_deadline_ns;
+    try test_client.init(.{ .host = "127.0.0.1", .port = unanswered.address.port, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds });
+    defer test_client.deinit();
+    var handler: fixture.Handler = .{};
+    try handler.request(1);
+    test_client.shutdown();
+    // The listener's backlog is full, so the system answers no connect. Rotor cancels the connect
+    // at its deadline, and the run returns before the watchdog halts the test.
+    try fixture.run_within(&handler, deadline_watchdog_ms);
+    try testing.expectEqual(1, handler.finished);
+    // The connection never started, so no request was written: the pool may send it again.
+    try testing.expectEqual(client.Result.refused, handler.exchanges[0].response.result);
+    try testing.expectEqual(null, handler.connected);
 }

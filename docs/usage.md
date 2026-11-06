@@ -268,6 +268,10 @@ the UDP socket when `run` did not close it.
   each chain's dates at it, plus the time the loop has run since (RFC 5280 §4.1.2.5). A trust in
   pins judges no date.
 
+The pool's `timeouts.connect_ns` bounds each TCP connect, 10 s by default. A connect that does
+not complete in that time ends its attempt as a refused connect does, and null turns the limit
+off.
+
 ## The server
 
 The `server` module answers requests behind one set of calls, whichever version the connection

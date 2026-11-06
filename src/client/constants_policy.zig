@@ -41,6 +41,11 @@ pub const fallback_delay_ns_default: u64 = 250 * quic.constants.nanoseconds_per_
 /// docs/rfcs gives a value.
 pub const drop_timeout_ns: u64 = 50 * quic.constants.nanoseconds_per_millisecond;
 
+/// How long a TCP connect may take, unless the caller names another limit, in nanoseconds: 10 s
+/// (decision 153 ruling 9). No RFC in docs/rfcs gives a value. The system's own limit is about 75 s
+/// on macOS and 127 s on Linux.
+pub const connect_timeout_ns: u64 = 10 * constants.nanoseconds_per_second;
+
 comptime {
     // A margin shorter than the idle timeout the client advertises leaves the connection time to
     // work in.
@@ -51,4 +56,6 @@ comptime {
     // A drop of zero would close the connection at every cancel, which `Timeouts.drop_ns` of 0
     // says when a program wants it.
     assert(drop_timeout_ns > 0);
+    // A connect limit of zero would end every connect at once.
+    assert(connect_timeout_ns > 0);
 }

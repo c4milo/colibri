@@ -77,9 +77,18 @@ fn connect(state: anytype, slot: usize, asked: client.Open) void {
     rotor.sync.set_no_delay(descriptor, true) catch {};
     state.sockets[slot].open(descriptor);
     connection.connecting = true;
-    const operation = rotor.Operation.connect(socket_module.user_data(slot, .connect), descriptor, &connection.address);
+    var operation = rotor.Operation.connect(socket_module.user_data(slot, .connect), descriptor, &connection.address);
+    // Rotor cancels a connect whose deadline passes first, and `on_connected` ends the attempt.
+    operation.timeout_ns = connect_timeout_ns(state.pool_config.timeouts.connect_ns);
     const taken = state.loop.submit(&.{operation}, &.{});
     assert(taken == 1);
+}
+
+/// The deadline Rotor gives a connect: `connect_ns`, or 0, Rotor's none, for no limit. A limit of 0
+/// ends the connect at once, so it becomes Rotor's least deadline.
+fn connect_timeout_ns(connect_ns: ?u64) u64 {
+    const limit_ns = connect_ns orelse return 0;
+    return @max(limit_ns, 1);
 }
 
 /// The pool is done with a connection: its socket sends what it owes and closes. The pool reads
@@ -128,7 +137,8 @@ pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
 }
 
 /// Starts the pool's connection on a socket whose connect succeeded. A connect that failed ends
-/// the attempt, and so does a start the TLS stack refuses: the pool owes no `close` for a
+/// the attempt, whether the peer refused it or its deadline passed (Rotor's `timeout`), and so does
+/// a start the TLS stack refuses: the pool owes no `close` for a
 /// connection that never started, so the socket closes here.
 fn on_connected(state: anytype, slot: usize, event: rotor.Event, now_ns: u64) void {
     const connection = &state.connections[slot];
@@ -241,4 +251,11 @@ comptime {
     // Decision 124: the socket holds what the pool needs of a TCP connection's input and output.
     assert(constants.limits.socket_input_len >= client.constants.limits.stream_input_len_min);
     assert(constants.limits.socket_output_len >= client.constants.limits.stream_output_len_min);
+}
+
+test "decision 153 ruling 9: a connect's deadline is the pool's limit, none for null, and at once for 0" {
+    try std.testing.expectEqual(10_000_000_000, connect_timeout_ns(client.constants.policy.connect_timeout_ns));
+    // Rotor reads a deadline of 0 as none.
+    try std.testing.expectEqual(0, connect_timeout_ns(null));
+    try std.testing.expectEqual(1, connect_timeout_ns(0));
 }
