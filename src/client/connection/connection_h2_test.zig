@@ -118,9 +118,12 @@ test "RFC 9113 §6.4: content past the caller's memory ends the exchange, and CA
     try support.pump_h2();
     // The content does not end the stream, so more of it would follow.
     support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
-    support.to_client_len += (try support.peer_h2.write_data(support.to_client[support.to_client_len..], 1, "hello", false)).written;
+    support.to_client_len += (try support.peer_h2.write_data(support.to_client[support.to_client_len..], 1, "he", false)).written;
+    support.to_client_len += (try support.peer_h2.write_data(support.to_client[support.to_client_len..], 1, "llo", false)).written;
     try support.client_receive();
     try testing.expectEqual(.too_large, exchange.response.result);
+    // Decision 153 ruling 13: the first frame fits, and its octets stay in the caller's memory.
+    try testing.expectEqualStrings("he", exchange.response.body[0..exchange.response.body_len]);
     support.peer_events_len = 0;
     try support.pump_h2();
     const reset = for (support.peer_events[0..support.peer_events_len]) |peer_event| {

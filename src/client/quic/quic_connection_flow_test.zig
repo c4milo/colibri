@@ -72,6 +72,34 @@ test "RFC 9114 §4.1.1: a cancelled exchange's stream is reset, and no event rep
 var upload: [upload_len]u8 = undefined;
 const upload_len: usize = 600_000;
 
+/// A response body larger than one read of h3's buffer and smaller than `long_answer_len`, so
+/// the first reads fit and a later one does not. Test-only.
+var partial_body: [partial_body_len]u8 = undefined;
+const partial_body_len: usize = 20_000;
+const long_answer_len: usize = 40_000;
+
+test "decision 153 ruling 13: content that ends too_large keeps the octets that fit in the caller's memory" {
+    try support.start(&support.alpn_h3, &support.alpn_h3, false);
+    // Each octet differs from the one before it, so octets kept from the wrong offset differ.
+    for (upload[0..long_answer_len], 0..) |*octet, index| octet.* = @truncate(index);
+    support.answer_content = upload[0..long_answer_len];
+    // Issue 106: a content-length past the caller's memory ends the exchange at the head, so the
+    // answer names none.
+    support.answer_unsized = true;
+    support.answer_open = true;
+    var exchange = get(&partial_body);
+    _ = try connection.request(&exchange.request, &exchange.response);
+    // Bounded: the congestion window lets the content pass the body after a few round trips.
+    for (0..closing_rounds) |_| {
+        if (exchange.response.result != .pending) break;
+        try support.pump(1);
+    }
+    try testing.expectEqual(.too_large, exchange.response.result);
+    const kept = exchange.response.body_len;
+    try testing.expect(kept > 0);
+    try testing.expectEqualSlices(u8, upload[0..kept], partial_body[0..kept]);
+}
+
 test "RFC 9114 §4.1.1: a cancel after the response resets the stream still sending the content" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_early = true;
