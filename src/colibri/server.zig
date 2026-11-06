@@ -133,8 +133,9 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         /// It does not close a socket that `run` closed: the system can give that number to
         /// another file of the program.
         pub fn deinit(self: *Self) void {
+            // `init` sets the source on each path, before any step that can fail.
+            assert(self.config.random != null);
             close_sockets(self);
-            assert(!self.listener_open and !self.udp_open);
             wipe_keys(self);
         }
 
