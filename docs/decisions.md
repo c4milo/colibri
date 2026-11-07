@@ -6497,6 +6497,22 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Ruling 15 pinned the Rotor tag that carries decisions 26 to 29.
      - The third amendment keeps the names of its day, `reserve_group` and `error.GroupsFull`.
 
+     Amended a sixth time by the owner on 2026-11-07, on the scheduling group of colibri's task:
+     1. The configuration of `.shared` gains the field `scheduling_group`, with a default of
+        `.default`. A program that uses no groups writes nothing new.
+     2. The field is a `rotor.NamedSchedulingGroup`, as Rotor's own example of its decision 30
+        passes a library. Rotor marks the named groups "not ruled", so step 44d waits for Rotor's
+        ruling on them.
+     3. `Client` and `Server` both take the field on `.shared`. `Server` holds no task today, so
+        a task that it adds later breaks no configuration. On `.private`, colibri names
+        `.default`, and its configuration has no such field.
+
+     Alternatives that lost the sixth amendment:
+     - A field with no default. Each program would name `.default` to say nothing.
+     - A `rotor.SchedulingGroup`, which needs no Rotor ruling first. The owner chose the type that
+       Rotor's example gives a library.
+     - The field on `Client` alone. A task in `Server` would then break its configuration.
+
      Alternatives that lost:
      - Tags in `user_data`, with `LoopIds` and `Host`, in the first draft of this decision. Each
        library needs an agreed range of bits. A wrong tag takes another library's events with no

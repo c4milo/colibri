@@ -13969,9 +13969,9 @@ library.
         registry: colibri's private loop, `src/testing/` and `tools/consumer/` make none.
       - No program in colibri's tree declares `rotor_scheduling_groups`. A program declares it only
         to name a group by name (Rotor's decision 30, which marks the named groups "not ruled").
-        If the owner's answer to open question 2 gives colibri a `rotor.NamedSchedulingGroup`,
-        `examples/colibri_shared_loop.zig` can pass
-        `.default` with no declaration, or declare a name.
+        colibri takes a `rotor.NamedSchedulingGroup` (the owner's rulings below), so
+        `examples/colibri_shared_loop.zig` can keep the default `.default` with no declaration,
+        or declare a name.
     - Decision 32 changes no colibri call: colibri makes no cross-core call. Its post room of 224
       and its `message_tag_max` of `0x7fff_effd` apply to `examples/link.zig`, which posts tag 1.
       `zig build examples` shows whether the lower room changes a result.
@@ -14083,20 +14083,14 @@ library.
     `tools/doc_snippets.sh` and `tools/consumer_check.sh`, `zig build colibri-loop-check`, and
     the bench of 44c on the judge.
     The branch goes to main once, after 44j.
-  - **Open questions for the owner.** Rotor's records leave these colibri choices open (decision
-    156, fifth amendment). This entry decides none of them.
-    1. The scheduling group of colibri's task. Rotor's decision 30 has the program give each
-       library its group at `init`, and `rotor.SharedLoop` refuses `schedule`. Which field of the
-       `.shared` configuration carries the group, and does it have a default of `.default`?
-    2. The type of that field. Rotor's decision 30 gives a library that makes no cross-core call a
-       `rotor.SchedulingGroup`, and one that makes calls a `rotor.NamedSchedulingGroup`. colibri
-       makes no call. Rotor's own example passes colibri a `NamedSchedulingGroup`.
-    3. The group on `.private`. colibri owns the loop, and still schedules through its
-       `*rotor.SharedLoop`. Does it name `.default`, or reserve a group of its own?
-    4. The server holds no task today. Does `Server`'s configuration take a group too, as Rotor's
-       example of decision 30 shows?
-    5. Rotor's decisions 30 and 32 mark their named groups "not ruled". Does step 44d wait for
-       Rotor's ruling on them, or build on `rotor.SchedulingGroup` alone?
+  - **The owner's rulings of 2026-11-07 (decision 156, sixth amendment).** They answer the
+    questions that Rotor's records left open.
+    1. The configuration of `.shared`, for `Client` and for `Server`, gains
+       `scheduling_group: rotor.NamedSchedulingGroup = .default`. colibri's task calls
+       `schedule_in` with it.
+    2. On `.private`, colibri names `.default`, and the configuration has no such field.
+    3. Rotor marks its named groups "not ruled", so 44d waits for Rotor's ruling on them. 44a to
+       44c do not wait.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
