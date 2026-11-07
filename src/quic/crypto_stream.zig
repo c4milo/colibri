@@ -53,7 +53,8 @@ pub const CryptoStream = struct {
     /// carries (RFC 9000 §19.6). The two directions are separate flows at one level, so the
     /// sending side sits beside the receiving window rather than in a struct of its own.
     sent_len: u64,
-    /// The stream offset of `send_buffer[0]`: octets below it were framed and then forgotten.
+    /// The stream offset of `send_buffer[0]`: the peer acknowledged every octet below it, and the
+    /// window forgot them (`forget_acknowledged`).
     send_base: u64,
     /// Octets the provider has produced at this level, as an offset in the same flow.
     produced_len: u64,
@@ -81,10 +82,9 @@ pub const CryptoStream = struct {
         return stream.base + stream.contiguous;
     }
 
-    /// Where the provider may write more of this level's flow. Empty when everything produced is
-    /// still waiting to be framed, which is the window doing its job.
+    /// Where the provider may write more of this level's flow. Empty when the window holds only
+    /// octets the peer may still need, which is the window doing its job.
     pub fn send_room(stream: *CryptoStream) []u8 {
-        stream.forget_framed();
         const held: usize = @intCast(stream.produced_len - stream.send_base);
         return stream.send_buffer[held..];
     }
@@ -114,7 +114,7 @@ pub const CryptoStream = struct {
     /// Whether this level's flow can be sent again from offset 0, which RFC 9000 §17.2.5.3 asks
     /// of a client after a Retry: "A client MUST use the same cryptographic handshake message it
     /// included in this packet." False when the window no longer reaches 0, which is a flight
-    /// larger than it.
+    /// larger than it whose first octets the peer acknowledged.
     pub fn can_rewind(stream: *const CryptoStream) bool {
         return stream.send_base == 0;
     }
@@ -123,9 +123,9 @@ pub const CryptoStream = struct {
     /// [QUIC-RECOVERY], until all data has been acknowledged." A packet that carried octets from
     /// `offset` was declared lost, so the flow is framed again from there.
     ///
-    /// Answers false when the window no longer reaches that far, which is a flight longer than it
-    /// whose early octets were forgotten. §13.3 has no answer for that and the caller ends the
-    /// connection; a handshake that fits the window never meets it.
+    /// Answers false when the window no longer reaches that far. `forget_acknowledged` forgets
+    /// only octets the peer acknowledged, so a packet in flight never carried one, and false is a
+    /// broken window. §13.3 has no answer for that and the caller ends the connection.
     pub fn on_lost(stream: *CryptoStream, offset: u64) bool {
         if (offset < stream.send_base) return false;
         // Octets already being sent again from a lower offset cover this one. §13.3 permits
@@ -145,17 +145,31 @@ pub const CryptoStream = struct {
         assert(stream.unsent().len == stream.produced_len);
     }
 
-    /// Forgets the octets already framed, and only when the window has no room left. RFC 9000
-    /// §13.3's retransmission and §17.2.5.3's repeat can reach only what the window still holds,
-    /// so this runs as late as it can and a flight that fits is never forgotten.
-    fn forget_framed(stream: *CryptoStream) void {
-        if (stream.produced_len - stream.send_base < stream.send_buffer.len) return;
-        const forget: usize = @intCast(stream.sent_len - stream.send_base);
+    /// Whether the window holds a whole buffer, so `send_room` is empty until
+    /// `forget_acknowledged` forgets octets.
+    pub fn send_full(stream: *const CryptoStream) bool {
+        return stream.produced_len - stream.send_base == stream.send_buffer.len;
+    }
+
+    /// Forgets the octets the peer acknowledged, and only when the window has no room left.
+    /// `in_flight_from` is the lowest Offset of a CRYPTO frame at this level in a packet still in
+    /// flight, or `sent_len` when no such packet is. RFC 9000 §13.3 sends CRYPTO data again
+    /// "until all data has been acknowledged", so an octet at or above either mark stays. An
+    /// octet below both went out in a packet the peer acknowledged: a lost packet moved
+    /// `sent_len` down to its own Offset (`on_lost`). §13.3's retransmission and §17.2.5.3's
+    /// repeat read only what the window holds, so a flight that fits is never forgotten.
+    pub fn forget_acknowledged(stream: *CryptoStream, in_flight_from: u64) void {
+        if (!stream.send_full()) return;
+        const keep_from = @min(in_flight_from, stream.sent_len);
+        // A packet in flight carries no octet the window forgot, which is what `on_lost` needs.
+        assert(keep_from >= stream.send_base);
+        const forget: usize = @intCast(keep_from - stream.send_base);
         if (forget == 0) return;
-        const kept: usize = @intCast(stream.produced_len - stream.sent_len);
+        const kept: usize = @intCast(stream.produced_len - keep_from);
         std.mem.copyForwards(u8, stream.send_buffer[0..kept], stream.send_buffer[forget..][0..kept]);
-        stream.send_base = stream.sent_len;
-        assert(stream.unsent().len == kept);
+        stream.send_base = keep_from;
+        assert(stream.produced_len - stream.send_base == kept);
+        assert(stream.sent_len >= stream.send_base);
     }
 
     /// Takes one CRYPTO frame's octets. Data already read is dropped, data that overlaps what is

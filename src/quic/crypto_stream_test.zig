@@ -259,22 +259,50 @@ test "RFC 9000 §17.2.5.3: a flight that fits is not forgotten when more room is
     try testing.expectEqual(short_len, test_stream.unsent().len);
 }
 
-test "RFC 9000 §13.3: a flight larger than the window forgets only what it has framed" {
+test "RFC 9000 §13.3: a flight larger than the window forgets only what the peer acknowledged" {
+    const window = constants.limits.crypto_send_buffer_len;
     test_stream.init();
     // Fill the window and frame all of it, which is the only state that may forget anything.
-    produce(&test_stream, first_octet, constants.limits.crypto_send_buffer_len);
+    produce(&test_stream, first_octet, window);
     try testing.expectEqual(0, test_stream.send_room().len);
-    try testing.expect(test_stream.can_rewind());
-    test_stream.framed(constants.limits.crypto_send_buffer_len);
+    try testing.expect(test_stream.send_full());
+    test_stream.framed(window);
 
-    // Asking for room is what forgets, and only then.
-    try testing.expectEqual(constants.limits.crypto_send_buffer_len, test_stream.send_room().len);
+    // A packet in flight from `part_len` keeps its octets: §13.3 may send them again.
+    test_stream.forget_acknowledged(part_len);
+    try testing.expectEqual(part_len, test_stream.send_room().len);
     try testing.expect(!test_stream.can_rewind());
-    produce(&test_stream, second_octet, short_len);
+    try testing.expect(test_stream.on_lost(part_len));
+    try testing.expectEqual(window - part_len, test_stream.unsent().len);
+    try testing.expectEqual(first_octet, test_stream.unsent()[0]);
+    test_stream.framed(window - part_len);
+    produce(&test_stream, second_octet, part_len);
+
+    // A lost packet moved `sent_len` below a later packet in flight, and its octets stay.
+    try testing.expect(test_stream.on_lost(short_len));
+    test_stream.forget_acknowledged(short_len + part_len);
+    try testing.expectEqual(short_len - part_len, test_stream.send_room().len);
+    try testing.expectEqual(window + part_len - short_len, test_stream.unsent().len);
+    test_stream.framed(window + part_len - short_len);
+    produce(&test_stream, second_octet, short_len - part_len);
+
+    // With no packet in flight, the peer acknowledged every octet framed.
+    test_stream.forget_acknowledged(test_stream.sent_len);
+    try testing.expectEqual(window - (short_len - part_len), test_stream.send_room().len);
     // The flow carries on at the offset it reached: §19.6 numbers the octets, not the window.
-    try testing.expectEqual(constants.limits.crypto_send_buffer_len, test_stream.sent_len);
-    try testing.expectEqual(short_len, test_stream.unsent().len);
+    try testing.expectEqual(window + part_len, test_stream.sent_len);
+    try testing.expectEqual(short_len - part_len, test_stream.unsent().len);
     try testing.expectEqual(second_octet, test_stream.unsent()[0]);
+}
+
+test "RFC 9000 §13.3: a window with room forgets nothing, whatever the peer acknowledged" {
+    test_stream.init();
+    produce(&test_stream, first_octet, short_len);
+    test_stream.framed(short_len);
+    test_stream.forget_acknowledged(short_len);
+    try testing.expect(!test_stream.send_full());
+    try testing.expect(test_stream.can_rewind());
+    try testing.expectEqual(constants.limits.crypto_send_buffer_len - short_len, test_stream.send_room().len);
 }
 
 /// A server's Handshake flight with the QUIC Interop Runner's nine-certificate chain, which RFC

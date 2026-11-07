@@ -24,6 +24,7 @@ const transport_parameters = @import("../transport_parameters.zig");
 const transport_parameters_read = @import("../transport_parameters_read.zig");
 const connection_module = @import("connection.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
+const space_module = @import("../space/space.zig");
 const identity_module = @import("connection_identity.zig");
 const connection_version = @import("connection_version.zig");
 
@@ -146,6 +147,7 @@ pub fn write_crypto(
     const stream = connection_module.crypto_at(connection, level);
     // The provider gives its octets up once, so they go into the level's own window before they
     // go into a packet: RFC 9000 §13.3 retransmits them and §17.2.5.3 repeats them after a Retry.
+    if (stream.send_full()) stream.forget_acknowledged(lowest_in_flight(connection, level) orelse stream.sent_len);
     const room = stream.send_room();
     if (room.len > 0) {
         const produced = provider.write_handshake(level, room) catch |failure|
@@ -170,12 +172,28 @@ pub fn write_crypto(
     };
 }
 
+/// The lowest Offset of a CRYPTO frame at `level` in a packet still in flight, or null when no
+/// such packet is. RFC 9000 §13.3 sends CRYPTO data again "until all data has been acknowledged",
+/// so the peer may still need each octet from here up.
+fn lowest_in_flight(connection: *Connection, level: Level) ?u64 {
+    const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
+    var lowest: ?u64 = null;
+    var records = connection.recovery.table_of(kind).iterator();
+    // Bounded by the table, which `constants.limits.sent_packets_max` sizes.
+    while (records.next()) |record| {
+        if (record.carries != .crypto) continue;
+        lowest = @min(lowest orelse record.data_offset, record.data_offset);
+    }
+    return lowest;
+}
+
 /// What a lost flight amounted to (RFC 9000 §13.3).
 pub const Lost = struct {
     /// How many of the lost packets carried CRYPTO octets, which is what will be framed again.
     packets: usize = 0,
-    /// Whether any of them sat below the level's send window, so its octets are gone. §13.3 has
-    /// no answer for that: the handshake cannot go on, and the caller ends the connection.
+    /// Whether any of them sat below the level's send window, so its octets are gone. The window
+    /// forgets only what the peer acknowledged, so this is a broken window. §13.3 has no answer
+    /// for that: the handshake cannot go on, and the caller ends the connection.
     forgotten: bool = false,
 };
 
@@ -214,8 +232,8 @@ fn repeat_for_probe(connection: *Connection, level: Level) void {
     const at = @intFromEnum(level);
     if (connection.probes_owed[at] == 0) return;
     const from = connection.crypto_probe_from[at] orelse return;
-    // A window that has already forgotten those octets, which only a flight longer than the
-    // window leads to, leaves the second probe a PING, as it was before.
+    // A window that has already forgotten those octets, because the peer acknowledged them,
+    // leaves the second probe a PING, as it was before.
     _ = connection_module.crypto_at(connection, level).on_lost(from);
 }
 
@@ -290,4 +308,5 @@ fn provider_failure(connection: *Connection, provider: tls_provider.QuicProvider
 
 test {
     _ = @import("connection_crypto_test.zig");
+    _ = @import("connection_crypto_window_test.zig");
 }

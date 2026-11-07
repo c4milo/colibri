@@ -100,9 +100,9 @@ pub const stream_window_reserve_windows: u64 = 1;
 
 /// Octets of its own handshake flow colibri keeps per encryption level, so a CRYPTO frame can be
 /// written again under a new packet number (RFC 9000 §13.3) and a client can repeat its first
-/// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it. Decision 64 has a PTO at a
-/// handshake level send that level's whole flight again, so a flight longer than this loses its
-/// early octets and closes the connection. 16 KiB holds a server's Handshake flight with a
+/// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it. The window forgets only
+/// octets the peer acknowledged, so a flight longer than this waits for acknowledgments before
+/// its last octets go out (design §8 step 33e). 16 KiB holds a server's Handshake flight with a
 /// 10 KB certificate chain, the one the QUIC Interop Runner's amplification case sends. Three
 /// levels of it sit in every connection, which `Connection` pays for once.
 pub const crypto_send_buffer_len: usize = 16 * 1024;

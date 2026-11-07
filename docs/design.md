@@ -12850,6 +12850,33 @@ library.
       modulus, or copying no private key; a repeated RSA identity allowed; the modulus cut short;
       the RSA slot never set; and `tls-accept` ignoring `rsa=`, which `tools/tls_openssl.sh`
       caught.
+  - **33e, a send window anchored at acknowledgments, 2026-11-06.** GitHub CI run 42315963013
+    failed `tools/tls_openssl.sh`: over QUIC, the case `X25519MLKEM768:MLKEM1024` with the
+    ML-DSA-87 identity did not finish in 10 s. The UDP server stopped with `a deadline failed:
+    CryptoForgotten`. In a Linux arm64 container this happened once in about 58 runs.
+    - **The cause.** The ML-DSA-87 Handshake flight is about 20,000 octets, which is more than
+      `crypto_send_buffer_len`. When its window was full, `CryptoStream.send_room` forgot every
+      octet already framed, whether the peer acknowledged it or not. A PTO before the client's
+      first ACK then declared every Handshake packet lost (decision 64), the first one included.
+      Its octets were no longer in the window, so `on_lost` returned false and the connection
+      closed. RFC 9000 §13.3 sends CRYPTO data again "until all data has been acknowledged".
+    - **The change.** This is the anchor that the entry of `fd97a12` above planned. When the
+      window is full, `connection_crypto.write_crypto` finds the lowest Offset of a CRYPTO frame
+      in a packet still in flight at the level. `CryptoStream.forget_acknowledged` forgets only
+      octets below that Offset and below `sent_len`, and asserts that no packet in flight holds a
+      forgotten octet (INV-29). A flight longer than the window now waits for acknowledgments
+      before its last octets go out. `crypto_send_buffer_len` does not change.
+    - **The checks.** `connection_crypto_window_test.zig` sends a 20,000-octet flight through
+      `write_crypto`. A PTO before any ACK must send it again from offset 0, which failed with
+      `CryptoForgotten` before the change. An ACK must free the window, so the rest of a
+      40,000-octet flight goes out.
+    - **Check met, 2026-11-06,** in an Ubuntu 26.04 arm64 container with OpenSSL 3.5.5: one UDP
+      server took 300 runs of the case that failed, with 0 stalls and at most 831 ms a run.
+    - 7 mutations, each **CAUGHT** by `zig build test-quic`: the old window that forgot what it
+      framed; `sent_len` ignored; no record read as CRYPTO; nothing forgotten with no packet in
+      flight; nothing forgotten at all; octets forgotten while the window has room; and the
+      highest Offset in flight in place of the lowest. `zig build test-sim-run-quic` caught none of
+      them, because the null provider's flights fit the window.
 
 - **Step 34 — NewReno beside CUBIC and BBRv3.** [Decision 133](decisions.md) as amended on
   2026-11-04 adds RFC 9002's own NewReno (§7.3 and Appendix B) as a third controller, never the

@@ -411,12 +411,16 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   acknowledgment of a packet already declared lost finds nothing to count. A probe carries new
   octets or a PING and never a stream range already in flight (RFC 9002 §6.2.4 permits either).
   CRYPTO octets are not stream octets and keep no acknowledged count: at the Initial and
-  Handshake levels the second probe repeats the first one's (decision 64 as amended).
+  Handshake levels the second probe repeats the first one's (decision 64 as amended). A CRYPTO
+  octet that a packet in flight carried stays in its level's send window, because the window
+  forgets only octets the peer acknowledged (design §8 step 33e).
   [Decision 57](decisions.md#the-h2-connection) is why colibri resends exact ranges rather than
   rewinding a stream, which would put an octet in two packets at once.
 - **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count
   never passes the framed offset, and `acknowledged_end` (decision 78) asserts that its answer,
-  read off the packets in flight and the lost table, never passes that count. A simulator invariant that each stream's acknowledged count
+  read off the packets in flight and the lost table, never passes that count.
+  `CryptoStream.forget_acknowledged` asserts that the lowest Offset in flight is at or above the
+  window's `send_base`. A simulator invariant that each stream's acknowledged count
   equals its final size at "Data Recvd" lands with the QUIC connection check (design §8 step 9e,
   piece 10). Step 9e.
 - **Violation.** A probe that resends octets still in flight, or a rewind to the lowest lost
