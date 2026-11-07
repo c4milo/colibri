@@ -59,18 +59,18 @@ var receive_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.st
 
 /// A pool offering every version over TLS, QUIC first, with a receive pool, whose QUIC server
 /// selects from `server_protocols`.
-pub fn start(server_protocols: []const []const u8, values: pool_module.Destination, quic_first: bool) !void {
-    try start_configured(server_protocols, values, configured(quic_first), receive_pool.storage());
+pub fn start(server_protocols: []const []const u8, values: pool_module.Destination, quic_unadvertised: bool) !void {
+    try start_configured(server_protocols, values, configured(quic_unadvertised), receive_pool.storage());
 }
 
 /// The configuration `start` gives its pool, which a test changes before `start_configured`. It
 /// asks for QUIC first (decision 117 as amended), as every pool did before step 43.
-pub fn configured(quic_first: bool) pool_module.Config {
+pub fn configured(quic_unadvertised: bool) pool_module.Config {
     return .{
         .tls = tls_support.client_values(support.authority),
         .protocols = .{ .prefer = .quic },
         .authority = support.authority,
-        .quic_first = quic_first,
+        .quic_unadvertised = quic_unadvertised,
         .fallback_delay_ns = fallback_delay_ns,
     };
 }

@@ -47,7 +47,7 @@ pub const Config = struct {
     /// Whether the pool may open QUIC when neither an HTTPS record nor Alt-Svc says whether the
     /// origin speaks h3 (RFC 9114 §3.1). When false, QUIC waits for a TCP response's Alt-Svc.
     /// `protocols.prefer` says which transport opens first.
-    quic_first: bool = true,
+    quic_unadvertised: bool = true,
     /// How long QUIC's handshake runs before TCP opens beside it, in nanoseconds, under
     /// `protocols.prefer = .quic`.
     fallback_delay_ns: u64 = constants.policy.fallback_delay_ns_default,

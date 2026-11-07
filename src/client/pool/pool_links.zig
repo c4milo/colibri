@@ -182,7 +182,7 @@ pub fn quic_allowed(pool: anytype, now_ns: u64) bool {
     if (fresh_alternative(pool, now_ns)) |_| return true;
     // RFC 9460 §7.1.2: a client uses the transports of the protocols the record names.
     if (pool.values.https_record) |https| return https.h3;
-    return pool.config.quic_first;
+    return pool.config.quic_unadvertised;
 }
 
 /// The Alt-Svc alternative, while it is fresh (RFC 7838 §2.2).

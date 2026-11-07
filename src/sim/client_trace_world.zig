@@ -150,7 +150,7 @@ pub const World = struct {
                 .tcp => .tcp,
             } },
             .authority = identity.authority,
-            .quic_first = world.plan.policy == .first,
+            .quic_unadvertised = world.plan.policy == .first,
             .fallback_delay_ns = limits.fallback_delay_ns,
         };
         try world.quic_server.configure(&world.plan);

@@ -1363,7 +1363,7 @@ The events:
   interface a link-local IPv6 address (fe80::/10) is reached through, which the program puts in
   the socket address's `sin6_scope_id`. A program turns Nagle's algorithm off on each TCP socket it connects, with
   `TCP_NODELAY`, as a server does on each socket it accepts, so a small request leaves at once. Each later call and event about the connection names that handle. QUIC may open when the origin
-  is known to speak h3, or when `Config.quic_first` says to try it. Under `protocols.prefer =
+  is known to speak h3, or when `Config.quic_unadvertised` says to try it. Under `protocols.prefer =
   .tcp`, the default, TCP opens first and QUIC opens once TCP fails. Under `.quic`, QUIC opens
   first, and TCP opens when QUIC fails or `fallback_delay_ns` passes. The first connection whose
   handshake completes takes the exchanges.
