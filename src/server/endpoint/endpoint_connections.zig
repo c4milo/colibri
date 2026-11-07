@@ -169,7 +169,7 @@ pub const Connections = struct {
         const retry = held.config.retry orelse return held.start(long.version, long.dcid, long.scid, null, from, now_ns);
         var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
         const address = endpoint_stateless.token_address(from, &address_storage);
-        return switch (quic.connection_retry.verify_token(retry.suite(), long.version, address, long.token, long.dcid, now_ns)) {
+        return switch (quic.retry.verify_token(retry.suite(), long.version, address, long.token, long.dcid, now_ns)) {
             .absent => blk: {
                 if (!held.retry_owed()) break :blk held.start(long.version, long.dcid, long.scid, null, from, now_ns);
                 held.owe_retry(retry, long, address, from, now_ns);
@@ -200,7 +200,7 @@ pub const Connections = struct {
         held.random.bytes(&source);
         var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
         var packet: [quic.constants.protocol.datagram_len_min]u8 = undefined;
-        const answered = quic.connection_retry.answer(retry.suite(), .{
+        const answered = quic.retry.answer(retry.suite(), .{
             .version = long.version,
             .client_source = long.scid,
             .original_destination = long.dcid,
@@ -267,7 +267,7 @@ pub const Connections = struct {
         const transport = &connection.transport;
         const peer = transport.path.address;
         if (transport.recovery.careful_resume.retreated) resumes.drop(peer);
-        resumes.put(peer, quic.connection_resume.observe(transport, now_ns), now_ns);
+        resumes.put(peer, quic.Connection.resume_state(transport, now_ns), now_ns);
     }
 
     /// Frees the table entries of the IDs the connection in `slot` issued, whose slot is released

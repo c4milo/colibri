@@ -48,7 +48,7 @@ fn post_holding() !*support.Fetch {
 
 /// The client sends `fetch`'s content up to its first `len` octets.
 fn send_content(fetch: *const support.Fetch, len: usize) !void {
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len + len, false);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len + len, false);
 }
 
 /// The instant the wait for `fetch`'s body started at.
@@ -306,7 +306,7 @@ test "decision 110: a body ended by trailers, by its client's end after the resp
     try connection.respond(fetch.id, .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, connection.bodies.waiting);
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, true);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, true);
     try support.pump(rounds_few);
     try testing.expectEqual(0, connection.bodies.waiting);
 }

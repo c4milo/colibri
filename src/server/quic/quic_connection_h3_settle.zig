@@ -15,7 +15,7 @@ const resets = @import("quic_connection_resets.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const end = quic_connection_h3.end;
 const finish_if_drained = quic_connection_h3.finish_if_drained;
 
@@ -55,7 +55,7 @@ pub fn settle_changed(connection: *QuicConnection) void {
 /// The live stream of `record`, or null once it closed. The first lookup that finds it keeps its
 /// slot, and each later one reads that slot alone: a slot that no longer holds the identifier
 /// says the stream closed, where a lookup would scan every slot to say so (design §8 step 29d.11).
-fn live_stream(connection: *QuicConnection, record: *Request) ?*quic.stream.Stream {
+fn live_stream(connection: *QuicConnection, record: *Request) ?*quic.Stream {
     const streams = &connection.transport.streams;
     if (record.stream_slot) |slot| {
         if (!streams.pool.holds(slot, record.stream_id)) return null;
@@ -108,7 +108,7 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
 
 /// Drops the runs of `record`'s response that the peer acknowledged.
 fn release(connection: *QuicConnection, record: *Request, id: StreamId) void {
-    const acknowledged = quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, id) orelse return;
+    const acknowledged = quic.Connection.acknowledged_end(&connection.transport, id) orelse return;
     const freed = record.response.release_below(@min(acknowledged, record.response.end));
     // A coded response's runs are its ring's, which frees what the peer acknowledged.
     if (record.coded) |*coded| coded.ring.free(freed);

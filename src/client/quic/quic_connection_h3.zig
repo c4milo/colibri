@@ -196,7 +196,7 @@ pub fn note_heads(connection: *QuicConnection) void {
 /// and its length.
 fn headers_first(connection: *QuicConnection, stream_id: u64) bool {
     var window: [h3.constants.protocol.frame_header_len_max]u8 = undefined;
-    const peeked = quic.connection_stream_read.peek(&connection.transport, .{ .value = stream_id }, &window) catch return false;
+    const peeked = quic.Connection.peek(&connection.transport, .{ .value = stream_id }, &window) catch return false;
     var reader = h3.core.Reader.init(window[0..peeked.len]);
     const frame_type = h3.wire.varint.decode(&reader) catch return false;
     _ = h3.wire.varint.decode(&reader) catch return false;

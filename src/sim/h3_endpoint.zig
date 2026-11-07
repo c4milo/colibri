@@ -194,7 +194,7 @@ pub const Endpoint = struct {
             try endpoint.h3.write_trailers(&endpoint.transport.connection, id, &endpoint.section, &suffix, endpoint.now_ns);
             kept.suffix_len = suffix.written().len;
         }
-        try quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len(), true);
+        try quic.Connection.supply(&endpoint.transport.connection, .{ .value = id }, kept.len(), true);
     }
 
     fn on_event(endpoint: *Endpoint, event: h3.Connection.Event) Error!void {
@@ -340,7 +340,7 @@ fn parameters() quic.transport_parameters.Parameters {
     return held;
 }
 
-const kept_vtable: quic.stream.stream_provider.VTable = .{ .read = read_kept };
+const kept_vtable: quic.StreamProvider.VTable = .{ .read = read_kept };
 
 /// A request stream's octets from `offset`: the frames the caller kept, and the content made from
 /// its offset between them. Every call at one offset answers the same octets (RFC 9000 §2.2).

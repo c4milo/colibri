@@ -15,8 +15,8 @@ const hq_file = @import("../hq/hq_file.zig");
 
 const Writer = quic.core.Writer;
 const FieldSection = h3.http.FieldSection;
-const StreamId = quic.stream.StreamId;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamId = quic.StreamId;
+const StreamProvider = quic.StreamProvider;
 
 /// What the endpoint's QPACK decoder advertises, so the peer's encoder uses a dynamic table.
 const qpack_settings: h3.qpack.Decoder.Settings = .{
@@ -25,7 +25,7 @@ const qpack_settings: h3.qpack.Decoder.Settings = .{
 };
 
 pub const Error = h3.Connection.Error || h3.Connection.SendError || h3.http.FieldSection.AppendError ||
-    quic.connection_stream_send.Error || error{
+    quic.Connection.StreamSendError || error{
     /// A file in the downloads directory could not be created or written.
     DownloadRefused,
     /// A response other than 200, a reset, a refused stream or a GOAWAY.
@@ -116,7 +116,7 @@ pub const Client = struct {
             assert(StreamId.index(.{ .value = id }) == index);
             request.prefix_len = writer.written().len;
             request.file = hq_file.create(client.downloads, path) orelse return error.DownloadRefused;
-            try quic.connection_stream_send.supply(transport, .{ .value = id }, request.prefix_len, true);
+            try quic.Connection.supply(transport, .{ .value = id }, request.prefix_len, true);
             client.opened += 1;
         }
     }
@@ -157,7 +157,7 @@ pub const Client = struct {
 /// RFC 9110 §15.3.1.
 const ok_status: u16 = 200;
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_request };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_request };
 
 /// A request stream's HEADERS frame from `offset`, which the client keeps until the stream closes.
 fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {

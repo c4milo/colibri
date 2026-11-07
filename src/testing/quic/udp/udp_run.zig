@@ -30,7 +30,7 @@ const udp_run_client = @import("udp_run_client.zig");
 const udp_run_h3 = @import("udp_run_h3.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamProvider = quic.StreamProvider;
 
 /// The application a server's connection runs, which its ALPN decides (RFC 9001 §8.1).
 const Application = enum { undecided, hq, h3 };
@@ -171,7 +171,7 @@ fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     };
     // Decision 72: the client's address changed and colibri followed it, so it owes PATH_CHALLENGE
     // frames whose data is drawn here.
-    if (received.migrated) quic.connection_migration.challenge(&connection.peer.connection, udp_identity.challenge_data());
+    if (received.migrated) quic.Connection.challenge_path(&connection.peer.connection, udp_identity.challenge_data());
     issue_spare_ids(connection);
     if (arguments == .client) udp_run_client.on_received(connection, now_ns);
     // The step may have derived secrets. They go out now, because a server's connections step
@@ -196,7 +196,7 @@ fn issue_spare_ids(connection: *Connection) void {
         var id: [udp_identity.id_len]u8 = undefined;
         var token: [quic.constants.protocol.stateless_reset_token_len]u8 = undefined;
         udp_identity.spare_id(&id, &token);
-        _ = quic.connection_id_frames.issue(held, &id, &token) catch return;
+        _ = quic.Connection.issue_connection_ids(held, &id, &token) catch return;
     }
 }
 
@@ -228,11 +228,11 @@ fn close_on(connection: *Connection, failure: udp_peer.Error) void {
     // RFC 9001 §4.8: a handshake the TLS stack failed names its alert, which the close carries.
     if (connection.peer.connection.tls_alert) |alert| std.debug.print("quic-udp: the TLS alert was {t}\n", .{alert});
     // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR.
-    const code = if (quic.connection_frames.member_of(quic.connection_datagram.Error, failure)) |held|
-        quic.connection_datagram.connection_error_code(&connection.peer.connection, held)
+    const code = if (quic.connection_frames.member_of(quic.Connection.ReceiveError, failure)) |held|
+        quic.Connection.receive_error_code(&connection.peer.connection, held)
     else
         quic.error_code.internal_error;
-    quic.connection_close.owe(&connection.peer.connection, quic.connection_close.transport(code, null));
+    quic.Connection.owe_close(&connection.peer.connection, quic.ConnectionClose.transport(code, null));
     connection_errors += 1;
     if (!expects_errors()) connection_failed = true;
 }
@@ -255,7 +255,7 @@ fn accept(delivery: udp.Delivery, now_ns: u64) ?*Connection {
     if (delivery.bytes.len < quic.constants.protocol.datagram_len_min) return null;
     var address_storage: [udp_peer.token_address_len_max]u8 = undefined;
     const address = udp_peer.token_address(delivery.from.peer, &address_storage);
-    switch (quic.connection_retry.verify_token(udp_identity.retry_suite(), long.version, address, long.token, long.dcid, now_ns)) {
+    switch (quic.retry.verify_token(udp_identity.retry_suite(), long.version, address, long.token, long.dcid, now_ns)) {
         .absent => send_retry(delivery, long, address, now_ns),
         // RFC 9000 §8.1.2: the server "can discard such a packet and allow the client to time
         // out". Closing with INVALID_TOKEN would need Initial keys for a connection it refused.
@@ -270,7 +270,7 @@ fn accept(delivery: udp.Delivery, now_ns: u64) ?*Connection {
 fn send_retry(delivery: udp.Delivery, long: quic.packet.header.Long, address: []const u8, now_ns: u64) void {
     const index = free_slot() orelse return;
     var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
-    const answered = quic.connection_retry.answer(udp_identity.retry_suite(), .{
+    const answered = quic.retry.answer(udp_identity.retry_suite(), .{
         .version = long.version,
         .client_source = long.scid,
         .original_destination = long.dcid,

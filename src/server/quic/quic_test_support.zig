@@ -61,7 +61,7 @@ pub var now_ns: u64 = start_ns;
 pub var connection: QuicConnection align(@alignOf(QuicConnection)) = undefined;
 pub var config: quic_connection.Config align(@alignOf(quic_connection.Config)) = undefined;
 var server_tls: tls.quic.ServerConfig align(@alignOf(tls.quic.ServerConfig)) = undefined;
-const Pool = quic.stream.stream_incoming.DefaultPool;
+const Pool = quic.ReceivePool(.{});
 var server_pool: Pool align(@alignOf(Pool)) = undefined;
 /// The pool the server's connection starts with: its own by default, or one a test placed.
 var server_receive: quic_connection.ReceiveStorage align(@alignOf(quic_connection.ReceiveStorage)) = undefined;
@@ -82,8 +82,8 @@ pub var client: quic.Connection align(@alignOf(quic.Connection)) = undefined;
 pub var client_version: quic.packet.header.Version align(@alignOf(quic.packet.header.Version)) = .v1;
 var client_tls: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
 var client_session: tls.quic.Client align(@alignOf(tls.quic.Client)) = undefined;
-var client_send_scratch: quic.connection_send.DefaultScratch align(@alignOf(quic.connection_send.DefaultScratch)) = undefined;
-var client_scratch: quic.connection_datagram.Scratch align(@alignOf(quic.connection_datagram.Scratch)) = undefined;
+var client_send_scratch: quic.Connection.SendScratch(.{}) align(@alignOf(quic.Connection.SendScratch(.{}))) = undefined;
+var client_scratch: quic.Connection.ReceiveScratch align(@alignOf(quic.Connection.ReceiveScratch)) = undefined;
 var client_pool: Pool align(@alignOf(Pool)) = undefined;
 pub var client_h3: h3.Connection align(@alignOf(h3.Connection)) = undefined;
 var client_section: h3.http.FieldSection align(@alignOf(h3.http.FieldSection)) = undefined;
@@ -245,13 +245,13 @@ pub fn request_with_trailers(path: []const u8, trailers: []const Field) !*Fetch 
 /// whole head.
 pub fn request_short_of_head(method: []const u8, path: []const u8) !*Fetch {
     const fetch = try stage_request(method, path, &.{}, "", &.{});
-    try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len - 1, false);
+    try quic.Connection.supply(&client, .{ .value = fetch.id }, fetch.prefix_len - 1, false);
     return fetch;
 }
 
 fn write_request(method: []const u8, path: []const u8, fields: []const Field, content: []const u8, trailers: []const Field, fin: bool) !*Fetch {
     const fetch = try stage_request(method, path, fields, content, trailers);
-    try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len + content.len, fin);
+    try quic.Connection.supply(&client, .{ .value = fetch.id }, fetch.prefix_len + content.len, fin);
     return fetch;
 }
 
@@ -284,12 +284,12 @@ pub fn stage_request(method: []const u8, path: []const u8, fields: []const Field
 /// The client asks the server to stop sending `fetch`'s response, and nothing more (RFC 9000
 /// §3.5).
 pub fn stop_fetch(fetch: *const Fetch) !void {
-    try quic.connection_stream_send.stop_sending(&client, .{ .value = fetch.id }, h3.constants.protocol.error_request_cancelled);
+    try quic.Connection.stop_sending(&client, .{ .value = fetch.id }, h3.constants.protocol.error_request_cancelled);
 }
 
 /// The client resets its side of `fetch`'s stream, and nothing more (RFC 9000 §3.1).
 pub fn reset_fetch(fetch: *const Fetch) !void {
-    try quic.connection_stream_send.reset(&client, .{ .value = fetch.id }, h3.constants.protocol.error_request_cancelled);
+    try quic.Connection.reset_stream(&client, .{ .value = fetch.id }, h3.constants.protocol.error_request_cancelled);
 }
 const request_lines: usize = 4;
 /// The most field lines a test's request carries after its pseudo-header fields.
@@ -309,7 +309,7 @@ pub fn pump(rounds: usize) !void {
         collect();
         try server_to_client();
         if (through_endpoint) endpoint.on_instant(now_ns) else internal.on_instant(&connection, now_ns);
-        _ = quic.connection_timer.on_instant(&client, client_session.suite(), &client_scratch.recovery, now_ns) catch {};
+        _ = quic.Connection.on_instant(&client, client_session.suite(), &client_scratch.recovery, now_ns) catch {};
         collect();
     }
 }
@@ -345,7 +345,7 @@ pub fn collect() void {
 fn client_to_server() !void {
     if (client_mute) return;
     for (0..datagrams_per_round_max) |_| {
-        const sent = quic.connection_send.send(&client, client_session.suite(), client_session.provider(), client_provider(), &client_send_scratch, &datagram, now_ns) catch return error.TestUnexpectedResult;
+        const sent = quic.Connection.send(&client, client_session.suite(), client_session.provider(), client_provider(), .{}, &client_send_scratch, &datagram, now_ns) catch return error.TestUnexpectedResult;
         const held = sent orelse return;
         @memcpy(crossing[0..held.len], datagram[0..held.len]);
         if (through_endpoint) {
@@ -406,7 +406,7 @@ pub fn server_to_client() !void {
             continue;
         }
         @memcpy(crossing[0..sent.bytes.len], sent.bytes);
-        _ = quic.connection_datagram.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.bytes.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
+        _ = quic.Connection.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.bytes.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
         if (client_reads) try client_read();
     }
 }
@@ -468,11 +468,11 @@ pub fn content_of(fetch: *const Fetch) []const u8 {
     return received[fetch_index(fetch)][0..fetch.received_len];
 }
 
-fn client_provider() quic.stream.StreamProvider {
+fn client_provider() quic.StreamProvider {
     return client_h3.provider(.{ .context = &fetches, .vtable = &client_vtable });
 }
 
-const client_vtable: quic.stream.stream_provider.VTable = .{ .read = read_fetch };
+const client_vtable: quic.StreamProvider.VTable = .{ .read = read_fetch };
 
 fn read_fetch(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = context;

@@ -214,7 +214,7 @@ test "RFC 9114 §5.2: a shutdown sends GOAWAY, and QUIC closes once the last req
 test "RFC 9000 §10.2.2: a client's close stops the connection, which is no failure" {
     const fetch = try get("/");
     // RFC 9114 §5.2: a client that is done closes with H3_NO_ERROR.
-    quic.connection_close.owe(&support.client, .{
+    quic.Connection.owe_close(&support.client, .{
         .layer = .application,
         .error_code = support.client_h3.no_error_code(),
         .frame_type = null,

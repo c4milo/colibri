@@ -59,7 +59,7 @@ test "RFC 9204 §2.2.1: a section that arrives before its entries waits in quic,
     try harness.pair(table_client, .{ .role = .server });
     // The encoder stream goes after every other stream, so the response arrives first.
     const encoder_id = server.h3.local.encoder_id.?;
-    try quic.connection_stream_send.set_priority(&server.transport, .{ .value = encoder_id }, 255);
+    try quic.Connection.set_stream_priority(&server.transport, .{ .value = encoder_id }, 255);
     const id = try request_and_respond();
     try harness.transfer_frames(server, client, 1);
     try testing.expectEqual(null, try next(client));
@@ -73,7 +73,7 @@ test "RFC 9204 §2.2.1: a section that arrives before its entries waits in quic,
 
 test "RFC 9204 §2.2.2.2: a stream reset while its section waits is cancelled on the decoder stream" {
     try harness.pair(table_client, .{ .role = .server });
-    try quic.connection_stream_send.set_priority(&server.transport, .{ .value = server.h3.local.encoder_id.? }, 255);
+    try quic.Connection.set_stream_priority(&server.transport, .{ .value = server.h3.local.encoder_id.? }, 255);
     const id = try harness.request(&harness.get_lines, "");
     try exchange();
     _ = (try next(server)).?.request;
@@ -133,7 +133,7 @@ test "RFC 9204 §4.2: a peer that stops colibri's encoder stream has closed it" 
     _ = (try next(server)).?.request;
     // RFC 9204 §4.2: "the receiver MUST NOT request that the sender close either of these
     // streams". The encoder stream's buffer has room, so only its credit shows the reset.
-    try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
+    try quic.Connection.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
     try exchange();
     try testing.expectError(error.ConnectionFailed, harness.respond(id, &custom_lines, ""));
     try testing.expectEqual(constants.protocol.error_closed_critical_stream, server.h3.failure.?);
@@ -146,7 +146,7 @@ test "design §8 step 29d.13: a section that may insert no line does not use the
     _ = (try next(server)).?.request;
     // A stopped encoder stream fails the connection on the next use of it, so a section that
     // writes without failure did not use it.
-    try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
+    try quic.Connection.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
     try exchange();
     const no_insert = [_]qpack.Encoder.Indexing{ .no_insert, .never_indexed };
     const section = try harness.section_of(&harness.test_section, &custom_lines);
@@ -176,7 +176,7 @@ test "decision 78: h3's encoder stream drops what the peer acknowledged when roo
     var filler: [constants.limits.encoder_buffer_len]u8 = @splat(0);
     const fill_len = local.encoder.free().remaining_len() - 1;
     try local.encoder.write(filler[0..fill_len]);
-    try quic.connection_stream_send.supply(&server.transport, .{ .value = id }, local.encoder.end_offset(), false);
+    try quic.Connection.supply(&server.transport, .{ .value = id }, local.encoder.end_offset(), false);
     try harness.transfer(server, client);
     const framed = local.encoder.end_offset();
     try testing.expectEqual(0, local.encoder.start_offset);

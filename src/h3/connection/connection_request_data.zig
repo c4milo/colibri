@@ -21,14 +21,13 @@ const Connection = connection_module.Connection;
 const Error = connection_module.Connection.Error;
 const RequestStream = connection_request.RequestStream;
 const Step = connection_request.Step;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const QuicConnection = quic.Connection;
-const stream_read = quic.connection_stream_read;
 
 /// Takes a DATA frame's header (§7.2.1). Its payload is read next, in `read_data`.
 pub fn start_data(connection: *Connection, request: *RequestStream, transport: *QuicConnection, header: frame.Header, header_len: usize) Error!Step {
     connection_qlog.frame_event(connection, .parsed, request.id, .{ .data = header.length });
-    request.fin_read = (stream_read.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
+    request.fin_read = (quic.Connection.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
     request.data_left = header.length;
     request.content_received +|= header.length;
     // §4.1.2: content past the content-length is malformed, which the frame's header shows.
@@ -45,7 +44,7 @@ pub fn start_data(connection: *Connection, request: *RequestStream, transport: *
 /// Hands the caller what has arrived of the current DATA frame's payload (§7.2.1).
 pub fn read_data(connection: *Connection, transport: *QuicConnection, request: *RequestStream, body: []u8) Error!Step {
     const window = body[0..@intCast(@min(body.len, request.data_left))];
-    const read = stream_read.read(transport, .{ .value = request.id }, window) catch return connection_request.on_closed(connection, request);
+    const read = quic.Connection.read(transport, .{ .value = request.id }, window) catch return connection_request.on_closed(connection, request);
     request.data_left -= read.len;
     request.fin_read = read.fin;
     // §7.1: a stream that ended inside a DATA frame is H3_FRAME_ERROR.
@@ -71,7 +70,7 @@ pub fn hold_arrived(connection: *Connection, transport: *QuicConnection, request
 /// What `peek` would copy of stream `id` with no bound on its output, measured in `quic`'s
 /// receive pool without a copy, or null when the stream is closed. `advance` reports a reset
 /// before the stream gets here.
-fn arrived(transport: *QuicConnection, id: StreamId) ?stream_read.Read {
+fn arrived(transport: *QuicConnection, id: StreamId) ?quic.Connection.StreamRead {
     const stream = switch (transport.streams.lookup(id)) {
         .live => |stream| stream,
         .closed, .unopened => return null,
@@ -96,10 +95,10 @@ pub fn peek_data(connection: *Connection, transport: *QuicConnection, stream_id:
     const id: StreamId = .{ .value = stream_id };
     // RFC 9000 §19.4: a reset stream delivers no octets, and a peek here would say the reset
     // first and lose it.
-    if (stream_read.reset_code(transport, id) != null) return 0;
+    if (quic.Connection.reset_code(transport, id) != null) return 0;
     const window = output[0..@intCast(@min(output.len, request.held_len))];
     // `hold_arrived` found the stream live, and only a reset or a close ends it since.
-    const peeked = stream_read.peek(transport, id, window) catch return 0;
+    const peeked = quic.Connection.peek(transport, id, window) catch return 0;
     // `hold_arrived` measured every held octet as arrived.
     assert(peeked.len == window.len);
     return peeked.len;
@@ -115,8 +114,8 @@ pub fn release_data(connection: *Connection, transport: *QuicConnection, stream_
     request.held_len = 0;
     const id: StreamId = .{ .value = stream_id };
     // The next read reports the peer's reset, which a take here would say first and lose.
-    if (stream_read.reset_code(transport, id) != null) return;
-    const taken = stream_read.consume(transport, id, @intCast(len)) catch return;
+    if (quic.Connection.reset_code(transport, id) != null) return;
+    const taken = quic.Connection.consume(transport, id, @intCast(len)) catch return;
     request.data_left -= len;
     request.fin_read = taken.fin;
     // `peek_data` refused a stream that ended inside the DATA frame.
@@ -125,7 +124,7 @@ pub fn release_data(connection: *Connection, transport: *QuicConnection, stream_
 
 pub fn start_skip(connection: *Connection, transport: *QuicConnection, request: *RequestStream, header: frame.Header, header_len: usize) Step {
     connection_qlog.frame_event(connection, .parsed, request.id, .{ .other = .{ .frame_type = header.frame_type, .payload_len = header.length } });
-    request.fin_read = (stream_read.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
+    request.fin_read = (quic.Connection.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
     // §9: "Implementations MUST ignore unknown or unsupported values in all extensible protocol
     // elements", so an unknown frame's payload is skipped unread.
     request.skip_left = header.length;
@@ -136,8 +135,8 @@ pub fn start_skip(connection: *Connection, transport: *QuicConnection, request: 
 pub fn skip(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
     const id: StreamId = .{ .value = request.id };
     const window = connection.scratch[0..@intCast(@min(request.skip_left, connection.scratch.len))];
-    const peeked = stream_read.peek(transport, id, window) catch return connection_request.on_closed(connection, request);
-    const taken = stream_read.consume(transport, id, peeked.len) catch unreachable;
+    const peeked = quic.Connection.peek(transport, id, window) catch return connection_request.on_closed(connection, request);
+    const taken = quic.Connection.consume(transport, id, peeked.len) catch unreachable;
     request.skip_left -= peeked.len;
     request.fin_read = taken.fin;
     // §7.1: a stream that ended inside a frame is H3_FRAME_ERROR.
@@ -245,7 +244,7 @@ test "a release of part of the content reports the rest next, from where the rel
 test "RFC 9000 §19.4: a reset while content is held is reported once the content is released" {
     const id = try held_exchange(held_content[0..10]);
     _ = (try next(client)).?.data_available;
-    try quic.connection_stream_send.reset(&server.transport, .{ .value = id }, constants.protocol.error_internal);
+    try quic.Connection.reset_stream(&server.transport, .{ .value = id }, constants.protocol.error_internal);
     try exchange();
     try testing.expectEqual(null, try next(client));
     // The reset stream delivers no octets, and a peek keeps the reset to report.

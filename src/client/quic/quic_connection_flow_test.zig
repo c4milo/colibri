@@ -222,7 +222,7 @@ test "RFC 9000 §10.2: the server's CONNECTION_CLOSE ends the exchange awaiting 
     var exchange = get(&bodies[0]);
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
-    quic.connection_close.owe(&support.server, .{ .layer = .application, .error_code = h3.constants.protocol.error_internal, .frame_type = null, .reason = "" });
+    quic.Connection.owe_close(&support.server, .{ .layer = .application, .error_code = h3.constants.protocol.error_internal, .frame_type = null, .reason = "" });
     try support.pump(support.rounds_default);
     try testing.expectEqual(.closed, exchange.response.result);
     try testing.expect(support.find(.closed) != null);
@@ -249,11 +249,11 @@ test "the transport's close ends a written exchange closed and a waiting one ref
 test "RFC 9000 §10.2: an active connection that fails owes its CONNECTION_CLOSE, with INTERNAL_ERROR" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     try support.pump(support.rounds_default);
-    try testing.expect(!quic.connection_close.owes(&connection.transport));
+    try testing.expect(!quic.Connection.owes_close(&connection.transport));
     // A failure no h3 or QUIC rule closed, as the loss timer's refusals are.
     internal.fail(connection);
     try testing.expect(connection.failed);
-    try testing.expect(quic.connection_close.owes(&connection.transport));
+    try testing.expect(quic.Connection.owes_close(&connection.transport));
     try support.pump(support.rounds_default);
     try testing.expect(support.server.termination.state != .active);
 }

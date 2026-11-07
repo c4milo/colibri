@@ -23,8 +23,8 @@ const hq_file = @import("../hq/hq_file.zig");
 
 const Writer = quic.core.Writer;
 const FieldSection = h3.http.FieldSection;
-const StreamId = quic.stream.StreamId;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamId = quic.StreamId;
+const StreamProvider = quic.StreamProvider;
 
 /// What the endpoint's QPACK decoder advertises, so the peer's encoder uses a dynamic table.
 const qpack_settings: h3.qpack.Decoder.Settings = .{
@@ -32,7 +32,7 @@ const qpack_settings: h3.qpack.Decoder.Settings = .{
     .blocked_streams = constants.h3_qpack_blocked_streams,
 };
 
-pub const Error = h3.Connection.SendError || quic.connection_stream_send.Error || h3.http.FieldSection.AppendError;
+pub const Error = h3.Connection.SendError || quic.Connection.StreamSendError || h3.http.FieldSection.AppendError;
 
 /// What a response's content is read from.
 const Content = union(enum) {
@@ -162,7 +162,7 @@ pub const Server = struct {
         if (response.content_len > 0) try server.connection.write_data_header(response.id, response.content_len, &writer, now_ns);
         response.prefix_len = writer.written().len;
         if (found) server.served += 1;
-        try quic.connection_stream_send.supply(transport, .{ .value = response.id }, response.prefix_len + response.content_len, true);
+        try quic.Connection.supply(transport, .{ .value = response.id }, response.prefix_len + response.content_len, true);
     }
 
     /// Opens what the request's path names: the root body, a file, or nothing.
@@ -226,7 +226,7 @@ pub const Server = struct {
 /// The digits of the longest content-length a file can have.
 const content_length_digits_max: usize = 20;
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_response };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_response };
 
 /// A response's octets from `offset`: its kept frames, then its content, as many as fit. Every
 /// call at one offset answers the same octets, which RFC 9000 §2.2 asks of a retransmission.

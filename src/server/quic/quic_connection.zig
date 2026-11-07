@@ -43,8 +43,8 @@ pub const Error = connection_module.Error;
 pub const SendError = connection_module.SendError;
 pub const PeerAddress = quic.PeerAddress;
 /// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
-/// of a `quic.stream.stream_incoming.Pool` the caller places.
-pub const ReceiveStorage = quic.stream.stream_incoming.Storage;
+/// of a `quic.ReceivePool` the caller places.
+pub const ReceiveStorage = quic.ReceiveStorage;
 
 /// What every QUIC connection of an endpoint borrows. The caller keeps it alive while any
 /// connection holds it.
@@ -119,7 +119,7 @@ pub const StartError = error{
 /// goes to (decision 72).
 pub const Sent = struct {
     bytes: []const u8,
-    ecn: quic.connection_send.Ecn,
+    ecn: quic.Ecn,
     to: PeerAddress,
 };
 
@@ -127,8 +127,8 @@ pub const QuicConnection = struct {
     config: *const Config,
     transport: quic.Connection,
     session: tls.quic.Server,
-    send_scratch: quic.connection_send.DefaultScratch,
-    scratch: quic.connection_datagram.Scratch,
+    send_scratch: quic.Connection.SendScratch(.{}),
+    scratch: quic.Connection.ReceiveScratch,
     h3: h3.Connection,
     /// Where a response's field section is built, and where h3 copies a request's content.
     section: h3.http.FieldSection,

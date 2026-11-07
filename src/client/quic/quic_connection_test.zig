@@ -187,8 +187,8 @@ test "RFC 9000 §4.6: an exchange past the server's stream limit waits for its M
 /// smaller than the window of an h3 unidirectional stream. Test-only.
 const answer_pool_len: usize = 66_560;
 const small_pool_len: usize = 32_768;
-const AnswerPool = quic.stream.stream_incoming.Pool(answer_pool_len);
-const SmallPool = quic.stream.stream_incoming.Pool(small_pool_len);
+const AnswerPool = quic.ReceivePool(.{ .capacity = answer_pool_len });
+const SmallPool = quic.ReceivePool(.{ .capacity = small_pool_len });
 var answer_pool: AnswerPool align(@alignOf(AnswerPool)) = undefined;
 var small_pool: SmallPool align(@alignOf(SmallPool)) = undefined;
 

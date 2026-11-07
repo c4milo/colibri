@@ -32,7 +32,7 @@ const Parameters = quic.transport_parameters.Parameters;
 pub fn attach_log(connection: *QuicConnection, log: *quic.qlog.Log, now_ns: u64) void {
     assert(connection.transport.qlog.log == null and connection.h3.options.qlog == null);
     assert(!connection.started);
-    quic.connection_qlog.init(&connection.transport, log, now_ns);
+    quic.Connection.attach_log(&connection.transport, log, now_ns);
     connection.h3.options.qlog = log;
 }
 
@@ -101,7 +101,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.h3.init(.{ .role = .server, .grease = how.grease });
     connection.session.start(config.tls, random, now_seconds, how.version);
     // Decision 111: a client that lists version 2 is switched to it (RFC 9368 §2.3).
-    connection.session.set_version_chooser(quic.connection_version.chooser(&connection.transport));
+    connection.session.set_version_chooser(quic.Connection.version_chooser(&connection.transport));
     try hand_over_parameters(connection);
     const suite = connection.session.suite();
     const keys_destination = how.retry_source orelse how.original_destination;
@@ -129,7 +129,7 @@ pub fn take(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_re
     // Decision 110: a window that ended before `now_ns` is judged before this datagram's
     // acknowledgments count, so they count in the window they arrived in.
     quic_deadline.fire(connection, now_ns);
-    const received = quic.connection_datagram.receive(
+    const received = quic.Connection.receive(
         &connection.transport,
         connection.session.suite(),
         connection.session.provider(),
@@ -138,7 +138,7 @@ pub fn take(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_re
     ) catch return fail(connection);
     // Decision 72: the client's address changed and colibri followed it, so it owes
     // PATH_CHALLENGE frames, whose data RFC 9000 §8.2.1 wants unpredictable.
-    if (received.migrated) quic.connection_migration.challenge(&connection.transport, challenge_data(connection));
+    if (received.migrated) quic.Connection.challenge_path(&connection.transport, challenge_data(connection));
     after_change(connection, now_ns);
 }
 
@@ -147,11 +147,12 @@ pub fn take(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_re
 pub fn send(connection: *QuicConnection, output: []u8, now_ns: u64) ?Sent {
     if (connection.closed) return null;
     quic_continue.write_before_send(connection, now_ns);
-    const sent = quic.connection_send.send(
+    const sent = quic.Connection.send(
         &connection.transport,
         connection.session.suite(),
         connection.session.provider(),
         quic_connection_h3.provider(connection),
+        .{},
         &connection.send_scratch,
         output,
         now_ns,
@@ -175,7 +176,7 @@ pub fn deadline_ns(connection: *QuicConnection) ?u64 {
 
 /// The instant QUIC's next timer is due at, or null.
 fn timer_ns(connection: *QuicConnection) ?u64 {
-    const timer = quic.connection_timer.next(&connection.transport) orelse return null;
+    const timer = quic.Connection.deadline(&connection.transport) orelse return null;
     return timer.at_ns;
 }
 
@@ -188,7 +189,7 @@ pub fn on_instant(connection: *QuicConnection, now_ns: u64) void {
     connection.last_ns = now_ns;
     if (timer_ns(connection)) |timer_at_ns| {
         if (now_ns >= timer_at_ns) {
-            _ = quic.connection_timer.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
+            _ = quic.Connection.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
                 return fail(connection);
             };
         }
@@ -253,15 +254,15 @@ fn issue_spare_ids(connection: *QuicConnection) void {
         // Decision 157: an endpoint's table draws the ID into an entry of its own.
         if (connection.route) |route| route.routes.issue(route.quic_index, connection.random, &id) else connection.random.bytes(&id);
         connection.random.bytes(&token);
-        _ = quic.connection_id_frames.issue(&connection.transport, &id, &token) catch {
+        _ = quic.Connection.issue_connection_ids(&connection.transport, &id, &token) catch {
             if (connection.route) |route| route.routes.forget_last(route.quic_index);
             return;
         };
     }
 }
 
-fn challenge_data(connection: *QuicConnection) quic.connection_migration.ChallengeData {
-    var data: quic.connection_migration.ChallengeData = undefined;
+fn challenge_data(connection: *QuicConnection) quic.Connection.ChallengeData {
+    var data: quic.Connection.ChallengeData = undefined;
     connection.random.bytes(std.mem.asBytes(&data));
     return data;
 }
@@ -295,8 +296,8 @@ pub fn fail(connection: *QuicConnection) void {
     const transport = &connection.transport;
     // RFC 9000 §10.2: an active connection that ends owes its CONNECTION_CLOSE, unless h3 or
     // QUIC already owes one. RFC 9000 §20.1: with no more specific code, INTERNAL_ERROR.
-    if (transport.termination.state == .active and !quic.connection_close.owes(transport)) {
-        quic.connection_close.owe(transport, quic.connection_close.transport(quic.error_code.internal_error, null));
+    if (transport.termination.state == .active and !quic.Connection.owes_close(transport)) {
+        quic.Connection.owe_close(transport, quic.ConnectionClose.transport(quic.error_code.internal_error, null));
     }
 }
 

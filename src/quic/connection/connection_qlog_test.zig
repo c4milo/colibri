@@ -34,7 +34,7 @@ var client_log_buffer: [log_len]u8 = undefined;
 var server_log_buffer: [log_len]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
-var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var send_scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
 var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 
@@ -99,7 +99,7 @@ fn open_connection(connection: *Connection, role: connection_module.Role, log: ?
 }
 
 fn send_from(connection: *Connection, now_ns: u64) !send.Sent {
-    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), &send_scratch, &datagram, now_ns) orelse error.NothingSent;
+    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), .{}, &send_scratch, &datagram, now_ns) orelse error.NothingSent;
 }
 
 fn receive(connection: *Connection, len: usize, now_ns: u64) datagram_module.Error!datagram_module.Received {
@@ -131,6 +131,20 @@ test "a connection with a log starts it with its versions and its own parameters
     try testing.expectEqual(2, std.mem.count(u8, events, "\x1e"));
     try expect_record(&server_log, "\"server_versions\":[\"00000001\",\"6b3343cf\"],\"chosen_version\":\"00000001\"");
     try expect_record(&server_log, "\"original_destination_connection_id\":\"51515151\"");
+}
+
+test "decision 158 ruling 12: attach_log on a connection that init made writes its first event" {
+    try open_pair(&.{});
+    open_connection(&client, .client, null, &.{});
+    var log = qlog.Log.init(&client_log_buffer, qlog.Features.none());
+    try log.start(.{ .vantage_point = .client, .group_id = &peer_id, .event_schemas = &schemas }, test_now_ns);
+    const header_len = log.len;
+    Connection.attach_log(&client, &log, later_ns);
+    const events = log.bytes()[header_len..];
+    // Quic-events §5.1: the versions come first, at the instant the log was attached.
+    try testing.expect(std.mem.startsWith(u8, events, "\x1e{\"time\":1.500,\"name\":\"quic:version_information\","));
+    try expect_record(&log, "\"name\":\"quic:parameters_set\",\"data\":{\"initiator\":\"local\",");
+    try testing.expectEqual(2, std.mem.count(u8, events, "\x1e"));
 }
 
 test "a probe is logged as sent and as received, with its frames" {
@@ -275,7 +289,7 @@ test "a packet in a version the connection does not admit is logged as dropped, 
 
 test "a close is logged once on each side, with its code and the state it enters" {
     try open_pair(&.{.handshake});
-    close_module.owe(&client, close_module.transport(error_code.protocol_violation, null));
+    close_module.owe(&client, close_module.Close.transport(error_code.protocol_violation, null));
     const sent = try send_from(&client, later_ns);
     try expect_record(&client_log, "\"name\":\"quic:connection_closed\",\"data\":{\"initiator\":\"local\"," ++
         "\"connection_error\":\"protocol_violation\",\"trigger\":\"error\"}}\n");

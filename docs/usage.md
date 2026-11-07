@@ -1987,16 +1987,21 @@ round of NSEC3's hash (RFC 5155 §5), which the resolver iterates itself.
 
 A `quic.Connection` is one QUIC connection. Your program moves datagrams and time
 through four calls:
-- `quic.connection_datagram.receive` takes one datagram the peer sent, with its ECN marking and
+- `quic.Connection.receive` takes one datagram the peer sent, with its ECN marking and
   its source address.
-- `quic.connection_send.send` writes the next datagram colibri owes into your buffer, or returns
+- `quic.Connection.send` writes the next datagram colibri owes into your buffer, or returns
   null when it owes nothing.
-- `quic.connection_timer.next` names the instant the connection next needs to run, for loss
+- `quic.Connection.deadline` names the instant the connection next needs to run, for loss
   detection, acknowledgments and idle timeout.
-- `quic.connection_timer.on_instant` runs what that instant is for.
+- `quic.Connection.on_instant` runs what that instant is for.
 
 Streams are yours: a `StreamProvider` your program passes to `send` hands colibri the octets of
 each stream as the flow-control windows allow.
+
+Your program places the scratch each call works in. `receive` takes a
+`quic.Connection.ReceiveScratch`. `send` takes its `quic.Connection.SendScratchOptions` and a
+`quic.Connection.SendScratch(options)` of the same options. Each option has a default, so
+`SendScratch(.{})` holds the smallest maximum datagram size of RFC 9000 §14.1.
 
 Pass `packet_number_skips`, one `u64` your program draws from its source at start, so that the
 connection skips a 1-RTT packet number now and then. An ACK of a skipped number then shows a peer
@@ -2016,7 +2021,8 @@ option of both the QUIC connection and the h3 connection, so one trace holds bot
 `qlog.Features.detect()`, called once, or `qlog.Features.target()`: colibri never asks the CPU
 itself, and the records are the same octets either way. colibri appends one record per event; your
 program writes `log.bytes()` where it wants, a file under `QLOGDIR` for example, and calls
-`log.clear()`. `tools/qlog_to_qvis.py` converts such a file for qvis.
+`log.clear()`. `tools/qlog_to_qvis.py` converts such a file for qvis. To start a log on a QUIC
+connection that `init` already made, pass it to `quic.Connection.attach_log`.
 
 [`src/testing/quic/udp/udp_peer.zig`](../src/testing/quic/udp/udp_peer.zig) is a whole QUIC
 endpoint over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3/) holds the h3 server and

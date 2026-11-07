@@ -55,7 +55,7 @@ const loopback: [ipv4_len]u8 = @splat(host_octet);
 pub const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
 
 /// The receive pool of the pool's QUIC connections (decision 61). Test-only.
-var receive_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
+var receive_pool: quic.ReceivePool(.{}) align(@alignOf(quic.ReceivePool(.{}))) = undefined;
 
 /// A pool offering every version over TLS, QUIC first, with a receive pool, whose QUIC server
 /// selects from `server_protocols`.

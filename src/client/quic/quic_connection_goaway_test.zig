@@ -32,12 +32,12 @@ fn goaway_at(stream_id: u64) !void {
 }
 
 /// The client's record of stream `stream_id`, which must be open. Test-only.
-fn client_stream(stream_id: u64) !*quic.stream.Stream {
+fn client_stream(stream_id: u64) !*quic.Stream {
     return live(&connection.transport, stream_id);
 }
 
 /// `transport`'s record of stream `stream_id`, which must be open. Test-only.
-fn live(transport: *quic.Connection, stream_id: u64) !*quic.stream.Stream {
+fn live(transport: *quic.Connection, stream_id: u64) !*quic.Stream {
     return switch (transport.streams.lookup(.{ .value = stream_id })) {
         .live => |stream| stream,
         else => error.TestUnexpectedResult,

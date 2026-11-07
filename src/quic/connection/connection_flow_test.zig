@@ -36,7 +36,7 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
-var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
@@ -57,7 +57,7 @@ const body_octet: u8 = 0x42;
 
 /// The client's octets, the same at every offset. Test-only.
 var body_context: u8 = 0;
-const body_vtable: stream_module.stream_provider.VTable = .{ .read = read_body };
+const body_vtable: stream_module.StreamProvider.VTable = .{ .read = read_body };
 
 fn read_body(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = context;
@@ -106,7 +106,7 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
 }
 
 fn send_from(connection: *Connection) !?send.Sent {
-    return send.send(connection, suite_holder.suite(), provider_holder.provider(), body(), &scratch, &datagram, test_now_ns);
+    return send.send(connection, suite_holder.suite(), provider_holder.provider(), body(), .{}, &scratch, &datagram, test_now_ns);
 }
 
 /// Opens every packet of `sent` at `reader` and takes its frames.

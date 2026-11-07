@@ -58,7 +58,7 @@ fn send_content(fetch: *support.Fetch, content: []const u8) !void {
     try support.client_h3.write_data_header(fetch.id, content.len, &writer, support.now_ns);
     fetch.prefix_len += writer.written().len;
     fetch.content = content;
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len + content.len, true);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len + content.len, true);
 }
 
 test "RFC 9110 §10.1.1: an h3 request expecting 100-continue gets the 100 at the next receive, once" {
@@ -170,7 +170,7 @@ test "decision 116: an h3 request that ends with no content before its 100 is wr
     const fetch = try put(&expect_continue, true);
     // The client ends its stream with no content. The FIN arrives before the caller's next call,
     // and h3 has not read it when the 100 is due.
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, true);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, true);
     try deliver();
     const end = (try connection.receive(support.now_ns)).event.?.body;
     try testing.expect(end.end and end.bytes.len == 0);
@@ -214,7 +214,7 @@ test "RFC 9000 §3.1: the 100 waits for a run of the response, and goes out once
 const start_id: [constants.policy.quic_id_len]u8 = @splat(start_id_octet);
 const start_id_octet: u8 = 0x0d;
 const start_pool_len: usize = 32_768;
-const StartPool = quic.stream.stream_incoming.Pool(start_pool_len);
+const StartPool = quic.ReceivePool(.{ .capacity = start_pool_len });
 threadlocal var start_pool: StartPool align(@alignOf(StartPool)) = undefined;
 
 test "RFC 9110 §10.1.1: a connection starts with no 100 owed" {

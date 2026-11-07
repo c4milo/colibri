@@ -24,7 +24,7 @@ const testing = std.testing;
 
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
-var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
@@ -80,7 +80,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, flags: Flags)
 }
 
 var nothing_context: u8 = 0;
-const nothing_vtable: stream_module.stream_provider.VTable = .{ .read = read_nothing };
+const nothing_vtable: stream_module.StreamProvider.VTable = .{ .read = read_nothing };
 
 fn read_nothing(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = context;
@@ -92,7 +92,7 @@ fn read_nothing(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) 
 
 fn send_from(connection: *Connection) !send.Sent {
     const streams: stream_module.StreamProvider = .{ .context = &nothing_context, .vtable = &nothing_vtable };
-    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), streams, &scratch, &datagram, test_now_ns) orelse error.NothingSent;
+    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), streams, .{}, &scratch, &datagram, test_now_ns) orelse error.NothingSent;
 }
 
 /// The next datagram from `sender`, which `reader` takes whole with the codepoint the network

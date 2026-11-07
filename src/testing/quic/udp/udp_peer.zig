@@ -17,9 +17,9 @@ const udp_qlog = @import("udp_qlog.zig");
 const udp = @import("../../udp.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamProvider = quic.StreamProvider;
 
-pub const Error = quic.connection_datagram.Error || quic.connection_send.Error || quic.connection_recovery.Error ||
+pub const Error = quic.Connection.ReceiveError || quic.Connection.SendError || quic.connection_recovery.Error ||
     error{
         /// chapulin refused to start or to derive its Initial keys.
         SessionRefused,
@@ -66,7 +66,7 @@ pub fn received_ecn(from: *const udp.Received) ReceivedEcn {
 }
 
 /// The codepoint colibri named for a datagram, as rotor sets it (RFC 9000 §13.4).
-pub fn sent_ecn(ecn: quic.connection_send.Ecn) udp.Ecn {
+pub fn sent_ecn(ecn: quic.Ecn) udp.Ecn {
     return switch (ecn) {
         .not_ect => .not_ect,
         .ect_0 => .ect0,
@@ -142,12 +142,12 @@ pub fn version_negotiation(datagram: []const u8, output: []u8) ?[]const u8 {
     const long = invariant.read_long(datagram) catch return null;
     // RFC 8999 §6: a Version Negotiation packet is never answered with one, and RFC 9000 §6.1: a
     // version the server accepts starts a connection instead.
-    if (long.is_version_negotiation() or quic.connection_version.speaks(long.version)) return null;
+    if (long.is_version_negotiation() or quic.version.speaks(long.version)) return null;
     if (datagram.len < quic.constants.protocol.datagram_len_min) return null;
     var writer = quic.core.Writer.init(output);
     // RFC 9000 §17.2.1: the server "SHOULD set the most significant bit of this field (0x40) to
     // 1", so the packet reads as QUIC to a version that uses the Fixed Bit.
-    invariant.write_version_negotiation(&writer, version_negotiation_unused_bits, long, &quic.connection_version.supported_versions) catch return null;
+    invariant.write_version_negotiation(&writer, version_negotiation_unused_bits, long, &quic.version.supported_versions) catch return null;
     return writer.written();
 }
 
@@ -157,9 +157,9 @@ const version_negotiation_unused_bits: u7 = 0x40;
 pub const Peer = struct {
     connection: quic.Connection,
     session: quic_session.Session,
-    send_scratch: quic.connection_send.DefaultScratch,
-    scratch: quic.connection_datagram.Scratch,
-    pool: quic.stream.stream_incoming.DefaultPool,
+    send_scratch: quic.Connection.SendScratch(.{}),
+    scratch: quic.Connection.ReceiveScratch,
+    pool: quic.ReceivePool(.{}),
     /// The connection's qlog, which the loop writes to its file each turn (decision 102).
     qlog: udp_qlog.Qlog,
 
@@ -221,8 +221,8 @@ pub const Peer = struct {
 
     /// Takes one datagram the peer sent from `from`, which arrived with `ecn`. The suite opens it
     /// in place, so `octets` changes.
-    pub fn receive(peer: *Peer, octets: []u8, ecn: ReceivedEcn, from: udp.Address, now_ns: u64) Error!quic.connection_datagram.Received {
-        return quic.connection_datagram.receive(
+    pub fn receive(peer: *Peer, octets: []u8, ecn: ReceivedEcn, from: udp.Address, now_ns: u64) Error!quic.Connection.Received {
+        return quic.Connection.receive(
             &peer.connection,
             peer.session.suite(),
             peer.session.provider(),
@@ -233,11 +233,12 @@ pub const Peer = struct {
 
     /// Builds the next datagram into `output` and returns it, or null when nothing is owed.
     pub fn send(peer: *Peer, stream_provider: StreamProvider, output: []u8, now_ns: u64) Error!?Outgoing {
-        const sent = try quic.connection_send.send(
+        const sent = try quic.Connection.send(
             &peer.connection,
             peer.session.suite(),
             peer.session.provider(),
             stream_provider,
+            .{},
             &peer.send_scratch,
             output,
             now_ns,
@@ -248,7 +249,7 @@ pub const Peer = struct {
 
     /// The instant this connection next wants to be called at (design §4.2), or null for none.
     pub fn deadline_ns(peer: *Peer) ?u64 {
-        const deadline = quic.connection_timer.next(&peer.connection) orelse return null;
+        const deadline = quic.Connection.deadline(&peer.connection) orelse return null;
         return deadline.at_ns;
     }
 
@@ -256,7 +257,7 @@ pub const Peer = struct {
     pub fn on_instant(peer: *Peer, now_ns: u64) Error!void {
         const at_ns = peer.deadline_ns() orelse return;
         if (now_ns < at_ns) return;
-        _ = try quic.connection_timer.on_instant(&peer.connection, peer.session.suite(), &peer.scratch.recovery, now_ns);
+        _ = try quic.Connection.on_instant(&peer.connection, peer.session.suite(), &peer.scratch.recovery, now_ns);
     }
 
     /// Whether the connection has ended: its closing or draining period is over, or it timed out
@@ -268,7 +269,7 @@ pub const Peer = struct {
     /// Ends the connection with the application's `code` (RFC 9000 §10.2): 0 for hq-interop once
     /// every file has arrived, and h3's H3_NO_ERROR, which RFC 9114 §5.2 has a graceful close use.
     pub fn close(peer: *Peer, code: u64) void {
-        quic.connection_close.owe(&peer.connection, .{
+        quic.Connection.owe_close(&peer.connection, .{
             .layer = .application,
             .error_code = code,
             // RFC 9000 §19.19: only a transport close (type 0x1c) carries the Frame Type field.
@@ -295,7 +296,7 @@ fn long_packet(long_type: quic.packet.header.LongType) ![]const u8 {
         .type = long_type,
         .dcid = &test_id,
         .scid = &test_id,
-        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .packet_number = try quic.packet.number.encode(0, null),
         .protected_payload_len = test_payload_len,
     });
     const header_len = writer.written().len;

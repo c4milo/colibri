@@ -41,7 +41,7 @@ fn refused(id: u64, code: u64) Event {
 test "§10.5.1: a HEADERS frame longer than colibri accepts refuses the stream" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     // A Length of 0x5000 in four octets, past `frame_length_max`.
-    const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
+    const id = try quic.Connection.open_stream(&client.transport, .bidirectional);
     try client.send_raw(id.value, &.{ constants.protocol.frame_headers, 0x80, 0x00, 0x50, 0x00 }, false);
     try exchange();
     try testing.expectEqual(refused(id.value, constants.protocol.error_message_error), (try next(server)).?);
@@ -55,7 +55,7 @@ test "§4.2.2: a section of more lines than colibri holds refuses the stream" {
     const length: u16 = @intCast(lines_past + 2);
     try writer.write_bytes(&.{ constants.protocol.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00 });
     for (0..lines_past) |_| try writer.write_byte(static_method_get);
-    const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
+    const id = try quic.Connection.open_stream(&client.transport, .bidirectional);
     try client.send_raw(id.value, writer.written(), false);
     try exchange();
     try testing.expectEqual(refused(id.value, constants.protocol.error_message_error), (try next(server)).?);
@@ -70,7 +70,7 @@ test "RFC 9204 §7.4: a value longer than colibri accepts refuses the stream wit
     const length: u16 = @intCast(long_value_len + long_line_overhead);
     try writer.write_bytes(&.{ constants.protocol.frame_headers, 0x40 | @as(u8, @intCast(length >> 8)), @truncate(length), 0x00, 0x00, 0x21, 'x', 0x7f, 0xa9, 0x45 });
     for (0..long_value_len) |_| try writer.write_byte('a');
-    const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
+    const id = try quic.Connection.open_stream(&client.transport, .bidirectional);
     try client.send_raw(id.value, writer.written(), false);
     try exchange();
     try testing.expectEqual(refused(id.value, qpack.constants.protocol.error_decompression_failed), (try next(server)).?);

@@ -125,9 +125,9 @@ test "a reserved or unknown frame, or stream, is logged with its type" {
     // after the request.
     try client.send_raw(id, &.{ 0x21, 0x00, 0x2f, 0x00 }, false);
     // RFC 9114 §6.2.3's reserved stream type 0x21, and a type no RFC defines.
-    var reserved = try quic.connection_stream_send.open(&client.transport, .unidirectional);
+    var reserved = try quic.Connection.open_stream(&client.transport, .unidirectional);
     try client.send_raw(reserved.value, &.{0x21}, false);
-    reserved = try quic.connection_stream_send.open(&client.transport, .unidirectional);
+    reserved = try quic.Connection.open_stream(&client.transport, .unidirectional);
     try client.send_raw(reserved.value, &.{0x14}, false);
     try harness.exchange();
     while (try harness.next(server)) |_| {}
@@ -154,7 +154,7 @@ test "a reserved frame on the control stream is logged where it is skipped" {
     try server.h3.start(&server.transport, harness.test_now_ns);
     // A control stream the client writes itself: its type, an empty SETTINGS frame, and RFC 9114
     // §7.2.8's reserved type 0x21 with two octets.
-    const id = try quic.connection_stream_send.open(&client.transport, .unidirectional);
+    const id = try quic.Connection.open_stream(&client.transport, .unidirectional);
     try client.send_raw(id.value, &.{ 0x00, 0x04, 0x00, 0x21, 0x02, 'a', 'b' }, false);
     try harness.exchange();
     while (try harness.next(server)) |_| {}

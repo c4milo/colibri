@@ -96,9 +96,9 @@ pub fn observe_sent(connection: *QuicConnection, now_ns: u64) void {
 fn observe_credit(connection: *QuicConnection, now_ns: u64) void {
     const clock = &connection.clock;
     // Design §8 step 29d.7: the streams are walked once, for data credit.
-    const data_owed = quic.connection_flow.data_credit_owed(&connection.transport);
+    const data_owed = quic.Connection.data_credit_owed(&connection.transport);
     quic_body.observe(connection, data_owed, now_ns);
-    const held = data_owed or quic.connection_flow.count_credit_owed(&connection.transport);
+    const held = data_owed or quic.Connection.count_credit_owed(&connection.transport);
     if (held) {
         if (clock.credit_held_since_ns == null) clock.credit_held_since_ns = now_ns;
         return;
@@ -250,7 +250,7 @@ fn is_past(since: u64, limit: ?u64, now_ns: u64) bool {
 fn close(connection: *QuicConnection) void {
     assert(waits_to_close(connection));
     if (connection.clock.timed_out == null) connection.clock.timed_out = .drain;
-    quic.connection_close.owe(&connection.transport, .{
+    quic.Connection.owe_close(&connection.transport, .{
         .layer = .application,
         .error_code = connection.h3.no_error_code(),
         // RFC 9000 §19.19: only a transport close carries the Frame Type field.

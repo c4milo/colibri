@@ -38,10 +38,10 @@ pub fn owe_keep_alive(connection: *Connection) void {
     assert(connection.termination.state == .active);
     // RFC 9001 §5.7: the application level carries nothing before the handshake completes.
     assert(connection.handshake_complete);
-    connection.keep_alive_owed = true;
+    connection.keep_alive_pending = true;
 }
 
 /// Whether the keep-alive the caller asked for has not gone out yet.
 pub fn keep_alive_owed(connection: *const Connection) bool {
-    return connection.keep_alive_owed;
+    return connection.keep_alive_pending;
 }

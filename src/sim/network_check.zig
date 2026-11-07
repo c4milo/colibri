@@ -30,7 +30,7 @@ const Endpoint = sim.network.Endpoint;
 const Ecn = sim.network.Ecn;
 const header = quic.packet.header;
 const header_write = quic.packet.header_write;
-const packet_number = quic.packet.packet_number;
+const packet_number = quic.packet.number;
 
 /// The digest of every seed's run, and the counts beside it. They change when the network, the
 /// null suite or a header writer changes, and are committed with the new values after both build

@@ -13,10 +13,10 @@ const hq = @import("hq.zig");
 const hq_file = @import("hq_file.zig");
 
 const Connection = quic.Connection;
-const StreamId = quic.stream.StreamId;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamId = quic.StreamId;
+const StreamProvider = quic.StreamProvider;
 
-pub const Error = quic.connection_stream_send.Error || quic.connection_stream_read.Error || error{
+pub const Error = quic.Connection.StreamSendError || quic.Connection.StreamReadError || error{
     /// A file in the downloads directory could not be created or written.
     DownloadRefused,
 };
@@ -72,13 +72,13 @@ pub const Client = struct {
         // Bounded by the paths.
         while (client.opened < client.paths.len) {
             // RFC 9000 §4.6: past the server's limit the rest wait for its MAX_STREAMS.
-            const id = quic.connection_stream_send.open(connection, .bidirectional) catch return;
+            const id = quic.Connection.open_stream(connection, .bidirectional) catch return;
             assert(id.index() == client.opened);
             const path = client.paths[client.opened];
             client.files[client.opened] = hq_file.create(client.downloads, path) orelse return error.DownloadRefused;
             var line: [constants.hq_request_len_max]u8 = undefined;
             const request = hq.write_request(path, &line) catch unreachable;
-            try quic.connection_stream_send.supply(connection, id, request.len, true);
+            try quic.Connection.supply(connection, id, request.len, true);
             client.opened += 1;
         }
     }
@@ -87,7 +87,7 @@ pub const Client = struct {
     fn read_answer(client: *Client, connection: *Connection, index: usize) Error!void {
         const id = StreamId.of(.client, .bidirectional, index);
         for (0..reads_per_step_max) |_| {
-            const read = try quic.connection_stream_read.read(connection, id, &client.buffer);
+            const read = try quic.Connection.read(connection, id, &client.buffer);
             if (!hq_file.write_all(client.files[index], client.buffer[0..read.len])) return error.DownloadRefused;
             client.received_len += read.len;
             if (read.fin) {
@@ -102,7 +102,7 @@ pub const Client = struct {
     }
 };
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_request };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_request };
 
 /// The request line of the stream's path from `offset`, as many octets as fit.
 fn read_request(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {

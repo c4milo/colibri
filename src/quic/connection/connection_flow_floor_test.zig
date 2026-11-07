@@ -26,7 +26,7 @@ const window_blocks: u64 = 4;
 const stream_window: u64 = window_blocks * stream_module.stream_incoming.block_len;
 const pool_windows: u64 = 4;
 const pool_capacity: usize = pool_windows * stream_window;
-var pool: stream_module.stream_incoming.Pool(pool_capacity) align(@alignOf(stream_module.stream_incoming.Pool(pool_capacity))) = .{};
+var pool: stream_module.stream_incoming.Pool(.{ .capacity = pool_capacity }) align(@alignOf(stream_module.stream_incoming.Pool(.{ .capacity = pool_capacity }))) = .{};
 
 /// What the other streams consumed before the held stream filled its window: a window and a
 /// half, which is below `flow_credit_fraction`'s half of the connection's window. Test-only.

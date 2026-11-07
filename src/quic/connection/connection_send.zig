@@ -68,21 +68,24 @@ pub fn connection_error_code(connection: *const Connection, failure: Error) ?u64
     return packet_build.connection_error_code(@errorCast(failure));
 }
 
+/// The sizes of a `Scratch` (decision 158 ruling 3). Each field has a default.
+pub const ScratchOptions = struct {
+    /// The octets of frames one packet admits. Decision 54 makes RFC 9000 §14.1's smallest
+    /// allowed maximum datagram size the default.
+    payload_len_max: usize = constants.protocol.datagram_len_min,
+};
+
 /// Where a datagram's packets are framed before any is sealed. One payload buffer per encryption
 /// level, because §12.2 coalesces one packet of each and all three are planned before the first
 /// is protected. The caller places it (decision 35).
-pub fn Scratch(comptime capacity: usize) type {
+pub fn Scratch(comptime options: ScratchOptions) type {
     return struct {
         header: [constants.limits.packet_header_len_max]u8 = undefined,
-        payloads: [core.levels_count][capacity]u8 = undefined,
+        payloads: [core.levels_count][options.payload_len_max]u8 = undefined,
 
-        pub const payload_len_max: usize = capacity;
+        pub const payload_len_max: usize = options.payload_len_max;
     };
 }
-
-/// The scratch a caller gets by asking for no size in particular: RFC 9000 §14.1's smallest
-/// allowed maximum datagram size, which decision 54 makes the default.
-pub const DefaultScratch = Scratch(constants.protocol.datagram_len_min);
 
 /// One packet of the datagram, as the caller reports it to RFC 9002's recovery.
 pub const Packet = struct {
@@ -140,7 +143,8 @@ pub fn send(
     suite: crypto.Suite,
     provider: tls_provider.QuicProvider,
     stream_provider: StreamProvider,
-    scratch: anytype,
+    comptime options: ScratchOptions,
+    scratch: *Scratch(options),
     output: []u8,
     now_ns: u64,
 ) Error!?Sent {

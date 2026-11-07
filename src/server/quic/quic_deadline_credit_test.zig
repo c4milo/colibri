@@ -21,7 +21,7 @@ const ok: u16 = 200;
 const rounds_few: usize = 2;
 /// A receive pool, and so every window the server grants, of 32,768 octets. Test-only.
 const pool_len: usize = 32_768;
-const Pool = quic.stream.stream_incoming.Pool(pool_len);
+const Pool = quic.ReceivePool(.{ .capacity = pool_len });
 threadlocal var pool: Pool align(@alignOf(Pool)) = undefined;
 /// Content past half the window, so reading it earns credit (`flow_credit_fraction`), and twice
 /// what a window of the body rate owes.
@@ -44,14 +44,14 @@ fn connected(idle_ns: u64) !void {
 /// A POST whose head and DATA frame header reach the server, and none of its content.
 fn post_holding() !*support.Fetch {
     const fetch = try support.stage_request("POST", "/", &.{}, &content, &.{});
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, false);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, false);
     try support.pump(rounds_few);
     return fetch;
 }
 
 /// The client sends all of `fetch`'s content, and ends the stream when `fin` is set.
 fn send_content(fetch: *const support.Fetch, fin: bool) !void {
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len + content.len, fin);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len + content.len, fin);
 }
 
 /// Leaves the server's congestion window no room, once every packet it sent is acknowledged, and
@@ -191,7 +191,7 @@ test "decision 110 as amended: a MAX_STREAMS frame the server owes holds the idl
     // RFC 9000 §13.3: a MAX_STREAMS frame that was lost is owed again, and the full window holds
     // it back.
     connection.transport.streams.max_streams[0].owed = true;
-    try testing.expect(!quic.connection_flow.data_credit_owed(&connection.transport));
+    try testing.expect(!quic.Connection.data_credit_owed(&connection.transport));
     support.now_ns += support.round_ns;
     _ = try connection.receive(support.now_ns);
     try testing.expectEqual(support.now_ns, connection.clock.credit_held_since_ns.?);

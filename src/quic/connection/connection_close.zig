@@ -37,21 +37,6 @@ const Connection = connection_module.Connection;
 /// what colibri sends and what it reads are the same five fields.
 pub const Close = frame_control.ConnectionClose;
 
-/// The transport close colibri raises for a connection error it found itself (RFC 9000 §11.1).
-/// `frame_type` is the frame that triggered it, or null when no frame did.
-pub fn transport(code: u64, frame_type: ?u64) Close {
-    return .{
-        .layer = .transport,
-        .error_code = code,
-        // RFC 9000 §19.19: a 0x1c frame always carries the field, and "A value of 0 (equivalent
-        // to the mention of the PADDING frame) is used when the frame type is unknown."
-        .frame_type = frame_type orelse constants.protocol.frame_padding,
-        // RFC 9000 §19.19: "This can be zero length if the sender chooses not to give details
-        // beyond the Error Code value."
-        .reason = "",
-    };
-}
-
 /// Whether a packet at `level` carries the close (RFC 9000 §10.2.3).
 pub fn carries(connection: *const Connection, level: Level) bool {
     if (connection.pending_close == null) return false;
@@ -154,7 +139,7 @@ pub fn owe(connection: *Connection, what: Close) void {
 /// carries it (RFC 9000 §10.2), and running out of packet numbers closes it silently (§12.3). Any
 /// other, such as the caller's slice too short for a packet, changes nothing.
 pub fn on_send_failure(connection: *Connection, code: ?u64, packet_numbers_exhausted: bool) void {
-    if (code) |value| return owe(connection, transport(value, null));
+    if (code) |value| return owe(connection, Close.transport(value, null));
     // RFC 9000 §12.3: "the sender MUST close the connection without sending a CONNECTION_CLOSE
     // frame or any further packets".
     if (packet_numbers_exhausted) connection.termination.on_packet_numbers_exhausted();

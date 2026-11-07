@@ -57,9 +57,9 @@ pub const QuicServer = struct {
     config: tls.quic.ServerConfig,
     connection: quic.Connection,
     session: tls.quic.Server,
-    send_scratch: quic.connection_send.DefaultScratch,
-    scratch: quic.connection_datagram.Scratch,
-    pool: quic.stream.stream_incoming.DefaultPool,
+    send_scratch: quic.Connection.SendScratch(.{}),
+    scratch: quic.Connection.ReceiveScratch,
+    pool: quic.ReceivePool(.{}),
     h3: h3.Connection,
     section: h3.http.FieldSection,
     body: [body_len]u8,
@@ -96,7 +96,7 @@ pub const QuicServer = struct {
     /// Takes one datagram the client sent at `now_ns`: the first starts the connection.
     pub fn receive(server: *QuicServer, octets: []u8, random: tls.Random, now_ns: u64) !void {
         if (!server.started) try server.start(octets, random, now_ns);
-        _ = quic.connection_datagram.receive(&server.connection, server.session.suite(), server.session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &server.scratch) catch return;
+        _ = quic.Connection.receive(&server.connection, server.session.suite(), server.session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &server.scratch) catch return;
     }
 
     /// Reads what h3 has, and acts on each request that is due, as the plan says.
@@ -124,14 +124,14 @@ pub const QuicServer = struct {
     /// Closes the connection with an error, as a server that failed does (RFC 9000 §10.2).
     pub fn close_with_error(server: *QuicServer) void {
         if (server.connection.termination.state != .active) return;
-        quic.connection_close.owe(&server.connection, .{ .layer = .application, .error_code = h3.constants.protocol.error_internal, .frame_type = null, .reason = "" });
+        quic.Connection.owe_close(&server.connection, .{ .layer = .application, .error_code = h3.constants.protocol.error_internal, .frame_type = null, .reason = "" });
     }
 
     /// Writes the next datagram the server owes into `output`, and returns its length, or null.
     pub fn send(server: *QuicServer, output: []u8, now_ns: u64) ?usize {
         if (!server.started) return null;
         const provider = server.h3.provider(.{ .context = server, .vtable = &vtable });
-        const sent = quic.connection_send.send(&server.connection, server.session.suite(), server.session.provider(), provider, &server.send_scratch, output, now_ns) catch return null;
+        const sent = quic.Connection.send(&server.connection, server.session.suite(), server.session.provider(), provider, .{}, &server.send_scratch, output, now_ns) catch return null;
         const held = sent orelse return null;
         return held.len;
     }
@@ -139,13 +139,13 @@ pub const QuicServer = struct {
     /// The instant the server next wants `on_instant` at, or null.
     pub fn deadline_ns(server: *QuicServer) ?u64 {
         if (!server.started) return null;
-        const deadline = quic.connection_timer.next(&server.connection) orelse return null;
+        const deadline = quic.Connection.deadline(&server.connection) orelse return null;
         return deadline.at_ns;
     }
 
     pub fn on_instant(server: *QuicServer, now_ns: u64) void {
         if (!server.started) return;
-        _ = quic.connection_timer.on_instant(&server.connection, server.session.suite(), &server.scratch.recovery, now_ns) catch {};
+        _ = quic.Connection.on_instant(&server.connection, server.session.suite(), &server.scratch.recovery, now_ns) catch {};
     }
 
     /// The instant the next request is due, or null. A request whose answer waits for its end is
@@ -256,7 +256,7 @@ pub const QuicServer = struct {
         try server.h3.write_data_header(request.stream_id, request.content.len, &writer, now_ns);
         request.prefix_len = writer.written().len;
         const total = request.prefix_len + request.content.len;
-        quic.connection_stream_send.supply(&server.connection, .{ .value = request.stream_id }, total, true) catch |failure| {
+        quic.Connection.supply(&server.connection, .{ .value = request.stream_id }, total, true) catch |failure| {
             // RFC 9000 §3.5: a stream the client stopped was reset, and takes no response.
             if (failure == error.NotWritable) return;
             return failure;
@@ -300,7 +300,7 @@ fn parameters() quic.transport_parameters.Parameters {
     return held;
 }
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_answer };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_answer };
 
 /// A response stream's octets from `offset`: its kept frames, then its content.
 fn read_answer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {

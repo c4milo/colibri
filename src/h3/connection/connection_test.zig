@@ -18,13 +18,13 @@ const Writer = core.Writer;
 const FieldSection = http.FieldSection;
 const Connection = connection_module.Connection;
 const Event = connection_module.Connection.Event;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const testing = std.testing;
 
 /// Test-only sizes: the receive pool each side places, the streams a caller keeps octets for, and
 /// the octets it keeps for each.
 const pool_blocks: usize = 64;
-const pool_capacity: usize = pool_blocks * quic.stream.stream_incoming.block_len;
+const pool_capacity: usize = pool_blocks * quic.stream.receive_block_len;
 const kept_max: usize = 8;
 /// More than half the window, so a test can give back enough credit to owe a MAX_STREAM_DATA.
 pub const kept_len: usize = 40960;
@@ -51,7 +51,7 @@ pub const Kept = struct {
 pub const Endpoint = struct {
     transport: quic.Connection,
     h3: Connection,
-    pool: quic.stream.stream_incoming.Pool(pool_capacity),
+    pool: quic.ReceivePool(.{ .capacity = pool_capacity }),
     kept: [kept_max]Kept,
     body: [kept_len]u8,
 
@@ -78,7 +78,7 @@ pub const Endpoint = struct {
     pub fn commit(endpoint: *Endpoint, id: u64, written: []const u8, fin: bool) !void {
         const held = endpoint.kept_for(id);
         held.len += written.len;
-        try quic.connection_stream_send.supply(&endpoint.transport, .{ .value = id }, held.len, fin);
+        try quic.Connection.supply(&endpoint.transport, .{ .value = id }, held.len, fin);
     }
 
     /// Writes raw `octets` on `id`, as a peer that breaks a rule would.
@@ -88,12 +88,12 @@ pub const Endpoint = struct {
         try endpoint.commit(id, writer.written(), fin);
     }
 
-    fn provider(endpoint: *Endpoint) quic.stream.StreamProvider {
+    fn provider(endpoint: *Endpoint) quic.StreamProvider {
         return endpoint.h3.provider(.{ .context = endpoint, .vtable = &kept_vtable });
     }
 };
 
-const kept_vtable: quic.stream.stream_provider.VTable = .{ .read = read_kept };
+const kept_vtable: quic.StreamProvider.VTable = .{ .read = read_kept };
 
 fn read_kept(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const endpoint: *Endpoint = @ptrCast(@alignCast(context));
@@ -162,7 +162,7 @@ pub fn transfer_frames(from: *Endpoint, to: *Endpoint, count: usize) !void {
     const stream_provider = from.provider();
     // Bounded by `count`.
     for (0..count) |_| {
-        const written = quic.connection_stream_send.write(&from.transport, stream_provider, &frame_octets);
+        const written = quic.Connection.write_stream_frame(&from.transport, stream_provider, &frame_octets);
         if (written.len == 0) break;
         try apply_all(to, frame_octets[0..written.len]);
         acknowledge(from, .{
@@ -179,7 +179,7 @@ pub fn transfer_frames(from: *Endpoint, to: *Endpoint, count: usize) !void {
     }
     var writer = Writer.init(&frame_octets);
     const number = next_packet();
-    if (quic.connection_stream_send.write_endings(&from.transport, .application, &writer, number)) {
+    if (quic.Connection.write_stream_endings(&from.transport, .application, &writer, number)) {
         try apply_all(to, writer.written());
         acknowledge(from, .{ .number = number, .sent_at_ns = test_now_ns, .sent_len = @intCast(writer.written().len), .ack_eliciting = true, .in_flight = true });
     }

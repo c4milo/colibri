@@ -28,14 +28,14 @@ var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
-var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var send_scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
 
 /// The server's receive pool: sixteen blocks' capacity, which is also its window cap. Test-only.
 const pool_blocks: usize = 16;
 const pool_capacity: usize = pool_blocks * stream_module.stream_incoming.block_len;
-var pool: stream_module.stream_incoming.Pool(pool_capacity) align(@alignOf(stream_module.stream_incoming.Pool(pool_capacity))) = .{};
-var client_pool: stream_module.stream_incoming.Pool(pool_capacity) align(@alignOf(stream_module.stream_incoming.Pool(pool_capacity))) = .{};
+var pool: stream_module.stream_incoming.Pool(.{ .capacity = pool_capacity }) align(@alignOf(stream_module.stream_incoming.Pool(.{ .capacity = pool_capacity }))) = .{};
+var client_pool: stream_module.stream_incoming.Pool(.{ .capacity = pool_capacity }) align(@alignOf(stream_module.stream_incoming.Pool(.{ .capacity = pool_capacity }))) = .{};
 
 /// Datagrams held while a test decides when each arrives. Test-only.
 const held_max: usize = 8;
@@ -66,7 +66,7 @@ fn octet_at(offset: u64) u8 {
     return @truncate(offset *% octet_stride);
 }
 var body_context: u8 = 0;
-const body_vtable: stream_module.stream_provider.VTable = .{ .read = read_body };
+const body_vtable: stream_module.StreamProvider.VTable = .{ .read = read_body };
 fn read_body(_: *anyopaque, _: u64, offset: u64, out: []u8) usize {
     for (out, 0..) |*octet, index| octet.* = octet_at(offset + index);
     return out.len;
@@ -113,7 +113,7 @@ fn send_all(from: *Connection) !usize {
     var count: usize = 0;
     // Bounded by `held_max`.
     while (count < held_max) : (count += 1) {
-        const sent = try send.send(from, suite_holder.suite(), provider_holder.provider(), .{ .context = &body_context, .vtable = &body_vtable }, &send_scratch, &held[count], clock_ns) orelse break;
+        const sent = try send.send(from, suite_holder.suite(), provider_holder.provider(), .{ .context = &body_context, .vtable = &body_vtable }, .{}, &send_scratch, &held[count], clock_ns) orelse break;
         held_len[count] = sent.len;
     }
     return count;

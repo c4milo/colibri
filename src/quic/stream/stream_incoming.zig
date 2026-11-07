@@ -63,10 +63,18 @@ pub const Header = struct {
     free_head: Index,
 };
 
-/// A pool of `capacity` octets, which is the most every stream of one connection may hold unread
-/// at once, and so the connection's and each stream's window cap (decision 61). The caller places
-/// it (decision 35).
-pub fn Pool(comptime capacity: usize) type {
+/// The sizes of a `Pool` (decision 158 ruling 3). Each field has a default.
+pub const PoolOptions = struct {
+    /// The octets the pool holds, a multiple of `block_len`. Decision 61 makes
+    /// `receive_pool_len_default` the default.
+    capacity: usize = constants.limits.receive_pool_len_default,
+};
+
+/// A pool of `options.capacity` octets, which is the most every stream of one connection may
+/// hold unread at once, and so the connection's and each stream's window cap (decision 61). The
+/// caller places it (decision 35).
+pub fn Pool(comptime options: PoolOptions) type {
+    const capacity = options.capacity;
     comptime assert(capacity > 0 and capacity % block_len == 0);
     const count = capacity / block_len + span_edges * constants.limits.streams_per_connection_max;
     comptime assert(count < no_block);
@@ -81,9 +89,6 @@ pub fn Pool(comptime capacity: usize) type {
         }
     };
 }
-
-/// The pool a caller gets by asking for no size in particular (decision 61).
-pub const DefaultPool = Pool(constants.limits.receive_pool_len_default);
 
 /// A pool as the connection holds it, whatever its capacity.
 pub const Storage = struct {

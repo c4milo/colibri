@@ -75,7 +75,7 @@ pub const Session = union(enum) {
     pub fn choose_with(session: *Session, connection: *quic.Connection) void {
         switch (session.*) {
             .client => {},
-            .server => |*server| server.set_version_chooser(quic.connection_version.chooser(connection)),
+            .server => |*server| server.set_version_chooser(quic.Connection.version_chooser(connection)),
         }
     }
 

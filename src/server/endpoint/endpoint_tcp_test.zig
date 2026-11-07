@@ -297,7 +297,7 @@ fn answers_with_retry(id: *const [server_constants.policy.quic_id_len]u8) !bool 
         .type = .initial,
         .dcid = id,
         .scid = id,
-        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .packet_number = try quic.packet.number.encode(0, null),
         .protected_payload_len = quic.constants.protocol.datagram_len_min,
     });
     const len = writer.written().len + quic.constants.protocol.datagram_len_min;

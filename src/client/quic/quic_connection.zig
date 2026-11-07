@@ -49,8 +49,8 @@ pub const Response = event.Response;
 pub const RequestError = connection_module.RequestError;
 pub const PeerAddress = quic.PeerAddress;
 /// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
-/// of a `quic.stream.stream_incoming.Pool` the caller places.
-pub const ReceiveStorage = quic.stream.stream_incoming.Storage;
+/// of a `quic.ReceivePool` the caller places.
+pub const ReceiveStorage = quic.ReceiveStorage;
 
 /// What every QUIC connection to one origin borrows. The caller keeps it alive while any
 /// connection holds it.
@@ -105,7 +105,7 @@ pub const StartError = error{
 /// goes to (decision 72).
 pub const Sent = struct {
     bytes: []const u8,
-    ecn: quic.connection_send.Ecn,
+    ecn: quic.Ecn,
     to: PeerAddress,
 };
 
@@ -113,8 +113,8 @@ pub const QuicConnection = struct {
     config: *const Config,
     transport: quic.Connection,
     session: tls.quic.Client,
-    send_scratch: quic.connection_send.DefaultScratch,
-    scratch: quic.connection_datagram.Scratch,
+    send_scratch: quic.Connection.SendScratch(.{}),
+    scratch: quic.Connection.ReceiveScratch,
     h3: h3.Connection,
     /// Where a request's field section is built, and where h3 copies a response's content.
     section: h3.http.FieldSection,
@@ -270,7 +270,7 @@ pub const QuicConnection = struct {
             connection.after_change(now_ns);
         }
         if (datagram.len == 0 or connection.closed) return .{ .consumed = 0, .event = connection.owed_event() };
-        const received = quic.connection_datagram.receive(
+        const received = quic.Connection.receive(
             &connection.transport,
             connection.session.suite(),
             connection.session.provider(),
@@ -294,11 +294,12 @@ pub const QuicConnection = struct {
             quic_h3.write_requests(connection, now_ns);
             quic_streamed.supply_pieces(connection, now_ns);
         }
-        const sent = quic.connection_send.send(
+        const sent = quic.Connection.send(
             &connection.transport,
             connection.session.suite(),
             connection.session.provider(),
             quic_streamed.provider(connection),
+            .{},
             &connection.send_scratch,
             output,
             now_ns,
@@ -315,7 +316,7 @@ pub const QuicConnection = struct {
     pub fn deadline_ns(connection: *QuicConnection) ?u64 {
         if (connection.closed) return null;
         const idle_at = connection.idle_action_at_ns();
-        const deadline = quic.connection_timer.next(&connection.transport) orelse return idle_at;
+        const deadline = quic.Connection.deadline(&connection.transport) orelse return idle_at;
         return @min(deadline.at_ns, idle_at orelse deadline.at_ns);
     }
 
@@ -325,7 +326,7 @@ pub const QuicConnection = struct {
         const at_ns = connection.deadline_ns() orelse return;
         if (now_ns < at_ns) return;
         connection.act_on_idle(now_ns);
-        _ = quic.connection_timer.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
+        _ = quic.Connection.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
             internal.fail(connection);
             return;
         };
@@ -338,9 +339,9 @@ pub const QuicConnection = struct {
     fn idle_action_at_ns(connection: *const QuicConnection) ?u64 {
         if (!connection.started or connection.stopped or connection.closed) return null;
         const transport = &connection.transport;
-        const deadline = quic.connection_idle.deadline_ns(transport) orelse return null;
+        const deadline = quic.Connection.idle_deadline_ns(transport) orelse return null;
         if (connection.idle_acted_ns == deadline) return null;
-        const timeout = quic.connection_idle.timeout_ns(transport).?;
+        const timeout = quic.Connection.idle_timeout_ns(transport).?;
         return deadline - internal.idle_margin_ns(transport, timeout);
     }
 
@@ -351,8 +352,8 @@ pub const QuicConnection = struct {
     fn act_on_idle(connection: *QuicConnection, now_ns: u64) void {
         const at_ns = connection.idle_action_at_ns() orelse return;
         if (now_ns < at_ns) return;
-        connection.idle_acted_ns = quic.connection_idle.deadline_ns(&connection.transport);
-        if (!connection.slots.idle()) return quic.connection_idle.owe_keep_alive(&connection.transport);
+        connection.idle_acted_ns = quic.Connection.idle_deadline_ns(&connection.transport);
+        if (!connection.slots.idle()) return quic.Connection.owe_keep_alive(&connection.transport);
         // A connection already draining closes after its last exchange anyway.
         if (connection.draining) return;
         connection.retired = true;
@@ -465,7 +466,7 @@ pub const QuicConnection = struct {
         const peer = connection.config.server_address;
         const now_ns = transport.recovery.congestion.latest_ns;
         if (transport.recovery.careful_resume.retreated) resumes.drop(peer);
-        resumes.put(peer, quic.connection_resume.observe(transport, now_ns), now_ns);
+        resumes.put(peer, quic.Connection.resume_state(transport, now_ns), now_ns);
     }
 
     /// The last exchange of a draining connection ended, so QUIC closes with H3_NO_ERROR. RFC

@@ -28,8 +28,8 @@ pub fn fail(connection: *QuicConnection) void {
     // RFC 9000 §10.2: an active connection that ends owes its CONNECTION_CLOSE, unless h3 or
     // QUIC already owes one. The loss timer's refusals owe none, and RFC 9000 §20.1 closes
     // them with INTERNAL_ERROR.
-    if (transport.termination.state == .active and !quic.connection_close.owes(transport)) {
-        quic.connection_close.owe(transport, quic.connection_close.transport(quic.error_code.internal_error, null));
+    if (transport.termination.state == .active and !quic.Connection.owes_close(transport)) {
+        quic.Connection.owe_close(transport, quic.ConnectionClose.transport(quic.error_code.internal_error, null));
     }
     // RFC 9000 §10.2.1: a connection that closes sends only its CONNECTION_CLOSE from here on,
     // so no stream reads an exchange's octets again.
@@ -41,7 +41,7 @@ pub fn fail(connection: *QuicConnection) void {
 
 /// Owes the server a CONNECTION_CLOSE carrying h3's `code` (RFC 9000 §10.2, RFC 9114 §8).
 pub fn close_quic(connection: *QuicConnection, code: u64) void {
-    quic.connection_close.owe(&connection.transport, .{
+    quic.Connection.owe_close(&connection.transport, .{
         .layer = .application,
         .error_code = code,
         // RFC 9000 §19.19: only a transport close carries the Frame Type field.
@@ -54,7 +54,7 @@ pub fn close_quic(connection: *QuicConnection, code: u64) void {
 /// and at least `quic_idle_margin_ns_min`, as the owner ruled on 2026-09-28, and at most the
 /// effective idle timeout `timeout_ns` over `quic_idle_margin_timeout_divisor`.
 pub fn idle_margin_ns(transport: *const quic.Connection, timeout_ns: u64) u64 {
-    const margin = @max(constants.policy.quic_idle_margin_ns_min, quic.connection_idle.probe_timeout_ns(transport));
+    const margin = @max(constants.policy.quic_idle_margin_ns_min, quic.Connection.probe_timeout_ns(transport));
     return @min(margin, timeout_ns / constants.policy.quic_idle_margin_timeout_divisor);
 }
 

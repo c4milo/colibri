@@ -14,7 +14,7 @@ const no_block: u16 = std.math.maxInt(u16);
 /// A window of eight blocks per stream. Test-only.
 const capacity_blocks: usize = 8;
 const capacity: usize = capacity_blocks * block_len;
-const TestPool = stream_incoming.Pool(capacity);
+const TestPool = stream_incoming.Pool(.{ .capacity = capacity });
 var pool: TestPool align(@alignOf(TestPool)) = .{};
 const block_count = @typeInfo(@TypeOf(pool.blocks)).array.len;
 

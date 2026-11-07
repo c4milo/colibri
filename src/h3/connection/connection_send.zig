@@ -27,7 +27,7 @@ const connection_qlog = @import("connection_qlog.zig");
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
 const Connection = connection_module.Connection;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const QuicConnection = quic.Connection;
 const Indexing = qpack.Encoder.Indexing;
 
@@ -74,7 +74,7 @@ pub fn write_request(
     const id = StreamId.of(.client, .bidirectional, streams.next_index[which]);
     const payload_len = try write_headers(connection, transport, id.value, section, indexing, output);
     // RFC 9000 §4.6: the limit was checked above, so only colibri's table can refuse the stream.
-    const opened = quic.connection_stream_send.open(transport, .bidirectional) catch return error.StreamsExhausted;
+    const opened = quic.Connection.open_stream(transport, .bidirectional) catch return error.StreamsExhausted;
     assert(opened.value == id.value);
     connection_qlog.request_stream_set(connection, .local, id.value);
     connection_qlog.frame_event(connection, .created, id.value, .{ .headers = .{ .section = section, .payload_len = payload_len } });

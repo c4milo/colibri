@@ -32,7 +32,7 @@ test "decision 119: a request's word comes back on each later event of it, its e
     const id = endpoint_support.id_of(fetch.id);
     try endpoint.set_user_data(id, first_word);
     // The client ends its request, which the server reports as the end of its content.
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, true);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, fetch.prefix_len, true);
     try support.pump(support.rounds_default);
     const end = support.nth(.body, 0).?;
     try testing.expect(end.end);

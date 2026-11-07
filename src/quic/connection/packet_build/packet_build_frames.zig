@@ -148,7 +148,7 @@ pub fn write(
     count_probe(connection, level, ack_eliciting);
     // RFC 9000 §10.1.2: any ack-eliciting packet keeps the connection from its idle timeout, so
     // it answers the keep-alive, PING or not.
-    if (level == .application and ack_eliciting) connection.keep_alive_owed = false;
+    if (level == .application and ack_eliciting) connection.keep_alive_pending = false;
     return .{
         .len = framed_len + probe_len,
         .carries = data.carries,
@@ -233,7 +233,7 @@ fn elicit_due(connection: *const Connection, level: Level, now_ns: u64) bool {
 /// at the application level (RFC 9000 §10.1.2). `write_probe` writes it only when nothing else in
 /// the packet elicits an acknowledgment.
 fn keep_alive_due(connection: *const Connection, level: Level) bool {
-    return level == .application and connection.keep_alive_owed;
+    return level == .application and connection.keep_alive_pending;
 }
 
 /// Counts off one probe for an ack-eliciting packet at `level` (RFC 9002 §6.2.4: "All probe

@@ -43,7 +43,7 @@ pub fn headers_frame(output: *Writer, lines: []const Line) !void {
 
 /// Opens the client's next request stream, writes `write`'s frames on it, and ends it when `fin`.
 fn raw_request(frames: []const u8, fin: bool) !u64 {
-    const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
+    const id = try quic.Connection.open_stream(&client.transport, .bidirectional);
     try client.send_raw(id.value, frames, fin);
     return id.value;
 }
@@ -132,7 +132,7 @@ test "§4.1.2: a malformed request refuses its stream with H3_MESSAGE_ERROR, and
     try exchange();
     try testing.expectEqual(null, try next(server));
     try testing.expect(server.transport.streams.lookup(.{ .value = id }) != .live);
-    try testing.expectEqual(constants.protocol.error_message_error, quic.connection_stream_read.reset_code(&client.transport, .{ .value = id }).?);
+    try testing.expectEqual(constants.protocol.error_message_error, quic.Connection.reset_code(&client.transport, .{ .value = id }).?);
     const again = try harness.request(&harness.get_lines, "");
     try exchange();
     try testing.expectEqual(again, (try next(server)).?.request.stream_id);
@@ -282,7 +282,7 @@ test "§5.2: after colibri's GOAWAY a server rejects later requests, and the cli
     try exchange();
     try testing.expectEqual(null, try next(server));
     try exchange();
-    try testing.expectEqual(constants.protocol.error_request_rejected, quic.connection_stream_read.reset_code(&client.transport, .{ .value = late }).?);
+    try testing.expectEqual(constants.protocol.error_request_rejected, quic.Connection.reset_code(&client.transport, .{ .value = late }).?);
     try testing.expectEqual(Event{ .goaway = late }, (try next(client)).?);
     try testing.expectError(error.GoawayReceived, harness.request(&harness.get_lines, ""));
 }

@@ -142,7 +142,7 @@ test "RFC 9000 §10.2: a connection the peer closes gives back the encoders of i
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
     _ = try connection.write_body(fetch.id, .{ .bytes = "hello", .end = false });
     try testing.expectEqual(encoders_all - 1, tcp_support.pool.free_count());
-    quic.connection_close.owe(&support.client, quic.connection_close.transport(quic.error_code.no_error, null));
+    quic.Connection.owe_close(&support.client, quic.ConnectionClose.transport(quic.error_code.no_error, null));
     try support.pump(support.rounds_default);
     try testing.expect(connection.stopped);
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());

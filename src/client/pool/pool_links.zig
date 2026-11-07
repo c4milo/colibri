@@ -106,7 +106,7 @@ pub fn abandon(pool: anytype, slot: u32) void {
 /// Owes the close of an abandoned QUIC connection, and ends it.
 fn abandon_quic(pool: anytype) void {
     // RFC 9000 §10.2: the close carries NO_ERROR, since no error ended the connection.
-    quic.connection_close.owe(&pool.quic.transport, quic.connection_close.transport(quic.error_code.no_error, null));
+    quic.Connection.owe_close(&pool.quic.transport, quic.ConnectionClose.transport(quic.error_code.no_error, null));
     quic_internal.fail(&pool.quic);
 }
 

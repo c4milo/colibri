@@ -28,7 +28,7 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
-var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
@@ -82,7 +82,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, limit: u64) v
 }
 
 fn send_from(connection: *Connection) !?send.Sent {
-    return send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), &scratch, &datagram, test_now_ns);
+    return send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), .{}, &scratch, &datagram, test_now_ns);
 }
 
 fn deliver(sent: send.Sent, reader: *Connection) !void {

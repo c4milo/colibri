@@ -22,7 +22,7 @@ const plan_module = @import("h3_deadline_plan.zig");
 
 const limits = sim.constants.h3_deadline;
 const Plan = plan_module.Plan;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 
 pub const Error = error{
     /// The peer's own QUIC or h3 failed, or chapulin refused its handshake.
@@ -93,9 +93,9 @@ pub const Peer = struct {
     config: tls.quic.ClientConfig,
     connection: quic.Connection,
     session: tls.quic.Client,
-    send_scratch: quic.connection_send.DefaultScratch,
-    scratch: quic.connection_datagram.Scratch,
-    pool: quic.stream.stream_incoming.DefaultPool,
+    send_scratch: quic.Connection.SendScratch(.{}),
+    scratch: quic.Connection.ReceiveScratch,
+    pool: quic.ReceivePool(.{}),
     h3: h3.Connection,
     section: h3.http.FieldSection,
     body: [body_len]u8,
@@ -165,26 +165,26 @@ pub const Peer = struct {
     /// Writes the next datagram the peer owes into `output`, and returns its length, or null.
     pub fn send(peer: *Peer, output: []u8, now_ns: u64) Error!?usize {
         const provider = peer.h3.provider(.{ .context = peer, .vtable = &vtable });
-        const sent = quic.connection_send.send(&peer.connection, peer.session.suite(), peer.session.provider(), provider, &peer.send_scratch, output, now_ns) catch return error.PeerFailed;
+        const sent = quic.Connection.send(&peer.connection, peer.session.suite(), peer.session.provider(), provider, .{}, &peer.send_scratch, output, now_ns) catch return error.PeerFailed;
         const held = sent orelse return null;
         return held.len;
     }
 
     /// Takes one datagram the server sent, and keeps its CONNECTION_CLOSE when it carries one.
     pub fn receive(peer: *Peer, octets: []u8, now_ns: u64, now_ms: u64) Error!void {
-        const received = quic.connection_datagram.receive(&peer.connection, peer.session.suite(), peer.session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &peer.scratch) catch return error.PeerFailed;
+        const received = quic.Connection.receive(&peer.connection, peer.session.suite(), peer.session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &peer.scratch) catch return error.PeerFailed;
         const close = received.close orelse return;
         if (peer.close == null) peer.close = .{ .application = close.layer == .application, .error_code = close.error_code, .at_ms = now_ms };
     }
 
     /// The instant the peer's QUIC next wants `on_instant` at, or null.
     pub fn timer_ns(peer: *Peer) ?u64 {
-        const timer = quic.connection_timer.next(&peer.connection) orelse return null;
+        const timer = quic.Connection.deadline(&peer.connection) orelse return null;
         return timer.at_ns;
     }
 
     pub fn on_instant(peer: *Peer, now_ns: u64) void {
-        _ = quic.connection_timer.on_instant(&peer.connection, peer.session.suite(), &peer.scratch.recovery, now_ns) catch {};
+        _ = quic.Connection.on_instant(&peer.connection, peer.session.suite(), &peer.scratch.recovery, now_ns) catch {};
     }
 
     /// Whether the peer's connection still runs.
@@ -280,7 +280,7 @@ pub const Peer = struct {
         var moved = false;
         for (peer.fetches[0..peer.fetches_len]) |*fetch| {
             if (fetch.reset != null or fetch.ended_ms != null) continue;
-            const code = quic.connection_stream_read.reset_code(&peer.connection, .{ .value = fetch.id }) orelse continue;
+            const code = quic.Connection.reset_code(&peer.connection, .{ .value = fetch.id }) orelse continue;
             fetch.reset = code;
             fetch.reset_ms = now_ms;
             moved = true;
@@ -329,7 +329,7 @@ pub const Peer = struct {
     pub fn supply(peer: *Peer, fetch: *Fetch, len: usize, fin: bool) void {
         assert(len >= fetch.supplied and len <= fetch.total());
         if (fetch.finished) return;
-        quic.connection_stream_send.supply(&peer.connection, .{ .value = fetch.id }, len, fin) catch return;
+        quic.Connection.supply(&peer.connection, .{ .value = fetch.id }, len, fin) catch return;
         fetch.supplied = len;
         fetch.finished = fin;
     }
@@ -342,7 +342,7 @@ pub const Peer = struct {
     /// Owes a PING, which keeps QUIC's idle timeout away and is no request (RFC 9000 §10.1.2).
     pub fn ping(peer: *Peer) void {
         if (!peer.active() or !peer.connection.handshake_complete) return;
-        quic.connection_idle.owe_keep_alive(&peer.connection);
+        quic.Connection.owe_keep_alive(&peer.connection);
         peer.pings += 1;
     }
 };
@@ -366,7 +366,7 @@ comptime {
     assert(limits.close_after_goaway_ms_max * limits.ns_per_ms == quic.constants.protocol.max_ack_delay_default_ns);
 }
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_fetch };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_fetch };
 
 /// The stream provider QUIC reads the peer's request streams through (decision 57): a fetch's
 /// frames, then its content.

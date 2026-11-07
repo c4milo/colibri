@@ -102,7 +102,7 @@ pub const Received = struct {
     /// moves the path when the datagram came from a new address (RFC 9000 §9.3).
     highest_non_probing: bool = false,
     /// The server moved its path to the address the datagram came from (RFC 9000 §9.3). The
-    /// caller now owes `connection_migration.challenge` the data of two PATH_CHALLENGE frames.
+    /// caller now owes `Connection.challenge_path` the data of two PATH_CHALLENGE frames.
     migrated: bool = false,
 };
 
@@ -118,7 +118,7 @@ pub fn receive(
     defer connection_qlog.log_changes(connection, provider, datagram.now_ns);
     // RFC 9000 §10.2: a connection error closes the connection at once, and the endpoint that
     // found it tells its peer why, in the CONNECTION_CLOSE `send` writes next.
-    errdefer |failure| connection_close.owe(connection, connection_close.transport(connection_error_code(connection, failure), null));
+    errdefer |failure| connection_close.owe(connection, connection_close.Close.transport(connection_error_code(connection, failure), null));
     var received: Received = .{};
     switch (connection.termination.state) {
         .active => {},

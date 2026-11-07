@@ -168,7 +168,7 @@ pub const Endpoint = struct {
             endpoint.required[r] = endpoint.outstanding_required(id);
             try endpoint.write_content(id, endpoint.plan.content, &writer);
             kept.len = writer.written().len;
-            try quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len, true);
+            try quic.Connection.supply(&endpoint.transport.connection, .{ .value = id }, kept.len, true);
             endpoint.opened += 1;
         }
     }
@@ -260,7 +260,7 @@ pub const Endpoint = struct {
         try endpoint.section.append(":status", "200");
         try endpoint.h3.write_response(&endpoint.transport.connection, id, &endpoint.section, &.{.no_insert}, &writer, endpoint.now_ns);
         kept.len = writer.written().len;
-        quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len, true) catch |failure| switch (failure) {
+        quic.Connection.supply(&endpoint.transport.connection, .{ .value = id }, kept.len, true) catch |failure| switch (failure) {
             // RFC 9000 §3.5: the client cancelled a request it had sent whole, and its
             // STOP_SENDING reset the server's side before the answer, so nothing goes out.
             error.NotWritable => return,
@@ -312,7 +312,7 @@ fn parameters() quic.transport_parameters.Parameters {
     return held;
 }
 
-const kept_vtable: quic.stream.stream_provider.VTable = .{ .read = read_kept };
+const kept_vtable: quic.StreamProvider.VTable = .{ .read = read_kept };
 
 /// A request stream's octets from `offset`: the frames the endpoint kept. Every call at one
 /// offset answers the same octets (RFC 9000 §2.2).

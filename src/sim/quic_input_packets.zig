@@ -131,7 +131,7 @@ fn write_long(
     });
 }
 
-fn draw_packet_number(random: *Random) quic.packet.packet_number.Truncated {
+fn draw_packet_number(random: *Random) quic.packet.number.Truncated {
     const len: u8 = @intCast(random.between(1, limits.protocol.packet_number_len_max));
     return .{ .value = @truncate(random.below(@as(u64, 1) << @intCast(len * @bitSizeOf(u8)))), .len = len };
 }
@@ -223,13 +223,13 @@ fn draw_connection_ids(parameters: *Parameters, random: *Random, material: []con
 /// they were accepted.
 pub fn read_parameters(storage: *Storage, input: []const u8, sender: Role) Violation!bool {
     var reader = Reader.init(input);
-    const parameters = quic.transport_parameters_read.read(&reader, sender) catch return false;
+    const parameters = quic.transport_parameters.read(&reader, sender) catch return false;
     if (!within_bounds(parameters)) return error.ParametersInvalid;
     // RFC 9000 §18.2: a client MUST NOT include a server-only parameter.
     if (sender == .client and has_server_only(parameters)) return error.ParametersInvalid;
     const first = try write_parameters(&storage.rewritten, parameters, sender);
     var again_reader = Reader.init(first);
-    const again = quic.transport_parameters_read.read(&again_reader, sender) catch return error.ParametersChanged;
+    const again = quic.transport_parameters.read(&again_reader, sender) catch return error.ParametersChanged;
     const second = try write_parameters(&storage.rewritten_again, again, sender);
     if (!std.mem.eql(u8, first, second)) return error.ParametersChanged;
     return true;

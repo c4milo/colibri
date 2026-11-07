@@ -18,7 +18,7 @@ pub fn destination_of(datagram: []const u8) ?Destination {
     return switch (parsed) {
         // RFC 9000 §5.2.2: a packet in a version the server does not speak gets a Version
         // Negotiation packet or is dropped, and reaches no connection.
-        .long => |long| if (quic.connection_version.speaks(@intFromEnum(long.version))) .{ .dcid = long.dcid, .short = false } else null,
+        .long => |long| if (quic.version.speaks(@intFromEnum(long.version))) .{ .dcid = long.dcid, .short = false } else null,
         .short => |short| .{ .dcid = short.dcid, .short = true },
         else => null,
     };
@@ -52,13 +52,13 @@ pub fn version_negotiation(datagram: []const u8, output: []u8) ?[]const u8 {
     const long = invariant.read_long(datagram) catch return null;
     // RFC 8999 §6: a Version Negotiation packet is never answered with one, and RFC 9000 §6.1: a
     // version the server accepts starts a connection instead.
-    if (long.is_version_negotiation() or quic.connection_version.speaks(long.version)) return null;
+    if (long.is_version_negotiation() or quic.version.speaks(long.version)) return null;
     // RFC 9000 §5.2.2: a server drops a datagram too small to start a connection.
     if (datagram.len < quic.constants.protocol.datagram_len_min) return null;
     var writer = quic.core.Writer.init(output);
     // RFC 9000 §17.2.1: the server "SHOULD set the most significant bit of this field (0x40) to
     // 1", so the packet reads as QUIC to a version that uses the Fixed Bit.
-    invariant.write_version_negotiation(&writer, version_negotiation_unused_bits, long, &quic.connection_version.supported_versions) catch return null;
+    invariant.write_version_negotiation(&writer, version_negotiation_unused_bits, long, &quic.version.supported_versions) catch return null;
     return writer.written();
 }
 
@@ -95,7 +95,7 @@ fn long_packet(long_type: quic.packet.header.LongType) ![]const u8 {
         .type = long_type,
         .dcid = &test_id,
         .scid = &test_id,
-        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .packet_number = try quic.packet.number.encode(0, null),
         .protected_payload_len = test_payload_len,
     });
     const header_len = writer.written().len;

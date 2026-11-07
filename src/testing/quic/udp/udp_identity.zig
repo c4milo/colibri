@@ -79,8 +79,8 @@ pub fn keylog() *keylog_module.Keylog {
 
 /// The PATH_CHALLENGE data a move owes (decision 72), drawn at random: RFC 9000 §8.2.1 wants it
 /// unpredictable.
-pub fn challenge_data() quic.connection_migration.ChallengeData {
-    var data: quic.connection_migration.ChallengeData = undefined;
+pub fn challenge_data() quic.Connection.ChallengeData {
+    var data: quic.Connection.ChallengeData = undefined;
     entropy.fill(std.mem.asBytes(&data));
     return data;
 }

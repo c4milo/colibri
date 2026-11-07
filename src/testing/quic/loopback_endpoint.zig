@@ -23,8 +23,8 @@ const Connection = quic.Connection;
 const Parameters = quic.transport_parameters.Parameters;
 const Session = quic_session.Session;
 
-pub const Error = quic.connection_datagram.Error || quic.connection_send.Error || quic.connection_recovery.Error ||
-    quic.connection_stream_send.Error || quic.stream.stream_table.OpenError || quic.connection_stream_read.Error ||
+pub const Error = quic.Connection.ReceiveError || quic.Connection.SendError || quic.connection_recovery.Error ||
+    quic.Connection.StreamSendError || quic.Connection.OpenStreamError || quic.Connection.StreamReadError ||
     error{
         /// chapulin refused to start or to take its Initial keys.
         SessionRefused,
@@ -56,18 +56,18 @@ const octet_stride: u64 = 7;
 const octet_seed: u64 = 0x2b;
 
 /// The client's first bidirectional stream, which is the one it sends (RFC 9000 §2.1).
-const transfer_stream: quic.stream.StreamId = .{ .value = 0 };
+const transfer_stream: quic.StreamId = .{ .value = 0 };
 
 pub const Endpoint = struct {
     connection: Connection,
     session: Session,
-    send_scratch: quic.connection_send.DefaultScratch,
-    scratch: quic.connection_datagram.Scratch,
+    send_scratch: quic.Connection.SendScratch(.{}),
+    scratch: quic.Connection.ReceiveScratch,
     /// The datagram being received, copied: the suite opens it in place.
     received: [constants.quic_datagram_len_max]u8,
     /// The datagram being sent.
     output: [constants.quic_datagram_len_max]u8,
-    pool: quic.stream.stream_incoming.DefaultPool,
+    pool: quic.ReceivePool(.{}),
     read_buffer: [constants.quic_datagram_len_max]u8,
     transfer_started: bool,
     /// Whether the peer acknowledged every octet of the client's stream, FIN included.
@@ -112,7 +112,7 @@ pub const Endpoint = struct {
     pub fn receive(endpoint: *Endpoint, octets: []const u8, now_ns: u64) Error!void {
         assert(octets.len <= endpoint.received.len);
         @memcpy(endpoint.received[0..octets.len], octets);
-        const received = try quic.connection_datagram.receive(
+        const received = try quic.Connection.receive(
             &endpoint.connection,
             endpoint.session.suite(),
             endpoint.session.provider(),
@@ -126,11 +126,12 @@ pub const Endpoint = struct {
     /// Builds the next datagram into `output`, or answers null when nothing is owed.
     pub fn send(endpoint: *Endpoint, now_ns: u64) Error!?[]const u8 {
         try endpoint.start_transfer();
-        const sent = try quic.connection_send.send(
+        const sent = try quic.Connection.send(
             &endpoint.connection,
             endpoint.session.suite(),
             endpoint.session.provider(),
             endpoint.stream_provider(),
+            .{},
             &endpoint.send_scratch,
             &endpoint.output,
             now_ns,
@@ -140,7 +141,7 @@ pub const Endpoint = struct {
 
     /// The instant this endpoint next wants to be called at (design §4.2).
     pub fn next_deadline_ns(endpoint: *Endpoint) ?u64 {
-        const deadline = quic.connection_timer.next(&endpoint.connection) orelse return null;
+        const deadline = quic.Connection.deadline(&endpoint.connection) orelse return null;
         return deadline.at_ns;
     }
 
@@ -148,7 +149,7 @@ pub const Endpoint = struct {
     pub fn on_instant(endpoint: *Endpoint, now_ns: u64) Error!void {
         const at_ns = endpoint.next_deadline_ns() orelse return;
         if (now_ns < at_ns) return;
-        _ = try quic.connection_timer.on_instant(&endpoint.connection, endpoint.session.suite(), &endpoint.scratch.recovery, now_ns);
+        _ = try quic.Connection.on_instant(&endpoint.connection, endpoint.session.suite(), &endpoint.scratch.recovery, now_ns);
     }
 
     /// The server reads what has arrived of the client's stream, and checks each octet.
@@ -156,7 +157,7 @@ pub const Endpoint = struct {
         if (endpoint.transfer_read) return;
         // Bounded: each read takes at least one octet, and the stream holds `transfer_len`.
         for (0..transfer_len + 1) |_| {
-            const read = quic.connection_stream_read.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
+            const read = quic.Connection.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
                 // The stream's first octets have not arrived, so the server has not opened it.
                 error.NotReadable => return,
                 else => return failure,
@@ -172,13 +173,13 @@ pub const Endpoint = struct {
     fn start_transfer(endpoint: *Endpoint) Error!void {
         if (endpoint.connection.role != .client or endpoint.transfer_started) return;
         if (!endpoint.connection.handshake_complete) return;
-        const id = try quic.connection_stream_send.open(&endpoint.connection, .bidirectional);
+        const id = try quic.Connection.open_stream(&endpoint.connection, .bidirectional);
         assert(id.value == transfer_stream.value);
-        try quic.connection_stream_send.supply(&endpoint.connection, id, transfer_len, true);
+        try quic.Connection.supply(&endpoint.connection, id, transfer_len, true);
         endpoint.transfer_started = true;
     }
 
-    fn stream_provider(endpoint: *Endpoint) quic.stream.StreamProvider {
+    fn stream_provider(endpoint: *Endpoint) quic.StreamProvider {
         return .{ .context = endpoint, .vtable = &stream_vtable };
     }
 };
@@ -194,7 +195,7 @@ fn parameters() Parameters {
     return held;
 }
 
-const stream_vtable: quic.stream.stream_provider.VTable = .{ .read = supply_transfer };
+const stream_vtable: quic.StreamProvider.VTable = .{ .read = supply_transfer };
 
 /// The client's stream, read back by offset. Every call at one offset answers the same octets,
 /// which RFC 9000 §2.2 asks of a retransmission.

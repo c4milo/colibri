@@ -23,7 +23,7 @@ var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
-var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var send_scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
 var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 
@@ -68,7 +68,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, levels: []con
 }
 
 fn send_raw(connection: *Connection) send.Error!?send.Sent {
-    return send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), &send_scratch, &datagram, test_now_ns);
+    return send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), .{}, &send_scratch, &datagram, test_now_ns);
 }
 
 fn receive(connection: *Connection, len: usize) datagram_module.Error!datagram_module.Received {

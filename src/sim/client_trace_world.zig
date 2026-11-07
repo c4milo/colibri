@@ -209,10 +209,10 @@ pub const World = struct {
     fn fire_pool(world: *World) void {
         const quic_link = &world.pool.quic_link;
         const running = quic_link.state == .running;
-        const owed_before = running and quic.connection_idle.keep_alive_owed(&world.pool.quic.transport);
+        const owed_before = running and quic.Connection.keep_alive_owed(&world.pool.quic.transport);
         world.pool.on_instant(world.now_ns);
         if (!running or owed_before) return;
-        if (quic.connection_idle.keep_alive_owed(&world.pool.quic.transport)) world.keep_alives += 1;
+        if (quic.Connection.keep_alive_owed(&world.pool.quic.transport)) world.keep_alives += 1;
     }
 
     /// Cancels each exchange the plan cancels once its connection ended it, before the pool

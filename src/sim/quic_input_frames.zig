@@ -17,7 +17,7 @@ const Random = sim.Random;
 const Reader = quic.core.Reader;
 const Writer = quic.core.Writer;
 const frame = quic.frame;
-const Frame = frame.Frame;
+const Frame = quic.Frame;
 const varint = quic.wire.varint;
 const limits = quic.constants;
 
@@ -183,7 +183,7 @@ fn draw_stream(random: *Random, material: []const u8, last: bool) frame.Stream {
 }
 
 /// A NEW_CONNECTION_ID frame that keeps RFC 9000 §19.15's two rules.
-fn draw_new_connection_id(random: *Random, material: []const u8) frame.frame_control.NewConnectionId {
+fn draw_new_connection_id(random: *Random, material: []const u8) frame.NewConnectionId {
     const sequence_number = draw_varint(random);
     const token_start = random.below(material.len - limits.protocol.stateless_reset_token_len + 1);
     return .{
@@ -200,7 +200,7 @@ fn draw_path_data(random: *Random, material: []const u8) *const [limits.protocol
 }
 
 /// A CONNECTION_CLOSE, which names a frame type when it speaks for the transport (§19.19).
-fn draw_close(random: *Random, material: []const u8) frame.frame_control.ConnectionClose {
+fn draw_close(random: *Random, material: []const u8) quic.ConnectionClose {
     const transport = chosen(random);
     return .{
         .layer = if (transport) .transport else .application,
@@ -253,7 +253,7 @@ fn check_writable(read: Frame) Violation!void {
 /// last (RFC 9000 §19.3.1), and number one more than the count the frame carries.
 fn ranges_descend(ranges: frame.AckRanges) bool {
     var walk = ranges.iterator();
-    var previous: ?frame.frame_ack.Range = null;
+    var previous: ?frame.AckRange = null;
     var walked: u64 = 0;
     // Bounded by the count, which the octets the frame was read from bound.
     for (0..constants.quic_input_check_input_len_max + 1) |_| {

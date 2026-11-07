@@ -25,7 +25,8 @@ var endpoint: Connection align(@alignOf(Connection)) = undefined;
 /// Larger than §14.1's smallest allowed maximum, so a peer that accepts more lets the window be
 /// what bounds a packet. Test-only.
 const datagram_buffer_len: usize = 3000;
-var scratch: send.Scratch(datagram_buffer_len) align(@alignOf(send.Scratch(datagram_buffer_len))) = .{};
+const scratch_options: send.ScratchOptions = .{ .payload_len_max = datagram_buffer_len };
+var scratch: send.Scratch(scratch_options) align(@alignOf(send.Scratch(scratch_options))) = .{};
 var datagram: [datagram_buffer_len]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
@@ -88,6 +89,7 @@ fn send_at(now_ns: u64) !?send.Sent {
         suite_holder.suite(),
         provider_holder.provider(),
         StreamProvider.none(),
+        scratch_options,
         &scratch,
         &datagram,
         now_ns,
@@ -200,7 +202,7 @@ test "RFC 9000 §10.2.1: a CONNECTION_CLOSE goes whatever the window says, and i
     // RFC 9000 §10.2.3: a client closes in an Initial while that is all it can send.
     open_at(.client, &.{.initial});
     leave_window(0);
-    close_module.owe(&endpoint, close_module.transport(error_code.internal_error, null));
+    close_module.owe(&endpoint, close_module.Close.transport(error_code.internal_error, null));
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expectEqual(Level.initial, sent.packets[0].level);
     // RFC 9000 §14.1 pads a client's Initial, so the datagram is in flight, and still nothing is recorded.

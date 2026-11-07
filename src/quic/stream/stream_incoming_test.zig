@@ -11,7 +11,7 @@ const testing = std.testing;
 /// A pool of four blocks' capacity, which the two per stream beyond it make larger, and room to
 /// read three blocks at once. Test-only.
 const capacity_blocks: usize = 4;
-const TestPool = stream_incoming.Pool(capacity_blocks * block_len);
+const TestPool = stream_incoming.Pool(.{ .capacity = capacity_blocks * block_len });
 var test_pool: TestPool align(@alignOf(TestPool)) = .{};
 const output_blocks: usize = 3;
 var output: [output_blocks * block_len]u8 = undefined;

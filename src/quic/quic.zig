@@ -2,7 +2,8 @@
 //! invariant 26), which build/modules.zig enforces and tools/graph_check.zig proves.
 //!
 //! The root exports the names code outside the module uses, each under the namespace of the file
-//! that declares it (decision 115 as amended). It exports no file but `constants` and
+//! that declares it (decision 115 as amended). The calls a program makes on a connection are
+//! declarations of `Connection` (decision 158 ruling 8). It exports no file but `constants` and
 //! `error_code`, so a function only the module's own files call is not reachable from outside.
 //! A caller that needs another name adds it here, and to the list in the test below.
 const std = @import("std");
@@ -117,115 +118,35 @@ pub const ResumeProvider = files.recovery_resume.ResumeProvider;
 pub const Space = files.space.Space;
 pub const Recovery = files.recovery.Recovery;
 
-/// A datagram the caller read is passed to `receive`, and `send` writes the next one the
-/// connection owes (design §4.2).
-pub const connection_datagram = struct {
-    pub const Error = files.connection_datagram.Error;
-    pub const Received = files.connection_datagram.Received;
-    pub const Scratch = files.connection_datagram.Scratch;
-    pub const connection_error_code = files.connection_datagram.connection_error_code;
-    pub const receive = files.connection_datagram.receive;
-};
+/// The ECN codepoint of a datagram's IP header (RFC 9000 §13.4), which `Connection.Sent.ecn`
+/// names and the caller writes (decision 68).
+pub const Ecn = files.connection_send.Ecn;
+/// The CONNECTION_CLOSE frame (RFC 9000 §19.19), which `Connection.owe_close` takes and
+/// `ConnectionClose.transport` makes (decision 158 ruling 8).
+pub const ConnectionClose = files.frame.frame_control.ConnectionClose;
+/// The stream a connection holds, its ID, and the provider a caller supplies its octets through
+/// (decision 57).
+pub const Stream = files.stream.Stream;
+pub const StreamId = files.stream.StreamId;
+pub const StreamProvider = files.stream.StreamProvider;
+/// A frame of RFC 9000 §19, as `frame.read` reads it and `frame.write` writes it.
+pub const Frame = files.frame.Frame;
+/// The pool a connection holds its unread stream octets in, which the caller places (decision
+/// 61), its sizes, and the pool as `Connection.Options.receive` takes it.
+pub const ReceivePool = files.stream.stream_incoming.Pool;
+pub const ReceivePoolOptions = files.stream.stream_incoming.PoolOptions;
+pub const ReceiveStorage = files.stream.stream_incoming.Storage;
 
-pub const connection_send = struct {
-    pub const DefaultScratch = files.connection_send.DefaultScratch;
-    pub const Ecn = files.connection_send.Ecn;
-    pub const Error = files.connection_send.Error;
-    pub const Sent = files.connection_send.Sent;
-    pub const send = files.connection_send.send;
-};
-
-/// The instant the connection next needs `on_instant`, and what that instant is for.
-pub const connection_timer = struct {
-    pub const next = files.connection_timer.next;
-    pub const on_instant = files.connection_timer.on_instant;
-};
-
-/// RFC 9959 §3.1: the set a connection observed, which a program saves (decision 149).
-pub const connection_resume = struct {
-    pub const observe = files.connection_resume.observe;
-};
-
-pub const connection_idle = struct {
-    pub const deadline_ns = files.connection_idle.deadline_ns;
-    pub const keep_alive_owed = files.connection_idle.keep_alive_owed;
-    pub const owe_keep_alive = files.connection_idle.owe_keep_alive;
-    pub const probe_timeout_ns = files.connection_idle.probe_timeout_ns;
-    pub const timeout_ns = files.connection_idle.timeout_ns;
-};
-
-pub const connection_close = struct {
-    pub const owe = files.connection_close.owe;
-    pub const owes = files.connection_close.owes;
-    pub const transport = files.connection_close.transport;
-};
-
-/// What a caller does with a stream: open it, supply its octets, read what arrived, and end it.
-pub const connection_stream_send = struct {
-    pub const Error = files.connection_stream_send.Error;
-    pub const open = files.connection_stream_send.open;
-    pub const reset = files.connection_stream_send.reset;
-    pub const set_priority = files.connection_stream_send.set_priority;
-    pub const stop_sending = files.connection_stream_send.stop_sending;
-    pub const supply = files.connection_stream_send.supply;
-    pub const write = files.connection_stream_send.write;
-    pub const write_endings = files.connection_stream_send.write_endings;
-};
-
-pub const connection_stream_read = struct {
-    pub const Error = files.connection_stream_read.Error;
-    pub const Read = files.connection_stream_read.Read;
-    pub const consume = files.connection_stream_read.consume;
-    pub const peek = files.connection_stream_read.peek;
-    pub const read = files.connection_stream_read.read;
-    pub const reset_code = files.connection_stream_read.reset_code;
-};
-
-pub const connection_stream_acknowledged = struct {
-    pub const acknowledged_end = files.connection_stream_acknowledged.acknowledged_end;
-    pub const resets_acknowledged = files.connection_stream_acknowledged.resets_acknowledged;
-};
-
-pub const connection_flow = struct {
-    pub const credit_owed = files.connection_flow.credit_owed;
-    /// The server's `observe`, which asks `data_credit_owed` first (design §8 step 29d.7).
-    pub const count_credit_owed = files.connection_flow.count_credit_owed;
-    /// The server's body meters, which wait on data credit alone (decision 130).
-    pub const data_credit_owed = files.connection_flow.data_credit_owed;
-};
-
-pub const connection_stream_credit = struct {
-    pub const send_credit = files.connection_stream_credit.send_credit;
-};
-
-/// What an endpoint does beside a connection's datagrams: the versions it speaks, a Retry, a new
-/// connection ID, a path challenge, a key update and the log.
-pub const connection_version = struct {
-    pub const chooser = files.connection_version.chooser;
+/// The versions an endpoint speaks (RFC 9000 §6, RFC 9368).
+pub const version = struct {
     pub const speaks = files.connection_version.speaks;
     pub const supported_versions = files.connection_version.supported_versions;
 };
 
-pub const connection_retry = struct {
+/// What a server does with a Retry before any connection exists (RFC 9000 §8.1.2).
+pub const retry = struct {
     pub const answer = files.connection_retry.answer;
     pub const verify_token = files.connection_retry.verify_token;
-};
-
-pub const connection_id_frames = struct {
-    pub const issue = files.connection_id_frames.issue;
-};
-
-pub const connection_migration = struct {
-    pub const ChallengeData = files.connection_migration.ChallengeData;
-    pub const challenge = files.connection_migration.challenge;
-};
-
-pub const connection_key_update = struct {
-    pub const initiate = files.connection_key_update.initiate;
-};
-
-pub const connection_qlog = struct {
-    pub const init = files.connection_qlog.init;
 };
 
 /// What the simulator, the corpus and the test endpoints call to drive one part of a connection
@@ -301,7 +222,7 @@ pub const packet = struct {
         pub const version_len = files.packet.invariant.version_len;
         pub const write_version_negotiation = files.packet.invariant.write_version_negotiation;
     };
-    pub const packet_number = struct {
+    pub const number = struct {
         pub const Truncated = files.packet.packet_number.Truncated;
         pub const encode = files.packet.packet_number.encode;
     };
@@ -309,21 +230,15 @@ pub const packet = struct {
 
 pub const frame = struct {
     pub const Ack = files.frame.Ack;
+    pub const AckRange = files.frame.frame_ack.Range;
     pub const AckRanges = files.frame.AckRanges;
     pub const Crypto = files.frame.Crypto;
     pub const Directionality = files.frame.Directionality;
     pub const EcnCounts = files.frame.EcnCounts;
-    pub const Frame = files.frame.Frame;
+    pub const NewConnectionId = files.frame.frame_control.NewConnectionId;
     pub const Stream = files.frame.Stream;
     pub const read = files.frame.read;
     pub const write = files.frame.write;
-    pub const frame_ack = struct {
-        pub const Range = files.frame.frame_ack.Range;
-    };
-    pub const frame_control = struct {
-        pub const ConnectionClose = files.frame.frame_control.ConnectionClose;
-        pub const NewConnectionId = files.frame.frame_control.NewConnectionId;
-    };
 };
 
 pub const transport_parameters = struct {
@@ -335,54 +250,52 @@ pub const transport_parameters = struct {
     pub const max_ack_delay_ms_max = files.transport_parameters.max_ack_delay_ms_max;
     pub const max_udp_payload_size_min = files.transport_parameters.max_udp_payload_size_min;
     pub const stateless_reset_token_len = files.transport_parameters.stateless_reset_token_len;
+    pub const read = files.transport_parameters_read.read;
     pub const write = files.transport_parameters.write;
 };
 
-pub const transport_parameters_read = struct {
-    pub const read = files.transport_parameters_read.read;
-};
-
-/// A stream's ID, the provider a caller supplies its octets through (decision 57), and the pool
-/// a connection holds its unread octets in (decision 61).
+/// What a stream's ID says of it (RFC 9000 §2.1), and the size of one block of `ReceivePool`.
 pub const stream = struct {
     pub const Directionality = files.stream.Directionality;
     pub const Initiator = files.stream.Initiator;
-    pub const Stream = files.stream.Stream;
-    pub const StreamId = files.stream.StreamId;
-    pub const StreamProvider = files.stream.StreamProvider;
-    pub const stream_incoming = struct {
-        pub const DefaultPool = files.stream.stream_incoming.DefaultPool;
-        pub const Pool = files.stream.stream_incoming.Pool;
-        pub const Storage = files.stream.stream_incoming.Storage;
-        pub const block_len = files.stream.stream_incoming.block_len;
-    };
-    pub const stream_provider = struct {
-        pub const VTable = files.stream.stream_provider.VTable;
-    };
-    pub const stream_table = struct {
-        pub const OpenError = files.stream.stream_table.OpenError;
-    };
+    pub const receive_block_len = files.stream.stream_incoming.block_len;
 };
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",                   "wire",                     "crypto",
-        "tls_provider",           "qlog",                     "constants",
-        "error_code",             "Connection",               "PeerAddress",
-        "CongestionController",   "ResumeState",              "ResumeBounds",
-        "ResumeProvider",         "Space",                    "Recovery",
-        "connection_datagram",    "connection_send",          "connection_timer",
-        "connection_resume",      "connection_idle",          "connection_close",
-        "connection_stream_send", "connection_stream_read",   "connection_stream_acknowledged",
-        "connection_flow",        "connection_stream_credit", "connection_version",
-        "connection_retry",       "connection_id_frames",     "connection_migration",
-        "connection_key_update",  "connection_qlog",          "connection",
-        "connection_receive",     "connection_recovery",      "connection_frames",
-        "connection_keys",        "connection_stream_frames", "connection_stream_recovery",
-        "recovery_ack",           "recovery_sent",            "packet",
-        "frame",                  "transport_parameters",     "transport_parameters_read",
-        "stream",
+        "core",                 "wire",                     "crypto",
+        "tls_provider",         "qlog",                     "constants",
+        "error_code",           "Connection",               "PeerAddress",
+        "CongestionController", "ResumeState",              "ResumeBounds",
+        "ResumeProvider",       "Space",                    "Recovery",
+        "Ecn",                  "ConnectionClose",          "Stream",
+        "StreamId",             "StreamProvider",           "Frame",
+        "ReceivePool",          "ReceivePoolOptions",       "ReceiveStorage",
+        "version",              "retry",                    "connection",
+        "connection_receive",   "connection_recovery",      "connection_frames",
+        "connection_keys",      "connection_stream_frames", "connection_stream_recovery",
+        "recovery_ack",         "recovery_sent",            "packet",
+        "frame",                "transport_parameters",     "stream",
     });
+}
+
+test "decision 158: each namespace and type holds one path for each name" {
+    try core.public_names.expect(version, &.{ "speaks", "supported_versions" });
+    try core.public_names.expect(retry, &.{ "answer", "verify_token" });
+    try core.public_names.expect(packet, &.{ "header", "header_write", "invariant", "number" });
+    try core.public_names.expect(frame, &.{
+        "Ack",             "AckRange", "AckRanges", "Crypto", "Directionality", "EcnCounts",
+        "NewConnectionId", "Stream",   "read",      "write",
+    });
+    try core.public_names.expect(transport_parameters, &.{
+        "ConnectionId",             "Parameters",                     "Role",
+        "ack_delay_exponent_max",   "active_connection_id_limit_min", "max_ack_delay_ms_max",
+        "max_udp_payload_size_min", "stateless_reset_token_len",      "read",
+        "write",
+    });
+    try core.public_names.expect(stream, &.{ "Directionality", "Initiator", "receive_block_len" });
+    try core.public_names.expect(StreamProvider, &.{ "VTable", "read", "none" });
+    try core.public_names.expect(ConnectionClose, &.{"transport"});
 }
 
 test {

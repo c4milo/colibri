@@ -21,9 +21,8 @@ const Reader = core.Reader;
 const Connection = connection_module.Connection;
 const Error = connection_module.Connection.Error;
 const Event = connection_module.Connection.Event;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const QuicConnection = quic.Connection;
-const stream_read = quic.connection_stream_read;
 
 /// A peer stream whose type has not arrived, or one colibri stopped reading and discards.
 const Slot = struct {
@@ -102,7 +101,7 @@ fn read_type(connection: *Connection, transport: *QuicConnection, slot: *?Slot) 
     const held = slot.*.?;
     const id: StreamId = .{ .value = held.id };
     const scratch = connection.scratch[0..constants.protocol.frame_header_len_max];
-    const peeked = stream_read.peek(transport, id, scratch) catch {
+    const peeked = quic.Connection.peek(transport, id, scratch) catch {
         // Reset or closed before its header arrived, which §6.2 tolerates.
         slot.* = null;
         return;
@@ -114,15 +113,15 @@ fn read_type(connection: *Connection, transport: *QuicConnection, slot: *?Slot) 
         if (peeked.fin) discard(transport, slot, peeked);
         return;
     };
-    _ = stream_read.consume(transport, id, peeked.len - reader.remaining_len()) catch unreachable;
+    _ = quic.Connection.consume(transport, id, peeked.len - reader.remaining_len()) catch unreachable;
     slot.* = null;
     try take(connection, transport, id, kind);
 }
 
 /// Takes the octets the peek copied, and frees the slot once the stream has ended.
-fn discard(transport: *QuicConnection, slot: *?Slot, peeked: stream_read.Read) void {
+fn discard(transport: *QuicConnection, slot: *?Slot, peeked: quic.Connection.StreamRead) void {
     const id: StreamId = .{ .value = slot.*.?.id };
-    _ = stream_read.consume(transport, id, peeked.len) catch unreachable;
+    _ = quic.Connection.consume(transport, id, peeked.len) catch unreachable;
     if (peeked.fin) slot.* = null;
 }
 
@@ -152,7 +151,7 @@ fn take(connection: *Connection, transport: *QuicConnection, id: StreamId, kind:
 
 /// Asks the peer to stop sending on `id`, and discards what arrives until it does.
 fn stop_reading(connection: *Connection, transport: *QuicConnection, id: StreamId) Error!void {
-    quic.connection_stream_send.stop_sending(transport, id, constants.protocol.error_stream_creation) catch {};
+    quic.Connection.stop_sending(transport, id, constants.protocol.error_stream_creation) catch {};
     // The slot the stream had was freed a moment ago, so one is free.
     const slot = free_slot(&connection.peer).?;
     slot.* = .{ .id = id.value, .discarding = true };
@@ -170,7 +169,7 @@ pub fn step(connection: *Connection, transport: *QuicConnection) Error!?Event {
 /// and RFC 9204 §4.2 make "closure of either unidirectional stream type" and of the control
 /// stream H3_CLOSED_CRITICAL_STREAM.
 fn peek_critical(connection: *Connection, transport: *QuicConnection, id: u64, window: []u8) Error![]const u8 {
-    const peeked = stream_read.peek(transport, .{ .value = id }, window) catch
+    const peeked = quic.Connection.peek(transport, .{ .value = id }, window) catch
         return connection.fail(transport, constants.protocol.error_closed_critical_stream);
     if (peeked.fin) return connection.fail(transport, constants.protocol.error_closed_critical_stream);
     return window[0..peeked.len];
@@ -185,7 +184,7 @@ fn read_encoder_stream(connection: *Connection, transport: *QuicConnection) Erro
     var reader = Reader.init(octets);
     connection.decoder.read_encoder_stream(&reader) catch |failure|
         return connection.fail(transport, qpack.Decoder.error_code(failure));
-    _ = stream_read.consume(transport, .{ .value = id }, octets.len - reader.remaining_len()) catch unreachable;
+    _ = quic.Connection.consume(transport, .{ .value = id }, octets.len - reader.remaining_len()) catch unreachable;
 }
 
 /// Applies every whole decoder instruction that arrived (RFC 9204 §4.4).
@@ -196,7 +195,7 @@ fn read_decoder_stream(connection: *Connection, transport: *QuicConnection) Erro
     // RFC 9204 §6: an instruction the encoder cannot interpret is QPACK_DECODER_STREAM_ERROR.
     connection.encoder.read_decoder_stream(&reader) catch
         return connection.fail(transport, qpack.constants.protocol.error_decoder_stream);
-    _ = stream_read.consume(transport, .{ .value = id }, octets.len - reader.remaining_len()) catch unreachable;
+    _ = quic.Connection.consume(transport, .{ .value = id }, octets.len - reader.remaining_len()) catch unreachable;
 }
 
 /// What one pass over the control stream did.
@@ -231,7 +230,7 @@ fn control_step(connection: *Connection, transport: *QuicConnection, id: u64) Er
     const header_len = octets.len - reader.remaining_len();
     try check_control_frame(connection, transport, header);
     if (!is_known_control(header.frame_type)) {
-        _ = stream_read.consume(transport, .{ .value = id }, header_len) catch unreachable;
+        _ = quic.Connection.consume(transport, .{ .value = id }, header_len) catch unreachable;
         connection_qlog.frame_event(connection, .parsed, id, .{ .other = .{ .frame_type = header.frame_type, .payload_len = header.length } });
         // §9: "Implementations MUST ignore unknown or unsupported values in all extensible
         // protocol elements", so the payload is skipped unread.
@@ -241,7 +240,7 @@ fn control_step(connection: *Connection, transport: *QuicConnection, id: u64) Er
     // A frame colibri reads whole and cannot hold is suspicious; §10.5 permits H3_EXCESSIVE_LOAD.
     if (header.length > connection.scratch.len - header_len) return connection.fail(transport, constants.protocol.error_excessive_load);
     const payload = reader.take(@intCast(header.length)) catch return .wait;
-    _ = stream_read.consume(transport, .{ .value = id }, header_len + payload.len) catch unreachable;
+    _ = quic.Connection.consume(transport, .{ .value = id }, header_len + payload.len) catch unreachable;
     const found = frame.read_payload(header.frame_type, payload) catch |failure|
         return connection.fail(transport, frame.error_code(failure));
     connection_qlog.control_frame_parsed(connection, id, found, payload);
@@ -254,7 +253,7 @@ fn skip_control(connection: *Connection, transport: *QuicConnection, id: u64) Er
     const peer = &connection.peer;
     const window = connection.scratch[0..@intCast(@min(peer.control_skip, connection.scratch.len))];
     const octets = try peek_critical(connection, transport, id, window);
-    _ = stream_read.consume(transport, .{ .value = id }, octets.len) catch unreachable;
+    _ = quic.Connection.consume(transport, .{ .value = id }, octets.len) catch unreachable;
     peer.control_skip -= octets.len;
     if (octets.len == 0) return .wait;
     return .again;

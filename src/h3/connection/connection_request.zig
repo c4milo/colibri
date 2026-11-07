@@ -31,9 +31,8 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Error = connection_module.Connection.Error;
 const Event = connection_module.Connection.Event;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const QuicConnection = quic.Connection;
-const stream_read = quic.connection_stream_read;
 
 /// Where a stream's message is (RFC 9114 §4.1).
 pub const Phase = enum {
@@ -205,7 +204,7 @@ fn step_stream(connection: *Connection, transport: *QuicConnection, request: *Re
 
 fn advance(connection: *Connection, transport: *QuicConnection, request: *RequestStream, body: []u8) Error!Step {
     // The peer's code is read before the reset is reported, which forgets the stream.
-    if (stream_read.reset_code(transport, .{ .value = request.id })) |code| return on_reset(connection, transport, request, code);
+    if (quic.Connection.reset_code(transport, .{ .value = request.id })) |code| return on_reset(connection, transport, request, code);
     if (request.phase == .abandoned) return discard(connection, transport, request);
     if (request.data_left > 0) {
         if (request.hold_data) return connection_request_data.hold_arrived(connection, transport, request);
@@ -219,10 +218,10 @@ fn advance(connection: *Connection, transport: *QuicConnection, request: *Reques
 fn read_frame(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Error!Step {
     const id: StreamId = .{ .value = request.id };
     const window = connection.scratch[0..constants.protocol.frame_header_len_max];
-    const peeked = stream_read.peek(transport, id, window) catch return on_closed(connection, request);
+    const peeked = quic.Connection.peek(transport, id, window) catch return on_closed(connection, request);
     if (peeked.len == 0) {
         if (!peeked.fin) return .wait;
-        request.fin_read = (stream_read.consume(transport, id, 0) catch unreachable).fin;
+        request.fin_read = (quic.Connection.consume(transport, id, 0) catch unreachable).fin;
         return on_end(connection, transport, request);
     }
     var reader = Reader.init(window[0..peeked.len]);
@@ -275,7 +274,7 @@ fn read_headers(connection: *Connection, transport: *QuicConnection, request: *R
     if (header.length > constants.limits.frame_length_max) return refuse(connection, transport, request, constants.protocol.error_message_error);
     const total = header_len + @as(usize, @intCast(header.length));
     const window = connection.scratch[0..total];
-    const peeked = stream_read.peek(transport, id, window) catch return on_closed(connection, request);
+    const peeked = quic.Connection.peek(transport, id, window) catch return on_closed(connection, request);
     if (peeked.len < total) {
         // §7.1: a stream that ended inside a frame is H3_FRAME_ERROR.
         if (peeked.fin) return connection.fail(transport, constants.protocol.error_frame_error);
@@ -302,7 +301,7 @@ fn read_headers(connection: *Connection, transport: *QuicConnection, request: *R
         .read_ready_first => return .wait,
     }
     connection_qlog.frame_event(connection, .parsed, request.id, .{ .headers = .{ .section = &connection.section, .payload_len = header.length } });
-    request.fin_read = (stream_read.consume(transport, id, total) catch unreachable).fin;
+    request.fin_read = (quic.Connection.consume(transport, id, total) catch unreachable).fin;
     return on_section(connection, transport, request);
 }
 
@@ -364,7 +363,7 @@ pub fn on_end(connection: *Connection, transport: *QuicConnection, request: *Req
 /// §2.2.2.2: the decoder cancels the references the stream's sections held.
 fn on_reset(connection: *Connection, transport: *QuicConnection, request: *RequestStream, code: u64) Step {
     // Reading reports the reset to `quic`, which may then forget the stream.
-    _ = stream_read.peek(transport, .{ .value = request.id }, connection.scratch[0..0]) catch {};
+    _ = quic.Connection.peek(transport, .{ .value = request.id }, connection.scratch[0..0]) catch {};
     const reported = request.phase != .abandoned;
     owe_cancel(connection, request);
     const id = request.id;
@@ -382,8 +381,8 @@ pub fn on_closed(connection: *Connection, request: *RequestStream) Step {
 /// Takes what arrives on a refused stream until the peer ends or resets it.
 fn discard(connection: *Connection, transport: *QuicConnection, request: *RequestStream) Step {
     const id: StreamId = .{ .value = request.id };
-    const peeked = stream_read.peek(transport, id, &connection.scratch) catch return on_closed(connection, request);
-    const taken = stream_read.consume(transport, id, peeked.len) catch unreachable;
+    const peeked = quic.Connection.peek(transport, id, &connection.scratch) catch return on_closed(connection, request);
+    const taken = quic.Connection.consume(transport, id, peeked.len) catch unreachable;
     if (taken.fin) return on_closed(connection, request);
     return .wait;
 }
@@ -402,8 +401,8 @@ pub fn refuse(connection: *Connection, transport: *QuicConnection, request: *Req
 fn refuse_stream(connection: *Connection, transport: *QuicConnection, request: *RequestStream, code: u64) void {
     const id: StreamId = .{ .value = request.id };
     // Either part may have finished already, which is nothing to refuse.
-    quic.connection_stream_send.stop_sending(transport, id, code) catch {};
-    quic.connection_stream_send.reset(transport, id, code) catch {};
+    quic.Connection.stop_sending(transport, id, code) catch {};
+    quic.Connection.reset_stream(transport, id, code) catch {};
     owe_cancel(connection, request);
     request.phase = .abandoned;
     request.data_left = 0;
@@ -426,6 +425,6 @@ pub fn cancel(connection: *Connection, transport: *QuicConnection, stream_id: u6
         return;
     }
     const id: StreamId = .{ .value = stream_id };
-    quic.connection_stream_send.stop_sending(transport, id, code) catch {};
-    quic.connection_stream_send.reset(transport, id, code) catch {};
+    quic.Connection.stop_sending(transport, id, code) catch {};
+    quic.Connection.reset_stream(transport, id, code) catch {};
 }

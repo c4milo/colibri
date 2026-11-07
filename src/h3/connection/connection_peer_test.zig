@@ -9,7 +9,7 @@ const connection_module = @import("connection.zig");
 const harness = @import("connection_test.zig");
 
 const Event = connection_module.Connection.Event;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const testing = std.testing;
 
 const client = &harness.client;
@@ -26,7 +26,7 @@ fn pair_raw_client() !void {
 
 /// Opens a unidirectional stream at the client and writes `octets` on it.
 fn client_stream(octets: []const u8, fin: bool) !u64 {
-    const id = try quic.connection_stream_send.open(&client.transport, .unidirectional);
+    const id = try quic.Connection.open_stream(&client.transport, .unidirectional);
     try client.send_raw(id.value, octets, fin);
     return id.value;
 }
@@ -128,7 +128,7 @@ test "§6.2.1: a peer that stops colibri's control stream has closed it" {
         const control = &server.h3.local.control;
         if (full) try control.write(filler[0 .. control.free().remaining_len() - 1]);
         // §6.2.1: "the receiver MUST NOT request that the sender close the control stream".
-        try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.control_id.? }, 0);
+        try quic.Connection.stop_sending(&client.transport, .{ .value = server.h3.local.control_id.? }, 0);
         try exchange();
         try testing.expectError(error.ConnectionFailed, server.h3.shutdown(&server.transport, harness.test_now_ns));
         try testing.expectEqual(constants.protocol.error_closed_critical_stream, server.h3.failure.?);
@@ -167,7 +167,7 @@ test "§7.2.7: a MAX_PUSH_ID at a client is H3_FRAME_UNEXPECTED" {
     const id = server.h3.local.control_id.?;
     // The server's control stream octets are h3's, so the raw frame goes into its buffer.
     try server.h3.local.control.write(&.{ constants.protocol.frame_max_push_id, 0x01, 0x00 });
-    try quic.connection_stream_send.supply(&server.transport, .{ .value = id }, server.h3.local.control.end_offset(), false);
+    try quic.Connection.supply(&server.transport, .{ .value = id }, server.h3.local.control.end_offset(), false);
     try exchange();
     try expect_failure(client, constants.protocol.error_frame_unexpected);
 }
@@ -187,7 +187,7 @@ test "§7.2.6: a client refuses a GOAWAY naming a stream that is not a client's 
         try harness.pair(.{ .role = .client }, .{ .role = .server });
         const id = server.h3.local.control_id.?;
         try server.h3.local.control.write(&.{ constants.protocol.frame_goaway, 0x01, named });
-        try quic.connection_stream_send.supply(&server.transport, .{ .value = id }, server.h3.local.control.end_offset(), false);
+        try quic.Connection.supply(&server.transport, .{ .value = id }, server.h3.local.control.end_offset(), false);
         try exchange();
         try expect_failure(client, constants.protocol.error_id_error);
     }
@@ -224,7 +224,7 @@ test "§4.6, §6.2.2: a push stream is H3_ID_ERROR at a client and H3_STREAM_CRE
     try exchange();
     try expect_failure(server, constants.protocol.error_stream_creation);
     try harness.pair(.{ .role = .client }, .{ .role = .server });
-    const id = try quic.connection_stream_send.open(&server.transport, .unidirectional);
+    const id = try quic.Connection.open_stream(&server.transport, .unidirectional);
     try server.send_raw(id.value, &.{ constants.protocol.stream_push, 0x00 }, false);
     try exchange();
     try expect_failure(client, constants.protocol.error_id_error);
@@ -232,7 +232,7 @@ test "§4.6, §6.2.2: a push stream is H3_ID_ERROR at a client and H3_STREAM_CRE
 
 test "§6.1: a server-initiated bidirectional stream is H3_STREAM_CREATION_ERROR at a client" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
-    const id = try quic.connection_stream_send.open(&server.transport, .bidirectional);
+    const id = try quic.Connection.open_stream(&server.transport, .bidirectional);
     try server.send_raw(id.value, &.{ constants.protocol.frame_headers, 0x00 }, false);
     try exchange();
     try expect_failure(client, constants.protocol.error_stream_creation);
@@ -253,7 +253,7 @@ test "RFC 9204 §4.4, §6: a decoder instruction the encoder refuses is QPACK_DE
     // An Insert Count Increment of zero (§4.4.3).
     try client.h3.local.decoder.write(&.{0x00});
     const id = client.h3.local.decoder_id.?;
-    try quic.connection_stream_send.supply(&client.transport, .{ .value = id }, client.h3.local.decoder.end_offset(), false);
+    try quic.Connection.supply(&client.transport, .{ .value = id }, client.h3.local.decoder.end_offset(), false);
     try exchange();
     try expect_failure(server, 0x202);
 }

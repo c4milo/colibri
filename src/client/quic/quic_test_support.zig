@@ -59,9 +59,9 @@ pub var events_len: usize = 0;
 /// The server's connection and what it runs on.
 pub var server: quic.Connection align(@alignOf(quic.Connection)) = undefined;
 pub var server_session: tls.quic.Server align(@alignOf(tls.quic.Server)) = undefined;
-var server_send_scratch: quic.connection_send.DefaultScratch align(@alignOf(quic.connection_send.DefaultScratch)) = undefined;
-var server_scratch: quic.connection_datagram.Scratch align(@alignOf(quic.connection_datagram.Scratch)) = undefined;
-var server_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
+var server_send_scratch: quic.Connection.SendScratch(.{}) align(@alignOf(quic.Connection.SendScratch(.{}))) = undefined;
+var server_scratch: quic.Connection.ReceiveScratch align(@alignOf(quic.Connection.ReceiveScratch)) = undefined;
+var server_pool: quic.ReceivePool(.{}) align(@alignOf(quic.ReceivePool(.{}))) = undefined;
 pub var server_h3: h3.Connection align(@alignOf(h3.Connection)) = undefined;
 var server_section: h3.http.FieldSection align(@alignOf(h3.http.FieldSection)) = undefined;
 var server_body: [body_len]u8 = undefined;
@@ -131,7 +131,7 @@ pub var answer_content: []const u8 = "hello";
 pub var answer_coding: ?[]const u8 = null;
 
 /// The client's receive pool (decision 61), placed outside any stack frame. Test-only.
-pub var client_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
+pub var client_pool: quic.ReceivePool(.{}) align(@alignOf(quic.ReceivePool(.{}))) = undefined;
 
 /// Where a datagram crosses from one side to the other.
 var datagram: [quic.constants.protocol.datagram_len_max]u8 = undefined;
@@ -260,21 +260,21 @@ pub fn server_to_client() !void {
 /// it owes none.
 pub fn server_send(output: []u8) !?usize {
     if (!server_started) return null;
-    const sent = quic.connection_send.send(&server, server_session.suite(), server_session.provider(), server_provider(), &server_send_scratch, output, now_ns) catch return error.TestUnexpectedResult;
+    const sent = quic.Connection.send(&server, server_session.suite(), server_session.provider(), server_provider(), .{}, &server_send_scratch, output, now_ns) catch return error.TestUnexpectedResult;
     const held = sent orelse return null;
     return held.len;
 }
 
 /// Fires the server's deadlines at `now_ns`.
 pub fn server_on_instant() void {
-    if (server_started) _ = quic.connection_timer.on_instant(&server, server_session.suite(), &server_scratch.recovery, now_ns) catch {};
+    if (server_started) _ = quic.Connection.on_instant(&server, server_session.suite(), &server_scratch.recovery, now_ns) catch {};
 }
 
 /// The server takes one datagram: the first starts its connection from the client's Initial (RFC
 /// 9000 §7.2), and each after it may carry h3.
 pub fn server_receive(octets: []u8) !void {
     if (!server_started) try start_server(octets);
-    _ = quic.connection_datagram.receive(&server, server_session.suite(), server_session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &server_scratch) catch return;
+    _ = quic.Connection.receive(&server, server_session.suite(), server_session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &server_scratch) catch return;
     if (!server_h3_started and server.handshake_complete) {
         server_h3.init(.{ .role = .server });
         try server_h3.start(&server, now_ns);
@@ -428,7 +428,7 @@ pub fn server_answer(answer: *Answer, status: u16, content: []const u8) !void {
         try server_h3.write_trailers(&server, answer.id, &server_section, &writer, now_ns);
     }
     answer.prefix_len = writer.written().len;
-    quic.connection_stream_send.supply(&server, .{ .value = answer.id }, answer.prefix_len + content.len, !answer_open) catch |failure| {
+    quic.Connection.supply(&server, .{ .value = answer.id }, answer.prefix_len + content.len, !answer_open) catch |failure| {
         // RFC 9000 §3.5: a stream the client stopped was reset by the server, and takes no answer.
         if (failure == error.NotWritable) return;
         return failure;
@@ -445,11 +445,11 @@ fn write_interims(id: u64, writer: *quic.core.Writer) !void {
     }
 }
 
-fn server_provider() quic.stream.StreamProvider {
+fn server_provider() quic.StreamProvider {
     return server_h3.provider(.{ .context = &answers, .vtable = &server_vtable });
 }
 
-const server_vtable: quic.stream.stream_provider.VTable = .{ .read = read_answer };
+const server_vtable: quic.StreamProvider.VTable = .{ .read = read_answer };
 
 fn read_answer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = context;

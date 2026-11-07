@@ -37,7 +37,7 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 
 pub var client: Connection align(@alignOf(Connection)) = undefined;
 pub var server: Connection align(@alignOf(Connection)) = undefined;
-pub var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+pub var scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 pub var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 pub var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 pub var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
@@ -79,7 +79,7 @@ pub const Body = struct {
     }
 };
 
-const body_vtable: stream_module.stream_provider.VTable = .{ .read = read_body };
+const body_vtable: stream_module.StreamProvider.VTable = .{ .read = read_body };
 
 fn read_body(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = stream_id;
@@ -135,7 +135,7 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
 }
 
 pub fn send_from(body: *Body, output_len: usize) !?send.Sent {
-    return send.send(&client, suite_holder.suite(), provider_holder.provider(), body.provider(), &scratch, datagram[0..output_len], test_now_ns);
+    return send.send(&client, suite_holder.suite(), provider_holder.provider(), body.provider(), .{}, &scratch, datagram[0..output_len], test_now_ns);
 }
 
 /// A body's stream, opened and supplied whole, ended when `fin` is set.

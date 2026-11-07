@@ -76,7 +76,7 @@ pub const Sent = files.quic_connection.Sent;
 pub const Address = quic.PeerAddress;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).
-pub const Ecn = quic.connection_send.Ecn;
+pub const Ecn = quic.Ecn;
 pub const StartError = files.connection_errors.StartError;
 pub const SendError = files.connection_errors.SendError;
 pub const Header = files.event.Header;

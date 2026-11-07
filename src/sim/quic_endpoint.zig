@@ -25,12 +25,12 @@ const Connection = quic.Connection;
 const Role = quic.connection.Role;
 const Version = quic.packet.header.Version;
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamProvider = quic.StreamProvider;
 
 /// Why an endpoint stopped: a connection error, which two colibri endpoints never give each other,
 /// or a send colibri refused.
-pub const Error = quic.connection_datagram.Error || quic.connection_send.Error || quic.connection_recovery.Error ||
-    quic.connection_stream_send.Error || quic.stream.stream_table.OpenError || quic.connection_stream_read.Error ||
+pub const Error = quic.Connection.ReceiveError || quic.Connection.SendError || quic.connection_recovery.Error ||
+    quic.Connection.StreamSendError || quic.Connection.OpenStreamError || quic.Connection.StreamReadError ||
     error{
         /// The server read an octet of the client's stream other than the one the client sent.
         TransferOctetWrong,
@@ -97,8 +97,8 @@ pub const Endpoint = struct {
     connection: Connection,
     provider: sim.NullQuicProvider,
     suite: sim.NullSuite,
-    send_scratch: quic.connection_send.DefaultScratch,
-    scratch: quic.connection_datagram.Scratch,
+    send_scratch: quic.Connection.SendScratch(.{}),
+    scratch: quic.Connection.ReceiveScratch,
     /// The datagram being received, copied out of the network: the suite opens it in place.
     received: [sim.constants.network_datagram_len_max]u8,
     /// The datagram being sent.
@@ -109,7 +109,7 @@ pub const Endpoint = struct {
     transfer_done: bool,
     /// The pool the peer's stream octets wait in (decision 61), and what the server has read of
     /// the client's stream.
-    pool: quic.stream.stream_incoming.DefaultPool,
+    pool: quic.ReceivePool(.{}),
     read_buffer: [sim.constants.network_datagram_len_max]u8,
     transfer_read_len: u64,
     transfer_read: bool,
@@ -159,7 +159,7 @@ pub const Endpoint = struct {
             .role = role,
             .suite = &endpoint.suite,
             // Decision 111: a server switches a client that lists version 2 to it.
-            .chooser = if (role == .server) quic.connection_version.chooser(&endpoint.connection) else null,
+            .chooser = if (role == .server) quic.Connection.version_chooser(&endpoint.connection) else null,
         };
         endpoint.suite = .{ .versions = .of(version) };
         endpoint.send_scratch = .{};
@@ -188,7 +188,7 @@ pub const Endpoint = struct {
     pub fn receive(endpoint: *Endpoint, octets: []const u8, ecn: sim.network.Ecn, from: sim.network.Address, now_ns: u64) Error!void {
         assert(octets.len <= endpoint.received.len);
         @memcpy(endpoint.received[0..octets.len], octets);
-        const received = try quic.connection_datagram.receive(
+        const received = try quic.Connection.receive(
             &endpoint.connection,
             endpoint.suite.suite(),
             endpoint.provider.provider(),
@@ -204,11 +204,11 @@ pub const Endpoint = struct {
     /// gives.
     fn answer_move(endpoint: *Endpoint) void {
         endpoint.migrations += 1;
-        var data: quic.connection_migration.ChallengeData = undefined;
+        var data: quic.Connection.ChallengeData = undefined;
         // Bounded by the attempts one challenge holds, a named limit.
         for (&data.new_path) |*payload| payload.* = endpoint.draw_challenge();
         data.previous_path = endpoint.draw_challenge();
-        quic.connection_migration.challenge(&endpoint.connection, data);
+        quic.Connection.challenge_path(&endpoint.connection, data);
     }
 
     /// The next PATH_CHALLENGE payload: the count drawn so far, in network byte order. RFC 9000
@@ -227,7 +227,7 @@ pub const Endpoint = struct {
         if (endpoint.transfer_read) return;
         // Bounded: each read takes at least one octet, and the stream holds `transfer_len`.
         for (0..endpoint.transfer_len + 1) |_| {
-            const read = quic.connection_stream_read.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
+            const read = quic.Connection.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
                 // The stream's first octets have not arrived, so the server has not opened it.
                 error.NotReadable => return,
                 else => return failure,
@@ -240,15 +240,16 @@ pub const Endpoint = struct {
     }
 
     /// Builds the next datagram into `output`, or answers null when nothing is owed.
-    pub fn send(endpoint: *Endpoint, now_ns: u64) Error!?quic.connection_send.Sent {
+    pub fn send(endpoint: *Endpoint, now_ns: u64) Error!?quic.Connection.Sent {
         try endpoint.start_transfer();
         const suite = endpoint.suite.suite();
         const provider = endpoint.provider.provider();
-        const sent = try quic.connection_send.send(
+        const sent = try quic.Connection.send(
             &endpoint.connection,
             suite,
             provider,
             endpoint.application orelse endpoint.stream_provider(),
+            .{},
             &endpoint.send_scratch,
             &endpoint.output,
             now_ns,
@@ -266,7 +267,7 @@ pub const Endpoint = struct {
 
     /// The instant this endpoint next wants to be called at (design §4.2).
     pub fn next_deadline_ns(endpoint: *Endpoint) ?u64 {
-        const deadline = quic.connection_timer.next(&endpoint.connection) orelse return null;
+        const deadline = quic.Connection.deadline(&endpoint.connection) orelse return null;
         return deadline.at_ns;
     }
 
@@ -274,7 +275,7 @@ pub const Endpoint = struct {
     pub fn on_instant(endpoint: *Endpoint, now_ns: u64) Error!void {
         const at_ns = endpoint.next_deadline_ns() orelse return;
         if (now_ns < at_ns) return;
-        _ = try quic.connection_timer.on_instant(&endpoint.connection, endpoint.suite.suite(), &endpoint.scratch.recovery, now_ns);
+        _ = try quic.Connection.on_instant(&endpoint.connection, endpoint.suite.suite(), &endpoint.scratch.recovery, now_ns);
     }
 
     /// The client opens its one stream and hands colibri all of it once the handshake completes.
@@ -282,8 +283,8 @@ pub const Endpoint = struct {
         if (endpoint.connection.role != .client or endpoint.transfer_started) return;
         if (endpoint.application != null) return;
         if (!endpoint.connection.handshake_complete) return;
-        const id = try quic.connection_stream_send.open(&endpoint.connection, .bidirectional);
-        try quic.connection_stream_send.supply(&endpoint.connection, id, endpoint.transfer_len, true);
+        const id = try quic.Connection.open_stream(&endpoint.connection, .bidirectional);
+        try quic.Connection.supply(&endpoint.connection, id, endpoint.transfer_len, true);
         endpoint.transfer_started = true;
     }
 
@@ -303,7 +304,7 @@ fn parameters() Parameters {
     return held;
 }
 
-const stream_vtable: quic.stream.stream_provider.VTable = .{ .read = supply_transfer };
+const stream_vtable: quic.StreamProvider.VTable = .{ .read = supply_transfer };
 
 /// The client's stream, read back by offset. Every call at one offset answers the same octets,
 /// which RFC 9000 §2.2 asks of a retransmission.
@@ -323,11 +324,11 @@ fn octet_at(offset: u64) u8 {
 }
 
 /// The client's first bidirectional stream, which is the one it sends (RFC 9000 §2.1).
-const transfer_stream: quic.stream.StreamId = .{ .value = 0 };
+const transfer_stream: quic.StreamId = .{ .value = 0 };
 
 /// The codepoint `connection_send` names for a datagram, as the network carries it (RFC 9000
 /// §13.4).
-pub fn network_ecn(ecn: quic.connection_send.Ecn) sim.network.Ecn {
+pub fn network_ecn(ecn: quic.Ecn) sim.network.Ecn {
     return switch (ecn) {
         .not_ect => .not_ect,
         .ect_0 => .ect_0,

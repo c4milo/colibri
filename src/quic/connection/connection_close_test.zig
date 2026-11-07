@@ -32,7 +32,8 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 const datagram_buffer_len: usize = 2000;
-var scratch: send.Scratch(datagram_buffer_len) align(@alignOf(send.Scratch(datagram_buffer_len))) = .{};
+const scratch_options: send.ScratchOptions = .{ .payload_len_max = datagram_buffer_len };
+var scratch: send.Scratch(scratch_options) align(@alignOf(send.Scratch(scratch_options))) = .{};
 var datagram: [datagram_buffer_len]u8 = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
@@ -101,6 +102,7 @@ fn send_from(connection: *Connection) !?send.Sent {
         suite_holder.suite(),
         provider_holder.provider(),
         StreamProvider.none(),
+        scratch_options,
         &scratch,
         &datagram,
         test_now_ns,
@@ -141,7 +143,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !Read {
 test "RFC 9000 §10.2.3: before confirmation a server closes at Initial, Handshake and 1-RTT" {
     open_pair();
     install_application();
-    close_module.owe(&server, close_module.transport(test_error_code, test_frame_type));
+    close_module.owe(&server, close_module.Close.transport(test_error_code, test_frame_type));
     // "A server SHOULD also send a CONNECTION_CLOSE frame in an Initial packet", and "an endpoint
     // SHOULD send a CONNECTION_CLOSE frame in both Handshake and 1-RTT packets".
     for ([_]Level{ .initial, .handshake, .application }) |level| {
@@ -164,7 +166,7 @@ test "RFC 9000 §10.2.3: before confirmation a server closes at Initial, Handsha
 test "RFC 9000 §10.2.3: a client closes at Handshake and 1-RTT but not at Initial" {
     open_pair();
     install_application();
-    close_module.owe(&client, close_module.transport(test_error_code, null));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, null));
     // "A client will always know whether the server has Handshake keys", so it owes the server no
     // second copy in an Initial packet.
     try testing.expect(!close_module.carries(&client, .initial));
@@ -185,7 +187,7 @@ test "RFC 9000 §10.2.3: a client with no Handshake keys closes in an Initial pa
     // response to unauthenticated information received in Initial or Handshake packets."
     // Take the client's Handshake keys away and the Initial becomes the one packet it can send.
     client.keys.state[@intFromEnum(Level.handshake)][@intFromEnum(crypto.Direction.write)] = .none;
-    close_module.owe(&client, close_module.transport(test_error_code, null));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, null));
     try testing.expect(close_module.carries(&client, .initial));
     const read = try walk_back(&server, (try send_from(&client)).?);
     try testing.expectEqual(1, read.closes);
@@ -197,7 +199,7 @@ test "RFC 9000 §10.2.3: after the handshake is confirmed the close goes in a 1-
     install_application();
     connection_module.confirm_handshake(&server);
     server.termination.state = .active;
-    close_module.owe(&server, close_module.transport(test_error_code, test_frame_type));
+    close_module.owe(&server, close_module.Close.transport(test_error_code, test_frame_type));
     // "After the handshake is confirmed ... an endpoint MUST send any CONNECTION_CLOSE frames in
     // a 1-RTT packet", so the two handshake levels carry none although their keys are still here.
     try testing.expect(!close_module.carries(&server, .initial));
@@ -252,7 +254,7 @@ test "RFC 9000 §10.2.3: an application close reaches the peer as a transport cl
 
 test "RFC 9000 §10.2: sending the close enters the closing state and then sends nothing else" {
     open_pair();
-    close_module.owe(&client, close_module.transport(test_error_code, null));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, null));
     try testing.expectEqual(.active, client.termination.state);
     _ = (try send_from(&client)).?;
     // "After sending a CONNECTION_CLOSE frame, an endpoint immediately enters the closing state."
@@ -273,7 +275,7 @@ test "RFC 9000 §10.2.1: a closing endpoint sends the close and nothing else" {
     // Give the client handshake octets to send, so a packet would otherwise carry a CRYPTO frame.
     provider_holder.owed = &handshake_flight;
     provider_holder.owed_level = .handshake;
-    close_module.owe(&client, close_module.transport(test_error_code, null));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, null));
     const read = try walk_back(&server, (try send_from(&client)).?);
     // "In the closing state, an endpoint retains only enough information to generate a packet
     // containing a CONNECTION_CLOSE frame": every packet holds one frame and it is the close.
@@ -285,7 +287,7 @@ test "RFC 9000 §10.2.2: a draining endpoint sends nothing, and owes no close" {
     open_pair();
     // "an endpoint in the draining state MUST NOT send any packets".
     client.termination.on_close_received(test_now_ns, 1);
-    close_module.owe(&client, close_module.transport(test_error_code, null));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, null));
     // §10.2.2's MAY — a single close before entering draining — is declined, so nothing is owed.
     try testing.expectEqual(null, client.pending_close);
     try testing.expectEqual(null, try send_from(&client));
@@ -293,10 +295,10 @@ test "RFC 9000 §10.2.2: a draining endpoint sends nothing, and owes no close" {
 
 test "RFC 9000 §10.2.1: the first close is the one kept, and a later error does not replace it" {
     open_pair();
-    close_module.owe(&client, close_module.transport(test_error_code, test_frame_type));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, test_frame_type));
     // "an endpoint retains only enough information to generate a packet containing a
     // CONNECTION_CLOSE frame", which is the first one and not the latest.
-    close_module.owe(&client, close_module.transport(error_code.internal_error, null));
+    close_module.owe(&client, close_module.Close.transport(error_code.internal_error, null));
     try testing.expectEqual(test_error_code, client.pending_close.?.error_code);
     try testing.expectEqual(test_frame_type, client.pending_close.?.frame_type.?);
 }
@@ -338,7 +340,7 @@ test "RFC 9000 §10.2.3: a connection owing no close writes none, at any level" 
         try testing.expectEqual(0, close_module.write(&client, level, &buffer));
     }
     // And a level with no keys carries none even once one is owed (RFC 9001 §4.9).
-    close_module.owe(&client, close_module.transport(test_error_code, null));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, null));
     try testing.expect(close_module.owes(&client));
     client.keys.state[@intFromEnum(Level.application)][@intFromEnum(crypto.Direction.write)] = .discarded;
     try testing.expect(!close_module.carries(&client, .application));
@@ -348,11 +350,11 @@ test "RFC 9000 §19.19: a transport close with no triggering frame names frame t
     open_pair();
     // "A value of 0 (equivalent to the mention of the PADDING frame) is used when the frame type
     // is unknown", and unlike a 0x1d frame a 0x1c frame always carries the field.
-    const unknown = close_module.transport(test_error_code, null);
+    const unknown = close_module.Close.transport(test_error_code, null);
     try testing.expectEqual(constants.protocol.frame_padding, unknown.frame_type.?);
     try testing.expectEqual(
         test_frame_type,
-        close_module.transport(test_error_code, test_frame_type).frame_type.?,
+        close_module.Close.transport(test_error_code, test_frame_type).frame_type.?,
     );
     // It reaches the peer that way, read back through the frame layer rather than trusted here.
     close_module.owe(&client, unknown);
@@ -366,7 +368,7 @@ test "RFC 9000 §19.19: a transport close with no triggering frame names frame t
 
 test "RFC 9000 §13.2.1: a packet carrying only a close elicits no acknowledgment" {
     open_pair();
-    close_module.owe(&client, close_module.transport(test_error_code, null));
+    close_module.owe(&client, close_module.Close.transport(test_error_code, null));
     const sent = (try send_from(&client)).?;
     // Table 3 marks CONNECTION_CLOSE N, because there is no longer a connection to acknowledge
     // it on. RFC 9002 §2 then keeps the packet out of flight, having no padding either.
@@ -385,7 +387,7 @@ test "RFC 9000 §8.1, §10.2.1: a server that has received nothing sends no clos
     // nothing, and that bounds the datagram rather than tripping an assertion.
     server.path.init(.unvalidated);
     try testing.expectEqual(0, server.path.send_allowance());
-    close_module.owe(&server, close_module.transport(test_error_code, null));
+    close_module.owe(&server, close_module.Close.transport(test_error_code, null));
     try testing.expectEqual(null, try send_from(&server));
     // One datagram in and the close goes out, inside what §8.1 allows.
     server.path.on_datagram_received(constants.protocol.datagram_len_min);
@@ -402,7 +404,7 @@ test "decision 84: after the TLS provider fails, the close goes out only where t
     // §10.2.3 would close at, one can carry the close.
     server.tls_failed = true;
     suite_holder.available[@intFromEnum(Level.initial)][@intFromEnum(crypto.Direction.write)] = true;
-    close_module.owe(&server, close_module.transport(test_error_code, test_frame_type));
+    close_module.owe(&server, close_module.Close.transport(test_error_code, test_frame_type));
     const sent = (try send_from(&server)).?;
     try testing.expectEqual(1, sent.count);
     const read = try walk_back(&client, sent);

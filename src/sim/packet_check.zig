@@ -27,7 +27,7 @@ const Level = crypto.Level;
 const Role = crypto.Role;
 const header = quic.packet.header;
 const header_write = quic.packet.header_write;
-const packet_number = quic.packet.packet_number;
+const packet_number = quic.packet.number;
 
 /// The digest of every datagram and of what was opened from it, over `check_seeds_default` seeds.
 /// It changes when a header writer, the packet number coding or the null suite changes, and is

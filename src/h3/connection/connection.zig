@@ -41,7 +41,7 @@ const connection_qlog = @import("connection_qlog.zig");
 
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamProvider = quic.StreamProvider;
 const QuicConnection = quic.Connection;
 
 pub const Role = stream.Role;
@@ -326,7 +326,7 @@ pub const Connection = struct {
     /// CONNECTION_CLOSE, and every later `receive` fails.
     pub fn fail(connection: *Connection, transport: *QuicConnection, code: u64) Error {
         if (connection.failure == null) connection.failure = code;
-        quic.connection_close.owe(transport, .{ .layer = .application, .error_code = code, .frame_type = null, .reason = "" });
+        quic.Connection.owe_close(transport, .{ .layer = .application, .error_code = code, .frame_type = null, .reason = "" });
         // RFC 9114 §8: a connection error closes the connection, with `code` as its reason.
         return error.ConnectionFailed;
     }

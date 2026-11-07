@@ -7,7 +7,7 @@
 //! and then takes up to `quic_input_check_edits_max` edits (`input_edit.zig`). It goes to one of:
 //! - `quic.frame.read`, a payload frame by frame (`quic_input_frames.zig`);
 //! - `quic.packet.header.read`, a datagram packet by packet (`quic_input_packets.zig`);
-//! - `quic.transport_parameters_read.read`, as a client's or a server's (`quic_input_packets.zig`).
+//! - `quic.transport_parameters.read`, as a client's or a server's (`quic_input_packets.zig`).
 //!
 //! What the writer produced must be read whole before it is edited. The edited input must be read
 //! or refused with an error value, never crash, and keep the rules each target file names. Each

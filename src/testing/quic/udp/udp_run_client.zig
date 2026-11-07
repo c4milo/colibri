@@ -19,7 +19,7 @@ const udp_run = @import("udp_run.zig");
 
 const Connection = udp_run.Connection;
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamProvider = quic.StreamProvider;
 
 var client: hq_client.Client align(@alignOf(hq_client.Client)) = undefined;
 var h3_side: h3_client.Client align(@alignOf(h3_client.Client)) = undefined;
@@ -77,7 +77,7 @@ pub fn on_received(connection: *Connection, now_ns: u64) void {
 pub fn update_keys_once(connection: *Connection, now_ns: u64) void {
     if (keys_updated) return;
     const suite = connection.peer.session.suite();
-    quic.connection_key_update.initiate(&connection.peer.connection, suite, now_ns) catch |failure| switch (failure) {
+    quic.Connection.initiate_key_update(&connection.peer.connection, suite, now_ns) catch |failure| switch (failure) {
         error.HandshakeNotConfirmed, error.PhaseNotAcknowledged, error.PhaseNotSettled => return,
         else => udp_run.fail("the key update failed: {t}", .{failure}),
     };

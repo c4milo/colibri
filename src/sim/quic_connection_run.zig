@@ -237,13 +237,13 @@ const Run = struct {
 
     /// Decision 68: the datagram carries the codepoint `connection_send` named for it, unless a
     /// fault test has the path clear it (`check.Fault.ecn_cleared`).
-    fn carried_ecn(run: *const Run, sent: *const quic.connection_send.Sent) sim.network.Ecn {
+    fn carried_ecn(run: *const Run, sent: *const quic.Connection.Sent) sim.network.Ecn {
         if (run.storage.fault == .ecn_cleared) return .not_ect;
         return quic_endpoint.network_ecn(sent.ecn);
     }
 
     /// Whether the run's adversary drops the datagram `sent` describes (`check.Adversary`).
-    fn adversary_drops(run: *const Run, sent: *const quic.connection_send.Sent) bool {
+    fn adversary_drops(run: *const Run, sent: *const quic.Connection.Sent) bool {
         switch (run.storage.adversary) {
             .none, .runner_handshake_loss, .rebind_port, .rebind_address, .light_loss => return false,
             .drop_ack_only => {

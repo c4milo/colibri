@@ -28,7 +28,7 @@ var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
-var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var send_scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
 var datagram: [constants.protocol.datagram_len_min]u8 = undefined;
 
@@ -89,7 +89,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, levels: []con
 }
 
 fn send_from(connection: *Connection) !send.Sent {
-    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), &send_scratch, &datagram, test_now_ns) orelse error.NothingSent;
+    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), .{}, &send_scratch, &datagram, test_now_ns) orelse error.NothingSent;
 }
 
 fn receive_at(connection: *Connection, provider: tls_provider.QuicProvider, len: usize, now_ns: u64) datagram_module.Error!datagram_module.Received {
@@ -179,7 +179,7 @@ test "RFC 9000 §10.2.2: a CONNECTION_CLOSE ends the walk, and the rest of the d
     open_pair(&.{ .handshake, .application });
     server.handshake_complete = true;
     // RFC 9000 §10.2.3: before the handshake is confirmed the close goes at both levels.
-    close_module.owe(&client, close_module.transport(error_code.internal_error, null));
+    close_module.owe(&client, close_module.Close.transport(error_code.internal_error, null));
     const sent = try send_from(&client);
     try testing.expectEqual(2, sent.count);
     const received = try receive(&server, sent.len);

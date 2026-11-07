@@ -138,7 +138,7 @@ test "RFC 9368 §2: a client's first Initial in version 2 starts a connection th
         .type = .handshake,
         .dcid = support.client.identity.destination().slice(),
         .scid = support.client.identity.source().slice(),
-        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .packet_number = try quic.packet.number.encode(0, null),
         .protected_payload_len = short_payload_len,
     });
     _ = give(&probe, support.client_address());
@@ -231,7 +231,7 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
         .type = .initial,
         .dcid = &short_id,
         .scid = &short_id,
-        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .packet_number = try quic.packet.number.encode(0, null),
         .protected_payload_len = short_payload_len,
     });
     const len = writer.written().len + short_payload_len;
@@ -257,7 +257,7 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
                 .type = .initial,
                 .dcid = short_id[0..dcid_len],
                 .scid = &short_id,
-                .packet_number = try quic.packet.packet_number.encode(0, null),
+                .packet_number = try quic.packet.number.encode(0, null),
                 .protected_payload_len = padded_payload_len,
             });
             const len = writer.written().len + padded_payload_len;
@@ -287,7 +287,7 @@ fn answers_with_retry() !bool {
         .type = .initial,
         .dcid = &short_id,
         .scid = &short_id,
-        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .packet_number = try quic.packet.number.encode(0, null),
         .protected_payload_len = padded_payload_len,
     });
     const len = writer.written().len + padded_payload_len;
@@ -340,7 +340,7 @@ test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID und
             .dcid = &retry_source_id,
             .scid = &short_id,
             .token = token,
-            .packet_number = try quic.packet.packet_number.encode(0, null),
+            .packet_number = try quic.packet.number.encode(0, null),
             .protected_payload_len = padded_payload_len,
         });
         const len = writer.written().len + padded_payload_len;
@@ -364,7 +364,7 @@ test "decision 110 as amended: under the share, a client that returns with a Ret
         .dcid = &retry_source_id,
         .scid = &short_id,
         .token = token,
-        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .packet_number = try quic.packet.number.encode(0, null),
         .protected_payload_len = padded_payload_len,
     });
     const len = writer.written().len + padded_payload_len;
@@ -383,7 +383,7 @@ fn old_token(original_destination: []const u8) ![]const u8 {
     var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
     const address = endpoint_stateless.token_address(support.client_address(), &address_storage);
     var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
-    const answered = quic.connection_retry.answer(retry.suite(), .{
+    const answered = quic.retry.answer(retry.suite(), .{
         .version = .v1,
         .client_source = &short_id,
         .original_destination = original_destination,

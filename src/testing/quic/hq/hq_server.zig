@@ -14,10 +14,10 @@ const hq = @import("hq.zig");
 const hq_file = @import("hq_file.zig");
 
 const Connection = quic.Connection;
-const StreamId = quic.stream.StreamId;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamId = quic.StreamId;
+const StreamProvider = quic.StreamProvider;
 
-pub const Error = quic.connection_stream_send.Error;
+pub const Error = quic.Connection.StreamSendError;
 
 comptime {
     // A slot per stream the client may have open at once, which the server's own
@@ -100,7 +100,7 @@ pub const Server = struct {
     /// Reads what has arrived of the request line, and answers once the client's side ended.
     fn read_line(server: *Server, connection: *Connection, request: *Request) Error!void {
         const room = request.line[request.line_len..];
-        const read = quic.connection_stream_read.read(connection, request.id, room) catch {
+        const read = quic.Connection.read(connection, request.id, room) catch {
             // The client reset the stream, so there is no request to answer.
             request.* = .{};
             return;
@@ -110,7 +110,7 @@ pub const Server = struct {
         // A line that fills the buffer before the client ends its side is longer than
         // `hq_request_len_max`. RFC 9000 §3.5: STOP_SENDING asks the client to stop sending it.
         if (request.line_len == request.line.len) {
-            try quic.connection_stream_send.stop_sending(connection, request.id, constants.hq_refused_error_code);
+            try quic.Connection.stop_sending(connection, request.id, constants.hq_refused_error_code);
             try refuse(connection, request);
         }
     }
@@ -121,7 +121,7 @@ pub const Server = struct {
         request.file = opened.descriptor;
         request.answered = true;
         server.served += 1;
-        try quic.connection_stream_send.supply(connection, request.id, opened.len, true);
+        try quic.Connection.supply(connection, request.id, opened.len, true);
     }
 
     fn find(server: *Server, stream_id: u64) ?*Request {
@@ -135,7 +135,7 @@ pub const Server = struct {
 /// Resets the stream of a request the server will not answer (RFC 9000 §3.1).
 fn refuse(connection: *Connection, request: *Request) Error!void {
     request.answered = true;
-    try quic.connection_stream_send.reset(connection, request.id, constants.hq_refused_error_code);
+    try quic.Connection.reset_stream(connection, request.id, constants.hq_refused_error_code);
 }
 
 /// Frees a slot whose stream closed, which it does once both sides are over (RFC 9000 §3.1,
@@ -146,7 +146,7 @@ fn release_if_closed(connection: *Connection, request: *Request) void {
     request.* = .{};
 }
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_file };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_file };
 
 /// The octets of a stream's file from `offset`, as many as fit. Every call at one offset answers
 /// the same octets, which RFC 9000 §2.2 asks of a retransmission.

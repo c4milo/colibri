@@ -160,7 +160,7 @@ test "decision 110 as amended: a request refused before the caller heard of it c
     // RFC 9114 §4.1: a request stream that ends before a whole head is refused with
     // H3_REQUEST_INCOMPLETE, and its head never reaches the caller.
     const fetch = try support.stage_request("GET", "/", &.{}, "", &.{});
-    try quic.connection_stream_send.supply(&support.client, .{ .value = fetch.id }, 0, true);
+    try quic.Connection.supply(&support.client, .{ .value = fetch.id }, 0, true);
     try support.pump(rounds_few);
     try testing.expectEqual(1, connection.resets_sent);
     try testing.expectEqual(null, support.nth(.cancelled, 0));

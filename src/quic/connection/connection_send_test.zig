@@ -34,7 +34,8 @@ var server: Connection align(@alignOf(Connection)) = undefined;
 /// As large as the datagram buffer, so what bounds a datagram in these tests is the rule under
 /// test and never the scratch. A caller that places a smaller one gets smaller packets, which
 /// `packet_build_test.zig` pins.
-var scratch: send.Scratch(datagram_buffer_len) align(@alignOf(send.Scratch(datagram_buffer_len))) = .{};
+const scratch_options: send.ScratchOptions = .{ .payload_len_max = datagram_buffer_len };
+var scratch: send.Scratch(scratch_options) align(@alignOf(send.Scratch(scratch_options))) = .{};
 /// Larger than §14.1's smallest allowed maximum, so what bounds a datagram is §14.2's rule and
 /// never the buffer.
 const datagram_buffer_len: usize = 2000;
@@ -89,6 +90,7 @@ fn send_from(connection: *Connection) !?send.Sent {
         suite_holder.suite(),
         provider_holder.provider(),
         StreamProvider.none(),
+        scratch_options,
         &scratch,
         &datagram,
         test_now_ns,

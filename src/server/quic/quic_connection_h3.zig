@@ -28,7 +28,7 @@ const Request = quic_request.Request;
 const SendError = quic_connection.SendError;
 const Field = quic_connection.Field;
 const Number = event.Number;
-const StreamId = quic.stream.StreamId;
+const StreamId = quic.StreamId;
 const Indexing = h3.qpack.Encoder.Indexing;
 
 /// RFC 9114 is HTTP/3, which RFC 9110 §2.5 numbers 3.0.
@@ -335,10 +335,10 @@ pub fn finish_if_drained(connection: *QuicConnection) void {
     // RFC 9114 §4.1.1: the client may send a rejected request again, which it learns only from
     // the RESET_STREAM, and QUIC sends nothing but the close once it owes one. So the close also
     // waits until the client acknowledged every reset (decision 110 as amended).
-    if (!quic.connection_stream_acknowledged.resets_acknowledged(&connection.transport)) return;
+    if (!quic.Connection.resets_acknowledged(&connection.transport)) return;
     connection.stopped = true;
     if (connection.transport.termination.state != .active) return;
-    quic.connection_close.owe(&connection.transport, .{
+    quic.Connection.owe_close(&connection.transport, .{
         .layer = .application,
         .error_code = connection.h3.no_error_code(),
         // RFC 9000 §19.19: only a transport close carries the Frame Type field.
@@ -407,7 +407,7 @@ fn head_error(connection: *QuicConnection, failure: h3.Connection.SendError, emp
 /// §2.2).
 pub fn supply(connection: *QuicConnection, record: *Request, fin: bool) SendError!void {
     const id: StreamId = .{ .value = record.stream_id };
-    quic.connection_stream_send.supply(&connection.transport, id, record.response.end, fin) catch |failure| return switch (failure) {
+    quic.Connection.supply(&connection.transport, id, record.response.end, fin) catch |failure| return switch (failure) {
         // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, which takes no more octets.
         error.NotWritable => error.RequestUnknown,
         // RFC 9000 §19.8: a stream reaches no further than 2^62-1.
@@ -419,11 +419,11 @@ pub fn supply(connection: *QuicConnection, record: *Request, fin: bool) SendErro
 
 /// The provider QUIC reads the request streams from: h3 serves its own streams, and the rest come
 /// from the responses (decision 79).
-pub fn provider(connection: *QuicConnection) quic.stream.StreamProvider {
+pub fn provider(connection: *QuicConnection) quic.StreamProvider {
     return connection.h3.provider(.{ .context = connection, .vtable = &vtable });
 }
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_response };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_response };
 
 fn read_response(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const connection: *QuicConnection = @ptrCast(@alignCast(context));

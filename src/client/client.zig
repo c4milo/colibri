@@ -56,7 +56,7 @@ pub const Sent = files.pool.Sent;
 pub const Address = files.pool.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).
-pub const Ecn = quic.connection_send.Ecn;
+pub const Ecn = quic.Ecn;
 /// RFC 9959's Careful Resume (decision 149): where `Config.resumes` keeps the saved sets, a set,
 /// and the bounds of `Config.resume_bounds`, which the server names the same.
 pub const ResumeProvider = quic.ResumeProvider;
@@ -96,8 +96,10 @@ pub const Phase = files.pool.Phase;
 /// places: `ReceivePool(capacity)` for `capacity` octets, a whole number of
 /// `quic.constants.limits.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
 /// capacity bounds every window the client advertises, and so how fast one connection receives.
-pub const ReceivePool = quic.stream.stream_incoming.Pool;
-pub const DefaultReceivePool = quic.stream.stream_incoming.DefaultPool;
+pub fn ReceivePool(comptime capacity: usize) type {
+    return quic.ReceivePool(.{ .capacity = capacity });
+}
+pub const DefaultReceivePool = quic.ReceivePool(.{});
 pub const ReceiveStorage = files.pool.ReceiveStorage;
 /// The content codings a client decodes (decision 101).
 pub const Coding = http.content_coding.Coding;

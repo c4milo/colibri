@@ -240,7 +240,7 @@ test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the ne
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.response, first.response.result);
     // Holding no exchange, the connection retires at its idle deadline less the 1 s margin.
-    const acts_at = quic.connection_idle.deadline_ns(&pool.quic.transport).? - constants.policy.quic_idle_margin_ns_min;
+    const acts_at = quic.Connection.idle_deadline_ns(&pool.quic.transport).? - constants.policy.quic_idle_margin_ns_min;
     try testing.expect(pool.deadline_ns().? <= acts_at);
     quic_support.now_ns = acts_at;
     pool.on_instant(acts_at);
@@ -418,7 +418,7 @@ fn answer_raw(octets: []const u8) !void {
     answer.prefix_len = octets.len;
     answer.content = "";
     answer.answered = true;
-    try quic.connection_stream_send.supply(&quic_support.server, .{ .value = answer.id }, octets.len, false);
+    try quic.Connection.supply(&quic_support.server, .{ .value = answer.id }, octets.len, false);
 }
 
 test "decision 124: a GET whose h3 HEADERS frame fails to decode ends closed, not sent again" {

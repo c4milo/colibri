@@ -25,7 +25,7 @@ const quic_connection_h3_settle = @import("quic_connection_h3_settle.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
-const Stream = quic.stream.Stream;
+const Stream = quic.Stream;
 
 /// RFC 9110 §15.2.1: 100 (Continue).
 const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");

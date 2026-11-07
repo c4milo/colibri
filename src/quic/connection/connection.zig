@@ -50,6 +50,19 @@ const handshake_module = @import("connection_handshake.zig");
 const migration_module = @import("connection_migration.zig");
 const connection_qlog = @import("connection_qlog.zig");
 const connection_version = @import("connection_version.zig");
+const connection_options = @import("connection_options.zig");
+const connection_datagram = @import("connection_datagram.zig");
+const connection_send = @import("connection_send.zig");
+const connection_timer = @import("connection_timer.zig");
+const connection_resume = @import("connection_resume.zig");
+const connection_idle = @import("connection_idle.zig");
+const connection_close = @import("connection_close.zig");
+const connection_flow = @import("connection_flow.zig");
+const connection_id_frames = @import("connection_id_frames.zig");
+const stream_send = @import("connection_stream/connection_stream_send.zig");
+const stream_read = @import("connection_stream/connection_stream_read.zig");
+const stream_acknowledged = @import("connection_stream/connection_stream_acknowledged.zig");
+const stream_credit = @import("connection_stream/connection_stream_credit.zig");
 const PeerAddress = @import("../peer_address.zig").PeerAddress;
 
 const Level = core.Level;
@@ -58,61 +71,6 @@ const Parameters = transport_parameters.Parameters;
 /// Which endpoint colibri is. It is the suite's, because `install_initial_keys` takes the same
 /// answer and RFC 9001 §5.2 derives a different key for each side from it.
 pub const Role = crypto.Role;
-
-/// What a connection is built from. Everything here is the caller's decision, including the
-/// instant, which no file under `src/` may read.
-pub const Options = struct {
-    role: Role,
-    /// The version the connection starts in (RFC 9368 §2): a client's choice, which its TLS session
-    /// starts in too, or the version of the first flight a server accepted.
-    version: crypto.suite.Version = .v1,
-    /// The version a server switches a client to when the client lists it (RFC 9368 §2.3,
-    /// decision 111), or null to keep every client in its original version. A client ignores it.
-    switch_to: ?crypto.suite.Version = .v2,
-    /// The parameters colibri will send (RFC 9000 §7.4). They fix what colibri grants the peer:
-    /// its flow control windows, its stream limits and its idle timeout.
-    local_parameters: Parameters,
-    /// The instant the connection begins, from which the idle timeout runs (RFC 9000 §10.1).
-    now_ns: u64,
-    /// The connection IDs the handshake uses (RFC 9000 §7.3). colibri chooses none of them:
-    /// §5.1 wants them unpredictable and invariant 5 forbids colibri a random number, so a
-    /// client's are the caller's and a server's come off the first Initial it accepted.
-    identity: identity_module.Options,
-    /// RFC 9000 §21.4: one value the caller drew from its source, whose eight octets space out
-    /// the 1-RTT packet numbers the connection skips to catch a peer that acknowledges what it
-    /// never received (invariant 5), or null to skip none.
-    packet_number_skips: ?u64 = null,
-    /// The congestion controller (decisions 133, 136 and 143): BBRv3, the default, CUBIC, or
-    /// RFC 9002's NewReno.
-    congestion_controller: recovery_congestion.Controller = .bbr,
-    /// Decision 136: one value the caller drew from its source, from which BBRv3 draws each of
-    /// its bandwidth probe waits (draft-ietf-ccwg-bbr-06 §5.3.3.8.2). CUBIC and NewReno read none.
-    bandwidth_probe_waits: u64 = 0,
-    /// RFC 9959's saved set to start from (decision 149), which a program kept from an earlier
-    /// connection to the same remote endpoint, or null for normal congestion control. A set past
-    /// `resume_bounds.lifetime_ns`, or of another layout, is not used.
-    resumed_from: ?recovery_resume.ResumeState = null,
-    /// RFC 9959 §5's bounds on a resumed connection: max_jump and the Lifetime.
-    resume_bounds: recovery_resume.ResumeBounds = .{},
-    /// The pool the peer's stream octets wait in until the application reads them, which the
-    /// caller places (decision 61). Its capacity caps every receive window. A connection given
-    /// none reads no stream: it checks STREAM frames and keeps nothing.
-    receive: ?stream_incoming.Storage = null,
-    /// Decision 68: whether the caller reads each received datagram's ECN codepoint and passes it
-    /// in `Datagram.ecn`. RFC 9000 §13.4.1: an endpoint that "does not have access to received
-    /// ECN codepoints ... does not process or report ECN", so without it no ACK carries counts.
-    ecn_reads: bool = false,
-    /// Decision 68: whether the caller sets on each datagram the codepoint `Sent.ecn` names,
-    /// which lets this endpoint mark ECT(0) and validate the path (§13.4.2).
-    ecn_marks: bool = false,
-    /// The peer's address as the caller names it (decision 72): the server a client sends to, or
-    /// the client whose first Initial a server accepted. A caller that names no addresses leaves
-    /// it empty and passes none with its datagrams, and the path never moves.
-    peer_address: PeerAddress = .{},
-    /// The log the connection writes qlog events into (decision 102), whose header the caller
-    /// wrote with `Log.start` at or before `now_ns`. Null, the default, logs nothing.
-    qlog: ?*connection_qlog.Log = null,
-};
 
 pub const Connection = struct {
     /// Which endpoint colibri is (RFC 9000 §1.1).
@@ -175,7 +133,7 @@ pub const Connection = struct {
     /// A PING the caller asked for to keep the connection from its idle timeout (RFC 9000
     /// §10.1.2, `connection_idle.owe_keep_alive`), which the next ack-eliciting packet at the
     /// application level answers.
-    keep_alive_owed: bool,
+    keep_alive_pending: bool,
     /// Where the CRYPTO octets the last PTO's probes carry begin, at each handshake level, which a
     /// second probe with nothing else to carry repeats (decision 64 as amended). Null until a PTO.
     crypto_probe_from: [core.levels_count]?u64,
@@ -222,6 +180,69 @@ pub const Connection = struct {
     /// The caller's qlog log, and what the last events said (decision 102).
     qlog: connection_qlog.State,
 
+    // What `init` takes (decision 158 ruling 6), and the calls a program makes, each in the file
+    // that holds it (ruling 8). A name that two files share takes its concept.
+    pub const Options = connection_options.Options;
+    pub const IdentityOptions = identity_module.Options;
+    // A datagram the caller read is passed to `receive`, and `send` writes the next one the
+    // connection owes (design §4.2).
+    pub const receive = connection_datagram.receive;
+    pub const Received = connection_datagram.Received;
+    pub const ReceiveScratch = connection_datagram.Scratch;
+    pub const ReceiveError = connection_datagram.Error;
+    pub const receive_error_code = connection_datagram.connection_error_code;
+    pub const send = connection_send.send;
+    pub const Sent = connection_send.Sent;
+    pub const SendError = connection_send.Error;
+    pub const SendScratch = connection_send.Scratch;
+    pub const SendScratchOptions = connection_send.ScratchOptions;
+    // The instant the connection next needs `on_instant`, and what that instant is for. It is
+    // the same on each call until an input changes it (ruling 12).
+    pub const deadline = connection_timer.next;
+    pub const on_instant = connection_timer.on_instant;
+    /// RFC 9959 §3.1: the set the connection observed, which a program saves (decision 149).
+    pub const resume_state = connection_resume.observe;
+    pub const idle_deadline_ns = connection_idle.deadline_ns;
+    pub const idle_timeout_ns = connection_idle.timeout_ns;
+    pub const probe_timeout_ns = connection_idle.probe_timeout_ns;
+    pub const owe_keep_alive = connection_idle.owe_keep_alive;
+    pub const keep_alive_owed = connection_idle.keep_alive_owed;
+    pub const owe_close = connection_close.owe;
+    pub const owes_close = connection_close.owes;
+    // What a caller does with a stream: open it, supply its octets, read what arrived, and end it.
+    pub const open_stream = stream_send.open;
+    pub const OpenStreamError = stream_table.OpenError;
+    pub const supply = stream_send.supply;
+    pub const reset_stream = stream_send.reset;
+    pub const stop_sending = stream_send.stop_sending;
+    pub const set_stream_priority = stream_send.set_priority;
+    pub const write_stream_frame = stream_send.write;
+    pub const write_stream_endings = stream_send.write_endings;
+    pub const StreamSendError = stream_send.Error;
+    pub const read = stream_read.read;
+    pub const peek = stream_read.peek;
+    pub const consume = stream_read.consume;
+    pub const reset_code = stream_read.reset_code;
+    pub const StreamRead = stream_read.Read;
+    pub const StreamReadError = stream_read.Error;
+    pub const acknowledged_end = stream_acknowledged.acknowledged_end;
+    pub const resets_acknowledged = stream_acknowledged.resets_acknowledged;
+    pub const credit_owed = connection_flow.credit_owed;
+    /// The server's `observe`, which asks `data_credit_owed` first (design §8 step 29d.7).
+    pub const count_credit_owed = connection_flow.count_credit_owed;
+    /// The server's body meters, which wait on data credit alone (decision 130).
+    pub const data_credit_owed = connection_flow.data_credit_owed;
+    pub const send_credit = stream_credit.send_credit;
+    // What an endpoint does beside a connection's datagrams: the version it chooses, a new
+    // connection ID, a path challenge, a key update and the log.
+    pub const version_chooser = connection_version.chooser;
+    pub const issue_connection_ids = connection_id_frames.issue;
+    pub const challenge_path = migration_module.challenge;
+    pub const ChallengeData = migration_module.ChallengeData;
+    pub const initiate_key_update = key_update.initiate;
+    /// Starts the qlog of a connection that `init` already made (ruling 12).
+    pub const attach_log = connection_qlog.init;
+
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
         connection.identity.init(options.identity);
@@ -241,7 +262,7 @@ pub const Connection = struct {
         connection.handshake_confirmed = false;
         connection.handshake_done = .{};
         connection.probes_owed = @splat(0);
-        connection.keep_alive_owed = false;
+        connection.keep_alive_pending = false;
         connection.crypto_probe_from = @splat(null);
         connection.early_crypto_resends = 0;
         connection.early_crypto_resent_at_ns = 0;
@@ -391,51 +412,10 @@ pub fn max_ack_delay_ns(connection: *const Connection) u64 {
     return connection.local_parameters.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
 }
 
-/// The largest a receive window starting at `window` grows to (decision 49): the receive
-/// pool's capacity (decision 61), or `window` itself when the connection keeps no octets.
-pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
-    const storage = connection.receive_storage orelse return window;
-    // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
-    assert(window <= storage.capacity);
-    return storage.capacity;
-}
-
-/// The largest a stream's receive window starting at `window` grows to (decision 49 as amended
-/// on 2026-11-06): the receive pool's capacity less the stream's reserve (`stream_reserve`). A
-/// pool no larger than a window and its reserve keeps the window where it starts, and so does a
-/// connection with no pool.
-pub fn stream_receive_window_max(connection: *const Connection, window: u64) u64 {
-    const storage = connection.receive_storage orelse return window;
-    // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
-    assert(window <= storage.capacity);
-    // RFC 9000 §4.1: one stream's credit leaves its reserve of the pool to the other streams.
-    const grown = @max(window, storage.capacity -| stream_reserve(window));
-    assert(grown >= window);
-    assert(grown <= storage.capacity);
-    return grown;
-}
-
-/// The octets of the receive pool that a stream whose window starts at `window` leaves free
-/// (decision 49 as amended): `stream_window_reserve_windows` of its starting windows.
-fn stream_reserve(window: u64) u64 {
-    return window *| constants.limits.stream_window_reserve_windows;
-}
-
-/// The connection's credit left to the peer below which one consumed octet is worth a MAX_DATA
-/// frame (decision 49 as amended, `flow.Receiver.owes_credit_below`): the part of the pool that
-/// a stream of the largest starting window leaves free at its cap. In a pool of two such windows
-/// or more, that is its reserve, so a held stream cannot keep the other streams from it. A
-/// stream that can fill the pool leaves none, and a connection with no pool caps no window, so
-/// neither has a floor.
-pub fn receive_credit_floor(connection: *const Connection) u64 {
-    const storage = connection.receive_storage orelse return 0;
-    const mine = connection.local_parameters;
-    // RFC 9000 §18.2: the three parameters that set the starting window of a stream it receives on.
-    const window = @max(mine.initial_max_stream_data_bidi_local, mine.initial_max_stream_data_bidi_remote, mine.initial_max_stream_data_uni);
-    const floor = storage.capacity - stream_receive_window_max(connection, @min(window, storage.capacity));
-    assert(floor <= stream_reserve(window));
-    return floor;
-}
+// The receive windows the pool caps (decision 61), in `connection_flow.zig` for length.
+pub const receive_window_max = connection_flow.receive_window_max;
+pub const stream_receive_window_max = connection_flow.stream_receive_window_max;
+pub const receive_credit_floor = connection_flow.receive_credit_floor;
 
 /// RFC 9001 §4.1.2's confirmed state, which a server reaches when the handshake completes and
 /// a client when a HANDSHAKE_DONE frame arrives.
@@ -458,9 +438,24 @@ comptime {
 }
 
 test "decision 115: the connection's public functions are the calls a program makes" {
-    // What the module's own files call on a connection is a function of this file, and the root
-    // exports only the ones the simulator and the corpus call.
-    try core.public_names.expect(Connection, &.{ "init", "addressed_by" });
+    // What the module's own files call on a connection is a function of their file, and the root
+    // exports only the ones the simulator and the corpus call. Decision 158 rulings 6 and 8 add
+    // the options and each call a program makes.
+    try core.public_names.expect(Connection, &.{
+        "Options",              "IdentityOptions",      "receive",             "Received",
+        "ReceiveScratch",       "ReceiveError",         "receive_error_code",  "send",
+        "Sent",                 "SendError",            "SendScratch",         "SendScratchOptions",
+        "deadline",             "on_instant",           "resume_state",        "idle_deadline_ns",
+        "idle_timeout_ns",      "probe_timeout_ns",     "owe_keep_alive",      "keep_alive_owed",
+        "owe_close",            "owes_close",           "open_stream",         "OpenStreamError",
+        "supply",               "reset_stream",         "stop_sending",        "set_stream_priority",
+        "write_stream_frame",   "write_stream_endings", "StreamSendError",     "read",
+        "peek",                 "consume",              "reset_code",          "StreamRead",
+        "StreamReadError",      "acknowledged_end",     "resets_acknowledged", "credit_owed",
+        "count_credit_owed",    "data_credit_owed",     "send_credit",         "version_chooser",
+        "issue_connection_ids", "challenge_path",       "ChallengeData",       "initiate_key_update",
+        "attach_log",           "init",                 "addressed_by",
+    });
 }
 
 test {

@@ -25,8 +25,8 @@ const Reader = core.Reader;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Error = connection_module.Connection.Error;
-const StreamId = quic.stream.StreamId;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamId = quic.StreamId;
+const StreamProvider = quic.StreamProvider;
 const QuicConnection = quic.Connection;
 
 /// The octets one QPACK insert takes at most (decision 76), which is the room the encoder
@@ -98,14 +98,14 @@ fn log_start(connection: *Connection, settings_frame: []const u8) void {
 }
 
 fn open(connection: *Connection, transport: *QuicConnection) Error!u64 {
-    const id = quic.connection_stream_send.open(transport, .unidirectional) catch
+    const id = quic.Connection.open_stream(transport, .unidirectional) catch
         // RFC 9114 §6.2: "the transport parameters sent by both clients and servers MUST allow
         // the peer to create at least three unidirectional streams".
         return connection.fail(transport, constants.protocol.error_general_protocol);
     // The three go out before any request stream: an insert on the encoder stream then leaves
     // before the field sections that reference it, so fewer of them block (RFC 9204 §2.1.2), and
     // SETTINGS before the first request's response.
-    quic.connection_stream_send.set_priority(transport, id, constants.policy.local_stream_priority) catch unreachable;
+    quic.Connection.set_stream_priority(transport, id, constants.policy.local_stream_priority) catch unreachable;
     return id.value;
 }
 
@@ -134,7 +134,7 @@ fn settings_of(connection: *const Connection) frame.Settings {
 /// Tells `quic` that stream `id` now reaches `end`, which never ends it: none of the three may
 /// close (RFC 9114 §6.2.1, RFC 9204 §4.2).
 fn supply(connection: *Connection, transport: *QuicConnection, id: u64, end: u64) Error!void {
-    quic.connection_stream_send.supply(transport, .{ .value = id }, end, false) catch |failure| switch (failure) {
+    quic.Connection.supply(transport, .{ .value = id }, end, false) catch |failure| switch (failure) {
         // The peer's STOP_SENDING reset it, though §6.2.1 says "the receiver MUST NOT request
         // that the sender close the control stream", and RFC 9204 §4.2 says the same of QPACK's.
         error.NotWritable => return connection.fail(transport, constants.protocol.error_closed_critical_stream),
@@ -149,7 +149,7 @@ fn make_room(connection: *Connection, transport: *QuicConnection, buffer: anytyp
     if (buffer.free().remaining_len() >= wanted) return;
     // Null means `quic` reads none of the stream again: it was reset, which only a peer's
     // STOP_SENDING does to these three, and §6.2.1 and RFC 9204 §4.2 forbid it.
-    const end = quic.connection_stream_acknowledged.acknowledged_end(transport, .{ .value = id }) orelse
+    const end = quic.Connection.acknowledged_end(transport, .{ .value = id }) orelse
         return connection.fail(transport, constants.protocol.error_closed_critical_stream);
     buffer.drop_acknowledged(end);
 }
@@ -180,7 +180,7 @@ pub fn encoder_room(connection: *Connection, transport: *QuicConnection) Error!W
     // connection flow-control credit is available for the entire instruction". The encoder
     // writes an instruction whole or not at all, so a writer no longer than the credit is enough.
     // Null means the peer's STOP_SENDING reset the stream, which RFC 9204 §4.2 forbids.
-    const credit = quic.connection_stream_credit.send_credit(transport, .{ .value = id }) orelse
+    const credit = quic.Connection.send_credit(transport, .{ .value = id }) orelse
         return connection.fail(transport, constants.protocol.error_closed_critical_stream);
     const free = local.encoder.free();
     return Writer.init(free.buffer[0..@intCast(@min(free.remaining_len(), credit))]);
@@ -238,7 +238,7 @@ pub fn provider(connection: *Connection) StreamProvider {
     return .{ .context = connection, .vtable = &vtable };
 }
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read };
+const vtable: quic.StreamProvider.VTable = .{ .read = read };
 
 fn read(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const connection: *Connection = @ptrCast(@alignCast(context));

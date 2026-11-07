@@ -61,7 +61,7 @@ pub fn stop_reading(connection: *Connection, transport: *QuicConnection, stream_
     // RFC 9114 §4.1: a server that needs no more of a request "MAY abort reading the request
     // stream", and "the error code H3_NO_ERROR SHOULD be used when requesting that the client
     // stop sending on the request stream". A receiving part that already ended refuses nothing.
-    quic.connection_stream_send.stop_sending(transport, .{ .value = stream_id }, code) catch {};
+    quic.Connection.stop_sending(transport, .{ .value = stream_id }, code) catch {};
     // RFC 9204 §2.2.2.2: a decoder that abandons a stream cancels the references it held.
     connection_request.owe_cancel(connection, request);
     request.phase = .abandoned;
@@ -94,7 +94,7 @@ fn get_frame(storage: *[frame_len_max]u8) ![]const u8 {
 
 /// The client opens a request stream and sends all of `frame` but its last octet. Test-only.
 fn open_short_of_head(frame: []const u8) !u64 {
-    const id = try quic.connection_stream_send.open(&client.transport, .bidirectional);
+    const id = try quic.Connection.open_stream(&client.transport, .bidirectional);
     try client.send_raw(id.value, frame[0 .. frame.len - 1], false);
     return id.value;
 }
@@ -172,12 +172,12 @@ test "RFC 9114 §4.1: a server that stops reading a request asks the client to s
     try harness.respond(id, &harness.ok_lines, "");
     try harness.exchange();
     // RFC 9000 §3.5: the client answers STOP_SENDING by resetting its side.
-    const stream_id: quic.stream.StreamId = .{ .value = id };
+    const stream_id: quic.StreamId = .{ .value = id };
     const sending = client.transport.streams.lookup(stream_id).live.sending;
     try testing.expect(sending.state == .reset_sent or sending.state == .reset_recvd);
     // The response's HEADERS frame arrived, and ended the stream.
     var read: [frame_len_max]u8 = undefined;
-    const arrived = try quic.connection_stream_read.peek(&client.transport, stream_id, &read);
+    const arrived = try quic.Connection.peek(&client.transport, stream_id, &read);
     try testing.expect(arrived.len > 0 and arrived.fin);
     try testing.expectEqual(constants.protocol.frame_headers, read[0]);
 }

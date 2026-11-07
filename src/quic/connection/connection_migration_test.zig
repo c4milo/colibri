@@ -24,7 +24,7 @@ const testing = std.testing;
 
 var client: Connection align(@alignOf(Connection)) = undefined;
 var server: Connection align(@alignOf(Connection)) = undefined;
-var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var scratch: send.Scratch(.{}) align(@alignOf(send.Scratch(.{}))) = .{};
 var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
@@ -105,7 +105,7 @@ fn open_one(connection: *Connection, role: connection_module.Role, peer: PeerAdd
 }
 
 var nothing_context: u8 = 0;
-const nothing_vtable: stream_module.stream_provider.VTable = .{ .read = read_nothing };
+const nothing_vtable: stream_module.StreamProvider.VTable = .{ .read = read_nothing };
 
 fn read_nothing(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     _ = context;
@@ -118,7 +118,7 @@ fn read_nothing(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) 
 /// The next datagram `connection` owes, written into buffer `slot`.
 fn send_into(connection: *Connection, slot: usize, now_ns: u64) !send.Sent {
     const streams: stream_module.StreamProvider = .{ .context = &nothing_context, .vtable = &nothing_vtable };
-    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), streams, &scratch, &buffers[slot], now_ns) orelse error.NothingSent;
+    return try send.send(connection, suite_holder.suite(), provider_holder.provider(), streams, .{}, &scratch, &buffers[slot], now_ns) orelse error.NothingSent;
 }
 
 /// Hands `reader` the datagram in buffer `slot`, as if it came from `from`.

@@ -106,8 +106,8 @@ test "RFC 9000 §3.5: a piece handed before the server stopped the body is taken
     try pool.write_body(id, pieces[0], false);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
-    const stream: quic.stream.StreamId = .{ .value = quic_support.answers[0].id };
-    try quic.connection_stream_send.stop_sending(&quic_support.server, stream, h3.constants.protocol.error_no_error);
+    const stream: quic.StreamId = .{ .value = quic_support.answers[0].id };
+    try quic.Connection.stop_sending(&quic_support.server, stream, h3.constants.protocol.error_no_error);
     // The program hands the next piece, and the STOP_SENDING arrives before the piece goes out.
     try pool.write_body(id, pieces[1], false);
     const len = (try quic_support.server_send(&fixture.datagram)).?;
@@ -127,8 +127,8 @@ test "RFC 9114 §4.1: a server that asks the client to stop sending ends the bod
     try testing.expectEqual(1, count(.body_taken));
     // RFC 9114 §4.1: "The error code H3_NO_ERROR SHOULD be used when requesting that the client
     // stop sending on the request stream."
-    const stream: quic.stream.StreamId = .{ .value = quic_support.answers[0].id };
-    try quic.connection_stream_send.stop_sending(&quic_support.server, stream, h3.constants.protocol.error_no_error);
+    const stream: quic.StreamId = .{ .value = quic_support.answers[0].id };
+    try quic.Connection.stop_sending(&quic_support.server, stream, h3.constants.protocol.error_no_error);
     try pump(quic_support.rounds_default);
     try testing.expectError(error.BodyStopped, pool.write_body(id, pieces[1], true));
     // RFC 9114 §4.1: "Clients MUST NOT discard complete responses as a result of having their
@@ -158,7 +158,7 @@ test "RFC 9114 §4.1.1: a response that ends before the request body resets the 
 
 /// A receive pool smaller than the response, so the stream's window holds the server back
 /// (decision 61). Test-only.
-var small_pool: quic.stream.stream_incoming.Pool(small_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(small_pool_len))) = undefined;
+var small_pool: quic.ReceivePool(.{ .capacity = small_pool_len }) align(@alignOf(quic.ReceivePool(.{ .capacity = small_pool_len }))) = undefined;
 const small_pool_len: usize = 65_536;
 /// The response's content, and where each of its pieces lands: one h3 read's worth (decision 80).
 var content: [content_len]u8 = undefined;
@@ -249,7 +249,7 @@ const rounds_max: usize = 256;
 const shared_pool_len: usize = shared_streams * h3_stream_window;
 const shared_streams: usize = 2;
 const h3_stream_window: usize = 65_536;
-var shared_pool: quic.stream.stream_incoming.Pool(shared_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(shared_pool_len))) = undefined;
+var shared_pool: quic.ReceivePool(.{ .capacity = shared_pool_len }) align(@alignOf(quic.ReceivePool(.{ .capacity = shared_pool_len }))) = undefined;
 
 /// The other exchange's content: more than the receive pool has left once a held stream took
 /// the whole pool's window. Test-only.
@@ -295,7 +295,7 @@ test "RFC 9000 §4.1: a held h3 stream keeps one stream's window of the receive 
 /// and still leaves its reserve to the other streams (decision 49 as amended). Test-only.
 const grown_pool_len: usize = grown_pool_windows * h3_stream_window;
 const grown_pool_windows: usize = 4;
-var grown_pool: quic.stream.stream_incoming.Pool(grown_pool_len) align(@alignOf(quic.stream.stream_incoming.Pool(grown_pool_len))) = undefined;
+var grown_pool: quic.ReceivePool(.{ .capacity = grown_pool_len }) align(@alignOf(quic.ReceivePool(.{ .capacity = grown_pool_len }))) = undefined;
 /// The largest window a request stream grows to in that pool. Test-only.
 const grown_window_max: u64 = grown_pool_len - quic.constants.limits.stream_window_reserve_windows * h3_stream_window;
 /// The held stream's content: more than the grown window. Test-only.
@@ -313,7 +313,7 @@ test "decision 49 as amended: a held h3 stream whose window grew leaves its rese
     _ = try pool.request(&other.request, &other.response);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(2, quic_support.answers_len);
-    const stream_id: quic.stream.StreamId = .{ .value = (try answer_at("/held")).id };
+    const stream_id: quic.StreamId = .{ .value = (try answer_at("/held")).id };
     // Decision 49 grows a window only as far as `window_max`. The test grows it there at once,
     // since the test link carries too little in a round trip to make the window grow.
     const receiver = &pool.quic.transport.streams.lookup(stream_id).live.receive_flow;
@@ -406,7 +406,7 @@ test "RFC 9114 §4.1: over h3 a request body goes on after the response's head, 
     try testing.expectEqual(whole.len, answer.received);
     try testing.expectEqual(std.hash.Crc32.hash(whole), answer.received_crc.final());
     // The server ends its response once it read the request whole.
-    try quic.connection_stream_send.supply(&quic_support.server, .{ .value = answer.id }, answer.prefix_len + answer.content.len, true);
+    try quic.Connection.supply(&quic_support.server, .{ .value = answer.id }, answer.prefix_len + answer.content.len, true);
     for (0..rounds_max) |_| {
         const seen = fixture.events_len;
         try read_new(id, read_body, from, &read);

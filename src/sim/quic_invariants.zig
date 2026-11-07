@@ -10,7 +10,7 @@ const quic = @import("quic");
 const quic_endpoint = @import("quic_endpoint.zig");
 
 const Endpoint = quic_endpoint.Endpoint;
-const Sent = quic.connection_send.Sent;
+const Sent = quic.Connection.Sent;
 const invariant = quic.packet.invariant;
 
 pub const Violation = error{

@@ -122,6 +122,20 @@ test "RFC 9000 §10.1: the idle timeout is a deadline, and firing it closes the 
     try testing.expectEqual(null, next());
 }
 
+test "decision 158 ruling 12: deadline returns the same instant on each call with no input between" {
+    open_connection(idle_timeout_ms);
+    // RFC 9000 §10.1: the idle timeout alone is armed.
+    const idle = Connection.deadline(&test_connection).?;
+    try testing.expectEqual(idle, Connection.deadline(&test_connection).?);
+    try testing.expectEqual(timer.Kind.idle, idle.kind);
+    // RFC 9000 §8.2.4: a PATH_CHALLENGE is an input, and the nearest deadline then stays its own.
+    test_connection.path.init(.unvalidated);
+    test_connection.path.on_challenge_sent(challenge_data, constants.protocol.datagram_len_min, test_now_ns, challenge_timeout_ns);
+    const path = Connection.deadline(&test_connection).?;
+    try testing.expectEqual(path, Connection.deadline(&test_connection).?);
+    try testing.expectEqual(timer.Kind.path, path.kind);
+}
+
 test "RFC 9000 §8.2.4: an outstanding PATH_CHALLENGE is the nearer deadline" {
     open_connection(idle_timeout_ms);
     // §21.1.1.1 exempts a client establishing a connection, so its path begins validated; this

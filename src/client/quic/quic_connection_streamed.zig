@@ -14,7 +14,7 @@ const quic_connection = @import("quic_connection.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Slot = slots_module.Slot;
-const StreamProvider = quic.stream.StreamProvider;
+const StreamProvider = quic.StreamProvider;
 
 /// The frames of one request stream the connection keeps (decision 79).
 pub const RequestStream = struct {
@@ -59,7 +59,7 @@ pub fn supply_piece(connection: *QuicConnection, slot: *Slot, now_ns: u64) error
     const end = stream.piece_base + stream.data_header_len + slot.piece.len + trailers_len;
     // RFC 9000 §2.2: the stream ends with the last octet of the content, or of the trailer
     // section after it, which carries FIN.
-    quic.connection_stream_send.supply(&connection.transport, .{ .value = slot.stream_id }, end, slot.piece_end) catch {
+    quic.Connection.supply(&connection.transport, .{ .value = slot.stream_id }, end, slot.piece_end) catch {
         slot.content_stopped = true;
         // RFC 9114 §4.1: the server asked the client to stop sending, and QUIC reset the stream's
         // sending part in answer (RFC 9000 §3.5).
@@ -88,7 +88,7 @@ pub fn supply_pieces(connection: *QuicConnection, now_ns: u64) void {
 /// of the sending part (RFC 9000 §3.5), whose octets it then reads no more.
 pub fn sending_stopped(connection: *QuicConnection, slot: *const Slot) bool {
     if (slot.stage != .sent or !slot.holds_octets) return false;
-    return quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, .{ .value = slot.stream_id }) == null;
+    return quic.Connection.acknowledged_end(&connection.transport, .{ .value = slot.stream_id }) == null;
 }
 
 /// Reports each held piece the peer acknowledged to its last octet, or that the stream sends no
@@ -98,7 +98,7 @@ pub fn note_taken(connection: *QuicConnection) void {
     for (&connection.slots.slots) |*slot| {
         if (!slot.piece_held or !slot.holds_octets) continue;
         const stream = &connection.streams[connection.slots.index_of(slot)];
-        const acknowledged = quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, .{ .value = slot.stream_id });
+        const acknowledged = quic.Connection.acknowledged_end(&connection.transport, .{ .value = slot.stream_id });
         // Null when QUIC reads none of the stream's octets again: it closed, or it was reset.
         if (acknowledged) |end| {
             // RFC 9000 §13.3: a piece handed since the last supply is in no octet the server
@@ -115,7 +115,7 @@ pub fn provider(connection: *QuicConnection) StreamProvider {
     return connection.h3.provider(.{ .context = connection, .vtable = &vtable });
 }
 
-const vtable: quic.stream.stream_provider.VTable = .{ .read = read_request };
+const vtable: quic.StreamProvider.VTable = .{ .read = read_request };
 
 /// A request stream's octets from `offset`: its HEADERS frame, then the DATA frame's header and
 /// the piece, and after the last piece the trailer section's HEADERS frame. Every call at one offset answers the same octets, which RFC 9000 §2.2 asks of a

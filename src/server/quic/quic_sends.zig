@@ -74,7 +74,7 @@ pub const Sends = struct {
 /// Notes where `record`'s response stands on `stream`: the octets the peer acknowledged since the
 /// last look, which arrived at the instant `fire` last moved the meters to, and whether the
 /// response waits on the peer or on its stream's credit.
-pub fn look(connection: *QuicConnection, record: *const Request, stream: *const quic.stream.Stream) void {
+pub fn look(connection: *QuicConnection, record: *const Request, stream: *const quic.Stream) void {
     const sends = &connection.sends;
     const entry = &sends.entries[connection.requests.index_of(record)];
     const outgoing = &stream.outgoing;

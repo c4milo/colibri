@@ -78,7 +78,7 @@ pub const Tracker = struct {
     }
 
     fn observe_request(tracker: *Tracker, client: *const Endpoint, r: usize) void {
-        const id: quic.stream.StreamId = .{ .value = r * h3_trace_endpoint.request_stream_step };
+        const id: quic.StreamId = .{ .value = r * h3_trace_endpoint.request_stream_step };
         if (live(&client.transport.connection, id)) |stream| {
             tracker.request_sent[r] = @max(tracker.request_sent[r], frames_below(client, r, stream.outgoing.framed_end));
             const state = stream.sending.state;
@@ -91,7 +91,7 @@ pub const Tracker = struct {
     /// on a stream h3 refused, reading one reports nothing, and QUIC then forgets the stream.
     pub fn observe_arrivals(tracker: *Tracker, server: *const Endpoint) void {
         for (0..server.plan.requests) |r| {
-            const id: quic.stream.StreamId = .{ .value = r * h3_trace_endpoint.request_stream_step };
+            const id: quic.StreamId = .{ .value = r * h3_trace_endpoint.request_stream_step };
             const stream = live(&server.transport.connection, id) orelse continue;
             if (stream.receiving.state == .reset_recvd) tracker.reset_arrived[r] = true;
         }
@@ -99,7 +99,7 @@ pub const Tracker = struct {
 };
 
 /// The stream `id` while its QUIC endpoint still holds it, or null once it was forgotten.
-pub fn live(connection: *const quic.Connection, id: quic.stream.StreamId) ?*const quic.stream.Stream {
+pub fn live(connection: *const quic.Connection, id: quic.StreamId) ?*const quic.Stream {
     const streams = @constCast(&connection.streams);
     return switch (streams.lookup(id)) {
         .live => |stream| stream,

@@ -69,7 +69,7 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
     const slots_max = capacity.tcp_connections + capacity.quic_connections;
     return struct {
         const Self = @This();
-        const Pool = quic.stream.stream_incoming.Pool(capacity.receive_pool_len);
+        const Pool = quic.ReceivePool(.{ .capacity = capacity.receive_pool_len });
 
         state: endpoint_state.State,
         /// The TLS configuration of each transport, and what each connection borrows, which

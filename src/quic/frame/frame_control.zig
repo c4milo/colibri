@@ -31,6 +31,22 @@ pub const ConnectionClose = struct {
     frame_type: ?u64,
     /// RFC 9000 §19.19: it may be zero length, and is not necessarily valid UTF-8.
     reason: []const u8,
+
+    /// The transport close colibri raises for a connection error it found itself (RFC 9000
+    /// §11.1). `frame_type` is the frame that triggered it, or null when no frame did.
+    pub fn transport(code: u64, frame_type: ?u64) ConnectionClose {
+        return .{
+            .layer = .transport,
+            .error_code = code,
+            // RFC 9000 §19.19: a 0x1c frame always carries the field, and "A value of 0
+            // (equivalent to the mention of the PADDING frame) is used when the frame type is
+            // unknown."
+            .frame_type = frame_type orelse constants.protocol.frame_padding,
+            // RFC 9000 §19.19: "This can be zero length if the sender chooses not to give
+            // details beyond the Error Code value."
+            .reason = "",
+        };
+    }
 };
 
 /// Reads the frame whose type has been consumed. Every type `frame.zig` did not handle reaches

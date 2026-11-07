@@ -90,7 +90,7 @@ test "RFC 9110 §6.5: a request's trailer section ends it, and no end of its con
 
 /// A receive pool smaller than a request stream's window. Test-only.
 const small_pool_len: usize = 32_768;
-const SmallPool = quic.stream.stream_incoming.Pool(small_pool_len);
+const SmallPool = quic.ReceivePool(.{ .capacity = small_pool_len });
 threadlocal var small_pool: SmallPool align(@alignOf(SmallPool)) = undefined;
 
 test "RFC 9000 §4.1: no window the server advertises grants more than a smaller receive pool holds" {
