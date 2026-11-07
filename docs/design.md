@@ -13842,7 +13842,7 @@ library.
     a client and a resolver uses 3 of Rotor's 8. Each poll sets `in_turn`, then does these steps
     in order:
     1. While `now_ns()` returns 0, return `.now` and do nothing else. Then read `started_ns`. The
-       server calls `endpoint.init` here.
+       server calls `endpoint.init` here, with one `server.Instant`, which step 45 adds first.
     2. Load `stopping` with acquire order, and pass a `shutdown` to the pool or the endpoint.
     3. Call `on_instant` when a deadline is due.
     4. Drain the events. Keep the `finished` of `fetching` for `fetch`. Copy each other
@@ -13911,8 +13911,12 @@ library.
       without), `path`, `headers = &.{}`, `never_indexed = .{}`, `request_body = ""`, and
       `response_body`, `response_headers` and `response_trailers`, each `&.{}`. An empty buffer
       drops its part.
-    - `FetchResult` holds `result: client.Result`, `status: u16`, `headers: client.Headers`,
-      `trailers: client.Trailers` and `body_len: usize`.
+      Step 45 first makes `never_indexed.headers` a slice of the never-indexed headers, in place
+      of one bool for each header (decision 158 ruling 9).
+    - `FetchResult` holds `result: client.Result`, `status: http.Status`, `headers:
+      client.Headers`, `trailers: client.Trailers` and `body_len: usize`. Step 45 first makes
+      `http.Status` one enum, in place of the `status: u16` of this entry's first text (decision
+      158 ruling 5).
     - `stopped()` is true when the pool or the endpoint reported `closed`, no socket is live,
       `in_flight` is 0 and the task is not queued.
     - At `closed`, colibri cancels its own handles: the receives and the accept. The TCP
@@ -14102,6 +14106,271 @@ library.
     3. Rotor ruled its named groups on 2026-11-07, in its decisions 30 and 32 at 0c1fcf7. So 44d,
        like 44a to 44c, waits only for Rotor's `v0.10.0`. Each test of 44d that names a group
        passes its own table, as Rotor's decision 30 rule 7 says.
+- **Step 45 — colibri's public API in Zig's idioms, proposed 2026-11-07.** [Decision
+  158](decisions.md). TigerStyle rules first, and Zig 0.16's std rules where TigerStyle says
+  nothing. The step changes names and signatures, and no behaviour on the wire. It ships in
+  v0.15.0, and lands before step 44's commits 44b to 44j, which then use its names. The name
+  of `server.Endpoint` is open: see "The open question" below.
+  - **The public names**, module by module, in decision 115's order. "Adds", "renames" and
+    "removes" name a root's list or a type's list of `core.public_names.expect`. Each root's
+    list after the step follows.
+    - `core` (pattern 12, ruling 6).
+      - Renames: `Reader.read_byte` to `take_byte`, `Reader.read_int` to `take_int_big`, and
+        `Writer.write_int` to `write_int_big`.
+      - Adds: `Reader.Error` and `Writer.Error`. Removes: the namespaces `reader` and `writer`.
+      - The root's list: `constants`, `Reader`, `Writer`, `Pool`, `Level`, `levels_count`,
+        `fuzz` and `public_names`.
+    - `http` (patterns 4 to 8).
+      - `Status` becomes a non-exhaustive `enum(u16)`. Its declarations: `Class`, `Error`,
+        `class`, `from_code`, `from_digits`, `write_digits` and `is_recognized`.
+      - Removes: the namespaces `status` (with `Code`), `field_section`, `uri_percent` and
+        `uri_query`, and `FieldSection.clear`.
+      - Adds: `FieldSection.AppendError` and `FieldSection.Iterator`, from `field_section`;
+        `QueryParameters.ReadError`, from `uri_query`; `uri.decoded_at` and `uri.encoded_len`,
+        from `uri_percent`; `message_request.Kind`.
+      - Renames: `content_coding.read_accept` to `content_coding.Acceptance.read`.
+      - The root's list: `core`, `constants`, `FieldSection`, `Field`, `Status`,
+        `QueryParameters`, `field`, `connection_specific`, `method`, `content_length`,
+        `message_lines`, `message_request`, `uri` and `content_coding`.
+    - `h11` (patterns 5, 7, 9 and 10, and decision 158 ruling 10).
+      - Removes: the namespaces `connection` and `connection_tls`.
+      - `Connection` adds `Options`, `Error`, `Event`, `Request`, `SendError`, `RecordError`,
+        `Failure`, `decrypt`, `encrypt` and `close_notify`. `init` takes `(connection,
+        options)`, and `Options` gains `role`.
+      - `coding`: `Decoding` adds `start`, `reserve`, `begin`, `decode`, `finish` and `release`,
+        and the free functions of the same names leave. `Pool(options)` takes a `PoolOptions`
+        and adds `init(pool, features)`. Removes `DefaultPool`, and `Storage.reset` from the
+        program's calls.
+      - The root's list: `core`, `http`, `constants`, `Connection`, `message`, `chunked` and
+        `coding`.
+    - `h2` (patterns 5 to 7 and 9 to 10).
+      - Removes: the namespaces `connection` and `connection_tls`. `connection.Event` and
+        `connection_tls.attach` leave with no new path: `h2.Event` and
+        `Connection.attach_tls` stay.
+      - `Connection` adds `Options`, `AltSvc`, `Data`, `DataWritten`, `Request`,
+        `RequestError`, `RequestIndexing`, `RequestHead` (was `connection.Request_`),
+        `Response`, `SendError`, `StreamReset`, `Error`, `Received`, `AttachError`,
+        `RecordError`, `close_notify`, `decrypt`, `encrypt`, `encrypt_parts` and
+        `writable_len`. `init` takes `(connection, options)`.
+      - `frame` adds `Type`, and `frame.Header.type` takes it.
+      - The root's list: `core`, `wire`, `http`, `hpack`, `tls_provider`, `constants`, `Role`,
+        `FieldBlock`, `Connection`, `Event`, `Limit`, `Window`, `frame` and `stream`.
+    - `h3` (patterns 5, 7 and 8).
+      - Renames: the namespace `frame_write` to `frame`, which holds `write_header`.
+      - Removes: the namespace `connection`. `Connection` adds `Data`, `Ended`, `Error`,
+        `Event`, `HeadWait`, `Options`, `Request`, `Response`, `SendError` and `RequestHead`.
+        `write_request` takes a `RequestHead`, with `section`, `indexing` and `hold_data`.
+      - The root's list: `core`, `wire`, `http`, `qpack`, `quic`, `constants`, `Connection`,
+        `frame` and `message`.
+    - `hpack` (patterns 5 and 6).
+      - Removes: the namespace `encoder`, with its copy of `Indexing`. `decoder` keeps the
+        test-only `expect_lines` and `test_decoder`, under their comment.
+      - Adds: `Decoder.Error`, `Decoder.Block`, `Encoder.Error` and `Encoder.HuffmanUse`.
+      - The root's list: `core`, `wire`, `http`, `constants`, `Field`, `DynamicTable`,
+        `Decoder`, `FieldLine`, `Encoder`, `Indexing` and `decoder`.
+    - `qpack` (pattern 5).
+      - Removes: the namespaces `encoder` and `decoder`.
+      - Adds: `Encoder.HuffmanUse`, `Encoder.Indexing`, `Encoder.DecoderStreamError`,
+        `Encoder.Coding`, `Decoder.Error`, `Decoder.Outcome`, `Decoder.Settings`,
+        `Decoder.error_code` and `Decoder.Abandoned`.
+      - The root's list: `core`, `wire`, `http`, `constants`, `Encoder`, `Decoder`,
+        `decoder_stream` and `instruction`.
+    - `quic` (patterns 2, 5, 7 and 11).
+      - `Connection` adds one declaration for each call a program makes. The table below maps
+        each one. Its list then holds `init`, `addressed_by` and each name in the right column.
+      - Adds to the root: `Ecn` (was `connection_send.Ecn`), `Close`, `Stream`, `StreamId`,
+        `StreamProvider`, `Frame`, `ReceivePool`, `ReceivePoolOptions`, `ReceiveStorage`, and
+        the namespaces `version` and `retry`.
+      - Renames, with no name that repeats itself: `stream.stream_provider.VTable` to
+        `StreamProvider.VTable`; `stream.stream_incoming.block_len` to
+        `stream.receive_block_len`; `frame.frame_ack.Range` to `frame.AckRange`;
+        `frame.frame_control.ConnectionClose` and `NewConnectionId` to
+        `frame.ConnectionClose` and `frame.NewConnectionId`; `packet.packet_number` to
+        `packet.number`; `transport_parameters_read.read` to `transport_parameters.read`.
+      - Removes: the 17 namespaces from `connection_datagram` to `connection_qlog`,
+        `stream.stream_incoming` with `DefaultPool`, `stream.stream_table`,
+        `frame.frame_ack`, `frame.frame_control` and `transport_parameters_read`.
+      - Stays: the names that only the simulator, the corpus and the test endpoints call, in
+        `connection`, `connection_receive`, `connection_recovery`, `connection_frames`,
+        `connection_keys`, `connection_stream_frames`, `connection_stream_recovery`,
+        `recovery_ack` and `recovery_sent`. Their comment says so.
+      - The root's list: `core`, `wire`, `crypto`, `tls_provider`, `qlog`, `constants`,
+        `error_code`, `Connection`, `PeerAddress`, `CongestionController`, `ResumeState`,
+        `ResumeBounds`, `ResumeProvider`, `Space`, `Recovery`, `Ecn`, `Close`, `Stream`,
+        `StreamId`, `StreamProvider`, `Frame`, `ReceivePool`, `ReceivePoolOptions`,
+        `ReceiveStorage`, `version`, `retry`, `connection`, `connection_receive`,
+        `connection_recovery`, `connection_frames`, `connection_keys`,
+        `connection_stream_frames`, `connection_stream_recovery`, `recovery_ack`,
+        `recovery_sent`, `packet`, `frame`, `transport_parameters` and `stream`.
+
+      | Before | After |
+      | --- | --- |
+      | `connection_datagram.receive`, `Received`, `Scratch`, `Error`, `connection_error_code` | `Connection.receive`, `Received`, `ReceiveScratch`, `ReceiveError`, `receive_error_code` |
+      | `connection_send.send`, `Sent`, `Error`, `DefaultScratch` | `Connection.send`, `Sent`, `SendError`, `SendScratch(options)` with `SendScratchOptions` |
+      | `connection_timer.next`, `on_instant` | `Connection.deadline`, `on_instant` |
+      | `connection_resume.observe` | `Connection.resume_state` |
+      | `connection_idle.deadline_ns`, `timeout_ns`, `probe_timeout_ns`, `owe_keep_alive`, `keep_alive_owed` | `Connection.idle_deadline_ns`, `idle_timeout_ns`, `probe_timeout_ns`, `owe_keep_alive`, `keep_alive_owed` |
+      | `connection_close.owe`, `owes`, `transport` | `Connection.owe_close`, `owes_close`, `Close.transport` |
+      | `connection_stream_send.open`, `supply`, `reset`, `stop_sending`, `set_priority`, `write`, `write_endings`, `Error` | `Connection.open_stream`, `supply`, `reset_stream`, `stop_sending`, `set_stream_priority`, `write_stream_frame`, `write_stream_endings`, `StreamSendError` |
+      | `stream.stream_table.OpenError` | `Connection.OpenStreamError` |
+      | `connection_stream_read.read`, `peek`, `consume`, `reset_code`, `Read`, `Error` | `Connection.read`, `peek`, `consume`, `reset_code`, `StreamRead`, `StreamReadError` |
+      | `connection_stream_acknowledged.acknowledged_end`, `resets_acknowledged` | `Connection.acknowledged_end`, `resets_acknowledged` |
+      | `connection_flow.credit_owed`, `count_credit_owed`, `data_credit_owed` | `Connection.credit_owed`, `count_credit_owed`, `data_credit_owed` |
+      | `connection_stream_credit.send_credit` | `Connection.send_credit` |
+      | `connection_version.chooser`, `speaks`, `supported_versions` | `Connection.version_chooser`, `version.speaks`, `version.supported_versions` |
+      | `connection_retry.answer`, `verify_token` | `retry.answer`, `retry.verify_token` |
+      | `connection_id_frames.issue` | `Connection.issue_connection_ids` |
+      | `connection_migration.challenge`, `ChallengeData` | `Connection.challenge_path`, `ChallengeData` |
+      | `connection_key_update.initiate` | `Connection.initiate_key_update` |
+      | `connection_qlog.init` | `Connection.attach_log` |
+
+    - `crypto` (pattern 6). Removes `suite.Level`, `suite.Direction` and `suite.Role`. The
+      root's list does not change: `core`, `constants`, `Suite`, `Level`, `Direction`, `Role`,
+      `suite` and `packet_number`.
+    - `tls_provider` (patterns 6 and 13).
+      - Removes: `provider.Content`, `quic_provider.VTable` and `Provider.is_complete`.
+      - `Provider` adds one method for each member of `VTable`: `handshake_read`,
+        `handshake_write`, `encrypt_record`, `writable_len`, `encrypt_parts`, `decrypt_record`,
+        `negotiated_alpn`, `handshake_complete`, `negotiated_parameters`, `take_alert`,
+        `send_close_notify`, `initiate_key_update` and `export_keying_material`. `speaks_h2`
+        stays.
+      - The root's list does not change.
+    - `tls` (patterns 5 and 10). The `record` list adds `Error`, `Progress` and `ConfigError`.
+      `record.Client.alert` and `record.Server.alert` return `?tls_provider.Alert`. The root's
+      list does not change.
+    - `dnssec` (pattern 10). `Error` holds `SignatureVerificationFailed` and `InvalidEncoding`
+      in place of `Auth` and `Invalid`. No list changes.
+    - `server` (patterns 1 to 5).
+      - `Endpoint(capacity)` replaces `EndpointOf(capacity)` and the type of the default
+        capacity. `Endpoint(capacity)` adds `Accepted`, and `init` takes
+        `(endpoint, config, random, now: Instant)`.
+      - `Router(Context, table, options)` replaces `router`. Its type's list: `Route`, `Match`,
+        `match`, `memory_bytes` and `handle`.
+      - `EncoderPool(options)` and `DecoderPool(options)` replace `DefaultEncoderPool` and
+        `DefaultDecoderPool`, and each pool adds `init(pool, features)`.
+      - `ResponseWriter` adds `Error`. `Response.status` and `ResponseWriter.status` take
+        `Status`.
+      - The root's list: `constants`, `Config`, `Protocols`, `Limits`, `Timeout`, `Timeouts`,
+        `CloseReason`, `Limit`, `Endpoint`, `Capacity`, `Instant`, `Input`, `Datagram`,
+        `StreamBytes`, `LogProvider`, `ResumeProvider`, `ResumeState`, `ResumeBounds`, `Sent`,
+        `Address`, `Ecn`, `StartError`, `SendError`, `Header`, `RequestId`,
+        `ConnectionHandle`, `Version`, `Headers`, `Event`, `Request`, `RequestBody`, `Trailers`,
+        `CancelReason`, `Finished`, `Result`, `Writable`, `Ended`, `Response`, `ResponseBody`,
+        `ResponseWriter`, `ReceiveResult`, `Alternative`, `Status`, `Coding`, `EncoderPool`,
+        `EncoderPoolOptions`, `Encoders`, `DecoderPool`, `DecoderPoolOptions`, `Decoders`,
+        `Features`, `PathParameters`, `Handled`, `Router`, `RouterOptions` and `middleware`.
+    - `client` (patterns 1 to 5, 8 and 10).
+      - `ConnectionPool(capacity)` replaces `ConnectionPoolOf(capacity)` and the type of the
+        default capacity. It adds `Counts`. `write_body` takes `end: PieceEnd`.
+      - `ReceivePool(options)` and `DecoderPool(options)` replace `DefaultReceivePool` and
+        `DefaultDecoderPool`. `ZstdDecoderPool(count)` and `BrotliDecoderPool(count)` keep
+        their count. `DecoderPool`, `ZstdDecoderPool` and `BrotliDecoderPool` add
+        `init(pool, features)`.
+      - `Headers` and `Trailers` add `Iterator`. `Event` adds `Piece`.
+      - `RequestId` becomes `enum(u64) { _ }`. `Response.status` takes `Status`, with no
+        default. `Request.never_indexed.headers` holds `[]const Header`.
+      - The root's list adds `Status`, `PieceEnd`, `ReceivePoolOptions` and
+        `DecoderPoolOptions`, and removes `ConnectionPoolOf`, `DefaultReceivePool` and
+        `DefaultDecoderPool`. The other names stay in their order.
+    - `colibri`. No root name changes in this step. Step 44 changes the root (decision 156).
+      `colibri.Server` keeps no copy of `ServerConfig` for a stable pointer, because the
+      endpoint copies what it keeps.
+  - **The commits.** Each commit passes `zig build test`, `zig build examples`,
+    `tools/doc_snippets.sh` and `tools/consumer_check.sh`. Each commit moves the examples,
+    README.md, docs/usage.md and `tools/consumer/` to its names, so the checks pass at each
+    commit. For a rename, the mutation is the old name put back in its root: the names test
+    must fail. A mutation that only fires an assertion is recorded **NOT CAUGHT**, with the
+    reason.
+    1. 45a `docs`: decision 158 and this entry.
+    2. 45b `refactor(core)!`: pattern 12 and the `Reader.Error` and `Writer.Error` of pattern
+       5. About 690 calls in about 230 files change, and no example does.
+       - Mutations: `take_int_big` reads little-endian (the wire vectors catch it);
+         `read_int` put back (the names test).
+    3. 45c `refactor!`: pattern 6, in http, h2, crypto, tls_provider and hpack.
+       - Mutations: each removed name put back in its root, six times; `FieldSection.clear`
+         put back (the type's names test).
+    4. 45d `refactor!`: the types of pattern 5 as declarations, in hpack, qpack, tls,
+       server and client, and the `client.Event.Piece`, `ConnectionPool.Counts` and
+       `Headers.Iterator` that a program could not name.
+       - Test: `examples/client_stream.zig` names `client.Event.Piece` and
+         `client.Headers.Iterator`.
+       - Mutation: each new name left out of its list.
+    5. 45e `refactor!`: pattern 7 outside quic. The `connection` and `connection_tls`
+       namespaces of h11, h2 and h3 fold into each `Connection`. `http.uri` and
+       `QueryParameters` take the names of `uri_percent` and `uri_query`. `h11.coding`'s
+       functions become declarations of `Decoding`. CLAUDE.md "The public API is written first"
+       gains decision 158's rule on a declaration alias, and its example of
+       `server.router` becomes `server.Router`.
+       - Mutation: a declaration alias left out of a `Connection` (the type's names test).
+    6. 45f `refactor(quic)!`: pattern 7 and pattern 11 in quic, by the table above. h3,
+       `server`, `client`, the simulator, the corpus and `src/testing/` move to the new names.
+       - Tests: `deadline` returns the same value on two calls with no input between;
+         `attach_log` on a connection that `init` made writes the first qlog event.
+       - Mutations: a stutter name put back (the names test); a `deadline` that changes the
+         timer it reads (the test of two calls fails).
+       - Run `zig build test-sim-run-quic`, whose census must not change.
+    7. 45g `refactor!`: patterns 2 and 3, and the `init` of each pool (ruling 10).
+       `server.Endpoint(capacity)`, `client.ConnectionPool(capacity)`, the options of each pool,
+       and `server.Router`. `tools/fixtures/router_refused.zig` and `build/router_check.zig`
+       expect "server.Router:".
+       - Tests: `zig build router-check` and `zig build router-hidden-check`; an h11 gzip body
+         decodes through a pool after its `init`.
+       - Mutations: `init` that does not set the features (an h11 gzip body decodes wrong);
+         a default in an options struct that differs from the old alias (`zig build
+         bench-memory` prints a different table, which `zig build test` compares).
+    8. 45h `refactor!`: pattern 1. The endpoint and the pool copy what they keep of `Config`.
+       `server.Instant` replaces the two instants.
+       - Test: a program changes its `Config` after `init`, and the endpoint and the pool serve
+         as the first `Config` said.
+       - Mutations: the endpoint reads `config.timeouts` through the caller's pointer; the
+         pool reads `protocols` through it. Each test must fail.
+    9. 45i `feat(http)!`: pattern 4, `http.Status` as one enum, and the `status` fields of
+       server and client.
+       - Tests: `from_code(99)` and `from_code(600)` fail; a code with no name, such as 299,
+         round-trips through `_`; a client response with no final head reads no status.
+       - Mutations: `from_code` takes 600; `class` of 299 is not `success`.
+    10. 45j `refactor!`: pattern 8. `client.PieceEnd`, h3's `RequestHead`,
+        `message_request.Kind`, and `never_indexed.headers` as a header slice.
+        - Tests: a never-indexed header goes out as a never-indexed literal over h2 (RFC 7541
+          §6.2.3) and with its N bit over h3 (RFC 9204 §4.5.4).
+        - Mutations: `.last` read as `.more`; a never-indexed header sent with indexing.
+    11. 45k `refactor!`: pattern 9. One `init(connection, options)` shape for h11, h2 and h3.
+        - Mutation: the role in `Options` ignored (the h11 and h2 tests of each role fail).
+    12. 45l `refactor!`: pattern 10. `h11.Connection.Failure`, the dnssec error names,
+        `?tls_provider.Alert`, `client.RequestId` as an enum, and `h2.frame.Type`.
+        - Tests: `examples/dnssec_check.zig` expects `error.SignatureVerificationFailed`; an
+          unknown h2 frame type reads as `_` and is ignored (RFC 9113 §5.5).
+        - Mutations: an unknown frame type refused; the alert's octet mapped to the wrong
+          member.
+    13. 45m `refactor!`: pattern 13 in `tls_provider`. `Provider` calls each member through a
+        method, and no file outside `tls_provider` writes `.vtable.`.
+        - Test: the type's names test lists the 13 methods.
+        - Mutation: a method that calls the wrong member (the h11 and h2 TLS tests fail).
+  - **What programs change.** Each commit above changes these where its names appear:
+    - `examples/`: `server_exchange.zig`, `client_peer.zig`, `client_pool_peer.zig` and
+      `client_stream_peer.zig` (`Endpoint(.{})`, `Instant`); `client_exchange.zig`,
+      `client_pool.zig`, `client_stream.zig` and `server_peers.zig` (`ConnectionPool(.{})`);
+      `colibri_server.zig` and `client_peer.zig` (`server.Router`); the files that compare a
+      status; `client_stream.zig` and `client_stream_peer.zig` (`write_body`, `RequestId`);
+      `dnssec_check.zig`; and `examples/README.md`.
+    - docs/usage.md: "colibri.Server", "The server" with "Router" and "Query", "The client"
+      with "Streamed bodies", "h11" with "The gzip and deflate transfer codings", "h2", "TLS"
+      (the `Provider` calls), "DNSSEC", and "QUIC and h3".
+    - README.md, `tools/consumer/main.zig` and `tools/fixtures/router_refused.zig`.
+  - **Step 44 after step 45.** Step 44's commits from 44b use the names of step 45.
+    - `FetchResult.status` is an `http.Status`, and `FetchOptions.never_indexed` holds a
+      header slice (decision 158 rulings 5 and 9).
+    - `colibri.Server` places an `Endpoint(capacity)`, and its `init` takes a router that
+      `server.Router` made.
+    - The poller calls `endpoint.init` with one `server.Instant`.
+    - `Client.InitError` and `Client.RunError` are the named sets of decision 158 ruling 6.
+  - **The open question.** On 2026-11-07 the owner asked whether `server.Endpoint` becomes
+    `server.Engine` or `server.Connections`, or keeps its name. This step writes
+    `Endpoint(capacity)`. A rename is one more commit after 45g, and it changes no other name.
+  - **The checks.** `zig build test`, `zig build examples`, `tools/doc_snippets.sh`,
+    `tools/consumer_check.sh`, `zig build router-check` and `zig build router-hidden-check` at
+    each commit, and `tools/ci.sh` once before the branch goes to main. The branch goes to main
+    once, after 45m.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

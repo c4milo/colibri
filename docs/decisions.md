@@ -6638,3 +6638,238 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        instructions a lookup, because the table did not learn of a retired ID.
      - A call from `quic` that reports each retired ID, the owner's choice before the code: the
        count the server already reads tells it the same, with no new public name.
+
+158. **colibri's public API follows TigerStyle first, and Zig 0.16's std where TigerStyle says
+     nothing.** Ruled by the owner on 2026-11-07 (design §8 step 45), for v0.15.0. An audit
+     compared each public name of colibri with the idioms of Zig 0.16's std. It found 12
+     patterns. A second pass checked 14 more findings: 6 were real, and they join patterns 5, 6,
+     9 and 10, or make a new pattern 13. The owner ruled that patterns 1 to 13 go into v0.15.0,
+     with the audit's recommendations, as TigerStyle adjusts them. For pattern 1, TigerStyle keeps
+     the `*const Config` (ruling 2).
+     This decision amends decisions 61, 93, 98, 101, 115, 117, 119, 120, 122, 124, 126, 127,
+     150, 153 (ruling 7) and 156 (ruling 1).
+
+     The rulings:
+     1. TigerStyle (CLAUDE.md non-negotiable 4) comes first. Where TigerStyle says nothing, a
+        public name follows Zig 0.16's std. So these stay as they are:
+        - Each function name stays in snake_case, as TigerStyle names it. The audit's question
+          13, camelCase as std names functions, loses.
+        - `init` of a large struct stays in place, through an out-pointer: `init(self: *T, ...)`.
+          The ReleaseSafe fill of a returned value costs a copy (docs/performance.md).
+        - An argument over 16 octets stays `*const T`.
+        - `http.QueryParameters` keeps its out-pointer `read`, because the struct is about 1 KiB.
+          The audit's `parse`, which returns the value, loses.
+     2. A type whose `init` takes a `*const Config` copies the fields that it keeps. It keeps no
+        pointer to the caller's `Config` (pattern 1).
+        - `server.Endpoint(capacity).init` and `client.ConnectionPool(capacity).init` keep
+          `config: *const Config`, and copy into the object each field they read after `init`.
+        - A pointer that `Config` holds, such as a pool, an identity or a provider, still names
+          the caller's storage. That storage lives as long as the object, as before.
+        - A program no longer keeps its `Config` alive after `init`. It needs no global with
+          `align(@alignOf(server.Config))`, and `colibri.Server` keeps no copy of `Config` only
+          for a stable pointer.
+        - `Endpoint.init` takes one `server.Instant`, with the fields `ns` and `unix_seconds`, in
+          place of the two adjacent `u64` values `now_seconds` and `now_ns`. The compiler then
+          refuses two instants in the wrong order.
+     3. A type function takes the name of the thing (pattern 2). Ruling 1 of decision 156 now
+        applies to each `*Of` name and each `Default*` alias.
+        - `server.Endpoint(capacity)` replaces `server.EndpointOf(capacity)` and
+          `server.Endpoint`, the type of the default capacity. A program writes
+          `server.Endpoint(.{})`.
+        - `client.ConnectionPool(capacity)` replaces `client.ConnectionPoolOf(capacity)` and
+          `client.ConnectionPool`.
+        - A pool with defaults takes one struct of comptime values, and the `Default*` alias
+          goes. `server.EncoderPool(.{})` replaces `server.DefaultEncoderPool`, and the same
+          holds for `server.DecoderPool`, `client.DecoderPool`, `client.ReceivePool` and
+          `quic.Connection.SendScratch`.
+        - Each such struct has a public name: `server.EncoderPoolOptions`,
+          `server.DecoderPoolOptions`, `client.DecoderPoolOptions`, `client.ReceivePoolOptions`,
+          `quic.ReceivePoolOptions` and `quic.Connection.SendScratchOptions`. `Capacity` stays
+          the name of the sizes of a type that holds connections, as decision 156 names it.
+        - `client.ZstdDecoderPool(count)` and `client.BrotliDecoderPool(count)` have no default
+          and no alias, so they keep their one count.
+     4. The router is a type function (pattern 3). `server.Router(Context, table, options)`
+        replaces `server.router(Context, table)` and `@TypeOf(routes).Of(options)`.
+        - The program places one `Router` and passes it to `colibri.Server.init`, as it placed
+          the pool of `Of` before.
+        - `Router.match`, `Router.Route` and `Router.Match` are declarations of the type.
+          `match` takes no value, because the table holds no state.
+        - `server.RouterOptions` names `requests` and `response_bytes`, which `Of` took.
+        - Each compile error of a table starts with "server.Router:".
+     5. `http.Status` is one non-exhaustive `enum(u16)` with `_` (pattern 4), as
+        `std.http.Status` is. RFC 9110 §15 allows any status code of three digits, and `_` holds
+        each code that the enum does not name.
+        - The enum holds the names of `http.status.Code`, and the namespace `http.status` goes.
+        - `Status.Class`, `Status.Error`, `class`, `from_code`, `from_digits`, `write_digits` and
+          `is_recognized` are declarations of the enum. `from_code` and `from_digits` refuse a
+          value outside 100 to 599 (RFC 9110 §15).
+        - `server.Response.status`, `server.ResponseWriter.status` and `client.Response.status`
+          take `http.Status`. `server` and `client` re-export it as `Status`.
+        - `client.Response.status` has no default of 0. A program reads `result` to know whether
+          a final status arrived.
+     6. Each type in a public signature has a public name, as a declaration of the type whose
+        calls take or return it (pattern 5). Design §8 step 45 lists each name.
+        - The types of one exported type's calls move from the file's lowercase namespace into
+          the type: `h2.connection.SendError` becomes `h2.Connection.SendError`, and
+          `core.writer.Error` becomes `core.Writer.Error`.
+        - A file's namespace stays when it holds names that belong to no one type, such as
+          `http.field.validate_name`.
+        - `tls.record` exports `Error`, `Progress` and `ConfigError`, which its sessions return.
+        - `colibri.Client.InitError` and `Client.RunError` come from decision 156 and step 44.
+          The run error of a client holds no error of the server.
+     7. Each type and each call has one public path (pattern 6).
+        - `http.FieldSection.clear` goes, because it only calls `init`.
+        - `h2.connection.Event` goes, and `h2.Event` stays.
+        - `h2.connection_tls.attach` goes, and `h2.Connection.attach_tls` stays.
+        - `h2.connection.Request_` becomes `h2.Connection.RequestHead`, the request that
+          `write_request` writes.
+        - The top-level name stays for each type that the root exports twice. The namespace copy
+          goes: `crypto.suite.Level`, `crypto.suite.Direction`, `crypto.suite.Role`,
+          `tls_provider.provider.Content`, `tls_provider.quic_provider.VTable` and
+          `hpack.encoder.Indexing`. Decision 115's root order puts each type under its own name.
+        - `tls_provider.Provider.is_complete` goes, and the method `handshake_complete` of
+          ruling 14 stays.
+     8. A public path follows the concept, not the file (pattern 7). This amends decision 115.
+        - A type may hold a declaration alias of a function in another file of its module:
+          `pub const send = @import("connection_send.zig").send;`. A program then calls
+          `connection.send(...)`, and each file still stays under 500 lines.
+        - Such an alias is a call that a program makes. It is not a method made public so that
+          another file can call it. A call that only the module's own files make stays a free
+          function, as decision 115 rules. The root does not export its file.
+        - No public name repeats itself: `quic.StreamId` replaces `quic.stream.StreamId`, and
+          `quic.frame.ConnectionClose` replaces `quic.frame.frame_control.ConnectionClose`.
+        - The 41 calls that a program makes on a `quic.Connection` become declarations of
+          `quic.Connection`. A name that two files share takes its concept: `idle_deadline_ns`,
+          `open_stream` and `owe_close`. `quic.connection_send.Ecn` becomes `quic.Ecn`.
+        - The names that only the simulator, the corpus and the test endpoints call stay in
+          their file namespaces, under the comment that says so. A program never sees them on
+          `quic.Connection`.
+        - `http.uri_percent` and `http.uri_query` fold into `http.uri` and
+          `http.QueryParameters`. `h11.connection_tls`, `h2.connection_tls` and the
+          `connection` namespaces of h11, h2 and h3 fold into each `Connection`. The free
+          functions of `h11.coding` become declarations of `h11.coding.Decoding`.
+          `http.content_coding.read_accept` becomes `Acceptance.read`, and
+          `h3.frame_write.write_header` becomes `h3.frame.write_header`.
+        - The owner's ruling reverses an alternative that decision 115 refused: "methods on
+          `quic.Connection`", at about 600 call sites. A program reads the calls of one type in
+          one place, as in `server` and `client`.
+     9. A bare bool in a call or a result becomes a named value (pattern 8).
+        - `client.ConnectionPool.write_body(id, piece, end)` takes `end: client.PieceEnd`, an
+          `enum { more, last }`. This amends decision 153 ruling 7.
+        - `h3.Connection.write_request` takes an `h3.Connection.RequestHead`, which holds
+          `section`, `indexing` and `hold_data`, as h2's `RequestHead` holds its choices.
+        - `http.message_request.check` returns an `http.message_request.Kind`,
+          `enum { connect, other }`, in place of a bool that is true for CONNECT.
+        - `client.Request.never_indexed.headers` holds the never-indexed headers as a
+          `[]const Header`, after `Request.headers`, as std's `privileged_headers` does. It no
+          longer holds one bool for each header, whose count had to match at run time. The pool
+          still marks each such field never indexed in h2 and h3 (RFC 7541 §7.1.3, RFC 9204
+          §7.1.3). `never_indexed.path` stays a bool, because it names one value.
+     10. The three HTTP connections have one `init` shape, `init(*Connection, options)`, with the
+         role in the options (pattern 9).
+         - `h11.Connection.init(role, options)` and `h2.Connection.init(role)` take
+           `h11.Connection.Options` and `h2.Connection.Options`. h3's form does not change.
+         - A pool that a program places has `init(pool: *Pool, features)`, as std initializes
+           large state in place. `reset` leaves the program's calls of `h11.coding.Pool`,
+           `client.ZstdDecoderPool`, `client.BrotliDecoderPool` and `server.EncoderPool`, and
+           `storage()` stays. This amends decision 98.
+         - The QUIC `ReceiveStorage.reset` stays. `quic.Connection.init` calls it, and it resets
+           the pool at the start of each connection, as `std.heap.FixedBufferAllocator.reset`
+           does.
+     11. A value has the type that std gives it (pattern 10).
+         - `h11.Connection.failure` is a `?h11.Connection.Failure`, a named error set, not
+           `?anyerror`. `fail` takes a `Failure`.
+         - `dnssec.Error` spells each failure out: `SignatureVerificationFailed` replaces `Auth`,
+           and `InvalidEncoding` replaces `Invalid`, as `std.crypto.errors` names them.
+         - `tls.record.Client.alert` and `Server.alert` return `?tls_provider.Alert`, not `?u8`.
+         - `client.RequestId` is an `enum(u64) { _ }`, an opaque id, not a `u64`.
+         - `h2.frame.Header.type` is an `h2.frame.Type`, which the root now exports. The `_`
+           member holds each frame type that RFC 9113 §4.1 and §5.5 tell a receiver to ignore.
+           `flags` stays a `u8`, because the meaning of each flag bit changes with the type.
+     12. A name says what the call does (pattern 11).
+         - `quic.connection_timer.next` becomes `quic.Connection.deadline`. It returns the same
+           value on each call, so it is not an iterator's `next`.
+         - `quic.connection_qlog.init` becomes `quic.Connection.attach_log`. It runs on a
+           connection that `init` already made.
+         - `send` takes `comptime options: SendScratchOptions` and
+           `scratch: *SendScratch(options)`, in place of `scratch: anytype`.
+     13. `core.Reader` and `core.Writer` name each read that consumes `take_*`, and each integer
+         codec names its byte order (pattern 12).
+         - `take_byte` replaces `read_byte`. `take_int_big` and `write_int_big` replace
+           `read_int` and `write_int`. The wire is network byte order (RFC 9113 §2.2, RFC 9000
+           §1.3), and the name now says so.
+         - The types stay. Invariant 3 needs a read and a write that are all or nothing.
+     14. An interface has one method for each member of its vtable (pattern 13).
+         `tls_provider.Provider` gains 13 methods, one for each member of `Provider.VTable`, as
+         `tls_provider.QuicProvider` and `std.mem.Allocator` have. A program calls
+         `provider.negotiated_parameters()`, not `provider.vtable.negotiated_parameters(
+         provider.context)`. Only an implementer writes the vtable.
+     15. The name of `server.Endpoint` is open. On 2026-11-07 the owner asked whether it should
+         be `server.Engine`, `server.Connections` or stay `server.Endpoint`. Design §8 step 45
+         writes `Endpoint(capacity)` until he rules, and a rename then touches one commit.
+
+     What the amended decisions now say:
+     - Decision 61: the program places a `quic.ReceivePool(options)`, not a
+       `stream_incoming.Pool(capacity)`.
+     - Decisions 93 and 115: h2's outgoing request is `h2.Connection.RequestHead`. Ruling 8 holds
+       the amendment of decision 115.
+     - Decisions 98 and 101: a program calls `pool.init(features)` once, then `pool.storage()`.
+       `DecoderPool` takes a `DecoderPoolOptions`.
+     - Decisions 117 (ruling 6), 122, 127 and 150: the router is `server.Router`, and
+       `colibri.Server` takes a router that `server.Router` made.
+     - Decisions 119 and 120: the endpoint and the pool copy what they keep of `Config`, and do
+       not read the caller's `Config` while they run.
+     - Decisions 124 and 126 (ruling 8): `server.Endpoint(capacity)` and
+       `client.ConnectionPool(capacity)` are the type functions, and the `Of` names go.
+     - Decision 153 (ruling 7): `write_body` takes a `client.PieceEnd`.
+     - Decision 156 (ruling 1): its reason, that the suffix `Of` says nothing to a program, now
+       applies to each `*Of` name and each `Default*` alias.
+
+     The findings that stay as they are:
+     - `client.Address` re-exports `quic.PeerAddress`, which decision 72 keeps free of `std.Io`
+       types. `server.Address` stays for the same reason.
+     - `crypto.Suite`: a program only implements its vtable, and `seal` and `open` are already
+       methods.
+     - `tls.Client` and `tls.Server` are values that two session types read, so they cannot be
+       a session's `Options` (decision 120 ruling 1). The sessions keep `start` and `close`.
+     - The constructor `of`, as in `quic.PeerAddress.of` and `quic.StreamId.of`. A rename at one
+       site breaks the convention.
+     - `hpack.Indexing` and `qpack.Encoder.Indexing` differ, because RFC 7541 §6.2 and RFC 9204
+       §4.5.4 differ.
+     - An error member named after an RFC error code, such as `DecoderStreamError` for
+       QPACK_DECODER_STREAM_ERROR (RFC 9204 §6).
+     - Time as an integer, which the caller passes (non-negotiable 3).
+     - `client.Request.method` as a byte slice. RFC 9110 §9.1 allows extension methods, which
+       an exhaustive enum cannot hold.
+     - The audit's other rejected findings: the names `Config` and `Capacity`, the sans-I/O
+       `receive`, `core.Writer` beside `std.Io.Writer`, the in-place `init` of core, hpack and
+       qpack, and the order of the arguments of the wire codecs.
+
+     The alternatives that lost:
+     - camelCase for each function, as std names them. TigerStyle names functions in snake_case,
+       and a change touches about 1,800 definitions and each program's hooks.
+     - `Config` by value in `init`. The struct passes 16 octets, so TigerStyle passes it by
+       `*const`. The copy of the fields that the object keeps does the same work once.
+     - The endpoint and the pool keep their pointer to `Config`. Each program then keeps its
+       `Config` alive and aligned, and a change to it after `init` changes a running endpoint.
+     - The two instants as separate arguments, with a comment. The compiler cannot catch a swap.
+     - `Default*` aliases beside the type functions. A program learns two names for one thing.
+     - A struct parameter with no public name for each pool. Ruling 6 gives each type in a
+       public signature a name.
+     - The router as a zero-size value with a type behind `Of`. A program writes `@TypeOf` to
+       reach the type that it places.
+     - `http.Status` as a struct around a `u16` beside the enum `http.status.Code`. A program
+       learns two types, and `.status = 404` compares with neither.
+     - `take_int(T, .big)` with the byte order as an argument, as std writes it. colibri reads
+       and writes network byte order alone, so the `.little` arm would be code that no caller
+       runs.
+     - The top-level copies removed in place of the namespace copies, at about 20 lines in
+       place of about 45. It breaks decision 115's root order.
+     - A separate call that ends a streamed body, as std's `BodyWriter.end`. The pool holds one
+       piece of each exchange at a time, so the last piece and the end are one call.
+     - Methods on `quic.Connection` for the names that only checks call. A program would see
+       them beside its own calls.
+     - One `init` per protocol as it is. A program learns three shapes for one concept.
+     - `reset` as the name of a pool's initializer. Std keeps `reset` for a value that `init`
+       already made.
+     - Raw vtable calls through `Provider`. A program writes the context twice in each call.
