@@ -13495,8 +13495,8 @@ library.
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps
   39 and 42 ship as v0.15.0. On 2026-11-06 the owner added steps 38b, 43 and 44 to v0.15.0.
-  v0.15.0 waits for Rotor's tag with the code of Rotor's decisions 26 to 29, which step 44
-  needs. The owner makes that tag once Rotor's reactor architecture is stable.
+  v0.15.0 waits for Rotor's tag `v0.10.0`, which step 44 needs. Rotor's session reports that
+  it carries Rotor's decisions 26 to 30 and 32 (decision 156, fifth amendment).
   - **The public names.** A connection option `datagram_len_max`, 1,452 octets by default and up
     to 65,527 (decision 155 ruling 6), which `server.Config` and `client.Config` carry, and the
     search's limits in `quic.constants.limits`. Each goes on its
@@ -13737,7 +13737,8 @@ library.
   other libraries, such as a resolver. Only the program ticks a shared loop. It ships in
   v0.15.0. Commit 44b waits for Rotor's tag: see "The Rotor bump" below. Decision 156 was
   amended on 2026-11-06 for Rotor's decisions 28 and 29, and again for the thread that calls
-  `shutdown`. This entry follows both amendments.
+  `shutdown`. Its fifth amendment, of 2026-11-07, records what Rotor's `v0.10.0` carries. This
+  entry follows each amendment.
   - **The public names**, in decision 115's order:
     - The root: `client`, `server`, `constants`, `Server`, `ServerConfig`, `Identity`,
       `InitError`, `RunError`, `Client`, `ClientCapacity` and `ClientConfig`. `client` and
@@ -13780,10 +13781,12 @@ library.
       `loop: struct { rotor: *rotor.SharedLoop, buffer_group: ?rotor.BufferGroup = null }`.
       comptime makes the type, and it is private. `rotor` has no default, and the program gets
       it from `loop.shared()` (Rotor's decision 28).
-    - The program may pass a `buffer_group` that it reserved with `reserve_group`. When the field
-      is null, `init` calls `reserve_group` (Rotor's decision 29). A literal id fails to compile.
+    - The program may pass a `buffer_group` that it reserved with `reserve_buffer_group`. When the
+      field is null, `init` calls `reserve_buffer_group` (Rotor's decisions 29 and 30). A literal
+      id fails to compile.
     - Each Client and each Server on a shared loop holds one of the loop's 16 group ids until the
-      loop's `deinit`. Past 16, `init` returns `error.GroupsFull` (decision 156, third amendment).
+      loop's `deinit`. Past 16, `init` returns `error.BufferGroupsFull` (decision 156, third and
+      fifth amendments).
     - With `.private`, the configuration is `ClientConfig` or `ServerConfig`, with no `loop` and no
       `buffer_group`. colibri reserves its own group on its own loop.
     - `pool`, `random` and `unix_seconds` stay.
@@ -13797,8 +13800,8 @@ library.
       Only `run`, `fetch` and `deinit` on `.private` use the `rotor.Loop` itself.
     - `init` does these steps in order:
       1. Bind. On the client, open one UDP socket for each family.
-      2. When the configuration names no `buffer_group`, call `reserve_group`. Its
-         `error.GroupsFull` is an error of `init`.
+      2. When the configuration names no `buffer_group`, call `reserve_buffer_group`. Its
+         `error.BufferGroupsFull` is an error of `init`.
       3. Call `provide_buffers(buffer_group)`.
       4. Arm the receives and the accept.
       5. Call `add_poller`. Its `error.PollersFull` is an error of `init`.
@@ -13853,9 +13856,12 @@ library.
     7). Each Client holds one `rotor.Task`, made with `Task.init`, and `handler_events`, an
     array that holds one `finished` for each request and one `connected` for each connection.
     The server has no handler events, so it holds no task.
-    - The poller calls `loop.schedule(&task)` when it copied an event and the task is not
-      queued. Rotor runs a task that a record or a poller queues in the same tick, after the
-      records.
+    - The poller calls `loop.schedule_in(group, &task)` when it copied an event and the task is
+      not queued. `rotor.SharedLoop` refuses `schedule` at compile time (Rotor's decision 30), so
+      colibri names a group. Which group is open question 1 below. Rotor runs a task that a record
+      or a poller queues in the same tick, after the records.
+    - `Task.init` names the task from `@typeName(Parent)` and the field (Rotor's decision 28).
+      colibri adds no name.
     - The task sets `in_turn`. It calls `on_finished` or `on_connected` for each copied event, in
       order, and empties the array.
     - The handler may call `request`, `cancel`, `set_destination` and `shutdown`. Each one sets
@@ -13933,32 +13939,53 @@ library.
       main's value. colibri arms no timer, so neither count adds one.
     - `Share.submit` asserts `in_flight + n <= loop_operations`.
     - `Client.InitError` is `rotor.sync.SocketError || client.StartError ||
-      rotor.Loop.InitError || rotor.Loop.ProvideError || error{ PollersFull, GroupsFull }`. The
-      root's `InitError` adds `rotor.Loop.InitError`, `rotor.Loop.ProvideError`,
-      `server.StartError` and `error{ PollersFull, GroupsFull }` to main's set.
+      rotor.Loop.InitError || rotor.Loop.ProvideError || error{ PollersFull, BufferGroupsFull }`.
+      The root's `InitError` adds `rotor.Loop.InitError`, `rotor.Loop.ProvideError`,
+      `server.StartError` and `error{ PollersFull, BufferGroupsFull }` to main's set.
     - `RunError` is `rotor.Loop.TickError` on both types. `FetchError` is `RunError ||
       client.RequestError || error{ShutDown}`. Both apply to `.private` alone.
   - **The Rotor bump.** Commit 44b runs `zig fetch --save=rotor
-    git+https://github.com/c4milo/rotor#<tag>`. Rotor main holds the code of Rotor's decision 26
+    git+https://github.com/c4milo/rotor#v0.10.0`. Rotor main holds the code of Rotor's decision 26
     at d1657ce, of decision 27 at a03d95d, and b5a7804 (`release_buffers`). The owner accepted
-    Rotor's decisions 28 and 29 on 2026-11-06, at 1dfccaf.
-    - colibri pins the Rotor tag that carries decisions 26 to 29. Rotor's decision 29 names it
-      `v0.10.0`, and rules that decisions 28 and 29 land before it.
-    - On 2026-11-06 Rotor had no such tag. The owner first makes Rotor's reactor architecture
-      stable.
-    - The bump breaks each call on main that names a group, because each one takes a
-      `rotor.BufferGroup` and a `u16` fails to compile. The calls are in
-      `src/colibri/datagram_socket.zig` and `src/testing/udp.zig`. 44b gets each group from
-      `reserve_group` at init.
-    - Main adds no poller, so a poller's `rotor.WaitLimit` first applies in 44c.
+    Rotor's decisions 28 and 29 on 2026-11-06, at 1dfccaf, and decisions 30 and 32 on 2026-11-07,
+    at e57019e.
+    - colibri pins Rotor's `v0.10.0`. Rotor's session reported on 2026-11-07 that the tag carries
+      Rotor's decisions 28, 29, 30 and 32, and not decision 31 (decision 156, fifth amendment).
+      Decisions 26 and 27 came after Rotor's `v0.9.0`, so the tag carries them too.
+      Rotor's build order is W3 (the fair tick order), decision 29, decision 30, then decision 32.
+    - On 2026-11-07 Rotor had no such tag. Decision 28 was on Rotor's main, and decisions 29, 30
+      and 32 were not built.
+    - The calls on main that change:
+      - Each call that names a buffer group takes a `rotor.BufferGroup`, and a `u16` fails to
+        compile. The calls are in `src/colibri/datagram_socket.zig` and `src/testing/udp.zig`.
+        44b gets each group from `reserve_buffer_group` at init, and handles
+        `error.BufferGroupsFull`.
+      - Main adds no poller and no task. So a poller's `rotor.WaitLimit` first applies in 44c, and
+        `schedule_in` in 44d.
+    - What the programs in colibri's tree add:
+      - `examples/link.zig` makes a `rotor.Registry`. Since Rotor's cee1474 the registry keeps
+        each loop's wake descriptor until `Registry.close_wakes`. 44b makes `Loops.deinit` call
+        `registry.close_wakes()` after both loops end. No other program in colibri's tree makes a
+        registry: colibri's private loop, `src/testing/` and `tools/consumer/` make none.
+      - No program in colibri's tree declares `rotor_scheduling_groups`. A program declares it only
+        to name a group by name (Rotor's decision 30, which marks the named groups "not ruled").
+        If the owner's answer to open question 2 gives colibri a `rotor.NamedSchedulingGroup`,
+        `examples/colibri_shared_loop.zig` can pass
+        `.default` with no declaration, or declare a name.
+    - Decision 32 changes no colibri call: colibri makes no cross-core call. Its post room of 224
+      and its `message_tag_max` of `0x7fff_effd` apply to `examples/link.zig`, which posts tag 1.
+      `zig build examples` shows whether the lower room changes a result.
+    - Rotor's 782d6de makes a `close` wait for each offloaded file operation on its descriptor.
+      colibri uses no offload, so no colibri close changes.
     - rotor stays a package that is not lazy, because the `colibri` module imports it.
     - Run `zig build bench-memory` and update the table of `docs/performance.md`.
   - **The commits.** Each commit passes `zig build test-colibri`. A mutation that only fires an
     assertion or a Rotor halt is recorded as **NOT CAUGHT**, with the reason.
     1. 44a `docs`: decision 156, its amendments, and this entry.
     2. 44b `build(colibri)`: the Rotor bump and the memory table, with no change of behaviour.
-       `src/colibri/` and `src/testing/` get each buffer group from `reserve_group`, and pass a
-       `rotor.BufferGroup` to each call that names a group.
+       `src/colibri/` and `src/testing/` get each buffer group from `reserve_buffer_group`, and
+       pass a `rotor.BufferGroup` to each call that names a group. `examples/link.zig` calls
+       `registry.close_wakes()` after its loops end.
     3. 44c `refactor(colibri)`: the completion records and the poller on the private loop.
        `user_data.zig` leaves. The poller returns a `rotor.WaitLimit`, and `wait_ns` leaves.
        - Tests: a tick returns 0 events; each record reaches its own socket; `in_flight` is 0
@@ -13987,7 +14014,7 @@ library.
          200 ms; `unix_seconds` is correct on a new loop.
        - Tests of the group: `init`, `deinit` and `init` again on a group that the program
          reserved; with no `buffer_group`, 16 objects on one loop each reserve an id, and the
-         17th `init` returns `error.GroupsFull`.
+         17th `init` returns `error.BufferGroupsFull`.
        - Each test that runs a shared loop ends with no stall in `loop.statistics()` (Rotor's
          decision 28).
        - Test of the names: the root's list holds `Client` and `Server`, and no `ClientOf`,
@@ -14048,14 +14075,28 @@ library.
           docs/usage.md gains "One loop for colibri and another library". The examples name the
           variable `client`.
         - That section states that each colibri object on a shared loop holds one of the loop's
-          16 group ids until the loop's `deinit`, and that `init` returns `error.GroupsFull` past
-          that (decision 156, third amendment).
+          16 group ids until the loop's `deinit`, and that `init` returns `error.BufferGroupsFull`
+          past that (decision 156, third and fifth amendments).
         - Mutation: `set_destination` ignored, measured with `zig build
           example-colibri_shared_loop`.
   - **The checks.** `zig build test-colibri` for each commit, `zig build examples`,
     `tools/doc_snippets.sh` and `tools/consumer_check.sh`, `zig build colibri-loop-check`, and
     the bench of 44c on the judge.
     The branch goes to main once, after 44j.
+  - **Open questions for the owner.** Rotor's records leave these colibri choices open (decision
+    156, fifth amendment). This entry decides none of them.
+    1. The scheduling group of colibri's task. Rotor's decision 30 has the program give each
+       library its group at `init`, and `rotor.SharedLoop` refuses `schedule`. Which field of the
+       `.shared` configuration carries the group, and does it have a default of `.default`?
+    2. The type of that field. Rotor's decision 30 gives a library that makes no cross-core call a
+       `rotor.SchedulingGroup`, and one that makes calls a `rotor.NamedSchedulingGroup`. colibri
+       makes no call. Rotor's own example passes colibri a `NamedSchedulingGroup`.
+    3. The group on `.private`. colibri owns the loop, and still schedules through its
+       `*rotor.SharedLoop`. Does it name `.default`, or reserve a group of its own?
+    4. The server holds no task today. Does `Server`'s configuration take a group too, as Rotor's
+       example of decision 30 shows?
+    5. Rotor's decisions 30 and 32 mark their named groups "not ruled". Does step 44d wait for
+       Rotor's ruling on them, or build on `rotor.SchedulingGroup` alone?
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

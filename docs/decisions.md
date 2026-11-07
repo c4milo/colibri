@@ -6305,11 +6305,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - With `.shared`, the configuration that `init` takes requires the field
           `loop: struct { rotor: *rotor.SharedLoop, buffer_group: ?rotor.BufferGroup = null }`.
           `rotor` has no default. The program gets it from `loop.shared()` (Rotor's decision 28).
-        - A program may pass a `buffer_group` that it reserved with `reserve_group`. When the
-          field is null, colibri calls `reserve_group` at `init`. A literal id fails to compile
-          (Rotor's decision 29).
+        - A program may pass a `buffer_group` that it reserved with `reserve_buffer_group`. When
+          the field is null, colibri calls `reserve_buffer_group` at `init`. A literal id fails to
+          compile (Rotor's decision 29, with the names of Rotor's decision 30).
         - Each Client and each Server on a shared loop holds one of the loop's 16 group ids until
-          the loop's `deinit`. Past 16, `init` returns `error.GroupsFull`.
+          the loop's `deinit`. Past 16, `init` returns `error.BufferGroupsFull`.
         - With `.private`, the configuration has no `loop` field. colibri makes the loop at `init`,
           owns it and reserves its own group.
         - The configuration of `.shared` is a private type. A program writes it as a literal, so
@@ -6345,7 +6345,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           wait and before the records (Rotor's decision 9 rule 4 as amended). The pollers see
           that reading, the last of the tick.
      7. The handler runs from a Rotor task, not from the poller. The poller copies each event for
-        the handler, and schedules the client's one `rotor.Task` with `loop.schedule`. Rotor runs
+        the handler, and schedules the client's one `rotor.Task` with `loop.schedule_in` (Rotor's
+        decision 30). Design §8 step 44 holds open the group that it names. Rotor runs
         a task that a record or a poller queues in the same tick, after the records. The task
         calls `on_finished` and `on_connected`. So the program's code never runs inside a poller,
         where Rotor refuses `add_poller` and `remove_poller`.
@@ -6401,7 +6402,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      15. Rotor's main holds the code of decision 26 at d1657ce and of decision 27 at a03d95d.
          The owner accepted Rotor's decisions 28 and 29 on 2026-11-06, at 1dfccaf. Rotor's
          decision 29 rules that both land before Rotor's next tag, `v0.10.0`.
-         - colibri pins the Rotor tag that carries decisions 26 to 29, and v0.15.0 waits for it.
+         - colibri pins Rotor's tag `v0.10.0`, which carries Rotor's decisions 26 to 30 and 32
+           (fifth amendment). v0.15.0 waits for it.
          - On 2026-11-06 Rotor had no such tag, because the owner first makes Rotor's reactor
            architecture stable.
 
@@ -6446,6 +6448,54 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      and design §8 step 44 held open which call posts the wake. Rulings 8 and 9 replace that
      text. On a shared loop, only the loop's thread calls `shutdown`, as it calls `init`, `cancel`
      and `deinit`.
+
+     Amended a fifth time, on 2026-11-07, from Rotor's records. This amendment records facts and
+     makes no new colibri ruling. Rotor's session reported on 2026-11-07, as the owner ruled, what
+     Rotor's tag `v0.10.0` carries. Fact 1 comes from that report. Facts 2 to 8 were read on
+     Rotor's main at e57019e and 4ad0d91:
+     1. Rotor's session reported that `v0.10.0` carries Rotor's decisions 28, 29, 30 and 32, and
+        not decision 31. No Rotor record names the tag beside decisions 30 and 32: Rotor's
+        decision 29 names it for decisions 28 and 29 alone. Decisions 26 and 27 came after
+        `v0.9.0` (d1657ce, a03d95d), so the tag carries them too. Decision 28 is on Rotor's main.
+        Decisions 29, 30 and 32 are accepted and not built. Rotor's build order is W3 (the fair
+        tick order), decision 29, decision 30, then decision 32. No commit on Rotor's main builds
+        W3.
+     2. Rotor's decision 30 renames two names of decision 29 before decision 29 is built.
+        `reserve_buffer_group` replaces `reserve_group`, and `error.BufferGroupsFull` replaces
+        `error.GroupsFull`. `rotor.BufferGroup` keeps its name. No Rotor tag holds `reserve_group`.
+        Ruling 2 and design §8 step 44 use the new names in every place.
+     3. Rotor's decision 30 adds scheduling groups. `rotor.SharedLoop` refuses `schedule` at
+        compile time, so a library names a group in each `schedule_in(group, task)`. The program
+        declares or reserves each group, and gives each library its group at `init`. Group 0 is
+        `.default`. So colibri's task runs in a group that colibri's source names. Design §8 step
+        44 holds open which group that is.
+     4. A program declares `rotor_scheduling_groups` in its root file only to name a group by name.
+        Rotor's decision 30 marks this declaration and the named groups "not ruled".
+        Rotor's public module reads the declaration, and the set of names is empty when the root
+        declares none. A program that names no group declares nothing. A test's root is Zig's test
+        runner, which declares no names.
+     5. Rotor's decision 32 adds a cross-core call. Each call names a `rotor.NamedSchedulingGroup`,
+        `.default` included, and runs as a task in that group on the target. Rotor's decision 32
+        marks this part "not ruled", because it uses the named groups. colibri makes no
+        cross-core call, so decision 32 changes no colibri call. It lowers `message_tag_max` to
+        `0x7fff_effd`, and the room for a post in a mailbox from 256 to 224 messages.
+        `examples/link.zig` posts tag 1.
+     6. Rotor's decision 28 names each record, poller and task in its `init`, from
+        `@typeName(Parent)` and the field. colibri's task takes its name from `Task.init`, with no
+        new parameter.
+     7. Rotor's cee1474 keeps the descriptor that wakes each loop in its `Registry` until
+        `Registry.close_wakes`. A program calls `close_wakes` after each loop and remote of the
+        registry ended. colibri's private loop has no registry and claims no wake, so the rule does
+        not apply to it. `examples/link.zig` makes a registry, so it calls `close_wakes`.
+     8. Rotor's 782d6de makes a `close` wait for each file operation on its descriptor that the
+        offload's workers hold. colibri uses no offload and submits no file operation, so its
+        closes do not change.
+
+     The text that the fifth amendment replaces:
+     - Ruling 2 named `reserve_group` and `error.GroupsFull`.
+     - Ruling 7 scheduled the task with `loop.schedule`.
+     - Ruling 15 pinned the Rotor tag that carries decisions 26 to 29.
+     - The third amendment keeps the names of its day, `reserve_group` and `error.GroupsFull`.
 
      Alternatives that lost:
      - Tags in `user_data`, with `LoopIds` and `Host`, in the first draft of this decision. Each
@@ -6506,7 +6556,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        program that reserves the ids of its libraries in an order of its own could then not give
        colibri one of them.
      - The program always passes `buffer_group`, in the third amendment. Each program then calls
-       `reserve_group` for colibri, though Rotor already gives out ids that cannot clash.
+       `reserve_buffer_group` for colibri, though Rotor already gives out ids that cannot clash.
      - The one-shot timer of ruling 8, capped at 50 ms, in the first text of ruling 8. Each
        earlier deadline costs a cancel and a second timer, and a `shutdown` waits up to 50 ms. A
        `WaitLimit` bounds the wait with no operation. On a shared loop, a `shutdown` on the
