@@ -1,6 +1,6 @@
 //! Static memory per connection (design §8 step 13b, §11.2). The table gives the size of each
-//! struct a program places, and of the connection in each slot of an endpoint and in each transport
-//! of a pool. An endpoint holds a server's connections (design §8 step 21b.6). Each size comes
+//! struct a program places, and of the connection in each slot of an engine and in each transport
+//! of a pool. An engine holds a server's connections (design §8 step 21b.6). Each size comes
 //! from the code that the build compiles and is never estimated, as chapulin's `bench/sram.sh`
 //! measures its rows. `zig build bench-memory` prints the table, and the test
 //! requires `docs/performance.md` to hold the same table, so a struct that changes size changes
@@ -30,25 +30,26 @@ const Row = struct {
     holds: []const u8,
 };
 
-/// The endpoints of one TCP slot and of one QUIC slot. Each holds one connection and the
-/// endpoint's fixed part: its TLS configurations and what its connections borrow.
+/// The engines of one TCP slot and of one QUIC slot. Each holds one connection and the
+/// engine's fixed part: its TLS configurations and what its connections borrow.
 const one_tcp: server.Capacity = .{ .tcp_connections = 1, .quic_connections = 0 };
 const one_quic: server.Capacity = .{ .tcp_connections = 0, .quic_connections = 1 };
 
 const rows = [_]Row{
-    .{ .name = "server.Endpoint", .size = @sizeOf(server.Endpoint), .holds = "a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools" },
-    .{ .name = "server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })", .size = @sizeOf(server.EndpointOf(one_tcp)), .holds = "an endpoint that holds one TCP connection" },
-    .{ .name = "server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })", .size = @sizeOf(server.EndpointOf(one_quic)), .holds = "an endpoint that holds one QUIC connection, with its receive pool" },
-    .{ .name = "std.meta.Elem(@FieldType(server.Endpoint, \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Endpoint, "tcp"))), .holds = "the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS" },
-    .{ .name = "std.meta.Elem(@FieldType(server.Endpoint, \"quic\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Endpoint, "quic"))), .holds = "the connection each QUIC slot of an endpoint holds, without its receive pool" },
-    .{ .name = "std.meta.Elem(@FieldType(client.ConnectionPool, \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(client.ConnectionPool, "tcp"))), .holds = "each TCP connection of a pool: h11 or h2, in cleartext or over TLS" },
-    .{ .name = "std.meta.Elem(@FieldType(client.ConnectionPool, \"tcp_links\"))", .size = @sizeOf(std.meta.Elem(@FieldType(client.ConnectionPool, "tcp_links"))), .holds = "what a pool tracks of each TCP slot's connection" },
-    .{ .name = "std.meta.Elem(@FieldType(client.ConnectionPool, \"entries\"))", .size = @sizeOf(std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))), .holds = "each exchange a pool holds at once" },
-    .{ .name = "@FieldType(client.ConnectionPool, \"quic\")", .size = @sizeOf(@FieldType(client.ConnectionPool, "quic")), .holds = "a pool's QUIC connection, without its receive pool" },
-    .{ .name = "client.ConnectionPool", .size = @sizeOf(client.ConnectionPool), .holds = "a pool's fixed part: its QUIC connection and link, and its TLS configurations" },
-    .{ .name = "client.ConnectionPoolOf(.{ .quic = false })", .size = @sizeOf(client.ConnectionPoolOf(.{ .quic = false })), .holds = "the fixed part of a pool with no QUIC state" },
-    .{ .name = "client.ConnectionPool.memory_bytes(.{})", .size = client.ConnectionPool.memory_bytes(.{}), .holds = "the memory a pool takes at the default counts: one TCP connection, its link and 16 requests" },
-    .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a program passes to a pool, at its default capacity" },
+    .{ .name = "server.Engine(.{})", .size = @sizeOf(server.Engine(.{})), .holds = "a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools" },
+    .{ .name = "server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })", .size = @sizeOf(server.Engine(one_tcp)), .holds = "an engine that holds one TCP connection" },
+    .{ .name = "server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })", .size = @sizeOf(server.Engine(one_quic)), .holds = "an engine that holds one QUIC connection, with its receive pool" },
+    .{ .name = "std.meta.Elem(@FieldType(server.Engine(.{}), \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))), .holds = "the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS" },
+    .{ .name = "std.meta.Elem(@FieldType(server.Engine(.{}), \"quic\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))), .holds = "the connection each QUIC slot of an engine holds, without its receive pool" },
+    .{ .name = "server.EncoderPool(.{})", .size = @sizeOf(server.EncoderPool(.{})), .holds = "the encoders a program gives a server's connections, at the default options" },
+    .{ .name = "std.meta.Elem(@FieldType(client.ConnectionPool(.{}), \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp"))), .holds = "each TCP connection of a pool: h11 or h2, in cleartext or over TLS" },
+    .{ .name = "std.meta.Elem(@FieldType(client.ConnectionPool(.{}), \"tcp_links\"))", .size = @sizeOf(std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp_links"))), .holds = "what a pool tracks of each TCP slot's connection" },
+    .{ .name = "std.meta.Elem(@FieldType(client.ConnectionPool(.{}), \"entries\"))", .size = @sizeOf(std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "entries"))), .holds = "each exchange a pool holds at once" },
+    .{ .name = "@FieldType(client.ConnectionPool(.{}), \"quic\")", .size = @sizeOf(@FieldType(client.ConnectionPool(.{}), "quic")), .holds = "a pool's QUIC connection, without its receive pool" },
+    .{ .name = "client.ConnectionPool(.{})", .size = @sizeOf(client.ConnectionPool(.{})), .holds = "a pool's fixed part: its QUIC connection and link, and its TLS configurations" },
+    .{ .name = "client.ConnectionPool(.{ .quic = false })", .size = @sizeOf(client.ConnectionPool(.{ .quic = false })), .holds = "the fixed part of a pool with no QUIC state" },
+    .{ .name = "client.ConnectionPool(.{}).memory_bytes(.{})", .size = client.ConnectionPool(.{}).memory_bytes(.{}), .holds = "the memory a pool takes at the default counts: one TCP connection, its link and 16 requests" },
+    .{ .name = "client.ReceivePool(.{})", .size = @sizeOf(client.ReceivePool(.{})), .holds = "the receive pool a program passes to a pool, at its default capacity" },
     .{ .name = "h11.Connection", .size = @sizeOf(h11.Connection), .holds = "the h11 state inside a TCP connection" },
     .{ .name = "h2.Connection", .size = @sizeOf(h2.Connection), .holds = "the h2 state inside a TCP connection" },
     .{ .name = "h3.Connection", .size = @sizeOf(h3.Connection), .holds = "the h3 state inside a QUIC connection" },

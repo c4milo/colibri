@@ -217,7 +217,7 @@ pub fn coded_of(connection: *Connection, id: Number) ?*const Coded {
 
 /// Whether `drain` would write octets now: a coded response whose ring holds octets the protocol
 /// takes, h11 at once and h2 as far as the stream's windows allow (RFC 9113 §6.9.1), or one whose
-/// encoder has its last octets to write. The output is empty when the endpoint asks.
+/// encoder has its last octets to write. The output is empty when the engine asks.
 pub fn ring_owed(connection: *Connection) bool {
     const table = &connection.coding;
     // RFC 9113 §5.4.1, RFC 9112 §9.6: a connection that failed or was stopped sends no more

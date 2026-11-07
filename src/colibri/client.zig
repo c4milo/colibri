@@ -57,7 +57,7 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
     return struct {
         const Self = @This();
 
-        const Pool = client.ConnectionPoolOf(.{ .quic = capacity.quic });
+        const Pool = client.ConnectionPool(.{ .quic = capacity.quic });
         const pool_memory_len = Pool.memory_bytes(.{ .tcp_connections = capacity.tcp_connections, .requests = capacity.requests });
         const ReceivePool = receive_pool_type(capacity.quic);
         const tcp_connections = capacity.tcp_connections;
@@ -189,7 +189,7 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
 
 /// The type of the receive pool a client holds: the default one with QUIC, and none without.
 fn receive_pool_type(quic: bool) type {
-    return if (quic) client.DefaultReceivePool else void;
+    return if (quic) client.ReceivePool(.{}) else void;
 }
 
 /// The operations the UDP socket holds in flight, or none for a client with no QUIC.

@@ -1,4 +1,4 @@
-//! The endpoints of the h3 deadline trace run (design §8 step 20d): a server `Endpoint` under the
+//! The endpoints of the h3 deadline trace run (design §8 step 20d): a server `Engine` under the
 //! run's deadlines, the h3 deadline run's peer as an honest client, one queue of datagrams each
 //! way that loses and reorders nothing, and an application that answers each request a unit at a
 //! time.
@@ -48,9 +48,9 @@ const actions_per_request: usize = 2;
 const actions_besides_requests: usize = 5;
 pub const allowed_max: usize = actions_per_request * limits.requests_max + actions_besides_requests;
 
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 });
+const Engine = server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 });
 /// The connection a QUIC slot holds, named through its field: the root exports no such type.
-pub const Connection = std.meta.Elem(@FieldType(Endpoint, "quic"));
+pub const Connection = std.meta.Elem(@FieldType(Engine, "quic"));
 const datagram_len = limits.datagram_len;
 /// Where the client sends from, which the endpoint reads off each datagram (decision 72).
 const ipv4_len: usize = 4;
@@ -93,7 +93,7 @@ const Queue = struct {
 
 pub const World = struct {
     endpoint_config: server.Config,
-    endpoint: Endpoint,
+    endpoint: Engine,
     /// The endpoint's one QUIC connection, read as a program does not, and the handle naming it.
     served: ?*Connection,
     handle: ?server.ConnectionHandle,

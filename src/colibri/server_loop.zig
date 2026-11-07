@@ -71,29 +71,29 @@ pub fn turn(run: anytype) !void {
     const state = run.server;
     if (state.stopping.load(.acquire) and !state.shut_down) shut_down(state);
     arm_accept(state);
-    const deadline_ns = state.endpoint.deadline_ns();
+    const deadline_ns = state.engine.deadline_ns();
     const count = try state.loop.tick(&state.events, wait_ns(state, deadline_ns, state.loop.now_ns()));
     const now_ns = state.loop.now_ns();
     for (state.events[0..count]) |event| on_event(run, event, now_ns);
     const due = if (deadline_ns) |at_ns| at_ns <= now_ns else false;
-    // With no deadline due the endpoint has nothing to fire, so the call is skipped.
+    // With no deadline due the engine has nothing to fire, so the call is skipped.
     if (due or state.undrained) {
         state.now_ns = now_ns;
-        state.endpoint.on_instant(now_ns);
+        state.engine.on_instant(now_ns);
         pump.drain(run);
     }
     serve(run, now_ns);
     arm(state);
-    if (state.udp.open) state.udp.flush(&state.loop, &state.endpoint, now_ns);
+    if (state.udp.open) state.udp.flush(&state.loop, &state.engine, now_ns);
 }
 
-/// Stops taking connections, and asks the endpoint to end each one it holds: its `closed` follows
+/// Stops taking connections, and asks the engine to end each one it holds: its `closed` follows
 /// once every connection has ended, and `run` then returns.
 fn shut_down(state: anytype) void {
     state.shut_down = true;
     if (state.udp.open) state.udp.stop(&state.loop);
-    state.endpoint.shutdown(state.loop.now_ns());
-    // The endpoint reports what the shutdown ends, and `closed` once it holds no connection. With
+    state.engine.shutdown(state.loop.now_ns());
+    // The engine reports what the shutdown ends, and `closed` once it holds no connection. With
     // no socket to step, only a drain reads them, so this turn drains.
     state.undrained = true;
 }
@@ -122,7 +122,7 @@ fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
         // A server's sockets come from its listener, so it connects none.
         .connect => unreachable,
     }
-    // The peer closed first, or the socket failed: the endpoint ends the connection.
+    // The peer closed first, or the socket failed: the engine ends the connection.
     if (socket.failed) pump.peer_closed(run, index, now_ns);
     state.pending.set(index);
 }
@@ -149,7 +149,7 @@ fn on_accept(run: anytype, event: rotor.Event, now_ns: u64) void {
     // option is served as it is.
     rotor.sync.set_no_delay(descriptor, true) catch {};
     // A server that is shutting down takes no connection.
-    if (state.shut_down or !pump.accept(run, index, state.endpoint_config.tls != null, now_ns)) socket.failed = true;
+    if (state.shut_down or !pump.accept(run, index, state.engine_config.tls != null, now_ns)) socket.failed = true;
     state.pending.set(index);
 }
 
@@ -161,7 +161,7 @@ fn free_socket(state: anytype) ?usize {
     return null;
 }
 
-/// Steps every entry a socket or the endpoint named, until none is named.
+/// Steps every entry a socket or the engine named, until none is named.
 fn serve(run: anytype, now_ns: u64) void {
     const state = run.server;
     for (0..state.sockets.len * constants.limits.events_per_step_max) |_| {
@@ -188,7 +188,7 @@ fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
         socket.wrote(stepped.written);
         socket.consume(stepped.consumed);
     }
-    // The endpoint closed the connection: the socket closes once its octets are out.
+    // The engine closed the connection: the socket closes once its octets are out.
     if (state.entries[index].closing) socket.closing = true;
 }
 
@@ -201,7 +201,7 @@ fn arm(state: anytype) void {
     }
 }
 
-/// Whether the loop may end: the endpoint reported `closed`, and every socket is free.
+/// Whether the loop may end: the engine reported `closed`, and every socket is free.
 pub fn finished(state: anytype) bool {
     if (!state.over) return false;
     for (&state.sockets) |*socket| {

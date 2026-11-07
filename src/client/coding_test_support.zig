@@ -21,6 +21,6 @@ pub const large_window_br = @embedFile("coding_fixtures/large_window.br");
 
 /// Both pools with every decoder free.
 pub fn reset_pools() void {
-    zstd_pool.storage().reset(.none());
-    br_pool.storage().reset(.none());
+    zstd_pool.init(.none());
+    br_pool.init(.none());
 }

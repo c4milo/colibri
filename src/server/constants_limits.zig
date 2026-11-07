@@ -86,7 +86,7 @@ pub const quic_response_pieces_max: usize = 16;
 /// §8 step 25.2). Its `header` and `trailers` refuse one more.
 pub const response_headers_max: usize = 32;
 
-/// The runs of body bytes one `ResponseWriter` holds until the endpoint takes them: each run the
+/// The runs of body bytes one `ResponseWriter` holds until the engine takes them: each run the
 /// body's writer wrote before a flush, and each run of `write_kept`. An h3 response holds as many
 /// (decision 103).
 pub const response_pieces_max: usize = quic_response_pieces_max;
@@ -98,18 +98,18 @@ pub const quic_read_len: usize = 16_384;
 /// RFC 9000 §18.2 defines fits.
 pub const quic_transport_parameters_len_max: usize = 1024;
 
-/// The most `Config.retry_from_percent` may be: all of an endpoint's QUIC slots.
+/// The most `Config.retry_from_percent` may be: all of an engine's QUIC slots.
 pub const retry_from_percent_max: u8 = 100;
 
-/// Connections `Endpoint` holds at once, the default size (decision 103). `EndpointOf` takes
+/// QUIC connections `Engine(.{})` holds at once, the default size (decision 103). A `Capacity` names
 /// another.
 pub const quic_connections_default: usize = 16;
 
-/// TCP connections `Endpoint` holds at once, the default size (decision 119). `EndpointOf` takes
+/// TCP connections `Engine(.{})` holds at once, the default size (decision 119). A `Capacity` names
 /// another, 0 included.
 pub const tcp_connections_default: usize = 16;
 
-/// The requests a TCP slot of an endpoint holds at once: as many as an h2 connection may hold,
+/// The requests a TCP slot of an engine holds at once: as many as an h2 connection may hold,
 /// which `Limits.requests_max` reaches at most (decision 119).
 pub const tcp_requests_max: usize = h2.constants.limits.concurrent_streams_max;
 
@@ -117,7 +117,7 @@ pub const tcp_requests_max: usize = h2.constants.limits.concurrent_streams_max;
 /// connection owes, and one event for each frame its plaintext holds.
 pub const tcp_events_per_poll_max: usize = done_owed_max + bodies_max + frames_per_receive_max + 1;
 
-/// Version Negotiation and Retry packets an endpoint owes at once. One more is dropped, and its
+/// Version Negotiation and Retry packets an engine owes at once. One more is dropped, and its
 /// client sends again.
 pub const quic_replies_max: usize = 8;
 
@@ -165,7 +165,7 @@ pub const path_parameters_max: usize = 8;
 pub const route_methods_max: usize = 10;
 
 /// The most octets of a path that a route table matches, its query included (decision 122 ruling
-/// 13). It is the endpoint's own bound on a path: an h11 request line, or an h2 or h3 `:path`
+/// 13). It is the engine's own bound on a path: an h11 request line, or an h2 or h3 `:path`
 /// field value. `match` gives `not_found` for a longer path, so the octets that one match reads
 /// have a named bound (INV-8).
 pub const path_len_max: usize = @max(h11.constants.limits.start_line_len_max, core.constants.limits.field_value_len_max);
@@ -195,7 +195,7 @@ comptime {
     assert(path_parameters_max > 0);
     // A leaf's mask of methods fits a u16.
     assert(route_methods_max > 0 and route_methods_max <= @bitSizeOf(u16));
-    // Each path that the endpoint gives the program fits, in each version.
+    // Each path that the engine gives the program fits, in each version.
     assert(path_len_max >= h11.constants.limits.start_line_len_max and path_len_max >= core.constants.limits.field_value_len_max);
 }
 

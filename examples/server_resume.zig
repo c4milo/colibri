@@ -3,7 +3,7 @@
 //!
 //! colibri holds nothing between connections, so a program that wants a later connection from a
 //! client to start near an earlier one's rate keeps the sets itself, keyed by the client's address,
-//! and gives the endpoint a `server.ResumeProvider` over them:
+//! and gives the engine a `server.ResumeProvider` over them:
 //! - `take` answers the set saved for an address, and claims it for one connection, because RFC
 //!   9959 §3.2 lets one connection at a time use a set;
 //! - `put` comes once when that connection ends, with what it observed, which replaces the set,
@@ -28,7 +28,7 @@ var entries: [entries_max]Entry align(@alignOf(Entry)) = undefined;
 var entries_len: usize = 0;
 var context: u8 = 0;
 
-/// How often the endpoint called each of the three, which `server_exchange.zig` checks.
+/// How often the engine called each of the three, which `server_exchange.zig` checks.
 pub var taken: u32 = 0;
 pub var put_back: u32 = 0;
 pub var dropped: u32 = 0;

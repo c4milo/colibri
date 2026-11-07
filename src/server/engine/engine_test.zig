@@ -1,5 +1,5 @@
-//! The tests of the server's QUIC endpoint (`endpoint.zig`): an h3 client in the same process sends
-//! every datagram through the endpoint, which routes it (RFC 9000 §5.2), starts the connection
+//! The tests of the server's QUIC engine (`engine.zig`): an h3 client in the same process sends
+//! every datagram through the engine, which routes it (RFC 9000 §5.2), starts the connection
 //! from the client's first Initial (§7.2), answers Retry and Version Negotiation (§8.1.2, §6.1),
 //! and hands back a connection once it is over.
 const std = @import("std");
@@ -9,36 +9,36 @@ const support = @import("../quic/quic_test_support.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const constants = @import("../constants.zig");
-const endpoint_module = @import("endpoint.zig");
-const endpoint_stateless = @import("endpoint_stateless.zig");
+const engine_module = @import("engine.zig");
+const engine_stateless = @import("engine_stateless.zig");
 
 const testing = std.testing;
-const endpoint_support = support.endpoint_support;
-const endpoint = &endpoint_support.endpoint;
+const engine_support = support.engine_support;
+const engine = &engine_support.engine;
 
 const ok: u16 = 200;
 
 test "RFC 9000 §7.2, §5.2: a client's first Initial starts a connection, which takes its datagrams" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     try support.connect();
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
-    // Decision 119: the request's id names its connection, and the endpoint answers by it.
-    const id = endpoint_support.id_of(fetch.id);
+    // Decision 119: the request's id names its connection, and the engine answers by it.
+    const id = engine_support.id_of(fetch.id);
     try testing.expectEqual(1, id.connection.generation);
-    try endpoint.respond(id, .{ .status = ok, .end = false });
-    _ = try endpoint.write_body(id, .{ .bytes = "through the endpoint", .end = true });
+    try engine.respond(id, .{ .status = ok, .end = false });
+    _ = try engine.write_body(id, .{ .bytes = "through the engine", .end = true });
     try support.pump(support.rounds_default);
-    try testing.expectEqualStrings("through the endpoint", support.content_of(fetch));
+    try testing.expectEqualStrings("through the engine", support.content_of(fetch));
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
     // RFC 9000 §5.1.1: once the handshake is confirmed the client holds spare IDs to move to.
     try testing.expect(support.client.remote_ids.active_len() > 1);
-    try testing.expectEqual(0, endpoint_support.ended_len);
+    try testing.expectEqual(0, engine_support.ended_len);
 }
 
-/// What the endpoint reports of `octets`, a datagram from `from`.
+/// What the engine reports of `octets`, a datagram from `from`.
 fn give(octets: []u8, from: quic.PeerAddress) ?server_event.Event {
-    return endpoint.receive(.{ .datagram = .{ .bytes = octets, .from = from } }, support.now_ns).event;
+    return engine.receive(.{ .datagram = .{ .bytes = octets, .from = from } }, support.now_ns).event;
 }
 
 const server_event = @import("../event.zig");
@@ -55,14 +55,14 @@ test "RFC 9000 §8.1.2: with Retry set, the Initial that returns the Retry's tok
     for ([_]quic.packet.header.Version{ .v1, .v2 }) |version| {
         support.client_version = version;
         retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-        try support.start_endpoint(&retry);
+        try support.start_engine(&retry);
         try support.connect();
         // RFC 9000 §7.3: the server sends back the Retry's Source Connection ID.
         try testing.expect(support.served.transport.identity.retry_source != null);
         try testing.expectEqual(version, support.served.transport.versions.original);
         const fetch = try support.request("GET", "/", "");
         try support.pump(support.rounds_default);
-        try endpoint.respond(endpoint_support.id_of(fetch.id), .{ .status = ok, .end = true });
+        try engine.respond(engine_support.id_of(fetch.id), .{ .status = ok, .end = true });
         try support.pump(support.rounds_default);
         try testing.expectEqual(ok, fetch.status);
     }
@@ -77,7 +77,7 @@ const probe_id_len: u8 = 8;
 const long_header_form: u8 = 0xc0;
 
 test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, and no connection" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     @memset(&probe, 0);
     probe[0] = long_header_form;
     std.mem.writeInt(u32, probe[1..][0..@sizeOf(u32)], reserved_version, .big);
@@ -86,19 +86,19 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     probe[6 + probe_id_len] = probe_id_len;
     const from = support.client_address();
     try testing.expectEqual(null, give(&probe, from));
-    try testing.expectEqual(null, endpoint_support.live_connection());
+    try testing.expectEqual(null, engine_support.live_connection());
     var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
-    const reply = endpoint.send_datagram(&output, support.now_ns).?;
+    const reply = engine.send_datagram(&output, support.now_ns).?;
     try testing.expect((try quic.packet.invariant.read_long(reply.bytes)).is_version_negotiation());
     try testing.expect(reply.to.eql(&from));
-    try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
+    try testing.expectEqual(null, engine.send_datagram(&output, support.now_ns));
     // RFC 9000 §5.2.2: a datagram too small to start a connection gets nothing.
     try testing.expectEqual(null, give(probe[0 .. probe.len - 1], from));
-    try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
+    try testing.expectEqual(null, engine.send_datagram(&output, support.now_ns));
 }
 
 test "decision 111: a server switches a client of version 1 that lists version 2 to version 2" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     try support.connect();
     try testing.expectEqual(.v1, support.served.transport.versions.original);
     try testing.expectEqual(.v2, support.served.transport.versions.negotiated);
@@ -108,15 +108,15 @@ test "decision 111: a server switches a client of version 1 that lists version 2
     try testing.expectEqual(0x6b33_43cf, support.client.peer_parameters.?.version_information.?.chosen_version);
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
-    try endpoint.respond(endpoint_support.id_of(fetch.id), .{ .status = ok, .end = true });
+    try engine.respond(engine_support.id_of(fetch.id), .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(ok, fetch.status);
 }
 
 test "decision 111: a server whose configuration names no version to switch to keeps the client" {
-    try support.start_endpoint(null);
-    endpoint_support.endpoint_config.switch_to = null;
-    try endpoint_support.restart();
+    try support.start_engine(null);
+    engine_support.engine_config.switch_to = null;
+    try engine_support.restart();
     try support.connect();
     try testing.expectEqual(.v1, support.served.transport.versions.negotiated);
     try testing.expectEqual(.v1, support.client.versions.negotiated);
@@ -125,7 +125,7 @@ test "decision 111: a server whose configuration names no version to switch to k
 test "RFC 9368 §2: a client's first Initial in version 2 starts a connection that runs version 2" {
     support.client_version = .v2;
     defer support.client_version = .v1;
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     try support.connect();
     try testing.expectEqual(.v2, support.served.transport.versions.original);
     try testing.expectEqual(.v2, support.client.versions.negotiated);
@@ -143,59 +143,59 @@ test "RFC 9368 §2: a client's first Initial in version 2 starts a connection th
     });
     _ = give(&probe, support.client_address());
     var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
-    try testing.expectEqual(null, endpoint.state.connections.replies.take(&output));
+    try testing.expectEqual(null, engine.state.connections.replies.take(&output));
 }
 
 test "RFC 9000 §5.2.2: with every slot in use, a client's Initial starts no connection" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     // Every slot is taken, and no datagram addresses the connections the test leaves in them.
-    var taken: [endpoint.quic.len]server_event.ConnectionHandle = undefined;
-    for (&taken, &endpoint.quic) |*handle, *connection| {
-        handle.* = endpoint.state.slots.take(.quic).?;
+    var taken: [engine.quic.len]server_event.ConnectionHandle = undefined;
+    for (&taken, &engine.quic) |*handle, *connection| {
+        handle.* = engine.state.slots.take(.quic).?;
         connection.closed = true;
     }
     try support.pump(support.rounds_default);
     // The client's Initials started nothing: every slot holds what the test put there, and no
     // request came.
-    try testing.expectEqual(endpoint.quic.len, endpoint.state.slots.holding());
+    try testing.expectEqual(engine.quic.len, engine.state.slots.holding());
     try testing.expectEqual(0, support.seen_support.seen_len);
-    for (taken) |handle| endpoint.state.slots.release(handle);
+    for (taken) |handle| engine.state.slots.release(handle);
 }
 
 test "decision 103: a connection that is over is handed back once, and its slot takes the next client" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     try support.connect();
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
-    const id = endpoint_support.id_of(fetch.id);
-    endpoint.shutdown(support.now_ns);
-    try endpoint.respond(id, .{ .status = ok, .end = true });
+    const id = engine_support.id_of(fetch.id);
+    engine.shutdown(support.now_ns);
+    try engine.respond(id, .{ .status = ok, .end = true });
     // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass.
     try support.pump(support.rounds_default * 8);
-    // INV-30: the request ended first, then its connection, once, and then the endpoint.
+    // INV-30: the request ended first, then its connection, once, and then the engine.
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
-    try testing.expectEqual(1, endpoint_support.ended_len);
-    try testing.expectEqual(id.connection, endpoint_support.ended[0].connection);
-    try testing.expect(endpoint_support.closed);
-    try testing.expectEqual(null, endpoint.deadline_ns());
+    try testing.expectEqual(1, engine_support.ended_len);
+    try testing.expectEqual(id.connection, engine_support.ended[0].connection);
+    try testing.expect(engine_support.closed);
+    try testing.expectEqual(null, engine.deadline_ns());
     // The ended connection's id names nothing.
-    try testing.expectError(error.RequestUnknown, endpoint.respond(id, .{ .status = ok, .end = true }));
+    try testing.expectError(error.RequestUnknown, engine.respond(id, .{ .status = ok, .end = true }));
 }
 
-test "the Unix seconds a connection's tickets carry count on from the endpoint's start" {
-    try support.start_endpoint(null);
+test "the Unix seconds a connection's tickets carry count on from the engine's start" {
+    try support.start_engine(null);
     const later_ns = support.now_ns + elapsed_seconds * constants.nanoseconds_per_second;
-    try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), start_seconds, support.now_ns);
-    try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.state.connections.seconds_at(later_ns));
-    // An endpoint started at 0 issues no ticket, however late.
-    try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
-    try testing.expectEqual(0, endpoint.state.connections.seconds_at(later_ns));
+    try engine.init(&engine_support.engine_config, tcp_support.stream.random(), start_seconds, support.now_ns);
+    try testing.expectEqual(start_seconds + elapsed_seconds, engine.state.connections.seconds_at(later_ns));
+    // An engine started at 0 issues no ticket, however late.
+    try engine.init(&engine_support.engine_config, tcp_support.stream.random(), 0, support.now_ns);
+    try testing.expectEqual(0, engine.state.connections.seconds_at(later_ns));
 }
 const start_seconds: u64 = 1_790_000_000;
 const elapsed_seconds: u64 = 2;
 
 test "RFC 9000 §9.3: a client that moves is followed, and PATH_CHALLENGE validates its new path" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     try support.connect();
     support.client_port_now = support.client_port + 1;
     const fetch = try support.request("GET", "/", "");
@@ -208,7 +208,7 @@ test "RFC 9000 §9.3: a client that moves is followed, and PATH_CHALLENGE valida
 
 test "RFC 9000 §8.1.2: a Retry token returned from another address starts no connection" {
     retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-    try support.start_endpoint(&retry);
+    try support.start_engine(&retry);
     // The first round carries the client's Initial and the Retry back.
     try support.pump(1);
     support.client_port_now = support.client_port + 1;
@@ -224,7 +224,7 @@ const short_id: [constants.policy.quic_id_len]u8 = @splat(short_id_octet);
 const short_id_octet: u8 = 0x5a;
 
 test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets starts no connection" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     var writer = quic.core.Writer.init(&short_initial);
     try quic.packet.header_write.write_long(&writer, .{
         .version = .v1,
@@ -237,7 +237,7 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
     const len = writer.written().len + short_payload_len;
     @memset(short_initial[writer.written().len..len], 0);
     try testing.expectEqual(null, give(short_initial[0..len], support.client_address()));
-    try testing.expectEqual(null, endpoint_support.live_connection());
+    try testing.expectEqual(null, engine_support.live_connection());
 }
 
 /// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets. Test-only.
@@ -248,7 +248,7 @@ const padded_payload_len: usize = quic.constants.protocol.datagram_len_min;
 test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8 octets starts no connection" {
     for ([_]bool{ false, true }) |with_retry| {
         retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-        try support.start_endpoint(if (with_retry) &retry else null);
+        try support.start_engine(if (with_retry) &retry else null);
         // Seven octets is one under the RFC's eight, written apart from the constant it checks.
         for ([_]usize{ 0, short_id.len - 1 }) |dcid_len| {
             var writer = quic.core.Writer.init(&padded_initial);
@@ -263,22 +263,22 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
             const len = writer.written().len + padded_payload_len;
             @memset(padded_initial[writer.written().len..len], 0);
             try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
-            try testing.expectEqual(null, endpoint_support.live_connection());
+            try testing.expectEqual(null, engine_support.live_connection());
             // With Retry set, no Retry is owed for it either.
             var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
-            try testing.expectEqual(null, endpoint.state.connections.replies.take(&output));
+            try testing.expectEqual(null, engine.state.connections.replies.take(&output));
         }
     }
 }
 
-/// The share of the test endpoint's QUIC slots that one connection reaches. The next percent is
+/// The share of the test engine's QUIC slots that one connection reaches. The next percent is
 /// one it does not reach. Test-only.
-const share_of_one: u8 = constants.limits.retry_from_percent_max / endpoint_support.connections;
+const share_of_one: u8 = constants.limits.retry_from_percent_max / engine_support.connections;
 comptime {
-    std.debug.assert(@as(u32, share_of_one + 1) * endpoint_support.connections > constants.limits.retry_from_percent_max);
+    std.debug.assert(@as(u32, share_of_one + 1) * engine_support.connections > constants.limits.retry_from_percent_max);
 }
 
-/// Whether the endpoint answers a new client's first Initial, from another port than the test
+/// Whether the engine answers a new client's first Initial, from another port than the test
 /// client's, with a Retry. Test-only.
 fn answers_with_retry() !bool {
     var writer = quic.core.Writer.init(&padded_initial);
@@ -296,16 +296,16 @@ fn answers_with_retry() !bool {
     defer support.client_port_now = support.client_port;
     _ = give(padded_initial[0..len], support.client_address());
     var output: [quic.constants.protocol.datagram_len_max]u8 = undefined;
-    const sent = endpoint.state.connections.replies.take(&output) orelse return false;
+    const sent = engine.state.connections.replies.take(&output) orelse return false;
     return (try quic.packet.header.read(sent.bytes, constants.policy.quic_id_len)) == .retry;
 }
 
 test "decision 110 as amended: with retry_from_percent, a client gets a Retry only once that share of QUIC slots hold a connection" {
     for ([_]u8{ share_of_one, share_of_one + 1 }) |percent| {
         retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-        try support.start_endpoint(&retry);
-        endpoint_support.endpoint_config.retry_from_percent = percent;
-        try endpoint_support.restart();
+        try support.start_engine(&retry);
+        engine_support.engine_config.retry_from_percent = percent;
+        try engine_support.restart();
         // No slot holds a connection, so the first client starts with no Retry (RFC 9000 §7.3).
         try support.connect();
         try testing.expectEqual(null, support.served.transport.identity.retry_source);
@@ -316,8 +316,8 @@ test "decision 110 as amended: with retry_from_percent, a client gets a Retry on
 
 test "decision 110 as amended: at the default of 0 percent, every client gets a Retry" {
     retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-    try support.start_endpoint(&retry);
-    try testing.expectEqual(0, endpoint_support.endpoint_config.retry_from_percent);
+    try support.start_engine(&retry);
+    try testing.expectEqual(0, engine_support.engine_config.retry_from_percent);
     try testing.expect(try answers_with_retry());
 }
 
@@ -327,7 +327,7 @@ const retry_source_octet: u8 = 0x6b;
 
 test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID under 8 octets starts nothing" {
     retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-    try support.start_endpoint(&retry);
+    try support.start_engine(&retry);
     // A build that took a short first Destination Connection ID sealed it into its Retry token
     // under the same key, so the token opens: the start checks the ID it names (INV-24). Seven
     // octets is one under the RFC's eight, written apart from the constant it checks.
@@ -346,15 +346,15 @@ test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID und
         const len = writer.written().len + padded_payload_len;
         @memset(padded_initial[writer.written().len..len], 0);
         try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
-        try testing.expectEqual(null, endpoint_support.live_connection());
+        try testing.expectEqual(null, engine_support.live_connection());
     }
 }
 
 test "decision 110 as amended: under the share, a client that returns with a Retry token starts with it" {
     retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-    try support.start_endpoint(&retry);
-    endpoint_support.endpoint_config.retry_from_percent = share_of_one;
-    try endpoint_support.restart();
+    try support.start_engine(&retry);
+    engine_support.engine_config.retry_from_percent = share_of_one;
+    try engine_support.restart();
     // The Retry went out while the share was reached, and the client returns once it is not.
     const token = try old_token(&short_id);
     var writer = quic.core.Writer.init(&padded_initial);
@@ -372,16 +372,16 @@ test "decision 110 as amended: under the share, a client that returns with a Ret
     _ = give(padded_initial[0..len], support.client_address());
     // RFC 9000 §7.3: the connection names the Retry's Source Connection ID, which the client
     // checks, so it starts from the token and not as a client with none.
-    const started = endpoint_support.live_connection() orelse return error.TestUnexpectedResult;
+    const started = engine_support.live_connection() orelse return error.TestUnexpectedResult;
     try testing.expectEqualSlices(u8, &retry_source_id, started.transport.identity.retry_source.?.slice());
 }
 
-/// The token of a Retry the endpoint's key seals for the client's address, naming
+/// The token of a Retry the engine's key seals for the client's address, naming
 /// `original_destination` as the client's first Destination Connection ID, as an earlier build
 /// could have sent. It points into a buffer the next call writes over. Test-only.
 fn old_token(original_destination: []const u8) ![]const u8 {
-    var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
-    const address = endpoint_stateless.token_address(support.client_address(), &address_storage);
+    var address_storage: [engine_stateless.token_address_len_max]u8 = undefined;
+    const address = engine_stateless.token_address(support.client_address(), &address_storage);
     var pseudo: [quic.constants.limits.retry_pseudo_packet_len_max]u8 = undefined;
     const answered = quic.retry.answer(retry.suite(), .{
         .version = .v1,
@@ -413,7 +413,7 @@ const TestLogs = struct {
 threadlocal var test_logs: TestLogs align(@alignOf(TestLogs)) = undefined;
 const test_log_len: usize = 65_536;
 const test_schemas = [_][]const u8{ quic.qlog.quic_event_schema, quic.qlog.http3_event_schema };
-const test_log_vtable: endpoint_module.LogProvider.VTable = .{ .open = open_test_log, .close = close_test_log };
+const test_log_vtable: engine_module.LogProvider.VTable = .{ .open = open_test_log, .close = close_test_log };
 
 fn open_test_log(context: *anyopaque, original_destination: []const u8, now_ns: u64) ?*quic.qlog.Log {
     const logs: *TestLogs = @ptrCast(@alignCast(context));
@@ -432,13 +432,13 @@ fn close_test_log(context: *anyopaque, log: *quic.qlog.Log) void {
     logs.closed += 1;
 }
 
-/// An endpoint whose connections ask `test_logs` for their logs.
-fn start_logged_endpoint(giving: bool) !void {
-    try support.start_endpoint(null);
+/// An engine whose connections ask `test_logs` for their logs.
+fn start_logged_engine(giving: bool) !void {
+    try support.start_engine(null);
     test_logs.giving = giving;
     test_logs.opened = 0;
     test_logs.closed = 0;
-    endpoint_support.endpoint_config.logs = .{ .context = &test_logs, .vtable = &test_log_vtable };
+    engine_support.engine_config.logs = .{ .context = &test_logs, .vtable = &test_log_vtable };
 }
 
 fn expect_in_log(expected: []const u8) !void {
@@ -447,8 +447,8 @@ fn expect_in_log(expected: []const u8) !void {
     return error.TestExpectedRecord;
 }
 
-test "decision 102: each connection the endpoint starts asks for a log, and hands it back once over" {
-    try start_logged_endpoint(true);
+test "decision 102: each connection the engine starts asks for a log, and hands it back once over" {
+    try start_logged_engine(true);
     try support.connect();
     try testing.expectEqual(1, test_logs.opened);
     // Main schema §12.1 names a log's file after the original destination connection ID.
@@ -459,35 +459,35 @@ test "decision 102: each connection the endpoint starts asks for a log, and hand
     // The QUIC connection's events and h3's go into the one log (h3-events §1.1).
     try expect_in_log("\"name\":\"quic:version_information\"");
     try expect_in_log("\"name\":\"http3:frame_parsed\"");
-    endpoint.shutdown(support.now_ns);
-    try endpoint.respond(endpoint_support.id_of(fetch.id), .{ .status = ok, .end = true });
+    engine.shutdown(support.now_ns);
+    try engine.respond(engine_support.id_of(fetch.id), .{ .status = ok, .end = true });
     try testing.expectEqual(0, test_logs.closed);
     // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass, and the log
     // comes back with the connection's `ended`.
     try support.pump(support.rounds_default * 8);
-    try testing.expectEqual(1, endpoint_support.ended_len);
+    try testing.expectEqual(1, engine_support.ended_len);
     try testing.expectEqual(1, test_logs.closed);
 }
 
 test "decision 102: a connection the provider gives no log writes none, and hands none back" {
-    try start_logged_endpoint(false);
+    try start_logged_engine(false);
     try support.connect();
     try testing.expectEqual(1, test_logs.opened);
     try testing.expectEqual(null, support.served.transport.qlog.log);
     try testing.expectEqual(null, support.served.h3.options.qlog);
 }
 
-test "decision 110 as amended: an endpoint refuses, when it starts, deadlines a connection would refuse" {
-    try support.start_endpoint(null);
-    const config = &endpoint_support.endpoint_config;
+test "decision 110 as amended: an engine refuses, when it starts, deadlines a connection would refuse" {
+    try support.start_engine(null);
+    const config = &engine_support.engine_config;
     // A limit of 0 is one `Timeouts.validate` refuses: null says no limit.
     config.timeouts.idle_ns = 0;
-    try testing.expectError(error.TimeoutInvalid, endpoint_support.restart());
+    try testing.expectError(error.TimeoutInvalid, engine_support.restart());
     // A body rate of one octet a second is one `validate_units` refuses: twice that rate over a
     // window brings less than a unit.
     config.timeouts = .{ .body_rate_min = 1 };
-    try testing.expectError(error.TimeoutInvalid, endpoint_support.restart());
-    // The default limits are ones an endpoint takes.
+    try testing.expectError(error.TimeoutInvalid, engine_support.restart());
+    // The default limits are ones an engine takes.
     config.timeouts = .{};
-    try endpoint_support.restart();
+    try engine_support.restart();
 }

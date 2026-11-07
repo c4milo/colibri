@@ -11,8 +11,8 @@ const pool_module = @import("pool.zig");
 const pool_support = @import("pool_test_support.zig");
 
 const testing = std.testing;
-const ConnectionPool = pool_module.ConnectionPool;
-const TcpAlone = pool_module.ConnectionPoolOf(.{ .quic = false });
+const ConnectionPool = pool_module.ConnectionPool(.{});
+const TcpAlone = pool_module.ConnectionPool(.{ .quic = false });
 
 /// The pool with no QUIC the tests drive, and its configuration, outside any stack frame.
 /// Test-only.
@@ -30,9 +30,9 @@ const loopback: [ipv4_len]u8 = @splat(host_octet);
 const addresses = [_]pool_module.Address{pool_module.Address.of(&loopback, 0)};
 const values: pool_module.Destination = .{ .addresses = &addresses, .port = https_port };
 
-test "decision 124: client.ConnectionPool is a pool of the default capacity, which holds QUIC" {
+test "decision 124: client.ConnectionPool(.{}) is a pool of the default capacity, which holds QUIC" {
     try testing.expect((pool_module.Capacity{}).quic);
-    try testing.expect(ConnectionPool == pool_module.ConnectionPoolOf(.{ .quic = true }));
+    try testing.expect(ConnectionPool == pool_module.ConnectionPool(.{ .quic = true }));
     try testing.expectEqual(quic_connection.QuicConnection, @FieldType(ConnectionPool, "quic"));
 }
 

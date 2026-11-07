@@ -252,7 +252,7 @@ fn is_past(since: u64, limit: ?u64, now_ns: u64) bool {
 pub inline fn fire(connection: *Connection, now_ns: u64) bool {
     // A call at the instant of the last finds nothing to end. Each deadline that started since
     // then started at this instant and passes after it, since every limit is above 0, and the last
-    // call checked each one that started before. The endpoint calls `receive` many times at one
+    // call checked each one that started before. The engine calls `receive` many times at one
     // instant.
     if (connection.clock.checked_ns == now_ns) return false;
     return fire_at_new_instant(connection, now_ns);

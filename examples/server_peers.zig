@@ -108,8 +108,8 @@ const Asked = struct {
 /// One client: its configuration, its pool, and what it saw.
 const Peer = struct {
     config: client.Config,
-    pool: client.ConnectionPool,
-    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
+    pool: client.ConnectionPool(.{}),
+    pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment),
     /// The connection the pool's last `open` named (decision 125).
     connection: client.ConnectionHandle,
     asked: [requests_max]Asked,
@@ -140,7 +140,7 @@ var stream_link: *Link = undefined;
 var datagram_link: *DatagramLink = undefined;
 var tcp_peer: Peer align(@alignOf(Peer)) = undefined;
 var quic_peer: Peer align(@alignOf(Peer)) = undefined;
-const ReceivePool = client.ReceivePool(64 * 1024);
+const ReceivePool = client.ReceivePool(.{ .capacity = 64 * 1024 });
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
 var stream_output: [output_len]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;

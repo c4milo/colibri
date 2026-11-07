@@ -99,7 +99,7 @@ test "decision 110: a request the server cancels is not counted against the clie
     try testing.expectEqual(0, connection.peer_resets);
 }
 
-test "decision 110 as amended: the limit is the configuration's, which the endpoint takes from Limits.peer_resets_max" {
+test "decision 110 as amended: the limit is the configuration's, which the engine takes from Limits.peer_resets_max" {
     try support.start();
     support.config.peer_resets_max = batch_len;
     try support.connect();

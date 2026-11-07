@@ -1,4 +1,4 @@
-//! The slots the endpoint asks for events, in the order calls changed them (decision 119): a
+//! The slots the engine asks for events, in the order calls changed them (decision 119): a
 //! call that may give a slot something to report queues it, once, and `receive` asks the slot at
 //! the front. So no call asks every slot, and the order follows the order of the calls alone,
 //! which a seed replays. `server.zig` does not export this file.

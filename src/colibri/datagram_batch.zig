@@ -1,7 +1,7 @@
 //! The segmented sends of a UDP socket of `colibri` (UDP_SEGMENT, design §8 step 13f.6), moved
 //! from the test-only UDP server for design §8 step 37c. A server and a client share them (step
-//! 42). Each turn, the socket takes every datagram the endpoint or the pool owes, and adds it to a
-//! batch for its peer and its codepoint. A server's endpoint takes its connections in turn, so two
+//! 42). Each turn, the socket takes every datagram the engine or the pool owes, and adds it to a
+//! batch for its peer and its codepoint. A server's engine takes its connections in turn, so two
 //! datagrams in a row seldom go to one peer, and a batch for each peer collects them. Each open
 //! batch then goes to the kernel as one send, which cuts it into datagrams of the batch's first
 //! length.
@@ -70,7 +70,7 @@ pub const Batches = struct {
         return .{ .segments = segmented and segments };
     }
 
-    /// Whether a batch is free, so that a datagram the endpoint gives now has a place.
+    /// Whether a batch is free, so that a datagram the engine gives now has a place.
     pub fn has_free(batches: *const Batches) bool {
         for (&batches.batches) |*batch| {
             if (batch.state == .free) return true;

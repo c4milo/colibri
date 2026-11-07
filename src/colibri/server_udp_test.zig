@@ -1,5 +1,5 @@
 //! The test of a `colibri.Server`'s UDP receive path (design §8 step 37): Rotor reports each
-//! datagram's ECN codepoint, and the server passes it to the endpoint. The endpoint must take a
+//! datagram's ECN codepoint, and the server passes it to the engine. The engine must take a
 //! datagram marked ECT(0), as quic-go marks them, and must not halt the server (decision 68).
 //! Decision 150 ruling 7 lets this test bind loopback.
 const std = @import("std");
@@ -19,13 +19,13 @@ const internal_server_error = 500;
 /// The room of the router's one response, which holds a head and no body.
 const response_bytes = 64;
 
-const routes = server.router(void, .{
+const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .get, "/", answer },
     },
-});
-const Router = @TypeOf(routes).Of(.{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0 });
+};
+const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0 });
 
 fn answer(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
     try response.end();
@@ -93,7 +93,7 @@ const client_initial = hex("c000000001088394c8f03e5157080000449e7b9aec34d1b1c98d
     "7e78bfe706ca4cf5e9c5453e9f7cfd2b8b4c8d169a44e55c88d4a9a7f9474241" ++
     "e221af44860018ab0856972e194cd934");
 
-test "design §8 step 37: the endpoint takes a datagram marked ECT(0) and counts its codepoint" {
+test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts its codepoint" {
     var counter: support.Counter = .{};
     router = .{};
     try test_server.init(.{
@@ -102,10 +102,10 @@ test "design §8 step 37: the endpoint takes a datagram marked ECT(0) and counts
         .random = counter.random(),
     });
     defer test_server.deinit();
-    // Decision 68: the server's loop reads each codepoint, so its endpoint says so, whatever the
+    // Decision 68: the server's loop reads each codepoint, so its engine says so, whatever the
     // program's configuration says.
-    try testing.expect(test_server.endpoint_config.ecn);
-    try test_server.endpoint.init(&test_server.endpoint_config, test_server.config.random.?, 0, 0);
+    try testing.expect(test_server.engine_config.ecn);
+    try test_server.engine.init(&test_server.engine_config, test_server.config.random.?, 0, 0);
     test_server.entry_of = @splat(null);
     test_server.entries = @splat(.{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false });
     test_server.pending = .initEmpty();
@@ -126,15 +126,15 @@ test "design §8 step 37: the endpoint takes a datagram marked ECT(0) and counts
     };
     datagram_socket.take_delivery(delivery, &running, server_udp.take, 1);
     // RFC 9000 §13.4.1: the Initial space counts one ECT(0) packet. No program reads the count, so
-    // the test reads the field of the endpoint's one QUIC connection.
-    const transport = &test_server.endpoint.state.connections.connections[0].transport;
+    // the test reads the field of the engine's one QUIC connection.
+    const transport = &test_server.engine.state.connections.connections[0].transport;
     try testing.expectEqual(1, transport.spaces[0].ecn.ect_0);
-    // The endpoint opened the Initial and owes the client an answer in its own Initial.
-    const sent = test_server.endpoint.send_datagram(&test_server.udp.datagram, 1).?;
+    // The engine opened the Initial and owes the client an answer in its own Initial.
+    const sent = test_server.engine.send_datagram(&test_server.udp.datagram, 1).?;
     try testing.expect(sent.bytes.len > 0);
     try testing.expectEqual(4433, sent.to.port);
     // RFC 9000 §13.4.2: an endpoint that reads ECN marks what it sends ECT(0) while it tests the
-    // path. The endpoint names ECT(0) here, and a test in `datagram_socket.zig` checks that the loop
+    // path. The engine names ECT(0) here, and a test in `datagram_socket.zig` checks that the loop
     // asks Rotor to set it.
     try testing.expectEqual(server.Ecn.ect_0, sent.ecn);
 }

@@ -17,7 +17,7 @@ const zlib = @import("zlib");
 const constants = @import("constants.zig");
 const message = @import("message/message.zig");
 
-/// The CPU features the decoders run on, which the caller chooses (`Storage.reset`).
+/// The CPU features the decoders run on, which the caller chooses (`Pool.init`).
 pub const Features = codec.Features;
 
 pub const Error = error{
@@ -50,13 +50,28 @@ pub const Header = struct {
     features: Features,
 };
 
-/// A pool of `count` decoders, the most messages carrying `gzip` or `deflate` that the
-/// connections given it decode at once. The caller places it (decision 35).
-pub fn Pool(comptime count: usize) type {
-    comptime assert(count > 0 and count < no_slot);
+/// The sizes of a `Pool` (decision 158 ruling 3).
+pub const PoolOptions = struct {
+    /// The decoders of the pool: the most messages carrying `gzip` or `deflate` that the
+    /// connections given it decode at once (decision 91).
+    count: usize = constants.limits.decoders_default,
+};
+
+/// A pool of `options.count` decoders. The caller places it (decision 35), calls `init` once, and
+/// then gives its `storage` to each connection.
+pub fn Pool(comptime options: PoolOptions) type {
+    comptime assert(options.count > 0 and options.count < no_slot);
     return struct {
         header: Header = undefined,
-        slots: [count]Slot = undefined,
+        slots: [options.count]Slot = undefined,
+
+        /// Every slot free, and the CPU features its decoders run on. `Features.target()` is what
+        /// the build target guarantees; `Features.detect()` asks the CPU, which colibri never does
+        /// itself. Called once, before the storage is given to any connection (decision 158
+        /// ruling 10).
+        pub fn init(pool: *@This(), features: Features) void {
+            reset(pool.storage(), features);
+        }
 
         pub fn storage(pool: *@This()) Storage {
             return .{ .header = &pool.header, .slots = &pool.slots };
@@ -64,27 +79,10 @@ pub fn Pool(comptime count: usize) type {
     };
 }
 
-/// The pool a caller gets by asking for no size in particular (decision 91).
-pub const DefaultPool = Pool(constants.limits.decoders_default);
-
 /// A pool as a connection holds it, whatever its size.
 pub const Storage = struct {
     header: *Header,
     slots: []Slot,
-
-    /// Every slot free, and the CPU features its decoders run on. `Features.target()` is what the
-    /// build target guarantees; `Features.detect()` asks the CPU, which colibri never does itself.
-    /// Called once, before the storage is given to any connection.
-    pub fn reset(storage: Storage, features: Features) void {
-        assert(storage.slots.len > 0 and storage.slots.len < no_slot);
-        // Bounded by the pool's slots.
-        for (storage.slots, 0..) |*slot, index| {
-            const following = index + 1;
-            slot.next = if (following < storage.slots.len) @intCast(following) else no_slot;
-        }
-        storage.header.free_head = 0;
-        storage.header.features = features;
-    }
 
     /// The decoders no message holds.
     pub fn free_count(storage: Storage) usize {
@@ -114,6 +112,18 @@ pub const Storage = struct {
         storage.header.free_head = index;
     }
 };
+
+/// Every slot of `storage` free, and the CPU features its decoders run on: what `Pool.init` does.
+fn reset(storage: Storage, features: Features) void {
+    assert(storage.slots.len > 0 and storage.slots.len < no_slot);
+    // Bounded by the pool's slots.
+    for (storage.slots, 0..) |*slot, index| {
+        const following = index + 1;
+        slot.next = if (following < storage.slots.len) @intCast(following) else no_slot;
+    }
+    storage.header.free_head = 0;
+    storage.header.features = features;
+}
 
 /// One message's decoding: its coding, the decoder it took, and whether the coded stream ended.
 pub const Decoding = struct {
@@ -239,7 +249,7 @@ const testing = std.testing;
 /// Decoders in the pool the tests run on: two, so a third message finds none. Test-only.
 const test_pool_count = 2;
 /// The pool and the encoder the tests run on, placed outside any stack frame. Test-only.
-threadlocal var test_pool: Pool(test_pool_count) align(@alignOf(Pool(test_pool_count))) = undefined;
+threadlocal var test_pool: Pool(.{ .count = test_pool_count }) align(@alignOf(Pool(.{ .count = test_pool_count }))) = undefined;
 threadlocal var test_gzip: gzip.Encoder(.{ .level = 1 }) align(@alignOf(gzip.Encoder(.{ .level = 1 }))) = undefined;
 threadlocal var test_zlib: zlib.Encoder(.{ .level = 1 }) align(@alignOf(zlib.Encoder(.{ .level = 1 }))) = undefined;
 
@@ -282,8 +292,8 @@ fn decode_in_pieces(decoding: *Decoding, storage: Storage, coded: []const u8, pi
 }
 
 test "RFC 9110 §8.4.1.3: a gzip body decodes in any pieces, and the decoder goes back" {
+    test_pool.init(Features.none());
     const storage = test_pool.storage();
-    storage.reset(Features.none());
     var coded_room: [test_room]u8 = undefined;
     const coded = try gzip_of(test_text, &coded_room);
     for ([_]usize{ 1, 7, coded.len }) |piece_len| {
@@ -307,8 +317,8 @@ test "RFC 9110 §8.4.1.3: a gzip body decodes in any pieces, and the decoder goe
 }
 
 test "RFC 1952 §2.2: a gzip body of two members decodes to both" {
+    test_pool.init(Features.none());
     const storage = test_pool.storage();
-    storage.reset(Features.none());
     var coded_room: [2 * test_room]u8 = undefined;
     const first = try gzip_of("first member, ", coded_room[0..test_room]);
     const second = try gzip_of("second member", coded_room[first.len..]);
@@ -321,8 +331,8 @@ test "RFC 1952 §2.2: a gzip body of two members decodes to both" {
 }
 
 test "RFC 9110 §8.4.1.2: deflate is zlib, and octets after its stream are refused" {
+    test_pool.init(Features.none());
     const storage = test_pool.storage();
-    storage.reset(Features.none());
     var coded_room: [test_room]u8 = undefined;
     const coded = try zlib_of(test_text, &coded_room);
     var decoding: Decoding = .{};
@@ -335,8 +345,8 @@ test "RFC 9110 §8.4.1.2: deflate is zlib, and octets after its stream are refus
 }
 
 test "decision 91: a corrupt body, a refused feature and a stream cut short each have their verdict" {
+    test_pool.init(Features.none());
     const storage = test_pool.storage();
-    storage.reset(Features.none());
     var coded_room: [test_room]u8 = undefined;
     const coded = try gzip_of(test_text, &coded_room);
     var decoded: [test_room]u8 = undefined;
@@ -360,8 +370,8 @@ test "decision 91: a corrupt body, a refused feature and a stream cut short each
 }
 
 test "decision 101: a decoder reserved before the coding is known starts on it, or goes back unused" {
+    test_pool.init(Features.none());
     const storage = test_pool.storage();
-    storage.reset(Features.none());
     var coded_room: [test_room]u8 = undefined;
     const coded = try zlib_of(test_text, &coded_room);
     var reserved: Decoding = .{};
@@ -383,4 +393,37 @@ test "decision 101: a decoder reserved before the coding is known starts on it, 
     try testing.expectEqual(test_pool_count, storage.free_count());
     try testing.expect(third.reserve(storage));
     try testing.expect(unused.reserve(storage));
+}
+
+/// Features with each one on, which differ from `Features.none()`. Test-only.
+fn every_feature() Features {
+    var features = Features.none();
+    inline for (@typeInfo(Features).@"struct".fields) |field| {
+        if (field.type == bool) @field(features, field.name) = true;
+    }
+    return features;
+}
+
+test "decision 158 ruling 3: a pool of the default options holds the decoders the old default held" {
+    try testing.expectEqual(constants.limits.decoders_default, @typeInfo(@FieldType(Pool(.{}), "slots")).array.len);
+}
+
+test "decision 158 ruling 10: init frees every slot and sets the features, and a gzip body decodes" {
+    // A pool that a run used: one slot taken, and other features.
+    test_pool.init(Features.none());
+    var held: Decoding = .{};
+    try testing.expect(held.reserve(test_pool.storage()));
+    test_pool.header.features = every_feature();
+    test_pool.init(Features.none());
+    try testing.expect(std.meta.eql(Features.none(), test_pool.header.features));
+    const storage = test_pool.storage();
+    try testing.expectEqual(test_pool_count, storage.free_count());
+    var coded_room: [test_room]u8 = undefined;
+    const coded = try gzip_of(test_text, &coded_room);
+    var decoding: Decoding = .{};
+    try decoding.start(storage, .gzip);
+    var decoded: [test_room]u8 = undefined;
+    const written = try decode_in_pieces(&decoding, storage, coded, coded.len, &decoded);
+    try testing.expectEqualStrings(test_text, decoded[0..written]);
+    try decoding.finish(storage);
 }

@@ -1,8 +1,8 @@
-//! The endpoint's configuration (decision 119): one TLS identity, the versions and limits every
+//! The engine's configuration (decision 119): one TLS identity, the versions and limits every
 //! connection serves under, and what TCP or QUIC connections alone take. `init` builds from it, in
-//! the endpoint's own storage, the TLS configuration of each transport the endpoint serves and the
+//! the engine's own storage, the TLS configuration of each transport the engine serves and the
 //! configurations its connections borrow. `server.zig` exports `Config` under its own name. Split out of
-//! `endpoint_connections.zig` for length.
+//! `engine_connections.zig` for length.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -20,17 +20,17 @@ const alt_svc = @import("../alt_svc.zig");
 const connection_config = @import("../connection/connection_config.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
-const endpoint_connections = @import("endpoint_connections.zig");
+const engine_connections = @import("engine_connections.zig");
 
 const StartError = connection_errors.StartError;
 
-/// The endpoint reads it while it runs, so the caller keeps it alive and in place after `init`.
+/// The engine reads it while it runs, so the caller keeps it alive and in place after `init`.
 pub const Config = struct {
     /// The server's certificate chain and key, given once (RFC 9846 §4.5.1, §4.5.2). Its `alpn`
-    /// stays empty: the endpoint names the protocol `versions` allows, "h3" over QUIC (RFC 9114
+    /// stays empty: the engine names the protocol `versions` allows, "h3" over QUIC (RFC 9114
     /// §3.1).
     tls: ?tls.Server = null,
-    /// The HTTP versions the endpoint serves (decision 117). A QUIC connection serves h3 alone.
+    /// The HTTP versions the engine serves (decision 117). A QUIC connection serves h3 alone.
     protocols: protocols_module.Protocols = .{},
     /// Limits on what a peer may ask (decision 117). `requests_max` bounds an h3 connection's
     /// request streams too, up to `quic_requests_max`.
@@ -64,29 +64,29 @@ pub const Config = struct {
     /// lists it (RFC 9368 §2.3, decision 111), or null to keep every client in its first one.
     switch_to: ?quic.packet.header.Version = .v2,
     /// QUIC connections alone. When set, a client proves its address with a Retry token before a
-    /// connection starts (RFC 9000 §8.1.2), as `retry_from_percent` says, which the endpoint seals
+    /// connection starts (RFC 9000 §8.1.2), as `retry_from_percent` says, which the engine seals
     /// and opens under this key (decision 55).
     retry: ?*const tls.quic.Retry = null,
-    /// QUIC connections alone, with `retry` set: the endpoint sends a Retry to a client that brings
+    /// QUIC connections alone, with `retry` set: the engine sends a Retry to a client that brings
     /// no token while at least this percent of its QUIC slots hold a connection, from 0 to
     /// `retry_from_percent_max` (decision 110 as amended). At 0 every such client gets one. The
-    /// endpoint checks a token a client returns with, whatever the share.
+    /// engine checks a token a client returns with, whatever the share.
     retry_from_percent: u8 = 0,
     /// QUIC connections alone: where each connection's qlog log comes from (decision 102 as
     /// amended), or null for none.
-    logs: ?endpoint_connections.LogProvider = null,
+    logs: ?engine_connections.LogProvider = null,
     /// QUIC connections alone: where the program keeps RFC 9959's saved sets, so a connection to a
-    /// client starts near an earlier one's rate (decision 149), or null for none. The endpoint
+    /// client starts near an earlier one's rate (decision 149), or null for none. The engine
     /// takes a set when a connection starts, and puts back what it observed when it ends.
     resumes: ?quic.ResumeProvider = null,
     /// QUIC connections alone: RFC 9959 §5's max_jump and Lifetime for a connection that resumes.
     resume_bounds: quic.ResumeBounds = .{},
 };
 
-/// How many slots of each kind an endpoint holds.
+/// How many slots of each kind an engine holds.
 pub const Counts = struct { tcp: usize, quic: usize };
 
-/// Which transports an endpoint serves: those it holds slots for whose versions `versions` allows.
+/// Which transports an engine serves: those it holds slots for whose versions `versions` allows.
 pub const Served = struct { tcp: bool, quic: bool };
 
 /// The configurations a TCP connection borrows, one for each `Security`, which differ in `tls`
@@ -101,7 +101,7 @@ pub const Built = struct {
     tcp: *TcpConfigs,
 };
 
-/// Builds the TLS configuration of each transport the endpoint serves, checks that its key signs,
+/// Builds the TLS configuration of each transport the engine serves, checks that its key signs,
 /// and fills what each connection borrows. `random` is the program's source, which each check
 /// draws from for an RSA-PSS salt.
 pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Random) StartError!Served {
@@ -115,15 +115,15 @@ pub fn build(config: *const Config, counts: Counts, built: Built, random: tls.Ra
     // RFC 9114 §3.1: a TCP connection speaks h11 or h2, and `versions` may turn both off (decision
     // 117).
     const serves_tcp = counts.tcp > 0 and protocols_module.tcp_choice(config.protocols) != null;
-    // RFC 9001 §3: QUIC's keys come from a TLS handshake, so an endpoint with no identity starts
+    // RFC 9001 §3: QUIC's keys come from a TLS handshake, so an engine with no identity starts
     // no QUIC connection. RFC 9114 §3.1: its QUIC connections speak h3, under the token the
     // handshake names, and `versions` may turn h3 off (decision 117).
     const serves_quic = counts.quic > 0 and config.tls != null and config.protocols.h3;
     // RFC 9114 §3.1 and RFC 9113 §3: the slots it holds speak none of the versions `versions`
-    // allows, so the endpoint would serve no client.
+    // allows, so the engine would serve no client.
     if (!serves_tcp and !serves_quic) return error.NoVersion;
-    // A connection refuses limits `validate` refuses. An endpoint whose every connection refused
-    // to start would answer no client and tell its program nothing, so the endpoint refuses them
+    // A connection refuses limits `validate` refuses. An engine whose every connection refused
+    // to start would answer no client and tell its program nothing, so the engine refuses them
     // here, once, where its program reads the error. Decision 110 as amended judges the body rate
     // in units only where a body may arrive in them.
     try config.timeouts.validate();
@@ -141,7 +141,7 @@ fn build_quic(config: *const Config, built: Built, random: tls.Random) StartErro
     var values = config.tls.?;
     values.alpn = &alpn_h3;
     built.quic_tls.init(values) catch |failure| switch (failure) {
-        // The endpoint names one protocol, and a server's values name no anchor.
+        // The engine names one protocol, and a server's values name no anchor.
         error.TooManyProtocols, error.TooManyAnchors => unreachable,
         else => |refused| return refused,
     };
@@ -184,7 +184,7 @@ fn build_tcp(config: *const Config, built: Built, random: tls.Random) StartError
     const versions = config.protocols;
     values.alpn = if (versions.h11 and versions.h2) &alpn_both else if (versions.h2) &alpn_h2 else &alpn_h11;
     built.tcp_tls.init(values) catch |failure| switch (failure) {
-        // The endpoint names two protocols at most, and a server's values name no anchor.
+        // The engine names two protocols at most, and a server's values name no anchor.
         error.TooManyProtocols, error.TooManyAnchors => unreachable,
         else => |refused| return refused,
     };
@@ -194,42 +194,42 @@ fn build_tcp(config: *const Config, built: Built, random: tls.Random) StartError
 
 const testing = std.testing;
 const support = @import("../quic/quic_test_support.zig");
-const endpoint_support = support.endpoint_support;
+const engine_support = support.engine_support;
 const tcp_support = @import("../connection/connection_test_support.zig");
 
-test "decision 119: an endpoint with no identity, or with h3 turned off, serves no version" {
-    try support.start_endpoint(null);
-    const config = &endpoint_support.endpoint_config;
+test "decision 119: an engine with no identity, or with h3 turned off, serves no version" {
+    try support.start_engine(null);
+    const config = &engine_support.engine_config;
     config.protocols.h3 = false;
-    try testing.expectError(error.NoVersion, endpoint_support.restart());
+    try testing.expectError(error.NoVersion, engine_support.restart());
     config.protocols.h3 = true;
     config.tls = null;
-    try testing.expectError(error.NoVersion, endpoint_support.restart());
+    try testing.expectError(error.NoVersion, engine_support.restart());
 }
 
-test "RFC 9846 §4.5.2: an endpoint whose key's signature does not verify refuses to start" {
-    try support.start_endpoint(null);
-    const config = &endpoint_support.endpoint_config;
+test "RFC 9846 §4.5.2: an engine whose key's signature does not verify refuses to start" {
+    try support.start_engine(null);
+    const config = &engine_support.engine_config;
     // Another point than the private key's, so its CertificateVerify fails.
     var other = tcp_support.key;
     other.public_key[tls.constants.protocol.p256_public_key_len - 1] ^= 1;
     config.tls.?.identities = &.{.{ .chain = &tcp_support.chain, .key = &other }};
-    try testing.expectError(error.IdentityRefused, endpoint_support.restart());
+    try testing.expectError(error.IdentityRefused, engine_support.restart());
     // A chain longer than the configuration holds is the TLS configuration's own refusal.
     const long_chain: [tls.constants.limits.certificate_chain_len_max + 1][]const u8 = @splat(tcp_support.chain[0]);
     config.tls = support.server_values();
     config.tls.?.identities = &.{.{ .chain = &long_chain, .key = &tcp_support.key }};
-    try testing.expectError(error.TooManyCertificates, endpoint_support.restart());
+    try testing.expectError(error.TooManyCertificates, engine_support.restart());
 }
 
 test "RFC 9000 §4.6: requests_max bounds the request streams a client opens, up to h3's records" {
-    try support.start_endpoint(null);
+    try support.start_engine(null);
     try support.connect();
     // The default of 100 holds more requests than a QUIC connection's records.
     try testing.expectEqual(constants.limits.quic_requests_max, support.client.peer_parameters.?.initial_max_streams_bidi);
-    try support.start_endpoint(null);
-    endpoint_support.endpoint_config.limits.requests_max = requests_few;
-    try endpoint_support.restart();
+    try support.start_engine(null);
+    engine_support.engine_config.limits.requests_max = requests_few;
+    try engine_support.restart();
     try support.connect();
     try testing.expectEqual(requests_few, support.client.peer_parameters.?.initial_max_streams_bidi);
 }
@@ -237,16 +237,16 @@ test "RFC 9000 §4.6: requests_max bounds the request streams a client opens, up
 /// A limit on requests lower than h3's records.
 const requests_few: u32 = 2;
 
-test "decision 110 as amended: each QUIC connection takes the endpoint's two reset limits" {
-    try support.start_endpoint(null);
-    endpoint_support.endpoint_config.limits.peer_resets_max = peer_resets_few;
-    try endpoint_support.restart();
+test "decision 110 as amended: each QUIC connection takes the engine's two reset limits" {
+    try support.start_engine(null);
+    engine_support.engine_config.limits.peer_resets_max = peer_resets_few;
+    try engine_support.restart();
     try support.connect();
     try testing.expectEqual(peer_resets_few, support.served.config.peer_resets_max);
     try testing.expectEqual(constants.policy.resets_sent_max, support.served.config.resets_sent_max);
-    try support.start_endpoint(null);
-    endpoint_support.endpoint_config.limits.resets_sent_max = peer_resets_few;
-    try endpoint_support.restart();
+    try support.start_engine(null);
+    engine_support.engine_config.limits.resets_sent_max = peer_resets_few;
+    try engine_support.restart();
     try support.connect();
     try testing.expectEqual(peer_resets_few, support.served.config.resets_sent_max);
 }
@@ -254,8 +254,8 @@ test "decision 110 as amended: each QUIC connection takes the endpoint's two res
 /// A reset limit lower than the default.
 const peer_resets_few: u32 = 3;
 
-/// An endpoint of one TCP slot and no QUIC slot. Test-only.
-const TcpOnly = @import("endpoint.zig").EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+/// An engine of one TCP slot and no QUIC slot. Test-only.
+const TcpOnly = @import("engine.zig").Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 threadlocal var tcp_only: TcpOnly align(@alignOf(TcpOnly)) = undefined;
 threadlocal var tcp_only_config: Config align(@alignOf(Config)) = undefined;
 
@@ -272,7 +272,7 @@ test "decision 110 as amended: units are judged only where a body may arrive in 
     try testing.expectError(error.TimeoutInvalid, start_tcp_only(support.server_values(), slow));
 }
 
-test "RFC 9846 §4.5.2: an endpoint of TCP slots alone refuses a key whose signature does not verify" {
+test "RFC 9846 §4.5.2: an engine of TCP slots alone refuses a key whose signature does not verify" {
     var identity = support.server_values();
     var other = tcp_support.key;
     other.public_key[tls.constants.protocol.p256_public_key_len - 1] ^= 1;

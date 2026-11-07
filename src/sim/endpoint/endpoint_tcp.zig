@@ -87,8 +87,8 @@ pub const Peer = struct {
     closed: bool,
     /// colibri's client, a pool that opens TCP alone, and whether it reported `close`: its
     /// connection is over and wrote what it owed, so the peer closes its socket.
-    client: client.ConnectionPool,
-    client_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
+    client: client.ConnectionPool(.{}),
+    client_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     close_reported: bool,

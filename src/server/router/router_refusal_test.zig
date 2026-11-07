@@ -1,7 +1,7 @@
 //! The tests of each check that refuses a table (decision 122, design §8 step 21e). Each test
 //! calls a check at compile time on a refused case and on a valid case beside it, so a test
 //! fails when a check goes and when a check refuses too much. `zig build router-check` shows
-//! that `server.router` turns each refusal into a compile error.
+//! that `server.Router` turns each refusal into a compile error.
 const std = @import("std");
 const http = @import("http");
 const router_pattern = @import("router_pattern.zig");
@@ -305,17 +305,17 @@ test "decision 122: a table's checks run in order, and the first refusal names i
 
 test "decision 122: the compile error names the entry, the refusal and its reason" {
     try testing.expectEqualStrings(
-        "server.router: route 1, \"/a//b\": segment_empty: only the last segment of a pattern " ++
+        "server.Router: route 1, \"/a//b\": segment_empty: only the last segment of a pattern " ++
             "may be empty, as in \"/a/\"",
         comptime router_trie.message(.{ .route = 1, .pattern = "/a//b", .reason = .{ .pattern = .segment_empty } }),
     );
     try testing.expectEqualStrings(
-        "server.router: table_empty: a table holds one route at least",
+        "server.Router: table_empty: a table holds one route at least",
         comptime router_trie.message(.{ .route = 0, .pattern = "", .reason = .table_empty }),
     );
 }
 
-/// The first refusal of `table` that reads its layout, in the order of `server.router`:
+/// The first refusal of `table` that reads its layout, in the order of `server.Router`:
 /// `allow_too_long`, then `route_hidden` and `route_unreachable`. `table` passes every check
 /// before the build. Comptime-only.
 fn layout_refusal(comptime table: anytype) ?router_trie.Refusal {
@@ -488,12 +488,12 @@ const valid_entry = .{ .get, "/", 0 };
 
 test "decision 122: the compile error of an unreachable route names the patterns that match first" {
     try testing.expectEqualStrings(
-        "server.router: route 0, \"/a/*\": route_unreachable: no request reaches this route, because " ++
+        "server.Router: route 0, \"/a/*\": route_unreachable: no request reaches this route, because " ++
             "another pattern matches each of its paths first: \"/a/:x\", \"/a/:x/*\"",
         comptime router_trie.message(layout_refusal(.{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } }).?),
     );
     try testing.expectEqualStrings(
-        "server.router: route 1, \"/a\": allow_too_long: the Allow value of the routes of one pattern " ++
+        "server.Router: route 1, \"/a\": allow_too_long: the Allow value of the routes of one pattern " ++
             "holds core.constants.limits.field_value_len_max octets at most, because a 405 sends it as a field value",
         comptime router_trie.message(.{ .route = 1, .pattern = "/a", .reason = .allow_too_long }),
     );

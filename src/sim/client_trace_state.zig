@@ -26,7 +26,7 @@ pub const Carrier = enum { none, quic, tcp };
 pub const Outcome = enum { pending, response, refused, closed, failed };
 pub const Phase = client.Phase;
 /// An entry of `ConnectionPool.entries`, named through that field: the root exports no such type.
-const Entry = std.meta.Elem(@FieldType(client.ConnectionPool, "entries"));
+const Entry = std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "entries"));
 
 pub const State = struct {
     stage: [requests_max]Stage,

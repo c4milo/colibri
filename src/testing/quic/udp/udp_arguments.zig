@@ -25,7 +25,7 @@
 //! - `h3` serves h3 alone, through colibri's `server` module and its `Endpoint` (design §8 step
 //!   17b), where without it the server serves h3 or hq-interop by ALPN on its own connections. It
 //!   holds `quic_connections_max` connections, and writes no qlog.
-//! - `routes=github`, with `h3`, routes each request through `server.router` over the GitHub API's
+//! - `routes=github`, with `h3`, routes each request through `server.Router` over the GitHub API's
 //!   routes, as the TCP server's `--routes github` does, and answers every route with 200 and
 //!   "ok\n", in place of the files of `<www>` (design §8 step 13f).
 //! - `bbr`, with `h3`, runs BBRv3 on each connection in place of CUBIC (decision 136, design §8

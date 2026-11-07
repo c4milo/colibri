@@ -1,6 +1,6 @@
 //! The calls a program makes on a pool (decision 100, design §8 step 17d), for a pool of any
-//! capacity (decision 124). Each function of `ConnectionPoolOf` in `pool.zig` passes its call here, so
-//! the type holds no branch of its own, as `server.EndpointOf` does. A pool with no QUIC holds
+//! capacity (decision 124). Each function of `ConnectionPool` in `pool.zig` passes its call here, so
+//! the type holds no branch of its own, as `server.Engine` does. A pool with no QUIC holds
 //! no QUIC connection, and each step on one is out of its code at build time. The module's root
 //! does not export this file.
 const std = @import("std");
@@ -36,7 +36,7 @@ const ConnectionHandle = pool_module.ConnectionHandle;
 
 pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Destination, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
-    const counts: pool_module.ConnectionPool.Counts = .{ .tcp_connections = config.tcp_connections, .requests = config.requests };
+    const counts: pool_module.ConnectionPool(.{}).Counts = .{ .tcp_connections = config.tcp_connections, .requests = config.requests };
     // Decision 125 ruling 2: memory of another length than the counts need is a programmer
     // error.
     const layout = pool_module.Layout.of(counts);

@@ -4,10 +4,10 @@
 //!
 //! A program sets `status`, adds headers with `header`, writes the body through the
 //! `std.Io.Writer` that `body` returns, and calls `end`, or `trailers` to end with a trailer
-//! section. `write_kept` sends bytes the program keeps, with no copy. The head goes to the endpoint
+//! section. `write_kept` sends bytes the program keeps, with no copy. The head goes to the engine
 //! with the first bytes of the body that go, or with `end`.
 //!
-//! Over h3 the endpoint copies no body: the bytes stay the caller's until the request's `finished`
+//! Over h3 the engine copies no body: the bytes stay the caller's until the request's `finished`
 //! (decision 103). So the bytes of `body` stay in the entry's memory, and the memory serves one
 //! response of `response_bytes` at most. A larger body goes through `write_kept`.
 //!
@@ -15,7 +15,7 @@
 //! returns the wrapper, and `end` and `trailers` only record that the response ends: the router
 //! ends it once each wrapper wrote what it owes.
 //!
-//! When the endpoint takes less than the writer offers, the rest waits in the writer. The router
+//! When the engine takes less than the writer offers, the rest waits in the writer. The router
 //! sends it on the request's `writable`, so a call that queues returns with no error.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -25,7 +25,7 @@ const event = @import("../event.zig");
 const internal = @import("response_writer_internal.zig");
 
 pub const ResponseWriter = struct {
-    /// The status of the head, which a program sets before the head goes out. The endpoint refuses
+    /// The status of the head, which a program sets before the head goes out. The engine refuses
     /// a code outside 100 to 599 and 101 (RFC 9110 §15).
     status: u16 = 200,
 
@@ -42,7 +42,7 @@ pub const ResponseWriter = struct {
     lines: [constants.limits.response_headers_max]http.Field = undefined,
     header_count: u8 = 0,
     trailer_count: u8 = 0,
-    /// The runs of body bytes, in order, and how far the endpoint took them.
+    /// The runs of body bytes, in order, and how far the engine took them.
     pieces: [constants.limits.response_pieces_max][]const u8 = undefined,
     piece_count: u8 = 0,
     piece_sent: u8 = 0,
@@ -129,7 +129,7 @@ pub const ResponseWriter = struct {
         return internal.trailers_now(response);
     }
 
-    /// Whether the head went to the endpoint. Before it has, the program may still choose the
+    /// Whether the head went to the engine. Before it has, the program may still choose the
     /// status, which an error function does.
     pub fn head_sent(response: *const ResponseWriter) bool {
         return response.head_out;

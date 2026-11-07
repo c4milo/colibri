@@ -1,17 +1,17 @@
-//! The program around a `colibri.Server`'s endpoint, with no socket in it: the octets a socket read
+//! The program around a `colibri.Server`'s engine, with no socket in it: the octets a socket read
 //! go in, the octets it sends come out, and the router answers every request. Moved from the
 //! test-only server's `server_session.zig` for design §8 step 37b, with the router in place of its
 //! fixed answers. `server_loop.zig` is the socket side.
 //!
-//! The server keeps one entry for each socket, and the entry outlives the endpoint's slot: the
-//! endpoint frees a slot when it reports the connection's `ended`, straight after its `close`,
+//! The server keeps one entry for each socket, and the entry outlives the engine's slot: the
+//! engine frees a slot when it reports the connection's `ended`, straight after its `close`,
 //! while the socket may still hold octets to send. So `entry_of` maps each slot to the entry of
 //! the connection the slot holds now, and an entry keeps its connection's whole handle.
 //!
 //! `step` serves one socket. It repeats three things until none of the first two moves:
-//!   1. passes the socket's input to the endpoint and routes every event it reports;
+//!   1. passes the socket's input to the engine and routes every event it reports;
 //!   2. calls `send_stream` once, into the socket's room;
-//!   3. reads the endpoint's events until it reports none.
+//!   3. reads the engine's events until it reports none.
 //! The router writes each response as it takes the request's events, so the responses to the
 //! requests one read carried leave in one `send_stream` (decision 119 as amended).
 //!
@@ -35,9 +35,9 @@ pub const Entry = struct {
     /// The connection the entry was given last. The entry keeps it after the connection ended,
     /// when it names nothing, so a late call for the socket reaches no later connection.
     handle: server.ConnectionHandle,
-    /// Whether the endpoint holds that connection: it has not reported its `ended`.
+    /// Whether the engine holds that connection: it has not reported its `ended`.
     attached: bool,
-    /// The endpoint reported the connection's `close`: the socket closes once its octets are out.
+    /// The engine reported the connection's `close`: the socket closes once its octets are out.
     closing: bool,
     /// The connection owes octets no `send_stream` has taken.
     send_owed: bool,
@@ -48,14 +48,14 @@ pub const Entry = struct {
 pub const no_connection: server.ConnectionHandle = .{ .slot = 0, .generation = 0 };
 
 /// Starts the connection of a socket the listener accepted at `now_ns`, in the free entry
-/// `index`. False when the endpoint starts none: the caller closes the socket.
+/// `index`. False when the engine starts none: the caller closes the socket.
 pub fn accept(run: anytype, index: usize, tls: bool, now_ns: u64) bool {
     const state = run.server;
     const entry = &state.entries[index];
     assert(!entry.attached);
     state.now_ns = now_ns;
-    const handle = state.endpoint.accept(.{ .tls = tls }, now_ns) orelse return false;
-    // A slot the endpoint hands out is one whose last connection it reported `ended`.
+    const handle = state.engine.accept(.{ .tls = tls }, now_ns) orelse return false;
+    // A slot the engine hands out is one whose last connection it reported `ended`.
     assert(state.entry_of[handle.slot] == null);
     state.entry_of[handle.slot] = @intCast(index);
     entry.* = .{ .handle = handle, .attached = true, .closing = false, .send_owed = false };
@@ -84,26 +84,26 @@ pub fn step(run: anytype, index: usize, input: []u8, output: []u8, now_ns: u64) 
     return .{ .consumed = consumed, .written = written };
 }
 
-/// The socket of entry `index` closed before the endpoint asked: its peer closed it, or a read or
-/// a send failed. The endpoint ends the connection, and its slot frees.
+/// The socket of entry `index` closed before the engine asked: its peer closed it, or a read or
+/// a send failed. The engine ends the connection, and its slot frees.
 pub fn peer_closed(run: anytype, index: usize, now_ns: u64) void {
     const state = run.server;
     state.now_ns = now_ns;
-    state.endpoint.transport_closed(state.entries[index].handle);
+    state.engine.transport_closed(state.entries[index].handle);
     drain(run);
 }
 
 const Read = struct { consumed: usize, moved: bool };
 
-/// Passes `input` to the entry's connection until the endpoint consumes nothing and reports
-/// nothing, routing each event. A connection the endpoint closed or ended reads nothing.
+/// Passes `input` to the entry's connection until the engine consumes nothing and reports
+/// nothing, routing each event. A connection the engine closed or ended reads nothing.
 fn read(run: anytype, entry: *Entry, input: []u8) Read {
     const state = run.server;
     var taken: Read = .{ .consumed = 0, .moved = false };
     for (0..constants.limits.events_per_step_max) |_| {
         if (entry.closing or !entry.attached) break;
         const bytes: server.StreamBytes = .{ .connection = entry.handle, .bytes = input[taken.consumed..] };
-        const received = state.endpoint.receive(.{ .stream = bytes }, state.now_ns);
+        const received = state.engine.receive(.{ .stream = bytes }, state.now_ns);
         taken.consumed += received.consumed;
         if (received.event) |reported| route(run, reported);
         if (received.consumed == 0 and received.event == null) break;
@@ -116,16 +116,16 @@ fn read(run: anytype, entry: *Entry, input: []u8) Read {
 /// owed (decision 119), so the entry stays owing for the step that has room again.
 fn send(state: anytype, entry: *Entry, room: []u8) usize {
     if (!entry.send_owed or room.len == 0) return 0;
-    const written = state.endpoint.send_stream(entry.handle, room, state.now_ns);
+    const written = state.engine.send_stream(entry.handle, room, state.now_ns);
     entry.send_owed = written == room.len;
     return written;
 }
 
-/// Reads the endpoint's events until it reports none, routing each.
+/// Reads the engine's events until it reports none, routing each.
 pub fn drain(run: anytype) void {
     const state = run.server;
     for (0..constants.limits.events_per_step_max) |_| {
-        const reported = state.endpoint.receive(.none, state.now_ns).event orelse {
+        const reported = state.engine.receive(.none, state.now_ns).event orelse {
             state.undrained = false;
             return;
         };
@@ -142,7 +142,7 @@ pub fn route(run: anytype, reported: server.Event) void {
     if (request_connection(reported)) |handle| {
         if (is_tcp(run.server, handle)) _ = named(run.server, handle);
     }
-    switch (run.router.handle(run.context, &run.server.endpoint, reported)) {
+    switch (run.router.handle(run.context, &run.server.engine, reported)) {
         .taken => {},
         .event => |other| on_connection_event(run.server, other),
     }
@@ -164,20 +164,20 @@ fn on_connection_event(state: anytype, reported: server.Event) void {
     switch (reported) {
         .send => |handle| named(state, handle).send_owed = true,
         .close => |handle| named(state, handle).closing = true,
-        // A QUIC connection has no socket of its own, and its slot frees in the endpoint.
+        // A QUIC connection has no socket of its own, and its slot frees in the engine.
         .ended => |over| if (is_tcp(state, over.connection)) {
             // The slot takes another connection from here on, and the entry stays its socket's.
             named(state, over.connection).attached = false;
             state.entry_of[over.connection.slot] = null;
         },
-        // The shut-down endpoint holds no connection, and `run` returns.
+        // The shut-down engine holds no connection, and `run` returns.
         .closed => state.over = true,
         // The router takes every event of a request.
         .request, .body, .trailers, .writable, .finished => {},
     }
 }
 
-/// Whether `handle` names a TCP connection: the endpoint's TCP slots come first.
+/// Whether `handle` names a TCP connection: the engine's TCP slots come first.
 fn is_tcp(state: anytype, handle: server.ConnectionHandle) bool {
     return handle.slot < state.entries.len;
 }
@@ -186,7 +186,7 @@ fn is_tcp(state: anytype, handle: server.ConnectionHandle) bool {
 fn named(state: anytype, handle: server.ConnectionHandle) *Entry {
     const index = state.entry_of[handle.slot].?;
     const entry = &state.entries[index];
-    // The endpoint reports nothing of a connection after its `ended`, which empties the slot's
+    // The engine reports nothing of a connection after its `ended`, which empties the slot's
     // place in the map, so the entry found is this connection's.
     assert(entry.attached and std.meta.eql(entry.handle, handle));
     state.pending.set(index);

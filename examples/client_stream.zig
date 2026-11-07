@@ -73,7 +73,7 @@ pub const Error = error{
 
 // The pool speaks h2 with prior knowledge over TCP alone (decision 117), so it holds no QUIC state
 // (decision 124).
-const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
+const ConnectionPool = client.ConnectionPool(.{ .quic = false });
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 var pool_memory: [ConnectionPool.memory_bytes(.{})]u8 align(ConnectionPool.memory_alignment) = undefined;
 var client_config: client.Config align(@alignOf(client.Config)) = .{

@@ -14,7 +14,7 @@ const limits = sim.constants.h3_deadline;
 const Plan = plan_module.Plan;
 
 /// The server's endpoint, which holds the run's one QUIC connection.
-pub const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 });
+pub const Engine = server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 });
 
 pub const Error = error{
     /// The server refused an answer to an honest peer.
@@ -99,7 +99,7 @@ pub const Application = struct {
     /// Writes what each answer owes at `now_ms`, from the first octets of `content`, which stay
     /// the application's (decision 103): its head and first octets once the request's content has
     /// ended and its delay has passed, and the rest a gap after. Returns whether anything moved.
-    pub fn answer(app: *Application, endpoint: *Endpoint, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
+    pub fn answer(app: *Application, endpoint: *Engine, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
         var moved = false;
         for (app.answers[0..app.answers_len], 0..) |*pending, index| {
             const due_ms = next_write_ms(pending, plan, index) orelse continue;
@@ -156,7 +156,7 @@ fn next_write_ms(pending: *const Answer, plan: *const Plan, index: usize) ?u64 {
 
 /// Writes the answer's head and first octets, or its last octets and its end. QUIC reads the
 /// octets in place until the peer acknowledges them.
-fn write(endpoint: *Endpoint, pending: *Answer, plan: *const Plan, content: []const u8, index: usize, now_ms: u64) server.SendError!void {
+fn write(endpoint: *Engine, pending: *Answer, plan: *const Plan, content: []const u8, index: usize, now_ms: u64) server.SendError!void {
     const in_two = plan.answer_gap_ms[index] > 0;
     const first_len = if (in_two) content.len / halves else content.len;
     if (pending.answered_ms != null) {
@@ -170,7 +170,7 @@ fn write(endpoint: *Endpoint, pending: *Answer, plan: *const Plan, content: []co
     if (first_len > 0) try write_content(endpoint, pending.id, content[0..first_len], ends);
 }
 
-fn write_content(endpoint: *Endpoint, id: server.RequestId, content: []const u8, end: bool) server.SendError!void {
+fn write_content(endpoint: *Engine, id: server.RequestId, content: []const u8, end: bool) server.SendError!void {
     const taken = try endpoint.write_body(id, .{ .bytes = content, .end = end });
     assert(taken == content.len);
 }

@@ -11,13 +11,13 @@ const protocols_module = @import("../protocols.zig");
 const testing = std.testing;
 const Exchange = support.Exchange;
 const Event = pool_module.Event;
-const ConnectionPool = pool_module.ConnectionPoolOf(.{ .quic = false });
+const ConnectionPool = pool_module.ConnectionPool(.{ .quic = false });
 const ConnectionHandle = pool_module.ConnectionHandle;
 
 /// A pool of two TCP slots, and room for the exchanges of each test.
 const slots_count: u16 = 2;
 const requests_count: u16 = 4;
-const two_slots: pool_module.ConnectionPool.Counts = .{ .tcp_connections = slots_count, .requests = requests_count };
+const two_slots: pool_module.ConnectionPool(.{}).Counts = .{ .tcp_connections = slots_count, .requests = requests_count };
 
 /// The pool the tests drive, its memory, its configuration and the events it reported, outside
 /// any stack frame. Test-only.
@@ -301,7 +301,7 @@ test "decision 125 ruling 8: an open still owed when set_destination comes goes 
 }
 
 /// Three hosts, a pool of three slots, and its memory. Test-only.
-const three_slots: pool_module.ConnectionPool.Counts = .{ .tcp_connections = slots_count + 1, .requests = requests_count };
+const three_slots: pool_module.ConnectionPool(.{}).Counts = .{ .tcp_connections = slots_count + 1, .requests = requests_count };
 const three_addresses = [_]pool_module.Address{ pool_module.Address.of(&loopback, 0), pool_module.Address.of(&second_host, 0), pool_module.Address.of(&third_host, 0) };
 var three_memory: [ConnectionPool.memory_bytes(three_slots)]u8 align(ConnectionPool.memory_alignment) = undefined;
 

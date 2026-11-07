@@ -5,7 +5,7 @@ const std = @import("std");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
 const Next = @import("../middleware.zig").Next;
-const router = @import("router.zig").router;
+const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
 const Recorder = support.Recorder;
 
@@ -80,17 +80,17 @@ fn on_error(_: *App, _: *const event.Request, _: anyerror, response: *ResponseWr
     response.status = unavailable;
 }
 
-const routes = router(App, .{
+const routes = .{
     .error_handler = on_error,
     .middleware = .{Log},
     .routes = .{
         .{ .get, "/open", route },
         .{ .get, "/guarded", route, .{ .middleware = .{ Guard, Late } } },
     },
-});
+};
 
 const response_bytes = 64;
-const Pool = @TypeOf(routes).Of(.{ .requests = 1, .response_bytes = response_bytes });
+const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes });
 
 const Fixture = struct {
     app: App = .{},

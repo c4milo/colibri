@@ -1,5 +1,5 @@
 //! Whether an h3 response has room for what its program waits to write (decision 119): the
-//! endpoint asks once a datagram may have freed room, and reports `writable` when it has. Only the
+//! engine asks once a datagram may have freed room, and reports `writable` when it has. Only the
 //! peer's acknowledgments free a response's runs and its encoder's ring (RFC 9000 §3.1). Split out
 //! of `quic_connection_h3.zig` for length.
 const h3 = @import("h3");

@@ -1,25 +1,25 @@
-//! Example: a server answers clients over TCP and over QUIC through one `server.Endpoint`.
+//! Example: a server answers clients over TCP and over QUIC through one `server.Engine`.
 //!
-//! The endpoint holds every connection one thread serves (decision 119): the TCP connections the
+//! The engine holds every connection one thread serves (decision 119): the TCP connections the
 //! program accepts, which speak h11 or h2, and the QUIC connections behind one UDP socket, which
 //! speak h3. The program calls `accept` for each TCP socket, and the handle it gets names the
 //! connection from then on. A QUIC connection starts from a client's first datagram.
 //!
-//! The server routes each request through a table of `server.router`, which the compiler builds
+//! The server routes each request through a table of `server.Router`, which the compiler builds
 //! and checks. Its router calls the function of the request's route, and answers 404, 405, 501 and
 //! 503 itself.
 //!
-//! In a turn the server fires the deadlines that passed, then passes the endpoint what each socket
+//! In a turn the server fires the deadlines that passed, then passes the engine what each socket
 //! read: the octets of a TCP socket under the handle of its connection, and each datagram with the
 //! address it came from. Each `receive` reports one event of any connection. The server answers a
 //! request by its id, which names the request's connection too, in h11, h2 and h3 alike. It sends
 //! what `send_stream` writes for a TCP connection at its `send` event, and every datagram
-//! `send_datagram` writes. Then it sleeps until a socket has octets or the endpoint's next
+//! `send_datagram` writes. Then it sleeps until a socket has octets or the engine's next
 //! deadline passes (decision 110).
 //!
 //! The server also shows:
 //! - `transport_closed`, for a socket whose peer closes it before it sends an octet;
-//! - `set_timeouts`, which shortens the idle deadline of the one QUIC connection the endpoint
+//! - `set_timeouts`, which shortens the idle deadline of the one QUIC connection the engine
 //!   holds once it has a request, so the server closes it when its client keeps it open;
 //! - `h3_alternative`, with which each TLS connection advertises the server's h3 port;
 //! - `shutdown`, once both clients are done, and the `closed` event that follows it;
@@ -97,20 +97,20 @@ pub const Error = error{
     SendUnfinished,
 };
 
-// The links and the endpoint hold megabytes, so they live outside the stack. The datagram link
+// The links and the engine hold megabytes, so they live outside the stack. The datagram link
 // runs on the stream link's loops.
 var link: Link align(@alignOf(Link)) = undefined;
 var datagram_link: DatagramLink align(@alignOf(DatagramLink)) = undefined;
 var output: [output_len]u8 = undefined;
 var datagram_output: [datagram_module.datagram_len_max]u8 = undefined;
 
-// The server: its configuration, which holds the TLS identity, and the endpoint that holds its
+// The server: its configuration, which holds the TLS identity, and the engine that holds its
 // connections. The identity is read from the PEM files an operator holds, which colibri's test
 // identity stands in for: the chain's DER and the key go into these rooms, which stay in place
-// while the endpoint serves.
-/// The TCP and QUIC connections the endpoint holds at once, and the octets each QUIC connection
+// while the engine serves.
+/// The TCP and QUIC connections the engine holds at once, and the octets each QUIC connection
 /// holds unread.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
+const Engine = server.Engine(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
 var chain_der: [chain_der_len]u8 = undefined;
 var chain_room: [tls.constants.limits.certificate_chain_len_max][]const u8 = undefined;
 var key: tls.Key align(@alignOf(tls.Key)) = .{};
@@ -120,8 +120,8 @@ var identities: [1]tls.Identity align(@alignOf(tls.Identity)) = undefined;
 const chain_der_len = 4096;
 var cookie_key: [tls.constants.protocol.server_key_len]u8 = undefined;
 var ticket_key: [tls.constants.protocol.server_key_len]u8 = undefined;
-var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
-var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
+var engine_config: server.Config align(@alignOf(server.Config)) = undefined;
+var engine: Engine align(@alignOf(Engine)) = undefined;
 /// The instant the server started at.
 var started_ns: u64 = 0;
 /// The connection of the socket the TCP client opened, which `accept` named.
@@ -140,7 +140,7 @@ var app: App align(@alignOf(App)) = .{};
 
 /// The server's table of routes, which the compiler builds and checks. A malformed table, or a
 /// table with a conflict, does not compile.
-const routes = server.router(App, .{
+const routes = .{
     .error_handler = on_error,
     .middleware = .{ Brand, Counted },
     .routes = .{
@@ -148,20 +148,20 @@ const routes = server.router(App, .{
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
         .{ .get, "/greetings/:name", greet_named },
     },
-});
+};
 
 /// The router's pool: an entry for each request at once, with room for its response and for the
 /// POST's content. The program places it once and does not move it.
-const Router = @TypeOf(routes).Of(.{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
 var router: Router align(@alignOf(Router)) = .{};
 
-/// Sockets the endpoint said to close, connections that are over, those that ended at their idle
-/// deadline, and whether the shut-down endpoint is over.
+/// Sockets the engine said to close, connections that are over, those that ended at their idle
+/// deadline, and whether the shut-down engine is over.
 var closes: u32 = 0;
 var connections_ended: u32 = 0;
 var idle_ended: u32 = 0;
 var shut: bool = false;
-var endpoint_closed: bool = false;
+var engine_closed: bool = false;
 
 pub fn main() !void {
     try link.init();
@@ -180,7 +180,7 @@ pub fn main() !void {
     for (0..turns_max) |_| {
         try peers.turn();
         try server_turn();
-        if (endpoint_closed) return check();
+        if (engine_closed) return check();
         // No octet and no datagram waits. A program sleeps here until a socket has octets or a
         // deadline passes, whichever comes first.
         if (!link.pending() and !datagram_link.pending()) try link.wait(.server, sleep_ns());
@@ -199,8 +199,8 @@ fn start_server(cpu: tls.Cpu) !void {
     const chain = try tls.pem.chain(identity.chain_pem, &chain_der, &chain_room);
     try tls.pem.key(cpu, identity.key_pem, chain[0], &key);
     identities[0] = .{ .chain = chain, .key = &key };
-    endpoint_config = .{
-        // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
+    engine_config = .{
+        // The identity names no protocol: the engine offers h2 and h11 through ALPN over TCP,
         // as `protocols` allows by default, and names h3 for its QUIC connections.
         .tls = .{
             .identities = &identities,
@@ -220,26 +220,26 @@ fn start_server(cpu: tls.Cpu) !void {
         .resumes = resumes.provider(),
     };
     const now_ns = link.now_ns(.server);
-    // One endpoint for every socket the program accepts and for its UDP socket, in storage the
+    // One engine for every socket the program accepts and for its UDP socket, in storage the
     // program owns. `init` checks that the key signs.
-    try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
+    try engine.init(&engine_config, program.random(), now_seconds, now_ns);
     // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
-    // names the connection in every later call and event. Null says the endpoint starts no
+    // names the connection in every later call and event. Null says the engine starts no
     // connection, and a program then closes the socket.
-    accepted = endpoint.accept(.{}, now_ns) orelse return error.ExchangeWrong;
+    accepted = engine.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 }
 
 /// Accepts a second socket, which its peer closes before it sends an octet, as a port scan does.
 /// This example has no link for it: only the calls a program makes for such a socket are here.
 fn accept_closed() !void {
-    const closed = endpoint.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
-    // The peer closed the socket first, so the program closes its own end and tells the endpoint.
+    const closed = engine.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
+    // The peer closed the socket first, so the program closes its own end and tells the engine.
     // A program calls `transport_closed` then, and when a socket fails. The connection's `ended`
     // follows, with no `close`.
-    endpoint.transport_closed(closed);
+    engine.transport_closed(closed);
 }
 
-/// One turn of the server: fire the deadlines that passed, pass the endpoint what each socket
+/// One turn of the server: fire the deadlines that passed, pass the engine what each socket
 /// read, act on every event it reports, and send every datagram it owes.
 fn server_turn() !void {
     const input = try link.receive(.server);
@@ -247,29 +247,29 @@ fn server_turn() !void {
     // Decision 110: a deadline bounds how long a peer may hold a connection. `on_instant` ends
     // each connection whose peer is late, at the instant the program woke at, and the `receive`
     // calls below report what that leaves the program to do.
-    endpoint.on_instant(now_ns);
+    engine.on_instant(now_ns);
     try read_stream(input, now_ns);
     try read_datagrams(now_ns);
     // Both clients are done, so the server stops. `closed` follows once every connection ended.
     if (peers.closed() and !shut) {
-        endpoint.shutdown(now_ns);
+        engine.shutdown(now_ns);
         shut = true;
     }
     try serve_all(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
-        const sent = endpoint.send_datagram(&datagram_output, now_ns) orelse break;
+        const sent = engine.send_datagram(&datagram_output, now_ns) orelse break;
         try datagram_link.send(.server, sent.bytes);
     }
 }
 
-/// Passes the endpoint the octets the TCP socket read, until it consumes nothing and reports
+/// Passes the engine the octets the TCP socket read, until it consumes nothing and reports
 /// nothing.
 fn read_stream(input: []u8, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_input_max) |_| {
         // The handle says which connection's socket read the octets.
         const read: server.StreamBytes = .{ .connection = accepted, .bytes = input[consumed..] };
-        const received = endpoint.receive(.{ .stream = read }, now_ns);
+        const received = engine.receive(.{ .stream = read }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
             if (received.consumed == 0) break;
@@ -281,23 +281,23 @@ fn read_stream(input: []u8, now_ns: u64) !void {
     link.consume(.server, consumed);
 }
 
-/// Passes the endpoint each datagram the UDP socket read, with the address it came from. Every
+/// Passes the engine each datagram the UDP socket read, with the address it came from. Every
 /// call of the turn takes the instant the program woke at, so no call gets an instant earlier than
 /// the instant of the call before it.
 fn read_datagrams(now_ns: u64) !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try datagram_link.receive(.server) orelse break;
-        // The endpoint finds the connection the datagram's connection ID names, or starts one.
+        // The engine finds the connection the datagram's connection ID names, or starts one.
         try serve_all(.{ .datagram = .{ .bytes = datagram, .from = client_address } }, now_ns);
         datagram_link.consume(.server);
     }
 }
 
-/// Passes `input` to the endpoint, then takes every event it reports until it reports none.
+/// Passes `input` to the engine, then takes every event it reports until it reports none.
 fn serve_all(input: server.Input, now_ns: u64) !void {
     var rest = input;
     for (0..events_per_input_max) |_| {
-        const received = endpoint.receive(rest, now_ns);
+        const received = engine.receive(rest, now_ns);
         rest = .none;
         try serve(received.event orelse return, now_ns);
     }
@@ -316,19 +316,19 @@ fn serve(event: server.Event, now_ns: u64) !void {
     // The router takes each event of a request: it calls the route's function at the head, passes
     // the body to `Echo`, sends what waits at `writable`, and frees the request's entry at its
     // `finished`. It hands back the events of the connections, which are the program's I/O.
-    switch (router.handle(&app, &endpoint, event)) {
+    switch (router.handle(&app, &engine, event)) {
         .taken => {},
         .event => |other| switch (other) {
             // A TCP connection owes its socket octets.
             .send => |connection| try flush(connection, now_ns),
             // colibri reads and writes nothing more on this TCP connection. A program closes the
             // socket once the socket has taken the octets `send_stream` returned, and owes the
-            // endpoint no call: the connection's `ended` follows by itself.
+            // engine no call: the connection's `ended` follows by itself.
             .close => closes += 1,
             // The connection is over, and its slot takes a later socket or client.
             .ended => |over| try count_ended(over, now_ns),
-            // The shut-down endpoint holds no connection.
-            .closed => endpoint_closed = true,
+            // The shut-down engine holds no connection.
+            .closed => engine_closed = true,
             else => return error.ExchangeWrong,
         },
     }
@@ -339,10 +339,10 @@ fn note_request(request: server.Request) !void {
     std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
     app.requests += 1;
     if (request.version.major == 3) {
-        // The endpoint holds one QUIC connection at a time. A client can keep its connection
+        // The engine holds one QUIC connection at a time. A client can keep its connection
         // open after the response, so the server shortens its idle deadline, and the slot is
         // free sooner.
-        try endpoint.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
+        try engine.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
 }
 
@@ -432,7 +432,7 @@ fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {
     // This example has one TCP link, so only the connection it carries may owe octets.
     if (connection != accepted) return error.ExchangeWrong;
     for (0..sends_per_event_max) |_| {
-        const written = endpoint.send_stream(connection, &output, now_ns);
+        const written = engine.send_stream(connection, &output, now_ns);
         try link.send(.server, output[0..written]);
         if (written < output.len) return;
     }
@@ -460,7 +460,7 @@ fn count_ended(over: server.Ended, now_ns: u64) !void {
 /// longer than `wait_ns_max`. `server_turn` then calls `on_instant`.
 fn sleep_ns() u64 {
     var wait_ns: u64 = wait_ns_max;
-    if (endpoint.deadline_ns()) |deadline_ns| {
+    if (engine.deadline_ns()) |deadline_ns| {
         wait_ns = @min(wait_ns, deadline_ns -| link.now_ns(.server));
     }
     if (peers.deadline_ns()) |deadline_ns| {

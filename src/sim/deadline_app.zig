@@ -11,7 +11,7 @@ const limits = sim.constants.deadline;
 const Plan = plan_module.Plan;
 
 /// The server of a deadline run (design §8 step 21b.6): one connection in cleartext, and no QUIC.
-pub const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+pub const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 
 pub const Error = error{
     /// The server refused an answer to an honest peer.
@@ -88,7 +88,7 @@ pub const Application = struct {
 
     /// Answers each request whose body has ended and whose delay has passed since, and writes as
     /// much of each answer's `content` as the server takes. Returns whether anything moved.
-    pub fn answer(app: *Application, endpoint: *Endpoint, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
+    pub fn answer(app: *Application, endpoint: *Engine, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
         var moved = false;
         for (app.answers[0..app.answers_len], 0..) |*pending, index| {
             const body_end_ms = pending.body_end_ms orelse continue;
@@ -131,7 +131,7 @@ pub const Application = struct {
 
 /// Writes the answer's head, then as much of its content as the server takes. A server that ends
 /// a hostile peer's request or connection takes nothing more, and the application stops.
-fn write_answer(endpoint: *Endpoint, plan: *const Plan, pending: *Answer, content: []const u8, now_ms: u64) Error!bool {
+fn write_answer(endpoint: *Engine, plan: *const Plan, pending: *Answer, content: []const u8, now_ms: u64) Error!bool {
     if (pending.answered_ms == null) {
         endpoint.respond(pending.id, .{ .status = answer_status, .end = content.len == 0 }) catch |failure| {
             if (failure != error.NoSpaceLeft) return give_up(plan, pending, content, now_ms);

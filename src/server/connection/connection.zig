@@ -140,7 +140,7 @@ pub const Connection = struct {
     head_request: bool,
     /// h11: the octets of the last call's input that h11 did not consume, such as half a head or
     /// half a chunk-size line. h11 needs them again at the start of the next call's input, so a
-    /// call with no octets, as the endpoint makes to poll a slot, reads nothing from h11 while any
+    /// call with no octets, as the engine makes to poll a slot, reads nothing from h11 while any
     /// remain, not even the end of a body it owes.
     unread_len: usize,
     /// The responses made whole whose `done` event `receive` has not reported (decision 103).
@@ -395,7 +395,7 @@ pub const Connection = struct {
 
 test "design §8 step 17f: the connection's public functions are the calls the module's other files make" {
     // What the connection's own files call on it lives in `connection_internal.zig`. The root does
-    // not export the connection (decision 121), so a function added here is one the endpoint's files
+    // not export the connection (decision 121), so a function added here is one the engine's files
     // may call.
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{

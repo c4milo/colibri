@@ -80,9 +80,9 @@ const ok_status: u16 = 200;
 const content: [limits.body_len_max]u8 = @splat('x');
 
 /// The server: one connection in cleartext, and no QUIC.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 /// The connection a TCP slot holds, whose fields the run and its state read.
-pub const Connection = std.meta.Elem(@FieldType(Endpoint, "tcp"));
+pub const Connection = std.meta.Elem(@FieldType(Engine, "tcp"));
 
 comptime {
     // One offer can write a DATA frame of one octet into every part of colibri's output.
@@ -91,7 +91,7 @@ comptime {
 
 pub const World = struct {
     endpoint_config: server.Config,
-    endpoint: Endpoint,
+    endpoint: Engine,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     client: h2.Connection,

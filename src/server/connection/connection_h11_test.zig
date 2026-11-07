@@ -24,7 +24,7 @@ fn expect_request(request: []const u8, id: u64) !support.Request {
     return head;
 }
 
-/// A call with no octets, as the endpoint makes to poll a slot, reads nothing.
+/// A call with no octets, as the engine makes to poll a slot, reads nothing.
 fn expect_nothing() !void {
     const polled = try connection.receive(&.{}, support.now_ns);
     try testing.expectEqual(0, polled.consumed);

@@ -1,4 +1,4 @@
-//! `server.router`: a table of routes that the compiler builds, which calls the program's functions
+//! `server.Router`: a table of routes that the compiler builds, which calls the program's functions
 //! (decision 127, design §8 step 25.3). colibri calls a function of the program's only inside a
 //! call the program made, `handle`, and never from a loop of its own (decision 127 ruling 2).
 //!
@@ -38,39 +38,21 @@ const router_handler = @import("router_handler.zig");
 /// Middleware run before a route: the route table's `middleware`, then the route entry's, each a
 /// struct with `on_request`, `on_finished` or both (`server.middleware`).
 ///
-/// A program places one `Of(options)` and passes each event of its endpoint to its `handle`.
-/// `match` stays for a program that dispatches a request itself: its `found` gives the route's
-/// `Route` tag, named by its method and its pattern, such as `.@"GET /users/:id"`.
-pub fn router(comptime Context: type, comptime table: anytype) Router(Context, table) {
-    return .{};
-}
-
-fn Router(comptime Context: type, comptime table: anytype) type {
+/// The type is the router: a program places one, which does not move, and passes each event of its
+/// engine to its `handle`. `options` sizes it: `options.requests` entries, each with
+/// `options.response_bytes` of response memory. `match` stays for a program that dispatches a
+/// request itself: its `found` gives the route's `Route` tag, named by its method and its pattern,
+/// such as `.@"GET /users/:id"`.
+pub fn Router(comptime Context: type, comptime table: anytype, comptime options: Options) type {
     router_call.check_table(Context, table);
     const RouteTag = route_enum(table.routes);
     const Table = @TypeOf(router_table.table_of(RouteTag, values_of(RouteTag, table.routes)));
     router_handler.check(Context, table);
-    return struct {
-        /// One tag for each route, in the table's order, named by its method and its pattern.
-        pub const Route = RouteTag;
-        /// What `match` gives: `found` with the route's tag, `method_not_allowed` with the Allow
-        /// field's value, `not_found`, or `not_implemented` (decision 122).
-        pub const Match = Table.Match;
-        /// The sizes of the pool `Of` makes.
-        pub const Options = router_pool.Options;
-
-        /// The route that `method` and `path` name, with its parameters in `parameters`.
-        pub fn match(_: @This(), method: []const u8, path: []const u8, parameters: *PathParameters) Match {
-            return (Table{}).match(method, path, parameters);
-        }
-
-        /// The type a program places once and does not move: a pool of `options.requests`
-        /// entries, each with `options.response_bytes` of response memory.
-        pub fn Of(comptime options: Options) type {
-            return router_pool.Pool(Context, table, RouteTag, Table, options);
-        }
-    };
+    return router_pool.Pool(Context, table, RouteTag, Table, options);
 }
+
+/// The sizes of a router (decision 158 ruling 4).
+pub const Options = router_pool.Options;
 
 /// The enum of the routes, one tag for each in table order. Comptime-only.
 fn route_enum(comptime routes: anytype) type {
@@ -131,9 +113,9 @@ fn ValueOf(comptime Entry: type, comptime Route: type) type {
     return @Tuple(&.{ fields[0].type, fields[1].type, Route });
 }
 
-test "decision 127: a router's type exports Route, Match, Options, match and Of" {
-    const sample = router(void, router_call.sample_table);
-    try @import("core").public_names.expect(@TypeOf(sample), &.{ "Route", "Match", "Options", "match", "Of" });
+test "decision 158: a router's type exports Route, Match, match, memory_bytes and handle" {
+    const Sample = Router(void, router_call.sample_table, .{ .requests = 1, .response_bytes = 0 });
+    try @import("core").public_names.expect(Sample, &.{ "Route", "Match", "match", "memory_bytes", "handle" });
 }
 
 test {

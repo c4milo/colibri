@@ -1,5 +1,5 @@
 //! What a server connection over TCP owes its transport, whether it reads or serves any more, and
-//! whether it takes what a response waits to write, which the server's endpoint asks to report
+//! whether it takes what a response waits to write, which the server's engine asks to report
 //! `send`, `close` and `writable` and to end the requests a connection stopped serving (decision
 //! 119). Split out of `connection.zig` for length;
 //! `server.zig` does not export this file.
@@ -23,7 +23,7 @@ pub fn owes_octets(connection: *Connection) bool {
     if (connection.phase != .open) return false;
     // RFC 9846 §6: after the record layer failed, the alert the provider owes is all that goes out.
     if (record_failed(connection)) return handshake_owed(connection);
-    // RFC 9110 §10.1.1: the 100 a request expects is in the output already, because the endpoint
+    // RFC 9110 §10.1.1: the 100 a request expects is in the output already, because the engine
     // asks after a `receive`, which writes it.
     if (connection.output_len > 0) return true;
     if (protocol_pending(connection)) return true;

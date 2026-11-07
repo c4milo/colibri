@@ -1,5 +1,5 @@
 //! The table that finds a QUIC datagram's connection from its Destination Connection ID in one
-//! entry (decision 157, design §8 step 29d.17). Each connection ID the endpoint issues names its
+//! entry (decision 157, design §8 step 29d.17). Each connection ID the engine issues names its
 //! own entry with the low bits of its first two octets, so a lookup reads one entry and compares
 //! one ID, whatever the number of connections. The table is exact: an ID that ended has no entry.
 const std = @import("std");
@@ -26,7 +26,7 @@ pub fn entries_for(quic_connections: usize) usize {
 const octet_bits = @bitSizeOf(u8);
 const index_bits_max = @bitSizeOf(u16);
 
-/// One ID the endpoint issued and the QUIC index of its connection, or nothing.
+/// One ID the engine issued and the QUIC index of its connection, or nothing.
 pub const Entry = struct {
     id: [id_len]u8 = @splat(0),
     quic_index: ?u32 = null,

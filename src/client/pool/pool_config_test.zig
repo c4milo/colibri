@@ -125,8 +125,8 @@ const codings = [_]http.content_coding.Coding{ .br, .zstd, .gzip };
 const idle_timeout_ms: u64 = 10_000;
 
 test "decision 120: a QUIC connection gets the authority, ECN, the controller, the idle timeout, the codings and each pool" {
+    support.pool.init(.none());
     const storage = support.pool.storage();
-    storage.reset(.none());
     coding_support.reset_pools();
     var given = fixture.configured(true);
     given.ecn = true;

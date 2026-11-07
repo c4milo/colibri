@@ -32,7 +32,7 @@ const Random = sim.Random;
 const limits = sim.constants.endpoint;
 const Plan = plan_module.Plan;
 const Program = program_module.Program;
-const Endpoint = program_module.Endpoint;
+const Engine = program_module.Engine;
 const Peer = tcp_module.Peer;
 
 pub const Error = program_module.Violation || tcp_module.Error || quic_module.Error || error{
@@ -76,7 +76,7 @@ pub const Record = struct {
 
 pub const Storage = struct {
     endpoint_config: server.Config,
-    endpoint: Endpoint,
+    endpoint: Engine,
     ledger: ledger_module.Ledger,
     program: Program,
     tcp: tcp_module.Peers,

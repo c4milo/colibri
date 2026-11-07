@@ -1,5 +1,5 @@
 //! One worker's connections in design §9's server, with no socket in them (design §8 step 21b.6):
-//! one `server.Endpoint` serves every connection the worker holds, and this file is the program
+//! one `server.Engine` serves every connection the worker holds, and this file is the program
 //! around it. The octets a socket read go in, the octets it sends come out, and every request is
 //! answered once it is read whole (`server_session_answer.zig`). `../server.zig` is the socket
 //! side.
@@ -84,11 +84,11 @@ pub const Session = SessionOf(constants.connections_per_worker_max);
 pub fn SessionOf(comptime connections_max: usize) type {
     return struct {
         const Self = @This();
-        pub const Endpoint = server.EndpointOf(.{ .tcp_connections = connections_max, .quic_connections = 0 });
+        pub const Engine = server.Engine(.{ .tcp_connections = connections_max, .quic_connections = 0 });
         const Pending = std.bit_set.IntegerBitSet(connections_max);
 
         /// It stays where `init` found it: the endpoint keeps pointers into itself.
-        endpoint: Endpoint,
+        endpoint: Engine,
         entries: [connections_max]Entry,
         /// The entry of the connection each slot of the endpoint holds now, or null for a free
         /// slot.

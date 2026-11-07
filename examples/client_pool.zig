@@ -22,7 +22,7 @@
 //! 5. Every exchange ends, and the program calls `shutdown`. The pool says `close` of each
 //!    connection, and then `closed`.
 //!
-//! The server is in `client_pool_peer.zig`: one endpoint with four TCP slots. The link of
+//! The server is in `client_pool_peer.zig`: one engine with four TCP slots. The link of
 //! `link_streams.zig` stands where a program's sockets would be, one stream for each socket, and
 //! `tls_program.zig` holds what any program that links `tls` defines once.
 //!
@@ -76,7 +76,7 @@ pub const Error = error{
 
 // The pool speaks h11 over TCP alone, so it holds no QUIC state (decision 124). Its configuration
 // counts four TCP connections, and `memory_bytes` sizes the memory it holds them in (decision 125).
-const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
+const ConnectionPool = client.ConnectionPool(.{ .quic = false });
 const tcp_connections: u16 = link_module.streams_max;
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;

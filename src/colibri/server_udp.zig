@@ -1,7 +1,7 @@
 //! The UDP socket of a `colibri.Server` (design §8 step 37c): h3 over QUIC on the UDP port of the
 //! same number as the TCP listener's, on the same Rotor loop. The socket itself is
 //! `datagram_socket.zig`'s, which a `colibri.Client` shares. This file opens it on the listener's
-//! port, and passes each datagram it reads to the endpoint.
+//! port, and passes each datagram it reads to the engine.
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -23,7 +23,7 @@ pub fn open_when_served(state: anytype, quic_slots: bool) !void {
     assert(!state.udp.open);
     if (!quic_slots or state.config.identity == null) return;
     try open(state);
-    if (state.endpoint_config.h3_alternative == null) state.endpoint_config.h3_alternative = .{ .port = state.bound_port };
+    if (state.engine_config.h3_alternative == null) state.engine_config.h3_alternative = .{ .port = state.bound_port };
 }
 
 /// Hands an event of the UDP socket to it. A server that is shutting down starts no receive.
@@ -32,14 +32,14 @@ pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
     state.udp.on_event(&state.loop, event, !state.shut_down, run, take, now_ns);
 }
 
-/// Passes a datagram to the endpoint, then routes every event it reports until it reports none.
+/// Passes a datagram to the engine, then routes every event it reports until it reports none.
 /// `server_udp_test.zig` calls it through `datagram_socket.take_delivery`.
 pub fn take(run: anytype, received: datagram_socket.Received, now_ns: u64) void {
     const state = run.server;
     state.now_ns = now_ns;
     var rest: server.Input = .{ .datagram = .{ .bytes = received.bytes, .ecn = received.ecn, .from = received.from } };
     for (0..constants.limits.events_per_step_max) |_| {
-        const reported = state.endpoint.receive(rest, now_ns).event orelse return;
+        const reported = state.engine.receive(rest, now_ns).event orelse return;
         rest = .none;
         @import("server_pump.zig").route(run, reported);
     }

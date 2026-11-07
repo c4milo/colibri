@@ -1,5 +1,5 @@
 //! One run of the h3 deadline check (`h3_deadline_check.zig`, decision 110 as amended): a server
-//! `Endpoint` that holds one QUIC connection, the application that answers its requests
+//! `Engine` that holds one QUIC connection, the application that answers its requests
 //! (`h3_deadline_app.zig`), and the peer of the seed's plan (`h3_deadline_peer.zig`), in simulated
 //! time. At each instant the run moves datagrams both ways until nothing moves, then goes to the
 //! next instant something is due: an action or a read of the peer's, a timer of either side's
@@ -82,7 +82,7 @@ pub const Record = struct {
     wire: std.hash.Crc32,
 };
 
-const Endpoint = app_module.Endpoint;
+const Engine = app_module.Engine;
 /// Where the peer sends from, which the endpoint reads off each datagram (decision 72).
 const ipv4_len: usize = 4;
 const peer_octet: u8 = 0xc1;
@@ -91,7 +91,7 @@ const peer_port: u16 = 50_000;
 
 pub const Storage = struct {
     endpoint_config: server.Config,
-    endpoint: Endpoint,
+    endpoint: Engine,
     /// The connection's `ended`, once the endpoint reported it.
     ended: ?server.Ended,
     peer: Peer,

@@ -1,7 +1,7 @@
 //! The server of `client_pool.zig`. This file is not an example by itself: it holds what the pool
 //! example runs against.
 //!
-//! The server is one `server.Endpoint` with four TCP slots in cleartext, which names no version
+//! The server is one `server.Engine` with four TCP slots in cleartext, which names no version
 //! and reads h11 from the client's first octets (decision 117). Each socket the client connects is
 //! one stream of the link, and the listener accepts it. The server answers each GET of
 //! `/greeting` with a greeting. `docs/usage.md` shows the server's calls with the server example,
@@ -33,48 +33,48 @@ pub const Error = error{
 };
 
 /// One TCP connection for each stream of the link, and no QUIC connection.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = streams_max, .quic_connections = 0 });
+const Engine = server.Engine(.{ .tcp_connections = streams_max, .quic_connections = 0 });
 
-// The endpoint holds hundreds of kilobytes, so it lives outside the stack.
+// The engine holds hundreds of kilobytes, so it lives outside the stack.
 var link: *StreamsLink = undefined;
 var output: [output_len]u8 = undefined;
 var config: server.Config align(@alignOf(server.Config)) = .{};
-var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
+var engine: Engine align(@alignOf(Engine)) = undefined;
 /// The connection of each stream's socket, once the listener accepted it.
 var accepted: [streams_max]?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = @splat(null);
 /// Responses that are whole, and connections that are over.
 var answered: u32 = 0;
 var ended: u32 = 0;
 
-/// Starts the server's endpoint on the stream link the example holds.
+/// Starts the server's engine on the stream link the example holds.
 pub fn init(streams: *StreamsLink) !void {
     link = streams;
-    try endpoint.init(&config, program.random(), 0, link.now_ns(.server));
+    try engine.init(&config, program.random(), 0, link.now_ns(.server));
 }
 
 /// The listener accepts the socket the client connected on `stream`.
 pub fn accept(stream: usize) !void {
     if (accepted[stream] != null) return error.ExchangeWrong;
-    accepted[stream] = endpoint.accept(.{ .tls = false }, link.now_ns(.server)) orelse return error.ExchangeWrong;
+    accepted[stream] = engine.accept(.{ .tls = false }, link.now_ns(.server)) orelse return error.ExchangeWrong;
 }
 
-/// The client closed the socket of `stream`, and the endpoint hears it.
+/// The client closed the socket of `stream`, and the engine hears it.
 pub fn closed(stream: usize) void {
     const connection = accepted[stream] orelse return;
-    endpoint.transport_closed(connection);
+    engine.transport_closed(connection);
     accepted[stream] = null;
 }
 
-/// One turn of the server: fire its deadlines, pass the endpoint the octets each socket read, and
+/// One turn of the server: fire its deadlines, pass the engine the octets each socket read, and
 /// act on every event it reports.
 pub fn turn() !void {
     try link.receive(.server);
     const now_ns = link.now_ns(.server);
-    endpoint.on_instant(now_ns);
+    engine.on_instant(now_ns);
     for (0..streams_max) |stream| try read(stream, now_ns);
-    // What the endpoint reports with no octets: the ends of the connections the client closed.
+    // What the engine reports with no octets: the ends of the connections the client closed.
     for (0..events_per_stream_max) |_| {
-        const event = endpoint.receive(.none, now_ns).event orelse break;
+        const event = engine.receive(.none, now_ns).event orelse break;
         try serve(event, now_ns);
     }
 }
@@ -85,7 +85,7 @@ fn read(stream: usize, now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_stream_max) |_| {
         const octets: server.StreamBytes = .{ .connection = connection, .bytes = input[consumed..] };
-        const received = endpoint.receive(.{ .stream = octets }, now_ns);
+        const received = engine.receive(.{ .stream = octets }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
             if (received.consumed == 0) break;
@@ -117,16 +117,16 @@ fn serve(event: server.Event, now_ns: u64) !void {
 fn answer(request: server.Request) !void {
     const path = request.path orelse "";
     if (!std.mem.eql(u8, request.method, "GET") or !std.mem.eql(u8, path, "/greeting")) {
-        return endpoint.respond(request.id, .{ .status = 404, .end = true });
+        return engine.respond(request.id, .{ .status = 404, .end = true });
     }
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{greeting.len}) catch unreachable;
-    try endpoint.respond(request.id, .{
+    try engine.respond(request.id, .{
         .status = 200,
         .headers = &.{.{ .name = "content-length", .value = length }},
         .end = false,
     });
-    const taken = try endpoint.write_body(request.id, .{ .bytes = greeting, .end = true });
+    const taken = try engine.write_body(request.id, .{ .bytes = greeting, .end = true });
     assert(taken == greeting.len);
 }
 
@@ -134,7 +134,7 @@ fn answer(request: server.Request) !void {
 fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {
     const stream = stream_of(connection) orelse return error.ExchangeWrong;
     for (0..sends_per_event_max) |_| {
-        const written = endpoint.send_stream(connection, &output, now_ns);
+        const written = engine.send_stream(connection, &output, now_ns);
         try link.send(stream, .server, output[0..written]);
         if (written < output.len) return;
     }
@@ -148,9 +148,9 @@ fn stream_of(connection: server.ConnectionHandle) ?usize {
     return null;
 }
 
-/// The soonest instant the endpoint wants `on_instant` at, or null.
+/// The soonest instant the engine wants `on_instant` at, or null.
 pub fn deadline_ns() ?u64 {
-    return endpoint.deadline_ns();
+    return engine.deadline_ns();
 }
 
 /// Whether every connection the client opened is over.

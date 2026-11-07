@@ -1,10 +1,10 @@
-//! The tests of `server.router`'s `handle` (decision 127, design §8 step 25.3), against an
-//! endpoint that records each call.
+//! The tests of `server.Router`'s `handle` (decision 127, design §8 step 25.3), against an
+//! engine that records each call.
 const std = @import("std");
 const http = @import("http");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
-const router = @import("router.zig").router;
+const Router = @import("router.zig").Router;
 
 const testing = std.testing;
 
@@ -43,7 +43,7 @@ fn on_error(_: *App, _: *const event.Request, failure: anyerror, response: *Resp
     response.status = if (failure == error.TestUserUnknown) not_found else server_error;
 }
 
-const routes = router(App, .{
+const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .get, "/greetings/:name", greet },
@@ -52,10 +52,10 @@ const routes = router(App, .{
         .{ .get, "/files/*", files },
         .{ .get, "/broken", broken },
     },
-});
+};
 
 /// A pool of two entries, so a third request at once finds none.
-const Pool = @TypeOf(routes).Of(.{ .requests = requests, .response_bytes = response_bytes });
+const Pool = Router(App, routes, .{ .requests = requests, .response_bytes = response_bytes });
 
 /// The entries of the pool, octets of each entry's response memory, and the statuses the error
 /// function chooses. Test-only.
@@ -84,11 +84,11 @@ const Fixture = struct {
     }
 };
 
-test "decision 127: Of exports memory_bytes and handle, and match names each route by its tag" {
-    try @import("core").public_names.expect(Pool, &.{ "memory_bytes", "handle" });
+test "decision 158: a router exports its calls, and match names each route by its tag" {
+    try @import("core").public_names.expect(Pool, &.{ "Route", "Match", "match", "memory_bytes", "handle" });
     try testing.expectEqual(@sizeOf(Pool), Pool.memory_bytes);
     var parameters: @import("../path_parameters.zig").PathParameters = .{};
-    const found = routes.match("POST", "/greetings/x", &parameters).found;
+    const found = Pool.match("POST", "/greetings/x", &parameters).found;
     try testing.expectEqualStrings("POST /greetings/:name", @tagName(found));
 }
 
@@ -154,7 +154,7 @@ test "RFC 9110 §15.6.4: a request that finds no free entry gets 503, until a fi
     try testing.expectEqual(3, fixture.app.calls);
 }
 
-test "decision 127: a writable sends what the endpoint did not take" {
+test "decision 127: a writable sends what the engine did not take" {
     var fixture: Fixture = .{};
     fixture.recorder.room = 4;
     const id = fixture.request("GET", "/greetings/x");

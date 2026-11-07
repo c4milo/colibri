@@ -57,10 +57,10 @@ pub const Worker = struct {
     touched: Touched,
     events: [loop_options.operations]rotor.Event,
     /// The h11 decoders the worker's connections share, and their buffer (decisions 91 and 98).
-    decoders: h11.coding.Pool(constants.h11_decoders_per_worker),
+    decoders: h11.coding.Pool(.{ .count = constants.h11_decoders_per_worker }),
     decoded: [constants.h11_decoded_len]u8,
     /// The encoders the worker's connections code responses with under `--coded` (decision 101).
-    encoders: server.EncoderPool(constants.encoders_per_worker, server.constants.policy.encoder_level_default),
+    encoders: server.EncoderPool(.{ .count = constants.encoders_per_worker, .level = server.constants.policy.encoder_level_default }),
     /// What the worker's endpoint serves under: the identity or none, the versions, and the
     /// decoders.
     config: server.Config,
@@ -117,7 +117,7 @@ pub fn start(index: usize) server.StartError!void {
     worker.accepting = false;
     worker.touched = Touched.initEmpty();
     // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
-    worker.decoders.storage().reset(h11.coding.Features.detect());
+    worker.decoders.init(h11.coding.Features.detect());
     worker.config = .{
         .tls = server_mode.identity,
         .protocols = server_mode.versions,
@@ -126,7 +126,7 @@ pub fn start(index: usize) server.StartError!void {
         .h3_alternative = server_mode.h3_alternative,
     };
     if (server_mode.coded_mode) {
-        worker.encoders.reset(server.Features.detect());
+        worker.encoders.init(server.Features.detect());
         worker.config.codings = &server_mode.served_codings;
         worker.config.encoders = worker.encoders.encoders();
     }

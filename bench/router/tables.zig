@@ -14,7 +14,7 @@ fn route(_: *void, _: *const server.Request, _: void, _: void, _: *server.Respon
 /// The error function of every table, which no probe calls.
 pub fn on_error(_: *void, _: *const server.Request, _: anyerror, _: *server.ResponseWriter) void {}
 
-/// The table `server.router` takes, with the routes `entries`.
+/// The table `server.Router` takes, with the routes `entries`.
 pub fn table_of(comptime entries: anytype) struct { error_handler: @TypeOf(on_error), routes: @TypeOf(entries) } {
     return .{ .error_handler = on_error, .routes = entries };
 }

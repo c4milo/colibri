@@ -1,11 +1,11 @@
-//! What the endpoint holds and what it owes its program (decision 119): the slots and their
+//! What the engine holds and what it owes its program (decision 119): the slots and their
 //! connections, the slots a call changed, the soonest deadline, and each open request's word.
 //! `receive` asks the slots in the ready ring for one event at a time, and each call by id finds
 //! its connection through the slot's generation and its request through the slot's table. Every
 //! request ends with one `done` or `cancelled` before its connection's `ended` (INV-30). What a
-//! TCP slot does is in `endpoint_state_tcp.zig`, what a QUIC slot does in `endpoint_state_quic.zig`,
-//! and what every slot does with its connection's events in `endpoint_state_events.zig`. `server.zig` does not export these files. Split out of
-//! `endpoint.zig` for length.
+//! TCP slot does is in `engine_state_tcp.zig`, what a QUIC slot does in `engine_state_quic.zig`,
+//! and what every slot does with its connection's events in `engine_state_events.zig`. `server.zig` does not export these files. Split out of
+//! `engine.zig` for length.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -17,15 +17,15 @@ const quic_connection = @import("../quic/quic_connection.zig");
 const connection_module = @import("../connection/connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
-const endpoint_connections = @import("endpoint_connections.zig");
-const endpoint_routes = @import("endpoint_routes.zig");
-const endpoint_config = @import("endpoint_config.zig");
-const endpoint_slots = @import("endpoint_slots.zig");
-const endpoint_ready = @import("endpoint_ready.zig");
-const endpoint_deadline_heap = @import("endpoint_deadline_heap.zig");
-const endpoint_requests = @import("endpoint_requests.zig");
-const endpoint_state_quic = @import("endpoint_state_quic.zig");
-const endpoint_state_tcp = @import("endpoint_state_tcp.zig");
+const engine_connections = @import("engine_connections.zig");
+const engine_routes = @import("engine_routes.zig");
+const engine_config = @import("engine_config.zig");
+const engine_slots = @import("engine_slots.zig");
+const engine_ready = @import("engine_ready.zig");
+const engine_deadline_heap = @import("engine_deadline_heap.zig");
+const engine_requests = @import("engine_requests.zig");
+const engine_state_quic = @import("engine_state_quic.zig");
+const engine_state_tcp = @import("engine_state_tcp.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Connection = connection_module.Connection;
@@ -35,17 +35,17 @@ const Event = event.Event;
 const RequestId = event.RequestId;
 const ConnectionHandle = event.ConnectionHandle;
 const SendError = connection_errors.SendError;
-const Entry = endpoint_requests.Entry;
-const Wait = endpoint_requests.Wait;
+const Entry = engine_requests.Entry;
+const Wait = engine_requests.Wait;
 
-pub const QuicTable = endpoint_state_quic.QuicTable;
-pub const Datagram = endpoint_state_quic.Datagram;
-pub const TcpTable = endpoint_state_tcp.TcpTable;
-pub const Transport = endpoint_state_tcp.Transport;
-pub const Accepted = endpoint_state_tcp.Accepted;
-pub const StreamBytes = endpoint_state_tcp.StreamBytes;
+pub const QuicTable = engine_state_quic.QuicTable;
+pub const Datagram = engine_state_quic.Datagram;
+pub const TcpTable = engine_state_tcp.TcpTable;
+pub const Transport = engine_state_tcp.Transport;
+pub const Accepted = engine_state_tcp.Accepted;
+pub const StreamBytes = engine_state_tcp.StreamBytes;
 
-/// What `receive` takes: nothing new, to read what the endpoint owes, octets a TCP connection's
+/// What `receive` takes: nothing new, to read what the engine owes, octets a TCP connection's
 /// socket read, or a datagram.
 pub const Input = union(enum) {
     none,
@@ -53,7 +53,7 @@ pub const Input = union(enum) {
     datagram: Datagram,
 };
 
-/// The arrays `EndpointOf` places, which the endpoint borrows: one entry for each slot, or for
+/// The arrays `Engine` places, which the engine borrows: one entry for each slot, or for
 /// each TCP or QUIC slot.
 pub const Storage = struct {
     tcp: []Connection,
@@ -64,8 +64,8 @@ pub const Storage = struct {
     quic: []QuicConnection,
     pools: []const ReceiveStorage,
     quic_tables: []QuicTable,
-    route_entries: []endpoint_routes.Entry,
-    route_held: []endpoint_routes.Held,
+    route_entries: []engine_routes.Entry,
+    route_held: []engine_routes.Held,
     generations: []u32,
     live: []bool,
     free: []u32,
@@ -83,13 +83,13 @@ pub const Storage = struct {
 };
 
 pub const State = struct {
-    connections: endpoint_connections.Connections,
-    slots: endpoint_slots.Slots,
-    ready: endpoint_ready.Ready,
+    connections: engine_connections.Connections,
+    slots: engine_slots.Slots,
+    ready: engine_ready.Ready,
     /// The slots a call changed since `send_datagram` last found them owing no datagram: only a
     /// call changes what a connection owes.
-    sendable: endpoint_ready.Ready,
-    heap: endpoint_deadline_heap.DeadlineHeap,
+    sendable: engine_ready.Ready,
+    heap: engine_deadline_heap.DeadlineHeap,
     /// Each TCP slot's connection, open requests, socket, and whether its `send` waits for the
     /// program's `send_stream`, at the slot's number.
     tcp: []Connection,
@@ -98,12 +98,12 @@ pub const State = struct {
     send_outstanding: []bool,
     /// For each TCP slot, the instant of its connection's last `receive` when that call took no
     /// octet, reported nothing and left the protocol nothing read. A `receive` with no octets at
-    /// that instant reads nothing again, so the endpoint does not make it. Null once a call
+    /// that instant reads nothing again, so the engine does not make it. Null once a call
     /// changed the connection (`touch`).
     empty_read_ns: []?u64,
-    /// The configurations a TCP connection borrows, and the transports the endpoint serves.
-    tcp_configs: *const endpoint_config.TcpConfigs,
-    served: endpoint_config.Served,
+    /// The configurations a TCP connection borrows, and the transports the engine serves.
+    tcp_configs: *const engine_config.TcpConfigs,
+    served: engine_config.Served,
     quic_tables: []QuicTable,
     /// Whether colibri closed each slot's connection because its peer broke a protocol rule.
     failed: []bool,
@@ -117,9 +117,9 @@ pub const State = struct {
     /// `closed` was reported once every connection had ended.
     closed_reported: bool,
 
-    /// Holds no connection. The endpoint stays where it is: the slots' table and the connections
+    /// Holds no connection. The engine stays where it is: the slots' table and the connections
     /// hold pointers into it.
-    pub fn init(state: *State, config: *const endpoint_config.Config, built: Built, storage: Storage, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+    pub fn init(state: *State, config: *const engine_config.Config, built: Built, storage: Storage, random: tls.Random, now_seconds: u64, now_ns: u64) void {
         assert(storage.tcp.len + storage.quic.len == storage.generations.len);
         assert(storage.tcp.len == storage.tcp_tables.len and storage.tcp.len == storage.transports.len);
         assert(storage.quic.len == storage.quic_tables.len and storage.tcp.len == storage.send_outstanding.len);
@@ -154,28 +154,28 @@ pub const State = struct {
             .none => 0,
             // The event `take_stream` reports comes first: the slot's own, or one its octets bring.
             .stream => |octets| taken: {
-                const taken = endpoint_state_tcp.take_stream(state, octets, now_ns);
+                const taken = engine_state_tcp.take_stream(state, octets, now_ns);
                 if (taken.event != null) return taken;
                 break :taken taken.consumed;
             },
-            .datagram => |datagram| endpoint_state_quic.take_datagram(state, datagram, now_ns),
+            .datagram => |datagram| engine_state_quic.take_datagram(state, datagram, now_ns),
         };
         return .{ .consumed = consumed, .event = state.next_event(now_ns) };
     }
 
     /// Starts a connection on a TCP socket the program accepted, or returns null.
     pub fn accept(state: *State, socket: Accepted, now_ns: u64) ?ConnectionHandle {
-        return endpoint_state_tcp.accept(state, socket, now_ns);
+        return engine_state_tcp.accept(state, socket, now_ns);
     }
 
     /// Writes what a TCP connection owes its socket into `output`.
     pub fn send_stream(state: *State, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
-        return endpoint_state_tcp.send_stream(state, connection, output, now_ns);
+        return engine_state_tcp.send_stream(state, connection, output, now_ns);
     }
 
     /// A TCP connection's socket closed.
     pub fn transport_closed(state: *State, connection: ConnectionHandle) void {
-        endpoint_state_tcp.transport_closed(state, connection);
+        engine_state_tcp.transport_closed(state, connection);
     }
 
     /// Asks each slot in the ready ring for an event, the front first, and reports the first one
@@ -192,7 +192,7 @@ pub const State = struct {
         return state.closed_event();
     }
 
-    /// `closed`, once, when the program shut the endpoint down and no connection is left.
+    /// `closed`, once, when the program shut the engine down and no connection is left.
     fn closed_event(state: *State) ?Event {
         if (!state.shutting_down or state.closed_reported) return null;
         if (state.slots.holding() > 0) return null;
@@ -203,10 +203,10 @@ pub const State = struct {
     /// The next event slot `slot` owes the program, asked of its kind of slot.
     fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
         assert(state.slots.live[slot]);
-        if (state.is_tcp(slot)) return endpoint_state_tcp.poll(state, slot, now_ns);
+        if (state.is_tcp(slot)) return engine_state_tcp.poll(state, slot, now_ns);
         // Design §8 step 29d.7: a QUIC poll inlined here changed how LLVM laid out the TCP path
         // it shares this function with, and h2-many ran 97 more instructions a request.
-        return @call(.never_inline, endpoint_state_quic.poll, .{ state, slot, now_ns });
+        return @call(.never_inline, engine_state_quic.poll, .{ state, slot, now_ns });
     }
 
     /// Writes the head of the response to request `id`. One with no room waits for `writable`.
@@ -257,9 +257,9 @@ pub const State = struct {
         const len = std.math.cast(u32, waiting_len) orelse std.math.maxInt(u32);
         const since = state.room[slot];
         if (state.is_tcp(slot)) {
-            endpoint_state_tcp.table_of(state, slot).wait(number, since, wait, len);
+            engine_state_tcp.table_of(state, slot).wait(number, since, wait, len);
         } else {
-            endpoint_state_quic.table_of(state, slot).wait(number, since, wait, len);
+            engine_state_quic.table_of(state, slot).wait(number, since, wait, len);
         }
     }
 
@@ -267,16 +267,16 @@ pub const State = struct {
     /// into its output alone, which takes it once empty; a QUIC slot's kind says.
     fn wait_for_head(state: *State, slot: u32, number: event.Number, wait: Wait) Wait {
         if (state.is_tcp(slot)) return .empty;
-        return endpoint_state_quic.wait_for_head(state, slot, number, wait);
+        return engine_state_quic.wait_for_head(state, slot, number, wait);
     }
 
     /// A write of request `number` found room, so the request waits for none.
     fn unarm(state: *State, slot: u32, number: event.Number) void {
         if (state.is_tcp(slot)) {
-            const table = endpoint_state_tcp.table_of(state, slot);
+            const table = engine_state_tcp.table_of(state, slot);
             table.stop_waiting(table.find(number).?);
         } else {
-            const table = endpoint_state_quic.table_of(state, slot);
+            const table = engine_state_quic.table_of(state, slot);
             table.stop_waiting(table.find(number).?);
         }
     }
@@ -286,7 +286,7 @@ pub const State = struct {
     pub fn cancel(state: *State, id: RequestId) void {
         const slot = state.request_slot(id) catch return;
         if (state.is_tcp(slot)) state.tcp[slot].cancel(id.number) else state.connections.at(slot).cancel(id.number);
-        if (state.is_tcp(slot)) endpoint_state_tcp.table_of(state, slot).owe_cancel(id.number) else endpoint_state_quic.table_of(state, slot).owe_cancel(id.number);
+        if (state.is_tcp(slot)) engine_state_tcp.table_of(state, slot).owe_cancel(id.number) else engine_state_quic.table_of(state, slot).owe_cancel(id.number);
         touch(state, slot);
     }
 
@@ -317,7 +317,7 @@ pub const State = struct {
     /// `closed` follows once every connection has ended.
     pub fn shutdown(state: *State, now_ns: u64) void {
         state.shutting_down = true;
-        // Bounded by the slots, once for the endpoint's life.
+        // Bounded by the slots, once for the engine's life.
         for (state.slots.live, 0..) |live, slot| {
             if (!live) continue;
             const index: u32 = @intCast(slot);
@@ -332,9 +332,9 @@ pub const State = struct {
         }
     }
 
-    /// Writes into `output` the next datagram the endpoint owes, and names where it goes.
+    /// Writes into `output` the next datagram the engine owes, and names where it goes.
     pub fn send_datagram(state: *State, output: []u8, now_ns: u64) ?Sent {
-        return endpoint_state_quic.send_datagram(state, output, now_ns);
+        return engine_state_quic.send_datagram(state, output, now_ns);
     }
 
     /// The soonest instant any connection wants `on_instant` at, or null for none.
@@ -382,8 +382,8 @@ pub const State = struct {
 
     /// The table entry of request `number` on `slot`, or null.
     fn entry_of(state: *State, slot: u32, number: event.Number) ?*Entry {
-        if (state.is_tcp(slot)) return endpoint_state_tcp.table_of(state, slot).find(number);
-        return endpoint_state_quic.table_of(state, slot).find(number);
+        if (state.is_tcp(slot)) return engine_state_tcp.table_of(state, slot).find(number);
+        return engine_state_quic.table_of(state, slot).find(number);
     }
 
     fn is_tcp(state: *const State, slot: u32) bool {
@@ -406,9 +406,9 @@ pub fn changed(state: *State, slot: u32) void {
     if (state.slots.kind_of(slot) == .quic) state.sendable.touch(slot);
 }
 
-/// What `endpoint_config.build` filled, which the endpoint's connections borrow.
+/// What `engine_config.build` filled, which the engine's connections borrow.
 pub const Built = struct {
     quic: *const quic_connection.Config,
-    tcp: *const endpoint_config.TcpConfigs,
-    served: endpoint_config.Served,
+    tcp: *const engine_config.TcpConfigs,
+    served: engine_config.Served,
 };

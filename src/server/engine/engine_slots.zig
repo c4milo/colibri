@@ -1,4 +1,4 @@
-//! The endpoint's slots (decision 119): which hold a connection, the generation each is in, and
+//! The engine's slots (decision 119): which hold a connection, the generation each is in, and
 //! the free ones, which a new connection takes oldest first. TCP slots come first, then QUIC
 //! slots, so a TCP connection's slot is below the count of TCP slots. A slot is free again at its
 //! connection's `ended`, which follows a `close` with no call from the program, so a later
@@ -93,7 +93,7 @@ pub const Slots = struct {
     /// The slot `handle` names, when a connection holds it and the handle is of that connection's
     /// generation, or null for a handle of an ended connection.
     pub fn resolve(slots: *const Slots, handle: ConnectionHandle) ?u32 {
-        // A slot past the endpoint's is no handle the endpoint gave: the program's error.
+        // A slot past the engine's is no handle the engine gave: the program's error.
         assert(handle.slot < slots.generations.len);
         if (!slots.live[handle.slot]) return null;
         if (slots.generations[handle.slot] != handle.generation) return null;

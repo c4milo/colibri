@@ -1,10 +1,10 @@
-//! The tests of `server.router`'s struct routes (decision 127 ruling 2, design §8 step 25.3): a
+//! The tests of `server.Router`'s struct routes (decision 127 ruling 2, design §8 step 25.3): a
 //! route with a state, which reads the request body through a `std.Io.Reader` and may write its
 //! response over many `writable` events.
 const std = @import("std");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
-const router = @import("router.zig").router;
+const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
 const Recorder = support.Recorder;
 
@@ -67,7 +67,7 @@ const Whole = struct {
 };
 
 /// Writes one byte of `digits` for each call of `writable`: more calls than the runs a writer
-/// holds, so a call while the endpoint is full would overflow it.
+/// holds, so a call while the engine is full would overflow it.
 const Counter = struct {
     pub const State = struct { next: u8 = 0 };
     const digits = "0123456789abcdefghij";
@@ -94,7 +94,7 @@ fn on_error(_: *App, _: *const event.Request, _: anyerror, response: *ResponseWr
     response.status = unprocessable;
 }
 
-const routes = router(App, .{
+const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .post, "/lines", Lines },
@@ -102,9 +102,9 @@ const routes = router(App, .{
         .{ .get, "/count", Counter },
         .{ .post, "/needs", Needs },
     },
-});
+};
 
-const Pool = @TypeOf(routes).Of(.{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes });
+const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = body_bytes });
 
 /// Octets of each entry's response and body memory, and the status the error function chooses.
 /// Test-only.
@@ -197,7 +197,7 @@ test "decision 127: writable writes a response over many events, and ends it its
     fixture.recorder.room = 1;
     fixture.head("GET", "/count", true);
     try testing.expectEqualStrings("0", fixture.recorder.body_bytes());
-    // Bounded: each writable event lets the endpoint take one byte more.
+    // Bounded: each writable event lets the engine take one byte more.
     for (0..Counter.digits.len + 1) |_| {
         if (fixture.recorder.ended) break;
         fixture.recorder.room = 1;

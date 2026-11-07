@@ -8,7 +8,7 @@
 //! The socket does not know who reads the datagrams or who writes them:
 //! - `on_event` hands each datagram it read to the function the caller gives;
 //! - `flush` sends what the caller's `send_datagram(output, now_ns)` returns, which a
-//!   `server.Endpoint` and a `client.ConnectionPool` each have.
+//!   `server.Engine` and a `client.ConnectionPool` each have.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -225,7 +225,7 @@ const test_peer = rotor.Address.ipv4(@bitCast(std.mem.nativeToBig(u32, test_loop
 const rotor_codepoints = [_]rotor.datagram.Ecn{ .not_ect, .ect0, .ect1, .ce };
 const colibri_codepoints = [_]server.Ecn{ .not_ect, .ect_0, .ect_1, .ecn_ce };
 
-test "design §8 step 37: a batch goes to Rotor with the codepoint the endpoint named" {
+test "design §8 step 37: a batch goes to Rotor with the codepoint the engine named" {
     for (colibri_codepoints, rotor_codepoints) |named, expected| {
         const batch: batch_module.Batch = .{ .count = 1, .to = peer_address(test_peer), .ecn = named, .state = .open };
         const sent = outbound(&batch);
@@ -237,7 +237,7 @@ test "design §8 step 37: a batch goes to Rotor with the codepoint the endpoint 
     }
 }
 
-test "design §8 step 37: the endpoint gets the codepoint Rotor read, and Not-ECT when Rotor read none" {
+test "design §8 step 37: the engine gets the codepoint Rotor read, and Not-ECT when Rotor read none" {
     for (rotor_codepoints, colibri_codepoints) |read, expected| {
         var from: rotor.datagram.Received = .{ .peer = test_peer, .local = undefined, .segment_bytes = 0, .ecn = read, .flags = .{ .ecn = true } };
         try testing.expectEqual(expected, received_ecn(&from));

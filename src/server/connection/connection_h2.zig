@@ -99,7 +99,7 @@ fn trailer_fields(section: *const http.FieldSection) event.Headers {
 }
 
 /// Writes what h2 owes ahead of a frame of the caller's, as the client's TCP connection does. A
-/// full reply queue stops the reading, and two endpoints that each write their own frames first
+/// full reply queue stops the reading, and two engines that each write their own frames first
 /// can fill the transport both ways so that neither queue ever empties (decision 39 as amended,
 /// https://github.com/c4milo/colibri/issues/85).
 fn write_owed_first(connection: *Connection) void {

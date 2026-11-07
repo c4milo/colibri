@@ -3,11 +3,11 @@
 //! request's word, an ending takes the request out of the table, and a request waiting for room is
 //! reported `writable` once its connection takes the write. Each function takes the kind of slot
 //! as `Side`, whose `refuse` and `takes` ask that kind's connection. Split out of
-//! `endpoint_state.zig` for length; `server.zig` does not export this file.
+//! `engine_state.zig` for length; `server.zig` does not export this file.
 const event = @import("../event.zig");
-const endpoint_state = @import("endpoint_state.zig");
+const engine_state = @import("engine_state.zig");
 
-const State = endpoint_state.State;
+const State = engine_state.State;
 const Event = event.Event;
 const ConnectionEvent = event.ConnectionEvent;
 const RequestId = event.RequestId;

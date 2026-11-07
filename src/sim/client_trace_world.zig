@@ -30,7 +30,7 @@ const Random = sim.Random;
 const Plan = plan_module.Plan;
 const Ledger = ledger_module.Ledger;
 const Direction = link_module.Direction;
-const ConnectionPool = client.ConnectionPool;
+const ConnectionPool = client.ConnectionPool(.{});
 const Transport = client.Transport;
 
 pub const Error = error{
@@ -69,7 +69,7 @@ pub const World = struct {
     quic_connection: client.ConnectionHandle,
     pool_config: client.Config,
     /// The receive pool of the pool's QUIC connections (decision 61).
-    receive_pool: client.DefaultReceivePool,
+    receive_pool: client.ReceivePool(.{}),
     addresses: [1]client.Address,
     /// Each exchange's request and response, by index (decision 124).
     requests: [limits.requests_max]client.Request,

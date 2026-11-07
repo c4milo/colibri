@@ -101,7 +101,7 @@ const Holder = struct {
     live: bool,
     generation: u32,
     failed: bool,
-    transport: @TypeOf(@as(program_module.Endpoint, undefined).transports[0]),
+    transport: @TypeOf(@as(program_module.Engine, undefined).transports[0]),
 
     fn of(program: *const Program, slot: u32) Holder {
         const endpoint = program.endpoint;

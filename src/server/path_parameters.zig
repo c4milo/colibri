@@ -4,8 +4,8 @@
 //!
 //! Each name is a constant of the table, so it stays valid for the whole program. Each value is
 //! the segment that `match` read, percent-decoded (RFC 3986 §2.1, decision 127). A segment with no
-//! "%" is a slice of the path that the program passed to `match`, valid until the endpoint's next
-//! call that the comment on `Endpoint.receive` lists. A decoded one is a slice of `storage`, valid
+//! "%" is a slice of the path that the program passed to `match`, valid until the engine's next
+//! call that the comment on `Engine.receive` lists. A decoded one is a slice of `storage`, valid
 //! until the next `match`.
 const std = @import("std");
 const assert = std.debug.assert;

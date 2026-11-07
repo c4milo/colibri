@@ -1,11 +1,11 @@
-//! The soonest deadline among the endpoint's connections, kept without reading every connection
+//! The soonest deadline among the engine's connections, kept without reading every connection
 //! on each call (decision 119): a binary min-heap of the slots that have a deadline, ordered by the
 //! instant and then by slot number, so ties come out the same on every run. A call that may move a
 //! slot's deadline marks the slot stale, and the heap recomputes the stale slots, from each slot
 //! alone, before it is read. `server.zig` does not export this file.
 const std = @import("std");
 const assert = std.debug.assert;
-const Ready = @import("endpoint_ready.zig").Ready;
+const Ready = @import("engine_ready.zig").Ready;
 
 /// A slot that is in no heap position.
 const outside: u32 = std.math.maxInt(u32);

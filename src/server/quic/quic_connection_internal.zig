@@ -1,5 +1,5 @@
-//! What `Endpoint` and the connection's other files call on a server QUIC connection, and no
-//! program does (design §8 step 17f): the endpoint starts the connection from a client's first
+//! What `Engine` and the connection's other files call on a server QUIC connection, and no
+//! program does (design §8 step 17f): the engine starts the connection from a client's first
 //! Initial, passes it the datagrams its connection IDs name, sends what it writes, fires its
 //! deadlines and frees it once it is over (decision 103, RFC 9000 §5.2). `QuicConnection` keeps as
 //! methods the calls that the module's other files make.
@@ -231,7 +231,7 @@ fn after_change(connection: *QuicConnection, now_ns: u64) void {
     quic_connection_h3_settle.settle(connection);
     // RFC 9000 §10: once the connection stops being active, no request is read or answered.
     // The peer closed it, or it went idle, and neither is a failure this side found: the
-    // endpoint's `ended` reports it once its closing or draining period is over.
+    // engine's `ended` reports it once its closing or draining period is over.
     if (connection.transport.termination.state != .active and !connection.stopped) stop(connection);
     quic_deadline.observe(connection, now_ns);
     connection.settled_ns = now_ns;
@@ -251,7 +251,7 @@ fn issue_spare_ids(connection: *QuicConnection) void {
         var id: [constants.policy.quic_id_len]u8 = undefined;
         var token: [quic.constants.protocol.stateless_reset_token_len]u8 = undefined;
         // RFC 9000 §5.1: an ID unlinkable to the others; §10.3: a token no one can guess.
-        // Decision 157: an endpoint's table draws the ID into an entry of its own.
+        // Decision 157: an engine's table draws the ID into an entry of its own.
         if (connection.route) |route| route.routes.issue(route.quic_index, connection.random, &id) else connection.random.bytes(&id);
         connection.random.bytes(&token);
         _ = quic.Connection.issue_connection_ids(&connection.transport, &id, &token) catch {
@@ -278,7 +278,7 @@ fn start_h3(connection: *QuicConnection, now_ns: u64) void {
 /// Stops the connection: no request is read or answered from here on, and no stream reads the
 /// caller's octets again, because a connection that is not active sends none (RFC 9000
 /// §10.2.1). The endings it already owes stay owed, so a response the peer acknowledged before
-/// the stop still ends with `done` (INV-30); an endpoint ends the rest with `cancelled`.
+/// the stop still ends with `done` (INV-30); an engine ends the rest with `cancelled`.
 pub fn stop(connection: *QuicConnection) void {
     connection.stopped = true;
     connection.bodies.init();

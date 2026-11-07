@@ -10,7 +10,7 @@ const zstd = @import("zstd");
 const brotli = @import("brotli");
 const constants = @import("constants.zig");
 
-/// The CPU features the decoders run on, which the caller chooses (`Storage.reset`).
+/// The CPU features the decoders run on, which the caller chooses (`Pool.init`).
 pub const Features = h11.coding.Features;
 
 /// The `zstd` coding (RFC 8878 §7.2): one or more frames (§3.1), each decoded with RFC 9659 §3's
@@ -57,12 +57,21 @@ pub fn Slot(comptime Decoder: type) type {
 }
 
 /// A pool of `count` decoders of `Codec`, the most responses in that coding the connections given
-/// it decode at once. The caller places it (decision 35).
+/// it decode at once. The caller places it (decision 35), calls `init` once, and then gives its
+/// `storage` to each connection.
 pub fn Pool(comptime Codec: type, comptime count: usize) type {
     comptime assert(count > 0 and count < no_slot);
     return struct {
         header: Header = undefined,
         slots: [count]Slot(Codec.Decoder) = undefined,
+
+        /// Every slot free, and the CPU features its decoders run on. `Features.target()` is what
+        /// the build target guarantees, and `Features.detect()` asks the CPU, which colibri never
+        /// does itself. Called once, before the storage is given to any connection (decision 158
+        /// ruling 10).
+        pub fn init(pool: *@This(), features: Features) void {
+            reset(Codec, pool.storage(), features);
+        }
 
         pub fn storage(pool: *@This()) Storage(Codec) {
             return .{ .header = &pool.header, .slots = &pool.slots };
@@ -77,20 +86,6 @@ pub fn Storage(comptime Codec: type) type {
 
         header: *Header,
         slots: []Slot(Codec.Decoder),
-
-        /// Every slot free, and the CPU features its decoders run on. `Features.target()` is what
-        /// the build target guarantees, and `Features.detect()` asks the CPU, which colibri never
-        /// does itself. Called once, before the storage is given to any connection.
-        pub fn reset(storage: Self, features: Features) void {
-            assert(storage.slots.len > 0 and storage.slots.len < no_slot);
-            // Bounded by the pool's slots.
-            for (storage.slots, 0..) |*slot, index| {
-                const following = index + 1;
-                slot.next = if (following < storage.slots.len) @intCast(following) else no_slot;
-            }
-            storage.header.free_head = 0;
-            storage.header.features = features;
-        }
 
         /// The decoders no exchange holds.
         pub fn free_count(storage: Self) usize {
@@ -120,6 +115,18 @@ pub fn Storage(comptime Codec: type) type {
             storage.header.free_head = index;
         }
     };
+}
+
+/// Every slot of `storage` free, and the CPU features its decoders run on: what `Pool.init` does.
+fn reset(comptime Codec: type, storage: Storage(Codec), features: Features) void {
+    assert(storage.slots.len > 0 and storage.slots.len < no_slot);
+    // Bounded by the pool's slots.
+    for (storage.slots, 0..) |*slot, index| {
+        const following = index + 1;
+        slot.next = if (following < storage.slots.len) @intCast(following) else no_slot;
+    }
+    storage.header.free_head = 0;
+    storage.header.features = features;
 }
 
 /// One exchange's decoder of `Codec`: none, reserved as its request went out, or decoding its

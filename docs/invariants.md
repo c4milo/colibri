@@ -96,7 +96,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 - **Claim.** colibri holds no generator and reads no uninitialised memory. Each unpredictable
   value comes from the `std.Random` its caller passed, at `init` or at the call that starts a
-  connection. The server's endpoint draws its grease values, connection IDs, stateless reset
+  connection. The server's engine draws its grease values, connection IDs, stateless reset
   tokens and `PATH_CHALLENGE` data from it, and the intervals between the 1-RTT packet numbers
   each QUIC connection skips (decision 123). A TLS session draws from it. From design §8 step 21c
   a client's channel draws its connection IDs and grease value from it, and from step 20e its
@@ -564,26 +564,26 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   space starts at 0x0100, and RFC 9114 §8.1 makes an unrecognised code equivalent to `H3_NO_ERROR`,
   so the literal silently means "no error" in h3.
 
-## The endpoint
+## The engine
 
 ### INV-30 — every request ends once, before its connection
 
-- **Claim.** Each request the endpoint reports with `request` ends with exactly one `finished`,
+- **Claim.** Each request the engine reports with `request` ends with exactly one `finished`,
   whose result is `sent` or `cancelled` (decision 126), and no event of the request follows it. A connection's `ended` comes after
   the ending of every request it carried, and no event of the connection follows `ended`.
 - **Mechanism.** Each slot keeps a table of its open requests, from the `request` event to the
-  ending. An entry leaves the table only when its ending is reported, and the endpoint drops
+  ending. An entry leaves the table only when its ending is reported, and the engine drops
   every event of a number the table does not hold. The program's `cancel` owes a cancelled `finished`
   with the reason `program`. A connection that stops with requests open owes one with the reason
   `closed` for each, after the endings it already owed: QUIC's `stop` keeps its ring of owed
   endings, so a response the peer acknowledged before the stop still ends `sent`.
   `ended` comes once the table is empty, and the slot's generation then advances, so every id of
   the connection names nothing ([decision 119](decisions.md)).
-- **Check.** Runtime assertion: `end` in `src/server/endpoint/endpoint_state_quic.zig` and in
-  `endpoint_state_tcp.zig` asserts that the connection stopped and its table is empty when it
+- **Check.** Runtime assertion: `end` in `src/server/engine/engine_state_quic.zig` and in
+  `engine_state_tcp.zig` asserts that the connection stopped and its table is empty when it
   reports `ended`. Simulator invariant: the h3
   deadline check requires every request its application read to have a `finished` when its run
-  ends. The tests in `endpoint_state_test.zig` cover a word carried to the ending,
+  ends. The tests in `engine_state_test.zig` cover a word carried to the ending,
   the program's own cancel, a failure, a failed send and an acknowledged response that outlives a
   stop. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's check over seeds.
 - **Violation.** A stop that drops the endings its connection owed, so a program that frees a
@@ -591,9 +591,9 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   of a request after its `finished`, which a program that freed the request's state reads after
   it freed it.
 
-### INV-31 — the endpoint's deadline is the soonest of its connections'
+### INV-31 — the engine's deadline is the soonest of its connections'
 
-- **Claim.** `deadline_ns` returns the soonest instant any connection the endpoint holds wants
+- **Claim.** `deadline_ns` returns the soonest instant any connection the engine holds wants
   `on_instant` at, and `on_instant` fires each connection whose instant has come, and no other.
   Neither reads every slot.
 - **Mechanism.** A binary min-heap holds each slot's deadline, ordered by the instant and then by
@@ -604,10 +604,10 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   connection alone. A connection's deadlines move only inside a call to it, so a slot no call
   changed keeps the deadline the heap holds.
 - **Check.** Runtime assertion: `on_instant` asserts that each slot the heap gives it still wants
-  the instant the heap held. The tests that run through the endpoint compare `deadline_ns` with
+  the instant the heap held. The tests that run through the engine compare `deadline_ns` with
   the soonest deadline of every slot after each call to `receive` their fixtures make: the QUIC
-  ones in `quic_endpoint_test_support.check_deadline`, and the TCP ones in
-  `endpoint_tcp_test_support.check_deadline`. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's
+  ones in `quic_engine_test_support.check_deadline`, and the TCP ones in
+  `engine_tcp_test_support.check_deadline`. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's
   check over seeds, which compares the two after every call.
 - **Violation.** A call that changes a connection and marks nothing, such as a poll that reads an
   event whose arrival starts a deadline. The program then sleeps past that deadline, and a peer

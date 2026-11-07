@@ -19,13 +19,13 @@ const internal_server_error = 500;
 /// The room of the router's one response, which holds a head and no body.
 const response_bytes = 64;
 
-const routes = server.router(void, .{
+const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .get, "/", answer },
     },
-});
-const Router = @TypeOf(routes).Of(.{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0 });
+};
+const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = response_bytes, .body_bytes = 0 });
 
 fn answer(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
     try response.end();

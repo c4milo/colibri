@@ -1,5 +1,5 @@
 //! What the UDP server's `h3` mode answers (design §8 step 17b), one table for each slot of its
-//! `server.Endpoint`. A GET of a path under the directory the server serves is
+//! `server.Engine`. A GET of a path under the directory the server serves is
 //! answered 200 with the file, a HEAD 200 with its length alone, `/` 200 with a short body, and
 //! any other path 404. Content a client sends is read and dropped.
 //!
@@ -17,7 +17,7 @@ const hq_file = @import("../hq/hq_file.zig");
 
 /// The endpoint the `h3` mode serves through: as many connections as the UDP server holds, each
 /// with its receive pool.
-pub const Endpoint = server.EndpointOf(.{
+pub const Engine = server.Engine(.{
     .tcp_connections = 0,
     .quic_connections = constants.quic_connections_max,
     .receive_pool_len = constants.h3_receive_pool_len,
@@ -91,7 +91,7 @@ pub const Files = struct {
 
     /// Acts on an event of a request of this table's connection, and answers each request whose
     /// content ended.
-    pub fn on_event(files: *Files, endpoint: *Endpoint, reported: server.Event) void {
+    pub fn on_event(files: *Files, endpoint: *Engine, reported: server.Event) void {
         switch (reported) {
             .request => |request| {
                 files.take(request);
@@ -123,7 +123,7 @@ pub const Files = struct {
     }
 
     /// Answers a request whose content ended: the root body, a file, or 404.
-    fn answer(files: *Files, endpoint: *Endpoint, id: server.RequestId) void {
+    fn answer(files: *Files, endpoint: *Engine, id: server.RequestId) void {
         const entry = files.entry_of(id) orelse return;
         if (entry.answered) return;
         entry.answered = true;
@@ -152,7 +152,7 @@ pub const Files = struct {
     }
 
     /// Answers 200 with `content`, whose octets stay where they are until the request is over.
-    fn respond(files: *Files, endpoint: *Endpoint, entry: *Answer, content: []const u8) void {
+    fn respond(files: *Files, endpoint: *Engine, entry: *Answer, content: []const u8) void {
         assert(entry.in_use and entry.answered);
         var digits: [content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
@@ -188,7 +188,7 @@ pub const Files = struct {
 
 /// RFC 9110 §15.5.5: 404 (Not Found), with no content. A response the server would not take is
 /// cancelled, and its `cancelled` releases the entry.
-fn respond_missing(endpoint: *Endpoint, entry: *Answer) void {
+fn respond_missing(endpoint: *Engine, entry: *Answer) void {
     assert(entry.in_use and entry.answered);
     const fields = [_]server.Header{.{ .name = "content-length", .value = "0" }};
     endpoint.respond(entry.id, .{ .status = not_found, .headers = &fields, .end = true }) catch endpoint.cancel(entry.id);

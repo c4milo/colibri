@@ -1,6 +1,6 @@
-//! The QUIC slots of the server's endpoint (`endpoint_state.zig`, decision 119): what the endpoint
+//! The QUIC slots of the server's engine (`engine_state.zig`, decision 119): what the engine
 //! does with a datagram, the event a QUIC slot owes the program and in what order, how a QUIC
-//! connection ends, and the datagrams the slots owe. Split out of `endpoint_state.zig` for length;
+//! connection ends, and the datagrams the slots owe. Split out of `engine_state.zig` for length;
 //! `server.zig` does not export this file.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -10,21 +10,21 @@ const event = @import("../event.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const quic_connection_h3_room = @import("../quic/quic_connection_h3_room.zig");
-const endpoint_requests = @import("endpoint_requests.zig");
-const endpoint_state = @import("endpoint_state.zig");
-const endpoint_state_events = @import("endpoint_state_events.zig");
+const engine_requests = @import("engine_requests.zig");
+const engine_state = @import("engine_state.zig");
+const engine_state_events = @import("engine_state_events.zig");
 
-const State = endpoint_state.State;
+const State = engine_state.State;
 const QuicConnection = quic_connection.QuicConnection;
 const PeerAddress = quic_connection.PeerAddress;
 const Sent = quic_connection.Sent;
 const Ecn = quic.connection_receive.Datagram.Ecn;
 const Event = event.Event;
-const Entry = endpoint_requests.Entry;
-const Wait = endpoint_requests.Wait;
+const Entry = engine_requests.Entry;
+const Wait = engine_requests.Wait;
 
 /// A QUIC slot's open requests: as many as a QUIC connection holds at once.
-pub const QuicTable = endpoint_requests.Table(constants.limits.quic_requests_max, constants.protocol.quic_request_number_step);
+pub const QuicTable = engine_requests.Table(constants.limits.quic_requests_max, constants.protocol.quic_request_number_step);
 
 /// A datagram the UDP socket read, which the suite opens in place, with its ECN codepoint and the
 /// address it came from (decision 72).
@@ -38,12 +38,12 @@ pub const Datagram = struct {
 /// datagram is taken whole.
 pub fn take_datagram(state: *State, datagram: Datagram, now_ns: u64) usize {
     assert(state.quic_tables.len > 0);
-    // An endpoint with no identity, or with h3 turned off, serves no QUIC connection.
+    // An engine with no identity, or with h3 turned off, serves no QUIC connection.
     if (!state.served.quic) return datagram.bytes.len;
     const accepting = !state.shutting_down;
     const slot = state.connections.receive(datagram.bytes, datagram.ecn, datagram.from, now_ns, accepting) orelse return datagram.bytes.len;
     state.room[slot] +%= 1;
-    endpoint_state.touch(state, slot);
+    engine_state.touch(state, slot);
     return datagram.bytes.len;
 }
 
@@ -53,17 +53,17 @@ pub fn take_datagram(state: *State, datagram: Datagram, now_ns: u64) usize {
 pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
     // INV-31: the connection's `receive` fires and observes its deadlines (decision 110), which
     // can move them, and a read can owe the peer more credit.
-    endpoint_state.changed(state, slot);
+    engine_state.changed(state, slot);
     const handle = state.slots.handle_of(slot);
     const table = table_of(state, slot);
-    if (endpoint_state_events.owed_cancel(table)) |number| return endpoint_state_events.ending(handle, table, number, .program);
+    if (engine_state_events.owed_cancel(table)) |number| return engine_state_events.ending(handle, table, number, .program);
     const connection = state.connections.at(slot);
     if (connection_event(state, slot, connection, table, now_ns)) |reported| return reported;
     if (connection.stopped) {
         // INV-30: a request the connection ended without an ending of its own ends here.
-        if (table.first()) |entry| return endpoint_state_events.ending(handle, table, entry.number, .closed);
+        if (table.first()) |entry| return engine_state_events.ending(handle, table, entry.number, .closed);
     }
-    if (endpoint_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
+    if (engine_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
     if (internal.ended(connection)) return end(state, slot, connection, now_ns);
     return null;
 }
@@ -77,7 +77,7 @@ fn connection_event(state: *State, slot: u32, connection: *QuicConnection, table
             continue;
         };
         const reported = received.event orelse return null;
-        if (endpoint_state_events.pass(state, slot, table, reported, @This())) |passed| return passed;
+        if (engine_state_events.pass(state, slot, table, reported, @This())) |passed| return passed;
     }
     // More events than one call reads: the slot comes back for the rest.
     state.ready.touch(slot);
@@ -106,7 +106,7 @@ fn end(state: *State, slot: u32, connection: *QuicConnection, now_ns: u64) Event
     return .{ .ended = ended };
 }
 
-/// Writes into `output` the next datagram the endpoint owes: a Version Negotiation or Retry
+/// Writes into `output` the next datagram the engine owes: a Version Negotiation or Retry
 /// packet first, then those of the connections a call changed, in turn. Null when it owes none.
 pub fn send_datagram(state: *State, output: []u8, now_ns: u64) ?Sent {
     if (state.connections.replies.take(output)) |reply| return reply;

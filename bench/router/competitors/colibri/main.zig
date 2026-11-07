@@ -64,7 +64,9 @@ fn count_of(comptime text: []const u8) usize {
     return std.mem.count(u8, text, "\n");
 }
 
-const routes = server.router(void, .{ .error_handler = on_error, .routes = entries });
+const routes = .{ .error_handler = on_error, .routes = entries };
+/// The router of the routes. The probe calls `match` alone, so the router holds one entry.
+const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = 0 });
 
 pub fn main(init: std.process.Init) !void {
     @setEvalBranchQuota(10_000_000);
@@ -73,7 +75,7 @@ pub fn main(init: std.process.Init) !void {
     const rounds = try std.fmt.parseInt(usize, args[1], 10);
     var parameters: server.PathParameters = .{};
     inline for (methods, 0..) |method, index| {
-        switch (routes.match(method, entries[index][1], &parameters)) {
+        switch (Router.match(method, entries[index][1], &parameters)) {
             .found => |found| if (@intFromEnum(found) != index) return error.RouteOther,
             else => return error.RouteMissing,
         }
@@ -83,7 +85,7 @@ pub fn main(init: std.process.Init) !void {
     for (0..rounds) |_| {
         inline for (methods, 0..) |method, index| {
             const path: *volatile []const u8 = @constCast(&entries[index][1]);
-            if (routes.match(method, path.*, &parameters) == .found) found += 1;
+            if (Router.match(method, path.*, &parameters) == .found) found += 1;
             std.mem.doNotOptimizeAway(&parameters);
         }
     }

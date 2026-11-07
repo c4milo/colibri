@@ -11,7 +11,7 @@ const pool_module = @import("pool.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
 const event = @import("../event.zig");
 
-const ConnectionPool = pool_module.ConnectionPool;
+const ConnectionPool = pool_module.ConnectionPool(.{});
 const Exchange = support.Exchange;
 const Event = pool_module.Event;
 

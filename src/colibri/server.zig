@@ -1,6 +1,6 @@
-//! A server that binds one port and runs `server.Endpoint` on Rotor's loop (decision 150): h11 and
+//! A server that binds one port and runs `server.Engine` on Rotor's loop (decision 150): h11 and
 //! h2 over TCP, and h3 over QUIC on the UDP socket of the same port. A program places one, as it
-//! places an endpoint, and keeps it in place while it runs.
+//! places an engine, and keeps it in place while it runs.
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
@@ -32,8 +32,8 @@ pub const ServerConfig = struct {
     /// The source each TLS session and each QUIC connection draws from. Null draws from the
     /// operating system's entropy (decision 150 ruling 9).
     random: ?tls.Random = null,
-    /// What the endpoint starts from. `colibri` fills its `tls` from `identity`, and sets its `ecn`:
-    /// the server's loop reads each datagram's ECN codepoint and sets the one the endpoint names
+    /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its `ecn`:
+    /// the server's loop reads each datagram's ECN codepoint and sets the one the engine names
     /// (decision 68).
     endpoint: server.Config = .{},
 };
@@ -46,7 +46,7 @@ pub const RunError = rotor.Loop.InitError || rotor.Loop.TickError || rotor.Loop.
 /// A server of the default capacity.
 pub const Server = ServerOf(.{});
 
-/// A server whose endpoint holds `capacity`'s connections.
+/// A server whose engine holds `capacity`'s connections.
 pub fn ServerOf(comptime capacity: server.Capacity) type {
     return struct {
         const Self = @This();
@@ -66,10 +66,10 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
         config: ServerConfig,
         identity: identity_module.Storage,
-        endpoint_config: server.Config,
-        /// The endpoint, and the server's entry for each socket's connection
+        engine_config: server.Config,
+        /// The engine, and the server's entry for each socket's connection
         /// (`server_pump.zig`).
-        endpoint: server.EndpointOf(capacity),
+        engine: server.Engine(capacity),
         entries: [tcp_connections]pump.Entry,
         entry_of: [tcp_connections]?u32,
         /// The loop, its listener and its sockets (`server_loop.zig`).
@@ -87,11 +87,11 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         /// The entries an event named since their last step, and the sockets a turn changed.
         pending: Bits,
         touched: Bits,
-        /// Whether a read of the endpoint's events stopped at its bound.
+        /// Whether a read of the engine's events stopped at its bound.
         undrained: bool,
-        /// The instant of the last call into the endpoint.
+        /// The instant of the last call into the engine.
         now_ns: u64,
-        /// `shutdown` asked, the loop passed it to the endpoint, and the endpoint reported
+        /// `shutdown` asked, the loop passed it to the engine, and the engine reported
         /// `closed`.
         stopping: std.atomic.Value(bool),
         shut_down: bool,
@@ -107,17 +107,17 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             // A run that fails before `reset` closes the sockets that are live (`socket.close_left`).
             for (&self.sockets) |*socket| socket.live = false;
             if (self.config.random == null) self.config.random = entropy.random();
-            self.endpoint_config = config.endpoint;
+            self.engine_config = config.endpoint;
             // Decision 68: the server's own loop reads each datagram's codepoint and sets the one
-            // the endpoint names, so the endpoint reads ECN whatever the program set.
-            self.endpoint_config.ecn = true;
-            assert(self.endpoint_config.tls == null);
+            // the engine names, so the engine reads ECN whatever the program set.
+            self.engine_config.ecn = true;
+            assert(self.engine_config.tls == null);
             // A server that `init` does not return keeps no private key and no cookie key.
             errdefer wipe_keys(self);
             if (config.identity) |identity| {
-                self.endpoint_config.tls = try identity_module.load(identity, &self.identity, config.cpu, self.config.random.?);
+                self.engine_config.tls = try identity_module.load(identity, &self.identity, config.cpu, self.config.random.?);
             }
-            assert((self.endpoint_config.tls != null) == (config.identity != null));
+            assert((self.engine_config.tls != null) == (config.identity != null));
             try server_loop.bind(self);
             self.listener_open = true;
             errdefer close_sockets(self);
@@ -149,7 +149,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         }
 
         /// Serves on the thread that calls it until `shutdown`: each request goes to `router`, a
-        /// pool of `server.router`'s, with `context` (decision 150). The loop runs here because a
+        /// pool of `server.Router`'s, with `context` (decision 150). The loop runs here because a
         /// Rotor loop belongs to the thread that starts it.
         pub fn run(self: *Self, router: anytype, context: anytype) RunError!void {
             assert(self.listener_open);
@@ -159,7 +159,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             server_loop.reset(self);
             // The server issues no ticket unless the program gave a ticket key, so the instant in
             // seconds it judges tickets at is chapulin's 0 for none.
-            try self.endpoint.init(&self.endpoint_config, self.config.random.?, 0, self.now_ns);
+            try self.engine.init(&self.engine_config, self.config.random.?, 0, self.now_ns);
             if (self.udp.open) try self.udp.start(&self.loop);
             const Run = struct { server: *Self, router: @TypeOf(router), context: @TypeOf(context) };
             var running: Run = .{ .server = self, .router = router, .context = context };
@@ -200,17 +200,17 @@ test "design §8 step 37c: an identity opens UDP on the listener's port, which A
     const local = try rotor.sync.local_address(test_server.udp.descriptor);
     try testing.expectEqual(test_server.port(), local.port);
     // RFC 7838 §3: the TCP connections over TLS advertise h3 on the same port.
-    try testing.expectEqual(test_server.port(), test_server.endpoint_config.h3_alternative.?.port);
+    try testing.expectEqual(test_server.port(), test_server.engine_config.h3_alternative.?.port);
 }
 
-test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
+test "decision 150: init reads a PEM identity into the engine's TLS values" {
     var counter: support.Counter = .{};
     try test_server.init(.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     });
-    const values = test_server.endpoint_config.tls.?;
+    const values = test_server.engine_config.tls.?;
     try testing.expectEqual(1, values.identities.len);
     try testing.expectEqual(.ecdsa_secp256r1_sha256, values.identities[0].key.scheme);
     try testing.expectEqualSlices(u8, testdata.leaf, values.identities[0].chain[0]);
@@ -223,7 +223,7 @@ test "decision 150: init reads a PEM identity into the endpoint's TLS values" {
 test "decision 150 ruling 9: a server given no source draws from the system" {
     try test_server.init(.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu() });
     try testing.expect(test_server.config.random != null);
-    const values = test_server.endpoint_config.tls.?;
+    const values = test_server.engine_config.tls.?;
     // Thirty-two octets from the system are not the counter's 0, 1, 2, ...
     try testing.expect(!(values.cookie_key[0] == 0 and values.cookie_key[1] == 1 and values.cookie_key[2] == 2));
     test_server.deinit();
@@ -232,10 +232,10 @@ test "decision 150 ruling 9: a server given no source draws from the system" {
 test "decision 150: no identity serves cleartext" {
     var counter: support.Counter = .{};
     try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
-    try testing.expectEqual(null, test_server.endpoint_config.tls);
+    try testing.expectEqual(null, test_server.engine_config.tls);
     // RFC 9001 §4: QUIC needs TLS, so a cleartext server opens no UDP socket.
     try testing.expect(!test_server.udp.open);
-    try testing.expectEqual(null, test_server.endpoint_config.h3_alternative);
+    try testing.expectEqual(null, test_server.engine_config.h3_alternative);
     test_server.deinit();
 }
 

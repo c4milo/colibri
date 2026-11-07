@@ -87,7 +87,7 @@ var connections: [constants.client_connections_max]Connection align(@alignOf(Con
 var sockets: [constants.client_sockets_max]pool_tcp.Socket align(@alignOf(pool_tcp.Socket)) = undefined;
 /// The memory every pool of the run holds its TCP connections and its exchanges in, a slice of it
 /// each. A run that holds fewer pools gives each more.
-var pool_memory: [client_options.pool_memory_len]u8 align(client.ConnectionPool.memory_alignment) = undefined;
+var pool_memory: [client_options.pool_memory_len]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined;
 /// The TCP slots each pool of the run holds, which maps a socket's index to its pool and slot.
 var slots_per_pool: u32 = 1;
 /// The response content of every exchange of every connection. Most of it is never touched, so
@@ -100,7 +100,7 @@ var pool_config: client.Config align(@alignOf(client.Config)) = .{ .authority = 
 /// The decoders every connection of a `--coded` run shares, a pool for each coding (decision 101 as
 /// amended), and the codings it offers. `br` goes first, with no weight: h2o 2.2.5 codes no coding
 /// the request names with a weight, and a peer that reads weights still takes the one it has.
-var decoders: client.DefaultDecoderPool align(@alignOf(client.DefaultDecoderPool)) = .{};
+var decoders: client.DecoderPool(.{}) align(@alignOf(client.DecoderPool(.{}))) = .{};
 var zstd_decoders: client.ZstdDecoderPool(coded_decoders) align(@alignOf(client.ZstdDecoderPool(coded_decoders))) = undefined;
 var br_decoders: client.BrotliDecoderPool(coded_decoders) align(@alignOf(client.BrotliDecoderPool(coded_decoders))) = undefined;
 const offered_codings = [_]client.Coding{ .br, .zstd, .gzip, .deflate };
@@ -170,9 +170,9 @@ fn start_connection(connection: *Connection, index: usize, run: *const Run) void
 }
 
 /// The slice of `pool_memory` that pool `index` of a run whose pools take `config` holds.
-fn memory_of(index: usize, config: *const client.Config) []align(client.ConnectionPool.memory_alignment) u8 {
-    const bytes = client.ConnectionPool.memory_bytes(.{ .tcp_connections = config.tcp_connections, .requests = config.requests });
-    const len = std.mem.alignForward(usize, bytes, client.ConnectionPool.memory_alignment);
+fn memory_of(index: usize, config: *const client.Config) []align(client.ConnectionPool(.{}).memory_alignment) u8 {
+    const bytes = client.ConnectionPool(.{}).memory_bytes(.{ .tcp_connections = config.tcp_connections, .requests = config.requests });
+    const len = std.mem.alignForward(usize, bytes, client.ConnectionPool(.{}).memory_alignment);
     // `client_options.slots_ok` admits no run whose pools need more.
     assert((index + 1) * len <= pool_memory.len);
     // Decision 125 ruling 2: the pool takes the memory its counts need, and no more.
@@ -306,9 +306,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
         const features = h11.coding.Features.detect();
-        decoders.storage().reset(features);
-        zstd_decoders.storage().reset(features);
-        br_decoders.storage().reset(features);
+        decoders.init(features);
+        zstd_decoders.init(features);
+        br_decoders.init(features);
         pool_config.codings = &offered_codings;
         pool_config.decoders = decoders.storage();
         pool_config.zstd_decoders = zstd_decoders.storage();

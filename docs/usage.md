@@ -43,7 +43,7 @@ The library is seventeen modules, each exported by name:
 | `h11` | HTTP/1.1 (RFC 9112) |
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
-| `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). An `Endpoint` holds the TCP connections you accept, which serve h11 or h2, and the QUIC connections that serve h3 behind one UDP socket you own ([decision 119](decisions.md)). |
+| `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). An `Engine` holds the TCP connections you accept, which serve h11 or h2, and the QUIC connections that serve h3 behind one UDP socket you own ([decision 119](decisions.md)). |
 | `dnssec` | The checks of a DNSSEC signature and of a DS digest over chapulin ([decision 142](decisions.md)) |
 | `colibri` | `colibri.Server`, which binds one port, reads the server's identity and runs `server` on Rotor's loop ([decision 150](decisions.md)), and `colibri.Client`, which runs `client`'s pool on Rotor's loop ([decision 153](decisions.md) ruling 8). It is the one module that does I/O. |
 | `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `ConnectionPool` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
@@ -70,12 +70,12 @@ one exception: it binds sockets and runs a loop for you (see [colibri.Server](#c
 [colibri.Client](#colibriclient)).
 Four things follow for every other module:
 
-- **Your program owns every struct and buffer.** Declare a server's endpoint, a client's pool
+- **Your program owns every struct and buffer.** Declare a server's engine, a client's pool
   or a protocol module's connection where you like: in a static, in an array, or inside a larger
   struct. Nothing points at the heap. Place large ones outside the stack.
 - **Your program does the I/O.** Read octets from the socket, hand them to `receive`, and send
   the octets colibri puts in your buffer: a protocol module's `write_*` calls, and a server
-  endpoint's `send_stream` and `send_datagram`. colibri never waits: when it needs more
+  engine's `send_stream` and `send_datagram`. colibri never waits: when it needs more
   octets, `receive` consumes none and returns no event.
 - **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
   nanoseconds from any fixed origin. The same instants and the same octets give the same output,
@@ -92,13 +92,13 @@ Four things follow for every other module:
   chapulin's session when it sets its transport parameters. A server that sends Retry packets
   checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that links
   `tls` defines chapulin's one hook, `ch_assert_fail`, and passes the source each session draws
-  from: to `Endpoint.init`, to `ConnectionPool.start_tcp` and `start_quic`, and to each session it
+  from: to `Engine.init`, to `ConnectionPool.start_tcp` and `start_quic`, and to each session it
   starts.
   A program that imports none of `tls`, `server` and `client` never links chapulin.
 
 A peer that breaks a protocol rule never crashes colibri. A connection's `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
-such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A server's endpoint returns
+such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A server's engine returns
 no error. For a TCP connection it reports a `send` for the octets it owes, then `close`, then the
 connection's `ended` with `failed` set. For a QUIC connection its `send_datagram` writes the
 CONNECTION_CLOSE, and `ended` follows with `failed` set once the closing period ends. A QUIC
@@ -125,12 +125,12 @@ protocol modules keep the RFCs' words. This table says which word means what:
 ## colibri.Server
 
 `colibri.Server` does the I/O of a server for you ([decision 150](decisions.md)). It binds the TCP
-socket and the UDP socket of one port, reads the server's identity, and runs `server.Endpoint` on
+socket and the UDP socket of one port, reads the server's identity, and runs `server.Engine` on
 [Rotor](https://github.com/c4milo/rotor)'s loop. Your program gives it a configuration and a router
-of `server.router`, and calls `run`. The code in this section is from
+of `server.Router`, and calls `run`. The code in this section is from
 [`examples/colibri_server.zig`](../examples/colibri_server.zig).
 
-A program places the server once, outside any stack frame, as it places an endpoint.
+A program places the server once, outside any stack frame, as it places an engine.
 `colibri.Server` holds the default capacity, and `colibri.ServerOf` takes a `server.Capacity`:
 
 ```zig
@@ -179,7 +179,7 @@ another file of your program.
   With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
 - `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
 - `random`: the source each TLS session draws from. Null draws from the system's entropy.
-- `endpoint`: the `server.Config` the endpoint starts from. `colibri` fills its `tls`, and sets
+- `endpoint`: the `server.Config` the engine starts from. `colibri` fills its `tls`, and sets
   its `ecn`, because the server's loop reads and sets each datagram's ECN codepoint
   ([decision 68](decisions.md)).
 
@@ -277,10 +277,10 @@ off. A limit longer than one day becomes one day, the longest deadline Rotor tak
 ## The server
 
 The `server` module answers requests behind one set of calls, whichever version the connection
-speaks ([decision 100](decisions.md)). An endpoint is the server side of every connection one
+speaks ([decision 100](decisions.md)). An engine is the server side of every connection one
 thread serves: RFC 9000 §1.2 and RFC 9113 §2.2 give the word to the client or the server of a
 connection, and a server has many connections. A program makes one `server.Config` and one
-endpoint for each thread that serves ([decision 119](decisions.md)). The endpoint holds every
+engine for each thread that serves ([decision 119](decisions.md)). The engine holds every
 connection, and a `server.ConnectionHandle` names one:
 
 - **TCP connections.** The program calls `accept` for each TCP socket its listener accepts. Over
@@ -290,21 +290,21 @@ connection, and a `server.ConnectionHandle` names one:
 - **QUIC connections.** They serve h3, all of them behind one UDP socket
   ([decision 103](decisions.md)), each in a slot of its own. A client's first datagram starts one.
 
-The configuration's `protocols` turns any protocol off, in cleartext and over TLS: the endpoint
+The configuration's `protocols` turns any protocol off, in cleartext and over TLS: the engine
 builds its ALPN list from `protocols`, so the TLS identity names no protocol. For its QUIC
-connections the endpoint names h3 itself (RFC 9114 §3.1).
+connections the engine names h3 itself (RFC 9114 §3.1).
 
 The code in this section is from
 [`examples/server_exchange.zig`](../examples/server_exchange.zig), where `link` and
 `datagram_link` stand in for a program's TCP and UDP sockets. Its clients, in
 [`examples/server_peers.zig`](../examples/server_peers.zig), send five requests over h2 and a GET
-over h3. An endpoint's size is fixed at build time. `server.Endpoint` holds 16 TCP connections
-and 16 QUIC connections, and `server.EndpointOf` makes one of another size. The `server.Capacity`
-it takes names the TCP and the QUIC connections the endpoint holds at once, and the octets each
+over h3. An engine's size is fixed at build time. `server.Engine(.{})` holds 16 TCP connections
+and 16 QUIC connections, and another capacity makes one of another size. The `server.Capacity`
+it takes names the TCP and the QUIC connections the engine holds at once, and the octets each
 QUIC connection holds unread:
 
 ```zig
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
+const Engine = server.Engine(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
 ```
 
 A program that serves QUIC alone sets `.tcp_connections = 0`, and a program with no UDP socket
@@ -316,8 +316,8 @@ bad identity before it serves. The program then calls `accept` for each socket, 
 socket runs TLS:
 
 ```zig
-endpoint_config = .{
-    // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
+engine_config = .{
+    // The identity names no protocol: the engine offers h2 and h11 through ALPN over TCP,
     // as `protocols` allows by default, and names h3 for its QUIC connections.
     .tls = .{
         .identities = &identities,
@@ -337,13 +337,13 @@ endpoint_config = .{
     .resumes = resumes.provider(),
 };
 const now_ns = link.now_ns(.server);
-// One endpoint for every socket the program accepts and for its UDP socket, in storage the
+// One engine for every socket the program accepts and for its UDP socket, in storage the
 // program owns. `init` checks that the key signs.
-try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
+try engine.init(&engine_config, program.random(), now_seconds, now_ns);
 // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
-// names the connection in every later call and event. Null says the endpoint starts no
+// names the connection in every later call and event. Null says the engine starts no
 // connection, and a program then closes the socket.
-accepted = endpoint.accept(.{}, now_ns) orelse return error.ExchangeWrong;
+accepted = engine.accept(.{}, now_ns) orelse return error.ExchangeWrong;
 ```
 
 A program turns Nagle's algorithm off on each TCP socket it accepts, with `TCP_NODELAY`. Each
@@ -352,20 +352,20 @@ peer to acknowledge the one before it only adds latency: over h2 at low rates, c
 server waited about 3 ms a request with the option off (design §8 step 13f).
 
 `now_seconds` is Unix time, which the server's tickets are issued at. With a `ticket_key` the
-endpoint issues each client a ticket, which a later connection of that client offers to resume
+engine issues each client a ticket, which a later connection of that client offers to resume
 the session. `now_ns` is the instant on
 the clock every later call passes, and a connection's deadlines count from the instant its
 `accept` is given. `accept` returns null when no slot is free, after `shutdown`, when `protocols`
 allows neither h11 nor h2, or when the TLS stack refuses to start a session. The program closes
 the socket then. A socket runs TLS unless the program passes `.{ .tls = false }`, and a
 configuration with no identity takes cleartext sockets alone. With h3
-turned off, or with no identity, an endpoint that serves no TCP version returns `error.NoVersion`
-from `init`, and one that also serves TCP starts no QUIC connection. The endpoint reads the
+turned off, or with no identity, an engine that serves no TCP version returns `error.NoVersion`
+from `init`, and one that also serves TCP starts no QUIC connection. The engine reads the
 configuration while it runs and keeps pointers into itself, so the program keeps both where `init`
 found them.
 
-Each turn of the program's loop fires the deadlines that passed, passes the endpoint what each
-socket read, acts on every event the endpoint reports, and sends every datagram the endpoint owes:
+Each turn of the program's loop fires the deadlines that passed, passes the engine what each
+socket read, acts on every event the engine reports, and sends every datagram the engine owes:
 
 ```zig
 fn server_turn() !void {
@@ -374,17 +374,17 @@ fn server_turn() !void {
     // Decision 110: a deadline bounds how long a peer may hold a connection. `on_instant` ends
     // each connection whose peer is late, at the instant the program woke at, and the `receive`
     // calls below report what that leaves the program to do.
-    endpoint.on_instant(now_ns);
+    engine.on_instant(now_ns);
     try read_stream(input, now_ns);
     try read_datagrams(now_ns);
     // Both clients are done, so the server stops. `closed` follows once every connection ended.
     if (peers.closed() and !shut) {
-        endpoint.shutdown(now_ns);
+        engine.shutdown(now_ns);
         shut = true;
     }
     try serve_all(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
-        const sent = endpoint.send_datagram(&datagram_output, now_ns) orelse break;
+        const sent = engine.send_datagram(&datagram_output, now_ns) orelse break;
         try datagram_link.send(.server, sent.bytes);
     }
 }
@@ -399,7 +399,7 @@ fn read_stream(input: []u8, now_ns: u64) !void {
     for (0..events_per_input_max) |_| {
         // The handle says which connection's socket read the octets.
         const read: server.StreamBytes = .{ .connection = accepted, .bytes = input[consumed..] };
-        const received = endpoint.receive(.{ .stream = read }, now_ns);
+        const received = engine.receive(.{ .stream = read }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
             if (received.consumed == 0) break;
@@ -412,7 +412,7 @@ fn read_stream(input: []u8, now_ns: u64) !void {
 }
 ```
 
-`receive` returns at most one event a call, of any connection the endpoint holds. A program loops
+`receive` returns at most one event a call, of any connection the engine holds. A program loops
 over it until it consumes nothing and returns no event. It loops again after every call that
 changes a connection: an answer, `cancel`, `send_stream`, `transport_closed`, `shutdown` and
 `on_instant`. Each leaves what follows it to the next `receive`, the release of a closed
@@ -425,7 +425,7 @@ connection, and stays valid until the next `receive`, `on_instant`, `send_stream
 `send_datagram`, `accept`, `transport_closed` or `shutdown`.
 
 The program passes each datagram its UDP socket read, with the address it came from, as a
-`server.Input`. The endpoint finds the connection the datagram's connection ID names, or starts
+`server.Input`. The engine finds the connection the datagram's connection ID names, or starts
 one from a client's first datagram, and answers Version Negotiation and Retry itself. After each
 datagram the program calls `receive` with `.none` until it reports nothing:
 
@@ -433,17 +433,17 @@ datagram the program calls `receive` with `.none` until it reports nothing:
 fn read_datagrams(now_ns: u64) !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try datagram_link.receive(.server) orelse break;
-        // The endpoint finds the connection the datagram's connection ID names, or starts one.
+        // The engine finds the connection the datagram's connection ID names, or starts one.
         try serve_all(.{ .datagram = .{ .bytes = datagram, .from = client_address } }, now_ns);
         datagram_link.consume(.server);
     }
 }
 
-/// Passes `input` to the endpoint, then takes every event it reports until it reports none.
+/// Passes `input` to the engine, then takes every event it reports until it reports none.
 fn serve_all(input: server.Input, now_ns: u64) !void {
     var rest = input;
     for (0..events_per_input_max) |_| {
-        const received = endpoint.receive(rest, now_ns);
+        const received = engine.receive(rest, now_ns);
         rest = .none;
         try serve(received.event orelse return, now_ns);
     }
@@ -467,19 +467,19 @@ fn serve(event: server.Event, now_ns: u64) !void {
     // The router takes each event of a request: it calls the route's function at the head, passes
     // the body to `Echo`, sends what waits at `writable`, and frees the request's entry at its
     // `finished`. It hands back the events of the connections, which are the program's I/O.
-    switch (router.handle(&app, &endpoint, event)) {
+    switch (router.handle(&app, &engine, event)) {
         .taken => {},
         .event => |other| switch (other) {
             // A TCP connection owes its socket octets.
             .send => |connection| try flush(connection, now_ns),
             // colibri reads and writes nothing more on this TCP connection. A program closes the
             // socket once the socket has taken the octets `send_stream` returned, and owes the
-            // endpoint no call: the connection's `ended` follows by itself.
+            // engine no call: the connection's `ended` follows by itself.
             .close => closes += 1,
             // The connection is over, and its slot takes a later socket or client.
             .ended => |over| try count_ended(over, now_ns),
-            // The shut-down endpoint holds no connection.
-            .closed => endpoint_closed = true,
+            // The shut-down engine holds no connection.
+            .closed => engine_closed = true,
             else => return error.ExchangeWrong,
         },
     }
@@ -514,16 +514,16 @@ fn note_request(request: server.Request) !void {
     std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
     app.requests += 1;
     if (request.version.major == 3) {
-        // The endpoint holds one QUIC connection at a time. A client can keep its connection
+        // The engine holds one QUIC connection at a time. A client can keep its connection
         // open after the response, so the server shortens its idle deadline, and the slot is
         // free sooner.
-        try endpoint.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
+        try engine.set_timeouts(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
 }
 ```
 
 A client that puts `100-continue` in a request's `Expect` field waits for a 100 (Continue) before
-it sends the content (RFC 9110 §10.1.1). The connection writes that 100 when the endpoint next
+it sends the content (RFC 9110 §10.1.1). The connection writes that 100 when the engine next
 reads the connection or writes its octets, in every version. That may be at the program's next
 call. An answer the program gives first takes the place of the 100. A program that refuses such a
 request therefore answers it before its next call: a final response, the program's own 100, or
@@ -542,14 +542,14 @@ fn greet(_: *App, _: *const server.Request, _: void, _: void, response: *server.
 ```
 
 `end` sends a head that carries the whole body with its Content-Length. The writer copies each
-header and writes the body into the request's entry, which the endpoint may read until the
+header and writes the body into the request's entry, which the engine may read until the
 request's `finished` (decision 103). So the entry's `response_bytes` bound a body that `body()`
 writes. `write_kept` sends bytes the program keeps valid until the `finished`, with no copy, such
 as a file the program mapped. `trailers` ends the response with a trailer section. When the
-endpoint takes less than the writer gives it, the rest waits, and the router sends it at the
+engine takes less than the writer gives it, the rest waits, and the router sends it at the
 request's `writable`.
 
-The writer calls the endpoint's three calls that write a response, which a program that answers
+The writer calls the engine's three calls that write a response, which a program that answers
 requests itself calls by the request's id: `respond` writes the head, `write_body` the content and
 `write_trailers` the trailer section. A response with no content sets `end` in `respond`. A write can find no room: `write_body` takes fewer octets than it was given, or
 any of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often
@@ -557,20 +557,20 @@ returns `error.Blocked`, and `respond` and `write_trailers` `error.NoSpaceLeft`.
 returns `error.Blocked` while a coded response's last octets wait. Over QUIC, room comes back only
 as the client acknowledges what was sent (RFC 9000 §3.1), and a head or a trailer section larger
 than the room the response's earlier frames leave waits until the client has acknowledged all of
-them. Either way the endpoint reports `writable` for the request, once, when the response has
+them. Either way the engine reports `writable` for the request, once, when the response has
 room, and the program writes again. `cancel` ends one
 request before its response is whole, and its `finished` follows, cancelled with the reason
 `program`. A connection that stops with requests open ends each cancelled, with the reason `closed`.
 `shutdown` ends every connection once the requests it holds are answered, and the `closed` event
 follows once every connection has ended.
 
-The endpoint reports `send` when a TCP connection owes its socket octets. The program calls
+The engine reports `send` when a TCP connection owes its socket octets. The program calls
 `send_stream` for that connection until a call leaves room in the buffer, and writes what each
 call returns to the connection's socket:
 
 ```zig
 for (0..sends_per_event_max) |_| {
-    const written = endpoint.send_stream(connection, &output, now_ns);
+    const written = engine.send_stream(connection, &output, now_ns);
     try link.send(.server, output[0..written]);
     if (written < output.len) return;
 }
@@ -578,7 +578,7 @@ return error.SendUnfinished;
 ```
 
 A call that fills the buffer leaves more owed. A call that leaves room ends the `send`, and the
-endpoint reports another once the connection owes more. A program whose socket is full stops
+engine reports another once the connection owes more. A program whose socket is full stops
 calling, and calls again when the socket takes more. A program may also call `send_stream` for an
 open connection without waiting for a `send`, such as straight after it writes a response. For
 QUIC the turn calls `send_datagram` until it returns null, and sends each datagram to the address
@@ -587,14 +587,14 @@ it names.
 A peer may hold a connection only so long ([decision 110](decisions.md)). Timeouts bound the
 wait for a first request, the time between requests, a request's head and its content, and how
 slowly the peer may take the response. They bound an h3 connection as they bound a TCP one. The
-endpoint's `deadline_ns` names the soonest instant one passes, on any connection it holds. Over
+engine's `deadline_ns` names the soonest instant one passes, on any connection it holds. Over
 QUIC it also names the instants of loss recovery, acknowledgments and idle timeouts. The program
 waits for octets and datagrams no longer than that:
 
 ```zig
 fn sleep_ns() u64 {
     var wait_ns: u64 = wait_ns_max;
-    if (endpoint.deadline_ns()) |deadline_ns| {
+    if (engine.deadline_ns()) |deadline_ns| {
         wait_ns = @min(wait_ns, deadline_ns -| link.now_ns(.server));
     }
     if (peers.deadline_ns()) |deadline_ns| {
@@ -609,29 +609,29 @@ The program then calls `on_instant` with the instant it woke at, as the turn abo
 connection whose peer is late ends. Over h2, a request whose content is late may end by itself,
 with a `finished` whose result is cancelled, with the timeout as its reason. `receive` and `send_stream` fire a deadline
 that passed too, on the connection they read or write. The configuration's `timeouts` sets the
-limits, and `Endpoint.init` refuses limits a connection would refuse, with
+limits, and `Engine.init` refuses limits a connection would refuse, with
 `error.TimeoutInvalid`. `set_timeouts` changes one connection's limits, by its handle, as
 `note_request` does above. A program that wakes only when octets arrive never ends a silent peer.
 
-A TCP connection's socket closes in one of two ways. The endpoint reports `close` once the
+A TCP connection's socket closes in one of two ways. The engine reports `close` once the
 connection has finished and `send_stream` has written every octet it owed, the TLS close_notify
 too, or once the `linger_ns` deadline passes with octets still owed. The program closes the socket
-once the socket has taken the octets `send_stream` returned, and owes the endpoint no call. After a
+once the socket has taken the octets `send_stream` returned, and owes the engine no call. After a
 linger there are none to wait for: colibri dropped what it still owed. Or the peer closes the
-socket first, or the socket fails, and the program tells the endpoint with `transport_closed`. The
+socket first, or the socket fails, and the program tells the engine with `transport_closed`. The
 example accepts a second socket to show that call, a socket its peer closes before it sends an
 octet:
 
 ```zig
-const closed = endpoint.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
-// The peer closed the socket first, so the program closes its own end and tells the endpoint.
+const closed = engine.accept(.{}, link.now_ns(.server)) orelse return error.ExchangeWrong;
+// The peer closed the socket first, so the program closes its own end and tells the engine.
 // A program calls `transport_closed` then, and when a socket fails. The connection's `ended`
 // follows, with no `close`.
-endpoint.transport_closed(closed);
+engine.transport_closed(closed);
 ```
 
 Either way colibri reads and writes nothing more on the connection, and wipes its TLS session's
-secrets. The endpoint then reports a `finished` for each request: `sent` for each response
+secrets. The engine then reports a `finished` for each request: `sent` for each response
 written whole, and cancelled with the reason `closed` for the others. Last comes the connection's
 `ended`, once. A later
 socket or client takes the connection's slot, and the ended connection's handle and every id on it
@@ -641,7 +641,7 @@ name nothing from then on. `ended` carries two more fields:
   connection for one. It is null otherwise. In the example, the QUIC connection ends at the idle
   deadline `note_request` shortened.
 - `failed` says colibri closed the connection because its peer broke a protocol rule or its record
-  layer failed. For a TCP connection, the endpoint reports a `send` for what colibri owes that
+  layer failed. For a TCP connection, the engine reports a `send` for what colibri owes that
   peer, such as h2's GOAWAY or an h11 server's 400, before the `close`.
 
 `ended` follows a `close` with no call from the program, so it may come while the program's socket
@@ -654,7 +654,7 @@ Three more things a server sets:
 
 - **Content codings.** With the configuration's `codings` and an `EncoderPool` the program places,
   a response marked `codable` goes out in the coding its request accepts, gzip or deflate
-  ([decision 101](decisions.md)). The program calls the pool's `reset` once, with
+  ([decision 101](decisions.md)). The program calls the pool's `init` once, with
   `server.Features.detect()` or `.target()`, and gives its `encoders()` to the configuration.
 - **h3.** The configuration's `h3_alternative` makes each TLS connection advertise the server's h3
   endpoint (RFC 7838), as the example's does. A cleartext connection advertises nothing (RFC 9114
@@ -673,13 +673,13 @@ Three more things a server sets:
 ### Router
 
 A program declares its routes in a route table at compile time, and the router calls the function of each
-request's route ([decisions 122 and 127](decisions.md)). `server.router` builds the route table from the
+request's route ([decisions 122 and 127](decisions.md)). `server.Router` builds the route table from the
 program's context type and a struct of two fields: `error_handler` and `routes`. Each route holds
-a method, a pattern and a function, and options may follow. `Of` gives the type of the pool the
-program places:
+a method, a pattern and a function, and options may follow. `server.Router` takes a
+`server.RouterOptions` too, and returns the type of the router the program places:
 
 ```zig
-const routes = server.router(App, .{
+const routes = .{
     .error_handler = on_error,
     .middleware = .{ Brand, Counted },
     .routes = .{
@@ -687,11 +687,11 @@ const routes = server.router(App, .{
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
         .{ .get, "/greetings/:name", greet_named },
     },
-});
+};
 
 /// The router's pool: an entry for each request at once, with room for its response and for the
 /// POST's content. The program places it once and does not move it.
-const Router = @TypeOf(routes).Of(.{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 
@@ -748,7 +748,7 @@ const Echo = struct {
 
 A request body larger than `body_bytes` gets 413. The router ends the response once `on_body` ran
 with the last byte, unless the route has `on_writable`. `on_writable` writes a response over many
-calls: the router calls it while the response is open and the endpoint took all it was given, and
+calls: the router calls it while the response is open and the engine took all it was given, and
 the route ends the response itself. `on_finished` runs at the request's `finished` event, with its
 result.
 
@@ -792,7 +792,7 @@ a request itself calls `match`, with the request's method and path. Its `found` 
   "allow" field (RFC 9110 §15.5.6). The field name is in lowercase, because h2 and h3 refuse an
   uppercase field name.
 - **HEAD finds GET.** A HEAD request finds the GET route of a pattern that names no HEAD route,
-  and the Allow value lists HEAD after GET. The endpoint writes no content in a response to HEAD,
+  and the Allow value lists HEAD after GET. The engine writes no content in a response to HEAD,
   in h11, h2 and h3 (RFC 9110 §9.3.2). So a program writes one answer for GET and HEAD. It reads
   `request.method` when it must know which one it got.
 - **`OPTIONS *` gets one of two results.** A route table with no OPTIONS route gives
@@ -805,7 +805,7 @@ a request itself calls `match`, with the request's method and path. Its `found` 
 - **A segment that encodes "/", "\\" or NUL matches nothing** (RFC 3986 §7.3). So no parameter
   holds a "/" or a "\\", no part of the wildcard's rest is a dot-segment, and no value holds a NUL.
 - **A parameter's value is the decoded segment.** A segment with no "%" is a slice of the path,
-  valid until the next endpoint call that the comment on `Endpoint.receive` lists. A decoded one
+  valid until the next engine call that the comment on `Engine.receive` lists. A decoded one
   is a slice of the router's `PathParameters`, valid until the next request. A route that keeps a
   value longer copies it into its `State`.
 - **A path that ends in "/" is a resource of its own** (RFC 3986 §6.2.4, decision 122 as
@@ -922,7 +922,7 @@ a stream of octets, and it keeps time for each connection. Three things differ f
 - **The body is not copied.** QUIC reads the program's bytes again whenever it sends them again.
   They stay the program's until the request's `finished`. A `sent` result comes once the peer
   has acknowledged every byte of the response.
-- **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`, for loss
+- **Time.** `deadline_ns` names the instant the engine next needs `on_instant`, for loss
   recovery and acknowledgments too, so a program sleeps until then when no datagram arrives.
   `Config.idle_timeout_ms` is QUIC's own idle timeout, which ends a peer that sends nothing at
   all.
@@ -935,7 +935,7 @@ a stream of octets, and it keeps time for each connection. Three things differ f
 `ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
 or the limit its client passed, and `failed` says colibri closed it because its client broke a rule
 of the protocol. A later client then takes its slot, and every id of the ended connection names
-nothing. A QUIC connection has no socket of its own, so the endpoint reports no `send` and no
+nothing. A QUIC connection has no socket of its own, so the engine reports no `send` and no
 `close` for one.
 
 `Config.retry` makes a client prove its address before a connection starts (RFC 9000 §8.1.2).
@@ -947,8 +947,8 @@ round trip while it is not. `Config.logs` gives each connection a qlog log
 
 `Config.resumes` lets a later connection from a client start near an earlier one's rate, by RFC
 9959's Careful Resume ([decision 149](decisions.md)). colibri keeps nothing between connections, so
-the program keeps a `server.ResumeState` for each client address and gives the endpoint a
-`server.ResumeProvider` over them. The endpoint calls `take` when a connection starts, and the set it
+the program keeps a `server.ResumeState` for each client address and gives the engine a
+`server.ResumeProvider` over them. The engine calls `take` when a connection starts, and the set it
 returns is that connection's until `put` comes for it, once the connection ends. `put` carries what
 the connection observed, or null to keep the set held. `drop` comes first when the connection had to
 retreat, and the set goes. `Config.resume_bounds` holds RFC 9959's max_jump and Lifetime, 4 MiB and
@@ -985,7 +985,7 @@ The code in this section is from [`examples/client_exchange.zig`](../examples/cl
 where `link` and `datagram_link` stand in for a program's TCP and UDP sockets. Its network drops
 every UDP datagram. The pool tries QUIC first, as its configuration asks, and carries its
 exchanges over TCP once the fallback delay passes. Its server, in [`examples/client_peer.zig`](../examples/client_peer.zig), is
-an endpoint with no UDP socket.
+an engine with no UDP socket.
 
 For each exchange the program places two values in its own memory
 ([decision 124](decisions.md)):
@@ -1052,10 +1052,10 @@ It is pure, so a program sizes a static array with it, as here, or maps that man
 time:
 
 ```zig
-var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
+var pool: client.ConnectionPool(.{}) align(@alignOf(client.ConnectionPool(.{}))) = undefined;
 // The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
 // `client.Config` give (decision 125).
-var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
+var pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined;
 ```
 
 The client gives one configuration with one TLS value, makes the pool, and hands it each
@@ -1106,19 +1106,19 @@ The pool takes one `client.Config` ([decision 120](decisions.md)):
   9002's own controller ([decisions 133, 136 and 143](decisions.md)).
 
 `init` also takes the receive pool, where the pool's QUIC connection holds the server's unread octets:
-`client.ReceivePool(capacity)`, sized to the longest response the program expects. A pool
+`client.ReceivePool(.{ .capacity = capacity })`, sized to the longest response the program expects. A pool
 offers QUIC only when it has a pool, a `tls` value and `versions.h3`. A program that passes
 `null` for the pool gets TCP alone.
 
-A program that never speaks h3 holds a `client.ConnectionPoolOf(.{ .quic = false })` in place of a
-`client.ConnectionPool` ([decision 124](decisions.md)). It holds no QUIC connection and no QUIC TLS
+A program that never speaks h3 holds a `client.ConnectionPool(.{ .quic = false })` in place of a
+`client.ConnectionPool(.{})` ([decision 124](decisions.md)). It holds no QUIC connection and no QUIC TLS
 configuration. At the default counts it takes 307,376 octets with its memory, in place of
 1,012,288 (docs/performance.md). Its `init` takes `null` for the pool, and it has no
 `start_quic`, so a call of it does not compile. The consumer program holds one:
 
 ```zig
 // The pool speaks h2 over TCP alone, so it holds no QUIC state (decision 124).
-const ConnectionPool = client_module.ConnectionPoolOf(.{ .quic = false });
+const ConnectionPool = client_module.ConnectionPool(.{ .quic = false });
 var asked: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 ```
 
@@ -1212,7 +1212,7 @@ for it. It opens no second h2 connection, as RFC 9113 §9.1 asks. The pool examp
 ([`client_pool.zig`](../examples/client_pool.zig)) holds four:
 
 ```zig
-const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
+const ConnectionPool = client.ConnectionPool(.{ .quic = false });
 const tcp_connections: u16 = link_module.streams_max;
 var pool: ConnectionPool align(@alignOf(ConnectionPool)) = undefined;
 var pool_memory: [ConnectionPool.memory_bytes(.{ .tcp_connections = tcp_connections })]u8 align(ConnectionPool.memory_alignment) = undefined;
@@ -1289,7 +1289,7 @@ The example bounds each read of the socket with them:
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop. At most
 /// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no octet.
-const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool.receive_events_without_input_max(.{}) + 1);
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool(.{}).receive_events_without_input_max(.{}) + 1);
 ```
 
 The pool's events say what the program does next, and an exchange ends in exactly one
@@ -1745,8 +1745,8 @@ connection's `decrypt` and `encrypt`.
 
 A body may arrive coded with `gzip` or `deflate` under `chunked` (RFC 9112 §7.2). stdx decodes it,
 and each decoder holds a window of 32,768 octets, so a connection keeps none of its own. Your
-program places a pool, `h11.coding.DefaultPool` or `h11.coding.Pool(count)`, calls
-`storage().reset(features)` on it once, and gives the storage to each connection in
+program places a pool, `h11.coding.Pool(.{})` or `h11.coding.Pool(.{ .count = count })`, calls
+`init(features)` on it once, and gives its `storage()` to each connection in
 `Options.decoders`. Connections share the pool, and one takes a decoder only while a message
 carries a coding (decision 91). `features` is `h11.coding.Features.detect()` to use the CPU's
 fastest paths, or `.target()` for what the build target guarantees; colibri never asks the CPU
@@ -2032,14 +2032,14 @@ client built on it.
 
 Every connection is a struct your program places, and its size is fixed at compile time. The
 table of [Memory per connection](performance.md#memory-per-connection) gives the size of each
-endpoint, pool, connection and TLS session. `zig build test` fails when that table differs from
+engine, pool, connection and TLS session. `zig build test` fails when that table differs from
 what the build compiles.
 
 One more struct, `@sizeOf` in ReleaseSafe with Zig 0.16.0 on aarch64 macOS, on 2026-09-26:
 
 | Struct | Octets |
 | --- | --- |
-| `h11.coding.DefaultPool` | 691,472, 16 decoders the connections given it share |
+| `h11.coding.Pool(.{})` | 691,472, 16 decoders the connections given it share |
 
 The buffers your program reads into and writes from come on top, and QUIC's calls also take
 scratch storage your program places; `udp_peer.zig` shows both.

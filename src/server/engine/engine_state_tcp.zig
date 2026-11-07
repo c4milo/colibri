@@ -1,8 +1,8 @@
-//! The TCP slots of the server's endpoint (`endpoint_state.zig`, decision 119): a connection the
+//! The TCP slots of the server's engine (`engine_state.zig`, decision 119): a connection the
 //! program accepted, the octets its socket read, the event a TCP slot owes the program and in what
 //! order, the octets its connection owes the socket, and how it closes and ends. The program owns
-//! each socket: the endpoint names the slot in a `send` event when its connection owes octets, and
-//! in a `close` event when the program closes the socket. Split out of `endpoint_state.zig` for
+//! each socket: the engine names the slot in a `send` event when its connection owes octets, and
+//! in a `close` event when the program closes the socket. Split out of `engine_state.zig` for
 //! length; `server.zig` does not export this file.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -11,15 +11,15 @@ const event = @import("../event.zig");
 const connection_module = @import("../connection/connection.zig");
 const connection_internal = @import("../connection/connection_internal.zig");
 const connection_owed = @import("../connection/connection_owed.zig");
-const endpoint_requests = @import("endpoint_requests.zig");
-const endpoint_state = @import("endpoint_state.zig");
-const endpoint_state_events = @import("endpoint_state_events.zig");
+const engine_requests = @import("engine_requests.zig");
+const engine_state = @import("engine_state.zig");
+const engine_state_events = @import("engine_state_events.zig");
 
-const State = endpoint_state.State;
+const State = engine_state.State;
 const Connection = connection_module.Connection;
 const Event = event.Event;
 const ConnectionHandle = event.ConnectionHandle;
-const Entry = endpoint_requests.Entry;
+const Entry = engine_requests.Entry;
 
 /// What `accept` takes of a TCP socket the program accepted: whether its connection runs TLS,
 /// which it does unless the program opts out with `.tls = false`.
@@ -29,18 +29,18 @@ pub const Accepted = struct { tls: bool = true };
 pub const StreamBytes = struct { connection: ConnectionHandle, bytes: []u8 };
 
 /// A TCP slot's open requests: as many as an h2 connection holds at once.
-pub const TcpTable = endpoint_requests.Table(constants.limits.tcp_requests_max, constants.protocol.tcp_request_number_step);
+pub const TcpTable = engine_requests.Table(constants.limits.tcp_requests_max, constants.protocol.tcp_request_number_step);
 
-/// Whether a TCP slot's socket is open, or who closed it: the endpoint, with a `close` event, or
+/// Whether a TCP slot's socket is open, or who closed it: the engine, with a `close` event, or
 /// the program, with `transport_closed`.
-pub const Transport = enum(u8) { open, closed_by_endpoint, closed_by_program };
+pub const Transport = enum(u8) { open, closed_by_engine, closed_by_program };
 
 /// Starts a connection on a socket the program accepted, in a free TCP slot, or returns null
 /// when none is free, after `shutdown`, when `versions` allows no TCP version, or when chapulin
 /// refuses to start its session. The program closes the socket on null.
 pub fn accept(state: *State, socket: Accepted, now_ns: u64) ?ConnectionHandle {
     assert(state.slots.tcp_count > 0);
-    // An endpoint that serves no TCP version builds no TCP configuration to read.
+    // An engine that serves no TCP version builds no TCP configuration to read.
     if (state.shutting_down or !state.served.tcp) return null;
     assert(!socket.tls or state.tcp_configs.secure.tls != null);
     const handle = state.slots.take(.tcp) orelse return null;
@@ -59,7 +59,7 @@ pub fn accept(state: *State, socket: Accepted, now_ns: u64) ?ConnectionHandle {
     state.send_outstanding[slot] = false;
     state.failed[slot] = false;
     state.room[slot] = 0;
-    endpoint_state.touch(state, slot);
+    engine_state.touch(state, slot);
     return handle;
 }
 
@@ -76,16 +76,16 @@ pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) event.Receive
     const table = table_of(state, slot);
     // INV-30: the program's own cancel is reported before the input that might name its request
     // again, and the input waits for the next call.
-    if (endpoint_state_events.owed_cancel(table)) |number| {
-        endpoint_state.touch(state, slot);
-        return .{ .consumed = 0, .event = endpoint_state_events.ending(input.connection, table, number, .program) };
+    if (engine_state_events.owed_cancel(table)) |number| {
+        engine_state.touch(state, slot);
+        return .{ .consumed = 0, .event = engine_state_events.ending(input.connection, table, number, .program) };
     }
     if (send_first(state, slot)) |reported| return .{ .consumed = 0, .event = reported };
     // No octets, and nothing changed the connection since it read nothing at this instant: the
     // call would read nothing again, and the slot's last poll asked it everything else.
     if (input.bytes.len == 0 and reads_nothing(state, slot, now_ns)) return .{ .consumed = 0, .event = null };
     const connection = &state.tcp[slot];
-    endpoint_state.touch(state, slot);
+    engine_state.touch(state, slot);
     const received = connection.receive(input.bytes, now_ns) catch {
         // The connection reads nothing more, and `ended` says it failed.
         state.failed[slot] = true;
@@ -96,7 +96,7 @@ pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) event.Receive
     if (received.consumed > 0 or connection.plain_in_read > 0) state.room[slot] +%= 1;
     const consumed = if (connection_owed.reads_no_input(connection)) input.bytes.len else received.consumed;
     const reported = received.event orelse return .{ .consumed = consumed, .event = null };
-    return .{ .consumed = consumed, .event = endpoint_state_events.pass(state, slot, table, reported, @This()) };
+    return .{ .consumed = consumed, .event = engine_state_events.pass(state, slot, table, reported, @This()) };
 }
 
 /// The next event TCP slot `slot` owes the program: the program's own cancels first, then the
@@ -105,18 +105,18 @@ pub fn take_stream(state: *State, input: StreamBytes, now_ns: u64) event.Receive
 /// `ended`.
 pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
     // INV-31: the connection's `receive` fires and observes its deadlines (decision 110).
-    endpoint_state.changed(state, slot);
+    engine_state.changed(state, slot);
     const handle = state.slots.handle_of(slot);
     const table = table_of(state, slot);
-    if (endpoint_state_events.owed_cancel(table)) |number| return endpoint_state_events.ending(handle, table, number, .program);
+    if (engine_state_events.owed_cancel(table)) |number| return engine_state_events.ending(handle, table, number, .program);
     if (send_first(state, slot)) |reported| return reported;
     const connection = &state.tcp[slot];
     if (connection_event(state, slot, connection, table, now_ns)) |reported| return reported;
     if (connection_owed.stops_requests(connection)) {
         // INV-30: a request the connection ended without an ending of its own ends here.
-        if (table.first()) |entry| return endpoint_state_events.ending(handle, table, entry.number, .closed);
+        if (table.first()) |entry| return engine_state_events.ending(handle, table, entry.number, .closed);
     }
-    if (endpoint_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
+    if (engine_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
     return transport_event(state, slot, connection);
 }
 
@@ -133,14 +133,14 @@ fn connection_event(state: *State, slot: u32, connection: *Connection, table: *T
         note_read(state, slot, received, now_ns);
         if (connection.plain_in_read > 0) state.room[slot] +%= 1;
         const reported = received.event orelse return null;
-        if (endpoint_state_events.pass(state, slot, table, reported, @This())) |passed| return passed;
+        if (engine_state_events.pass(state, slot, table, reported, @This())) |passed| return passed;
     }
     // More events than one call reads: the slot comes back for the rest.
     state.ready.touch(slot);
     return null;
 }
 
-/// The `send` of octets the output of the connection in `slot` holds, which the endpoint reports
+/// The `send` of octets the output of the connection in `slot` holds, which the engine reports
 /// before it reads the connection. A read observes the connection's deadlines, and an h2 stream's
 /// send meter waits while the output holds octets (decision 110 as amended), so octets a write left
 /// there for the program would pause the meter after each write, which then starts again with a
@@ -162,7 +162,7 @@ fn transport_event(state: *State, slot: u32, connection: *Connection) ?Event {
         return .{ .send = handle };
     }
     if (!connection.should_close()) return null;
-    state.transports[slot] = .closed_by_endpoint;
+    state.transports[slot] = .closed_by_engine;
     connection_internal.close_transport(connection);
     // A connection whose transport closed reports each response it wrote whole.
     state.empty_read_ns[slot] = null;
@@ -197,7 +197,7 @@ pub fn send_stream(state: *State, handle: ConnectionHandle, output: []u8, now_ns
     // A send writes a coded ring's octets out, which frees room for more of the response.
     state.room[slot] +%= 1;
     if (written < output.len) state.send_outstanding[slot] = false;
-    endpoint_state.touch(state, slot);
+    engine_state.touch(state, slot);
     return written;
 }
 
@@ -210,7 +210,7 @@ pub fn transport_closed(state: *State, handle: ConnectionHandle) void {
     if (state.transports[slot] != .open) return;
     connection_internal.close_transport(&state.tcp[slot]);
     state.transports[slot] = .closed_by_program;
-    endpoint_state.touch(state, slot);
+    engine_state.touch(state, slot);
 }
 
 /// Whether the connection in `slot` now takes what request `entry` waits to write.

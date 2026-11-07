@@ -24,14 +24,14 @@ fn index_of(edges: usize, position: []const u8) usize {
 }
 
 fn run(comptime edges: usize, path: []const u8, count: usize) u64 {
-    const table = comptime server.router(void, tables.table_of(tables.literals(edges, "")));
+    const Router = server.Router(void, comptime tables.table_of(tables.literals(edges, "")), .{ .requests = 1, .response_bytes = 0 });
     // A volatile read, so the compiler does not move the match out of the loop.
     var held: []const u8 = path;
     const volatile_path: *volatile []const u8 = &held;
     var parameters: server.PathParameters = .{};
     var found: u64 = 0;
     for (0..count) |_| {
-        if (table.match("GET", volatile_path.*, &parameters) == .found) found += 1;
+        if (Router.match("GET", volatile_path.*, &parameters) == .found) found += 1;
         std.mem.doNotOptimizeAway(&parameters);
     }
     return found;

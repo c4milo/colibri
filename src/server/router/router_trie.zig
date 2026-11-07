@@ -24,7 +24,7 @@
 //! that constant. A call that gets a pointer to a comptime var takes a few steps. So the checks
 //! and the build copy the trie, the routes and the layout into vars once, and their loops pass
 //! pointers to the copies. Zig also does not keep the result of a comptime call, so
-//! `server.router` merges the trie once and passes it to each check and to the build.
+//! `server.Router` merges the trie once and passes it to each check and to the build.
 const std = @import("std");
 const assert = std.debug.assert;
 const router_pattern = @import("router_pattern.zig");
@@ -155,8 +155,8 @@ pub const Refusal = struct {
 pub fn message(comptime refusal: Refusal) []const u8 {
     const name = refusal.reason.name();
     const sentence = refusal.reason.sentence();
-    if (refusal.reason == .table_empty) return std.fmt.comptimePrint("server.router: {s}: {s}", .{ name, sentence });
-    return std.fmt.comptimePrint("server.router: route {d}, \"{s}\": {s}: {s}", .{ refusal.route, refusal.pattern, name, sentence });
+    if (refusal.reason == .table_empty) return std.fmt.comptimePrint("server.Router: {s}: {s}", .{ name, sentence });
+    return std.fmt.comptimePrint("server.Router: route {d}, \"{s}\": {s}: {s}", .{ refusal.route, refusal.pattern, name, sentence });
 }
 
 /// The first refusal of `table`, or null when the table compiles: `entries_refusal`, then

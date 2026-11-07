@@ -1,7 +1,7 @@
-//! The QUIC connections of the server's endpoint (`endpoint.zig`), and what the endpoint does with
+//! The QUIC connections of the server's engine (`engine.zig`), and what the engine does with
 //! each datagram: the routing, the start of a connection from a client's first Initial in a free
 //! QUIC slot, and the Version Negotiation and Retry packets it owes (decision 103). It holds slices
-//! of the arrays `EndpointOf` places, so it takes no size of its own. Split out of `endpoint.zig`
+//! of the arrays `Engine` places, so it takes no size of its own. Split out of `engine.zig`
 //! for length.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -10,10 +10,10 @@ const tls = @import("tls");
 const constants = @import("../constants.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
-const endpoint_stateless = @import("endpoint_stateless.zig");
-const endpoint_slots = @import("endpoint_slots.zig");
-const endpoint_config = @import("endpoint_config.zig");
-const endpoint_routes = @import("endpoint_routes.zig");
+const engine_stateless = @import("engine_stateless.zig");
+const engine_slots = @import("engine_slots.zig");
+const engine_config = @import("engine_config.zig");
+const engine_routes = @import("engine_routes.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const PeerAddress = quic_connection.PeerAddress;
@@ -21,7 +21,7 @@ const ReceiveStorage = quic_connection.ReceiveStorage;
 const Sent = quic_connection.Sent;
 const Ecn = quic.connection_receive.Datagram.Ecn;
 
-/// The caller's source of qlog logs, a provider the endpoint asks once for each connection it
+/// The caller's source of qlog logs, a provider the engine asks once for each connection it
 /// starts (decision 102 as amended). colibri writes the connection's QUIC and h3 events into the
 /// log the caller returns. The caller takes the records after each call it makes, and gets the
 /// log back through `close` once the connection is over.
@@ -49,8 +49,8 @@ pub const LogProvider = struct {
 };
 
 pub const Connections = struct {
-    config: *const endpoint_config.Config,
-    /// What each QUIC connection borrows, which `endpoint_config.build` filled.
+    config: *const engine_config.Config,
+    /// What each QUIC connection borrows, which `engine_config.build` filled.
     quic: *const quic_connection.Config,
     random: tls.Random,
     /// Unix seconds at `base_ns`, from which each connection's tickets count, or 0 for none.
@@ -60,22 +60,22 @@ pub const Connections = struct {
     /// and the slots, which say which run.
     connections: []QuicConnection,
     pools: []const ReceiveStorage,
-    slots: *endpoint_slots.Slots,
+    slots: *engine_slots.Slots,
     replies: Replies,
     /// The connection IDs the connections issued, each in the entry its bits name (decision 157).
-    routes: endpoint_routes.Routes,
+    routes: engine_routes.Routes,
 
-    /// The arrays `EndpointOf` places for the QUIC connections, one entry for each QUIC slot, and
+    /// The arrays `Engine` places for the QUIC connections, one entry for each QUIC slot, and
     /// the entries of the table of connection IDs.
     pub const Arrays = struct {
         connections: []QuicConnection,
         pools: []const ReceiveStorage,
-        route_entries: []endpoint_routes.Entry,
-        route_held: []endpoint_routes.Held,
+        route_entries: []engine_routes.Entry,
+        route_held: []engine_routes.Held,
     };
 
-    /// Holds no connection. Every value the endpoint draws comes from `random`.
-    pub fn init(held: *Connections, config: *const endpoint_config.Config, quic_config: *const quic_connection.Config, arrays: Arrays, slots: *endpoint_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+    /// Holds no connection. Every value the engine draws comes from `random`.
+    pub fn init(held: *Connections, config: *const engine_config.Config, quic_config: *const quic_connection.Config, arrays: Arrays, slots: *engine_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) void {
         const connections = arrays.connections;
         const pools = arrays.pools;
         assert(connections.len == pools.len and slots.tcp_count + connections.len == slots.live.len);
@@ -105,7 +105,7 @@ pub const Connections = struct {
     /// returns the slot of the connection that took it, or null when none did. With `accepting`
     /// false, a client's first Initial starts no connection.
     pub fn receive(held: *Connections, datagram: []u8, ecn: Ecn, from: PeerAddress, now_ns: u64, accepting: bool) ?u32 {
-        if (endpoint_stateless.destination_of(datagram)) |destination| {
+        if (engine_stateless.destination_of(datagram)) |destination| {
             if (held.slot_for(destination)) |slot| {
                 const connection = held.at(slot);
                 internal.take(connection, datagram, ecn, from, now_ns);
@@ -116,7 +116,7 @@ pub const Connections = struct {
         }
         if (held.answer_version(datagram, from)) return null;
         if (!accepting) return null;
-        const long = endpoint_stateless.first_initial(datagram) orelse return null;
+        const long = engine_stateless.first_initial(datagram) orelse return null;
         // RFC 9000 §14.1: "A server MUST discard an Initial packet that is carried in a UDP
         // datagram with a payload that is smaller than the smallest allowed maximum datagram
         // size of 1200 bytes."
@@ -131,10 +131,10 @@ pub const Connections = struct {
     }
 
     /// The slot of the running connection `destination` addresses (RFC 9000 §5.2), or null. An
-    /// ID this endpoint issued names its own table entry (decision 157). A short header follows
+    /// ID this engine issued names its own table entry (decision 157). A short header follows
     /// the server's first Initial, after which the client sends only the server's IDs (§7.2), so
     /// only a long header may carry an ID the table lacks: the client's first DCID or a Retry's.
-    fn slot_for(held: *Connections, destination: endpoint_stateless.Destination) ?u32 {
+    fn slot_for(held: *Connections, destination: engine_stateless.Destination) ?u32 {
         if (held.routes.find(destination.dcid)) |quic_index| {
             const slot: u32 = @intCast(held.slots.tcp_count + quic_index);
             assert(held.slots.live[slot]);
@@ -158,7 +158,7 @@ pub const Connections = struct {
     /// says whether it did.
     fn answer_version(held: *Connections, datagram: []const u8, from: PeerAddress) bool {
         var answer: [quic.constants.protocol.datagram_len_min]u8 = undefined;
-        const written = endpoint_stateless.version_negotiation(datagram, &answer) orelse return false;
+        const written = engine_stateless.version_negotiation(datagram, &answer) orelse return false;
         held.replies.push(written, from);
         return true;
     }
@@ -167,8 +167,8 @@ pub const Connections = struct {
     /// checks the Initial's token (RFC 9000 §8.1.2).
     fn accept(held: *Connections, long: quic.packet.header.Long, from: PeerAddress, now_ns: u64) ?u32 {
         const retry = held.config.retry orelse return held.start(long.version, long.dcid, long.scid, null, from, now_ns);
-        var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
-        const address = endpoint_stateless.token_address(from, &address_storage);
+        var address_storage: [engine_stateless.token_address_len_max]u8 = undefined;
+        const address = engine_stateless.token_address(from, &address_storage);
         return switch (quic.retry.verify_token(retry.suite(), long.version, address, long.token, long.dcid, now_ns)) {
             .absent => blk: {
                 if (!held.retry_owed()) break :blk held.start(long.version, long.dcid, long.scid, null, from, now_ns);
@@ -291,7 +291,7 @@ pub const Connections = struct {
     }
 };
 
-/// The Version Negotiation and Retry packets the endpoint owes, oldest first, with where each
+/// The Version Negotiation and Retry packets the engine owes, oldest first, with where each
 /// goes. A reply that finds the queue full is dropped, and its client sends again.
 pub const Replies = struct {
     packets: [constants.limits.quic_replies_max][quic.constants.protocol.datagram_len_min]u8 = undefined,

@@ -1,29 +1,29 @@
 //! The errors of a server connection over TCP (decision 100), which the QUIC connection shares.
-//! `server.zig` exports `StartError` and `SendError`, which the endpoint's calls return.
+//! `server.zig` exports `StartError` and `SendError`, which the engine's calls return.
 /// Why `receive` stopped reading for good: the peer broke the protocol, or TLS failed (RFC 9846
 /// §6). What the connection owes the peer, such as a GOAWAY, an error response or an alert, waits
 /// for `send`, and the caller closes once `should_close` says so.
 pub const Error = error{ConnectionFailed};
 
-/// What `Endpoint.init` returns (decision 121).
+/// What `Engine.init` returns (decision 121).
 pub const StartError = error{
     /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
     TimeoutInvalid,
     /// `Config.versions` allows neither h11 nor h2, which leaves a TCP connection nothing to speak
-    /// (RFC 9114 §3.1, decision 117). Or an endpoint has no TLS identity, or `versions` turns h3
+    /// (RFC 9114 §3.1, decision 117). Or an engine has no TLS identity, or `versions` turns h3
     /// off, which leaves its QUIC connections nothing to speak.
     NoVersion,
-    /// The endpoint's TLS identity: its key does not sign, or its signature does not verify (RFC
+    /// The engine's TLS identity: its key does not sign, or its signature does not verify (RFC
     /// 9846 §4.5.2).
     IdentityRefused,
-    /// The endpoint's TLS identity holds a longer chain than `certificate_chain_len_max`.
+    /// The engine's TLS identity holds a longer chain than `certificate_chain_len_max`.
     TooManyCertificates,
-    /// The endpoint's TLS identity orders more suites than `cipher_suites_max`.
+    /// The engine's TLS identity orders more suites than `cipher_suites_max`.
     TooManySuites,
-    /// The endpoint's TLS identity orders suites, which a build without AES-GCM cannot keep
+    /// The engine's TLS identity orders suites, which a build without AES-GCM cannot keep
     /// (decision 97).
     SuitesUnavailable,
-    /// The endpoint's TLS identities hold two of one scheme (decision 147).
+    /// The engine's TLS identities hold two of one scheme (decision 147).
     IdentityRepeated,
     /// An identity's key has no scheme: no `tls.pem.key` filled it.
     IdentityUnfilled,
@@ -32,7 +32,7 @@ pub const StartError = error{
 };
 
 /// What a TCP connection's `init` returns: `StartError`, or `TlsRefused` when chapulin refuses
-/// the TLS configuration (`tls.record.Error.Refused`). The endpoint changes `TlsRefused` into a null
+/// the TLS configuration (`tls.record.Error.Refused`). The engine changes `TlsRefused` into a null
 /// `accept`, so `server.zig` does not export this set.
 pub const InitError = StartError || error{TlsRefused};
 

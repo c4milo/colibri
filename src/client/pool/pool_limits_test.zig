@@ -112,7 +112,7 @@ fn seal_largest_first(plaintext: []const u8) !usize {
 
 /// The pool of the default capacity, which the test of the events with no input drives with QUIC
 /// offered.
-const default = Tests(pool_module.ConnectionPool);
+const default = Tests(pool_module.ConnectionPool(.{}));
 
 /// What `receive` reported in a run with no input: the calls that reported an event, and whether
 /// one of them was `closed`.
@@ -122,7 +122,7 @@ const Run = struct {
 };
 
 /// The bound of a default pool, with QUIC and the default counts (decision 125).
-const events_bound = pool_module.ConnectionPool.receive_events_without_input_max(.{});
+const events_bound = pool_module.ConnectionPool(.{}).receive_events_without_input_max(.{});
 
 /// Calls `receive` with no input until a call reports no event, at most one call more than
 /// `ConnectionPool.receive_events_without_input_max`. Each `open` names a transport that does not open, and the

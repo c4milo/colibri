@@ -1,5 +1,5 @@
 //! The endpoints of the TCP trace run (https://github.com/c4milo/colibri/issues/79): a
-//! `client.ConnectionPool` with TCP alone (design §8 step 21c) and a `server.Endpoint` that holds one
+//! `client.ConnectionPool` with TCP alone (design §8 step 21c) and a `server.Engine` that holds one
 //! connection (step 21b.6), over h2, in cleartext or over TLS, every octet each has handed the
 //! other, and the server's caller, which answers each request as the plan says.
 //!
@@ -69,20 +69,20 @@ const content: [limits.request_content_len]u8 = @splat('x');
 const body_len_max: usize = limits.content_max * limits.piece_len;
 
 /// The server: one connection, in cleartext or over TLS, and no QUIC.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 /// The connection a TCP slot holds, whose fields the run and its state read.
-pub const Connection = std.meta.Elem(@FieldType(Endpoint, "tcp"));
+pub const Connection = std.meta.Elem(@FieldType(Engine, "tcp"));
 
 pub const World = struct {
     endpoint_config: server.Config,
     client_config: client.Config,
     tls: bool,
-    endpoint: Endpoint,
+    endpoint: Engine,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
-    pool: client.ConnectionPool,
-    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
+    pool: client.ConnectionPool(.{}),
+    pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     /// Whether the first request started the pool's connection, whose memory the run reads

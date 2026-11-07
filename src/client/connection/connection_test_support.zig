@@ -112,7 +112,7 @@ pub const Protocols = protocols_module.Protocols;
 
 /// The decoder pool the coding tests give a connection, and the codings it offers, gzip first
 /// (decision 101).
-pub const Pool = h11.coding.Pool(pool_decoders);
+pub const Pool = h11.coding.Pool(.{ .count = pool_decoders });
 pub var pool: Pool align(@alignOf(Pool)) = .{};
 pub const codings = [_]http.content_coding.Coding{ .gzip, .deflate };
 pub const pool_decoders: usize = 2;
@@ -125,16 +125,16 @@ pub fn start_coding(protocol: connection_module.Protocol) !void {
 
 /// As `start_coding`, with the client offering `offered`.
 pub fn start_offering(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
+    pool.init(.none());
     const storage = pool.storage();
-    storage.reset(.none());
     try start_configured(.{ .authority = authority, .protocols = only(protocol), .codings = offered, .decoders = storage });
 }
 
 /// As `start_offering`, with the `zstd` and `br` pools of `coding_test_support.zig` beside the
 /// `gzip` one, each given when `offered` names a coding it serves, and every decoder free.
 pub fn start_offering_all(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
+    pool.init(.none());
     const storage = pool.storage();
-    storage.reset(.none());
     coding_support.reset_pools();
     try start_configured(.{
         .authority = authority,

@@ -422,7 +422,7 @@ test "RFC 9114 §4.1: over h3 a request body goes on after the response's head, 
 
 /// The most `receive` calls in a row that report an event and take no octet, for the fixture's
 /// pool. Test-only.
-const events_bound = pool_module.ConnectionPool.receive_events_without_input_max(.{});
+const events_bound = pool_module.ConnectionPool(.{}).receive_events_without_input_max(.{});
 /// Where each piece of the test of the event bound lands, and the content it reads: more pieces
 /// than the bound, all in QUIC before the first release. Test-only.
 var small_piece: [small_piece_len]u8 = undefined;

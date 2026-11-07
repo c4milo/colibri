@@ -32,7 +32,7 @@
 //! A second pool shows a connect that fails. The program tells the pool with
 //! `transport_closed`, and the exchange ends `refused`.
 //!
-//! The server is in `client_peer.zig`: one endpoint with no UDP socket. The links of `link.zig`
+//! The server is in `client_peer.zig`: one engine with no UDP socket. The links of `link.zig`
 //! and `link_datagram.zig` stand where a program's sockets would be, and `tls_program.zig` holds
 //! what any program that links `tls` defines once.
 //!
@@ -63,7 +63,7 @@ const turns_max = 256;
 /// Calls of `receive` for one read of a socket, at most. Each call takes one octet or more of the
 /// link's queue, or reports an event and takes no octet, or ends the loop. At most
 /// `ConnectionPool.receive_events_without_input_max` calls in a row report an event and take no octet.
-const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool.receive_events_without_input_max(.{}) + 1);
+const receive_calls_max = (link_module.queue_len_max + 1) * (client.ConnectionPool(.{}).receive_events_without_input_max(.{}) + 1);
 
 /// Datagrams the client reads or writes in one turn, at most.
 const datagrams_per_turn_max = 32;
@@ -121,13 +121,13 @@ var anchor_room: [anchors_max]tls.Anchor align(@alignOf(tls.Anchor)) = undefined
 /// Room for the DER of the bundle's certificates, and for its anchors.
 const anchor_der_len = 4096;
 const anchors_max = 4;
-const ReceivePool = client.ReceivePool(64 * 1024);
+const ReceivePool = client.ReceivePool(.{ .capacity = 64 * 1024 });
 var client_config: client.Config align(@alignOf(client.Config)) = undefined;
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
-var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
+var pool: client.ConnectionPool(.{}) align(@alignOf(client.ConnectionPool(.{}))) = undefined;
 // The memory the pool holds its TCP connections and its exchanges in, whose size the counts in
 // `client.Config` give (decision 125).
-var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
+var pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined;
 /// The memory each response's headers go into. Each header takes its name, its value and four
 /// bytes, and a section that does not fit ends the exchange `too_large`.
 var get_headers: [1024]u8 = undefined;
@@ -176,8 +176,8 @@ const Connections = std.EnumArray(client.Transport, client.ConnectionHandle);
 var connections: Connections align(@alignOf(Connections)) = .initFill(.{ .slot = 0, .generation = 0 });
 
 /// The second pool, whose connect fails, and its one exchange.
-var refused_pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
-var refused_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
+var refused_pool: client.ConnectionPool(.{}) align(@alignOf(client.ConnectionPool(.{}))) = undefined;
+var refused_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined;
 var refused_body: [greeting.len]u8 = undefined;
 const refused_get: client.Request = .{ .method = "GET", .path = "/greeting" };
 var refused_get_response: client.Response align(@alignOf(client.Response)) = .{ .body = &refused_body };

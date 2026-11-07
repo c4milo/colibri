@@ -62,11 +62,10 @@ pub const Ecn = quic.Ecn;
 pub const ResumeProvider = quic.ResumeProvider;
 pub const ResumeState = quic.ResumeState;
 pub const ResumeBounds = quic.ResumeBounds;
-pub const ConnectionPool = files.pool.ConnectionPool;
-/// A pool that holds the connections a `Capacity` names (decision 124). `ConnectionPool` is
-/// `ConnectionPoolOf(.{})`, and a program that never speaks h3 places a `ConnectionPoolOf(.{ .quic = false })`,
+/// A pool that holds the connections a `Capacity` names (decision 124): `ConnectionPool(.{})` at the
+/// default capacity. A program that never speaks h3 places a `ConnectionPool(.{ .quic = false })`,
 /// which holds no QUIC state.
-pub const ConnectionPoolOf = files.pool.ConnectionPoolOf;
+pub const ConnectionPool = files.pool.ConnectionPool;
 pub const Capacity = files.pool.Capacity;
 /// What DNS knows of the origin, which `ConnectionPool.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a pool learned from Alt-Svc.
@@ -93,24 +92,24 @@ pub const Transport = files.pool.Transport;
 /// the events.
 pub const Phase = files.pool.Phase;
 /// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
-/// places: `ReceivePool(capacity)` for `capacity` octets, a whole number of
-/// `quic.constants.limits.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
-/// capacity bounds every window the client advertises, and so how fast one connection receives.
-pub fn ReceivePool(comptime capacity: usize) type {
-    return quic.ReceivePool(.{ .capacity = capacity });
-}
-pub const DefaultReceivePool = quic.ReceivePool(.{});
+/// places: `ReceivePool(.{ .capacity = capacity })` for `capacity` octets, a whole number of
+/// `quic.constants.limits.stream_receive_block_len` blocks, or the 1 MiB of `ReceivePool(.{})`.
+/// The capacity bounds every window the client advertises, and so how fast one connection
+/// receives.
+pub const ReceivePool = quic.ReceivePool;
+pub const ReceivePoolOptions = quic.ReceivePoolOptions;
 pub const ReceiveStorage = files.pool.ReceiveStorage;
 /// The content codings a client decodes (decision 101).
 pub const Coding = http.content_coding.Coding;
 /// The pool of decoders a client removes content codings with (decision 101), which the caller
-/// places: `DecoderPool(count)` for `count` decoders, or `DefaultDecoderPool`. A configuration
-/// holds it as `Decoders`, from `storage()` after `reset`, and connections may share one.
+/// places: `DecoderPool(.{ .count = count })` for `count` decoders, or `DecoderPool(.{})`. The
+/// caller calls its `init` once, and a configuration holds it as `Decoders`, from `storage()`.
+/// Connections may share one.
 pub const DecoderPool = h11.coding.Pool;
-pub const DefaultDecoderPool = h11.coding.DefaultPool;
+pub const DecoderPoolOptions = h11.coding.PoolOptions;
 pub const Decoders = h11.coding.Storage;
 /// The pools of `zstd` and `br` decoders (decision 101 as amended), which the caller places and
-/// resets as it does `DecoderPool`. Each decoder of a `ZstdDecoderPool(count)` holds an 8 MB window
+/// starts with `init` as it does `DecoderPool`. Each decoder of a `ZstdDecoderPool(count)` holds an 8 MB window
 /// (RFC 9659 §3), and each of a `BrotliDecoderPool(count)` a 16 MiB one (RFC 7932 §9.1);
 /// docs/usage.md gives their sizes. A configuration holds each as `ZstdDecoders` or
 /// `BrotliDecoders`, from `storage()`.
@@ -118,7 +117,7 @@ pub const ZstdDecoderPool = files.coding_pool.ZstdDecoderPool;
 pub const ZstdDecoders = files.coding_pool.ZstdDecoders;
 pub const BrotliDecoderPool = files.coding_pool.BrotliDecoderPool;
 pub const BrotliDecoders = files.coding_pool.BrotliDecoders;
-/// The CPU features a pool's codecs run on, which its `reset` takes: `Features.detect()` asks the
+/// The CPU features a pool's codecs run on, which its `init` takes: `Features.detect()` asks the
 /// CPU, as colibri never does itself, and `Features.target()` is what the build target guarantees.
 pub const Features = files.coding_pool.Features;
 
@@ -128,27 +127,27 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // the `Channel` prefix from the channel's types, and takes out `ChannelEntry`, which no call
     // of `Channel` takes or returns. Step 21f.2 puts `Request` and `Response` in place of
     // `HttpExchange` (decision 124). Step 21f.6 adds `ChannelOf` and `Capacity` (decision 124).
-    // Step 22.2 renames `Channel` to `ConnectionPool` and `ChannelOf` to `ConnectionPoolOf`, step 22.3 adds
+    // Step 22.2 renames `Channel` to `ConnectionPool` and `ChannelOf` to `ConnectionPool`, step 22.3 adds
     // `Options`, and step 22.4 adds `StreamOctets`, `ConnectionHandle` and `Connected` (decision
     // 125). Step 23.2 renames `Field`, `Id`, `StreamOctets` and `Received` to `Header`,
     // `RequestId`, `StreamBytes` and `ReceiveResult` (decision 126). Step 23.3 renames `Versions`
     // to `Protocols`, and 23.4 renames `Pool`, `PoolOf`, `Values`, `Https`, `Wanted` and `Outcome`
-    // to `ConnectionPool`, `ConnectionPoolOf`, `Destination`, `HttpsRecord`, `WantedHeader` and
+    // to `ConnectionPool`, `ConnectionPool`, `Destination`, `HttpsRecord`, `WantedHeader` and
     // `Result`. 23.5 folds `Options` into `Config`. Step 32 adds `Timeouts` (decision 146), and 35d
     // adds `ResumeProvider`, `ResumeState` and `ResumeBounds` (decision 149). Step 38 replaces
     // `WantedHeader` with `Headers` and `Trailers` (decision 152). Step 39e adds `WriteBodyError`
     // and `Streamed`, which a program streams a request body with (decision 153).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",         "Config",         "Timeouts",           "Protocols",   "StartError",         "RequestError",
-        "WriteBodyError",    "Header",         "RequestId",          "Protocol",    "Request",            "Response",
-        "Streamed",          "Headers",        "Trailers",           "Result",      "Finished",           "Sent",
-        "Address",           "Ecn",            "ResumeProvider",     "ResumeState", "ResumeBounds",       "ConnectionPool",
-        "ConnectionPoolOf",  "Capacity",       "Destination",        "HttpsRecord", "Alternative",        "Input",
-        "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",       "Open",               "ConnectionHandle",
-        "Connected",         "Transport",      "Phase",              "ReceivePool", "DefaultReceivePool", "ReceiveStorage",
-        "Coding",            "DecoderPool",    "DefaultDecoderPool", "Decoders",    "ZstdDecoderPool",    "ZstdDecoders",
-        "BrotliDecoderPool", "BrotliDecoders", "Features",
+        "constants",      "Config",             "Timeouts",       "Protocols",          "StartError",       "RequestError",
+        "WriteBodyError", "Header",             "RequestId",      "Protocol",           "Request",          "Response",
+        "Streamed",       "Headers",            "Trailers",       "Result",             "Finished",         "Sent",
+        "Address",        "Ecn",                "ResumeProvider", "ResumeState",        "ResumeBounds",     "ConnectionPool",
+        "Capacity",       "Destination",        "HttpsRecord",    "Alternative",        "Input",            "StreamBytes",
+        "Datagram",       "ReceiveResult",      "Event",          "Open",               "ConnectionHandle", "Connected",
+        "Transport",      "Phase",              "ReceivePool",    "ReceivePoolOptions", "ReceiveStorage",   "Coding",
+        "DecoderPool",    "DecoderPoolOptions", "Decoders",       "ZstdDecoderPool",    "ZstdDecoders",     "BrotliDecoderPool",
+        "BrotliDecoders", "Features",
     });
 }
 
@@ -171,10 +170,10 @@ test "decision 124: StartError names what ConnectionPool.init and the two starts
             return @typeInfo(@typeInfo(Call).@"fn".return_type.?).error_union.error_set;
         }
     };
-    const TcpAlone = ConnectionPoolOf(.{ .quic = false });
+    const TcpAlone = ConnectionPool(.{ .quic = false });
     const sets = .{
-        StartError,                                        names.returned(@TypeOf(ConnectionPool.init)),
-        names.returned(@TypeOf(ConnectionPool.start_tcp)), names.returned(@TypeOf(ConnectionPool.start_quic)),
+        StartError,                                             names.returned(@TypeOf(ConnectionPool(.{}).init)),
+        names.returned(@TypeOf(ConnectionPool(.{}).start_tcp)), names.returned(@TypeOf(ConnectionPool(.{}).start_quic)),
         names.returned(@TypeOf(TcpAlone.init)),
     };
     inline for (sets) |Set| {
@@ -199,7 +198,7 @@ test "decision 121: RequestError names what ConnectionPool.request returns, and 
             };
         }
     };
-    const Returned = @typeInfo(@typeInfo(@TypeOf(ConnectionPool.request)).@"fn".return_type.?).error_union.error_set;
+    const Returned = @typeInfo(@typeInfo(@TypeOf(ConnectionPool(.{}).request)).@"fn".return_type.?).error_union.error_set;
     inline for (.{ RequestError, Returned }) |Set| {
         inline for (@typeInfo(Set).error_set.?) |member| {
             try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));
@@ -220,7 +219,7 @@ test "decision 153: WriteBodyError names what ConnectionPool.write_body returns,
             };
         }
     };
-    const Returned = @typeInfo(@typeInfo(@TypeOf(ConnectionPool.write_body)).@"fn".return_type.?).error_union.error_set;
+    const Returned = @typeInfo(@typeInfo(@TypeOf(ConnectionPool(.{}).write_body)).@"fn".return_type.?).error_union.error_set;
     inline for (.{ WriteBodyError, Returned }) |Set| {
         inline for (@typeInfo(Set).error_set.?) |member| {
             try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));

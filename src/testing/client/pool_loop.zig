@@ -39,13 +39,13 @@ var slot_busy: [constants.pool_udp_send_slots]bool = @splat(false);
 var slot_outbound: [constants.pool_udp_send_slots]udp.Outbound align(@alignOf(udp.Outbound)) = undefined;
 var tcp: pool_tcp.Socket align(@alignOf(pool_tcp.Socket)) = undefined;
 
-var pool: client.ConnectionPool align(@alignOf(client.ConnectionPool)) = undefined;
-var pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment) = undefined;
+var pool: client.ConnectionPool(.{}) align(@alignOf(client.ConnectionPool(.{}))) = undefined;
+var pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment) = undefined;
 /// The TCP connection the pool's last `open` of TCP named (decision 125). Generation 0 names none.
 var tcp_connection: client.ConnectionHandle align(@alignOf(client.ConnectionHandle)) = .{ .slot = 0, .generation = 0 };
 var pool_config: client.Config align(@alignOf(client.Config)) = undefined;
 /// The receive pool of the pool's QUIC connections (decision 61).
-var receive_pool: client.DefaultReceivePool align(@alignOf(client.DefaultReceivePool)) = undefined;
+var receive_pool: client.ReceivePool(.{}) align(@alignOf(client.ReceivePool(.{}))) = undefined;
 var addresses: [1]Address align(@alignOf(Address)) = undefined;
 var exchanges: [constants.requests_max]client_exchange.Exchange align(@alignOf(client_exchange.Exchange)) = undefined;
 var requests_count: usize = 0;

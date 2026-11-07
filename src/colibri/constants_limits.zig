@@ -37,7 +37,7 @@ pub const udp_segmented_bytes_max: usize = 65_507;
 pub const udp_segments_max: usize = 64;
 /// The batches the server fills each turn, one for each peer and codepoint, each one send.
 pub const udp_batches: usize = 16;
-/// The longest datagram the endpoint writes in one `send_datagram`: a 1,500-octet path's payload,
+/// The longest datagram the engine writes in one `send_datagram`: a 1,500-octet path's payload,
 /// as the test-only UDP server's `quic_datagram_len_max`.
 pub const udp_datagram_len_max: usize = 1500;
 /// Events one pass of a step reads at most, and passes one step makes. A step that reaches the

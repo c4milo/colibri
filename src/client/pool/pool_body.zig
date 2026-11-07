@@ -4,7 +4,7 @@
 //! both back to the program. A streamed request's pieces give back their memory one at a time, and
 //! after the first the pool holds no whole request. After a streamed response's head, the program
 //! has some of the response, and the exchange never moves. Each function takes a pool of any
-//! `ConnectionPoolOf` type.
+//! `ConnectionPool` type.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");

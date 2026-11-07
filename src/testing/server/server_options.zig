@@ -55,7 +55,7 @@ pub const Options = struct {
     coded: bool = false,
     /// The UDP port each TLS connection advertises h3 on, or null for none.
     h3_port: ?u16 = null,
-    /// Whether the server routes through `server.router` the GitHub API's routes (`--routes
+    /// Whether the server routes through `server.Router` the GitHub API's routes (`--routes
     /// github`, design §8 step 13f).
     routes: bool = false,
 };

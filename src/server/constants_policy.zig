@@ -17,11 +17,11 @@ pub const quic_peer_reset_rate_period_ns: u64 = h2.constants.policy.peer_reset_r
 /// `Limits.resets_sent_max`: h2's, as the limit is (decision 110 as amended).
 pub const quic_resets_sent_period_ns: u64 = h2.constants.policy.rst_stream_rate_period_ns;
 
-/// The length of every connection ID the endpoint chooses. RFC 9000 §7.2 has a client's first
+/// The length of every connection ID the engine chooses. RFC 9000 §7.2 has a client's first
 /// Destination Connection ID be at least 8 octets, and the server's are as long.
 pub const quic_id_len: usize = 8;
 
-/// How many entries the endpoint's table of connection IDs holds for each ID its connections may
+/// How many entries the engine's table of connection IDs holds for each ID its connections may
 /// hold at once (decision 157). With twice as many entries as IDs, the table never fills, and an
 /// ID drawn at random seldom names an entry in use.
 pub const quic_route_spread: usize = 2;

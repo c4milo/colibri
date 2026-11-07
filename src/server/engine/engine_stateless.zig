@@ -1,4 +1,4 @@
-//! What the server's QUIC endpoint (`endpoint.zig`) reads off a datagram before any connection
+//! What the server's QUIC engine (`engine.zig`) reads off a datagram before any connection
 //! holds it, and the packets it answers with no connection at all: Version Negotiation (RFC 9000
 //! §6.1) and the address a Retry token binds (RFC 9000 §8.1.4).
 const std = @import("std");
@@ -12,7 +12,7 @@ const PeerAddress = quic.PeerAddress;
 /// connection, or null for a packet that names none. §12.2: "Receivers SHOULD ignore any
 /// subsequent packets with a different Destination Connection ID than the first packet in the
 /// datagram", so the first one routes the whole datagram. A short header carries no length, so
-/// its ID is as long as the ones this endpoint issues.
+/// its ID is as long as the ones this engine issues.
 pub fn destination_of(datagram: []const u8) ?Destination {
     const parsed = quic.packet.header.read(datagram, constants.policy.quic_id_len) catch return null;
     return switch (parsed) {

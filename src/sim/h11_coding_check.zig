@@ -76,7 +76,7 @@ pub const Storage = struct {
     stream: [limits.stream_len_max]u8,
     stream_len: usize,
     connection: Connection,
-    pool: coding.Pool(1),
+    pool: coding.Pool(.{ .count = 1 }),
     holder: coding.Decoding,
     decoded: [limits.room_max]u8,
     scratch: [scratch_len]u8,
@@ -146,8 +146,8 @@ fn run_once(storage: *Storage, seed: u64, random: ?*Random, buffer: []u8) Violat
 
 /// The pool and the connection as a run starts, and the requests a client has outstanding.
 fn start(storage: *Storage) Violation!void {
+    storage.pool.init(coding.Features.none());
     const pool = storage.pool.storage();
-    pool.reset(coding.Features.none());
     storage.holder = .{};
     // RFC 9110 §15.6.4: the exhausted defect finds the pool's one decoder taken.
     if (storage.plan.defect == .exhausted) storage.holder.start(pool, .gzip) catch unreachable;

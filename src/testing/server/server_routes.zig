@@ -1,6 +1,6 @@
 //! The `--routes github` mode of the test-only server (design §8 step 13f): the GitHub API's 203
 //! routes of `bench/router/competitors/github_routes.txt`, which the compiler builds into a route
-//! table through `server.router`, and one answer for every route, 200 with `ok\n`. Step 13f's
+//! table through `server.Router`, and one answer for every route, 200 with `ok\n`. Step 13f's
 //! competitors serve the same routes with the same answer. Split off `server_session.zig`.
 const std = @import("std");
 const server = @import("server");
@@ -46,10 +46,10 @@ const entries: [route_count]Entry = build: {
     break :build held;
 };
 
-pub const routes = server.router(void, .{ .error_handler = on_error, .routes = entries });
+pub const routes = .{ .error_handler = on_error, .routes = entries };
 
 /// One worker's pool of request entries.
-pub const Pool = @TypeOf(routes).Of(.{
+pub const Pool = server.Router(void, routes, .{
     .requests = constants.routes_requests_max,
     .response_bytes = constants.routes_response_bytes,
 });
@@ -59,7 +59,7 @@ const testing = std.testing;
 test "design §8 step 13f: the GitHub API's routes build, and a GET route matches" {
     try testing.expectEqual(203, route_count);
     var parameters: server.PathParameters = .{};
-    const found = routes.match("GET", "/repos/colibri/hummingbird/events", &parameters);
+    const found = Pool.match("GET", "/repos/colibri/hummingbird/events", &parameters);
     try testing.expectEqualStrings("GET /repos/:owner/:repo/events", @tagName(found.found));
     try testing.expectEqualStrings("hummingbird", parameters.get("repo").?);
 }

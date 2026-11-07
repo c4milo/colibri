@@ -8,18 +8,18 @@ const constants = @import("../constants.zig");
 const pool_module = @import("pool.zig");
 
 const testing = std.testing;
-const ConnectionPool = pool_module.ConnectionPool;
-const TcpAlone = pool_module.ConnectionPoolOf(.{ .quic = false });
+const ConnectionPool = pool_module.ConnectionPool(.{});
+const TcpAlone = pool_module.ConnectionPool(.{ .quic = false });
 const Entry = pool_module.Entry;
 const Link = pool_module.Link;
 const Connection = connection_module.Connection;
 
 /// A pool of fewer requests than one connection holds, so a request past them is refused.
 const few_requests: u16 = 8;
-const few: pool_module.ConnectionPool.Counts = .{ .requests = few_requests };
+const few: pool_module.ConnectionPool(.{}).Counts = .{ .requests = few_requests };
 /// A pool of several TCP connections, and of fewer requests.
 const counted_tcp: u16 = 3;
-const counted: pool_module.ConnectionPool.Counts = .{ .tcp_connections = counted_tcp, .requests = few_requests };
+const counted: pool_module.ConnectionPool(.{}).Counts = .{ .tcp_connections = counted_tcp, .requests = few_requests };
 
 /// The pool the tests drive, its memory and its configuration, outside any stack frame.
 /// Test-only.

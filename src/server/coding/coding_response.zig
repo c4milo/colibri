@@ -101,7 +101,7 @@ const gzip = @import("gzip");
 const constants = @import("../constants.zig");
 
 /// A pool, and a decoder that reads its output back, outside any stack frame. Test-only.
-const TestPool = coding_pool.EncoderPool(1, 1);
+const TestPool = coding_pool.EncoderPool(.{ .count = 1, .level = 1 });
 threadlocal var test_pool: TestPool align(@alignOf(TestPool)) = undefined;
 threadlocal var test_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
 threadlocal var test_coded_octets: [test_coded_len]u8 = undefined;
@@ -144,7 +144,7 @@ fn copy_held(coded: *Coded, encoders: Encoders, copied: *usize) void {
 
 test "decision 101: content past the ring's room waits for the ring to empty, and decodes whole" {
     test_fill();
-    test_pool.reset(.none());
+    test_pool.init(.none());
     const encoders = test_pool.encoders();
     var coded: Coded = .{ .slot = encoders.take(.gzip).? };
     var taken: usize = 0;

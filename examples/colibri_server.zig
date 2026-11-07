@@ -45,16 +45,16 @@ const App = struct {
 var app: App align(@alignOf(App)) = .{};
 
 /// The server's table of routes, which the compiler builds and checks.
-const routes = server.router(App, .{
+const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .get, "/greetings/:name", greet_named },
     },
-});
+};
 
 /// The router's pool: an entry for each request at once, with room for its response.
-const Router = @TypeOf(routes).Of(.{ .requests = connections, .response_bytes = 256, .body_bytes = 0 });
+const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0 });
 var router: Router align(@alignOf(Router)) = .{};
 
 /// A server that holds four TCP connections and four QUIC connections. `colibri.Server` is the

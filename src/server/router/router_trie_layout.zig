@@ -180,7 +180,7 @@ pub fn allow_refusal(comptime layout: anytype, comptime table: anytype, comptime
 /// Whether an Allow value of `allow_len` octets is too long. Both loops of `allow_refusal` call
 /// it, so the two loops compare with one rule.
 fn allow_too_long(allow_len: usize) bool {
-    // RFC 9110 §10.2.1: a 405 carries the Allow value as a field value, which the endpoint
+    // RFC 9110 §10.2.1: a 405 carries the Allow value as a field value, which the engine
     // bounds at `core.constants.limits.field_value_len_max` (decision 122).
     return allow_len > core.constants.limits.field_value_len_max;
 }

@@ -1,4 +1,4 @@
-//! The endpoint that the tests of `server.router`'s `handle` share (design §8 step 25.3): it
+//! The engine that the tests of `server.Router`'s `handle` share (design §8 step 25.3): it
 //! records each call, and takes as many body bytes as a test lets it. Test-only.
 const std = @import("std");
 const http = @import("http");
@@ -9,7 +9,7 @@ const connection_errors = @import("../connection/connection_errors.zig");
 const heads_max = 8;
 const body_len_max = 256;
 
-/// An endpoint that records each head, the body bytes, the trailers, the words and the cancels. `room` is how
+/// An engine that records each head, the body bytes, the trailers, the words and the cancels. `room` is how
 /// many body bytes it takes before it blocks. Test-only.
 pub const Recorder = struct {
     heads: [heads_max]event.Response = undefined,

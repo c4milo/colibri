@@ -19,7 +19,7 @@ Performance section states the rules, and design §11 holds the method's numbers
   - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
   - `h2-routes-many`: h2-many against the server with `--routes github`, whose router answers
     the GitHub API's 131 GET routes, which h2load sends in turn. It is the one input that counts
-    `server.router`'s cost, which the owner asked for on 2026-10-28 (design §8 step 13h).
+    `server.Router`'s cost, which the owner asked for on 2026-10-28 (design §8 step 13h).
   - `h11-many`, `h11-tls-many`, `h11-one` and `h11-tls-one`: the same four loads over h11, which
     wrk sends, as the baselines below describe (design §8 step 13g).
   - `h3-many` and `h3-one`: the same two loads over h3, against the test-only UDP server in its
@@ -225,19 +225,20 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 52467184 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 348496 | an endpoint that holds one TCP connection |
-| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2953248 | an endpoint that holds one QUIC connection, with its receive pool |
-| `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 332544 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1430032 | the connection each QUIC slot of an endpoint holds, without its receive pool |
-| `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp"))` | 316328 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |
-| `std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))` | 72 | each exchange a pool holds at once |
-| `@FieldType(client.ConnectionPool, "quic")` | 809208 | a pool's QUIC connection, without its receive pool |
-| `client.ConnectionPool` | 826608 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
-| `client.ConnectionPoolOf(.{ .quic = false })` | 8744 | the fixed part of a pool with no QUIC state |
-| `client.ConnectionPool.memory_bytes(.{})` | 317536 | the memory a pool takes at the default counts: one TCP connection, its link and 16 requests |
-| `client.DefaultReceivePool` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
+| `server.Engine(.{})` | 52467184 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 })` | 348496 | an engine that holds one TCP connection |
+| `server.Engine(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2953248 | an engine that holds one QUIC connection, with its receive pool |
+| `std.meta.Elem(@FieldType(server.Engine(.{}), "tcp"))` | 332544 | the connection each TCP slot of an engine holds: h11 or h2, in cleartext or over TLS |
+| `std.meta.Elem(@FieldType(server.Engine(.{}), "quic"))` | 1430032 | the connection each QUIC slot of an engine holds, without its receive pool |
+| `server.EncoderPool(.{})` | 1461336 | the encoders a program gives a server's connections, at the default options |
+| `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp"))` | 316328 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
+| `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |
+| `std.meta.Elem(@FieldType(client.ConnectionPool(.{}), "entries"))` | 72 | each exchange a pool holds at once |
+| `@FieldType(client.ConnectionPool(.{}), "quic")` | 809208 | a pool's QUIC connection, without its receive pool |
+| `client.ConnectionPool(.{})` | 826608 | a pool's fixed part: its QUIC connection and link, and its TLS configurations |
+| `client.ConnectionPool(.{ .quic = false })` | 8744 | the fixed part of a pool with no QUIC state |
+| `client.ConnectionPool(.{}).memory_bytes(.{})` | 317536 | the memory a pool takes at the default counts: one TCP connection, its link and 16 requests |
+| `client.ReceivePool(.{})` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163520 | the h2 state inside a TCP connection |
 | `h3.Connection` | 147112 | the h3 state inside a QUIC connection |

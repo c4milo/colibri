@@ -28,8 +28,8 @@ const room_factor: usize = 2;
 /// A client that offers the codings of the TCP tests' pool, every decoder free, and its server.
 fn start_coding() !void {
     try support.prepare(&support.alpn_h3, &support.alpn_h3, false);
+    tcp_support.pool.init(.none());
     const storage = tcp_support.pool.storage();
-    storage.reset(.none());
     support.config.codings = &tcp_support.codings;
     support.config.decoders = storage;
     try connection.init(&support.config, support.client_pool.storage(), support.client_start, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns, null);

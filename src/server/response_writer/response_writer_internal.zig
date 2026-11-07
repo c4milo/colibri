@@ -8,9 +8,9 @@ const event = @import("../event.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const ResponseWriter = @import("response_writer.zig").ResponseWriter;
 
-/// What the calls of `ResponseWriter` return: the endpoint's errors, with their meaning, and `Full`
-/// for more runs of body bytes than `response_pieces_max` that wait for the endpoint. The
-/// endpoint's `NoSpaceLeft` and `Blocked` never come back: the writer holds what the endpoint did
+/// What the calls of `ResponseWriter` return: the engine's errors, with their meaning, and `Full`
+/// for more runs of body bytes than `response_pieces_max` that wait for the engine. The
+/// engine's `NoSpaceLeft` and `Blocked` never come back: the writer holds what the engine did
 /// not take until the request's `writable`. `NoSpaceLeft` here says the entry's memory is full.
 pub const Error = error{Full} || connection_errors.SendError;
 
@@ -21,32 +21,32 @@ pub const EndAsked = enum { none, end, trailers };
 /// The digits of the largest Content-Length value.
 pub const length_digits_max = std.fmt.count("{d}", .{std.math.maxInt(u64)});
 
-/// The endpoint's three calls that write a response, without its type, so one `ResponseWriter`
-/// serves every `EndpointOf`.
+/// The engine's three calls that write a response, without its type, so one `ResponseWriter`
+/// serves every `Engine`.
 pub const Sink = struct {
     context: *anyopaque,
     respond: *const fn (context: *anyopaque, id: event.RequestId, response: event.Response) connection_errors.SendError!void,
     write_body: *const fn (context: *anyopaque, id: event.RequestId, body: event.ResponseBody) connection_errors.SendError!usize,
     write_trailers: *const fn (context: *anyopaque, id: event.RequestId, headers: []const http.Field) connection_errors.SendError!void,
 
-    /// The sink of `endpoint`, an `*EndpointOf(capacity)`.
-    pub fn of(comptime Endpoint: type, endpoint: *Endpoint) Sink {
+    /// The sink of `engine`, an `*Engine(capacity)`.
+    pub fn of(comptime Engine: type, engine: *Engine) Sink {
         const calls = struct {
             fn respond(context: *anyopaque, id: event.RequestId, response: event.Response) connection_errors.SendError!void {
-                return endpoint_of(Endpoint, context).respond(id, response);
+                return engine_of(Engine, context).respond(id, response);
             }
             fn write_body(context: *anyopaque, id: event.RequestId, body: event.ResponseBody) connection_errors.SendError!usize {
-                return endpoint_of(Endpoint, context).write_body(id, body);
+                return engine_of(Engine, context).write_body(id, body);
             }
             fn write_trailers(context: *anyopaque, id: event.RequestId, headers: []const http.Field) connection_errors.SendError!void {
-                return endpoint_of(Endpoint, context).write_trailers(id, headers);
+                return engine_of(Engine, context).write_trailers(id, headers);
             }
         };
-        return .{ .context = endpoint, .respond = calls.respond, .write_body = calls.write_body, .write_trailers = calls.write_trailers };
+        return .{ .context = engine, .respond = calls.respond, .write_body = calls.write_body, .write_trailers = calls.write_trailers };
     }
 };
 
-fn endpoint_of(comptime Endpoint: type, context: *anyopaque) *Endpoint {
+fn engine_of(comptime Engine: type, context: *anyopaque) *Engine {
     return @ptrCast(@alignCast(context));
 }
 
@@ -64,12 +64,12 @@ pub fn resume_writes(response: *ResponseWriter) Error!bool {
     return response.complete;
 }
 
-/// Whether bytes, the head or the end wait for the endpoint, which a `writable` sends.
+/// Whether bytes, the head or the end wait for the engine, which a `writable` sends.
 pub fn waiting(response: *const ResponseWriter) bool {
     return response.piece_sent < response.piece_count or (response.ended and !response.complete);
 }
 
-/// Whether the endpoint took the whole response.
+/// Whether the engine took the whole response.
 pub fn complete(response: *const ResponseWriter) bool {
     return response.complete;
 }
@@ -106,7 +106,7 @@ pub fn cut(response: *ResponseWriter) Error!void {
 
 pub fn add_piece(response: *ResponseWriter, bytes: []const u8) Error!void {
     if (bytes.len == 0) return;
-    // Runs the endpoint took whole free their slots.
+    // Runs the engine took whole free their slots.
     if (response.piece_sent == response.piece_count) {
         response.piece_sent = 0;
         response.piece_count = 0;
@@ -218,7 +218,7 @@ fn write_decimal(value: u64, digits: *[length_digits_max]u8) []const u8 {
 const decimal_radix = 10;
 
 /// Sends what waits, in order: the head, each run of the body, and the end or the trailers. It
-/// stops where the endpoint takes no more, and the request's `writable` calls it again.
+/// stops where the engine takes no more, and the request's `writable` calls it again.
 pub fn push(response: *ResponseWriter) Error!void {
     if (response.complete) return;
     if (!response.head_out) {
@@ -247,7 +247,7 @@ fn push_head(response: *ResponseWriter) Error!bool {
     return true;
 }
 
-/// Writes each run the endpoint has not taken, and returns whether it took them all.
+/// Writes each run the engine has not taken, and returns whether it took them all.
 fn push_pieces(response: *ResponseWriter) Error!bool {
     // Bounded: each pass takes one run, or returns.
     while (response.piece_sent < response.piece_count) {
@@ -288,7 +288,7 @@ fn wait_or(failure: connection_errors.SendError) Error!bool {
 }
 
 /// The body writer's drain: it sends what the writer holds, then copies what fits of `data` into
-/// the memory after it. Memory the endpoint may still read is never written again (decision 103).
+/// the memory after it. Memory the engine may still read is never written again (decision 103).
 /// Before the body starts and after `end` the buffer is empty, so every write fails: a wrapper
 /// writes nothing while the headers are open (design §8 step 25.6).
 fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {

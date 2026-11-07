@@ -23,7 +23,7 @@ const Request = ledger_module.Request;
 const Handle = server.ConnectionHandle;
 
 /// The run's endpoint: fewer slots of each kind than the seed draws peers.
-pub const Endpoint = server.EndpointOf(.{
+pub const Engine = server.Engine(.{
     .tcp_connections = limits.tcp_slots,
     .quic_connections = limits.quic_slots,
     .receive_pool_len = limits.receive_pool_len,
@@ -70,7 +70,7 @@ pub const Counts = struct {
 };
 
 pub const Program = struct {
-    endpoint: *Endpoint,
+    endpoint: *Engine,
     ledger: *Ledger,
     now_ms: u64,
     counts: Counts,
@@ -80,7 +80,7 @@ pub const Program = struct {
     /// The content every answer is written from, which stays the program's (decision 103).
     content: [limits.answer_long_len_max]u8,
 
-    pub fn init(program: *Program, endpoint: *Endpoint, ledger: *Ledger) void {
+    pub fn init(program: *Program, endpoint: *Engine, ledger: *Ledger) void {
         program.endpoint = endpoint;
         program.ledger = ledger;
         program.now_ms = 0;
@@ -276,7 +276,7 @@ const tls = @import("tls");
 const identity = @import("../client_trace_identity.zig");
 
 /// The endpoint, the ledger and the program of the unit test: too large for a test's stack.
-var test_endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
+var test_endpoint: Engine align(@alignOf(Engine)) = undefined;
 var test_config: server.Config align(@alignOf(server.Config)) = undefined;
 var test_ledger: Ledger align(@alignOf(Ledger)) = undefined;
 var test_program: Program align(@alignOf(Program)) = undefined;

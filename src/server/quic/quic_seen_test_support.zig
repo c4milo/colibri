@@ -5,7 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("../event.zig");
-const endpoint_support = @import("quic_endpoint_test_support.zig");
+const engine_support = @import("quic_engine_test_support.zig");
 
 const Event = event.Event;
 
@@ -23,7 +23,7 @@ fn kind_of(reported: Event) Kind {
     };
 }
 
-/// The event the endpoint would report for what a connection reported: its `done` and its
+/// The event the engine would report for what a connection reported: its `done` and its
 /// `cancelled` as `finished` (decision 126).
 pub fn as_event(reported: event.ConnectionEvent) Event {
     return switch (reported) {
@@ -40,7 +40,7 @@ pub fn as_event(reported: event.ConnectionEvent) Event {
 pub const Seen = struct {
     kind: Kind,
     id: u64,
-    /// The connection a request's id named, through an endpoint (decision 119).
+    /// The connection a request's id named, through an engine (decision 119).
     connection: event.ConnectionHandle = .{ .slot = 0, .generation = 0 },
     path: [path_len_max]u8 = undefined,
     path_len: usize = 0,
@@ -67,7 +67,7 @@ pub const seen_max: usize = 256;
 pub var seen: [seen_max]Seen align(@alignOf(Seen)) = undefined;
 pub var seen_len: usize = 0;
 
-/// Keeps `reported`, and hands an event only the endpoint reports to `endpoint_support`.
+/// Keeps `reported`, and hands an event only the engine reports to `engine_support`.
 pub fn keep(reported: Event) void {
     assert(seen_len < seen.len);
     const entry = &seen[seen_len];
@@ -103,7 +103,7 @@ pub fn keep(reported: Event) void {
             entry.id = writable.id.number;
             entry.user_data = writable.user_data;
         },
-        .send, .close, .ended, .closed => endpoint_support.note(reported),
+        .send, .close, .ended, .closed => engine_support.note(reported),
     }
     seen_len += 1;
 }

@@ -1,6 +1,6 @@
 //! The world of the pool trace run (decision 105 as decision 125 extends it, design §8 step 22): a
-//! `client.ConnectionPoolOf(.{ .quic = false })` of two or three TCP slots, which speaks h11 in cleartext,
-//! and a `server.Endpoint` that accepts each connection the pool opens and answers each request
+//! `client.ConnectionPool(.{ .quic = false })` of two or three TCP slots, which speaks h11 in cleartext,
+//! and a `server.Engine` that accepts each connection the pool opens and answers each request
 //! as the seed's plan says. Each slot has a socket: a pipe each way between the pool's connection
 //! and the endpoint's. The caller writes what a connection owes when the pool says `send`, and the
 //! server when the endpoint says `send`.
@@ -23,8 +23,8 @@ const Random = sim.Random;
 const limits = sim.constants.pool_trace;
 const Plan = plan_module.Plan;
 
-pub const ConnectionPool = client.ConnectionPoolOf(.{ .quic = false });
-const Endpoint = server.EndpointOf(.{ .tcp_connections = limits.endpoint_slots, .quic_connections = 0 });
+pub const ConnectionPool = client.ConnectionPool(.{ .quic = false });
+const Engine = server.Engine(.{ .tcp_connections = limits.endpoint_slots, .quic_connections = 0 });
 const memory_len = ConnectionPool.memory_bytes(.{ .tcp_connections = limits.slots_max, .requests = limits.requests_max });
 const now_ns: u64 = 0;
 const ok: u16 = 200;
@@ -85,7 +85,7 @@ pub const World = struct {
     random: Random,
     pool: ConnectionPool,
     pool_memory: [memory_len]u8 align(ConnectionPool.memory_alignment),
-    endpoint: Endpoint,
+    endpoint: Engine,
     endpoint_config: server.Config,
     client_config: client.Config,
     addresses: [1]client.Address,

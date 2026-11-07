@@ -9,7 +9,7 @@ const pool_support = @import("pool_test_support.zig");
 const testing = std.testing;
 const Exchange = support.Exchange;
 const Event = pool_module.Event;
-const ConnectionPool = pool_module.ConnectionPool;
+const ConnectionPool = pool_module.ConnectionPool(.{});
 const ConnectionHandle = pool_module.ConnectionHandle;
 
 /// The pool the tests drive, its memory, its configuration and the events it reported, outside

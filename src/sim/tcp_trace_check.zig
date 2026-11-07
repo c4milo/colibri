@@ -1,5 +1,5 @@
 //! The TCP trace run (https://github.com/c4milo/colibri/issues/79): a `client.ConnectionPool` and a
-//! `server.Endpoint` act out a seed's `tcp_trace_plan.zig` over h2, in cleartext or over TLS, and
+//! `server.Engine` act out a seed's `tcp_trace_plan.zig` over h2, in cleartext or over TLS, and
 //! after each action the run computes `spec/tla/h2_connection`'s state from both
 //! (`tcp_trace_state.zig`). It keeps each state that differs from the last one kept, which
 //! `h2_trace_tla.zig` writes for TLC.

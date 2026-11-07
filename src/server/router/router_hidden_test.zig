@@ -5,7 +5,7 @@
 //! For each table of a family of small tables, a brute force decides each route's verdict from
 //! every path of a few segments, and the test requires the check to give the same first
 //! refusal. The brute force builds the layout with `router_trie_layout.build`, because a refused
-//! table cannot go through `server.router`. It decides whether a route's pattern matches a path
+//! table cannot go through `server.Router`. It decides whether a route's pattern matches a path
 //! with a matcher of its own, and it calls the real `match` for the result of each request:
 //!   - since decision 128 no route is hidden: on a path that a route's pattern matches, the walk
 //!     of the route's method backs up to the route's leaf at the latest, so `match` never gives

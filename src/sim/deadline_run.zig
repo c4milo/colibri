@@ -116,7 +116,7 @@ const Stream = struct {
 
 pub const Storage = struct {
     endpoint_config: server.Config,
-    endpoint: app_module.Endpoint,
+    endpoint: app_module.Engine,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     /// Whether the endpoint said to close the socket, whether the connection's linger had passed
@@ -126,8 +126,8 @@ pub const Storage = struct {
     ended: ?server.Ended,
     client_config: client.Config,
     addresses: [1]client.Address,
-    pool: client.ConnectionPool,
-    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
+    pool: client.ConnectionPool(.{}),
+    pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     hostile: Hostile,

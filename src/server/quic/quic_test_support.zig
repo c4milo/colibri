@@ -1,5 +1,5 @@
 //! What the server's QUIC tests share: the connection they drive, started from a client's first
-//! Initial as `Endpoint` starts one, and an h3 client over QUIC in the same process, a
+//! Initial as `Engine` starts one, and an h3 client over QUIC in the same process, a
 //! `tls.quic.Client` trusting the test identity of `src/testing/testdata/`. Time moves only when
 //! `pump` moves it. Test-only.
 const std = @import("std");
@@ -69,12 +69,12 @@ pub var server_started: bool = false;
 /// Whether a `receive` of the server's failed.
 pub var server_failed: bool = false;
 
-/// Whether a test routes through `endpoint_support.endpoint` instead of starting `connection`
+/// Whether a test routes through `engine_support.engine` instead of starting `connection`
 /// itself, and the connection the server answers on either way.
-pub var through_endpoint: bool = false;
+pub var through_engine: bool = false;
 pub var served: *QuicConnection = &connection;
-pub const endpoint_support = @import("quic_endpoint_test_support.zig");
-const endpoint = &endpoint_support.endpoint;
+pub const engine_support = @import("quic_engine_test_support.zig");
+const engine = &engine_support.engine;
 
 /// The client and what it runs on. It starts in `client_version`, which a test that sets another
 /// restores after it.
@@ -136,7 +136,7 @@ pub fn start() !void {
 pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     server_receive = receive_pool;
     client_port_now = client_port;
-    through_endpoint = false;
+    through_engine = false;
     served = &connection;
     var values = server_values();
     values.alpn = &alpn_h3;
@@ -158,7 +158,7 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
 
 const alpn_h3 = [_][]const u8{"h3"};
 
-/// The server's identity, which names no protocol: what an endpoint takes.
+/// The server's identity, which names no protocol: what an engine takes.
 pub fn server_values() tls.Server {
     return .{
         .identities = &support.identities,
@@ -167,7 +167,7 @@ pub fn server_values() tls.Server {
     };
 }
 
-pub const start_endpoint = endpoint_support.start_endpoint;
+pub const start_engine = engine_support.start_engine;
 
 fn start_client() !void {
     client.init(.{
@@ -221,7 +221,7 @@ pub fn request_with_fields(method: []const u8, path: []const u8, fields: []const
 /// the TCP tests' pool, every one free (decision 101).
 pub fn start_coding() !void {
     try start();
-    support.pool.reset(.none());
+    support.pool.init(.none());
     config.codings = &support.codings;
     config.encoders = support.pool.encoders();
 }
@@ -308,13 +308,13 @@ pub fn pump(rounds: usize) !void {
         try client_to_server();
         collect();
         try server_to_client();
-        if (through_endpoint) endpoint.on_instant(now_ns) else internal.on_instant(&connection, now_ns);
+        if (through_engine) engine.on_instant(now_ns) else internal.on_instant(&connection, now_ns);
         _ = quic.Connection.on_instant(&client, client_session.suite(), &client_scratch.recovery, now_ns) catch {};
         collect();
     }
 }
 
-/// Moves time on one round and passes each datagram the client owes to the endpoint's connection,
+/// Moves time on one round and passes each datagram the client owes to the engine's connection,
 /// with no event read: what a test changes the connection between.
 pub fn deliver_unread() !void {
     now_ns += round_ns;
@@ -328,9 +328,9 @@ var routes_only: bool = false;
 pub fn collect() void {
     if (!server_started) return;
     for (0..seen_max) |_| {
-        if (through_endpoint) {
-            const reported = endpoint.receive(.none, now_ns).event;
-            endpoint_support.check_deadline();
+        if (through_engine) {
+            const reported = engine.receive(.none, now_ns).event;
+            engine_support.check_deadline();
             keep(reported orelse return);
             continue;
         }
@@ -348,8 +348,8 @@ fn client_to_server() !void {
         const sent = quic.Connection.send(&client, client_session.suite(), client_session.provider(), client_provider(), .{}, &client_send_scratch, &datagram, now_ns) catch return error.TestUnexpectedResult;
         const held = sent orelse return;
         @memcpy(crossing[0..held.len], datagram[0..held.len]);
-        if (through_endpoint) {
-            to_endpoint(crossing[0..held.len]);
+        if (through_engine) {
+            to_engine(crossing[0..held.len]);
             continue;
         }
         if (!server_started) try start_server(crossing[0..held.len]);
@@ -357,27 +357,27 @@ fn client_to_server() !void {
     }
 }
 
-/// Passes one of the client's datagrams to the endpoint, and keeps the event it reports.
-fn to_endpoint(octets: []u8) void {
+/// Passes one of the client's datagrams to the engine, and keeps the event it reports.
+fn to_engine(octets: []u8) void {
     if (routes_only) {
-        // The connection takes the datagram, as the endpoint's `receive` has it do, and the
-        // endpoint reads none of its events.
-        const slot = endpoint.state.connections.receive(octets, .not_ect, client_address(), now_ns, true) orelse return;
-        endpoint.state.room[slot] +%= 1;
-        endpoint.state.ready.touch(slot);
-        endpoint.state.heap.mark_stale(slot);
+        // The connection takes the datagram, as the engine's `receive` has it do, and the
+        // engine reads none of its events.
+        const slot = engine.state.connections.receive(octets, .not_ect, client_address(), now_ns, true) orelse return;
+        engine.state.room[slot] +%= 1;
+        engine.state.ready.touch(slot);
+        engine.state.heap.mark_stale(slot);
         return;
     }
-    const taken = endpoint.receive(.{ .datagram = .{ .bytes = octets, .from = client_address() } }, now_ns);
-    endpoint_support.check_deadline();
-    if (endpoint_support.live_connection()) |live| {
+    const taken = engine.receive(.{ .datagram = .{ .bytes = octets, .from = client_address() } }, now_ns);
+    engine_support.check_deadline();
+    if (engine_support.live_connection()) |live| {
         served = live;
         server_started = true;
     }
     if (taken.event) |reported| keep(reported);
 }
 
-/// Starts the server's connection from the client's first Initial (RFC 9000 §7.2), as `Endpoint`
+/// Starts the server's connection from the client's first Initial (RFC 9000 §7.2), as `Engine`
 /// does.
 fn start_server(first: []const u8) !void {
     const parsed = try quic.packet.header.read(first, id_len);
@@ -400,7 +400,7 @@ pub fn client_address() quic.PeerAddress {
 pub fn server_to_client() !void {
     for (0..datagrams_per_round_max) |_| {
         const room = datagram[0..server_datagram_len];
-        const sent = (if (through_endpoint) endpoint.send_datagram(room, now_ns) else internal.send(&connection, room, now_ns)) orelse return;
+        const sent = (if (through_engine) engine.send_datagram(room, now_ns) else internal.send(&connection, room, now_ns)) orelse return;
         if (server_drop > 0) {
             server_drop -= 1;
             continue;

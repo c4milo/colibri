@@ -1,18 +1,18 @@
 //! colibri's server (decision 100, design §8 steps 17 and 21): HTTP responses behind one set of
-//! calls for h11, h2 and h3. An `Endpoint` holds the connections one thread serves (decision 119):
+//! calls for h11, h2 and h3. An `Engine` holds the connections one thread serves (decision 119):
 //! the TCP connections a program accepts, which serve h11 or h2, the version chosen by ALPN over TLS and
 //! by a connection's first octets in cleartext (decision 117), and the QUIC connections behind one
 //! UDP socket, which serve h3 (decision 103).
 //!
-//! A program makes one `Config` and one `Endpoint` for each thread that serves, in storage it
+//! A program makes one `Config` and one `Engine` for each thread that serves, in storage it
 //! owns. It calls `accept` for each TCP socket its listener accepts, and passes what each socket
 //! read, and each datagram its UDP socket read, to `receive`. `receive` returns at most one event:
 //! a request's head, octets of its content, its trailer section, its ending, or one of the
-//! endpoint's own events, which `event.zig` lists. The program answers each request by its id with `respond`, `write_body` and `write_trailers`, and
+//! engine's own events, which `event.zig` lists. The program answers each request by its id with `respond`, `write_body` and `write_trailers`, and
 //! sends what `send_stream` and `send_datagram` write. colibri makes no system call and reads no
 //! clock: time is a value the caller passes.
 //!
-//! The endpoint runs each TLS handshake itself, so a program that uses this module links chapulin,
+//! The engine runs each TLS handshake itself, so a program that uses this module links chapulin,
 //! one that serves cleartext alone too. A program that wants no chapulin uses `h11` or `h2`
 //! directly.
 //!
@@ -32,7 +32,7 @@ pub const constants = @import("constants.zig");
 const files = struct {
     pub const event = @import("event.zig");
     pub const quic_connection = @import("quic/quic_connection.zig");
-    pub const endpoint = @import("endpoint/endpoint.zig");
+    pub const engine = @import("engine/engine.zig");
     pub const connection_errors = @import("connection/connection_errors.zig");
     pub const alt_svc = @import("alt_svc.zig");
     pub const coding_pool = @import("coding/coding_pool.zig");
@@ -47,30 +47,29 @@ const files = struct {
     pub const response_writer = @import("response_writer/response_writer.zig");
 };
 
-/// What a program configures a server with, once: the endpoint reads it while it runs (decision
+/// What a program configures a server with, once: the engine reads it while it runs (decision
 /// 119).
-pub const Config = files.endpoint.Config;
+pub const Config = files.engine.Config;
 pub const Protocols = files.protocols.Protocols;
 pub const Limits = files.limits.Limits;
 pub const Timeout = files.deadline.Timeout;
 pub const Timeouts = files.deadline.Timeouts;
 pub const CloseReason = files.close_reason.CloseReason;
 pub const Limit = files.close_reason.Limit;
-pub const Endpoint = files.endpoint.Endpoint;
-pub const EndpointOf = files.endpoint.EndpointOf;
-pub const Capacity = files.endpoint.Capacity;
-/// What `Endpoint.receive` takes: `.none`, the `StreamBytes` a program's TCP socket read, or a
+pub const Engine = files.engine.Engine;
+pub const Capacity = files.engine.Capacity;
+/// What `Engine.receive` takes: `.none`, the `StreamBytes` a program's TCP socket read, or a
 /// `Datagram` its UDP socket read.
-pub const Input = files.endpoint.Input;
-pub const Datagram = files.endpoint.Datagram;
-pub const StreamBytes = files.endpoint.StreamBytes;
-pub const LogProvider = files.endpoint.LogProvider;
+pub const Input = files.engine.Input;
+pub const Datagram = files.engine.Datagram;
+pub const StreamBytes = files.engine.StreamBytes;
+pub const LogProvider = files.engine.LogProvider;
 /// RFC 9959's Careful Resume (decision 149): where `Config.resumes` keeps the saved sets, a set,
 /// and the bounds of `Config.resume_bounds`, which the client names the same.
 pub const ResumeProvider = quic.ResumeProvider;
 pub const ResumeState = quic.ResumeState;
 pub const ResumeBounds = quic.ResumeBounds;
-/// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
+/// A datagram `Engine.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = files.quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = quic.PeerAddress;
@@ -102,16 +101,20 @@ pub const ReceiveResult = files.event.ReceiveResult;
 pub const Alternative = files.alt_svc.Alternative;
 /// The content codings a server applies (decision 101).
 pub const Coding = http.content_coding.Coding;
+/// The pool of encoders the connections code responses with, which the caller places:
+/// `EncoderPool(.{})`, or one of other `EncoderPoolOptions`. The caller calls its `init` once, and a
+/// configuration holds it as `Encoders`, from `encoders()`.
 pub const EncoderPool = files.coding_pool.EncoderPool;
-pub const DefaultEncoderPool = files.coding_pool.DefaultEncoderPool;
+pub const EncoderPoolOptions = files.coding_pool.EncoderPoolOptions;
 pub const Encoders = files.coding_pool.Encoders;
 /// The pool of decoders h11 removes the `gzip` and `deflate` transfer codings of a request with
-/// (decision 91), which the caller places: `DecoderPool(count)` for `count` decoders, or
-/// `DefaultDecoderPool`. A configuration holds it as `Decoders`, from `storage()` after `reset`.
+/// (decision 91), which the caller places: `DecoderPool(.{ .count = count })` for `count` decoders,
+/// or `DecoderPool(.{})`. The caller calls its `init` once, and a configuration holds it as
+/// `Decoders`, from `storage()`.
 pub const DecoderPool = h11.coding.Pool;
-pub const DefaultDecoderPool = h11.coding.DefaultPool;
+pub const DecoderPoolOptions = h11.coding.PoolOptions;
 pub const Decoders = h11.coding.Storage;
-/// The CPU features a pool's codecs run on, which its `reset` takes: `Features.detect()` asks the
+/// The CPU features a pool's codecs run on, which its `init` takes: `Features.detect()` asks the
 /// CPU, as colibri never does itself, and `Features.target()` is what the build target guarantees.
 pub const Features = files.coding_pool.Features;
 /// The parameters of a path that a route table matched, which the program places and reads with
@@ -121,10 +124,12 @@ pub const PathParameters = files.path_parameters.PathParameters;
 /// What a router's `handle` did with an event: it took it, or hands it back (decision 127).
 pub const Handled = files.router_pool.Handled;
 
-/// Builds a route table at compile time, which calls the program's functions in `handle`, and
-/// whose `match` names the route of a method and a path (decisions 122 and 127). A function named
-/// after its file is exported under its own name.
-pub const router = files.router.router;
+/// A router: a route table the compiler builds, which calls the program's functions in `handle`,
+/// and whose `match` names the route of a method and a path (decisions 122, 127 and 158). A type
+/// function named after its file is exported under its own name.
+pub const Router = files.router.Router;
+/// The sizes of a `Router`: its requests at once, and the memory of each (decision 158 ruling 4).
+pub const RouterOptions = files.router.Options;
 
 /// What a router's middleware returns (decision 127 ruling 5).
 pub const middleware = struct {
@@ -136,32 +141,34 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram`. 21b.7 gives the name
     // `Config` to the type `EndpointConfig` named, which `QuicConfig` folded into in 21b.3, and
     // takes a TCP connection's own configuration out of the root (decision 119). 21d takes out
-    // `Connection` and `QuicConnection`, which the endpoint holds, and `Error` and `Protocol`,
+    // `Connection` and `QuicConnection`, which the engine holds, and `Error` and `Protocol`,
     // which only their calls return (decision 121). 21e adds `PathParameters` and `router`
     // (decision 122). 23.2 renames `StreamOctets`, `Field`, `Id`, `Fields`, `Body`, `Content` and
     // `Received` to `StreamBytes`, `Header`, `RequestId`, `Headers`, `RequestBody`,
     // `ResponseBody` and `ReceiveResult` (decision 126). 23.3 renames `Versions`, `Deadline` and
     // `Deadlines` to `Protocols`, `Timeout` and `Timeouts`, and 23.6 takes out `Security`. 23.7 puts
-    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, 25.3 `Handled`, and 25.5 `middleware`. 35d adds `ResumeProvider`, `ResumeState` and `ResumeBounds`.
+    // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, 25.3 `Handled`, and 25.5 `middleware`. 35d adds `ResumeProvider`, `ResumeState` and `ResumeBounds`. 45g puts
+    // `Engine` in place of `Endpoint` and `EndpointOf`, the options of each pool in place of each
+    // `Default*` name, and `Router` and `RouterOptions` in place of `router` (decision 158).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",        "Config",      "Protocols",          "Limits",       "Timeout",
-        "Timeouts",         "CloseReason", "Limit",              "Endpoint",     "EndpointOf",
-        "Capacity",         "Input",       "Datagram",           "StreamBytes",  "LogProvider",
-        "ResumeProvider",   "ResumeState", "ResumeBounds",       "Sent",         "Address",
-        "Ecn",              "StartError",  "SendError",          "Header",       "RequestId",
-        "ConnectionHandle", "Version",     "Headers",            "Event",        "Request",
-        "RequestBody",      "Trailers",    "CancelReason",       "Finished",     "Result",
-        "Writable",         "Ended",       "Response",           "ResponseBody", "ResponseWriter",
-        "ReceiveResult",    "Alternative", "Coding",             "EncoderPool",  "DefaultEncoderPool",
-        "Encoders",         "DecoderPool", "DefaultDecoderPool", "Decoders",     "Features",
-        "PathParameters",   "Handled",     "router",             "middleware",
+        "constants",   "Config",             "Protocols",     "Limits",             "Timeout",
+        "Timeouts",    "CloseReason",        "Limit",         "Engine",             "Capacity",
+        "Input",       "Datagram",           "StreamBytes",   "LogProvider",        "ResumeProvider",
+        "ResumeState", "ResumeBounds",       "Sent",          "Address",            "Ecn",
+        "StartError",  "SendError",          "Header",        "RequestId",          "ConnectionHandle",
+        "Version",     "Headers",            "Event",         "Request",            "RequestBody",
+        "Trailers",    "CancelReason",       "Finished",      "Result",             "Writable",
+        "Ended",       "Response",           "ResponseBody",  "ResponseWriter",     "ReceiveResult",
+        "Alternative", "Coding",             "EncoderPool",   "EncoderPoolOptions", "Encoders",
+        "DecoderPool", "DecoderPoolOptions", "Decoders",      "Features",           "PathParameters",
+        "Handled",     "Router",             "RouterOptions", "middleware",
     });
 }
 
-test "decision 121: StartError names what Endpoint.init returns, and no other error" {
+test "decision 121: StartError names what Engine.init returns, and no other error" {
     // A switch names each member of the set once. A member added to a set, or taken out of it,
-    // stops the test from compiling. The endpoint changes chapulin's refusal of a TCP connection's
+    // stops the test from compiling. The engine changes chapulin's refusal of a TCP connection's
     // session into a null `accept`, so `init` never returns `TlsRefused`.
     const names = struct {
         fn of(comptime Set: type, failure: Set) []const u8 {
@@ -178,7 +185,7 @@ test "decision 121: StartError names what Endpoint.init returns, and no other er
             };
         }
     };
-    const Returned = @typeInfo(@typeInfo(@TypeOf(Endpoint.init)).@"fn".return_type.?).error_union.error_set;
+    const Returned = @typeInfo(@typeInfo(@TypeOf(Engine(.{}).init)).@"fn".return_type.?).error_union.error_set;
     inline for (.{ StartError, Returned }) |Set| {
         inline for (@typeInfo(Set).error_set.?) |member| {
             try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));
@@ -191,7 +198,7 @@ test {
     std.testing.refAllDecls(files);
     // Every name the root exports resolves.
     _ = @import("core").public_names.reference(@This(), &.{});
-    // The TCP connection each slot of the endpoint holds. The root exports no name of it, and its
+    // The TCP connection each slot of the engine holds. The root exports no name of it, and its
     // own test block runs its test files.
     _ = @import("connection/connection.zig");
     _ = @import("protocols.zig");
@@ -213,22 +220,22 @@ test {
     _ = @import("quic/quic_coding_test.zig");
     _ = @import("quic/quic_continue_test.zig");
     _ = @import("quic/quic_head_test.zig");
-    _ = @import("endpoint/endpoint_stateless.zig");
-    _ = @import("endpoint/endpoint_slots.zig");
-    _ = @import("endpoint/endpoint_routes.zig");
-    _ = @import("endpoint/endpoint_routes_test.zig");
-    _ = @import("endpoint/endpoint_ready.zig");
-    _ = @import("endpoint/endpoint_deadline_heap.zig");
-    _ = @import("endpoint/endpoint_requests.zig");
-    _ = @import("endpoint/endpoint_test.zig");
-    _ = @import("endpoint/endpoint_state_test.zig");
-    _ = @import("endpoint/endpoint_congestion_test.zig");
-    _ = @import("endpoint/endpoint_resume_test.zig");
-    _ = @import("endpoint/endpoint_config.zig");
-    _ = @import("endpoint/endpoint_writable_test.zig");
-    _ = @import("endpoint/endpoint_tcp_test.zig");
-    _ = @import("endpoint/endpoint_tcp_send_test.zig");
-    _ = @import("endpoint/endpoint_tcp_writable_test.zig");
+    _ = @import("engine/engine_stateless.zig");
+    _ = @import("engine/engine_slots.zig");
+    _ = @import("engine/engine_routes.zig");
+    _ = @import("engine/engine_routes_test.zig");
+    _ = @import("engine/engine_ready.zig");
+    _ = @import("engine/engine_deadline_heap.zig");
+    _ = @import("engine/engine_requests.zig");
+    _ = @import("engine/engine_test.zig");
+    _ = @import("engine/engine_state_test.zig");
+    _ = @import("engine/engine_congestion_test.zig");
+    _ = @import("engine/engine_resume_test.zig");
+    _ = @import("engine/engine_config.zig");
+    _ = @import("engine/engine_writable_test.zig");
+    _ = @import("engine/engine_tcp_test.zig");
+    _ = @import("engine/engine_tcp_send_test.zig");
+    _ = @import("engine/engine_tcp_writable_test.zig");
     _ = @import("quic/quic_connection_h3_room.zig");
     _ = @import("coding/coding_ring.zig");
     _ = @import("coding/coding_rules.zig");

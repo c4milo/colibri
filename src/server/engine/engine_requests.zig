@@ -1,4 +1,4 @@
-//! A slot's open requests, as the endpoint reports them (decision 119): each request's number on
+//! A slot's open requests, as the engine reports them (decision 119): each request's number on
 //! its connection and the word of `user_data` the program set at its head, from its `request` event
 //! until its one `done` or `cancelled`. A connection that ends reports `cancelled` for each request
 //! still here. `server.zig` does not export this file.
@@ -10,7 +10,7 @@ const Number = event.Number;
 
 /// What a request's response found no room for: its head, more of its content, or its trailer
 /// section, or a head or trailer section larger than the room its earlier frames leave, which
-/// waits for the response to hold nothing unacknowledged. The endpoint reports `writable` once
+/// waits for the response to hold nothing unacknowledged. The engine reports `writable` once
 /// the connection can take it.
 pub const Wait = enum { head, content, trailers, empty };
 
@@ -126,7 +126,7 @@ pub fn Table(comptime capacity: usize, comptime step: Number) type {
             return &table.entries[index];
         }
 
-        /// Closes request `number`, whose ending the endpoint reported.
+        /// Closes request `number`, whose ending the engine reported.
         pub fn remove(table: *Self, number: Number) void {
             const index = table.index_of(number).?;
             assert(table.in_use.isSet(index));

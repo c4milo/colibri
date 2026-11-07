@@ -19,7 +19,7 @@ const Protocol = event.Protocol;
 const ConnectionResult = event.ConnectionResult;
 
 /// The transport closed: nothing more is read or written, and over TLS the session's secrets are
-/// wiped. The `done` of each response written whole stays owed, which a server's endpoint reports
+/// wiped. The `done` of each response written whole stays owed, which a server's engine reports
 /// before the connection's `ended` (INV-30); `Connection.transport_closed` drops them too. A
 /// second call changes nothing.
 pub fn close_transport(connection: *Connection) void {

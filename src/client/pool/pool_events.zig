@@ -5,7 +5,7 @@
 //! pool holds a QUIC slot and several TCP slots (decision 125), and takes the QUIC slot first, as
 //! the model takes QUIC before TCP. `pool_links.zig` holds each link's life.
 //!
-//! Each step takes a pool of any `ConnectionPoolOf` type. A pool with no QUIC (decision 124) never
+//! Each step takes a pool of any `ConnectionPool` type. A pool with no QUIC (decision 124) never
 //! opens QUIC, so its code holds no step on a QUIC connection: each one is out at build time.
 const std = @import("std");
 const assert = std.debug.assert;

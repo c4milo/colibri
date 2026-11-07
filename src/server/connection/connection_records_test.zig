@@ -238,7 +238,7 @@ test "RFC 9846 §5.1: records open while the protocol's octets have room, and th
 }
 
 /// The decoder pool and buffer of the coded-body test (decisions 91 and 98). Test-only.
-var decoders: h11.coding.Pool(1) align(@alignOf(h11.coding.Pool(1))) = undefined;
+var decoders: h11.coding.Pool(.{ .count = 1 }) align(@alignOf(h11.coding.Pool(.{ .count = 1 }))) = undefined;
 var decoded: [decoded_len]u8 = undefined;
 const decoded_len: usize = 1024;
 
@@ -249,7 +249,7 @@ const coded_request = "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip, ch
     "f\r\n\xcb\x48\xcd\xc9\xc9\x07\x00\x86\xa6\x10\x36\x05\x00\x00\x00\r\n0\r\n\r\n";
 
 test "RFC 9112 §7.2: content after a chunk that decodes to nothing is read in the same call" {
-    decoders.storage().reset(h11.coding.Features.target());
+    decoders.init(h11.coding.Features.target());
     support.config = .{ .protocols = support.only(.h11), .decoders = decoders.storage(), .decoded = &decoded };
     try attach_plain_with(.{ .alpn = "http/1.1" });
     const record_len = try record_at(0, plain_support.content_application_data, coded_request);
@@ -261,7 +261,7 @@ test "RFC 9112 §7.2: content after a chunk that decodes to nothing is read in t
 }
 
 test "decision 91: a transport that closed gives back the decoder its coded body held" {
-    decoders.storage().reset(h11.coding.Features.target());
+    decoders.init(h11.coding.Features.target());
     // The pool holds one decoder, which the first connection's body takes.
     for (0..2) |_| {
         support.config = .{ .protocols = support.only(.h11), .decoders = decoders.storage(), .decoded = &decoded };

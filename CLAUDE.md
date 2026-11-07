@@ -119,7 +119,7 @@ code that serves it.
 - **No public name repeats itself.** A type named after its file is exported under its own
   name: `h2.Connection` and `http.Field`, never `h2.connection.Connection`. A function or a
   constant keeps the namespace of its file: `http.field.validate_name`. A function named after
-  its file is exported under its own name: `server.router`, never `server.router.router`.
+  its file is exported under its own name: `server.Router`, never `server.router.Router`.
 - **Every root reads in one order.** The modules it re-exports, `constants`, the private `files`
   struct that imports each file, each type under its own name, each function or constant under
   the namespace of its file, the test that lists the names, and last the test block that
@@ -153,7 +153,7 @@ is added to the root and to the list in its test, which prints the name that dif
 - Names are settled — use them exactly: **h11**, **h2** and **h3** for the protocols (never
   "HTTP2"), **stream** for both h2 streams and QUIC streams with the protocol always named when
   both are in scope, **provider** for a caller-supplied vtable, and **endpoint** for one side of
-  connections, as RFC 9000 §1.2 uses it. `server.Endpoint` is a server's endpoint, which takes part
+  connections, as RFC 9000 §1.2 uses it. `server.Engine` is a server's endpoint, which takes part
   in many connections.
 - The `server` and `client` APIs name each HTTP concept once, the same for h11, h2 and h3, with the
   word programmers know (decision 126): **header** and **headers**, **request body** and
@@ -342,7 +342,7 @@ Everything below exists. Change this section when a step adds or renames a comma
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
 - Route tables: `zig build router-check` compiles `tools/fixtures/router_refused.zig` once for each
-  refusal of `server.router`, and requires each compile to fail with the message of that refusal
+  refusal of `server.Router`, and requires each compile to fail with the message of that refusal
   (`build/router_check.zig`, decision 122). The case `accepted` must compile. `zig build test` runs
   it.
 - Route cross-check: `zig build router-hidden-check` runs two test binaries apart from `zig build
@@ -589,9 +589,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   the server also presents the RSA or the ML-DSA-87 identity of `<prefix>.chain.pem` and
   `<prefix>.key.pem` (decision 147). The server serves h3 or hq-interop, whichever
   its client's ALPN asks for, and a client with `h3` fetches over h3. A server with `h3` serves h3
-  alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
+  alone through the `server` module's `Engine` (design §8 step 17b), holds `quic_connections_max`
   connections, and with `qlogdir` writes each one's qlog through the endpoint's log provider; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
-  it. With `routes=github` too, `server.router` answers every request over the GitHub API's routes
+  it. With `routes=github` too, `server.Router` answers every request over the GitHub API's routes
   in place of the files, as `bench/run_latency.sh` runs it (design §8 step 13f). With `bbr` too,
   each connection runs BBRv3 in place of CUBIC (design §8 step 29c). With `newreno` too, each connection runs RFC 9002's NewReno (design §8 step 34). On Linux the `h3`
   mode receives with UDP_GRO and sends each peer's datagrams of a turn as one send of segments
@@ -658,7 +658,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   `tools/deadline_trace.sh` for the deadline trace run, with `--deadline-trace-write` and
   `spec/tla/server_deadlines`, whose logs also say when three of colibri's clocks run
   (https://github.com/c4milo/colibri/issues/86), and `tools/tcp_trace.sh` for the TCP trace run,
-  with `--tcp-trace-write` and `spec/tla/h2_connection`, through `server.Endpoint` and
+  with `--tcp-trace-write` and `spec/tla/h2_connection`, through `server.Engine` and
   `client.ConnectionPool` in cleartext and over TLS (https://github.com/c4milo/colibri/issues/79),
   and `tools/h3_deadline_trace.sh` for the h3 deadline trace run, with
   `--h3-deadline-trace-write` and `spec/tla/h3_deadlines`, whose logs hold only the variables

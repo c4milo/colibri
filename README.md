@@ -94,7 +94,7 @@ version.
 
 `colibri.Server` does a server's I/O for you ([decision 150](docs/decisions.md)). It binds one
 port, reads the certificate chain and the key from PEM text your program holds, and runs a router of
-`server.router` on [Rotor](https://github.com/c4milo/rotor)'s loop: h11 and h2 over TCP, and h3
+`server.Router` on [Rotor](https://github.com/c4milo/rotor)'s loop: h11 and h2 over TCP, and h3
 over UDP on the same port. These lines are from
 [`examples/colibri_server.zig`](examples/colibri_server.zig):
 
@@ -134,14 +134,14 @@ QUIC gets no answer ([decision 117](docs/decisions.md) as amended).
 
 ### A server with the router
 
-A server declares its routes in a table, and `server.router` builds the table at compile time. A
+A server declares its routes in a table, and `server.Router` builds the table at compile time. A
 route names a method, a path and the function that answers it. A path can hold parameters, such as
 `:name`, and a trailing wildcard. A table that hides a route, or that is malformed, does not
 compile. Middleware runs before each route, in table order. These lines are from
 [`examples/server_exchange.zig`](examples/server_exchange.zig):
 
 ```zig
-const routes = server.router(App, .{
+const routes = .{
     .error_handler = on_error,
     .middleware = .{ Brand, Counted },
     .routes = .{
@@ -149,7 +149,7 @@ const routes = server.router(App, .{
         .{ .post, "/echo", Echo, .{ .whole_body = true } },
         .{ .get, "/greetings/:name", greet_named },
     },
-});
+};
 ```
 
 The router calls a route's function with the path's parameters and the query as structs, which it
@@ -169,11 +169,11 @@ fn greet_named(
 }
 ```
 
-The program owns the router's memory. `Of` sizes it for the requests the server holds at once, and
-the program places it once:
+The program owns the router's memory. `server.RouterOptions` sizes it for the requests the server
+holds at once, and the program places it once:
 
 ```zig
-const Router = @TypeOf(routes).Of(.{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 
@@ -181,25 +181,25 @@ The `align(@alignOf(Router))` states the alignment the type already has. Zig 0.1
 can place a large global at a smaller alignment, so every global in colibri's examples states it,
 and `zig build lint` refuses one that does not.
 
-One `server.Endpoint` holds the server's TCP and QUIC connections. The program passes the endpoint
+One `server.Engine` holds the server's TCP and QUIC connections. The program passes the engine
 what each socket read, and gets one event from each `receive`, in h11, h2 and h3 alike. It hands
 each event to the router. The router takes the events of a request, and hands back the events
 that are the program's I/O:
 
 ```zig
-switch (router.handle(&app, &endpoint, event)) {
+switch (router.handle(&app, &engine, event)) {
     .taken => {},
     .event => |other| switch (other) {
         // A TCP connection owes its socket octets.
         .send => |connection| try flush(connection, now_ns),
         // colibri reads and writes nothing more on this TCP connection. A program closes the
         // socket once the socket has taken the octets `send_stream` returned, and owes the
-        // endpoint no call: the connection's `ended` follows by itself.
+        // engine no call: the connection's `ended` follows by itself.
         .close => closes += 1,
         // The connection is over, and its slot takes a later socket or client.
         .ended => |over| try count_ended(over, now_ns),
-        // The shut-down endpoint holds no connection.
-        .closed => endpoint_closed = true,
+        // The shut-down engine holds no connection.
+        .closed => engine_closed = true,
         else => return error.ExchangeWrong,
     },
 }
@@ -297,7 +297,7 @@ shape: octets in, at most one event out, and the frames colibri owes written int
 
 [`examples/`](examples/) holds whole programs, each a client and a server run over
 [Rotor](https://github.com/c4milo/rotor)'s loop: a server that serves TCP and QUIC through one
-endpoint, a client whose pool tries QUIC first and then TCP, a `colibri.Server` on a loopback port, and
+engine, a client whose pool tries QUIC first and then TCP, a `colibri.Server` on a loopback port, and
 h11 and h2 by themselves. `zig build examples` runs them, and CI does too.
 
 ## How it is checked

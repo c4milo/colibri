@@ -1,6 +1,6 @@
 //! The table of routes that the compiler builds, and the one call that matches a method and a path
 //! against it (decision 122, design §8 step 21e). Each route carries a value, which `match` gives.
-//! `server.router` builds one, with the route's `Route` tag as its value (decision 127, design §8
+//! `server.Router` builds one, with the route's `Route` tag as its value (decision 127, design §8
 //! step 25.3). The tests of matching build one with values of their own.
 const std = @import("std");
 const constants = @import("../constants.zig");
@@ -26,7 +26,7 @@ const router_hidden = @import("router_hidden.zig");
 ///   a bare `fn` type.
 ///
 /// A HEAD request finds the GET route of a path that names no HEAD route (RFC 9110 §9.1,
-/// §9.3.2). The endpoint writes no content in a response to HEAD, so a program writes one answer
+/// §9.3.2). The engine writes no content in a response to HEAD, so a program writes one answer
 /// for GET and HEAD.
 ///
 /// A malformed table, or a table with a conflict, does not compile. The compile error names the
@@ -62,7 +62,7 @@ fn Table(comptime Value: type, comptime table: anytype) type {
         /// query: the match reads it up to the first "?". `match` writes the path's parameters into
         /// `parameters`, and sets `parameters.count` to 0 first. It reads the method before the
         /// path, so a method that no route names gives `not_implemented` on any path. A HEAD
-        /// request finds the GET route of a path with no HEAD route. The endpoint writes no
+        /// request finds the GET route of a path with no HEAD route. The engine writes no
         /// content in a response to HEAD, so a program writes one answer for GET and HEAD.
         pub fn match(_: @This(), method: []const u8, path: []const u8, parameters: *PathParameters) Match {
             return router_match.match(Value, layout, method, path, parameters);

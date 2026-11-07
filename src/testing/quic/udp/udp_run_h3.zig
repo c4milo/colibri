@@ -1,5 +1,5 @@
 //! The UDP server's `h3` mode (design §8 step 17b): every connection runs on colibri's `server`
-//! module, which a `server.Endpoint` holds, and `udp_h3_files.zig` answers each request.
+//! module, which a `server.Engine` holds, and `udp_h3_files.zig` answers each request.
 //!
 //! Each turn waits in Rotor's `tick` until a datagram arrives or a connection's next deadline
 //! passes, then reads the instant that tick read (decision 63). It hands each datagram to the
@@ -32,9 +32,9 @@ const udp_qlog = @import("udp_qlog.zig");
 const udp_batch = @import("udp_batch.zig");
 const server_routes = @import("../../server/server_routes.zig");
 
-const Endpoint = udp_h3_files.Endpoint;
+const Engine = udp_h3_files.Engine;
 
-var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
+var endpoint: Engine align(@alignOf(Engine)) = undefined;
 var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
 /// The files each connection serves, at its slot in the endpoint.
 var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;

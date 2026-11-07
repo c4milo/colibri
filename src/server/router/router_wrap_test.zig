@@ -4,7 +4,7 @@
 const std = @import("std");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
-const router = @import("router.zig").router;
+const Router = @import("router.zig").Router;
 const support = @import("router_handle_test_support.zig");
 const Recorder = support.Recorder;
 
@@ -159,7 +159,7 @@ const Late = struct {
 
 fn on_error(_: *App, _: *const event.Request, _: anyerror, _: *ResponseWriter) void {}
 
-const routes = router(App, .{
+const routes = .{
     .error_handler = on_error,
     .middleware = .{ Outer, Count },
     .routes = .{
@@ -170,10 +170,10 @@ const routes = router(App, .{
         .{ .get, "/full", full },
         .{ .get, "/late", Late },
     },
-});
+};
 
 const response_bytes = 64;
-const Pool = @TypeOf(routes).Of(.{ .requests = 1, .response_bytes = response_bytes });
+const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_bytes });
 
 const Fixture = struct {
     app: App = .{},

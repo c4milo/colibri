@@ -1,5 +1,5 @@
 //! The pool trace run (decision 105 as decision 125 extends it, design §8 step 22): a
-//! `client.ConnectionPoolOf(.{ .quic = false })` of two or three TCP slots carries a seed's exchanges in h11,
+//! `client.ConnectionPool(.{ .quic = false })` of two or three TCP slots carries a seed's exchanges in h11,
 //! one at a time on each connection, while the server answers, closes after an answer or before
 //! one, and a slot's first connect may fail (`pool_trace_world.zig`). After each act and each event
 //! the run computes spec/tla/client_exchanges's state (`pool_trace_state.zig`) and keeps it when it

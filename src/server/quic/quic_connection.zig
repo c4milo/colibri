@@ -1,18 +1,18 @@
 //! One connection of the server over QUIC (decision 103, design §8 step 17b): h3 (RFC 9114) over
 //! `quic`, with the TLS handshake run through `tls.quic.Server`, reporting the same events and
-//! answering with the same calls as the TCP `Connection`. `Endpoint` owns each one: it starts it
+//! answering with the same calls as the TCP `Connection`. `Engine` owns each one: it starts it
 //! from a client's first Initial, passes it the datagrams its connection IDs name, and sends what
 //! it writes (RFC 9000 §5.2).
 //!
 //! The caller loops over `receive`, as it does for a TCP connection, until it returns no event,
-//! after each datagram the endpoint passed. It answers each request by its id, the stream's, with
+//! after each datagram the engine passed. It answers each request by its id, the stream's, with
 //! `respond`, `write_body` and `write_trailers`. `write_body` copies nothing: QUIC reads the
 //! caller's octets in place as often as it sends them, so they stay the caller's until the request
 //! is `done`, once the peer has acknowledged every octet of the response (RFC 9000 §3.1), or
 //! `cancelled` (decision 103). The frames around them are the connection's (decision 79).
 //!
-//! `QuicConnection`'s functions are the calls the endpoint passes on from a program. What else the
-//! endpoint calls is in
+//! `QuicConnection`'s functions are the calls the engine passes on from a program. What else the
+//! engine calls is in
 //! `quic_connection_internal.zig`, which the module's root does not export (design §8 step 17f).
 const std = @import("std");
 const quic = @import("quic");
@@ -31,7 +31,7 @@ const deadline = @import("../deadline.zig");
 const close_reason_module = @import("../close_reason.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const http = @import("http");
-const endpoint_routes = @import("../endpoint/endpoint_routes.zig");
+const engine_routes = @import("../engine/engine_routes.zig");
 
 pub const RequestId = event.RequestId;
 /// The number of a request on this connection, which its calls take (decision 119): an event's
@@ -46,7 +46,7 @@ pub const PeerAddress = quic.PeerAddress;
 /// of a `quic.ReceivePool` the caller places.
 pub const ReceiveStorage = quic.ReceiveStorage;
 
-/// What every QUIC connection of an endpoint borrows. The caller keeps it alive while any
+/// What every QUIC connection of an engine borrows. The caller keeps it alive while any
 /// connection holds it.
 pub const Config = struct {
     /// The TLS configuration, whose ALPN list names "h3" (RFC 9114 §3.1).
@@ -67,29 +67,29 @@ pub const Config = struct {
     /// decision 111), or null to keep every client in its original version.
     switch_to: ?quic.packet.header.Version = .v2,
     /// The limits each connection starts with (decision 110 as amended). Null turns a deadline
-    /// off. `Endpoint.init` refuses limits `Timeouts.validate` or `validate_units` refuses,
+    /// off. `Engine.init` refuses limits `Timeouts.validate` or `validate_units` refuses,
     /// with `error.TimeoutInvalid`.
     timeouts: deadline.Timeouts = .{},
     /// The request streams the client may open at once (RFC 9000 §4.6), up to the records a
-    /// connection holds: the endpoint's `limits.requests_max` (decision 119).
+    /// connection holds: the engine's `limits.requests_max` (decision 119).
     requests_max: u32 = constants.limits.quic_requests_max,
-    /// The request streams the client may cancel in one second: the endpoint's
+    /// The request streams the client may cancel in one second: the engine's
     /// `limits.peer_resets_max` (decision 110 as amended).
     peer_resets_max: u32 = constants.policy.peer_resets_max,
     /// The request streams h3 may refuse in one second, each because the client broke it: the
-    /// endpoint's `limits.resets_sent_max` (decision 110 as amended).
+    /// engine's `limits.resets_sent_max` (decision 110 as amended).
     resets_sent_max: u32 = constants.policy.resets_sent_max,
 };
 
-/// What a connection starts from, which the endpoint read off the client's first Initial or drew
+/// What a connection starts from, which the engine read off the client's first Initial or drew
 /// from its caller's source (invariant 5).
 pub const Start = struct {
     /// The version of the client's first Initial, which the connection runs (RFC 9368 §2).
     version: quic.packet.header.Version = .v1,
     /// The connection ID the server chose (RFC 9000 §7.2).
     local_id: [constants.policy.quic_id_len]u8,
-    /// The endpoint's table of connection IDs, which draws each spare ID the connection issues
-    /// (decision 157), or null for a connection no endpoint holds, which draws them at random.
+    /// The engine's table of connection IDs, which draws each spare ID the connection issues
+    /// (decision 157), or null for a connection no engine holds, which draws them at random.
     route: ?Route = null,
     /// The client's first Destination and Source Connection IDs (RFC 9000 §7.3), and a Retry's
     /// Source Connection ID when the Initial returned a Retry token (RFC 9000 §17.2.5.1).
@@ -102,9 +102,9 @@ pub const Start = struct {
     peer: PeerAddress,
 };
 
-/// The endpoint's table of connection IDs and the connection's QUIC index in it (decision 157).
+/// The engine's table of connection IDs and the connection's QUIC index in it (decision 157).
 pub const Route = struct {
-    routes: *endpoint_routes.Routes,
+    routes: *engine_routes.Routes,
     quic_index: u32,
 };
 
@@ -178,14 +178,14 @@ pub const QuicConnection = struct {
     random: tls.Random,
     /// Whether the spare connection IDs went out (`issue_spare_ids`).
     spare_ids_issued: bool,
-    /// The endpoint's table its IDs go in, from `Start.route`.
+    /// The engine's table its IDs go in, from `Start.route`.
     route: ?Route,
 
     /// Reports the next event: a request's head, its content, its trailer section, its
-    /// cancellation, or that its response is done. `consumed` is always 0: the endpoint passed the
+    /// cancellation, or that its response is done. `consumed` is always 0: the engine passed the
     /// datagrams already. Every slice points into storage the connection holds until the next call.
     /// A request that expects a 100 (Continue) gets one at the next `receive`, or before the next
-    /// datagram the endpoint sends for the connection, unless the caller answers it first: with a
+    /// datagram the engine sends for the connection, unless the caller answers it first: with a
     /// final response, with its own 100, or with `cancel` (RFC 9110 §10.1.1).
     pub fn receive(connection: *QuicConnection, now_ns: u64) Error!ConnectionResult {
         connection.last_ns = now_ns;

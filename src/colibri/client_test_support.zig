@@ -33,14 +33,14 @@ pub const watchdog_ms = 8_000;
 pub const unanswered_quic_watchdog_ms = 30_000;
 const watchdog_step_ms = 50;
 
-const routes = server.router(void, .{
+const routes = .{
     .error_handler = on_error,
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .get, "/goodbye", greet_and_close },
     },
-});
-const Router = @TypeOf(routes).Of(.{ .requests = connections, .response_bytes = response_bytes, .body_bytes = 0 });
+};
+const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = 0 });
 
 fn greet(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
     try response.header("content-type", "text/plain");

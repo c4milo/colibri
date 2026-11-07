@@ -45,7 +45,7 @@ pub const TableReason = enum {
 /// Stops the compile when the route table as a whole is refused. Comptime-only.
 pub fn check_table(comptime Context: type, comptime table: anytype) void {
     if (table_refusal(Context, table)) |reason| {
-        @compileError(std.fmt.comptimePrint("server.router: route table: {s}: {s}", .{ @tagName(reason), reason.sentence() }));
+        @compileError(std.fmt.comptimePrint("server.Router: route table: {s}: {s}", .{ @tagName(reason), reason.sentence() }));
     }
 }
 
@@ -84,7 +84,7 @@ pub const QueryMemory = struct {
     storage: [query_storage_len]u8 = undefined,
 };
 
-/// Octets of a query's decoded names and values. A query is part of a path that the endpoint
+/// Octets of a query's decoded names and values. A query is part of a path that the engine
 /// bounds, and decoding only shortens it.
 const query_storage_len = @import("../constants.zig").limits.path_len_max;
 
@@ -226,7 +226,7 @@ fn function_info(comptime Function: type) std.builtin.Type.Fn {
     return switch (@typeInfo(Function)) {
         .@"fn" => |info| info,
         .pointer => |pointer| @typeInfo(pointer.child).@"fn",
-        else => @compileError("server.router: a route holds a function (decision 127)"),
+        else => @compileError("server.Router: a route holds a function (decision 127)"),
     };
 }
 

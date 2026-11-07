@@ -206,15 +206,13 @@ pub const Layout = pool_state.Layout;
 /// The alignment of the memory a pool's `init` takes. Each pool type names it `memory_alignment`.
 pub const pool_memory_alignment = pool_state.memory_alignment;
 
-/// A pool of the default capacity. By default it opens TCP first, and QUIC only once TCP fails
-/// (decision 117 as amended, design §8 step 43).
-pub const ConnectionPool = ConnectionPoolOf(.{});
-
-/// A pool that holds the connections `capacity` names (decision 124). A pool with no QUIC
+/// A pool that holds the connections `capacity` names (decision 124). `ConnectionPool(.{})` is a
+/// pool of the default capacity, which by default opens TCP first, and QUIC only once TCP fails
+/// (decision 117 as amended, design §8 step 43). A pool with no QUIC
 /// holds no QUIC state, and its code holds no step on a QUIC connection. Its `init` refuses
 /// `versions` that allow h3, so it never asks for QUIC, and a call of its `start_quic` does not
 /// compile. The body of each call is in `pool_calls.zig`.
-pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
+pub fn ConnectionPool(comptime capacity: Capacity) type {
     return struct {
         const Self = @This();
         /// The capacity, which `pool_calls.zig` and `pool_events.zig` read at build time.
@@ -444,7 +442,7 @@ test "design §8 step 17f: the pool's public names are the calls a program makes
     const public_names = @import("core").public_names;
     // Decision 124: a pool with no QUIC names the same calls, and its `start_quic` does not
     // compile.
-    inline for (.{ ConnectionPool, ConnectionPoolOf(.{ .quic = false }) }) |Type| {
+    inline for (.{ ConnectionPool(.{}), ConnectionPool(.{ .quic = false }) }) |Type| {
         try public_names.expect(Type, &.{
             "Counts",                           "memory_alignment", "memory_bytes",
             "receive_events_without_input_max", "init",             "set_destination",

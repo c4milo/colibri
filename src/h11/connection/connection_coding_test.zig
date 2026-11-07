@@ -16,7 +16,7 @@ const Field = http.Field;
 /// The connection, the pool of one decoder, the encoders and the buffers the tests use, placed
 /// outside any stack frame.
 var test_connection: Connection align(@alignOf(Connection)) = undefined;
-var test_pool: coding.Pool(1) align(@alignOf(coding.Pool(1))) = undefined;
+var test_pool: coding.Pool(.{ .count = 1 }) align(@alignOf(coding.Pool(.{ .count = 1 }))) = undefined;
 var test_gzip: gzip.Encoder(.{ .level = 1 }) align(@alignOf(gzip.Encoder(.{ .level = 1 }))) = undefined;
 var test_zlib: zlib.Encoder(.{ .level = 1 }) align(@alignOf(zlib.Encoder(.{ .level = 1 }))) = undefined;
 var test_input: [test_input_len]u8 = undefined;
@@ -42,8 +42,8 @@ const request_head = "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: gzip, chu
 const deflate_request_head = "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: deflate, chunked\r\n\r\n";
 
 fn pool() coding.Storage {
+    test_pool.init(coding.Features.none());
     const storage = test_pool.storage();
-    storage.reset(coding.Features.none());
     return storage;
 }
 

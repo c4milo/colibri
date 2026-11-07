@@ -21,7 +21,7 @@ const Call = union(enum) {
     trailers: []const http.Field,
 };
 
-/// An endpoint that records each call. `room` is how many body bytes the next `write_body`
+/// An engine that records each call. `room` is how many body bytes the next `write_body`
 /// takes, `head_blocked` refuses the next `respond`, and `failure` fails the next call.
 const Recorder = struct {
     calls: [calls_max]Call = undefined,
@@ -147,7 +147,7 @@ test "decision 127: a header after the body, past the limit, or past the memory 
     try testing.expectError(error.NoSpaceLeft, response.header("a", "b" ** memory_len));
 }
 
-test "decision 103: the body never writes over bytes the endpoint took, and fails past the memory" {
+test "decision 103: the body never writes over bytes the engine took, and fails past the memory" {
     var fixture: Fixture = .{};
     const response = fixture.start();
     const writer = response.body();
@@ -160,7 +160,7 @@ test "decision 103: the body never writes over bytes the endpoint took, and fail
     try testing.expectError(error.WriteFailed, writer.writeAll("x" ** memory_len));
 }
 
-test "decision 127: what the endpoint does not take waits for writable, in order" {
+test "decision 127: what the engine does not take waits for writable, in order" {
     var fixture: Fixture = .{};
     const response = fixture.start();
     fixture.recorder.room = 3;
@@ -179,7 +179,7 @@ test "decision 127: what the endpoint does not take waits for writable, in order
     try testing.expect(ended);
 }
 
-test "decision 127: a head the endpoint has no room for waits, and its status stays the program's" {
+test "decision 127: a head the engine has no room for waits, and its status stays the program's" {
     var fixture: Fixture = .{};
     const response = fixture.start();
     fixture.recorder.head_blocked = true;
@@ -235,7 +235,7 @@ test "RFC 9110 §6.5: trailers end the response after the body, from a copy" {
     try testing.expect(internal.complete(response));
 }
 
-test "decision 127: no call after the end, and the endpoint's other errors come back" {
+test "decision 127: no call after the end, and the engine's other errors come back" {
     var fixture: Fixture = .{};
     var response = fixture.start();
     try response.end();

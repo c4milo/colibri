@@ -104,7 +104,7 @@ pub const Protocols = @import("../protocols.zig").Protocols;
 
 /// The encoder pool the coding tests give a connection, and the codings it applies, gzip first
 /// (decision 101).
-pub const Pool = coding_pool.EncoderPool(pool_encoders, pool_level);
+pub const Pool = coding_pool.EncoderPool(.{ .count = pool_encoders, .level = pool_level });
 pub var pool: Pool align(@alignOf(Pool)) = undefined;
 pub const codings = [_]http.content_coding.Coding{ .gzip, .deflate };
 const pool_encoders: usize = 2;
@@ -112,7 +112,7 @@ const pool_level: u4 = 1;
 
 /// A cleartext connection speaking `protocol` that codes content with `pool`, every encoder free.
 pub fn start_coding(protocol: connection_module.Protocol) !void {
-    pool.reset(.none());
+    pool.init(.none());
     config = .{ .protocols = only(protocol), .codings = &codings, .encoders = pool.encoders() };
     try connection.init(&config, stream.random(), 0, 0);
 }

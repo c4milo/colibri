@@ -1,9 +1,9 @@
 //! What `receive` reports, the same for h11, h2 and h3 (decision 100): a request's head, its
 //! content, its trailer section, its end by cancellation, or that its response is done; and, from
-//! the endpoint (decision 119), that a response can take more, that a TCP connection owes octets or
+//! the engine (decision 119), that a response can take more, that a TCP connection owes octets or
 //! is to be closed, that a connection ended, or that every connection did. Every slice points into
-//! storage the connection or the caller holds, and stays valid until the endpoint's next call that
-//! the comment on `Endpoint.receive` lists.
+//! storage the connection or the caller holds, and stays valid until the engine's next call that
+//! the comment on `Engine.receive` lists.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -13,11 +13,11 @@ const close_reason = @import("close_reason.zig");
 /// One header: a field line's name and value (RFC 9110 §5.2).
 pub const Header = http.Field;
 
-/// A connection an endpoint holds: its slot, and the slot's generation, which advances each time
-/// the endpoint reports that a connection there ended (decision 119). So a handle of an ended
+/// A connection an engine holds: its slot, and the slot's generation, which advances each time
+/// the engine reports that a connection there ended (decision 119). So a handle of an ended
 /// connection names nothing. Generation 0 names no connection.
 pub const ConnectionHandle = packed struct(u64) {
-    /// Below the endpoint's TCP and QUIC slots together. TCP slots come first, so a TCP
+    /// Below the engine's TCP and QUIC slots together. TCP slots come first, so a TCP
     /// connection's slot is below the count of TCP slots. A slot is free again at its
     /// connection's `ended`, so a program whose socket outlives `ended` maps a slot to the state
     /// of the connection the slot holds now, and keeps the whole handle with that state.
@@ -36,7 +36,7 @@ pub const RequestId = packed struct(u128) {
     number: Number,
 };
 
-/// The id a connection reports for its request `number`, with no connection named: the endpoint
+/// The id a connection reports for its request `number`, with no connection named: the engine
 /// that holds the connection names it.
 pub fn id_of(number: Number) RequestId {
     return .{ .connection = .{ .slot = 0, .generation = 0 }, .number = number };
@@ -146,7 +146,7 @@ pub const Request = struct {
     /// The path of h2's and h3's `:path`, or of h11's target, without its query, or `*` for the
     /// asterisk-form (RFC 9112 §3.2). An empty path, as an absolute-form target may carry, gives
     /// "/" (RFC 9110 §4.2.3, https://github.com/c4milo/colibri/issues/103). Null for CONNECT (RFC
-    /// 9113 §8.5, RFC 9114 §4.4, RFC 9112 §3.2.3). `server.router` matches this value.
+    /// 9113 §8.5, RFC 9114 §4.4, RFC 9112 §3.2.3). `server.Router` matches this value.
     path: ?[]const u8,
     /// The query after the path's `?` (RFC 3986 §3.4), without the `?`, or null when the target
     /// carries none. `http.QueryParameters` reads its pairs (decision 127).
@@ -243,7 +243,7 @@ pub const Finished = struct {
     result: Result,
 };
 
-/// What a connection reports to the endpoint that holds it, which the endpoint turns into an
+/// What a connection reports to the engine that holds it, which the engine turns into an
 /// `Event`: a request's end comes as `done` or `cancelled` here, and as `finished` there. The root
 /// does not export it.
 pub const ConnectionEvent = union(enum) {
@@ -293,7 +293,7 @@ test "decision 127: a target comes apart at its first ?, and an empty path is /"
     try std.testing.expectEqualDeep(Target{ .path = null, .query = null }, split_target(null));
 }
 
-test "decision 119: a connection's ids name no connection, which the endpoint that holds it names" {
+test "decision 119: a connection's ids name no connection, which the engine that holds it names" {
     const id = id_of(7);
     try std.testing.expectEqual(7, id.number);
     try std.testing.expectEqual(0, id.connection.generation);

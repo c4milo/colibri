@@ -70,10 +70,19 @@ pub const Encoders = struct {
     }
 };
 
-/// A pool of `count` encoders at deflate level `level`, 1, 6 or 9: the most coded responses the
-/// connections given it send at once. The caller places it (decision 35) and calls `reset` once
-/// before giving any connection its `encoders`.
-pub fn EncoderPool(comptime count: usize, comptime level: u4) type {
+/// The sizes of an `EncoderPool` (decision 158 ruling 3).
+pub const EncoderPoolOptions = struct {
+    /// The encoders of the pool: the most coded responses the connections given it send at once.
+    count: usize = constants.limits.encoders_default,
+    /// The deflate level of each encoder: 1, 6 or 9.
+    level: u4 = constants.policy.encoder_level_default,
+};
+
+/// A pool of `options.count` encoders at deflate level `options.level`. The caller places it
+/// (decision 35) and calls `init` once before it gives any connection its `encoders`.
+pub fn EncoderPool(comptime options: EncoderPoolOptions) type {
+    const count = options.count;
+    const level = options.level;
     comptime assert(count > 0 and count < no_slot);
     return struct {
         const Self = @This();
@@ -99,8 +108,8 @@ pub fn EncoderPool(comptime count: usize, comptime level: u4) type {
 
         /// Every slot free, and the CPU features its encoders run on: `Features.target()`, what
         /// the build target guarantees, or `Features.detect()`, which asks the CPU, as colibri
-        /// never does itself.
-        pub fn reset(pool: *Self, features: Features) void {
+        /// never does itself (decision 158 ruling 10).
+        pub fn init(pool: *Self, features: Features) void {
             // Bounded by the pool's slots, each free and followed by the next.
             for (&pool.slots, 1..) |*slot, following| {
                 slot.taken = false;
@@ -187,13 +196,10 @@ pub fn EncoderPool(comptime count: usize, comptime level: u4) type {
     };
 }
 
-/// The pool a caller gets by asking for no size or level in particular.
-pub const DefaultEncoderPool = EncoderPool(constants.limits.encoders_default, constants.policy.encoder_level_default);
-
 const testing = std.testing;
 
 /// A small pool, outside any stack frame, and a decoder that reads its output back. Test-only.
-const TestPool = EncoderPool(test_slots, 1);
+const TestPool = EncoderPool(.{ .count = test_slots, .level = 1 });
 const test_slots: usize = 2;
 threadlocal var test_pool: TestPool align(@alignOf(TestPool)) = undefined;
 threadlocal var test_gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
@@ -213,7 +219,7 @@ fn code_all(encoders: Encoders, index: Index) ![]const u8 {
 }
 
 test "decision 101: a slot codes gzip and deflate, which stdx's decoders read back whole" {
-    test_pool.reset(.none());
+    test_pool.init(.none());
     const encoders = test_pool.encoders();
     const gzip_slot = encoders.take(.gzip).?;
     const deflate_slot = encoders.take(.deflate).?;
@@ -229,7 +235,7 @@ test "decision 101: a slot codes gzip and deflate, which stdx's decoders read ba
 }
 
 test "decision 101: every slot taken leaves a response uncoded, and one given back is taken again" {
-    test_pool.reset(.none());
+    test_pool.init(.none());
     const encoders = test_pool.encoders();
     const first = encoders.take(.gzip).?;
     _ = encoders.take(.deflate).?;

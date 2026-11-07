@@ -7,7 +7,7 @@ const constants = @import("constants.zig");
 pub const Limits = struct {
     /// The requests a connection holds at once, from 1 to h2's `concurrent_streams_max`. h2
     /// advertises it as SETTINGS_MAX_CONCURRENT_STREAMS (RFC 9113 §6.5.2, decision 110). Through an
-    /// endpoint it bounds an h3 connection's request streams too, up to `quic_requests_max`
+    /// engine it bounds an h3 connection's request streams too, up to `quic_requests_max`
     /// (decision 119).
     requests_max: u32 = constants.limits.requests_max,
     /// The shortest DATA frame h2 sends when a window, not the content, decides its length

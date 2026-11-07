@@ -50,7 +50,7 @@ pub const ipv4_octets: usize = 4;
 /// The octets of every pool's memory in a run: a pool of one TCP connection for each socket the
 /// run may hold. Each TCP connection of a pool adds the same octets, so a run whose sockets fit
 /// fits this memory too.
-pub const pool_memory_len: usize = constants.client_sockets_max * client.ConnectionPool.memory_bytes(.{});
+pub const pool_memory_len: usize = constants.client_sockets_max * client.ConnectionPool(.{}).memory_bytes(.{});
 
 /// The TCP connections each pool of `run` holds, which its `Config` names.
 pub fn pool_tcp_connections(run: *const Run) u16 {
@@ -250,7 +250,7 @@ test "decision 125: --tcp-connections sets each pool's TCP slots, within the soc
     try testing.expect(test_read(&[_][]const u8{ "--tcp-connections", "17", "--get", "/" }) == null);
     // 4 pools of 16 slots hold every socket a run holds, and 5 hold more.
     const full = test_read(&[_][]const u8{ "--connections", "4", "--tcp-connections", "16", "--get", "/" }).?;
-    try testing.expect(full.connections_count * client.ConnectionPool.memory_bytes(.{ .tcp_connections = pool_tcp_connections(&full) }) <= pool_memory_len);
+    try testing.expect(full.connections_count * client.ConnectionPool(.{}).memory_bytes(.{ .tcp_connections = pool_tcp_connections(&full) }) <= pool_memory_len);
     try testing.expect(test_read(&[_][]const u8{ "--connections", "5", "--tcp-connections", "16", "--get", "/" }) == null);
     // `--pool` holds one TCP connection.
     try testing.expect(test_read(&([_][]const u8{ "--pool", "--tcp-connections", "2" } ++ test_tls)) == null);

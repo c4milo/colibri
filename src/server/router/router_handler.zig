@@ -75,12 +75,12 @@ pub const Reason = enum {
 /// handler the router refuses. Comptime-only.
 pub fn check(comptime Context: type, comptime table: anytype) void {
     if (chain_refusal(Context, router_call.table_chain(table))) |reason| {
-        @compileError(std.fmt.comptimePrint("server.router: middleware: {s}: {s}", .{ @tagName(reason), reason.sentence() }));
+        @compileError(std.fmt.comptimePrint("server.Router: middleware: {s}: {s}", .{ @tagName(reason), reason.sentence() }));
     }
     const routes = table.routes;
     for (0..routes.len) |index| {
         if (refusal_of(Context, routes[index])) |reason| {
-            @compileError(std.fmt.comptimePrint("server.router: route {d}, \"{s}\": {s}: {s}", .{
+            @compileError(std.fmt.comptimePrint("server.Router: route {d}, \"{s}\": {s}: {s}", .{
                 index, routes[index][1], @tagName(reason), reason.sentence(),
             }));
         }

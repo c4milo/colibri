@@ -1,6 +1,6 @@
 //! The server of design §9, which `tools/h2spec.sh` runs the pinned h2spec against and h2load
 //! measures. Every connection is served by colibri's `server` module, through one
-//! `server.Endpoint` for each worker (design §8 step 21b.6, decision 119). `zig build http-server
+//! `server.Engine` for each worker (design §8 step 21b.6, decision 119). `zig build http-server
 //! -- --port <port>` runs it in cleartext, where a connection speaks h2 when its first octets are
 //! h2's preface and h11 otherwise (decision 117), or one alone with `--h11` or `--h2`. With `--tls
 //! <identity-prefix>` it serves TLS instead: the endpoint offers `h2` and `http/1.1` through ALPN,

@@ -1,5 +1,5 @@
-//! What the tests of the endpoint's TCP slots share (`endpoint_state_tcp.zig`, decision 119): an
-//! endpoint with two TCP slots and one QUIC slot, the events it reported, and what each TCP
+//! What the tests of the engine's TCP slots share (`engine_state_tcp.zig`, decision 119): an
+//! engine with two TCP slots and one QUIC slot, the events it reported, and what each TCP
 //! connection sent, which a program writes to its socket. The fixture answers each `send` with
 //! `send_stream` and notes each `close`, as a program's loop does. Over TLS, `connection_test_support`'s
 //! client runs the handshake and seals the requests. Test-only.
@@ -7,7 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");
 const event = @import("../event.zig");
-const endpoint_module = @import("endpoint.zig");
+const engine_module = @import("engine.zig");
 const protocols_module = @import("../protocols.zig");
 const support = @import("../connection/connection_test_support.zig");
 
@@ -15,12 +15,12 @@ const Event = event.Event;
 const ConnectionHandle = event.ConnectionHandle;
 
 /// Two TCP slots and one QUIC slot. Test-only.
-pub const TcpEndpoint = endpoint_module.EndpointOf(.{ .tcp_connections = tcp_slots, .quic_connections = 1 });
+pub const TcpEngine = engine_module.Engine(.{ .tcp_connections = tcp_slots, .quic_connections = 1 });
 pub const tcp_slots: usize = 2;
-pub var endpoint: TcpEndpoint align(@alignOf(TcpEndpoint)) = undefined;
-pub var config: endpoint_module.Config align(@alignOf(endpoint_module.Config)) = undefined;
+pub var engine: TcpEngine align(@alignOf(TcpEngine)) = undefined;
+pub var config: engine_module.Config align(@alignOf(engine_module.Config)) = undefined;
 
-/// The kind of what the endpoint reported. A request's `finished` counts as `done` when its
+/// The kind of what the engine reported. A request's `finished` counts as `done` when its
 /// response was sent and as `cancelled` when it was not, so a test reads the two apart.
 pub const Kind = enum { request, body, trailers, cancelled, done, writable, send, close, ended, closed };
 
@@ -34,7 +34,7 @@ fn kind_of(reported: Event) Kind {
     };
 }
 
-/// What the endpoint reported, oldest first.
+/// What the engine reported, oldest first.
 pub const Seen = struct {
     kind: Kind,
     connection: ConnectionHandle = .{ .slot = 0, .generation = 0 },
@@ -53,18 +53,18 @@ pub var sent: [tcp_slots][sent_len_max]u8 = undefined;
 pub var sent_len: [tcp_slots]usize = @splat(0);
 pub var client_read: [tcp_slots]usize = @splat(0);
 const sent_len_max: usize = 262_144;
-/// Whether the endpoint reported each slot's `close`.
+/// Whether the engine reported each slot's `close`.
 pub var closed: [tcp_slots]bool = @splat(false);
 /// Whether the fixture answers a `send` with `send_stream` at once, as a program whose socket
 /// takes every octet does. A test that clears it calls `flush` itself.
 pub var flushing: bool = true;
 /// Whether the TLS client opened an alert, such as the connection's close_notify.
 pub var client_saw_alert: bool = false;
-/// Where a test's octets wait for the endpoint, which may open records in place.
+/// Where a test's octets wait for the engine, which may open records in place.
 var input: [support.input_len]u8 = undefined;
 
 pub const now_ns = support.now_ns;
-/// The instant `give`, `collect` and `flush` pass the endpoint: `now_ns` from `start`, later in a
+/// The instant `give`, `collect` and `flush` pass the engine: `now_ns` from `start`, later in a
 /// test that moves time.
 pub var instant_ns: u64 = now_ns;
 const rounds_max: usize = 64;
@@ -78,7 +78,7 @@ pub fn identity() tls.Server {
     };
 }
 
-/// Starts the endpoint with `with` as its identity, or none, serving `versions`. Test-only.
+/// Starts the engine with `with` as its identity, or none, serving `versions`. Test-only.
 pub fn start(with: ?tls.Server, versions: protocols_module.Protocols) !void {
     config = .{ .tls = with, .protocols = versions };
     seen_len = 0;
@@ -88,17 +88,17 @@ pub fn start(with: ?tls.Server, versions: protocols_module.Protocols) !void {
     flushing = true;
     client_saw_alert = false;
     instant_ns = now_ns;
-    try endpoint.init(&config, support.stream.random(), support.now_seconds, now_ns);
+    try engine.init(&config, support.stream.random(), support.now_seconds, now_ns);
 }
 
-/// Passes `octets` as what the socket of `handle` read, again until the endpoint consumed them or
+/// Passes `octets` as what the socket of `handle` read, again until the engine consumed them or
 /// stopped consuming, keeping each event and answering each `send`. Returns the octets left.
 pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
     @memcpy(input[0..octets.len], octets);
     var rest = input[0..octets.len];
     // Bounded: each pass consumes octets or reports an event, or ends the loop.
     for (0..rounds_max) |_| {
-        const received = endpoint.receive(.{ .stream = .{ .connection = handle, .bytes = rest } }, instant_ns);
+        const received = engine.receive(.{ .stream = .{ .connection = handle, .bytes = rest } }, instant_ns);
         check_deadline();
         rest = rest[received.consumed..];
         if (received.event) |reported| note(reported);
@@ -108,25 +108,25 @@ pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
     return rest.len;
 }
 
-/// Keeps every event the endpoint reports until it reports none.
+/// Keeps every event the engine reports until it reports none.
 pub fn collect() void {
     // Bounded: the log holds `seen_max` events.
     for (0..seen_max) |_| {
-        const reported = endpoint.receive(.none, instant_ns).event;
+        const reported = engine.receive(.none, instant_ns).event;
         check_deadline();
         note(reported orelse return);
     }
 }
 
-/// INV-31: the endpoint's deadline is the soonest its slots hold, each read from its own
+/// INV-31: the engine's deadline is the soonest its slots hold, each read from its own
 /// connection, after any call the fixture makes.
 pub fn check_deadline() void {
     var soonest: ?u64 = null;
-    for (0..endpoint.live.len) |slot| {
-        const at_ns = endpoint.state.deadline_of(@intCast(slot)) orelse continue;
+    for (0..engine.live.len) |slot| {
+        const at_ns = engine.state.deadline_of(@intCast(slot)) orelse continue;
         soonest = @min(soonest orelse at_ns, at_ns);
     }
-    assert(std.meta.eql(soonest, endpoint.deadline_ns()));
+    assert(std.meta.eql(soonest, engine.deadline_ns()));
 }
 
 /// Keeps `reported`, answering a `send` with `send_stream` until a call leaves room, and noting a
@@ -172,13 +172,13 @@ pub fn flush(handle: ConnectionHandle) void {
     // Bounded: each pass fills the room it had, or ends the loop.
     for (0..rounds_max) |_| {
         const room = sent[slot][sent_len[slot]..];
-        const written = endpoint.send_stream(handle, room, instant_ns);
+        const written = engine.send_stream(handle, room, instant_ns);
         sent_len[slot] += written;
         if (written < room.len) return;
     }
 }
 
-/// The `n`th event of `kind` the endpoint reported, or null.
+/// The `n`th event of `kind` the engine reported, or null.
 pub fn nth(kind: Kind, n: usize) ?*const Seen {
     var count: usize = 0;
     for (seen[0..seen_len]) |*entry| {
@@ -189,7 +189,7 @@ pub fn nth(kind: Kind, n: usize) ?*const Seen {
     return null;
 }
 
-/// Where the first event of `kind` is among those the endpoint reported, or null.
+/// Where the first event of `kind` is among those the engine reported, or null.
 pub fn index_of(kind: Kind) ?usize {
     for (seen[0..seen_len], 0..) |entry, index| {
         if (entry.kind == kind) return index;
@@ -218,7 +218,7 @@ pub fn start_client(protocols: []const []const u8) !void {
 }
 
 /// Runs the TLS client's handshake against the connection `handle` names, until the client has
-/// completed it. Returns false when the endpoint closed the connection first.
+/// completed it. Returns false when the engine closed the connection first.
 pub fn handshake(handle: ConnectionHandle) !bool {
     var flight: [support.input_len]u8 = undefined;
     // Bounded: a handshake takes a few flights each way.

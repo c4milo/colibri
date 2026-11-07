@@ -25,12 +25,12 @@ pub const Error = client.RequestError || client.StartError || server.StartError 
 
 /// The pools each side codes with: one encoder or decoder for each exchange, so neither side runs
 /// out, which the modules' own tests cover.
-pub const EncoderPool = server.EncoderPool(limits.requests_max, encoder_level);
+pub const EncoderPool = server.EncoderPool(.{ .count = limits.requests_max, .level = encoder_level });
 const encoder_level: u4 = 1;
-pub const DecoderPool = client.DecoderPool(limits.requests_max);
+pub const DecoderPool = client.DecoderPool(.{ .count = limits.requests_max });
 
 /// The server: one connection in cleartext, and no QUIC.
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });
 
 /// The one address the pool opens its socket to, which no socket reads, and the port of an
 /// "http" origin whose URI names none (RFC 9110 §4.2.1).
@@ -81,12 +81,12 @@ pub const Storage = struct {
     decoders: DecoderPool,
     endpoint_config: server.Config,
     client_config: client.Config,
-    endpoint: Endpoint,
+    endpoint: Engine,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
     addresses: [1]client.Address,
-    pool: client.ConnectionPool,
-    pool_memory: [client.ConnectionPool.memory_bytes(.{})]u8 align(client.ConnectionPool.memory_alignment),
+    pool: client.ConnectionPool(.{}),
+    pool_memory: [client.ConnectionPool(.{}).memory_bytes(.{})]u8 align(client.ConnectionPool(.{}).memory_alignment),
     /// The connection the pool's `open` named (decision 125).
     connection: client.ConnectionHandle,
     to_server: Stream,
@@ -125,9 +125,9 @@ pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Ra
 }
 
 fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
-    storage.encoders.reset(.none());
+    storage.encoders.init(.none());
+    storage.decoders.init(.none());
     const decoders = storage.decoders.storage();
-    decoders.reset(.none());
     // Decision 117: each side allows the plan's version alone, so each speaks it from the start.
     const server_versions: server.Protocols = switch (plan.protocol) {
         .h11 => .{ .h2 = false },
