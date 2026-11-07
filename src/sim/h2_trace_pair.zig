@@ -279,7 +279,7 @@ pub const Pair = struct {
         switch (event) {
             .response => |arrived| {
                 const index = index_of(arrived.stream_id);
-                const interim = arrived.response.status.is_interim();
+                const interim = arrived.response.status.class() == .informational;
                 seen.response_read[index] = if (arrived.end_stream) .ended else if (interim) .interim else .final;
             },
             .data => |data| if (data.end_stream) {

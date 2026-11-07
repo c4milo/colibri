@@ -141,7 +141,7 @@ test "a response head reads into its status line, and a folded value is joined" 
     var scanner: Scanner = .{};
     const response = (try read_response(&scanner, .other, input, &test_section)).?;
     try testing.expectEqual(input.len, response.head_len);
-    try testing.expectEqual(200, response.line.status.code);
+    try testing.expectEqual(200, @intFromEnum(response.line.status));
     try testing.expectEqualStrings("a b", test_section.find("x").?.value);
     try testing.expectEqual(Length.close_delimited, response.body.length);
     var head_scanner: Scanner = .{};

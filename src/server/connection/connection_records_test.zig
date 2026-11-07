@@ -6,6 +6,7 @@ const std = @import("std");
 const h11 = @import("h11");
 const h2 = @import("h2");
 const tls_provider = @import("tls_provider");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const plain_support = @import("../plain_provider_test_support.zig");
 const connection_tls = @import("connection_tls.zig");
@@ -20,7 +21,7 @@ const header_len = tls_provider.constants.protocol.record_header_len;
 var plain: plain_support.PlainProvider align(@alignOf(plain_support.PlainProvider)) = undefined;
 
 const request = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 
 /// A connection over `plain` that selected http/1.1, as one whose handshake just completed. The
 /// configuration names a TLS configuration the connection never reads once its protocol is open.

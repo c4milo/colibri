@@ -44,6 +44,8 @@ pub const Protocol = files.event.Protocol;
 /// What a program sends, and where the response goes and what arrived (decision 124).
 pub const Request = files.event.Request;
 pub const Response = files.event.Response;
+/// A response's status code, which `Response.status` holds (decision 158 ruling 5).
+pub const Status = http.Status;
 /// Which body of an exchange goes in pieces (decision 153): `Request.streamed`.
 pub const Streamed = files.event.Streamed;
 pub const Headers = files.headers.Headers;
@@ -136,18 +138,19 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Result`. 23.5 folds `Options` into `Config`. Step 32 adds `Timeouts` (decision 146), and 35d
     // adds `ResumeProvider`, `ResumeState` and `ResumeBounds` (decision 149). Step 38 replaces
     // `WantedHeader` with `Headers` and `Trailers` (decision 152). Step 39e adds `WriteBodyError`
-    // and `Streamed`, which a program streams a request body with (decision 153).
+    // and `Streamed`, which a program streams a request body with (decision 153). Step 45i adds
+    // `Status` (decision 158 ruling 5).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",      "Config",             "Timeouts",       "Protocols",          "StartError",       "RequestError",
-        "WriteBodyError", "Header",             "RequestId",      "Protocol",           "Request",          "Response",
-        "Streamed",       "Headers",            "Trailers",       "Result",             "Finished",         "Sent",
-        "Address",        "Ecn",                "ResumeProvider", "ResumeState",        "ResumeBounds",     "ConnectionPool",
-        "Capacity",       "Destination",        "HttpsRecord",    "Alternative",        "Input",            "StreamBytes",
-        "Datagram",       "ReceiveResult",      "Event",          "Open",               "ConnectionHandle", "Connected",
-        "Transport",      "Phase",              "ReceivePool",    "ReceivePoolOptions", "ReceiveStorage",   "Coding",
-        "DecoderPool",    "DecoderPoolOptions", "Decoders",       "ZstdDecoderPool",    "ZstdDecoders",     "BrotliDecoderPool",
-        "BrotliDecoders", "Features",
+        "constants",         "Config",         "Timeouts",           "Protocols",      "StartError",         "RequestError",
+        "WriteBodyError",    "Header",         "RequestId",          "Protocol",       "Request",            "Response",
+        "Status",            "Streamed",       "Headers",            "Trailers",       "Result",             "Finished",
+        "Sent",              "Address",        "Ecn",                "ResumeProvider", "ResumeState",        "ResumeBounds",
+        "ConnectionPool",    "Capacity",       "Destination",        "HttpsRecord",    "Alternative",        "Input",
+        "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",          "Open",               "ConnectionHandle",
+        "Connected",         "Transport",      "Phase",              "ReceivePool",    "ReceivePoolOptions", "ReceiveStorage",
+        "Coding",            "DecoderPool",    "DecoderPoolOptions", "Decoders",       "ZstdDecoderPool",    "ZstdDecoders",
+        "BrotliDecoderPool", "BrotliDecoders", "Features",
     });
 }
 

@@ -5,6 +5,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const h3 = @import("h3");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const constants = @import("../constants.zig");
@@ -15,7 +16,7 @@ const Timeout = @import("../deadline.zig").Timeout;
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
 const request_timeout: u16 = 408;
 /// Rounds that carry a request to the server, and its answer back.
@@ -101,7 +102,7 @@ test "RFC 9110 §15.5.9: a body under the minimum rate gets a 408 when its first
     try support.pump(rounds_few);
     try connection.respond(next.id, .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
-    try testing.expectEqual(ok, next.status);
+    try testing.expectEqual(@intFromEnum(ok), next.status);
 }
 
 test "decision 110: a body that brings its quota each window is not cut, and one octet short is cut at the window's end" {
@@ -171,7 +172,7 @@ test "RFC 9114 §4.1.1: a body that falls short after its response began is rese
     try testing.expectEqual(Timeout.body_rate, cancelled_for(0).?);
     try support.pump(support.rounds_default);
     try testing.expectEqual(h3.constants.protocol.error_request_cancelled, fetch.reset.?);
-    try testing.expectEqual(ok, fetch.status);
+    try testing.expectEqual(@intFromEnum(ok), fetch.status);
     try testing.expectEqual(null, support.nth(.done, 0));
 }
 
@@ -195,7 +196,7 @@ test "RFC 9114 §4.1: a body that falls short after its response was acknowledge
     // RFC 9000 §3.5: the stream closes once the client answers the STOP_SENDING, which is no
     // cancel of its own.
     try testing.expectEqual(null, cancelled_for(0));
-    try testing.expect(fetch.status == ok and fetch.ended and fetch.reset == null);
+    try testing.expect(fetch.status == @intFromEnum(ok) and fetch.ended and fetch.reset == null);
     try testing.expect(connection.requests.idle());
     try testing.expectEqual(0, connection.peer_resets);
 }
@@ -212,7 +213,7 @@ test "RFC 9114 §4.1: a body that falls short after its response ended is stoppe
     try support.pump(support.rounds_default);
     try testing.expectEqual(null, cancelled_for(0));
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
-    try testing.expect(fetch.status == ok and fetch.ended and fetch.reset == null);
+    try testing.expect(fetch.status == @intFromEnum(ok) and fetch.ended and fetch.reset == null);
     try testing.expect(connection.requests.idle());
 }
 

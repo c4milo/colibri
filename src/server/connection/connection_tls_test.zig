@@ -3,12 +3,13 @@
 const std = @import("std");
 const h2 = @import("h2");
 const tls = @import("tls");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4).
 const client_preface = h2.constants.protocol.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 /// A HEADERS frame on stream 1 ending it, whose block is the static table's `:method: GET` (2),

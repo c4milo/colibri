@@ -303,7 +303,7 @@ pub const World = struct {
         const unit = world.written[index] + 1;
         const last = unit == plan.response_units;
         if (unit == 1) {
-            world.endpoint.respond(id, .{ .status = ok_status, .end = last }) catch {
+            world.endpoint.respond(id, .{ .status = @enumFromInt(ok_status), .end = last }) catch {
                 world.broken = true;
                 return;
             };

@@ -116,7 +116,7 @@ pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const
     write_owed_first(connection);
     // RFC 9113 §8.1: only the final response ends the stream, so an interim one carries no
     // END_STREAM whatever the caller asked.
-    const interim = status >= http.constants.protocol.status_code_min and status < @intFromEnum(http.status.Code.ok);
+    const interim = status >= http.constants.protocol.status_code_min and status < @intFromEnum(http.Status.ok);
     if (!interim) try advertise(connection, stream_id);
     const written = connection.session.h2.write_response(internal.room(connection), stream_id, status, fields, end and !interim) catch |failure| {
         return send_error(connection, failure);
@@ -231,4 +231,4 @@ pub fn write_continue(connection: *Connection, id: Number) SendError!usize {
 }
 
 /// RFC 9110 §15.2.1: 100 (Continue).
-const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");
+const continue_status: u16 = @intFromEnum(http.Status.@"continue");

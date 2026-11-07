@@ -11,8 +11,9 @@ const testing = std.testing;
 const engine_support = support.engine_support;
 const engine = &engine_support.engine;
 
-const early_hints: u16 = 103;
-const ok: u16 = 200;
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
+const ok: http.Status = .ok;
 /// The word the test's program sets for its request.
 const word: usize = 0x77;
 /// A short run of content, which one DATA frame carries.

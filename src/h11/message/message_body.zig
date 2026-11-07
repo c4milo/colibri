@@ -113,10 +113,10 @@ pub fn check_connect(body: Body) Error!void {
 /// A response's body (RFC 9112 §6.3 rules 1 to 6 and 8), to a request that asked `asked`.
 pub fn response_body(asked: Asked, status: http.Status, version: Version, section: *const FieldSection) Error!Body {
     assert(version.major == 1);
-    const code = status.code;
-    const no_content = @intFromEnum(http.status.Code.no_content);
-    const not_modified = @intFromEnum(http.status.Code.not_modified);
-    const bodiless = asked == .head or status.is_interim() or code == no_content or code == not_modified;
+    const code = @intFromEnum(status);
+    const no_content = @intFromEnum(http.Status.no_content);
+    const not_modified = @intFromEnum(http.Status.not_modified);
+    const bodiless = asked == .head or status.class() == .informational or code == no_content or code == not_modified;
     // RFC 9112 §6.3 rule 2 and RFC 9110 §6.4.1: every 2xx to CONNECT makes the connection a
     // tunnel, a 204 too. Rule 1 ends a 204 at the empty line as well, so only the tunnel is new.
     if (asked == .connect and status.class() == .successful) return .{ .length = .tunnel };

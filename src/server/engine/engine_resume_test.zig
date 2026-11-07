@@ -3,12 +3,13 @@
 //! what it observed, after a deletion when it retreated, when it ends.
 const std = @import("std");
 const quic = @import("quic");
+const http = @import("http");
 const support = @import("../quic/quic_test_support.zig");
 
 const testing = std.testing;
 const engine_support = support.engine_support;
 const engine = &engine_support.engine;
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// RFC 9000 §10.2: the closing state lasts three PTOs, which this many rounds pass.
 const closing_rounds = support.rounds_default * closing_rounds_factor;
 const closing_rounds_factor = 8;

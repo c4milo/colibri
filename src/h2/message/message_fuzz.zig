@@ -81,7 +81,7 @@ fn fuzz_message(_: void, smith: *std.testing.Smith) anyerror!void {
     for ([_]bool{ false, true }) |end_stream| {
         const response = message.validate_response(&fuzz_section, end_stream) catch continue;
         try expect_legal_lines(.response);
-        try std.testing.expect(!end_stream or !response.status.is_interim());
+        try std.testing.expect(!end_stream or response.status.class() != .informational);
         try expect_content_length(response.content_length);
     }
     message.validate_trailers(&fuzz_section) catch return;

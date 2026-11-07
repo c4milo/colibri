@@ -188,7 +188,7 @@ fn validate_response(target: *Connection, block: field_block.Done, record: *Stre
     };
     // RFC 9113 §8.1: zero or more interim responses may precede the final one, and only the final
     // one makes the next section a trailer section.
-    const interim = response.status.is_interim();
+    const interim = response.status.class() == .informational;
     record.sections_received = if (interim) .interim else .final;
     // RFC 9113 §8.1.1: the content-length belongs to the message the final response begins, so an
     // interim response never sets the count the DATA octets are compared with.

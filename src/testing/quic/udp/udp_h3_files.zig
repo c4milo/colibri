@@ -159,7 +159,7 @@ pub const Files = struct {
         const fields = [_]server.Header{.{ .name = "content-length", .value = length }};
         // RFC 9110 §9.3.2: a response to HEAD carries no content.
         const carries = !entry.head and content.len > 0;
-        endpoint.respond(entry.id, .{ .status = ok, .headers = &fields, .end = !carries }) catch return endpoint.cancel(entry.id);
+        endpoint.respond(entry.id, .{ .status = @enumFromInt(ok), .headers = &fields, .end = !carries }) catch return endpoint.cancel(entry.id);
         if (carries) _ = endpoint.write_body(entry.id, .{ .bytes = content, .end = true }) catch return endpoint.cancel(entry.id);
         files.served += 1;
     }
@@ -191,7 +191,7 @@ pub const Files = struct {
 fn respond_missing(endpoint: *Engine, entry: *Answer) void {
     assert(entry.in_use and entry.answered);
     const fields = [_]server.Header{.{ .name = "content-length", .value = "0" }};
-    endpoint.respond(entry.id, .{ .status = not_found, .headers = &fields, .end = true }) catch endpoint.cancel(entry.id);
+    endpoint.respond(entry.id, .{ .status = @enumFromInt(not_found), .headers = &fields, .end = true }) catch endpoint.cancel(entry.id);
 }
 
 const ok: u16 = 200;

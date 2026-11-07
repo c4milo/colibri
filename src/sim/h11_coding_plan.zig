@@ -17,7 +17,7 @@ const Writer = core.Writer;
 const Random = sim.Random;
 const limits = sim.constants.h11_coding;
 const Features = h11.coding.Features;
-const Code = h11.http.status.Code;
+const Code = h11.http.Status;
 
 pub const Coding = h11.message.Coding;
 pub const GzipEncoder = gzip.Encoder(.{ .level = 1 });

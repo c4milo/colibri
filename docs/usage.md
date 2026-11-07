@@ -531,8 +531,8 @@ request therefore answers it before its next call: a final response, the program
 `cancel` takes the place of the 100 the connection owes.
 
 A route's function answers through a `server.ResponseWriter` ([decision 127](decisions.md)). It
-sets `status`, which is 200 by default, adds headers, and writes the body through the
-`std.Io.Writer` that `body()` returns:
+sets `status`, a `server.Status`, which is `.ok` by default. It adds headers, and writes the body
+through the `std.Io.Writer` that `body()` returns:
 
 ```zig
 fn greet(_: *App, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
@@ -759,7 +759,7 @@ request instead, since its body may be cut short:
 
 ```zig
 fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
-    response.status = 500;
+    response.status = .internal_server_error;
 }
 ```
 
@@ -1355,6 +1355,9 @@ The response's `outcome` says what happened to the exchange:
 | `malformed` | colibri refused the response, because the protocol's rules make it malformed. |
 | `invalid` | The request is one the protocol refuses to send. |
 | `too_large` | The content did not fit `body`, or the headers or trailers did not fit their buffer. A Content-Length larger than `body` ends the exchange at its head, and over h11 the connection with it ([decision 124](decisions.md)). |
+
+`status` is a `client.Status`. It holds a code only after the final head arrived, so read it
+with the outcome `response` or `too_large` ([decision 158](decisions.md) ruling 5).
 
 The events:
 

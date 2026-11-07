@@ -292,7 +292,7 @@ test "§4.1: a GET and its response travel end to end, content included" {
     try respond(id, &ok_lines, "hello");
     try exchange();
     const response = (try next(&client)).?.response;
-    try testing.expectEqual(200, response.response.status.code);
+    try testing.expectEqual(200, @intFromEnum(response.response.status));
     const data = (try next(&client)).?.data;
     try testing.expectEqualStrings("hello", data.octets);
     try testing.expectEqual(Event{ .end = id }, (try next(&client)).?);

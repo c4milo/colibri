@@ -78,8 +78,8 @@ const now_seconds = identity.now_seconds;
 const greeting = "hello from colibri\n";
 const named_greeting = "hello, colibri!\n";
 /// RFC 9110 §15.3.1: 200 (OK), and §15.6.1: 500 (Internal Server Error).
-const ok = 200;
-const internal_server_error = 500;
+const ok: client.Status = .ok;
+const internal_server_error: server.Status = .internal_server_error;
 /// The room for each response's body.
 const body_len_max = 256;
 

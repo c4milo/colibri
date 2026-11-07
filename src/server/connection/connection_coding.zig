@@ -111,17 +111,18 @@ fn release(connection: *Connection, entry: *Entry) void {
 /// Writes the head of the response to request `id`, rewritten as its plan says when it is the
 /// final one, and takes an encoder when its content is to be coded.
 pub fn respond(connection: *Connection, id: Number, response: event.Response) SendError!void {
-    const entry = connection.coding.find(id) orelse return write_head(connection, id, response.status, response.headers, response.end);
+    const status = @intFromEnum(response.status);
+    const entry = connection.coding.find(id) orelse return write_head(connection, id, status, response.headers, response.end);
     // RFC 9110 §15.2: an interim response leaves the coding to the final one.
-    if (is_interim(response.status)) return write_head(connection, id, response.status, response.headers, response.end);
+    if (is_interim(status)) return write_head(connection, id, status, response.headers, response.end);
     const encoders = connection.config.encoders orelse {
-        try write_head(connection, id, response.status, response.headers, response.end);
+        try write_head(connection, id, status, response.headers, response.end);
         return keep_or_release(connection, entry, response.end);
     };
     var rewritten: coding_fields.Rewritten = undefined;
     const head = try coding_response.plan_head(encoders, entry.asked, response, &rewritten);
     errdefer if (head.slot) |index| encoders.give_back(index);
-    try write_head(connection, id, response.status, head.fields, response.end);
+    try write_head(connection, id, status, head.fields, response.end);
     if (head.slot) |index| {
         entry.coded = .{ .slot = index };
     } else {
@@ -291,7 +292,7 @@ fn blocked(failure: SendError) SendError!bool {
 }
 
 fn is_interim(status: u16) bool {
-    return status < @intFromEnum(http.status.Code.ok);
+    return status < @intFromEnum(http.Status.ok);
 }
 
 fn write_head(connection: *Connection, id: Number, status: u16, fields: []const Field, end: bool) SendError!void {

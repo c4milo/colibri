@@ -6,6 +6,7 @@ const std = @import("std");
 const h2 = @import("h2");
 const quic = @import("quic");
 const tls = @import("tls");
+const http = @import("http");
 const server_constants = @import("../constants.zig");
 const support = @import("engine_tcp_test_support.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
@@ -14,7 +15,7 @@ const h2_support = @import("../connection/connection_h2_test_support.zig");
 const testing = std.testing;
 const engine = &support.engine;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 const get_h11 = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
 
 test "RFC 9112 §9.6: an h11 request in cleartext is answered, sent, done, closed, and ended" {

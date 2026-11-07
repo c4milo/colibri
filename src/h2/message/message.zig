@@ -4,7 +4,7 @@
 //! `Response`, and `validate_trailers` returns nothing. Nothing here reads a frame or tracks a
 //! stream. The connection decides whether a HEADERS frame opens a request, carries a response or
 //! carries trailers, and calls the matching function. It learns whether a response is interim from
-//! `Response.status.is_interim()`.
+//! `Response.status.class() == .informational`.
 //!
 //! Every `Error` is a malformed message, which RFC 9113 §8.1.1 makes a stream error of type
 //! PROTOCOL_ERROR. `verdict` holds that stream error, and the connection sends its code in a
@@ -173,7 +173,7 @@ pub const Request = struct {
     is_connect: bool,
 };
 
-/// A response the section holds. `status.is_interim()` says whether a final response follows.
+/// A response the section holds. `status.class() == .informational` says whether a final response follows.
 pub const Response = struct {
     /// The `:status` value (RFC 9113 §8.3.2).
     status: Status,
@@ -211,9 +211,9 @@ pub fn validate_response(section: *const FieldSection, end_stream: bool) Error!R
     const status = Status.from_digits(digits) catch return error.StatusInvalid;
     // RFC 9113 §8.1: a HEADERS frame with END_STREAM set that carries an informational status
     // code is malformed.
-    if (end_stream and status.is_interim()) return error.InterimWithEndStream;
+    if (end_stream and status.class() == .informational) return error.InterimWithEndStream;
     const content_length = try content_length_of(section, seen);
-    assert(!end_stream or !status.is_interim());
+    assert(!end_stream or status.class() != .informational);
     assert(seen.method == null and seen.path == null);
     return .{ .status = status, .content_length = content_length };
 }
@@ -293,8 +293,8 @@ test "the simple GET request of RFC 9113 §8.8.1 is a request, and its fields re
 
 test "a response with :status 200 passes, and one with no :status is StatusMissing" {
     const ok = try validate_response(try section_of(&.{ line_of(":status", "200"), line_of("content-type", "text/plain") }), true);
-    try testing.expectEqual(200, ok.status.code);
-    try testing.expect(!ok.status.is_interim());
+    try testing.expectEqual(200, @intFromEnum(ok.status));
+    try testing.expect(ok.status.class() != .informational);
     try testing.expectEqual(null, ok.content_length);
     try expect_response(error.StatusMissing, try section_of(&.{line_of("content-type", "text/plain")}), false);
     try expect_response(error.StatusMissing, try section_of(&.{}), true);
@@ -305,21 +305,21 @@ test "a :status that is not three digits from 100 to 599 is StatusInvalid" {
         try expect_response(error.StatusInvalid, try section_of(&.{line_of(":status", digits)}), false);
     }
     const unrecognised = try validate_response(try section_of(&.{line_of(":status", "599")}), false);
-    try testing.expectEqual(599, unrecognised.status.code);
+    try testing.expectEqual(599, @intFromEnum(unrecognised.status));
 }
 
 test "a 100 response with END_STREAM is InterimWithEndStream, and without END_STREAM it is interim" {
     try expect_response(error.InterimWithEndStream, try section_of(&.{line_of(":status", "100")}), true);
     try expect_response(error.InterimWithEndStream, try section_of(&.{line_of(":status", "199")}), true);
     const interim = try validate_response(try section_of(&.{line_of(":status", "100")}), false);
-    try testing.expect(interim.status.is_interim());
+    try testing.expect(interim.status.class() == .informational);
     _ = try validate_response(try section_of(&.{line_of(":status", "204")}), true);
 }
 
 test "a 101 response is returned as interim, for the connection to decide on (RFC 9113 §8.6)" {
     const switching = try validate_response(try section_of(&.{line_of(":status", "101")}), false);
-    try testing.expectEqual(101, switching.status.code);
-    try testing.expect(switching.status.is_interim());
+    try testing.expectEqual(101, @intFromEnum(switching.status));
+    try testing.expect(switching.status.class() == .informational);
 }
 
 test "content-length 4 reads back, 4 twice on two lines or one passes, 4 then 5 is refused, and x is not a DIGIT" {

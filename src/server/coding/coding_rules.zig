@@ -8,7 +8,7 @@ const http = @import("http");
 const event = @import("../event.zig");
 
 const Coding = http.content_coding.Coding;
-const Code = http.status.Code;
+const Code = http.Status;
 
 /// What a response needs to know of the request it answers.
 pub const Asked = struct {
@@ -76,13 +76,14 @@ pub const Plan = struct {
 
 /// What a final response to a request that asked `request` gets.
 pub fn plan(request: Asked, response: event.Response) Plan {
-    assert(response.status >= final_min);
+    const status = @intFromEnum(response.status);
+    assert(status >= final_min);
     // Decision 101: only a response the caller marks is coded.
     if (!response.codable) return .{};
-    if (!selected(request, response.status)) return .{};
+    if (!selected(request, status)) return .{};
     const coding = request.accepted orelse return .{ .vary = true };
     // RFC 9110 §15.4.5: a 304 carries the ETag and the Vary a 200 would, and no content.
-    if (response.status == not_modified) return .{ .vary = true, .coding = coding };
+    if (status == not_modified) return .{ .vary = true, .coding = coding };
     // RFC 9110 §9.3.2: a response to HEAD carries the fields a GET's would, and no content.
     if (request.method == .head) return .{ .vary = true, .coding = coding, .names_coding = true };
     // A response that ends with its head has no content to code.
@@ -163,7 +164,7 @@ test "decision 101: no Accept-Encoding, an HTTP/1.0 request or a value the gramm
 }
 
 const test_gzip: Asked = .{ .accepted = .gzip };
-const test_ok: u16 = 200;
+const test_ok: http.Status = .ok;
 
 test "decision 101: a marked response with content is coded, and only a marked one" {
     const coded = plan(test_gzip, .{ .status = test_ok, .end = false, .codable = true });
@@ -176,14 +177,14 @@ test "decision 101: a marked response with content is coded, and only a marked o
 }
 
 test "decision 101: a 206, a 204 and a 2xx to CONNECT stay as they are, and a 304 and HEAD get fields alone" {
-    try testing.expectEqual(Plan{}, plan(test_gzip, .{ .status = partial_content, .end = false, .codable = true }));
-    try testing.expectEqual(Plan{}, plan(test_gzip, .{ .status = no_content, .end = true, .codable = true }));
+    try testing.expectEqual(Plan{}, plan(test_gzip, .{ .status = .partial_content, .end = false, .codable = true }));
+    try testing.expectEqual(Plan{}, plan(test_gzip, .{ .status = .no_content, .end = true, .codable = true }));
     const tunnel: Asked = .{ .accepted = .gzip, .method = .connect };
     try testing.expectEqual(Plan{}, plan(tunnel, .{ .status = test_ok, .end = false, .codable = true }));
     // RFC 9110 §9.3.6: a CONNECT refused is an ordinary response.
-    const refused = plan(tunnel, .{ .status = redirection_min, .end = false, .codable = true });
+    const refused = plan(tunnel, .{ .status = .multiple_choices, .end = false, .codable = true });
     try testing.expect(refused.encodes);
-    const unchanged = plan(test_gzip, .{ .status = not_modified, .end = true, .codable = true });
+    const unchanged = plan(test_gzip, .{ .status = .not_modified, .end = true, .codable = true });
     try testing.expectEqual(Plan{ .vary = true, .coding = .gzip }, unchanged);
     const head: Asked = .{ .accepted = .gzip, .method = .head };
     const described = plan(head, .{ .status = test_ok, .end = false, .codable = true });

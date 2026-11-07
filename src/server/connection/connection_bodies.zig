@@ -32,7 +32,7 @@ const Number = event.Number;
 const Timeout = deadline.Timeout;
 
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
-const request_timeout: u16 = @intFromEnum(http.status.Code.request_timeout);
+const request_timeout: u16 = @intFromEnum(http.Status.request_timeout);
 
 /// One body the connection waits for.
 const Body = struct {

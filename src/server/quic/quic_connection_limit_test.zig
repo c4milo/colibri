@@ -4,13 +4,14 @@
 const std = @import("std");
 const h3 = @import("h3");
 const quic = @import("quic");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// Requests the client opens and cancels before its datagrams move: one for each fetch the test
 /// client holds.
 const batch_len: usize = 4;

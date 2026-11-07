@@ -3,6 +3,7 @@
 //! in h11 with the connection and in h2 with its stream, and h2's bodies together keep the rate.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 const deadline_support = @import("connection_deadline_test_support.zig");
@@ -32,7 +33,7 @@ const filler: [support.input_len]u8 = @splat('b');
 
 /// The statuses the tests answer with and look for: 200 (OK) and 408 (Request Timeout), RFC 9110
 /// §15.3.1 and §15.5.9.
-const ok_status: u16 = 200;
+const ok_status: http.Status = .ok;
 const timeout_status: u16 = 408;
 
 /// Reads all of `octets` at `now_ns`, a call at a time.

@@ -4,6 +4,7 @@
 //! ended closes once its last octets are out or its linger passes.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 const deadline_support = @import("connection_deadline_test_support.zig");
@@ -32,7 +33,7 @@ const content: [answer_len]u8 = @splat('a');
 const answer_len: usize = answer_windows * quota;
 /// The windows of quota an answer holds: past the two a test's peer takes in full.
 const answer_windows: usize = 3;
-const ok_status: u16 = 200;
+const ok_status: http.Status = .ok;
 /// The octets a test's peer takes in one `send`.
 const taken_len: usize = 64;
 

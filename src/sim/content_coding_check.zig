@@ -179,7 +179,7 @@ fn verify_exchange(storage: *Storage, planned: *const content_coding_plan.Exchan
         if (response.result != .too_large) return error.ExchangeDiffers;
         return &.{};
     }
-    if (response.result != .response or response.status != planned.status) return error.ExchangeDiffers;
+    if (response.result != .response or @intFromEnum(response.status) != planned.status) return error.ExchangeDiffers;
     const content: []const u8 = if (planned.head) &.{} else storage.run.contents[index][0..planned.content_len];
     const reported: ?Coding = if (expected.decoded) expected.coded else null;
     if (response.coding != reported) return error.ExchangeDiffers;

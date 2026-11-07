@@ -210,7 +210,7 @@ fn decodable(slot: *const Slot, status: u16, section: *const FieldSection, first
     return coding;
 }
 
-const partial_content: u16 = @intFromEnum(http.status.Code.partial_content);
+const partial_content: u16 = @intFromEnum(http.Status.partial_content);
 
 /// The one coding a Content-Encoding value names, or null when it names another or more than one:
 /// a list of codings, applied in order (RFC 9110 §8.4), is no name `from_name` knows.

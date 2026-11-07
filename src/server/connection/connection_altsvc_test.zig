@@ -4,13 +4,15 @@
 //! §3.1.2).
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
-const early_hints: u16 = 103;
+const ok: http.Status = .ok;
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
 /// The h3 endpoint the tests advertise: its UDP port and its max age in seconds. Test-only.
 const h3_port: u16 = 8443;
 const max_age_seconds: u32 = 60;

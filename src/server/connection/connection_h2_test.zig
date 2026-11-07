@@ -11,8 +11,8 @@ const connection = &support.connection;
 const constants = h2.constants;
 
 const content_type = [_]support.Field{.{ .name = "content-type", .value = "text/plain" }};
-const ok: u16 = 200;
-const early_hints: u16 = 103;
+const early_hints_code: u16 = 103;
+const early_hints: h2.http.Status = @enumFromInt(early_hints_code);
 
 const start = h2_support.start;
 const request_frame = h2_support.request_frame;
@@ -58,7 +58,7 @@ test "RFC 9113 §3.4: the server's SETTINGS goes first, before a response to a r
     @memcpy(flight[preface.len..][0..request.len], request);
     const received = try support.receive_copy(flight[0 .. preface.len + request.len]);
     try testing.expectEqual(1, received.event.?.request.id.number);
-    try connection.respond(1, .{ .status = ok, .end = true });
+    try connection.respond(1, .{ .status = .ok, .end = true });
     const sent = support.drain();
     // RFC 9113 §3.4: the SETTINGS frame "MUST be the first frame the server sends".
     try testing.expectEqual(constants.protocol.frame_type_settings, sent[type_index]);
@@ -71,7 +71,7 @@ const request_len_max: usize = 256;
 test "RFC 9113 §6.1: content that ends with no octet left goes out as an empty DATA frame with END_STREAM" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try connection.respond(1, .{ .status = ok, .end = false });
+    try connection.respond(1, .{ .status = .ok, .end = false });
     _ = support.drain();
     try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = true }));
     const sent = support.drain();
@@ -87,7 +87,7 @@ const long_body: [long_body_frames * constants.protocol.max_frame_size_initial +
 test "one write_body call takes what the room and the windows allow, cut at the peer's frame size" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try connection.respond(1, .{ .status = ok, .end = false });
+    try connection.respond(1, .{ .status = .ok, .end = false });
     _ = support.drain();
     // https://github.com/c4milo/colibri/issues/91: one call writes every frame the content needs.
     try testing.expectEqual(long_body.len, try connection.write_body(1, .{ .bytes = &long_body, .end = true }));
@@ -108,7 +108,7 @@ test "one write_body call takes what the room and the windows allow, cut at the 
 test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame ends the stream" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try connection.respond(1, .{ .status = ok, .headers = &content_type, .end = false });
+    try connection.respond(1, .{ .status = .ok, .headers = &content_type, .end = false });
     // No octets and no end write nothing, not even an empty frame (RFC 9113 §6.1).
     try testing.expectEqual(0, try connection.write_body(1, .{ .bytes = "", .end = false }));
     try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = true }));
@@ -133,7 +133,7 @@ test "RFC 9113 §8.1: an interim response ends no stream, whatever `end` asks, a
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
     try connection.respond(1, .{ .status = early_hints, .end = true });
-    try connection.respond(1, .{ .status = ok, .end = true });
+    try connection.respond(1, .{ .status = .ok, .end = true });
     const sent = support.drain();
     try testing.expectEqual(constants.protocol.frame_type_headers, sent[type_index]);
     try testing.expectEqual(constants.protocol.flag_end_headers, sent[flags_index]);
@@ -163,7 +163,7 @@ test "RFC 9113 §6.4: cancel resets the stream with CANCEL" {
     const code = sent[constants.protocol.frame_header_len..][0..error_code_len];
     try testing.expectEqual(constants.protocol.error_cancel, std.mem.readInt(u32, code, .big));
     // The stream is closed, so nothing more is written on it.
-    try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = ok, .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = .ok, .end = true }));
 }
 
 test "RFC 9113 §6.4: cancel resets more streams between two sends than h2's reply queue holds" {
@@ -204,9 +204,9 @@ test "RFC 9113 §6.4: a stream the peer resets arrives as its cancellation" {
 test "RFC 9113 §5.1.1: an id no client stream can have names no request" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try testing.expectError(error.RequestUnknown, connection.respond(2, .{ .status = ok, .end = true }));
-    try testing.expectError(error.RequestUnknown, connection.respond(0, .{ .status = ok, .end = true }));
-    try testing.expectError(error.RequestUnknown, connection.respond(3, .{ .status = ok, .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.respond(2, .{ .status = .ok, .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.respond(0, .{ .status = .ok, .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.respond(3, .{ .status = .ok, .end = true }));
     // RFC 9113 §8.1: content follows the final response's head.
     try testing.expectError(error.SectionOutOfOrder, connection.write_body(1, .{ .bytes = "x", .end = true }));
 }
@@ -218,7 +218,7 @@ var large_body: [window_initial + 1]u8 = @splat('x');
 test "RFC 9113 §6.9: content past the stream's window waits, and write_body says so" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try connection.respond(1, .{ .status = ok, .end = false });
+    try connection.respond(1, .{ .status = .ok, .end = false });
     var taken: usize = 0;
     // Bounded: each pass takes what the output holds, until the window closes.
     for (0..large_body.len) |_| {
@@ -238,9 +238,9 @@ test "RFC 9113 §4.1: a response head waits when the output has no room for its 
     _ = try support.receive_copy(try request_frame(1, "/", true));
     const short_room: usize = 4;
     connection.output_len = support.server_constants.limits.output_len - short_room;
-    try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = ok, .end = true }));
+    try testing.expectError(error.NoSpaceLeft, connection.respond(1, .{ .status = .ok, .end = true }));
     connection.output_len = 0;
-    try connection.respond(1, .{ .status = ok, .end = true });
+    try connection.respond(1, .{ .status = .ok, .end = true });
 }
 
 test "RFC 9113 §6.8: a shutdown sends GOAWAY, and the connection closes once its streams end" {
@@ -248,7 +248,7 @@ test "RFC 9113 §6.8: a shutdown sends GOAWAY, and the connection closes once it
     _ = try support.receive_copy(try request_frame(1, "/", true));
     connection.shutdown();
     try testing.expect(!connection.should_close());
-    try connection.respond(1, .{ .status = ok, .end = true });
+    try connection.respond(1, .{ .status = .ok, .end = true });
     const sent = support.drain();
     try testing.expect(std.mem.indexOfScalar(u8, &.{ sent[type_index], sent[frame_len(sent) + type_index] }, constants.protocol.frame_type_goaway) != null);
     try testing.expect(connection.should_close());
@@ -264,7 +264,7 @@ test "RFC 9113 §5.4.1: a connection error fails the connection, and its GOAWAY 
     const sent = support.drain();
     try testing.expectEqual(constants.protocol.frame_type_goaway, sent[type_index]);
     try testing.expect(connection.should_close());
-    try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
+    try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = .ok, .end = true }));
     // The peer broke the protocol, and passed no limit.
     try testing.expectEqual(null, connection.close_reason());
 }
@@ -297,7 +297,7 @@ test "RFC 9113 §5.1.1: an id past the largest stream identifier names no reques
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
     const past: u64 = @as(u64, constants.protocol.stream_id_max) + 2;
-    try testing.expectError(error.RequestUnknown, connection.respond(past, .{ .status = ok, .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.respond(past, .{ .status = .ok, .end = true }));
 }
 
 /// One field line more than a section may carry, and values that fill more than the encoder's
@@ -312,11 +312,11 @@ var long_fields: [long_lines]support.Field align(@alignOf(support.Field)) = unde
 test "RFC 9113 §4.3: a section past what colibri sends in one field block is refused whole" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .headers = &too_many, .end = true }));
+    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = .ok, .headers = &too_many, .end = true }));
     for (&long_fields) |*line| line.* = .{ .name = "x-long", .value = &long_value };
-    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = ok, .headers = &long_fields, .end = true }));
+    try testing.expectError(error.SectionTooLarge, connection.respond(1, .{ .status = .ok, .headers = &long_fields, .end = true }));
     try testing.expectEqual(0, connection.output_len);
-    try connection.respond(1, .{ .status = ok, .end = true });
+    try connection.respond(1, .{ .status = .ok, .end = true });
 }
 
 test "RFC 9113 §6.7: the PING acknowledgments h2 owes go out, and the request after them is read" {
@@ -399,14 +399,14 @@ fn expect_ack_then(sent: []const u8, frame_type: u8) !void {
 test "decision 39 as amended: a response's head goes out after the replies h2 owes" {
     try start();
     try read_ping_then_request(1, "GET", &.{}, true);
-    try connection.respond(1, .{ .status = ok, .end = true });
+    try connection.respond(1, .{ .status = .ok, .end = true });
     try expect_ack_then(support.drain(), constants.protocol.frame_type_headers);
 }
 
 test "decision 39 as amended: DATA and a trailer section go out after the replies h2 owes" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));
-    try connection.respond(1, .{ .status = ok, .end = false });
+    try connection.respond(1, .{ .status = .ok, .end = false });
     _ = support.drain();
     try read_ping_then_request(3, "GET", &.{}, true);
     try testing.expectEqual(5, try connection.write_body(1, .{ .bytes = "hello", .end = false }));

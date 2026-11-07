@@ -21,8 +21,8 @@ const body_len = 64;
 const connections = 4;
 const response_bytes = 256;
 /// RFC 9110 §15.3.1: 200 (OK), and §15.6.1: 500 (Internal Server Error).
-const ok = 200;
-const internal_server_error = 500;
+const ok: client.Status = .ok;
+const internal_server_error: server.Status = .internal_server_error;
 /// How long a test's run may last before the watchdog halts the test, and the step it checks in.
 /// It is shorter than the server's deadlines of 10 s (decision 110), so a run that ends only when
 /// the server cuts an idle connection fails.

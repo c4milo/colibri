@@ -16,24 +16,11 @@ const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
 
-pub const Error = error{
-    StatusNotThreeDigits,
-    StatusOutOfRange,
-};
-
-/// The five classes, numbered by the first digit (RFC 9110 §15).
-pub const Class = enum(u3) {
-    informational = 1,
-    successful = 2,
-    redirection = 3,
-    client_error = 4,
-    server_error = 5,
-};
-
-/// Every status code RFC 9110 §15.2 to §15.6 defines, named as its section heading names it. 306
-/// and 418 are absent: §15.4.7 and §15.5.19 mark them unused, so they carry no semantics and are
-/// understood as their class's x00.
-pub const Code = enum(u16) {
+/// A response's status code (RFC 9110 §15), as `std.http.Status` models it (decision 158 ruling
+/// 5). Each named member is a code that RFC 9110 §15.2 to §15.6 defines, named as its section
+/// heading names it. 306 and 418 have no name: §15.4.7 and §15.5.19 mark them unused. `_` holds
+/// each other code, because RFC 9110 §15 allows any code of three digits.
+pub const Status = enum(u16) {
     @"continue" = 100,
     switching_protocols = 101,
     ok = 200,
@@ -78,17 +65,28 @@ pub const Code = enum(u16) {
     service_unavailable = 503,
     gateway_timeout = 504,
     http_version_not_supported = 505,
-};
+    _,
 
-pub const Status = struct {
-    code: u16,
+    pub const Error = error{
+        StatusNotThreeDigits,
+        StatusOutOfRange,
+    };
+
+    /// The five classes, numbered by the first digit (RFC 9110 §15).
+    pub const Class = enum(u3) {
+        informational = 1,
+        successful = 2,
+        redirection = 3,
+        client_error = 4,
+        server_error = 5,
+    };
 
     /// The status whose code is `code`.
     pub fn from_code(code: u16) Error!Status {
         const in_range = code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max;
         // RFC 9110 §15: all valid status codes are within the range of 100 to 599, inclusive.
         if (!in_range) return error.StatusOutOfRange;
-        return .{ .code = code };
+        return @enumFromInt(code);
     }
 
     /// The status written as three ASCII digits.
@@ -108,8 +106,9 @@ pub const Status = struct {
     /// RFC 9113 §8.3.2 and RFC 9114 §4.3.2 carry them as the `:status` value, and RFC 9110 §15
     /// makes them three, leading zeros included.
     pub fn write_digits(self: Status, digits: *[constants.protocol.status_digits_len]u8) []const u8 {
-        assert(self.code >= constants.protocol.status_code_min and self.code <= constants.protocol.status_code_max);
-        var rest = self.code;
+        const code = @intFromEnum(self);
+        assert(code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max);
+        var rest = code;
         var index = constants.protocol.status_digits_len;
         while (index > 0) {
             index -= 1;
@@ -120,31 +119,17 @@ pub const Status = struct {
         return digits;
     }
 
-    /// The class the first digit names (RFC 9110 §15).
+    /// The class the first digit names (RFC 9110 §15). A 1xx class is interim: zero or more such
+    /// responses precede exactly one final response.
     pub fn class(self: Status) Class {
-        assert(self.code >= constants.protocol.status_code_min and self.code <= constants.protocol.status_code_max);
-        return @enumFromInt(self.code / constants.protocol.status_class_size);
+        const code = @intFromEnum(self);
+        assert(code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max);
+        return @enumFromInt(code / constants.protocol.status_class_size);
     }
 
-    /// True when RFC 9110 §15.2 to §15.6 define this code.
+    /// True when RFC 9110 §15.2 to §15.6 define this code, so the enum names it.
     pub fn is_recognized(self: Status) bool {
-        return std.enums.fromInt(Code, self.code) != null;
-    }
-
-    /// The status a recipient acts on: the code itself when recognised, otherwise the x00 code of
-    /// its class (RFC 9110 §15).
-    pub fn understood(self: Status) Status {
-        // RFC 9110 §15: treat an unrecognized status code as the x00 status code of its class.
-        if (self.is_recognized()) return self;
-        const understood_code = @as(u16, @intFromEnum(self.class())) * constants.protocol.status_class_size;
-        assert(std.enums.fromInt(Code, understood_code) != null);
-        return .{ .code = understood_code };
-    }
-
-    /// True for a 1xx response, which RFC 9110 §15 calls interim: zero or more of them precede
-    /// exactly one final response.
-    pub fn is_interim(self: Status) bool {
-        return self.class() == .informational;
+        return std.enums.tagName(Status, self) != null;
     }
 };
 
@@ -157,7 +142,7 @@ test "write_digits is the mirror of from_digits over every status code" {
         const status = try Status.from_code(code);
         const written = status.write_digits(&digits);
         try std.testing.expectEqual(constants.protocol.status_digits_len, written.len);
-        try std.testing.expectEqual(code, (try Status.from_digits(written)).code);
+        try std.testing.expectEqual(code, @intFromEnum(try Status.from_digits(written)));
     }
     const found = try Status.from_code(200);
     try std.testing.expectEqualStrings("200", found.write_digits(&digits));
@@ -165,14 +150,14 @@ test "write_digits is the mirror of from_digits over every status code" {
 
 test "the range ends are 100 and 599" {
     try testing.expectError(error.StatusOutOfRange, Status.from_code(99));
-    try testing.expectEqual(100, (try Status.from_code(100)).code);
-    try testing.expectEqual(599, (try Status.from_code(599)).code);
+    try testing.expectEqual(100, @intFromEnum(try Status.from_code(100)));
+    try testing.expectEqual(599, @intFromEnum(try Status.from_code(599)));
     try testing.expectError(error.StatusOutOfRange, Status.from_code(600));
     try testing.expectError(error.StatusOutOfRange, Status.from_code(0));
 }
 
 test "three digits parse, and anything else is refused in check order" {
-    try testing.expectEqual(204, (try Status.from_digits("204")).code);
+    try testing.expectEqual(204, @intFromEnum(try Status.from_digits("204")));
     try testing.expectError(error.StatusNotThreeDigits, Status.from_digits("20"));
     try testing.expectError(error.StatusNotThreeDigits, Status.from_digits("2040"));
     try testing.expectError(error.StatusNotThreeDigits, Status.from_digits(""));
@@ -185,23 +170,30 @@ test "three digits parse, and anything else is refused in check order" {
 }
 
 test "the first digit is the class" {
-    try testing.expectEqual(Class.informational, (try Status.from_code(103)).class());
-    try testing.expectEqual(Class.successful, (try Status.from_code(299)).class());
-    try testing.expectEqual(Class.redirection, (try Status.from_code(300)).class());
-    try testing.expectEqual(Class.client_error, (try Status.from_code(451)).class());
-    try testing.expectEqual(Class.server_error, (try Status.from_code(599)).class());
-    try testing.expect((try Status.from_code(100)).is_interim());
-    try testing.expect(!(try Status.from_code(200)).is_interim());
+    try testing.expectEqual(Status.Class.informational, (try Status.from_code(103)).class());
+    try testing.expectEqual(Status.Class.successful, (try Status.from_code(299)).class());
+    try testing.expectEqual(Status.Class.redirection, (try Status.from_code(300)).class());
+    try testing.expectEqual(Status.Class.client_error, (try Status.from_code(451)).class());
+    try testing.expectEqual(Status.Class.server_error, (try Status.from_code(599)).class());
 }
 
-test "an unrecognised code is understood as the x00 of its class" {
-    try testing.expectEqual(400, (try Status.from_code(471)).understood().code);
-    try testing.expectEqual(404, (try Status.from_code(404)).understood().code);
-    try testing.expectEqual(300, (try Status.from_code(306)).understood().code);
-    try testing.expectEqual(400, (try Status.from_code(418)).understood().code);
-    try testing.expectEqual(500, (try Status.from_code(599)).understood().code);
-    try testing.expectEqual(100, (try Status.from_code(199)).understood().code);
-    // Every class's x00 is itself recognised, so `understood` never needs a second call.
+test "decision 158: a code with no name round-trips through _" {
+    const unnamed = try Status.from_code(299);
+    switch (unnamed) {
+        _ => {},
+        else => return error.TestUnexpectedResult,
+    }
+    try testing.expectEqual(299, @intFromEnum(unnamed));
+    try testing.expect(!unnamed.is_recognized());
+    try testing.expectEqual(Status.Class.successful, unnamed.class());
+    var digits: [constants.protocol.status_digits_len]u8 = undefined;
+    try testing.expectEqualStrings("299", unnamed.write_digits(&digits));
+    try testing.expectEqual(unnamed, try Status.from_digits("299"));
+    try testing.expectEqual(Status.not_found, try Status.from_code(404));
+}
+
+test "the x00 code of each class is recognised" {
+    // RFC 9110 §15 treats an unrecognised code as the x00 code of its class, so each one has a name.
     for (1..6) |digit| {
         const code: u16 = @intCast(digit * constants.protocol.status_class_size);
         try testing.expect((try Status.from_code(code)).is_recognized());
@@ -227,12 +219,13 @@ fn fuzz_from_digits(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const digits = input[0..smith.slice(&input)];
     const status = Status.from_digits(digits) catch return;
-    try testing.expect(status.code >= constants.protocol.status_code_min);
-    try testing.expect(status.code <= constants.protocol.status_code_max);
-    try testing.expect(status.understood().is_recognized());
+    try testing.expect(@intFromEnum(status) >= constants.protocol.status_code_min);
+    try testing.expect(@intFromEnum(status) <= constants.protocol.status_code_max);
+    const class_code = @as(u16, @intFromEnum(status.class())) * constants.protocol.status_class_size;
+    try testing.expect((try Status.from_code(class_code)).is_recognized());
 }
 
-test "fuzz: a status that parses is in range and understood as a recognised code" {
+test "fuzz: a status that parses is in range, and the x00 code of its class is recognised" {
     try testing.fuzz({}, fuzz_from_digits, .{ .corpus = &.{
         core.fuzz.input("200"),
         core.fuzz.input("471"),
@@ -248,7 +241,7 @@ test "every three-digit string parses exactly when it is 100 to 599" {
         const in_range = number >= constants.protocol.status_code_min and number <= constants.protocol.status_code_max;
         if (Status.from_digits(&digits)) |status| {
             try testing.expect(in_range);
-            try testing.expectEqual(number, status.code);
+            try testing.expectEqual(number, @intFromEnum(status));
         } else |err| {
             try testing.expect(!in_range);
             try testing.expectEqual(error.StatusOutOfRange, err);

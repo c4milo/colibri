@@ -110,8 +110,10 @@ pub const Response = struct {
     /// How the exchange ended, set once it has.
     result: Result = .pending,
     /// The final response's status code (RFC 9110 §15). The client sets it at the final head, so
-    /// it also holds the status when the outcome is `too_large`.
-    status: u16 = 0,
+    /// it also holds the status when the outcome is `too_large`. Before the final head it holds no
+    /// status code, so a program reads `result` to know whether a final status arrived (decision
+    /// 158 ruling 5).
+    status: http.Status = undefined,
     /// Interim responses read before the final one (RFC 9110 §15.2).
     interims: u32 = 0,
     /// Bytes of `body` the response body filled. For a streamed response, the bytes of the piece

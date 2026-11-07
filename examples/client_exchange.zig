@@ -420,9 +420,9 @@ fn sleep_ns() u64 {
 /// at least one datagram, and took a ticket. The requests that no route serves got 405, 404 and
 /// 501. The refused exchange ended `refused`, and the server saw what it expects.
 fn check() Error!void {
-    const greeted = arrived(&get_response, 200, greeting);
+    const greeted = arrived(&get_response, .ok, greeting);
     const typed = std.mem.eql(u8, get_response.headers.get("content-type") orelse "", content_type);
-    const echoed = arrived(&post_response, 200, note);
+    const echoed = arrived(&post_response, .ok, note);
     const unserved = unserved_arrived();
     const opened = opens.get(.quic) == 1 and opens.get(.tcp) == 1;
     const closed = closes.get(.quic) == 1 and closes.get(.tcp) == 1;
@@ -443,7 +443,7 @@ fn check() Error!void {
 }
 
 /// Whether `response` ended its exchange as a response with `status`, whose content is `content`.
-fn arrived(response: *const client.Response, status: u16, content: []const u8) bool {
+fn arrived(response: *const client.Response, status: client.Status, content: []const u8) bool {
     if (response.result != .response or response.status != status) return false;
     return std.mem.eql(u8, response.body_received(), content);
 }
@@ -451,6 +451,6 @@ fn arrived(response: *const client.Response, status: u16, content: []const u8) b
 /// Whether the three requests that no route serves got 405 with the Allow value, 404 and 501.
 fn unserved_arrived() bool {
     const allowed = std.mem.eql(u8, get_echo_response.headers.get("allow") orelse "", allow_expected);
-    return allowed and arrived(&get_echo_response, 405, "") and
-        arrived(&get_missing_response, 404, "") and arrived(&delete_greeting_response, 501, "");
+    return allowed and arrived(&get_echo_response, .method_not_allowed, "") and
+        arrived(&get_missing_response, .not_found, "") and arrived(&delete_greeting_response, .not_implemented, "");
 }

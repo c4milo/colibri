@@ -261,7 +261,7 @@ fn server_write(storage: *Storage, plan: *const Plan) Error!void {
 /// Writes the head of the answer. Returns false when the output is full: `send`, then answer again.
 fn respond(storage: *Storage, answer: *Answer, planned: *const plan_module.Exchange) Error!bool {
     const end = planned.head or planned.content_len == 0;
-    storage.endpoint.respond(answer.id, .{ .status = planned.status, .end = end, .codable = planned.codable }) catch |failure| {
+    storage.endpoint.respond(answer.id, .{ .status = @enumFromInt(planned.status), .end = end, .codable = planned.codable }) catch |failure| {
         if (failure == error.NoSpaceLeft) return false;
         return error.ExchangeRefused;
     };

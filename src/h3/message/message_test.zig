@@ -163,12 +163,12 @@ test "the shared rules reach h3 under h3's own error names" {
 test "RFC 9114 §4.3.2: a response carries :status, and h3 has no END_STREAM rule to apply" {
     const lines = [_]Field{.{ .name = ":status", .value = "200" }};
     const response = try message.validate_response(try section_of(&lines));
-    try testing.expectEqual(200, response.status.code);
+    try testing.expectEqual(200, @intFromEnum(response.status));
     // RFC 9113 §8.1 refuses an interim response with END_STREAM. h3 has no such flag, so an
     // interim response is returned and the connection decides, with no rule to break here.
     const interim = [_]Field{.{ .name = ":status", .value = "103" }};
     const early = try message.validate_response(try section_of(&interim));
-    try testing.expect(early.status.is_interim());
+    try testing.expect(early.status.class() == .informational);
     // RFC 9114 §4.3.2: a response without :status is malformed.
     try testing.expectError(error.StatusMissing, message.validate_response(try section_of(&.{})));
 }

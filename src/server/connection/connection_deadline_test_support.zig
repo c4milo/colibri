@@ -3,6 +3,7 @@
 //! sends or looks for in what the connection sent. Test-only.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 
@@ -14,7 +15,7 @@ const constants = h2.constants;
 pub const early_ns: u64 = 1_000_000;
 
 /// The status each answer carries: 204 (No Content), RFC 9110 §15.3.5.
-pub const no_content: u16 = 204;
+pub const no_content: http.Status = .no_content;
 
 /// Reads `octets` at `now_ns`.
 pub fn receive_at(octets: []const u8, now_ns: u64) !support.ConnectionResult {

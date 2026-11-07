@@ -233,7 +233,7 @@ fn close_socket(connection: client.ConnectionHandle) void {
 /// Counts one ended exchange. The first round's end brings a later DNS answer and the second
 /// round, and the second round's end the shutdown.
 fn on_finished(ended: client.Finished) !void {
-    if (ended.response.result != .response or ended.response.status != 200) return error.ExchangeWrong;
+    if (ended.response.result != .response or ended.response.status != .ok) return error.ExchangeWrong;
     if (!std.mem.eql(u8, ended.response.body_received(), greeting)) return error.ExchangeWrong;
     finished += 1;
     if (finished == first_round) {

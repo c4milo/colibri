@@ -89,14 +89,14 @@ const Asked = struct {
     /// Whether the exchange ended in a 200 response with `content` and the content type.
     fn arrived(asked: *const Asked, content: []const u8) bool {
         const response = &asked.response;
-        if (response.result != .response or response.status != 200) return false;
+        if (response.result != .response or response.status != .ok) return false;
         if (!std.mem.eql(u8, response.headers.get("content-type") orelse "", content_type)) return false;
         return std.mem.eql(u8, response.body_received(), content);
     }
 
     /// Whether the exchange ended in a response with `status` and no content, whose Allow value
     /// is `allow`, or which has no Allow field when `allow` is null.
-    fn refused(asked: *const Asked, status: u16, allow: ?[]const u8) bool {
+    fn refused(asked: *const Asked, status: client.Status, allow: ?[]const u8) bool {
         const response = &asked.response;
         if (response.result != .response or response.status != status) return false;
         if (response.body_received().len != 0) return false;
@@ -312,7 +312,7 @@ pub fn closed() bool {
 pub fn check() bool {
     const asked = &tcp_peer.asked;
     const routed = asked[0].arrived(greeting) and asked[1].arrived(note) and asked[2].arrived(named_greeting);
-    const tcp_arrived = routed and asked[3].refused(405, greeting_allow) and asked[4].refused(404, null);
+    const tcp_arrived = routed and asked[3].refused(.method_not_allowed, greeting_allow) and asked[4].refused(.not_found, null);
     const alternative = tcp_peer.pool.alternative();
     const advertised = alternative != null and alternative.?.port == server_port;
     const tcp_right = tcp_peer.spoken == .h2 and tcp_arrived and advertised;

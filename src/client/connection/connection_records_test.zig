@@ -72,7 +72,7 @@ test "RFC 9846 §4.7.3: a record opens while a KeyUpdate's answer is owed, and t
     // The response behind the KeyUpdate opens with the answer still owed.
     try testing.expectEqual(0, support.to_client_len);
     try testing.expectEqual(.response, first.response.result);
-    try testing.expectEqual(ok, first.response.status);
+    try testing.expectEqual(ok, @intFromEnum(first.response.status));
     try testing.expectEqualStrings("hi", first.response.body_received());
     // RFC 9846 §4.7.3: the answer is sent "prior to sending its next Application Data record".
     // Alone it is no debt, so no `send` comes for it (decision 125): the provider writes it in

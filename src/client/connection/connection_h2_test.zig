@@ -64,7 +64,7 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     try testing.expectEqual(&exchange.response, finished.response);
     try testing.expectEqual(&exchange.request, finished.request);
     try testing.expectEqual(.response, exchange.response.result);
-    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("application/dns-message", exchange.response.headers.get("content-type").?);
     try testing.expectEqual(null, exchange.response.headers.get("age"));
@@ -107,7 +107,7 @@ test "RFC 9110 §15.2: interim responses are counted, and the final one gives th
     try testing.expectEqual(.pending, exchange.response.result);
     try support.peer_h2_answer(1, ok, &.{}, "done");
     try support.client_receive();
-    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
     try testing.expectEqualStrings("done", exchange.response.body_received());
 }
 
@@ -142,7 +142,7 @@ test "issue 106: a content-length past the caller's memory ends the exchange at 
     support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &fields, false);
     try support.client_receive();
     try testing.expectEqual(.too_large, exchange.response.result);
-    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
     support.peer_events_len = 0;
     try support.pump_h2();
     const reset = for (support.peer_events[0..support.peer_events_len]) |peer_event| {

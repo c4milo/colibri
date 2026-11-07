@@ -263,8 +263,8 @@ pub const Peer = struct {
     fn note_response(peer: *Peer, stream_id: u64, status: h3.http.Status, now_ms: u64) void {
         const fetch = peer.fetch_of(stream_id) orelse return;
         // RFC 9110 §15.2: an interim response is not the answer.
-        if (status.is_interim()) return;
-        fetch.status = status.code;
+        if (status.class() == .informational) return;
+        fetch.status = @intFromEnum(status);
         fetch.status_ms = now_ms;
     }
 

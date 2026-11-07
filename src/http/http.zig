@@ -28,6 +28,8 @@ const files = struct {
 
 pub const FieldSection = files.field_section.FieldSection;
 pub const Field = files.field.Field;
+/// A response's status code: one non-exhaustive enum, whose `_` holds each code it does not name
+/// (decision 158 ruling 5).
 pub const Status = files.status.Status;
 /// The `name=value` pairs of a query, which the program places and reads with `get` (decision
 /// 127).
@@ -49,10 +51,6 @@ pub const method = struct {
     pub const Standard = files.method.Standard;
     pub const standard = files.method.standard;
     pub const validate = files.method.validate;
-};
-
-pub const status = struct {
-    pub const Code = files.status.Code;
 };
 
 pub const content_length = struct {
@@ -92,10 +90,16 @@ pub const content_coding = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",            "constants",       "FieldSection",   "Field",
-        "Status",          "QueryParameters", "field",          "connection_specific",
-        "method",          "status",          "content_length", "message_lines",
-        "message_request", "uri",             "content_coding",
+        "core",   "constants",       "FieldSection",  "Field",
+        "Status", "QueryParameters", "field",         "connection_specific",
+        "method", "content_length",  "message_lines", "message_request",
+        "uri",    "content_coding",
+    });
+}
+
+test "decision 158: a status is one enum, and its calls are declarations of it" {
+    try core.public_names.expect(Status, &.{
+        "Error", "Class", "from_code", "from_digits", "write_digits", "class", "is_recognized",
     });
 }
 

@@ -22,7 +22,7 @@ const SendError = quic_connection.SendError;
 /// Whether decision 101 plans `response`'s head: a final response on a connection that codes. Any
 /// other head goes out as the caller wrote it, and needs no room for rewritten field lines.
 pub fn plans(connection: *const QuicConnection, response: event.Response) bool {
-    return connection.config.encoders != null and response.status >= final_min;
+    return connection.config.encoders != null and @intFromEnum(response.status) >= final_min;
 }
 
 /// The head a response that `plans` passes goes out with, as decision 101 plans it.

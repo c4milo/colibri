@@ -134,8 +134,8 @@ fn handle(side: Side, event: h2.Event, state: *State) void {
             state.request_stream = request.stream_id;
         },
         .response => |response| {
-            std.debug.print("client: {d} on stream {d}\n", .{ response.response.status.code, response.stream_id });
-            state.status = response.response.status.code;
+            std.debug.print("client: {d} on stream {d}\n", .{ @intFromEnum(response.response.status), response.stream_id });
+            state.status = @intFromEnum(response.response.status);
         },
         .data => |data| {
             std.debug.print("{s}: body {s}", .{ @tagName(side), data.payload });

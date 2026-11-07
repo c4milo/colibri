@@ -27,7 +27,7 @@ const internal = @import("response_writer_internal.zig");
 pub const ResponseWriter = struct {
     /// The status of the head, which a program sets before the head goes out. The engine refuses
     /// a code outside 100 to 599 and 101 (RFC 9110 §15).
-    status: u16 = 200,
+    status: http.Status = .ok,
 
     // Each field below is colibri's. A program reads none of them.
     sink: internal.Sink,

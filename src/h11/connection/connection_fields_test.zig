@@ -15,7 +15,7 @@ const testing = std.testing;
 const Connection = connection.Connection;
 const SendError = connection.Connection.SendError;
 const Field = http.Field;
-const Code = http.status.Code;
+const Code = http.Status;
 const message_reference = message_write_test.reference;
 const atoms = message_write_test.atoms;
 const atom = message_write_test.atom;
@@ -26,7 +26,7 @@ const list_at = message_write_test.list_at;
 /// A connection's head writes as they were before the pass, each rule with its own scan.
 const reference = struct {
     const close_field: Field = .{ .name = "Connection", .value = "close" };
-    const switching_protocols: u16 = @intFromEnum(http.status.Code.switching_protocols);
+    const switching_protocols: u16 = @intFromEnum(http.Status.switching_protocols);
 
     fn write_response(target: *Connection, output: []u8, status: u16, reason: []const u8, fields: []const Field) SendError!usize {
         // RFC 9112 §9.6: a server that closes the connection sends nothing after its last response.
@@ -37,7 +37,7 @@ const reference = struct {
         if (status == switching_protocols) return error.UpgradeUnsupported;
         // RFC 9110 §15: a status code is three digits from 100 to 599.
         const code = http.Status.from_code(status) catch return error.StatusInvalid;
-        if (code.is_interim()) return message_reference.write_response_head(output, status, reason, fields);
+        if (code.class() == .informational) return message_reference.write_response_head(output, status, reason, fields);
         if (target.asked == .connect) try answer_connect(target, code, fields);
         const writer = try response_body(target, code, fields);
         const close_after = target.close_after or writer.kind == .close_delimited or fields_ask_close(fields);
@@ -62,7 +62,7 @@ const reference = struct {
 
     fn response_body(target: *const Connection, code: http.Status, fields: []const Field) error{FramingInvalid}!connection_body.Writer {
         if (target.asked == .connect and code.class() == .successful) return .{ .kind = .tunnel };
-        const no_content = code.code == @intFromEnum(http.status.Code.no_content) or code.code == @intFromEnum(http.status.Code.not_modified);
+        const no_content = @intFromEnum(code) == @intFromEnum(http.Status.no_content) or @intFromEnum(code) == @intFromEnum(http.Status.not_modified);
         if (target.asked == .head or no_content) return .{ .kind = .none };
         return declared(fields, .close_delimited);
     }

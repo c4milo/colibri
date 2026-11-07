@@ -2,14 +2,16 @@
 //! wrote its last octet, once, and `receive` reports it before it reads anything more.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
-const early_hints: u16 = 103;
+const ok: http.Status = .ok;
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
 const trailer_fields = [_]support.Field{.{ .name = "checksum", .value = "1" }};
 
 /// Expects `receive` to report nothing, with nothing to read. Test-only.

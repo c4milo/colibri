@@ -121,13 +121,13 @@ fn on_alt_svc(connection: *Connection, advertised: h2.Connection.AltSvc) bool {
 fn on_response(connection: *Connection, head: h2.Connection.Response) bool {
     const slot = connection.slots.of_stream(head.stream_id) orelse return false;
     // RFC 9110 §15.2: a client reads any number of interim responses before the final one.
-    if (head.response.status.is_interim()) {
+    if (head.response.status.class() == .informational) {
         slot.response.interims += 1;
         return false;
     }
     const section = connection.session.h2.field_section();
     internal.note_alt_svc(connection, section, first_regular(section));
-    response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
+    response_write.record_head(slot, @intFromEnum(head.response.status), section, first_regular(section)) catch |failure| {
         return refuse(connection, slot, response_write.outcome_of(failure));
     };
     // Decision 153 ruling 7: a streamed response's head is an event of its own, and its content
@@ -137,7 +137,7 @@ fn on_response(connection: *Connection, head: h2.Connection.Response) bool {
         if (slot.headers_owed) return true;
         // RFC 9113 §8.1: a content that cannot fit ends its stream with CANCEL at the head
         // (https://github.com/c4milo/colibri/issues/106).
-        if (response_write.too_large_at_head(slot, head.response.status.code, section)) return refuse(connection, slot, .too_large);
+        if (response_write.too_large_at_head(slot, @intFromEnum(head.response.status), section)) return refuse(connection, slot, .too_large);
         return false;
     }
     return finish(connection, slot);

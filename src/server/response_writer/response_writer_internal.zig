@@ -187,7 +187,7 @@ pub fn copy_trailers_last(response: *ResponseWriter, headers: []const http.Field
 pub fn add_content_length(response: *ResponseWriter) void {
     assert(!response.head_out and response.ended);
     // RFC 9110 §8.6: a server does not send Content-Length in a 1xx or 204 response.
-    if (response.status < final_min or response.status == no_content) return;
+    if (@intFromEnum(response.status) < final_min or response.status == .no_content) return;
     if (response.header_count == constants.limits.response_headers_max) return;
     for (response.lines[0..response.header_count]) |line| {
         if (std.ascii.eqlIgnoreCase(line.name, "content-length")) return;
@@ -316,8 +316,7 @@ fn copy_data(writer: *std.Io.Writer, data: []const []const u8, splat: usize) usi
     return copied;
 }
 
-const final_min: u16 = @intFromEnum(http.status.Code.ok);
-const no_content: u16 = @intFromEnum(http.status.Code.no_content);
+const final_min: u16 = @intFromEnum(http.Status.ok);
 
 fn data_len(data: []const []const u8, splat: usize) usize {
     var len: usize = 0;

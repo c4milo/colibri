@@ -427,7 +427,7 @@ pub fn client_read() !void {
 fn client_record(read: h3.Connection.Event) void {
     switch (read) {
         .response => |head| if (fetch_of(head.stream_id)) |fetch| {
-            if (head.response.status.is_interim()) fetch.interims += 1 else note_final(fetch, head.response.status.code);
+            if (head.response.status.class() == .informational) fetch.interims += 1 else note_final(fetch, @intFromEnum(head.response.status));
         },
         .data => |data| if (fetch_of(data.stream_id)) |fetch| {
             const index = fetch_index(fetch);

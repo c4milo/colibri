@@ -161,7 +161,7 @@ const Echo = struct {
 };
 
 fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
-    response.status = 500;
+    response.status = .internal_server_error;
 }
 
 fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {

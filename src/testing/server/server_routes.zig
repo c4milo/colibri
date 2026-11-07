@@ -22,7 +22,7 @@ fn answer(_: *void, _: *const server.Request, _: void, _: void, response: *serve
 
 /// No route returns an error, so the status this chooses is never sent.
 fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
-    response.status = @intFromEnum(http.status.Code.internal_server_error);
+    response.status = .internal_server_error;
 }
 
 const Entry = struct { http.method.Standard, []const u8, *const @TypeOf(answer) };
@@ -70,7 +70,7 @@ const Endpoint = struct {
     user_data: usize = 0,
 
     pub fn respond(endpoint: *Endpoint, _: server.RequestId, response: server.Response) server.SendError!void {
-        endpoint.status = response.status;
+        endpoint.status = @intFromEnum(response.status);
     }
 
     pub fn write_body(_: *Endpoint, _: server.RequestId, body: server.ResponseBody) server.SendError!usize {

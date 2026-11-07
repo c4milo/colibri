@@ -61,8 +61,8 @@ const Pool = Router(App, routes, .{ .requests = requests, .response_bytes = resp
 /// function chooses. Test-only.
 const requests = 2;
 const response_bytes = 128;
-const not_found = 404;
-const server_error = 500;
+const not_found: http.Status = .not_found;
+const server_error: http.Status = .internal_server_error;
 
 const Fixture = struct {
     app: App = .{},
@@ -96,7 +96,7 @@ test "decision 127: a route's function gets its path and query as structs, and a
     var fixture: Fixture = .{};
     _ = fixture.request("GET", "/greetings/col%69bri?mark=%21");
     try testing.expectEqual(1, fixture.app.calls);
-    try testing.expectEqual(200, fixture.recorder.heads[0].status);
+    try testing.expectEqual(200, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqualStrings("hello, colibri! x1", fixture.recorder.body_bytes());
     try testing.expect(fixture.recorder.ended);
 }
@@ -110,7 +110,7 @@ test "decision 127: the wildcard is rest, and http.QueryParameters reads the pai
 test "RFC 9110 §15.5.1: a query that lacks a required pair gets 400, with no call" {
     var fixture: Fixture = .{};
     _ = fixture.request("GET", "/need?other=1");
-    try testing.expectEqual(400, fixture.recorder.heads[0].status);
+    try testing.expectEqual(400, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(0, fixture.recorder.body_len);
     // A function that leaves its response open has it ended by the router.
     fixture = .{};
@@ -123,7 +123,7 @@ test "RFC 9110 §15.5.15: a query of more pairs than the router reads gets 414, 
     var fixture: Fixture = .{};
     const pairs = "a&" ** (http.constants.limits.query_parameters_max + 1);
     _ = fixture.request("GET", "/greetings/x?" ++ pairs);
-    try testing.expectEqual(414, fixture.recorder.heads[0].status);
+    try testing.expectEqual(414, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(0, fixture.app.calls);
 }
 
@@ -133,10 +133,10 @@ test "RFC 9110 §15.5.5, §15.5.6, §15.6.2: the router answers 404, 405 with Al
     _ = fixture.request("POST", "/need");
     // RFC 9110 §9.1: a method no route of the table names gets 501 on every path.
     _ = fixture.request("DELETE", "/greetings/x");
-    try testing.expectEqual(404, fixture.recorder.heads[0].status);
-    try testing.expectEqual(405, fixture.recorder.heads[1].status);
+    try testing.expectEqual(404, @intFromEnum(fixture.recorder.heads[0].status));
+    try testing.expectEqual(405, @intFromEnum(fixture.recorder.heads[1].status));
     try testing.expectEqualStrings("GET, HEAD", fixture.recorder.allow[1]);
-    try testing.expectEqual(501, fixture.recorder.heads[2].status);
+    try testing.expectEqual(501, @intFromEnum(fixture.recorder.heads[2].status));
     try testing.expectEqual(0, fixture.app.calls);
 }
 
@@ -146,7 +146,7 @@ test "RFC 9110 §15.6.4: a request that finds no free entry gets 503, until a fi
     const first = fixture.request("GET", "/greetings/a");
     _ = fixture.request("GET", "/greetings/b");
     _ = fixture.request("GET", "/greetings/c");
-    try testing.expectEqual(503, fixture.recorder.heads[2].status);
+    try testing.expectEqual(503, @intFromEnum(fixture.recorder.heads[2].status));
     try testing.expectEqual(2, fixture.app.calls);
     fixture.recorder.user_data = 1;
     fixture.finished(first);
@@ -169,12 +169,12 @@ test "decision 127: a writable sends what the engine did not take" {
 test "decision 127 ruling 4: the error function chooses the status, and an error after the head cancels" {
     var fixture: Fixture = .{};
     _ = fixture.request("GET", "/broken");
-    try testing.expectEqual(404, fixture.recorder.heads[0].status);
+    try testing.expectEqual(404, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(0, fixture.recorder.cancelled);
     fixture = .{};
     fixture.app.fail_after_head = true;
     _ = fixture.request("GET", "/broken");
-    try testing.expectEqual(200, fixture.recorder.heads[0].status);
+    try testing.expectEqual(200, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(1, fixture.recorder.cancelled);
 }
 

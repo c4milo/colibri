@@ -223,7 +223,7 @@ const Run = struct {
     }
 
     fn answer(run: *Run) Violation!void {
-        const no_content = @intFromEnum(h11.http.status.Code.no_content);
+        const no_content = @intFromEnum(h11.http.Status.no_content);
         _ = run.storage.connection.write_response(&run.storage.scratch, no_content, "No Content", &.{}) catch {
             return error.OutcomeUnexpected;
         };

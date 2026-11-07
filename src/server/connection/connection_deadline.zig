@@ -23,7 +23,7 @@ const Timeout = deadline.Timeout;
 const Timeouts = deadline.Timeouts;
 
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
-const request_timeout: u16 = @intFromEnum(http.status.Code.request_timeout);
+const request_timeout: u16 = @intFromEnum(http.Status.request_timeout);
 
 /// Where a connection stands for its deadlines.
 pub const Clock = struct {

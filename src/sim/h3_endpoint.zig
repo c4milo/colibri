@@ -215,7 +215,7 @@ pub const Endpoint = struct {
 
     fn on_response(endpoint: *Endpoint, id: u64, response: h3.message.Response) Error!void {
         const index = index_of(id);
-        if (response.status.is_interim()) {
+        if (response.status.class() == .informational) {
             const progress = &endpoint.progress[index];
             if (!endpoint.plan.exchanges[index].interim or progress.interim) return error.MessageMismatch;
             progress.interim = true;

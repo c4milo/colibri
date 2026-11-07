@@ -77,7 +77,7 @@ pub const InitError = connection_errors.InitError;
 pub const SendError = connection_errors.SendError;
 
 /// RFC 9110 §15.2.1: 100 (Continue).
-const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");
+const continue_status: u16 = @intFromEnum(http.Status.@"continue");
 
 const Phase = enum {
     /// The TLS handshake has not completed.
@@ -248,7 +248,7 @@ pub const Connection = struct {
         try connection.check_writable();
         // RFC 9110 §10.1.1: the caller's own 100 replaces the one owed. A final response replaces
         // it too: the protocol refuses a 100 after it, and `write_continue` drops the one owed.
-        if (connection.continue_owed == id and response.status == continue_status) connection.continue_owed = null;
+        if (connection.continue_owed == id and response.status == .@"continue") connection.continue_owed = null;
         return connection_coding.respond(connection, id, response);
     }
 

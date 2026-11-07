@@ -56,7 +56,7 @@ pub const Version = struct {
 /// response ends with it. An interim response (1xx) ignores `end`, because the final response
 /// still follows it (RFC 9110 §15.2).
 pub const Response = struct {
-    status: u16,
+    status: http.Status,
     headers: []const Header = &.{},
     end: bool,
     /// Whether the server may code the content in a coding the request accepts (decision 101),

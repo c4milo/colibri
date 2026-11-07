@@ -3,6 +3,7 @@
 //! even when its connection stops first (INV-30), and the connection's `ended` after them.
 const std = @import("std");
 const quic = @import("quic");
+const http = @import("http");
 const event = @import("../event.zig");
 const support = @import("../quic/quic_test_support.zig");
 
@@ -11,7 +12,7 @@ const engine_support = support.engine_support;
 const seen_support = support.seen_support;
 const engine = &engine_support.engine;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// Words a test's program sets for its requests.
 const first_word: usize = 0x5eed;
 const second_word: usize = 0xbead;

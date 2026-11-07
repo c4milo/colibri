@@ -2,6 +2,7 @@
 //! table's middleware run first, then the route entry's, in table order, and one that answers
 //! stops the rest.
 const std = @import("std");
+const http = @import("http");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
 const Next = @import("../middleware.zig").Next;
@@ -32,8 +33,8 @@ const App = struct {
 };
 
 /// The status `Guard` answers with, and the one the error function chooses. Test-only.
-const unauthorized = 401;
-const unavailable = 503;
+const unauthorized: http.Status = .unauthorized;
+const unavailable: http.Status = .service_unavailable;
 
 /// The route table's middleware: it notes its call.
 const Log = struct {
@@ -116,7 +117,7 @@ test "decision 127 ruling 5: the route table's middleware runs first, then the r
     fixture = .{};
     fixture.get("/guarded");
     try testing.expectEqualStrings("lgr", fixture.app.order());
-    try testing.expectEqual(200, fixture.recorder.heads[0].status);
+    try testing.expectEqual(200, @intFromEnum(fixture.recorder.heads[0].status));
 }
 
 test "decision 127 ruling 5: a middleware that answers stops the route" {

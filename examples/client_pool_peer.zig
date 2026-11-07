@@ -117,12 +117,12 @@ fn serve(event: server.Event, now_ns: u64) !void {
 fn answer(request: server.Request) !void {
     const path = request.path orelse "";
     if (!std.mem.eql(u8, request.method, "GET") or !std.mem.eql(u8, path, "/greeting")) {
-        return engine.respond(request.id, .{ .status = 404, .end = true });
+        return engine.respond(request.id, .{ .status = .not_found, .end = true });
     }
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{greeting.len}) catch unreachable;
     try engine.respond(request.id, .{
-        .status = 200,
+        .status = .ok,
         .headers = &.{.{ .name = "content-length", .value = length }},
         .end = false,
     });

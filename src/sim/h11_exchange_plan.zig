@@ -16,7 +16,7 @@ const sim = @import("sim");
 const http = h11.http;
 const Random = sim.Random;
 const constants = sim.constants;
-const Code = http.status.Code;
+const Code = http.Status;
 
 pub const BodyKind = enum { none, fixed, chunked, close_delimited };
 

@@ -2,6 +2,7 @@
 //! order to h11's server side in the same process, and each response comes back as the outcome of
 //! the oldest exchange awaiting one (RFC 9112 §9.2).
 const std = @import("std");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
@@ -106,7 +107,7 @@ test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the
     try support.client_receive();
     try testing.expectEqual(event.Protocol.h11, support.find(.connected).?.connected);
     try testing.expectEqual(1, support.find(.finished).?.finished.id);
-    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("5", exchange.response.headers.get("content-length").?);
 }
@@ -152,7 +153,21 @@ test "RFC 9110 §15.2: interim responses are counted, and the final one gives th
     try support.peer_h11_answer(ok, &empty_fields, "");
     try support.client_receive();
     try testing.expectEqual(1, exchange.response.interims);
-    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
+}
+
+test "decision 158: a response with no final head reads no status, and its result says so" {
+    try start();
+    var exchange = get(&bodies[0]);
+    _ = try connection.request(&exchange.request, &exchange.response);
+    support.client_send();
+    try support.peer_h11_read();
+    support.to_client_len += try support.peer_h11.write_response(support.to_client[support.to_client_len..], early_hints, "", &.{});
+    // RFC 9110 §15: 999 is no status code, so no final head arrives.
+    try peer_writes("HTTP/1.1 999 X\r\n\r\n");
+    try testing.expectEqual(.malformed, exchange.response.result);
+    try testing.expectEqual(1, exchange.response.interims);
+    try testing.expectError(error.StatusOutOfRange, http.Status.from_code(@intFromEnum(exchange.response.status)));
 }
 
 test "RFC 9112 §9.2: chunked content past the caller's memory is dropped, and the next response still arrives" {
@@ -191,7 +206,7 @@ test "issue 106: a Content-Length past the caller's memory ends the exchange and
     // The head alone arrives: the client does not wait for content it would drop.
     try peer_writes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n");
     try testing.expectEqual(.too_large, small.response.result);
-    try testing.expectEqual(ok, small.response.status);
+    try testing.expectEqual(ok, @intFromEnum(small.response.status));
     // RFC 9112 §9.3.1: the request after it was written, so it ends with the connection.
     try testing.expectEqual(.closed, next.response.result);
     try testing.expect(support.find(.closed) != null);
@@ -321,7 +336,7 @@ test "RFC 9112 §9.5: a response that ends before the content went out ends the 
     try testing.expect(put.response.body_sent > 0 and put.response.body_sent < upload.len);
     try peer_writes(early_response);
     try testing.expectEqual(.response, put.response.result);
-    try testing.expectEqual(precondition_failed, put.response.status);
+    try testing.expectEqual(precondition_failed, @intFromEnum(put.response.status));
     // The server never saw the request that waited, so it may go on another connection.
     try testing.expectEqual(.refused, waiting.response.result);
     try testing.expect(support.find(.closed) != null);

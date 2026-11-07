@@ -2,6 +2,7 @@
 //! route with a state, which reads the request body through a `std.Io.Reader` and may write its
 //! response over many `writable` events.
 const std = @import("std");
+const http = @import("http");
 const event = @import("../event.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
 const Router = @import("router.zig").Router;
@@ -110,7 +111,7 @@ const Pool = Router(App, routes, .{ .requests = 1, .response_bytes = response_by
 /// Test-only.
 const response_bytes = 128;
 const body_bytes = 16;
-const unprocessable = 422;
+const unprocessable: http.Status = .unprocessable_content;
 
 const Fixture = struct {
     app: App = .{},
@@ -147,7 +148,7 @@ test "decision 127: body reads what arrived, and the bytes it leaves unread come
     try testing.expectEqualStrings("ab\ncde\n", fixture.state().kept[0..fixture.state().len]);
     try testing.expectEqual(2, fixture.app.bodies);
     // The router ends a response the route left open once the body ended.
-    try testing.expectEqual(200, fixture.recorder.heads[0].status);
+    try testing.expectEqual(200, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expect(fixture.recorder.ended);
     fixture.handle(.{ .finished = .{ .id = @bitCast(@as(u128, 1)), .user_data = 1, .result = .sent } });
     try testing.expectEqual(1, fixture.app.finished);
@@ -177,7 +178,7 @@ test "RFC 9110 §15.5.14: a body larger than body_bytes gets 413" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/whole", false);
     fixture.body("0123456789abcdef!", false);
-    try testing.expectEqual(413, fixture.recorder.heads[0].status);
+    try testing.expectEqual(413, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(0, fixture.app.bodies);
 }
 
@@ -186,7 +187,7 @@ test "decision 127 ruling 4: an error of body before the head goes to the error 
     fixture.app.fail_body = true;
     fixture.head("POST", "/lines", false);
     fixture.body("a\n", false);
-    try testing.expectEqual(422, fixture.recorder.heads[0].status);
+    try testing.expectEqual(422, @intFromEnum(fixture.recorder.heads[0].status));
     // A later body event of the request calls nothing more.
     fixture.body("b\n", true);
     try testing.expectEqual(1, fixture.app.bodies);
@@ -211,6 +212,6 @@ test "decision 127: writable writes a response over many events, and ends it its
 test "RFC 9110 §15.5.1: a struct route whose query lacks a required pair gets 400, and no on_body" {
     var fixture: Fixture = .{};
     fixture.head("POST", "/needs", true);
-    try testing.expectEqual(400, fixture.recorder.heads[0].status);
+    try testing.expectEqual(400, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(0, fixture.app.bodies);
 }

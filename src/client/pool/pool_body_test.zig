@@ -296,7 +296,7 @@ test "decision 153 ruling 7: a streamed response refused after its head ends clo
     try collect();
     try testing.expectEqual(.closed, get.response.result);
     // The exchange never moved, so the head the program had is still in its response.
-    try testing.expectEqual(200, get.response.status);
+    try testing.expectEqual(200, @intFromEnum(get.response.status));
     try testing.expectEqual(1, count(.finished));
     try testing.expectEqual(1, count(.open));
 }

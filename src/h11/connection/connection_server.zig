@@ -24,7 +24,7 @@ const connection_body = @import("connection_body.zig");
 const Connection = connection.Connection;
 const Received = connection.Received;
 const Field = http.Field;
-const Code = http.status.Code;
+const Code = http.Status;
 
 /// 431 Request Header Fields Too Large (RFC 6585 §5), which RFC 9110 §15 does not define.
 const status_fields_too_large: u16 = 431;
@@ -91,7 +91,7 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     if (status == @intFromEnum(Code.switching_protocols)) return error.UpgradeUnsupported;
     // RFC 9110 §15: a status code is three digits from 100 to 599.
     const code = http.Status.from_code(status) catch return error.StatusInvalid;
-    if (code.is_interim()) return message.write_response_head(output, status, reason, fields);
+    if (code.class() == .informational) return message.write_response_head(output, status, reason, fields);
     // Each rule below reads this one pass over the lines, and none reads the lines again.
     var checked: message.Checked = .{};
     checked.add(fields);
@@ -113,7 +113,7 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
 /// What a final response to CONNECT decides besides its framing (decision 109): a 2xx opens the
 /// tunnel and names no framing field, and any other status ends the connection.
 fn answer_connect(target: *Connection, code: http.Status, checked: *const message.Checked) connection.Connection.SendError!void {
-    assert(target.asked == .connect and !code.is_interim());
+    assert(target.asked == .connect and code.class() != .informational);
     if (code.class() != .successful) {
         // RFC 9931 §8: a server that refuses a CONNECT closes the connection and processes no
         // further request on it, whether or not the request carried the close option.
@@ -130,7 +130,7 @@ fn response_body(target: *const Connection, code: http.Status, checked: *const m
     // RFC 9112 §6.3 rule 2 and RFC 9110 §6.4.1: every 2xx to CONNECT makes the connection a
     // tunnel, a 204 too. Rule 1 ends a 204 at the empty line as well, so only the tunnel is new.
     if (target.asked == .connect and code.class() == .successful) return .{ .kind = .tunnel };
-    const no_content = code.code == @intFromEnum(Code.no_content) or code.code == @intFromEnum(Code.not_modified);
+    const no_content = @intFromEnum(code) == @intFromEnum(Code.no_content) or @intFromEnum(code) == @intFromEnum(Code.not_modified);
     // RFC 9112 §6.3 rule 1: a response to HEAD, and a 204 or 304, has no body.
     if (target.asked == .head or no_content) return .{ .kind = .none };
     return connection_body.declared(checked, .close_delimited);

@@ -172,7 +172,7 @@ test "http2/8.1.2.1/2: :status in a request is PseudoHeaderUndefined, and so is 
         try expect_response(error.PseudoHeaderUndefined, try section_of(&.{ line_of(":status", "200"), request_only }));
     }
     const response = try message.validate_response(try section_of(&.{line_of(":status", "200")}), false);
-    try testing.expectEqual(200, response.status.code);
+    try testing.expectEqual(200, @intFromEnum(response.status));
 }
 
 test "http2/8.1.2.1/3: :method in trailers is PseudoHeaderInTrailers, and trailers without a pseudo-header pass" {

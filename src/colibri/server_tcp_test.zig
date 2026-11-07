@@ -19,7 +19,7 @@ const response_len = 1024;
 /// The buffers of the test client's TLS records: std's client needs room for one record.
 const record_buffer_len = std.crypto.tls.Client.min_buffer_len;
 /// RFC 9110 §15.6.1: 500 (Internal Server Error).
-const internal_server_error = 500;
+const internal_server_error: server.Status = .internal_server_error;
 
 const routes = .{
     .error_handler = on_error,

@@ -83,7 +83,7 @@ const Fixture = struct {
 
 fn expect_head(call: Call, status: u16, ends: bool) !event.Response {
     try testing.expect(call == .head);
-    try testing.expectEqual(status, call.head.status);
+    try testing.expectEqual(status, @intFromEnum(call.head.status));
     try testing.expectEqual(ends, call.head.end);
     return call.head;
 }
@@ -114,7 +114,7 @@ test "decision 127: end sends the head with the whole body and its Content-Lengt
 test "RFC 9110 §8.6: end adds no Content-Length to a 204 or past the program's own" {
     var fixture: Fixture = .{};
     var response = fixture.start();
-    response.status = 204;
+    response.status = .no_content;
     try response.end();
     var head = try expect_head(fixture.recorder.calls[0], 204, true);
     try testing.expectEqual(null, header_value(head, "content-length"));
@@ -197,7 +197,7 @@ test "decision 127: an empty write_kept sends nothing, so the status stays the p
     try response.write_kept("");
     try testing.expect(!response.head_sent());
     try testing.expectEqual(0, fixture.recorder.count);
-    response.status = 404;
+    response.status = .not_found;
     try response.end();
     _ = try expect_head(fixture.recorder.calls[0], 404, true);
 }
@@ -246,7 +246,7 @@ test "decision 127: no call after the end, and the engine's other errors come ba
     fixture = .{};
     response = fixture.start();
     fixture.recorder.failure = error.StatusInvalid;
-    response.status = 42;
+    response.status = @enumFromInt(42);
     try testing.expectError(error.StatusInvalid, response.end());
 }
 

@@ -432,7 +432,7 @@ fn Tests(comptime Pool: type) type {
             // h11 read the record before the one that failed (RFC 9846 §6), so some of the response
             // arrived, and the GET is not sent again (RFC 9110 §9.2.2).
             try testing.expectEqual(.closed, exchange.response.result);
-            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
             try testing.expectEqual(1, count(.open));
         }
 
@@ -443,7 +443,7 @@ fn Tests(comptime Pool: type) type {
             forge();
             try collect(&pool);
             try testing.expectEqual(.closed, exchange.response.result);
-            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
             try testing.expectEqual(1, count(.open));
             // RFC 9846 §6: after the record failed, the alert is all that goes out, and once it is
             // out the connection owes nothing more (decision 125).
@@ -486,7 +486,7 @@ fn Tests(comptime Pool: type) type {
             try seal_in_records(long_response_octets(), odd_record_len);
             try collect(&pool);
             try testing.expectEqual(.response, exchange.response.result);
-            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
             try testing.expectEqual(long_content_len, exchange.response.body_len);
             try testing.expectEqual(0, support.to_client_len);
         }

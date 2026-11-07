@@ -220,7 +220,7 @@ test "RFC 9112 §2.3: the version is HTTP/ DIGIT . DIGIT, case-sensitively, and 
 
 test "a status line reads into its version, status and reason, and the reason may be empty" {
     const line = try parse_status_line("HTTP/1.1 404 Not Found");
-    try testing.expectEqual(404, line.status.code);
+    try testing.expectEqual(404, @intFromEnum(line.status));
     try testing.expectEqualStrings("Not Found", line.reason);
     const bare = try parse_status_line("HTTP/1.0 204 ");
     try testing.expectEqualStrings("", bare.reason);
@@ -243,8 +243,8 @@ test "RFC 9112 §4 and RFC 9110 §15: a status is three digits from 100 to 599" 
     try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1 099 X"));
     try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1 600 X"));
     try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1 2x0 X"));
-    try testing.expectEqual(599, (try parse_status_line("HTTP/1.1 599 X")).status.code);
-    try testing.expectEqual(100, (try parse_status_line("HTTP/1.1 100 X")).status.code);
+    try testing.expectEqual(599, @intFromEnum((try parse_status_line("HTTP/1.1 599 X")).status));
+    try testing.expectEqual(100, @intFromEnum((try parse_status_line("HTTP/1.1 100 X")).status));
 }
 
 test "RFC 9112 §4: a reason phrase refuses controls other than HTAB" {

@@ -102,7 +102,7 @@ pub fn write_response_head_checked(output: []u8, status: u16, reason: []const u8
     // RFC 9110 §5.1 and §5.5: the first field line that is not valid.
     if (checked.invalid) |invalid| return invalid;
     try check_framing(checked);
-    const forbids_framing = code.is_interim() or status == @intFromEnum(http.status.Code.no_content);
+    const forbids_framing = code.class() == .informational or status == @intFromEnum(http.Status.no_content);
     // RFC 9112 §6.1 and RFC 9110 §8.6: no Transfer-Encoding or Content-Length in a 1xx or 204.
     if (forbids_framing and checked.names_framing()) return error.FramingInvalid;
     var digits: [http.constants.protocol.status_digits_len]u8 = undefined;
@@ -189,7 +189,7 @@ test "a response head written is read back, and the SP after the status stays wi
     const ok = try write_response_head(&test_output, 200, "OK", &.{.{ .name = "Transfer-Encoding", .value = "chunked" }});
     var scanner: message.Scanner = .{};
     const response = (try message.read_response(&scanner, .other, test_output[0..ok], &test_section)).?;
-    try testing.expectEqual(200, response.line.status.code);
+    try testing.expectEqual(200, @intFromEnum(response.line.status));
     try testing.expectEqual(message.Length.chunked, response.body.length);
 }
 

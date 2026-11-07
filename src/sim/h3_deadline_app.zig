@@ -166,7 +166,7 @@ fn write(endpoint: *Engine, pending: *Answer, plan: *const Plan, content: []cons
     pending.answered_ms = now_ms;
     const ends = !in_two and !plan.answer_stays_open();
     if (ends) pending.finished_ms = now_ms;
-    try endpoint.respond(pending.id, .{ .status = answer_status, .end = ends and content.len == 0 });
+    try endpoint.respond(pending.id, .{ .status = @enumFromInt(answer_status), .end = ends and content.len == 0 });
     if (first_len > 0) try write_content(endpoint, pending.id, content[0..first_len], ends);
 }
 

@@ -102,6 +102,9 @@ pub const ResponseBody = files.event.ResponseBody;
 pub const ResponseWriter = files.response_writer.ResponseWriter;
 pub const ReceiveResult = files.event.ReceiveResult;
 pub const Alternative = files.alt_svc.Alternative;
+/// A response's status code, which `Response.status` and `ResponseWriter.status` take (decision
+/// 158 ruling 5).
+pub const Status = http.Status;
 /// The content codings a server applies (decision 101).
 pub const Coding = http.content_coding.Coding;
 /// The pool of encoders the connections code responses with, which the caller places:
@@ -153,20 +156,21 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, 25.3 `Handled`, and 25.5 `middleware`. 35d adds `ResumeProvider`, `ResumeState` and `ResumeBounds`. 45g puts
     // `Engine` in place of `Endpoint` and `EndpointOf`, the options of each pool in place of each
     // `Default*` name, and `Router` and `RouterOptions` in place of `router` (decision 158). 45h
-    // adds `Instant`.
+    // adds `Instant`, and 45i `Status`.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",        "Config",      "Protocols",          "Limits",        "Timeout",
-        "Timeouts",         "CloseReason", "Limit",              "Engine",        "Capacity",
-        "Instant",          "Input",       "Datagram",           "StreamBytes",   "LogProvider",
-        "ResumeProvider",   "ResumeState", "ResumeBounds",       "Sent",          "Address",
-        "Ecn",              "StartError",  "SendError",          "Header",        "RequestId",
-        "ConnectionHandle", "Version",     "Headers",            "Event",         "Request",
-        "RequestBody",      "Trailers",    "CancelReason",       "Finished",      "Result",
-        "Writable",         "Ended",       "Response",           "ResponseBody",  "ResponseWriter",
-        "ReceiveResult",    "Alternative", "Coding",             "EncoderPool",   "EncoderPoolOptions",
-        "Encoders",         "DecoderPool", "DecoderPoolOptions", "Decoders",      "Features",
-        "PathParameters",   "Handled",     "Router",             "RouterOptions", "middleware",
+        "constants",          "Config",         "Protocols",    "Limits",             "Timeout",
+        "Timeouts",           "CloseReason",    "Limit",        "Engine",             "Capacity",
+        "Instant",            "Input",          "Datagram",     "StreamBytes",        "LogProvider",
+        "ResumeProvider",     "ResumeState",    "ResumeBounds", "Sent",               "Address",
+        "Ecn",                "StartError",     "SendError",    "Header",             "RequestId",
+        "ConnectionHandle",   "Version",        "Headers",      "Event",              "Request",
+        "RequestBody",        "Trailers",       "CancelReason", "Finished",           "Result",
+        "Writable",           "Ended",          "Response",     "ResponseBody",       "ResponseWriter",
+        "ReceiveResult",      "Alternative",    "Status",       "Coding",             "EncoderPool",
+        "EncoderPoolOptions", "Encoders",       "DecoderPool",  "DecoderPoolOptions", "Decoders",
+        "Features",           "PathParameters", "Handled",      "Router",             "RouterOptions",
+        "middleware",
     });
 }
 

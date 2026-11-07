@@ -15,7 +15,7 @@ const testing = std.testing;
 const Field = http.Field;
 const Writer = core.Writer;
 const Error = message_write.Error;
-const Code = http.status.Code;
+const Code = http.Status;
 
 /// The head writers as they were before the pass, each rule with its own scan.
 pub const reference = struct {
@@ -49,7 +49,7 @@ pub const reference = struct {
         // RFC 9112 §4: reason-phrase = 1*( HTAB / SP / VCHAR / obs-text ).
         message_start.check_reason(reason) catch return error.ReasonInvalid;
         try check_fields(fields);
-        const forbids_framing = code.is_interim() or status == @intFromEnum(http.status.Code.no_content);
+        const forbids_framing = code.class() == .informational or status == @intFromEnum(http.Status.no_content);
         const framed = find(fields, content_length_name) != null or find(fields, transfer_encoding_name) != null;
         // RFC 9112 §6.1 and RFC 9110 §8.6: no Transfer-Encoding or Content-Length in a 1xx or 204.
         if (forbids_framing and framed) return error.FramingInvalid;
@@ -211,7 +211,7 @@ const test_output_len = 512;
 /// A buffer too short for most heads of two or three lines, so each writer refuses them.
 const test_output_short = 40;
 
-/// A status below 100, and 103 (Early Hints, RFC 8297 §2), which `http.status.Code` does not name.
+/// A status below 100, and 103 (Early Hints, RFC 8297 §2), which `http.Status` does not name.
 const status_below_min: u16 = 99;
 const status_early_hints: u16 = 103;
 const statuses = [_]u16{

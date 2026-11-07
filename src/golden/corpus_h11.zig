@@ -21,7 +21,7 @@ const cases = @import("corpus_cases.zig");
 
 const Case = cases.Case;
 const Length = h11.message.Length;
-const Code = http.status.Code;
+const Code = http.Status;
 
 pub const Error = h11.message.Error || h11.chunked.Error || ServerError || error{
     /// The message ended before its head, or before the body its length names.

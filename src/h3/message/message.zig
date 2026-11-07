@@ -133,7 +133,7 @@ pub const Request = struct {
     is_connect: bool,
 };
 
-/// A response the section holds. `status.is_interim()` says whether a final response follows.
+/// A response the section holds. `status.class() == .informational` says whether a final response follows.
 pub const Response = struct {
     /// The `:status` value (RFC 9114 §4.3.2).
     status: Status,

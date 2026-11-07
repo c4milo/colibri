@@ -31,7 +31,7 @@ test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exc
     try support.pump(support.rounds_default);
     try testing.expectEqual(event.Protocol.h3, support.find(.connected).?.connected);
     try testing.expectEqual(.response, exchange.response.result);
-    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("application/dns-message", exchange.response.headers.get("content-type").?);
     // RFC 9000 §2.1: the client's first bidirectional stream is 0.
@@ -100,7 +100,7 @@ test "RFC 9000 §3.1: an answered exchange is not reported while its stream may 
     for (0..support.rounds_default * 4) |_| {
         try support.pump(1);
         const live = connection.transport.streams.lookup(.{ .value = 0 }) == .live;
-        if (post.response.status == ok and live) answered_while_live = true;
+        if (post.response.status == .ok and live) answered_while_live = true;
         // The caller's content is read until the stream closes, so no event frees it sooner.
         if (live) try testing.expectEqual(null, support.find(.finished));
     }
@@ -154,7 +154,7 @@ test "RFC 9114 §4.1: interim responses are counted, and the final one gives the
     _ = try connection.request(&exchange.request, &exchange.response);
     try support.pump(support.rounds_default);
     try testing.expectEqual(2, exchange.response.interims);
-    try testing.expectEqual(ok, exchange.response.status);
+    try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
     try testing.expectEqualStrings("hello", exchange.response.body_received());
 }
 

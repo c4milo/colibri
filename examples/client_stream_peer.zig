@@ -125,11 +125,11 @@ fn serve(event: server.Event, now_ns: u64) !void {
 fn answer(request: server.Request) !void {
     const target = request.path orelse "";
     if (!std.mem.eql(u8, request.method, "POST") or !std.mem.eql(u8, target, path) or call != null) {
-        return engine.respond(request.id, .{ .status = 404, .end = true });
+        return engine.respond(request.id, .{ .status = .not_found, .end = true });
     }
     call = request.id;
     const headers = [_]server.Header{.{ .name = "content-type", .value = content_type }};
-    try engine.respond(request.id, .{ .status = 200, .headers = &headers, .end = false });
+    try engine.respond(request.id, .{ .status = .ok, .headers = &headers, .end = false });
 }
 
 /// Sends back a piece of the call's body as soon as it arrives, from the server's own memory,

@@ -2,6 +2,7 @@
 //! server's events, and responses go out framed as RFC 9112 §6 requires.
 const std = @import("std");
 const core = @import("core");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const connection_h11 = @import("connection_h11.zig");
 
@@ -10,10 +11,11 @@ const connection = &support.connection;
 
 const get_request = "GET /index.html HTTP/1.1\r\nHost: example.test\r\n\r\n";
 const content_type = [_]support.Field{.{ .name = "content-type", .value = "text/plain" }};
-const ok: u16 = 200;
-const no_content: u16 = 204;
-const not_modified: u16 = 304;
-const early_hints: u16 = 103;
+const ok: http.Status = .ok;
+const no_content: http.Status = .no_content;
+const not_modified: http.Status = .not_modified;
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
 
 /// Reads `request` and expects its head, with the id `id`.
 fn expect_request(request: []const u8, id: u64) !support.Request {
@@ -379,13 +381,13 @@ test "RFC 9110 §10.1.1: a request expecting 100-continue gets the 100 before it
 test "RFC 9110 §10.1.1: a final response, or the caller's own 100, replaces the 100 owed" {
     try support.start_cleartext(.h11);
     _ = try expect_request(expecting_request, 1);
-    const content_too_large: u16 = 413;
+    const content_too_large: http.Status = .content_too_large;
     try connection.respond(1, .{ .status = content_too_large, .end = true });
     try testing.expectEqualStrings("HTTP/1.1 413 Content Too Large\r\ncontent-length: 0\r\n\r\n", support.drain());
     try testing.expectEqual(null, connection.continue_owed);
     try support.start_cleartext(.h11);
     _ = try expect_request(expecting_request, 1);
-    const hundred: u16 = 100;
+    const hundred: http.Status = .@"continue";
     try connection.respond(1, .{ .status = hundred, .end = false });
     try testing.expectEqualStrings("HTTP/1.1 100 Continue\r\n\r\n", support.drain());
 }
@@ -436,7 +438,7 @@ test "a response's section holds the lines complete wrote, whatever its array he
         for (fills) |fill| {
             var lines: [core.constants.limits.field_count_max]support.Field = undefined;
             @memset(std.mem.asBytes(&lines), fill);
-            const section = try connection_h11.complete(connection, ok, &content_type, end, &lines);
+            const section = try connection_h11.complete(connection, @intFromEnum(ok), &content_type, end, &lines);
             try testing.expectEqual(content_type.len + 1, section.len);
             // The caller's line is its own slices, compared without a read through them.
             try testing.expect(std.meta.eql(content_type[0], section[0]));

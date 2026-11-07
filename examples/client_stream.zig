@@ -207,7 +207,7 @@ fn report(event: client.Event, now_ns: u64) !void {
 /// The response's head arrived. `get` reads the first header of a name, and an iterator walks
 /// each header in the order it arrived.
 fn on_headers(id: client.RequestId) !void {
-    if (id != call_id or response.status != 200) return error.ExchangeWrong;
+    if (id != call_id or response.status != .ok) return error.ExchangeWrong;
     const kind = response.headers.get("content-type") orelse "";
     if (!std.mem.eql(u8, kind, peer.content_type)) return error.ExchangeWrong;
     var lines: client.Headers.Iterator = response.headers.iterator();

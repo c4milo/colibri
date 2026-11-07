@@ -10,6 +10,7 @@ const http = @import("http");
 const event = @import("event.zig");
 const slots_module = @import("slots.zig");
 const coding = @import("coding.zig");
+const event_internal = @import("event_internal.zig");
 const headers = @import("headers.zig");
 
 const Response = event.Response;
@@ -32,9 +33,9 @@ pub fn outcome_of(failure: Error) event.Result {
 /// given the decoders the slot took for the codings its request offered.
 pub fn record_head(slot: *Slot, status: u16, section: *const FieldSection, first: u32) Error!void {
     const response = slot.response;
-    assert(response.status == 0 and response.headers.len == 0);
+    assert(response.status == event_internal.no_status and response.headers.len == 0);
     assert(first <= section.len());
-    response.status = status;
+    response.status = @enumFromInt(status);
     try headers.record(&response.headers, section, first);
     coding.begin(slot, status, section, first);
 }
@@ -133,9 +134,10 @@ test "decision 152: a final head copies its regular field lines, and the status 
     try test_section.append("content-type", "application/dns-message");
     var buffer: [128]u8 = undefined;
     var response: Response = .{ .headers = .{ .buffer = &buffer } };
+    event_internal.clear(&response);
     var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
     try record_head(&slot, 200, &test_section, 1);
-    try testing.expectEqual(200, response.status);
+    try testing.expectEqual(200, @intFromEnum(response.status));
     try testing.expectEqualStrings("max-age=60", response.headers.get("cache-control").?);
     try testing.expectEqual(null, response.headers.get(":status"));
     try testing.expectEqual(0, response.trailers.len);
@@ -159,6 +161,7 @@ test "a section or content past the caller's memory is refused whole" {
     var buffer: [8]u8 = undefined;
     var body: [4]u8 = undefined;
     var response: Response = .{ .headers = .{ .buffer = &buffer }, .body = &body };
+    event_internal.clear(&response);
     var slot: Slot = .{ .stage = .sent, .request = &test_request, .response = &response };
     try testing.expectError(error.NoSpaceLeft, record_head(&slot, 200, &test_section, 0));
     try append_body(&slot, "abc");

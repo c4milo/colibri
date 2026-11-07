@@ -4,6 +4,7 @@
 const std = @import("std");
 const h3 = @import("h3");
 const quic = @import("quic");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const internal = @import("quic_connection_internal.zig");
 const constants = @import("../constants.zig");
@@ -12,8 +13,9 @@ const event = @import("../event.zig");
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
-const early_hints: u16 = 103;
+const ok: http.Status = .ok;
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
 const content_type = [_]support.Field{.{ .name = "content-type", .value = "text/plain" }};
 const trailer_fields = [_]support.Field{.{ .name = "checksum", .value = "1" }};
 
@@ -49,7 +51,7 @@ test "decision 103: a response goes out from the caller's memory, and is done on
     try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .bytes = content, .end = true }));
     try testing.expectEqual(null, support.nth(.done, 0));
     try support.pump(support.rounds_default);
-    try testing.expectEqual(ok, fetch.status);
+    try testing.expectEqual(@intFromEnum(ok), fetch.status);
     try testing.expectEqualStrings(content, support.content_of(fetch));
     try testing.expect(fetch.ended);
     // RFC 9000 §3.1: every octet was acknowledged, so the caller's octets are free.
@@ -101,14 +103,14 @@ test "RFC 9114 §4.1: an interim head ends nothing, and nothing goes out of orde
     try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, .{ .bytes = "x", .end = false }));
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, fetch.interims);
-    try testing.expectEqual(ok, fetch.status);
+    try testing.expectEqual(@intFromEnum(ok), fetch.status);
     try testing.expect(fetch.ended);
 }
 
 test "RFC 9110 §15: a status is 100 to 599, and RFC 9114 §4.5: h3 has no 101" {
     const fetch = try get("/");
     for ([_]u16{ 99, 101, 600 }) |status| {
-        try testing.expectError(error.StatusInvalid, connection.respond(fetch.id, .{ .status = status, .end = true }));
+        try testing.expectError(error.StatusInvalid, connection.respond(fetch.id, .{ .status = @enumFromInt(status), .end = true }));
     }
     try testing.expectError(error.RequestUnknown, connection.respond(fetch.id + 4, .{ .status = ok, .end = true }));
     // RFC 9114 §4.2: a field name is lowercase.

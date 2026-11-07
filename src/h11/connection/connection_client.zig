@@ -23,7 +23,7 @@ const connection_body = @import("connection_body.zig");
 const Connection = connection.Connection;
 const Received = connection.Received;
 const Field = http.Field;
-const Code = http.status.Code;
+const Code = http.Status;
 
 pub const Error = error{
     /// Octets other than CRLF with no request outstanding (RFC 9112 §9.2).
@@ -118,11 +118,11 @@ fn read_response(target: *Connection, input: []const u8) connection.Connection.E
     };
     const response = read orelse return .{ .consumed = 0, .event = null };
     // RFC 9110 §15.2.2: 101 switches to the protocol Upgrade names, which h11 does not implement.
-    if (response.line.status.code == @intFromEnum(Code.switching_protocols)) {
+    if (@intFromEnum(response.line.status) == @intFromEnum(Code.switching_protocols)) {
         return target.fail(error.UpgradeUnsupported, null);
     }
     // RFC 9112 §9.2: an interim response precedes the final one to the same request.
-    if (response.line.status.is_interim()) return .{ .consumed = response.head_len, .event = .{ .interim = response.line } };
+    if (response.line.status.class() == .informational) return .{ .consumed = response.head_len, .event = .{ .interim = response.line } };
     // RFC 9112 §7.4: with no TE sent, chunked is the only acceptable coding, and a client sends TE
     // only when it has decoders; with them, a coded body takes one (decision 91).
     connection.begin_decoding(target, response.body) catch |failure| return target.fail(failure, null);

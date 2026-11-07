@@ -27,7 +27,7 @@ fn get(target: *Connection, method: []const u8) !void {
 
 fn expect_status(target: *Connection, input: []const u8, status: u16) !usize {
     const received = try target.receive(input, &.{});
-    try testing.expectEqual(status, received.event.?.response.line.status.code);
+    try testing.expectEqual(status, @intFromEnum(received.event.?.response.line.status));
     return received.consumed;
 }
 
@@ -60,7 +60,7 @@ test "decision 88: no pipelining after a non-idempotent request until its final 
     try get(target, "POST");
     try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
     // An interim response is not the final one (RFC 9112 §9.2).
-    try testing.expectEqual(100, (try target.receive("HTTP/1.1 100 Continue\r\n\r\n", &.{})).event.?.interim.status.code);
+    try testing.expectEqual(100, @intFromEnum((try target.receive("HTTP/1.1 100 Continue\r\n\r\n", &.{})).event.?.interim.status));
     try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
     _ = try expect_status(target, "HTTP/1.1 204 \r\n\r\n", 204);
     try get(target, "GET");

@@ -12,6 +12,10 @@ const headers = @import("headers.zig");
 const Request = event.Request;
 const Response = event.Response;
 
+/// What `Response.status` holds before the final head: 0, which is no status code (RFC 9110 §15).
+/// The client checks with it that it records one final head, and a program reads `result`.
+pub const no_status: http.Status = @enumFromInt(0);
+
 /// The Content-Length value of `request`, written into `digits`, or null when it sends none.
 /// RFC 9110 §8.6: a user agent sends one when the request has content, or when its method gives
 /// content a meaning, as POST's and PUT's do (RFC 9110 §9.3.3, §9.3.4). A streamed request sends
@@ -54,7 +58,7 @@ pub fn names_te(request: *const Request) bool {
 /// the response goes.
 pub fn clear(response: *Response) void {
     response.result = .pending;
-    response.status = 0;
+    response.status = no_status;
     response.interims = 0;
     response.body_len = 0;
     response.body_sent = 0;
@@ -71,7 +75,7 @@ test "clearing a response makes it pending again, and keeps where the response g
     var buffer: [8]u8 = undefined;
     var response: Response = .{ .headers = .{ .buffer = &buffer, .len = 5 }, .trailers = .{ .buffer = &buffer, .len = 3 } };
     response.result = .response;
-    response.status = 200;
+    response.status = .ok;
     response.body_len = 3;
     response.coding = .gzip;
     clear(&response);

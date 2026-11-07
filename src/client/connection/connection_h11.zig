@@ -86,7 +86,7 @@ fn record(connection: *Connection, h11_event: h11.Connection.Event, now_ns: u64)
             if (slot.stage == .sent) slot.response.interims += 1;
             return false;
         },
-        .response => |head| return on_response(connection, slot, head.line.status.code, now_ns),
+        .response => |head| return on_response(connection, slot, @intFromEnum(head.line.status), now_ns),
         .data => |octets| {
             if (slot.stage == .dropping) {
                 slot.dropped_len += octets.len;

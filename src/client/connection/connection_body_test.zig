@@ -117,7 +117,7 @@ test "decision 153 ruling 7: an h11 response comes in pieces of Response.body's 
     try support.peer_h11_answer(ok, &.{.{ .name = "Content-Length", .value = "26" }}, alphabet);
     try read_pieces(id);
     try testing.expectEqual(1, headers_count);
-    try testing.expectEqual(ok, get.response.status);
+    try testing.expectEqual(ok, @intFromEnum(get.response.status));
     // RFC 9112 §6.3: 26 octets in pieces of 4.
     try testing.expectEqual(7, pieces_count);
     try testing.expectEqualStrings(alphabet, received[0..received_len]);

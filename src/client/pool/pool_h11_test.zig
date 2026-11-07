@@ -211,10 +211,10 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(0, support.to_client_len);
             try testing.expectEqual(2, count(.finished));
             try testing.expectEqual(.response, first.response.result);
-            try testing.expectEqual(ok, first.response.status);
+            try testing.expectEqual(ok, @intFromEnum(first.response.status));
             try testing.expectEqualStrings("hello", first.response.body_received());
             try testing.expectEqual(.response, last.response.result);
-            try testing.expectEqual(no_content, last.response.status);
+            try testing.expectEqual(no_content, @intFromEnum(last.response.status));
             try testing.expectEqual(0, last.response.body_received().len);
             try testing.expectEqual(last_id, events[events_len - 1].finished.id);
         }
@@ -376,7 +376,7 @@ fn Tests(comptime Pool: type) type {
             // h11 takes the head, and the content it names never arrives.
             const head = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n";
             try testing.expectEqual(head.len, try give(head));
-            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
             try close_transport();
             try testing.expectEqual(.closed, exchange.response.result);
             try testing.expectEqual(1, count(.open));

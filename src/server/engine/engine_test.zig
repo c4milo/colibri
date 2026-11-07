@@ -5,6 +5,7 @@
 const std = @import("std");
 const quic = @import("quic");
 const tls = @import("tls");
+const http = @import("http");
 const support = @import("../quic/quic_test_support.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
@@ -16,7 +17,7 @@ const testing = std.testing;
 const engine_support = support.engine_support;
 const engine = &engine_support.engine;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 
 test "RFC 9000 §7.2, §5.2: a client's first Initial starts a connection, which takes its datagrams" {
     try support.start_engine(null);
@@ -64,7 +65,7 @@ test "RFC 9000 §8.1.2: with Retry set, the Initial that returns the Retry's tok
         try support.pump(support.rounds_default);
         try engine.respond(engine_support.id_of(fetch.id), .{ .status = ok, .end = true });
         try support.pump(support.rounds_default);
-        try testing.expectEqual(ok, fetch.status);
+        try testing.expectEqual(@intFromEnum(ok), fetch.status);
     }
 }
 
@@ -110,7 +111,7 @@ test "decision 111: a server switches a client of version 1 that lists version 2
     try support.pump(support.rounds_default);
     try engine.respond(engine_support.id_of(fetch.id), .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
-    try testing.expectEqual(ok, fetch.status);
+    try testing.expectEqual(@intFromEnum(ok), fetch.status);
 }
 
 test "decision 111: a server whose configuration names no version to switch to keeps the client" {

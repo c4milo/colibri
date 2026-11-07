@@ -67,7 +67,7 @@ test "RFC 9204 §2.2.1: a section that arrives before its entries waits in quic,
     // The section is still unread in `quic` (decision 80).
     try testing.expect(!client.transport.streams.lookup(.{ .value = id }).live.incoming.is_empty());
     try exchange();
-    try testing.expectEqual(200, (try next(client)).?.response.response.status.code);
+    try testing.expectEqual(200, @intFromEnum((try next(client)).?.response.response.status));
     try testing.expectEqual(Event{ .end = id }, (try next(client)).?);
 }
 

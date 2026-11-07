@@ -73,12 +73,12 @@ const field_names = [_][]const u8{ "Accept", "User-Agent", "X-Request", "Cookie"
 const field_values = [_][]const u8{ "*/*", "sim/1", "abc", "k=v", "no-cache", "v" };
 const trailer_names = [_][]const u8{ "Checksum", "X-Tail" };
 const statuses = [_]u16{
-    @intFromEnum(http.status.Code.ok),
-    @intFromEnum(http.status.Code.created),
-    @intFromEnum(http.status.Code.no_content),
-    @intFromEnum(http.status.Code.not_modified),
-    @intFromEnum(http.status.Code.not_found),
-    @intFromEnum(http.status.Code.internal_server_error),
+    @intFromEnum(http.Status.ok),
+    @intFromEnum(http.Status.created),
+    @intFromEnum(http.Status.no_content),
+    @intFromEnum(http.Status.not_modified),
+    @intFromEnum(http.Status.not_found),
+    @intFromEnum(http.Status.internal_server_error),
 };
 const reasons = [_][]const u8{ "", "OK", "Reason Phrase" };
 
@@ -257,13 +257,13 @@ fn draw_defect(random: *Random, role: Role) Defect {
 /// A response status. A defect that needs a chunked body needs a status that allows a body.
 fn draw_status(random: *Random, defect: Defect) u16 {
     const status = statuses[random.below(statuses.len)];
-    if (defect.needs_chunked() and is_bodiless(status)) return @intFromEnum(http.status.Code.ok);
+    if (defect.needs_chunked() and is_bodiless(status)) return @intFromEnum(http.Status.ok);
     return status;
 }
 
 /// A 204 or 304 carries no body (RFC 9112 §6.3 rule 1).
 fn is_bodiless(status: u16) bool {
-    return status == @intFromEnum(http.status.Code.no_content) or status == @intFromEnum(http.status.Code.not_modified);
+    return status == @intFromEnum(http.Status.no_content) or status == @intFromEnum(http.Status.not_modified);
 }
 
 fn draw_body_kind(random: *Random, role: Role, defect: Defect) BodyKind {

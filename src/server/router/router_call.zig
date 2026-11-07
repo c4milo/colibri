@@ -72,7 +72,7 @@ pub const Outcome = union(enum) {
     failed: anyerror,
     /// The router answered with this status before the call: the query has more pairs than it
     /// holds, or lacks one the function requires.
-    refused: u16,
+    refused: http.Status,
     /// An `on_body` read all the bytes that arrived and returned `error.ReadFailed`: it waits for more.
     waiting,
 };
@@ -242,8 +242,8 @@ fn path_of(comptime Path: type, parameters: *const PathParameters) Path {
 }
 
 /// A status the router answers with instead of a call.
-const uri_too_long: u16 = @intFromEnum(http.status.Code.uri_too_long);
-const bad_request: u16 = @intFromEnum(http.status.Code.bad_request);
+const uri_too_long: http.Status = .uri_too_long;
+const bad_request: http.Status = .bad_request;
 
 fn query_of(comptime Query: type, raw: []const u8, query: *QueryMemory) error{ UriTooLong, BadRequest }!Query {
     if (Query == void) return {};
@@ -266,7 +266,7 @@ fn field_of(comptime field: std.builtin.Type.StructField, found: ?[]const u8) er
 }
 
 /// The status of a query the router refused.
-fn status_of(failure: error{ UriTooLong, BadRequest }) u16 {
+fn status_of(failure: error{ UriTooLong, BadRequest }) http.Status {
     return switch (failure) {
         error.UriTooLong => uri_too_long,
         error.BadRequest => bad_request,

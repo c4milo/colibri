@@ -133,7 +133,7 @@ pub const Application = struct {
 /// a hostile peer's request or connection takes nothing more, and the application stops.
 fn write_answer(endpoint: *Engine, plan: *const Plan, pending: *Answer, content: []const u8, now_ms: u64) Error!bool {
     if (pending.answered_ms == null) {
-        endpoint.respond(pending.id, .{ .status = answer_status, .end = content.len == 0 }) catch |failure| {
+        endpoint.respond(pending.id, .{ .status = @enumFromInt(answer_status), .end = content.len == 0 }) catch |failure| {
             if (failure != error.NoSpaceLeft) return give_up(plan, pending, content, now_ms);
             // `SendError.NoSpaceLeft`: the output has no room for the head, and the caller writes
             // it again once the peer has taken octets.

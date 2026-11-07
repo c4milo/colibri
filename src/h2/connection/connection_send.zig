@@ -84,7 +84,7 @@ pub fn write_response(
     const code = http.Status.from_code(status) catch return error.StatusInvalid;
     // RFC 9113 §8.1: "A HEADERS frame with the END_STREAM flag set that carries an informational
     // status code is malformed".
-    if (code.is_interim() and end_stream) return error.InterimEndsStream;
+    if (code.class() == .informational and end_stream) return error.InterimEndsStream;
     try validate_fields(fields);
     const record = try sendable(target, stream_id, .headers, end_stream);
     // RFC 9113 §8.1: one final response per request, and the peer reads a section after it as the
@@ -98,7 +98,7 @@ pub fn write_response(
     const verdict = stream.on_send(record.state, record.closed, .headers, end_stream, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .headers, end_stream);
     // RFC 9113 §8.1: zero or more interim responses precede the final one.
-    record.final_sent = !code.is_interim();
+    record.final_sent = code.class() != .informational;
     return written;
 }
 

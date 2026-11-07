@@ -98,7 +98,7 @@ pub fn main() !void {
     });
     if (!std.mem.startsWith(u8, output[0..head_len], "GET / HTTP/1.1\r\n")) return error.RequestWrong;
     const step = try client.receive("HTTP/1.1 204 No Content\r\n\r\n", &.{});
-    const status = step.event.?.response.line.status.code;
+    const status = @intFromEnum(step.event.?.response.line.status);
     if (status != 204) return error.ResponseWrong;
 
     // h2's client preface starts with the 24 octets of RFC 9113 §3.4.
@@ -139,7 +139,7 @@ pub fn main() !void {
     for (0..exchange_rounds_max) |_| {
         try serve(accepted, asked.send_stream(asked_connection, &wire, 0));
     }
-    if (get_response.result != .response or get_response.status != 204) return error.ExchangeWrong;
+    if (get_response.result != .response or get_response.status != .no_content) return error.ExchangeWrong;
 
     // `colibri` (decision 150): `init` binds 127.0.0.1 on port 0, and `port()` names the port the
     // system chose. The program does not call `run`, so it serves nothing, and `deinit` closes
@@ -204,7 +204,7 @@ fn serve(accepted: server_module.ConnectionHandle, len: usize) !void {
             continue;
         };
         switch (event) {
-            .request => |request| try engine.respond(request.id, .{ .status = 204, .end = true }),
+            .request => |request| try engine.respond(request.id, .{ .status = .no_content, .end = true }),
             .send => |connection| try send(connection),
             else => {},
         }

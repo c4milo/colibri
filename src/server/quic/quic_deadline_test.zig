@@ -3,6 +3,7 @@
 //! each at its instant and not a nanosecond before.
 const std = @import("std");
 const h3 = @import("h3");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
@@ -12,7 +13,7 @@ const Timeout = @import("../deadline.zig").Timeout;
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
 const request_timeout: u16 = 408;
 /// Rounds that carry a request to the server, and its answer back.
@@ -208,7 +209,7 @@ test "RFC 9110 §15.5.9: a request whose head is late gets a 408, the server sto
     try testing.expectEqual(null, connection.clock.timed_out);
     try connection.respond(open.id, .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
-    try testing.expectEqual(ok, open.status);
+    try testing.expectEqual(@intFromEnum(ok), open.status);
 }
 
 test "RFC 9114 §4.1.1: a late head with no record free for a response is rejected" {

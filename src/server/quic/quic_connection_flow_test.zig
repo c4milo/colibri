@@ -3,13 +3,14 @@
 //! windows a smaller receive pool sets. Split out of `quic_connection_test.zig` for length.
 const std = @import("std");
 const quic = @import("quic");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const internal = @import("quic_connection_internal.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 const trailer_fields = [_]support.Field{.{ .name = "checksum", .value = "1" }};
 
 /// A connected pair, and a request whose stream the client leaves open. Test-only.

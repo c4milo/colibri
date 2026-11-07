@@ -53,7 +53,7 @@ fn by_id(program: *Program, request: *const Request, which: RequestCall) Violati
             try program.check_deadline("set_user_data");
             break :refused if (set) |_| false else |failure| failure == error.RequestUnknown;
         },
-        .respond => program_module.unknown(try program.respond(id, .{ .status = answer_module.status, .end = true })),
+        .respond => program_module.unknown(try program.respond(id, .{ .status = @enumFromInt(answer_module.status), .end = true })),
         .write_body => program_module.unknown((try program.write_body(id, .{ .bytes = program.content[0..1], .end = true })).failure),
         .write_trailers => program_module.unknown(try program.write_trailers(id, &.{})),
         // Nothing follows: an event of the request after it is `EventAfterEnding`.

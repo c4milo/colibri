@@ -2,6 +2,7 @@
 //! writes for GET, and the connection takes the content and writes no DATA frame. The stream
 //! ends once the program ends the content.
 const std = @import("std");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 
@@ -9,7 +10,7 @@ const testing = std.testing;
 const connection = &support.connection;
 const Field = support.Field;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 const content = "hello";
 /// Where the program cuts `content` in two calls.
 const cut: usize = 3;
@@ -38,7 +39,7 @@ fn answer(fetch: *const support.Fetch, codable: bool) !void {
     try testing.expectEqual(cut, try connection.write_body(fetch.id, .{ .bytes = content[0..cut], .end = false }));
     try testing.expectEqual(content.len - cut, try connection.write_body(fetch.id, .{ .bytes = content[cut..], .end = true }));
     try support.pump(support.rounds_default);
-    try testing.expectEqual(ok, fetch.status);
+    try testing.expectEqual(@intFromEnum(ok), fetch.status);
     try testing.expectEqual(0, fetch.received_len);
     try testing.expect(fetch.ended);
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);

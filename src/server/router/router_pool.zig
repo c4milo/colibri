@@ -45,11 +45,11 @@ const branch_quota_base = 1000;
 const branch_quota_per_route = 100;
 
 /// The statuses the router answers with, with no call of a program's function.
-const not_found: u16 = @intFromEnum(http.status.Code.not_found);
-const method_not_allowed: u16 = @intFromEnum(http.status.Code.method_not_allowed);
-const content_too_large: u16 = @intFromEnum(http.status.Code.content_too_large);
-const not_implemented: u16 = @intFromEnum(http.status.Code.not_implemented);
-const service_unavailable: u16 = @intFromEnum(http.status.Code.service_unavailable);
+const not_found: http.Status = .not_found;
+const method_not_allowed: http.Status = .method_not_allowed;
+const content_too_large: http.Status = .content_too_large;
+const not_implemented: http.Status = .not_implemented;
+const service_unavailable: http.Status = .service_unavailable;
 
 /// The calls of `on_writable` one event makes while the engine takes all it is given, so a route
 /// that writes little at a time cannot hold the program's call.
@@ -378,6 +378,6 @@ fn cancel_wrapped(engine: anytype, response: *ResponseWriter) void {
 
 /// Answers a request with no entry: a head with `status`, `headers` and no content. A head the
 /// engine has no room for cancels the request, since no entry holds it.
-fn answer(engine: anytype, id: event.RequestId, status: u16, headers: []const http.Field) void {
+fn answer(engine: anytype, id: event.RequestId, status: http.Status, headers: []const http.Field) void {
     engine.respond(id, .{ .status = status, .headers = headers, .end = true }) catch engine.cancel(id);
 }

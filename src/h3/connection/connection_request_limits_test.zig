@@ -84,7 +84,7 @@ test "§4.1.2: a response stream that ends after an interim response is malforme
     try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &.{.{ ":status", "103" }}), &.{}, &writer, harness.test_now_ns);
     try server.commit(id, writer.written(), true);
     try exchange();
-    try testing.expectEqual(103, (try next(client)).?.response.response.status.code);
+    try testing.expectEqual(103, @intFromEnum((try next(client)).?.response.response.status));
     try testing.expectEqual(refused(id, constants.protocol.error_message_error), (try next(client)).?);
 }
 

@@ -205,7 +205,7 @@ pub const Endpoint = struct {
         switch (event) {
             .settings, .goaway => {},
             // The model's server answers with a final response and nothing else.
-            .response => |held| if (held.response.status.is_interim()) return error.UnexpectedEvent,
+            .response => |held| if (held.response.status.class() == .informational) return error.UnexpectedEvent,
             .end => |id| {
                 endpoint.answer_read[index_of(id)] = true;
                 endpoint.settle(id, .response);

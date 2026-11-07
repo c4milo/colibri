@@ -7,6 +7,7 @@
 //! client goes on sending what its windows allow.
 const std = @import("std");
 const quic = @import("quic");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
@@ -16,7 +17,7 @@ const Timeout = @import("../deadline.zig").Timeout;
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// Rounds that carry a request to the server, and its answer back.
 const rounds_few: usize = 2;
 /// A receive pool, and so every window the server grants, of 32,768 octets. Test-only.

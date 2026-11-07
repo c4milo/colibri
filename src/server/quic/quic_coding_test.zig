@@ -4,6 +4,7 @@
 //! every octet, or once the response is cancelled.
 const std = @import("std");
 const quic = @import("quic");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const internal = @import("quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
@@ -13,8 +14,9 @@ const testing = std.testing;
 const connection = &support.connection;
 const Field = support.Field;
 
-const early_hints: u16 = 103;
-const ok: u16 = 200;
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
+const ok: http.Status = .ok;
 const encoders_all: usize = 2;
 const accepts_gzip = [_]Field{.{ .name = "accept-encoding", .value = "gzip" }};
 

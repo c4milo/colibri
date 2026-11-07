@@ -25,7 +25,7 @@ const Field = http.Field;
 const ConnectionEvent = event.ConnectionEvent;
 const ConnectionResult = event.ConnectionResult;
 const Number = event.Number;
-const Code = http.status.Code;
+const Code = http.Status;
 
 /// The framing fields colibri adds (RFC 9112 §6.1, RFC 9110 §8.6).
 const content_length_zero: Field = .{ .name = "content-length", .value = "0" };
@@ -173,7 +173,7 @@ pub fn complete(connection: *const Connection, status: u16, fields: []const Fiel
         added_len += 1;
     }
     // RFC 7838 §3: any response may carry Alt-Svc, and the server puts it on each final one.
-    if (connection.advert.value()) |value| if (!code.is_interim()) {
+    if (connection.advert.value()) |value| if (code.class() != .informational) {
         added[added_len] = .{ .name = alt_svc.field_name, .value = value };
         added_len += 1;
     };
@@ -188,10 +188,10 @@ pub fn complete(connection: *const Connection, status: u16, fields: []const Fiel
 /// The framing field the response needs when the caller names none, or null.
 fn framing(connection: *const Connection, code: http.Status, fields: []const Field, end: bool) ?Field {
     const session = &connection.session.h11;
-    const status = code.code;
+    const status = @intFromEnum(code);
     // RFC 9112 §6.3 rules 1 and 2: an interim response, a response to HEAD, a 204 or 304, and a
     // 2xx to CONNECT have no content to frame.
-    const unframed = code.is_interim() or connection.head_request or
+    const unframed = code.class() == .informational or connection.head_request or
         status == @intFromEnum(Code.no_content) or status == @intFromEnum(Code.not_modified) or
         (session.asked == .connect and code.class() == .successful);
     if (unframed or names_framing(fields)) return null;

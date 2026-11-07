@@ -12,7 +12,7 @@ const connection = &support.connection;
 const constants = h2.constants;
 const Field = support.Field;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 const encoders_all: usize = 2;
 const accepts_deflate = [_]Field{.{ .name = "accept-encoding", .value = "deflate" }};
 const accepts_gzip = [_]Field{.{ .name = "accept-encoding", .value = "gzip" }};

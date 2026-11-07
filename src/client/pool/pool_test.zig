@@ -388,7 +388,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             try close_transport();
             try testing.expectEqual(.closed, exchange.response.result);
-            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
             try testing.expectEqual(1, count(.open));
         }
 

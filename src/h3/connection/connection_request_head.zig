@@ -32,16 +32,16 @@ pub fn on_response(connection: *Connection, transport: *QuicConnection, request:
         return refuse(connection, transport, request, message.verdict(reason));
     // §4.1: interim responses precede the final one and carry no content, so the stream stays
     // at its head.
-    if (!found.status.is_interim()) {
+    if (found.status.class() != .informational) {
         request.phase = .content;
         request.content_length = found.content_length;
         // RFC 9110 §15: any three-digit status may arrive, so it is compared, never converted.
-        const code = found.status.code;
+        const code = @intFromEnum(found.status);
         // §4.1.2: "A response that is defined as never having content, even when a
         // Content-Length is present, can have a non-zero Content-Length header field", which
         // RFC 9110 §6.4.1 says of a response to HEAD and of 204 and 304.
-        request.no_content = request.head_request or code == @intFromEnum(http.status.Code.no_content) or
-            code == @intFromEnum(http.status.Code.not_modified);
+        request.no_content = request.head_request or code == @intFromEnum(http.Status.no_content) or
+            code == @intFromEnum(http.Status.not_modified);
     }
     return .{ .event = .{ .response = .{ .stream_id = request.id, .response = found } } };
 }

@@ -3,6 +3,7 @@
 //! they read. Each test reads the server's events itself, one `receive` at a time, and moves no
 //! datagram between them.
 const std = @import("std");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const Timeout = @import("../deadline.zig").Timeout;
@@ -11,7 +12,7 @@ const testing = std.testing;
 const connection = &support.connection;
 const Field = support.Field;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// Rounds that carry a request to the server, and its answer back.
 const rounds_few: usize = 2;
 /// A client window of a tenth of a send window's quota, which a response's content passes.

@@ -326,7 +326,7 @@ test "h2: every exchange of the plan shares the connection, and content past the
     const upload = &test_client.exchanges[1];
     try testing.expectEqual(content_len, upload.response.body_sent);
     try testing.expectEqual(client_exchange.content_crc32(content_len), upload.sent_crc32());
-    try testing.expectEqual(constants.response_status, upload.response.status);
+    try testing.expectEqual(constants.response_status, @intFromEnum(upload.response.status));
     try testing.expectEqualStrings(constants.response_body, test_client.exchanges[0].response.body_received());
     // RFC 9113 §6.8: the step that writes the GOAWAY reads again after it, and reports the close,
     // so the caller closes the socket once the GOAWAY is sent.
@@ -346,7 +346,7 @@ test "h11: the exchanges go out in order, and the connection ends after the last
     try testing.expect(test_client.succeeded() and test_client.closed);
     try testing.expectEqual(client.Protocol.h11, test_client.protocol.?);
     for (test_client.exchanges_held()) |*exchange| {
-        try testing.expectEqual(constants.response_status, exchange.response.status);
+        try testing.expectEqual(constants.response_status, @intFromEnum(exchange.response.status));
     }
 }
 

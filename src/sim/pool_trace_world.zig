@@ -286,8 +286,8 @@ pub const World = struct {
         world.processed[index] += 1;
         world.processed_on[index] = socket.client;
         switch (world.plan.answers[index]) {
-            .respond => world.endpoint.respond(request.id, .{ .status = ok, .end = true }) catch return error.Refused,
-            .close => world.endpoint.respond(request.id, .{ .status = ok, .headers = &close_fields, .end = true }) catch return error.Refused,
+            .respond => world.endpoint.respond(request.id, .{ .status = @enumFromInt(ok), .end = true }) catch return error.Refused,
+            .close => world.endpoint.respond(request.id, .{ .status = @enumFromInt(ok), .headers = &close_fields, .end = true }) catch return error.Refused,
             .@"break" => {
                 // The server closes before any of the response: the pool hears the close once it
                 // read what is in flight.

@@ -422,7 +422,7 @@ const Counted = struct {
 
 /// Chooses the status after a route's error. No route of this server returns one.
 fn on_error(_: *App, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
-    response.status = 500;
+    response.status = .internal_server_error;
 }
 
 /// Sends what `connection` owes its socket, after its `send` event. A call that fills the buffer

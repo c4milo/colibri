@@ -125,8 +125,8 @@ pub const Client = struct {
         switch (event) {
             .response => |held| {
                 // An interim response comes before the final one (RFC 9114 §4.1).
-                if (held.response.status.is_interim()) return;
-                if (held.response.status.code != ok_status) return error.ResponseRefused;
+                if (held.response.status.class() == .informational) return;
+                if (@intFromEnum(held.response.status) != ok_status) return error.ResponseRefused;
             },
             .data => |held| {
                 const request = client.request_of(held.stream_id);

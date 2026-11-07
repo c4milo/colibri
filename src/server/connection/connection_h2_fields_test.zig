@@ -11,6 +11,7 @@
 //!   the count must be where `Fields.of` finds the first regular line, for every set of them.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 const internal = @import("connection_internal.zig");
@@ -19,7 +20,7 @@ const event = @import("../event.zig");
 const testing = std.testing;
 const connection = &support.connection;
 const field_count_max = h2.core.constants.limits.field_count_max;
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 
 /// One line more than a section may carry, each with a name and a value no other line has, so
 /// that a line read from the wrong place changes the octets. Test-only.
@@ -58,7 +59,7 @@ fn call_by_copy(call: Call, fields: []const support.Field) !void {
     const converted = try copy_fields(fields, &copied);
     const session = &connection.session.h2;
     connection.output_len += switch (call) {
-        .respond => try session.write_response(internal.room(connection), 1, ok, converted, true),
+        .respond => try session.write_response(internal.room(connection), 1, @intFromEnum(ok), converted, true),
         .write_trailers => try session.write_trailers(internal.room(connection), 1, converted),
     };
 }

@@ -397,7 +397,7 @@ test "RFC 9110 §9.2.2: a GET whose QUIC transport closed after a HEADERS frame 
     var exchange = get(&bodies[0]);
     _ = try pool.request(&exchange.request, &exchange.response);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(200, exchange.response.status);
+    try testing.expectEqual(200, @intFromEnum(exchange.response.status));
     pool.transport_closed(pool_support.connection_of(pool, .quic));
     try collect();
     try testing.expectEqual(.closed, exchange.response.result);

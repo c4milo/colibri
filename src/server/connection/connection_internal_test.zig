@@ -5,12 +5,13 @@
 //! storage filled with another octet.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// The streams the exchange opens: answered with a body, answered with a trailer section, and
 /// reset by the peer. Test-only.
 const stream_body: u32 = 1;

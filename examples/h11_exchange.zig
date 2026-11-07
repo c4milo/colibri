@@ -184,7 +184,7 @@ fn read_responses() !void {
         const step = try client.receive(input, &.{});
         if (step.event) |event| switch (event) {
             .response => |response| {
-                try read_status(response.line.status.code);
+                try read_status(@intFromEnum(response.line.status));
                 if (ends_with_head(response.body)) ended += 1;
             },
             .data => |data| try read_body(data),

@@ -28,7 +28,7 @@ const Request = quic_request.Request;
 const Stream = quic.Stream;
 
 /// RFC 9110 §15.2.1: 100 (Continue).
-const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");
+const continue_status: u16 = @intFromEnum(http.Status.@"continue");
 
 /// Notes the 100 (Continue) the request of `record` is owed, when its head `request` expects one.
 pub fn note(connection: *QuicConnection, record: *Request, request: event.Request) void {
@@ -61,7 +61,7 @@ pub fn write(connection: *QuicConnection, record: *Request, stream: *const Strea
         record.continue_owed = false;
         return;
     }
-    quic_connection_h3.respond(connection, record.stream_id, .{ .status = continue_status, .end = false }) catch |failure| {
+    quic_connection_h3.respond(connection, record.stream_id, .{ .status = .@"continue", .end = false }) catch |failure| {
         // RFC 9000 §3.1: the response's runs leave as the peer acknowledges them, and the 100
         // is written once one is free.
         if (failure == error.NoSpaceLeft) {

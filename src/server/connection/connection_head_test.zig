@@ -3,6 +3,7 @@
 //! Content-Length the program states goes out as the program states it.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 
@@ -11,7 +12,7 @@ const connection = &support.connection;
 const constants = h2.constants;
 const Field = support.Field;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 const content = "hello";
 /// Where the program cuts `content` in two calls.
 const cut: usize = 3;

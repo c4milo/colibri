@@ -2,16 +2,18 @@
 //! caller marks goes out coded and chunked when its request accepts a coding, and its encoder goes
 //! back to the pool once the response ends or the connection does.
 const std = @import("std");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 const Field = support.Field;
 
-const early_hints: u16 = 103;
-const ok: u16 = 200;
-const partial_content: u16 = 206;
-const not_modified: u16 = 304;
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
+const ok: http.Status = .ok;
+const partial_content: http.Status = .partial_content;
+const not_modified: http.Status = .not_modified;
 const encoders_all: usize = 2;
 
 const gzip_request = "GET / HTTP/1.1\r\nHost: a\r\nAccept-Encoding: gzip, deflate\r\n\r\n";

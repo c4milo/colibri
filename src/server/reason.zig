@@ -4,11 +4,11 @@
 const std = @import("std");
 const http = @import("http");
 
-const Code = http.status.Code;
+const Code = http.Status;
 
 /// The phrase for `status`, or an empty one for a code RFC 9110 §15 does not define.
 pub fn of(status: u16) []const u8 {
-    const code = std.enums.fromInt(Code, status) orelse return "";
+    const code: Code = @enumFromInt(status);
     return switch (code) {
         // RFC 9110 §15.2.
         .@"continue" => "Continue",
@@ -59,6 +59,7 @@ pub fn of(status: u16) []const u8 {
         .service_unavailable => "Service Unavailable",
         .gateway_timeout => "Gateway Timeout",
         .http_version_not_supported => "HTTP Version Not Supported",
+        _ => "",
     };
 }
 

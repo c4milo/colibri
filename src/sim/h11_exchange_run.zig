@@ -181,7 +181,7 @@ pub const Run = struct {
         var fields: [head_fields_max]Field = undefined;
         var count: usize = 0;
         // RFC 9112 §6.1 and RFC 9110 §8.6: a 204 carries no framing field; a 304 need not.
-        const no_content = exchange.status == @intFromEnum(http.status.Code.no_content) or exchange.status == @intFromEnum(http.status.Code.not_modified);
+        const no_content = exchange.status == @intFromEnum(http.Status.no_content) or exchange.status == @intFromEnum(http.Status.not_modified);
         if (!no_content) count += framing(exchange.response_body, exchange.response_len, &digits, fields[count..]);
         if (exchange.response_close and exchange.response_body != .close_delimited) {
             fields[count] = .{ .name = "Connection", .value = "close" };
@@ -209,7 +209,7 @@ pub const Run = struct {
         const seen = &run.response_seen[run.reading];
         switch (event) {
             .response => |response| {
-                seen.status = response.line.status.code;
+                seen.status = @intFromEnum(response.line.status);
                 // A response without a body is read whole with its head.
                 if (run.client.phase != .body) run.finish_reading();
             },

@@ -168,17 +168,17 @@ pub const Answers = struct {
     /// not keep the request's content, 413 with none (RFC 9110 §15.5.14), or 501 with none to a
     /// CONNECT.
     fn write_head(answers: *Answers, endpoint: anytype, id: server.RequestId, request: Request) server.SendError!void {
-        if (request.connect) return endpoint.respond(id, .{ .status = not_implemented_status, .end = true });
+        if (request.connect) return endpoint.respond(id, .{ .status = @enumFromInt(not_implemented_status), .end = true });
         // Decision 101: the fixed answer may be coded, and an echo goes out as it arrived.
-        const echo = answers.echo orelse return endpoint.respond(id, .{ .status = constants.response_status, .headers = &response_fields, .end = request.head, .codable = true });
-        if (echo.body_too_long) return endpoint.respond(id, .{ .status = too_large_status, .end = true });
+        const echo = answers.echo orelse return endpoint.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &response_fields, .end = request.head, .codable = true });
+        if (echo.body_too_long) return endpoint.respond(id, .{ .status = @enumFromInt(too_large_status), .end = true });
         var digits: [constants.content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{echo.written().len}) catch unreachable;
         const fields = [_]server.Header{
             .{ .name = "content-type", .value = echo_content_type },
             .{ .name = "content-length", .value = length },
         };
-        return endpoint.respond(id, .{ .status = constants.response_status, .headers = &fields, .end = request.head });
+        return endpoint.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &fields, .end = request.head });
     }
 
     fn echo_refused(answers: *const Answers) bool {

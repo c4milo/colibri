@@ -220,8 +220,8 @@ test "§4.1: interim responses come before the final one, and carry no content" 
     try server.commit(id, writer.written(), false);
     try harness.respond(id, &harness.ok_lines, "ok");
     try exchange();
-    try testing.expectEqual(103, (try next(client)).?.response.response.status.code);
-    try testing.expectEqual(200, (try next(client)).?.response.response.status.code);
+    try testing.expectEqual(103, @intFromEnum((try next(client)).?.response.response.status));
+    try testing.expectEqual(200, @intFromEnum((try next(client)).?.response.response.status));
     try testing.expectEqualStrings("ok", (try next(client)).?.data.octets);
     try testing.expectEqual(Event{ .end = id }, (try next(client)).?);
 }
@@ -234,7 +234,7 @@ test "RFC 9110 §15: a status that RFC 9110 does not name reaches the client as 
         try exchange();
         try harness.respond(id, &.{.{ ":status", text }}, "no");
         try exchange();
-        try testing.expectEqual(expected, (try next(client)).?.response.response.status.code);
+        try testing.expectEqual(expected, @intFromEnum((try next(client)).?.response.response.status));
         try testing.expectEqualStrings("no", (try next(client)).?.data.octets);
         try testing.expectEqual(Event{ .end = id }, (try next(client)).?);
     }

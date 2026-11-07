@@ -3,6 +3,7 @@
 //! connection as decision 110 says, and runs only while the connection waits on the peer.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 const deadline_support = @import("connection_deadline_test_support.zig");
@@ -136,7 +137,7 @@ test "decision 110: the idle deadline starts once the last response's octets are
 
 /// A status with content, 200 (OK), RFC 9110 §15.3.1, and the octets of a send that takes part of
 /// a response.
-const ok_status: u16 = 200;
+const ok_status: http.Status = .ok;
 const partial_len: usize = 10;
 
 test "decision 110: a later head's deadline runs from its first octet, and its end stops it" {

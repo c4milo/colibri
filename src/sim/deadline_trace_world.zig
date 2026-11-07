@@ -353,7 +353,7 @@ pub const World = struct {
         const held = world.server_connection();
         const before = held.output_len;
         const end = plan.response_body == 0;
-        world.endpoint.respond(world.request_id(index), .{ .status = ok_status, .end = end }) catch return;
+        world.endpoint.respond(world.request_id(index), .{ .status = @enumFromInt(ok_status), .end = end }) catch return;
         world.note_head_len(&world.response_head_len, held.output_len - before);
         world.resp[index] = if (end) .ended else .head;
     }

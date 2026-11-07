@@ -239,12 +239,12 @@ fn on_response(connection: *QuicConnection, head: h3.Connection.Response) void {
     // Decision 124: once a HEADERS frame arrived, the pool does not send the request again.
     slot.response_began = true;
     // RFC 9114 §4.1: a client reads any number of interim responses before the final one.
-    if (head.response.status.is_interim()) {
+    if (head.response.status.class() == .informational) {
         slot.response.interims += 1;
         return;
     }
     const section = connection.h3.field_section();
-    response_write.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
+    response_write.record_head(slot, @intFromEnum(head.response.status), section, first_regular(section)) catch |failure| {
         return refuse(connection, slot, response_write.outcome_of(failure));
     };
     // Decision 153 ruling 7: a streamed response's head is an event of its own, and its content
@@ -255,7 +255,7 @@ fn on_response(connection: *QuicConnection, head: h3.Connection.Response) void {
     }
     // RFC 9114 §4.1.1: a content that cannot fit ends its stream with H3_REQUEST_CANCELLED at the
     // head (https://github.com/c4milo/colibri/issues/106).
-    if (response_write.too_large_at_head(slot, head.response.status.code, section)) refuse(connection, slot, .too_large);
+    if (response_write.too_large_at_head(slot, @intFromEnum(head.response.status), section)) refuse(connection, slot, .too_large);
 }
 
 /// RFC 9110 §6.5.1: a trailer section's fields are kept apart from the header section, in the

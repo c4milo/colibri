@@ -3,6 +3,7 @@
 //! whose own credit holds its responses.
 const std = @import("std");
 const h3 = @import("h3");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
@@ -12,7 +13,7 @@ const Timeout = @import("../deadline.zig").Timeout;
 const testing = std.testing;
 const connection = &support.connection;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 /// Rounds that carry a request to the server, and its answer back.
 const rounds_few: usize = 2;
 /// What a window owes at the default rate, and a response's content for four windows.

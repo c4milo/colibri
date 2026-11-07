@@ -193,7 +193,7 @@ fn reading(connection: *QuicConnection, stream_id: u64) ?*Request {
 pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
     const record = try writable(connection, id);
     connection.requests.mark(record);
-    const status = response.status;
+    const status = @intFromEnum(response.status);
     // RFC 9110 §15: a status code is three digits from 100 to 599; RFC 9114 §4.5: h3 has no 101.
     if (status < status_min or status > status_max or status == switching_protocols) return error.StatusInvalid;
     // RFC 9110 §15: one final response answers a request, after any interim ones.
@@ -212,7 +212,7 @@ fn respond_planned(connection: *QuicConnection, record: *Request, response: even
 
 /// Writes `head` as the response's HEADERS frame, and records what the response owes next.
 fn send_head(connection: *QuicConnection, record: *Request, response: event.Response, head: coding_response.Head) SendError!void {
-    const status = response.status;
+    const status = @intFromEnum(response.status);
     errdefer if (head.slot) |slot| connection.config.encoders.?.give_back(slot);
     try build_section(connection, status, head.fields);
     try keep_head(connection, record, .response);
@@ -292,7 +292,7 @@ pub fn cancel(connection: *QuicConnection, id: Number) void {
 /// it. RFC 9110 §15.5.9: the server "did not receive a complete request message within the time
 /// that it was prepared to wait".
 pub fn respond_timeout(connection: *QuicConnection, id: Number) bool {
-    respond(connection, id, .{ .status = @intFromEnum(http.status.Code.request_timeout), .end = true }) catch return false;
+    respond(connection, id, .{ .status = .request_timeout, .end = true }) catch return false;
     return true;
 }
 

@@ -320,7 +320,7 @@ pub const World = struct {
     fn server_interim(world: *World, stream: u32, plan: *const Plan) void {
         const answer = world.answer_of(stream) orelse return;
         if (answer.final_sent or answer.interims == plan.interims) return;
-        world.endpoint.respond(answer.id.?, .{ .status = interim_status, .end = false }) catch {
+        world.endpoint.respond(answer.id.?, .{ .status = @enumFromInt(interim_status), .end = false }) catch {
             world.refused += 1;
             return;
         };
@@ -331,7 +331,7 @@ pub const World = struct {
     fn server_final(world: *World, target: Target) void {
         const answer = world.answer_of(target.stream) orelse return;
         if (answer.final_sent) return;
-        world.endpoint.respond(answer.id.?, .{ .status = final_status, .end = target.end }) catch {
+        world.endpoint.respond(answer.id.?, .{ .status = @enumFromInt(final_status), .end = target.end }) catch {
             world.refused += 1;
             return;
         };

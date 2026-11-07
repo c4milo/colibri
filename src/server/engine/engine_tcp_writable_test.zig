@@ -3,6 +3,7 @@
 //! once the peer's WINDOW_UPDATE opens its stream's window.
 const std = @import("std");
 const h2 = @import("h2");
+const http = @import("http");
 const support = @import("engine_tcp_test_support.zig");
 const h2_support = @import("../connection/connection_h2_test_support.zig");
 const server_constants = @import("../constants.zig");
@@ -12,7 +13,7 @@ const event = @import("../event.zig");
 const testing = std.testing;
 const engine = &support.engine;
 
-const ok: u16 = 200;
+const ok: http.Status = .ok;
 const word: usize = 0x3a7e;
 /// More content than a connection's output holds.
 const long_content: [server_constants.limits.output_len + 1]u8 = @splat('c');

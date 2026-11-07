@@ -168,7 +168,7 @@ pub const Program = struct {
         try program.called("cancel");
         request.cancel_called = true;
         const id = request.id;
-        const head = try program.respond(id, .{ .status = answer_module.status, .end = true });
+        const head = try program.respond(id, .{ .status = @enumFromInt(answer_module.status), .end = true });
         const body = try program.write_body(id, .{ .bytes = "", .end = true });
         const word = program.endpoint.set_user_data(id, request.word);
         try program.called("set_user_data");

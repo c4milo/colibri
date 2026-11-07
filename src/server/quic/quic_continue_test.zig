@@ -4,6 +4,7 @@
 const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
+const http = @import("http");
 const support = @import("quic_test_support.zig");
 const internal = @import("quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
@@ -13,10 +14,11 @@ const testing = std.testing;
 const connection = &support.connection;
 const Field = support.Field;
 
-const hundred: u16 = 100;
-const early_hints: u16 = 103;
-const ok: u16 = 200;
-const content_too_large: u16 = 413;
+const hundred: http.Status = .@"continue";
+const early_hints_code: u16 = 103;
+const early_hints: http.Status = @enumFromInt(early_hints_code);
+const ok: http.Status = .ok;
+const content_too_large: http.Status = .content_too_large;
 const expect_continue = [_]Field{.{ .name = "expect", .value = "100-continue" }};
 
 /// Moves datagrams both ways while the server reports nothing. `pump` reads every event the
@@ -80,7 +82,7 @@ test "RFC 9110 §10.1.1: an h3 request expecting 100-continue gets the 100 at th
     try connection.respond(fetch.id, .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, fetch.interims);
-    try testing.expectEqual(ok, fetch.status);
+    try testing.expectEqual(@intFromEnum(ok), fetch.status);
 }
 
 /// Rounds enough for QUIC to send a lost datagram's frames again (RFC 9002 §6.2): it takes 4.
@@ -110,7 +112,7 @@ test "RFC 9110 §10.1.1: a final response before the next call takes the place o
     try connection.respond(fetch.id, .{ .status = content_too_large, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(0, fetch.interims);
-    try testing.expectEqual(content_too_large, fetch.status);
+    try testing.expectEqual(@intFromEnum(content_too_large), fetch.status);
     try testing.expect(!connection.requests.of(fetch.id).?.continue_owed and !connection.continue_owed);
 }
 

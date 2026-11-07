@@ -145,7 +145,7 @@ fn step(program: *Program, request: *Request, random: *Random) Violation!Step {
 fn write_head(program: *Program, request: *Request) Violation!Step {
     const answer = &request.answer;
     const end = answer.content_len == 0 and !answer.trailers;
-    if (try program.respond(request.id, .{ .status = status, .end = end })) |failure| return refused(program, request, failure);
+    if (try program.respond(request.id, .{ .status = @enumFromInt(status), .end = end })) |failure| return refused(program, request, failure);
     answer.phase = if (end) .ended else if (answer.content_len == 0) .trailers else .content;
     return .more;
 }
@@ -217,7 +217,7 @@ pub fn probe(program: *Program, request: *Request) Violation!bool {
     switch (answer.phase) {
         .head => {
             const end = answer.content_len == 0 and !answer.trailers;
-            const failure = try program.respond(request.id, .{ .status = status, .end = end }) orelse return true;
+            const failure = try program.respond(request.id, .{ .status = @enumFromInt(status), .end = end }) orelse return true;
             return probe_taken(program, request, failure);
         },
         .content => {

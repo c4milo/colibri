@@ -15,7 +15,7 @@ const support = @import("test_support.zig");
 const testing = std.testing;
 
 /// RFC 9110 §15.6.1: 500 (Internal Server Error).
-const internal_server_error = 500;
+const internal_server_error: server.Status = .internal_server_error;
 /// The room of the router's one response, which holds a head and no body.
 const response_bytes = 64;
 

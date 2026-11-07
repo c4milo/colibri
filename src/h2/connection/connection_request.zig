@@ -371,13 +371,13 @@ test "§8.1: an interim response is not a trailer section, and the final respons
     const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // RFC 9113 §8.1: any number of interim responses may precede the final one.
     const first = (try feed_response(sent.stream_id, "103", false)).?;
-    try testing.expect(first.response.response.status.is_interim());
+    try testing.expect(first.response.response.status.class() == .informational);
     const second = (try feed_response(sent.stream_id, "100", false)).?;
-    try testing.expect(second.response.response.status.is_interim());
+    try testing.expect(second.response.response.status.class() == .informational);
     // The section after the interim ones is the response, not a trailer section.
     const final = (try feed_response(sent.stream_id, "200", false)).?;
-    try testing.expect(!final.response.response.status.is_interim());
-    try testing.expectEqual(200, final.response.response.status.code);
+    try testing.expect(final.response.response.status.class() != .informational);
+    try testing.expectEqual(200, @intFromEnum(final.response.response.status));
 }
 
 test "§8.1: the trailer section is the one after the final response" {

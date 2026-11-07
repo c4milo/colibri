@@ -218,7 +218,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(whole.len, taken.consumed);
             try testing.expectEqual(&exchange.response, taken.event.?.finished.response);
             try testing.expectEqual(.response, exchange.response.result);
-            try testing.expectEqual(ok, exchange.response.status);
+            try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
         }
 
         test "decision 124: receive takes an h2 frame of the largest size from stream_input_len_min octets" {
