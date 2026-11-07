@@ -33,7 +33,7 @@ const header_frames = @import("connection_headers.zig");
 
 const Connection = connection.Connection;
 const Event = connection.Event;
-const Error = connection.Error;
+const Error = connection.Connection.Error;
 const Stream = streams_table.Stream;
 
 /// What the table and the state machine say about the stream a frame names.

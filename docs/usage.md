@@ -1738,8 +1738,8 @@ current one is written. When `receive` fails, `has_pending` says colibri owes an
 `write_pending` writes it, and the connection then closes (decision 92). `should_close` says when
 to close the transport, and `transport_closed` reports what a close cut short.
 
-Over TLS, call `attach_tls` once the handshake completes, and pass every record through
-`h11.connection_tls`'s `decrypt` and `encrypt`.
+Over TLS, call `attach_tls` once the handshake completes, and pass every record through the
+connection's `decrypt` and `encrypt`.
 
 ### The gzip and deflate transfer codings
 

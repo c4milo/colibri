@@ -36,62 +36,15 @@ const connection_tls = @import("connection_tls.zig");
 
 pub const Role = enum { server, client };
 
-/// A request head a server read. Its field lines are in `Connection.section` until the next call.
-pub const Request = struct {
-    line: message.RequestLine,
-    form: message.Form,
-    body: message.Body,
-};
-
 /// A response head a client read. Its field lines are in `Connection.section` until the next call.
 pub const Response = struct {
     line: message.StatusLine,
     body: message.Body,
 };
 
-pub const Event = union(enum) {
-    /// A request head, at a server.
-    request: Request,
-    /// An interim response (1xx) to the oldest outstanding request, at a client (RFC 9112 §9.2).
-    interim: message.StatusLine,
-    /// A final response to the oldest outstanding request, at a client.
-    response: Response,
-    /// Body octets: a slice of the caller's input valid until the next call, or, for a body
-    /// carrying `gzip` or `deflate`, a slice of the `decoded` buffer passed to `receive`.
-    data: []const u8,
-    /// The body ended. A chunked body's trailer fields are in `Connection.trailers`.
-    end,
-    /// Octets of a tunnel after a 2xx to CONNECT (RFC 9112 §6.3 rule 2), a slice of the input.
-    tunnel: []const u8,
-};
-
 pub const Received = struct {
     consumed: usize,
-    event: ?Event,
-};
-
-/// The connection failed: the peer sent what h11 refuses. `failure` names why, a server owes the
-/// error response `write_pending` writes, and the caller closes the transport after it.
-pub const Error = error{ConnectionFailed};
-
-pub const SendError = message.WriteError || connection_body.WriteError || error{
-    /// The connection has failed or closed, or the last request carried `Connection: close`.
-    ConnectionClosed,
-    /// A server has no request to answer, or has already answered it.
-    NoRequest,
-    /// A body is being written, and the next head follows it (RFC 9112 §9.3.2).
-    BodyInProgress,
-    /// No body is being written.
-    NoBody,
-    /// `pipeline_depth_max` requests are outstanding.
-    PipelineFull,
-    /// Decision 88 forbids pipelining this request now.
-    PipelineBlocked,
-    /// An upgrade, which h11 does not implement: a server's 101 Switching Protocols, or a client's
-    /// request carrying Upgrade (decision 109).
-    UpgradeUnsupported,
-    /// More field lines than `field_count_max`, with the one colibri adds.
-    TooManyFields,
+    event: ?Connection.Event,
 };
 
 /// Where the reading of the connection stands.
@@ -113,16 +66,6 @@ pub const Outstanding = struct {
     asked: message.Asked,
     /// RFC 9110 §9.2.2: a method whose repeat has the same effect as one request.
     idempotent: bool,
-};
-
-pub const Options = struct {
-    /// A client connection opened to retry requests an earlier one left unanswered: it sends one
-    /// request and waits for its response before pipelining (RFC 9112 §9.3.2).
-    retrying: bool = false,
-    /// The decoders of the `gzip` and `deflate` transfer codings, in a pool the caller places and
-    /// may share among connections (decision 91). With none, a server answers such a request 501
-    /// and a client offers neither coding, so it refuses a response in one (RFC 9112 §7.4).
-    decoders: ?coding.Storage = null,
 };
 
 /// What the transport's close meant (RFC 9112 §8).
@@ -185,6 +128,73 @@ pub const Connection = struct {
     decoders: ?coding.Storage,
     /// The decoding of the body being read, when it carries `gzip` or `deflate`.
     decoding: coding.Decoding,
+
+    pub const Options = struct {
+        /// A client connection opened to retry requests an earlier one left unanswered: it sends
+        /// one request and waits for its response before pipelining (RFC 9112 §9.3.2).
+        retrying: bool = false,
+        /// The decoders of the `gzip` and `deflate` transfer codings, in a pool the caller places
+        /// and may share among connections (decision 91). With none, a server answers such a
+        /// request 501 and a client offers neither coding, so it refuses a response in one (RFC
+        /// 9112 §7.4).
+        decoders: ?coding.Storage = null,
+    };
+
+    /// The connection failed: the peer sent what h11 refuses. `failure` names why, a server owes
+    /// the error response `write_pending` writes, and the caller closes the transport after it.
+    pub const Error = error{ConnectionFailed};
+
+    pub const Event = union(enum) {
+        /// A request head, at a server.
+        request: Request,
+        /// An interim response (1xx) to the oldest outstanding request, at a client (RFC 9112
+        /// §9.2).
+        interim: message.StatusLine,
+        /// A final response to the oldest outstanding request, at a client.
+        response: Response,
+        /// Body octets: a slice of the caller's input valid until the next call, or, for a body
+        /// carrying `gzip` or `deflate`, a slice of the `decoded` buffer passed to `receive`.
+        data: []const u8,
+        /// The body ended. A chunked body's trailer fields are in `Connection.trailers`.
+        end,
+        /// Octets of a tunnel after a 2xx to CONNECT (RFC 9112 §6.3 rule 2), a slice of the input.
+        tunnel: []const u8,
+    };
+
+    /// A request head a server read. Its field lines are in `Connection.section` until the next
+    /// call.
+    pub const Request = struct {
+        line: message.RequestLine,
+        form: message.Form,
+        body: message.Body,
+    };
+
+    pub const SendError = message.WriteError || connection_body.WriteError || error{
+        /// The connection has failed or closed, or the last request carried `Connection: close`.
+        ConnectionClosed,
+        /// A server has no request to answer, or has already answered it.
+        NoRequest,
+        /// A body is being written, and the next head follows it (RFC 9112 §9.3.2).
+        BodyInProgress,
+        /// No body is being written.
+        NoBody,
+        /// `pipeline_depth_max` requests are outstanding.
+        PipelineFull,
+        /// Decision 88 forbids pipelining this request now.
+        PipelineBlocked,
+        /// An upgrade, which h11 does not implement: a server's 101 Switching Protocols, or a
+        /// client's request carrying Upgrade (decision 109).
+        UpgradeUnsupported,
+        /// More field lines than `field_count_max`, with the one colibri adds.
+        TooManyFields,
+    };
+
+    // The record calls of a connection over TLS, which `connection_tls.zig` holds (decision 158
+    // ruling 8).
+    pub const RecordError = connection_tls.RecordError;
+    pub const decrypt = connection_tls.decrypt;
+    pub const encrypt = connection_tls.encrypt;
+    pub const close_notify = connection_tls.close_notify;
 
     pub fn init(connection: *Connection, role: Role, options: Options) void {
         connection.role = role;
@@ -351,7 +361,7 @@ pub fn begin_decoding(connection: *Connection, body: message.Body) (coding.Error
     // RFC 9112 §6.1: a server answers a coding it does not decode 501, and RFC 9112 §7.4: a
     // client that sent no TE accepts chunked alone.
     const storage = connection.decoders orelse return error.CodingUndecoded;
-    try coding.start(&connection.decoding, storage, body.coding);
+    try connection.decoding.start(storage, body.coding);
 }
 
 /// Reads body octets from `input`, decoding them into `decoded` when the body carries a
@@ -367,7 +377,7 @@ pub fn read_body(connection: *Connection, role: message.Role, input: []const u8,
 
 /// Gives back the decoder of a body that will not be read to its end.
 pub fn release_decoding(connection: *Connection) void {
-    coding.release(&connection.decoding, connection.decoders);
+    connection.decoding.release(connection.decoders);
 }
 
 /// Whether a Connection field line of `section` carries the "close" option (RFC 9110 §7.6.1).
@@ -398,9 +408,12 @@ pub fn is_idempotent(method: []const u8) bool {
 }
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
+    // Decision 158 ruling 8 folds the namespaces `connection` and `connection_tls` into the type.
     try @import("core").public_names.expect(Connection, &.{
-        "init",          "attach_tls",   "receive",          "write_request", "write_response",
-        "write_body",    "count_body",   "write_chunk_head", "write_end",     "has_pending",
-        "write_pending", "should_close", "transport_closed", "fail",
+        "Options",      "Error",            "Event",         "Request",        "SendError",
+        "RecordError",  "decrypt",          "encrypt",       "close_notify",   "init",
+        "attach_tls",   "receive",          "write_request", "write_response", "write_body",
+        "count_body",   "write_chunk_head", "write_end",     "has_pending",    "write_pending",
+        "should_close", "transport_closed", "fail",
     });
 }

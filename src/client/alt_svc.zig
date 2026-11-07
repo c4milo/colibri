@@ -37,7 +37,7 @@ pub const delta_seconds_max: u64 = 2_147_483_648;
 pub fn from_section(section: *const http.FieldSection, first: u32, host: []const u8) ?Advert {
     assert(first <= section.len());
     var advert: ?Advert = null;
-    var iterator: http.field_section.Iterator = .{ .section = section, .index = first };
+    var iterator: http.FieldSection.Iterator = .{ .section = section, .index = first };
     // Bounded: the section holds `len()` lines.
     for (0..section.len()) |_| {
         const line = iterator.next() orelse break;

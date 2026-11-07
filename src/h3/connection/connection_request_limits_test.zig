@@ -10,7 +10,7 @@ const connection_module = @import("connection.zig");
 const harness = @import("connection_test.zig");
 
 const Writer = core.Writer;
-const Event = connection_module.Event;
+const Event = connection_module.Connection.Event;
 const Line = harness.Line;
 const testing = std.testing;
 

@@ -24,20 +24,8 @@ const files = struct {
 
 pub const Connection = files.connection.Connection;
 
-pub const frame_write = struct {
+pub const frame = struct {
     pub const write_header = files.frame_write.write_header;
-};
-
-pub const connection = struct {
-    pub const Data = files.connection.Data;
-    pub const Ended = files.connection.Ended;
-    pub const Error = files.connection.Error;
-    pub const Event = files.connection.Event;
-    pub const HeadWait = files.connection.HeadWait;
-    pub const Options = files.connection.Options;
-    pub const Request = files.connection.Request;
-    pub const Response = files.connection.Response;
-    pub const SendError = files.connection.SendError;
 };
 
 pub const message = struct {
@@ -47,9 +35,9 @@ pub const message = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",       "wire",      "http",       "qpack",
-        "quic",       "constants", "Connection", "frame_write",
-        "connection", "message",
+        "core",    "wire",      "http",       "qpack",
+        "quic",    "constants", "Connection", "frame",
+        "message",
     });
 }
 

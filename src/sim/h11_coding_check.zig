@@ -150,7 +150,7 @@ fn start(storage: *Storage) Violation!void {
     pool.reset(coding.Features.none());
     storage.holder = .{};
     // RFC 9110 §15.6.4: the exhausted defect finds the pool's one decoder taken.
-    if (storage.plan.defect == .exhausted) coding.start(&storage.holder, pool, .gzip) catch unreachable;
+    if (storage.plan.defect == .exhausted) storage.holder.start(pool, .gzip) catch unreachable;
     storage.seen = @splat(.{});
     switch (storage.plan.role) {
         .server => storage.connection.init(.server, .{ .decoders = pool }),
@@ -206,7 +206,7 @@ const Run = struct {
         return error.OutcomeUnexpected;
     }
 
-    fn on_event(run: *Run, event: h11.connection.Event) Violation!void {
+    fn on_event(run: *Run, event: h11.Connection.Event) Violation!void {
         switch (event) {
             .request, .response => run.heads += 1,
             .data => |data| {
@@ -241,12 +241,12 @@ fn check_outcome(storage: *Storage, run: *const Run) Violation!void {
         if (seen.len != body.len or seen.crc32.final() != std.hash.Crc32.hash(body)) return error.BodyDiffers;
     }
     const pool = storage.pool.storage();
-    coding.release(&storage.holder, pool);
+    storage.holder.release(pool);
     // Every run gives its decoder back: the pool's one decoder can be taken again.
     if (storage.connection.decoding.active()) return error.OutcomeUnexpected;
     var probe: coding.Decoding = .{};
-    coding.start(&probe, pool, .gzip) catch return error.OutcomeUnexpected;
-    coding.release(&probe, pool);
+    probe.start(pool, .gzip) catch return error.OutcomeUnexpected;
+    probe.release(pool);
 }
 
 /// A server owes the status decision 91 gives the defect, and a client failed on it.

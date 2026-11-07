@@ -197,7 +197,7 @@ pub fn measure_server_tls(storage: *Storage) !Cost {
     var record: [constants.cost_check_buffer_len]u8 = undefined;
     const record_len = try sim.null_provider.write_application_record(&record, octets);
     var plaintext: [constants.cost_check_buffer_len]u8 = undefined;
-    const opened = try h2.connection_tls.decrypt(&storage.connection, record[0..record_len], &plaintext, 0);
+    const opened = try h2.Connection.decrypt(&storage.connection, record[0..record_len], &plaintext, 0);
     cost.provider_calls += 1;
     @memcpy(storage.input[0..opened.plaintext_len], plaintext[0..opened.plaintext_len]);
     try drive(storage, storage.input[0..opened.plaintext_len], &cost);
@@ -205,7 +205,7 @@ pub fn measure_server_tls(storage: *Storage) !Cost {
     cost.write_calls += 1;
     cost.octets_out += @intCast(written);
     // The response leaves as one record, which is one more crossing of the vtable.
-    _ = try h2.connection_tls.encrypt(&storage.connection, storage.output[0..written], &record, 0);
+    _ = try h2.Connection.encrypt(&storage.connection, storage.output[0..written], &record, 0);
     cost.provider_calls += 1;
     return cost;
 }

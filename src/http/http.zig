@@ -40,11 +40,6 @@ pub const field = struct {
     pub const validate_value = files.field.validate_value;
 };
 
-pub const field_section = struct {
-    pub const AppendError = files.field_section.AppendError;
-    pub const Iterator = files.field_section.Iterator;
-};
-
 pub const connection_specific = struct {
     pub const classify = files.connection_specific.classify;
     pub const te_is_trailers = files.connection_specific.te_is_trailers;
@@ -84,41 +79,45 @@ pub const uri = struct {
     pub const is_origin_form = files.uri.is_origin_form;
     pub const is_port = files.uri.is_port;
     pub const split_host_port = files.uri.split_host_port;
-};
-
-pub const uri_percent = struct {
     pub const decoded_at = files.uri_percent.decoded_at;
     pub const encoded_len = files.uri_percent.encoded_len;
-};
-
-pub const uri_query = struct {
-    pub const ReadError = files.uri_query.ReadError;
 };
 
 pub const content_coding = struct {
     pub const Acceptance = files.content_coding.Acceptance;
     pub const Coding = files.content_coding.Coding;
     pub const from_name = files.content_coding.from_name;
-    pub const read_accept = files.content_coding.read_accept;
     pub const weight_max = files.content_coding.weight_max;
 };
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",                "constants",       "FieldSection", "Field",
-        "Status",              "QueryParameters", "field",        "field_section",
-        "connection_specific", "method",          "status",       "content_length",
-        "message_lines",       "message_request", "uri",          "uri_percent",
-        "uri_query",           "content_coding",
+        "core",            "constants",       "FieldSection",   "Field",
+        "Status",          "QueryParameters", "field",          "connection_specific",
+        "method",          "status",          "content_length", "message_lines",
+        "message_request", "uri",             "content_coding",
     });
 }
 
 test "decision 158: a field section is emptied by init alone" {
-    try core.public_names.expect(FieldSection, &.{ "init", "len", "append", "extend_last", "get", "iterator", "find" });
+    // Decision 158 ruling 6 adds `AppendError` and `Iterator`, which `append` and `iterator`
+    // return.
+    try core.public_names.expect(FieldSection, &.{
+        "AppendError", "Iterator", "init", "len", "append", "extend_last", "get", "iterator", "find",
+    });
 }
 
 test "decision 122: the method namespace exports the type the router's table names" {
     try core.public_names.expect(method, &.{ "Standard", "standard", "validate" });
+}
+
+test "decision 158: a public path follows the concept, not the file" {
+    try core.public_names.expect(uri, &.{
+        "absolute_uri", "is_host",         "is_host_port", "is_origin_form",
+        "is_port",      "split_host_port", "decoded_at",   "encoded_len",
+    });
+    try core.public_names.expect(content_coding, &.{ "Acceptance", "Coding", "from_name", "weight_max" });
+    try core.public_names.expect(content_coding.Acceptance, &.{ "read", "weight_of", "choose" });
 }
 
 test {

@@ -24,7 +24,7 @@ const connection_qlog = @import("connection_qlog.zig");
 const Reader = core.Reader;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
-const Error = connection_module.Error;
+const Error = connection_module.Connection.Error;
 const StreamId = quic.stream.StreamId;
 const StreamProvider = quic.stream.StreamProvider;
 const QuicConnection = quic.Connection;
@@ -195,7 +195,7 @@ pub fn commit_encoder(connection: *Connection, transport: *QuicConnection, writt
 }
 
 /// Writes a GOAWAY frame (RFC 9114 §5.2, §7.2.6).
-pub fn write_goaway(connection: *Connection, transport: *QuicConnection) connection_module.SendError!void {
+pub fn write_goaway(connection: *Connection, transport: *QuicConnection) connection_module.Connection.SendError!void {
     const local = &connection.local;
     // RFC 9114 §7.2.6: "The GOAWAY frame is always sent on the control stream", which `start`
     // opens.

@@ -44,19 +44,19 @@ fn start_tls(server_protocols: []const []const u8, client_protocols: []const []c
 }
 
 /// The h2 peer reads what the server opened, and answers stream 1 with `content`.
-fn peer_h2_answer(content: []const u8) !?h2.connection.Request {
+fn peer_h2_answer(content: []const u8) !?h2.Connection.Request {
     return peer_h2_answer_with(&.{}, content);
 }
 
 /// `peer_h2_answer`, with `fields` in the response's header section.
-fn peer_h2_answer_with(fields: []const h2.hpack.Field, content: []const u8) !?h2.connection.Request {
+fn peer_h2_answer_with(fields: []const h2.hpack.Field, content: []const u8) !?h2.Connection.Request {
     return peer_h2_answer_after("", fields, content);
 }
 
 /// `peer_h2_answer_with`, with the frames `before` written ahead of the response.
-fn peer_h2_answer_after(before: []const u8, fields: []const h2.hpack.Field, content: []const u8) !?h2.connection.Request {
+fn peer_h2_answer_after(before: []const u8, fields: []const h2.hpack.Field, content: []const u8) !?h2.Connection.Request {
     var consumed: usize = 0;
-    var request: ?h2.connection.Request = null;
+    var request: ?h2.Connection.Request = null;
     for (0..tls_support.peer_plain_len + 1) |_| {
         const received = try support.peer_h2.receive(peer_plain[consumed..tls_support.peer_plain_len], support.now_ns);
         if (received.consumed == 0) break;

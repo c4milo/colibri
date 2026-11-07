@@ -186,7 +186,7 @@ pub fn decode_server(octets: []const u8) Error!void {
     if (connection.transport_closed().incomplete) return error.Truncated;
 }
 
-fn serve(reader: *core.Reader) h11.connection.Error!void {
+fn serve(reader: *core.Reader) h11.Connection.Error!void {
     // Every pass consumes an octet or ends a request, and a request takes at least one octet, so
     // n octets take at most 2n passes, and one more finds them short.
     for (0..passes_per_octet * reader.remaining_len() + 1) |_| {

@@ -215,7 +215,7 @@ pub const QuicServer = struct {
 
     /// A request's head arrived: the server rejects it unprocessed, or processes it and answers
     /// or resets it once due.
-    fn take(server: *QuicServer, held: h3.connection.Request, plan: *const Plan, ledger: *Ledger, now_ns: u64) !void {
+    fn take(server: *QuicServer, held: h3.Connection.Request, plan: *const Plan, ledger: *Ledger, now_ns: u64) !void {
         const index = ledger_module.exchange_of(held.request.path orelse "") orelse return;
         if (server.requests_len == server.requests.len) return error.TooManyRequests;
         const answer = plan.quic_answers[index];

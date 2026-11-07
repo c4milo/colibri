@@ -17,7 +17,7 @@ const Reader = core.Reader;
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
 const Connection = connection_module.Connection;
-const Event = connection_module.Event;
+const Event = connection_module.Connection.Event;
 const StreamId = quic.stream.StreamId;
 const testing = std.testing;
 
@@ -120,7 +120,7 @@ fn parameters() quic.transport_parameters.Parameters {
     return granted;
 }
 
-fn open(endpoint: *Endpoint, role: connection_module.Role, options: connection_module.Options) void {
+fn open(endpoint: *Endpoint, role: connection_module.Role, options: connection_module.Connection.Options) void {
     endpoint.transport.init(.{
         .role = if (role == .client) .client else .server,
         .local_parameters = parameters(),
@@ -135,14 +135,14 @@ fn open(endpoint: *Endpoint, role: connection_module.Role, options: connection_m
 }
 
 /// Two endpoints whose QUIC connections are past the handshake, with h3 not started.
-pub fn pair_unstarted(client_options: connection_module.Options, server_options: connection_module.Options) void {
+pub fn pair_unstarted(client_options: connection_module.Connection.Options, server_options: connection_module.Connection.Options) void {
     open(&client, .client, client_options);
     open(&server, .server, server_options);
     packet_number = 0;
 }
 
 /// Two endpoints with h3 started on each, and the SETTINGS frames exchanged and read.
-pub fn pair(client_options: connection_module.Options, server_options: connection_module.Options) !void {
+pub fn pair(client_options: connection_module.Connection.Options, server_options: connection_module.Connection.Options) !void {
     pair_unstarted(client_options, server_options);
     try client.h3.start(&client.transport, test_now_ns);
     try server.h3.start(&server.transport, test_now_ns);

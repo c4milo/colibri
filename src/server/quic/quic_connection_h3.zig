@@ -66,7 +66,7 @@ pub fn read_event(connection: *QuicConnection, now_ns: u64) quic_connection.Erro
 }
 
 /// The server's event for h3's, or null for one the caller does not see.
-fn report(connection: *QuicConnection, h3_event: h3.connection.Event) ?event.ConnectionEvent {
+fn report(connection: *QuicConnection, h3_event: h3.Connection.Event) ?event.ConnectionEvent {
     return switch (h3_event) {
         .request => |arrived| on_request(connection, arrived),
         .data => |data| on_data(connection, data),
@@ -83,7 +83,7 @@ fn report(connection: *QuicConnection, h3_event: h3.connection.Event) ?event.Con
     };
 }
 
-fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?event.ConnectionEvent {
+fn on_request(connection: *QuicConnection, arrived: h3.Connection.Request) ?event.ConnectionEvent {
     quic_deadline.on_request(connection);
     const record = connection.requests.take(arrived.stream_id) orelse {
         // RFC 9114 §4.1.1: a request cancelled "without performing any application processing"
@@ -121,7 +121,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
 }
 
 /// RFC 9114 §7.2.1: a DATA frame's data is the request's content, which the body's rate counts.
-fn on_data(connection: *QuicConnection, data: h3.connection.Data) ?event.ConnectionEvent {
+fn on_data(connection: *QuicConnection, data: h3.Connection.Data) ?event.ConnectionEvent {
     const record = reading(connection, data.stream_id) orelse return null;
     quic_body.count(connection, record, data.octets.len);
     return .{ .body = .{ .id = event.id_of(data.stream_id), .bytes = data.octets, .end = false } };
@@ -386,7 +386,7 @@ fn keep_head(connection: *QuicConnection, record: *Request, kind: enum { respons
     pieces.add_kept(writer.written().len);
 }
 
-fn head_error(connection: *QuicConnection, failure: h3.connection.SendError, empty: bool) SendError {
+fn head_error(connection: *QuicConnection, failure: h3.Connection.SendError, empty: bool) SendError {
     return switch (failure) {
         // A section that does not fit the room an empty response keeps never will.
         error.NoSpaceLeft => if (empty) error.SectionTooLarge else error.NoSpaceLeft,

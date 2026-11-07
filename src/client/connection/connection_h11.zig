@@ -76,7 +76,7 @@ fn note_arrival(connection: *Connection, left: usize) void {
 
 /// Records what h11's event means for the exchange it answers. Returns whether the caller is owed
 /// an event, which `Connection.receive` reports before reading on.
-fn record(connection: *Connection, h11_event: h11.connection.Event, now_ns: u64) bool {
+fn record(connection: *Connection, h11_event: h11.Connection.Event, now_ns: u64) bool {
     // RFC 9112 §9.2: a response answers the oldest request awaiting one, and h11 refuses one that
     // arrives with none outstanding, so an exchange awaits it.
     const slot = connection.slots.oldest_awaiting().?;
@@ -341,7 +341,7 @@ fn write_head(connection: *Connection, slot: *Slot) bool {
 }
 
 /// What a refused head means for its exchange. Returns whether the exchange was settled.
-fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendError) bool {
+fn refused(connection: *Connection, slot: *Slot, failure: h11.Connection.SendError) bool {
     switch (failure) {
         // RFC 9112 §9.3.2: decision 88 holds the request back until the ones before it are
         // answered, or the pipeline is full.

@@ -60,7 +60,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8) Error!ConnectionR
     return .{ .consumed = consumed, .event = null };
 }
 
-fn report(connection: *Connection, h11_event: h11.connection.Event) ConnectionEvent {
+fn report(connection: *Connection, h11_event: h11.Connection.Event) ConnectionEvent {
     const session = &connection.session.h11;
     const id = event.id_of(connection.current_id);
     return switch (h11_event) {
@@ -76,7 +76,7 @@ fn report(connection: *Connection, h11_event: h11.connection.Event) ConnectionEv
     };
 }
 
-fn start_request(connection: *Connection, request: h11.connection.Request) ConnectionEvent {
+fn start_request(connection: *Connection, request: h11.Connection.Request) ConnectionEvent {
     const session = &connection.session.h11;
     connection.current_id = connection.next_id;
     connection.next_id += 1;
@@ -109,7 +109,7 @@ const Target = struct {
 };
 
 /// The parts of the target URI (RFC 9112 §3.3), from the request-target's form (§3.2).
-fn target_of(request: h11.connection.Request, section: *const http.FieldSection, secure: bool) Target {
+fn target_of(request: h11.Connection.Request, section: *const http.FieldSection, secure: bool) Target {
     const target = request.line.target;
     const host = if (section.find("host")) |line| line.value else null;
     return switch (request.form) {
@@ -280,7 +280,7 @@ fn check_current(connection: *const Connection, id: Number) SendError!void {
     if (id == 0 or id != connection.current_id) return error.RequestUnknown;
 }
 
-fn send_error(connection: *const Connection, failure: h11.connection.SendError) SendError {
+fn send_error(connection: *const Connection, failure: h11.Connection.SendError) SendError {
     return switch (failure) {
         // A head that does not fit an empty output never will.
         error.OutputTooSmall => if (connection.output_len == 0) error.SectionTooLarge else error.NoSpaceLeft,

@@ -243,7 +243,7 @@ pub const Peer = struct {
     }
 
     /// Keeps what an h3 event says, and returns the octets of content it carried.
-    fn note_event(peer: *Peer, reported: h3.connection.Event, now_ms: u64) usize {
+    fn note_event(peer: *Peer, reported: h3.Connection.Event, now_ms: u64) usize {
         switch (reported) {
             .response => |head| peer.note_response(head.stream_id, head.response.status, now_ms),
             .data => |data| {

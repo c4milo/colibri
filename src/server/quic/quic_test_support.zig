@@ -424,7 +424,7 @@ pub fn client_read() !void {
     }
 }
 
-fn client_record(read: h3.connection.Event) void {
+fn client_record(read: h3.Connection.Event) void {
     switch (read) {
         .response => |head| if (fetch_of(head.stream_id)) |fetch| {
             if (head.response.status.is_interim()) fetch.interims += 1 else note_final(fetch, head.response.status.code);

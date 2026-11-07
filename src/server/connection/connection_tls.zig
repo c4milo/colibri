@@ -24,7 +24,7 @@ const Protocol = event.Protocol;
 const Protocols = @import("../protocols.zig").Protocols;
 
 /// Why a record did not open or go out, in either protocol. Both name the same five.
-const RecordError = h2.connection_tls.RecordError || h11.connection_tls.RecordError;
+const RecordError = h2.Connection.RecordError || h11.Connection.RecordError;
 
 /// Runs the handshake over what the transport read. Once it completes, the protocol ALPN selected
 /// takes the session, and the rest of `input` is read as its records.
@@ -169,8 +169,8 @@ const Opened = struct {
 
 fn decrypt(connection: *Connection, input: []const u8, plaintext: []u8, now_ns: u64) RecordError!Opened {
     return switch (connection.session) {
-        .h2 => |*session| opened(try h2.connection_tls.decrypt(session, input, plaintext, now_ns)),
-        .h11 => |*session| opened(try h11.connection_tls.decrypt(session, input, plaintext)),
+        .h2 => |*session| opened(try h2.Connection.decrypt(session, input, plaintext, now_ns)),
+        .h11 => |*session| opened(try h11.Connection.decrypt(session, input, plaintext)),
         // Records open only once the protocol took the handshake's provider.
         .none => unreachable,
     };
@@ -186,16 +186,16 @@ fn opened(decrypted: anytype) Opened {
 
 fn encrypt(connection: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls_provider.provider.Sealed {
     return switch (connection.session) {
-        .h2 => |*session| h2.connection_tls.encrypt(session, plaintext, output, now_ns),
-        .h11 => |*session| h11.connection_tls.encrypt(session, plaintext, output, now_ns),
+        .h2 => |*session| h2.Connection.encrypt(session, plaintext, output, now_ns),
+        .h11 => |*session| h11.Connection.encrypt(session, plaintext, output, now_ns),
         .none => unreachable,
     };
 }
 
 fn close_notify(connection: *Connection, output: []u8) RecordError!usize {
     return switch (connection.session) {
-        .h2 => |*session| h2.connection_tls.close_notify(session, output),
-        .h11 => |*session| h11.connection_tls.close_notify(session, output),
+        .h2 => |*session| h2.Connection.close_notify(session, output),
+        .h11 => |*session| h11.Connection.close_notify(session, output),
         .none => unreachable,
     };
 }

@@ -47,7 +47,7 @@ const router_trie = @import("router_trie.zig");
 const router_trie_layout = @import("router_trie_layout.zig");
 const router_path = @import("router_path.zig");
 const router_allow = @import("router_allow.zig");
-const percent = @import("http").uri_percent;
+const percent = @import("http").uri;
 
 /// The octet that starts a percent-encoded octet (RFC 3986 §2.1).
 const percent_sign = '%';

@@ -13,7 +13,7 @@ const message_write_test = @import("../message/message_write_test.zig");
 
 const testing = std.testing;
 const Connection = connection.Connection;
-const SendError = connection.SendError;
+const SendError = connection.Connection.SendError;
 const Field = http.Field;
 const Code = http.status.Code;
 const message_reference = message_write_test.reference;

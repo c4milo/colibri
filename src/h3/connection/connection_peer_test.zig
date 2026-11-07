@@ -8,7 +8,7 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const harness = @import("connection_test.zig");
 
-const Event = connection_module.Event;
+const Event = connection_module.Connection.Event;
 const StreamId = quic.stream.StreamId;
 const testing = std.testing;
 

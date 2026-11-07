@@ -138,12 +138,12 @@ test "decision 101: with every decoder taken, the client offers nothing" {
     try support.start_coding(.h11);
     const storage = support.pool.storage();
     var taken: [decoders_all]h11.coding.Decoding = @splat(.{});
-    for (&taken) |*decoding| try testing.expect(h11.coding.reserve(decoding, storage));
+    for (&taken) |*decoding| try testing.expect(decoding.reserve(storage));
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &body } };
     _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     try testing.expect(!sent("Accept-Encoding"));
-    for (&taken) |*decoding| h11.coding.release(decoding, storage);
+    for (&taken) |*decoding| decoding.release(storage);
 }
 
 test "RFC 9110 §9.3.2: a response to HEAD names a coding it carries no content in, and decodes nothing" {

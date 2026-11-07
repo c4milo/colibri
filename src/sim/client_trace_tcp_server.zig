@@ -200,7 +200,7 @@ pub const TcpServer = struct {
         ledger.request_ended(request.exchange, with_trailers);
     }
 
-    fn take_request(server: *TcpServer, held: h2.connection.Request, plan: *const Plan, ledger: *Ledger, now_ns: u64) !void {
+    fn take_request(server: *TcpServer, held: h2.Connection.Request, plan: *const Plan, ledger: *Ledger, now_ns: u64) !void {
         const index = ledger_module.exchange_of(held.request.path orelse "") orelse return;
         if (server.requests_len == server.requests.len) return error.TooManyRequests;
         const answer = plan.tcp_answers[index];

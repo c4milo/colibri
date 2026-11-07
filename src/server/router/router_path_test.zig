@@ -6,7 +6,7 @@ const core = @import("core");
 const constants = @import("../constants.zig");
 const router_pattern = @import("router_pattern.zig");
 const router_path = @import("router_path.zig");
-const percent = @import("http").uri_percent;
+const percent = @import("http").uri;
 
 const testing = std.testing;
 const query_start = '?';

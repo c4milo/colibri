@@ -346,7 +346,7 @@ pub fn give_back(slot: *Slot) void {
     slot.zstd.release();
     slot.br.release();
     const storage = slot.decoders orelse return;
-    h11.coding.release(&slot.decoding, storage);
+    slot.decoding.release(storage);
     slot.decoders = null;
     assert(!slot.decoding.holds());
 }

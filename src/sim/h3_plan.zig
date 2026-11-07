@@ -65,8 +65,8 @@ pub const Shape = struct {
 };
 
 pub const Plan = struct {
-    client: h3.connection.Options,
-    server: h3.connection.Options,
+    client: h3.Connection.Options,
+    server: h3.Connection.Options,
     exchanges: [constants.h3_long_check_requests_max]Exchange,
     len: u32,
     /// The values the seed drew, which the lines point into.

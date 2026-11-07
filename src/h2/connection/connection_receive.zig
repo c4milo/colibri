@@ -28,8 +28,8 @@ const stream_frames = @import("connection_stream.zig");
 const connection_altsvc = @import("connection_altsvc.zig");
 
 const Connection = connection.Connection;
-const Received = connection.Received;
-const Error = connection.Error;
+const Received = connection.Connection.Received;
+const Error = connection.Connection.Error;
 const Reader = core.Reader;
 
 /// Consumes at most one whole frame of `input`. See `connection.zig` for what a count of 0 means.

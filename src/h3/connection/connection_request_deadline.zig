@@ -100,7 +100,7 @@ fn open_short_of_head(frame: []const u8) !u64 {
 }
 
 /// What the server reads at `now_ns`. Test-only.
-fn server_reads(now_ns: u64) !?connection_module.Event {
+fn server_reads(now_ns: u64) !?connection_module.Connection.Event {
     try harness.transfer(client, server);
     return server.h3.receive(&server.transport, &server.body, now_ns);
 }

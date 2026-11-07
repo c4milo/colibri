@@ -31,7 +31,7 @@ const StreamId = quic.stream.StreamId;
 const QuicConnection = quic.Connection;
 const Indexing = qpack.Encoder.Indexing;
 
-pub const Error = core.Writer.Error || connection_module.Error || error{
+pub const Error = core.Writer.Error || connection_module.Connection.Error || error{
     /// `start` has not opened colibri's control stream.
     NotStarted,
     /// The peer sent a GOAWAY, after which "Endpoints MUST NOT initiate new requests" (RFC 9114

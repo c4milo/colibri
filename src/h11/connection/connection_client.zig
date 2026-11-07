@@ -46,7 +46,7 @@ const te_fields = [_]Field{
 };
 
 /// Writes a request head and puts the request at the back of the queue.
-pub fn write_request(target: *Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field) connection.SendError!usize {
+pub fn write_request(target: *Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field) connection.Connection.SendError!usize {
     // RFC 9112 §9.6: a client that sent the close option sends no further request.
     if (target.phase == .closed or target.failure != null or target.close_sent) return error.ConnectionClosed;
     // RFC 9112 §9.3.2: requests go out in order, so a body is finished before the next head.
@@ -77,7 +77,7 @@ fn names_upgrade(fields: []const Field) bool {
 }
 
 /// The request head, with TE when the connection has decoders to offer (decision 91).
-fn write_head(target: *const Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field, checked: *const message.Checked) connection.SendError!usize {
+fn write_head(target: *const Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field, checked: *const message.Checked) connection.Connection.SendError!usize {
     if (target.decoders == null) return message.write_request_head_checked(output, method, target_uri, fields, checked);
     var with_te: [core.constants.limits.field_count_max]Field = undefined;
     // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
@@ -90,7 +90,7 @@ fn write_head(target: *const Connection, output: []u8, method: []const u8, targe
 }
 
 /// Decision 88: whether another request may follow those outstanding (RFC 9112 §9.3.2).
-fn check_pipelining(target: *const Connection) connection.SendError!void {
+fn check_pipelining(target: *const Connection) connection.Connection.SendError!void {
     // RFC 9112 §9.3.2: after a failed connection, a client MUST NOT pipeline immediately.
     if (target.retrying) return error.PipelineBlocked;
     for (0..target.outstanding_len) |offset| {
@@ -100,7 +100,7 @@ fn check_pipelining(target: *const Connection) connection.SendError!void {
     }
 }
 
-pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
+pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection.Connection.Error!Received {
     return switch (target.phase) {
         .closed => .{ .consumed = 0, .event = null },
         .tunnel => .{ .consumed = input.len, .event = if (input.len == 0) null else .{ .tunnel = input } },
@@ -110,7 +110,7 @@ pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection
     };
 }
 
-fn read_response(target: *Connection, input: []const u8) connection.Error!Received {
+fn read_response(target: *Connection, input: []const u8) connection.Connection.Error!Received {
     if (target.outstanding_len == 0) return read_unrequested(target, input);
     const oldest = at(target, 0);
     const read = message.read_response(&target.scanner, oldest.asked, input, &target.section) catch |failure| {
@@ -146,7 +146,7 @@ fn read_response(target: *Connection, input: []const u8) connection.Error!Receiv
 }
 
 /// Octets that arrived with no request outstanding (RFC 9112 §9.2).
-fn read_unrequested(target: *Connection, input: []const u8) connection.Error!Received {
+fn read_unrequested(target: *Connection, input: []const u8) connection.Connection.Error!Received {
     if (input.len == 0) return .{ .consumed = 0, .event = null };
     // RFC 9112 §2.2 and §9.2: CRLF alone may be discarded; anything else is no valid response.
     if (std.mem.startsWith(u8, input, line_end)) return .{ .consumed = line_end.len, .event = null };
@@ -155,7 +155,7 @@ fn read_unrequested(target: *Connection, input: []const u8) connection.Error!Rec
     return target.fail(error.ResponseUnexpected, null);
 }
 
-fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
+fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Connection.Error!Received {
     const read = connection.read_body(target, .response, input, decoded) catch |failure| {
         return target.fail(failure, null);
     };

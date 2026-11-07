@@ -8,7 +8,7 @@ const settings = @import("../settings.zig");
 const connection_module = @import("connection.zig");
 
 const Connection = connection_module.Connection;
-const Error = connection_module.Error;
+const Error = connection_module.Connection.Error;
 const Limit = connection_module.Limit;
 const Writer = @import("core").Writer;
 

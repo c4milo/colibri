@@ -224,7 +224,7 @@ fn shut_down(connection: *QuicConnection, passed: Timeout, now_ns: u64) void {
 }
 
 /// The request stream that has waited longest for its head, once h3 runs.
-fn head_wait(connection: *QuicConnection) ?h3.connection.HeadWait {
+fn head_wait(connection: *QuicConnection) ?h3.Connection.HeadWait {
     if (!connection.started) return null;
     return connection.h3.oldest_head_wait();
 }

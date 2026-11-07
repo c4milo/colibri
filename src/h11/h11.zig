@@ -55,33 +55,18 @@ pub const coding = struct {
     pub const Progress = files.coding.Progress;
     pub const Slot = files.coding.Slot;
     pub const Storage = files.coding.Storage;
-    pub const begin = files.coding.begin;
-    pub const decode = files.coding.decode;
-    pub const finish = files.coding.finish;
-    pub const release = files.coding.release;
-    pub const reserve = files.coding.reserve;
-    pub const start = files.coding.start;
-};
-
-pub const connection = struct {
-    pub const Error = files.connection.Error;
-    pub const Event = files.connection.Event;
-    pub const Request = files.connection.Request;
-    pub const SendError = files.connection.SendError;
-};
-
-pub const connection_tls = struct {
-    pub const RecordError = files.connection_tls.RecordError;
-    pub const close_notify = files.connection_tls.close_notify;
-    pub const decrypt = files.connection_tls.decrypt;
-    pub const encrypt = files.connection_tls.encrypt;
 };
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",           "http",    "constants", "Connection",
-        "message",        "chunked", "coding",    "connection",
-        "connection_tls",
+        "core",    "http",    "constants", "Connection",
+        "message", "chunked", "coding",
+    });
+}
+
+test "decision 158: the calls of a decoding are declarations of Decoding" {
+    try core.public_names.expect(coding.Decoding, &.{
+        "start", "reserve", "begin", "decode", "finish", "release", "active", "holds",
     });
 }
 

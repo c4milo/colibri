@@ -416,7 +416,7 @@ fn note_head(messages: *Messages, stream_id: u32, end_stream: bool, plan: *const
     messages.ended[index] = end_stream;
 }
 
-fn note_data(messages: *Messages, data: h2.connection.Data, plan: *const Plan) Error!void {
+fn note_data(messages: *Messages, data: h2.Connection.Data, plan: *const Plan) Error!void {
     const index = try index_of(data.stream_id, plan);
     if (!messages.head_read[index] or messages.ended[index]) return error.EventUnexpected;
     messages.read[index] += @intCast(data.payload.len);

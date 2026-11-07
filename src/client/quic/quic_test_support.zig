@@ -338,7 +338,7 @@ fn server_read() !void {
 }
 
 /// Records what one h3 event of the server says about the request it names.
-fn take_event(got: h3.connection.Event) void {
+fn take_event(got: h3.Connection.Event) void {
     switch (got) {
         .request => |held| {
             const answer = &answers[answers_len];

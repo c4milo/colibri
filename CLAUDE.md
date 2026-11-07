@@ -131,6 +131,12 @@ code that serves it.
   make a method of an exported type `pub` to call it from another file. A type the root does not
   export, such as the connection an endpoint's slot holds, has no program's calls: its `pub`
   methods are the calls its module's other files make.
+- **A type may hold a declaration alias of a call in another file** (decision 158 ruling 8). The
+  alias names a function of another file of the module, as in
+  `pub const decrypt = connection_tls.decrypt;`. A program then calls `connection.decrypt(...)`,
+  and each file stays under 500 lines. The alias is a call a program makes, so it goes on the
+  type's list. A call that only the module's own files make stays a free function, and the root
+  does not export its file.
 - **A check calls what a program calls.** The simulator, the corpus and `src/testing/` use the
   public API. A check that must read what a program does not reads a field, or the root exports
   that one name with a comment that says which check calls it.

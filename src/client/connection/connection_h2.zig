@@ -106,7 +106,7 @@ fn record(connection: *Connection, h2_event: h2.Event) bool {
 /// RFC 7838 §4: "Receiving an ALTSVC frame is semantically equivalent to receiving an Alt-Svc
 /// header field" for the origin of its stream, or, on stream 0, for the origin it names. The
 /// client keeps what it says as it keeps a response's Alt-Svc lines, and owes no event for it.
-fn on_alt_svc(connection: *Connection, advertised: h2.connection.AltSvc) bool {
+fn on_alt_svc(connection: *Connection, advertised: h2.Connection.AltSvc) bool {
     // RFC 9114 §3.1.2: h3 cannot reach an "http" origin, which a cleartext connection serves.
     if (connection.config.tls == null) return false;
     const on_connection = advertised.stream_id == h2.constants.protocol.connection_stream_id;
@@ -118,7 +118,7 @@ fn on_alt_svc(connection: *Connection, advertised: h2.connection.AltSvc) bool {
     return false;
 }
 
-fn on_response(connection: *Connection, head: h2.connection.Response) bool {
+fn on_response(connection: *Connection, head: h2.Connection.Response) bool {
     const slot = connection.slots.of_stream(head.stream_id) orelse return false;
     // RFC 9110 §15.2: a client reads any number of interim responses before the final one.
     if (head.response.status.is_interim()) {
@@ -152,7 +152,7 @@ fn on_trailers(connection: *Connection, stream_id: u32) bool {
     return finish(connection, slot);
 }
 
-fn on_data(connection: *Connection, data: h2.connection.Data) bool {
+fn on_data(connection: *Connection, data: h2.Connection.Data) bool {
     const slot = connection.slots.of_stream(data.stream_id) orelse return false;
     if (slot.request.streamed.response) return on_piece(connection, slot, data);
     response_write.append_body(slot, data.payload) catch |failure| return refuse(connection, slot, response_write.outcome_of(failure));
@@ -162,7 +162,7 @@ fn on_data(connection: *Connection, data: h2.connection.Data) bool {
 
 /// A DATA frame of a streamed response: its payload is the next piece, and what does not fit
 /// `Response.body` is the tail, after which END_STREAM ends the response (decision 153 ruling 7).
-fn on_piece(connection: *Connection, slot: *Slot, data: h2.connection.Data) bool {
+fn on_piece(connection: *Connection, slot: *Slot, data: h2.Connection.Data) bool {
     if (data.payload.len == 0) return data.end_stream and finish(connection, slot);
     const tail_len = connection_body.hold(connection, slot, data.payload);
     connection.tail.ends = data.end_stream;
@@ -171,7 +171,7 @@ fn on_piece(connection: *Connection, slot: *Slot, data: h2.connection.Data) bool
     return true;
 }
 
-fn on_reset(connection: *Connection, reset: h2.connection.StreamReset) bool {
+fn on_reset(connection: *Connection, reset: h2.Connection.StreamReset) bool {
     const slot = connection.slots.of_stream(reset.stream_id) orelse return false;
     // RFC 9113 §8.7: REFUSED_STREAM says the server processed none of the request, which may then
     // be sent again.
@@ -302,7 +302,7 @@ fn write_trailers(connection: *Connection, slot: *Slot) void {
 fn open(connection: *Connection, slot: *Slot) bool {
     const request = slot.request;
     var lines: [constants.limits.request_fields_max]h2.hpack.Field = undefined;
-    var indexing: [constants.limits.request_fields_max]h2.connection.RequestIndexing = undefined;
+    var indexing: [constants.limits.request_fields_max]h2.Connection.RequestIndexing = undefined;
     var digits: [constants.limits.content_length_digits_max]u8 = undefined;
     var offer: [coding.offer_len_max]u8 = undefined;
     const fields = request_fields(connection, slot, &lines, &indexing, &digits, &offer) orelse {
@@ -339,7 +339,7 @@ fn open(connection: *Connection, slot: *Slot) bool {
 }
 
 /// What a refused head means for its exchange. Returns whether the next exchange may be written.
-fn refused(connection: *Connection, slot: *Slot, failure: h2.connection.RequestError) bool {
+fn refused(connection: *Connection, slot: *Slot, failure: h2.Connection.RequestError) bool {
     switch (failure) {
         // RFC 9113 §5.1.2: the server's limit, or colibri's slots, are taken: the exchange waits.
         error.PeerLimitReached, error.Full => return false,
@@ -372,7 +372,7 @@ fn request_fields(
     connection: *const Connection,
     slot: *Slot,
     lines: *[constants.limits.request_fields_max]h2.hpack.Field,
-    indexing: *[constants.limits.request_fields_max]h2.connection.RequestIndexing,
+    indexing: *[constants.limits.request_fields_max]h2.Connection.RequestIndexing,
     digits: *[constants.limits.content_length_digits_max]u8,
     offer: *[coding.offer_len_max]u8,
 ) ?[]const h2.hpack.Field {

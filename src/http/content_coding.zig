@@ -52,6 +52,25 @@ pub const Acceptance = struct {
     weights: std.EnumArray(Coding, ?Weight) = .initFill(null),
     star: ?Weight = null,
 
+    /// Reads one Accept-Encoding field line's value into `acceptance`. Several lines are one list
+    /// (RFC 9110 §5.3), read in order, and the first weight a coding gets is the one it keeps.
+    pub fn read(acceptance: *Acceptance, value: []const u8) Error!void {
+        var reader = core.Reader.init(value);
+        // Bounded: each pass reads an element or an empty one's comma.
+        for (0..value.len + 1) |_| {
+            skip_whitespace(&reader);
+            if (reader.remaining_len() == 0) return;
+            // RFC 9110 §5.6.1.2: a recipient ignores empty list elements.
+            if (take(&reader, ',')) continue;
+            try read_element(acceptance, &reader);
+            skip_whitespace(&reader);
+            if (reader.remaining_len() == 0) return;
+            // RFC 9110 §5.6.1: a comma separates the list's elements.
+            if (!take(&reader, ',')) return error.AcceptEncodingInvalid;
+        }
+        unreachable;
+    }
+
     /// The weight `coding` has: its own, else that of "*", else 0. RFC 9110 §12.5.3: a coding the
     /// field lists "is acceptable unless it is accompanied by a qvalue of 0", and "*" "matches any
     /// available content coding not explicitly listed".
@@ -82,25 +101,6 @@ pub const Error = error{
     /// The value breaks RFC 9110 §12.5.3's grammar, or a qvalue §12.4.2's.
     AcceptEncodingInvalid,
 };
-
-/// Reads one Accept-Encoding field line's value into `acceptance`. Several lines are one list (RFC
-/// 9110 §5.3), read in order, and the first weight a coding gets is the one it keeps.
-pub fn read_accept(acceptance: *Acceptance, value: []const u8) Error!void {
-    var reader = core.Reader.init(value);
-    // Bounded: each pass reads an element or an empty one's comma.
-    for (0..value.len + 1) |_| {
-        skip_whitespace(&reader);
-        if (reader.remaining_len() == 0) return;
-        // RFC 9110 §5.6.1.2: a recipient ignores empty list elements.
-        if (take(&reader, ',')) continue;
-        try read_element(acceptance, &reader);
-        skip_whitespace(&reader);
-        if (reader.remaining_len() == 0) return;
-        // RFC 9110 §5.6.1: a comma separates the list's elements.
-        if (!take(&reader, ',')) return error.AcceptEncodingInvalid;
-    }
-    unreachable;
-}
 
 /// Reads `codings [ weight ]` (RFC 9110 §12.5.3).
 fn read_element(acceptance: *Acceptance, reader: *core.Reader) Error!void {
@@ -141,7 +141,7 @@ fn read_qvalue(reader: *core.Reader) Error!Weight {
     if (!take(reader, '.')) return integral;
     const weight = integral + read_decimals(reader);
     // RFC 9110 §12.4.2: 1 takes only zeros after the point. A fourth digit, which a sender "MUST
-    // NOT generate", is left unread, and `read_accept` refuses it as no comma (§5.6.1).
+    // NOT generate", is left unread, and `Acceptance.read` refuses it as no comma (§5.6.1).
     if (weight > weight_max) return error.AcceptEncodingInvalid;
     return weight;
 }
@@ -189,7 +189,7 @@ const testing = std.testing;
 
 fn accept(value: []const u8) !Acceptance {
     var acceptance: Acceptance = .{};
-    try read_accept(&acceptance, value);
+    try acceptance.read(value);
     return acceptance;
 }
 

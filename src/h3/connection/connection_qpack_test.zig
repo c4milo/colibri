@@ -10,7 +10,7 @@ const connection_module = @import("connection.zig");
 const connection_local = @import("connection_local.zig");
 const harness = @import("connection_test.zig");
 
-const Event = connection_module.Event;
+const Event = connection_module.Connection.Event;
 const Line = harness.Line;
 const testing = std.testing;
 
@@ -22,7 +22,7 @@ const next = harness.next;
 /// A client whose decoder allows a table and blocked streams, so the server's encoder uses them.
 const table_capacity: u64 = 4096;
 const table_blocked_streams: u64 = 16;
-const table_client: connection_module.Options = .{ .role = .client, .qpack = .{ .max_table_capacity = table_capacity, .blocked_streams = table_blocked_streams } };
+const table_client: connection_module.Connection.Options = .{ .role = .client, .qpack = .{ .max_table_capacity = table_capacity, .blocked_streams = table_blocked_streams } };
 
 /// A response with a line the static table lacks, which the encoder inserts.
 const custom_lines = [_]Line{ .{ ":status", "200" }, .{ "x-custom", "value-that-repeats" } };

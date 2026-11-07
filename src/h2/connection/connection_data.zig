@@ -22,7 +22,7 @@ const stream_frames = @import("connection_stream.zig");
 
 const Connection = connection.Connection;
 const Event = connection.Event;
-const Error = connection.Error;
+const Error = connection.Connection.Error;
 const Stream = streams_table.Stream;
 
 /// Reads one DATA frame.

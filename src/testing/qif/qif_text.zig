@@ -13,7 +13,7 @@ const qpack = @import("qpack");
 const Writer = core.Writer;
 const FieldSection = qpack.http.FieldSection;
 
-pub const Error = qpack.http.field_section.AppendError || error{
+pub const Error = qpack.http.FieldSection.AppendError || error{
     /// A line with no TAB between a name and a value.
     LineMalformed,
     /// A name or value longer than a field section holds (`field_name_len_max`,

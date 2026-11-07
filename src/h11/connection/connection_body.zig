@@ -88,12 +88,12 @@ pub fn read_coded(
     const run = try read(reader, role, input, trailers);
     if (run.data.len == 0) {
         // RFC 9112 §6.3 and decision 91: the body ended, and its coded stream must end with it.
-        if (run.ended) try coding.finish(decoding, storage);
+        if (run.ended) try decoding.finish(storage);
         return run;
     }
     // A read that returns data returns nothing after it (`chunked.Decoder.decode`).
     assert(!run.ended);
-    const progress = try coding.decode(decoding, storage, run.data, decoded);
+    const progress = try decoding.decode(storage, run.data, decoded);
     const left = run.data.len - progress.consumed;
     give_back(reader, left);
     var written = core.Reader.init(decoded);

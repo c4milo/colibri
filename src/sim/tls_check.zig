@@ -180,7 +180,7 @@ fn open_records(storage: *Storage, pending_len_in: usize, held_len_in: usize) Vi
     var held_len = held_len_in;
     // The loop is bounded by the records the pending octets can hold (non-negotiable 4).
     for (0..constants.tls_check_records_max + 1) |_| {
-        const opened = h2.connection_tls.decrypt(
+        const opened = h2.Connection.decrypt(
             &storage.connection,
             storage.pending[0..pending_len],
             &storage.plaintext,

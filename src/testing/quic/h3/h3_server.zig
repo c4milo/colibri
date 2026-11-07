@@ -32,7 +32,7 @@ const qpack_settings: h3.qpack.Decoder.Settings = .{
     .blocked_streams = constants.h3_qpack_blocked_streams,
 };
 
-pub const Error = h3.connection.SendError || quic.connection_stream_send.Error || h3.http.field_section.AppendError;
+pub const Error = h3.Connection.SendError || quic.connection_stream_send.Error || h3.http.FieldSection.AppendError;
 
 /// What a response's content is read from.
 const Content = union(enum) {
@@ -115,7 +115,7 @@ pub const Server = struct {
         std.debug.print("quic-udp: h3 closed the connection with 0x{x}\n", .{server.failure.?});
     }
 
-    fn on_event(server: *Server, transport: *quic.Connection, event: h3.connection.Event, now_ns: u64) Error!void {
+    fn on_event(server: *Server, transport: *quic.Connection, event: h3.Connection.Event, now_ns: u64) Error!void {
         switch (event) {
             .request => |held| {
                 server.take(held.stream_id, held.request);

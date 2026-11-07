@@ -29,8 +29,8 @@ fn get(body: []u8) Exchange {
 }
 
 /// The request the h2 peer read last. Test-only.
-fn peer_request() ?h2.connection.Request {
-    var found: ?h2.connection.Request = null;
+fn peer_request() ?h2.Connection.Request {
+    var found: ?h2.Connection.Request = null;
     for (support.peer_events[0..support.peer_events_len]) |peer_event| {
         if (peer_event == .request) found = peer_event.request;
     }

@@ -39,7 +39,7 @@ fn get(body: []u8) Exchange {
 }
 
 /// The first stream reset the h2 peer read, or null. Test-only.
-fn peer_reset() ?h2.connection.StreamReset {
+fn peer_reset() ?h2.Connection.StreamReset {
     for (support.peer_events[0..support.peer_events_len]) |peer_event| {
         if (peer_event == .stream_reset) return peer_event.stream_reset;
     }

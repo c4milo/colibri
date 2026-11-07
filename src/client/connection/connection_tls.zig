@@ -23,7 +23,7 @@ const Connection = connection_module.Connection;
 const Protocol = event.Protocol;
 
 /// Why a record did not open or go out, in either protocol. Both name the same five.
-const RecordError = h2.connection_tls.RecordError || h11.connection_tls.RecordError;
+const RecordError = h2.Connection.RecordError || h11.Connection.RecordError;
 
 /// Runs the handshake over what the transport read, and returns the octets taken. Once it
 /// completes, the protocol ALPN selected takes the session, and the rest of `input` is read as its
@@ -256,11 +256,11 @@ pub fn seal_content(connection: *Connection, content: []const u8, output: []u8, 
 
 /// Seals an h2 DATA frame's `head` and the caller's `data` as one run of plaintext, with no copy
 /// into the connection's output (decision 139). `send_content` sized the frame by
-/// `h2.connection_tls.writable_len`, so it fits. A record that fails ends the connection, and the
+/// `h2.Connection.writable_len`, so it fits. A record that fails ends the connection, and the
 /// alert the provider owes is written in place of the frame.
 pub fn seal_frame(connection: *Connection, head: []const u8, data: []const u8, output: []u8, now_ns: u64) usize {
     assert(connection.output_len == 0);
-    return h2.connection_tls.encrypt_parts(&connection.session.h2, head, data, output) catch |failure| switch (failure) {
+    return h2.Connection.encrypt_parts(&connection.session.h2, head, data, output) catch |failure| switch (failure) {
         // RFC 9846 §6: no data goes out after a failure, and `seal` writes the alert.
         error.TlsFailed => {
             internal.fail(connection);
@@ -280,8 +280,8 @@ const Opened = struct {
 
 fn decrypt(connection: *Connection, input: []const u8, plaintext: []u8, now_ns: u64) RecordError!Opened {
     return switch (connection.session) {
-        .h2 => |*session| opened(try h2.connection_tls.decrypt(session, input, plaintext, now_ns)),
-        .h11 => |*session| opened(try h11.connection_tls.decrypt(session, input, plaintext)),
+        .h2 => |*session| opened(try h2.Connection.decrypt(session, input, plaintext, now_ns)),
+        .h11 => |*session| opened(try h11.Connection.decrypt(session, input, plaintext)),
         // Records open only once the protocol took the handshake's provider.
         .none => unreachable,
     };
@@ -297,16 +297,16 @@ fn opened(decrypted: anytype) Opened {
 
 fn encrypt(connection: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls_provider.provider.Sealed {
     return switch (connection.session) {
-        .h2 => |*session| h2.connection_tls.encrypt(session, plaintext, output, now_ns),
-        .h11 => |*session| h11.connection_tls.encrypt(session, plaintext, output, now_ns),
+        .h2 => |*session| h2.Connection.encrypt(session, plaintext, output, now_ns),
+        .h11 => |*session| h11.Connection.encrypt(session, plaintext, output, now_ns),
         .none => unreachable,
     };
 }
 
 fn close_notify(connection: *Connection, output: []u8) RecordError!usize {
     return switch (connection.session) {
-        .h2 => |*session| h2.connection_tls.close_notify(session, output),
-        .h11 => |*session| h11.connection_tls.close_notify(session, output),
+        .h2 => |*session| h2.Connection.close_notify(session, output),
+        .h11 => |*session| h11.Connection.close_notify(session, output),
         .none => unreachable,
     };
 }

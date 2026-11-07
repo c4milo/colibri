@@ -24,7 +24,7 @@ const FieldSection = h3.http.FieldSection;
 const Plan = h3_plan.Plan;
 const constants = sim.constants;
 
-pub const Error = quic_endpoint.Error || h3.connection.SendError || h3.http.field_section.AppendError || error{
+pub const Error = quic_endpoint.Error || h3.Connection.SendError || h3.http.FieldSection.AppendError || error{
     /// A field section, content octet, trailer section or end differed from the plan's.
     MessageMismatch,
     /// An event the plan does not produce: a reset, a refusal or a GOAWAY.
@@ -197,7 +197,7 @@ pub const Endpoint = struct {
         try quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len(), true);
     }
 
-    fn on_event(endpoint: *Endpoint, event: h3.connection.Event) Error!void {
+    fn on_event(endpoint: *Endpoint, event: h3.Connection.Event) Error!void {
         switch (event) {
             .settings => {},
             .request => |held| {

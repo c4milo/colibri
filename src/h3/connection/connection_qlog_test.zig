@@ -111,7 +111,7 @@ test "a GOAWAY is logged where it is written and where it is read" {
     // RFC 9114 §5.2: a server that took no request names stream 0.
     try expect_record(&server_log, "\"name\":\"http3:frame_created\",\"data\":{\"stream_id\":3,\"frame\":{\"frame_type\":\"goaway\",\"id\":0,\"raw\":{\"payload_length\":1}}}}");
     try harness.exchange();
-    try testing.expectEqual(connection_module.Event{ .goaway = 0 }, (try harness.next(client)).?);
+    try testing.expectEqual(connection_module.Connection.Event{ .goaway = 0 }, (try harness.next(client)).?);
     try expect_record(&client_log, "\"name\":\"http3:frame_parsed\",\"data\":{\"stream_id\":3,\"frame\":{\"frame_type\":\"goaway\",\"id\":0,\"raw\":{\"payload_length\":1}}}}");
 }
 

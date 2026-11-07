@@ -106,7 +106,7 @@ fn reserve(slot: *Slot, pools: Pools, coding: Coding) bool {
         .gzip, .deflate => {
             if (slot.decoders != null) return true;
             const storage = pools.deflate.?;
-            if (!h11.coding.reserve(&slot.decoding, storage)) return false;
+            if (!slot.decoding.reserve(storage)) return false;
             slot.decoders = storage;
             return true;
         },
@@ -163,7 +163,7 @@ pub fn begin(slot: *Slot, status: u16, section: *const FieldSection, first: u32)
     const coding = decodable(slot, status, section, first) orelse return slots_module.give_back(slot);
     switch (coding) {
         .gzip, .deflate => {
-            h11.coding.begin(&slot.decoding, slot.decoders.?, if (coding == .gzip) .gzip else .deflate);
+            slot.decoding.begin(slot.decoders.?, if (coding == .gzip) .gzip else .deflate);
             slot.zstd.release();
             slot.br.release();
         },
@@ -183,7 +183,7 @@ pub fn begin(slot: *Slot, status: u16, section: *const FieldSection, first: u32)
 
 fn give_back_deflate(slot: *Slot) void {
     const storage = slot.decoders orelse return;
-    h11.coding.release(&slot.decoding, storage);
+    slot.decoding.release(storage);
     slot.decoders = null;
 }
 
@@ -194,7 +194,7 @@ fn decodable(slot: *const Slot, status: u16, section: *const FieldSection, first
     // not decode alone.
     if (status == partial_content) return null;
     var named: ?Coding = null;
-    var lines: http.field_section.Iterator = .{ .section = section, .index = first };
+    var lines: http.FieldSection.Iterator = .{ .section = section, .index = first };
     // Bounded by the section's lines.
     for (0..section.len()) |_| {
         const line = lines.next() orelse break;
@@ -247,7 +247,7 @@ pub fn decode(slot: *Slot, octets: []const u8) Error!void {
 /// One call into the decoder the slot's response took.
 fn step(slot: *Slot, input: []const u8, output: []u8) Error!h11.coding.Progress {
     if (slot.decoding.active()) {
-        return h11.coding.decode(&slot.decoding, slot.decoders.?, input, output) catch {
+        return slot.decoding.decode(slot.decoders.?, input, output) catch {
             // RFC 1950 §2.2, RFC 1951 §3.2 and RFC 1952 §2.3: content that breaks its coding's
             // format fails the response (decision 101).
             return error.CodingCorrupt;
@@ -273,7 +273,7 @@ pub fn end(slot: *Slot) Error!void {
         slot.decoders = null;
         // RFC 1950 §2.2 and RFC 1952 §2.3: a stream ends with its checksum, so content that ends
         // before it is corrupt.
-        h11.coding.finish(&slot.decoding, storage) catch return error.CodingCorrupt;
+        slot.decoding.finish(storage) catch return error.CodingCorrupt;
         return;
     }
     if (slot.zstd.active) return slot.zstd.finish();

@@ -32,7 +32,7 @@ const status_fields_too_large: u16 = 431;
 /// The field line colibri adds to the last response on a connection (RFC 9112 §9.6).
 const close_field: Field = .{ .name = "Connection", .value = "close" };
 
-pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
+pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection.Connection.Error!Received {
     return switch (target.phase) {
         .closed, .waiting => .{ .consumed = 0, .event = null },
         .tunnel => .{ .consumed = input.len, .event = if (input.len == 0) null else .{ .tunnel = input } },
@@ -41,7 +41,7 @@ pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection
     };
 }
 
-fn read_request(target: *Connection, input: []const u8) connection.Error!Received {
+fn read_request(target: *Connection, input: []const u8) connection.Connection.Error!Received {
     const read = message.read_request(&target.scanner, input, &target.section) catch |failure| {
         return target.fail(failure, status_of(failure));
     };
@@ -66,7 +66,7 @@ fn read_request(target: *Connection, input: []const u8) connection.Error!Receive
     } } };
 }
 
-fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
+fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Connection.Error!Received {
     const read = connection.read_body(target, .request, input, decoded) catch |failure| {
         return target.fail(failure, status_of(failure));
     };
@@ -82,7 +82,7 @@ fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.E
 /// Writes a response head to the request read last. An interim response (1xx) may come first;
 /// the final one decides how the body is framed (RFC 9112 §6.3), and the connection's last final
 /// response carries `Connection: close` (RFC 9112 §9.6).
-pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []const u8, fields: []const Field) connection.SendError!usize {
+pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []const u8, fields: []const Field) connection.Connection.SendError!usize {
     // RFC 9112 §9.6: a server that closes the connection sends nothing after its last response.
     if (target.phase == .closed or target.failure != null) return error.ConnectionClosed;
     // RFC 9112 §9.2: each response answers the request read last, and one final response does.
@@ -112,7 +112,7 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
 
 /// What a final response to CONNECT decides besides its framing (decision 109): a 2xx opens the
 /// tunnel and names no framing field, and any other status ends the connection.
-fn answer_connect(target: *Connection, code: http.Status, checked: *const message.Checked) connection.SendError!void {
+fn answer_connect(target: *Connection, code: http.Status, checked: *const message.Checked) connection.Connection.SendError!void {
     assert(target.asked == .connect and !code.is_interim());
     if (code.class() != .successful) {
         // RFC 9931 §8: a server that refuses a CONNECT closes the connection and processes no
@@ -138,7 +138,7 @@ fn response_body(target: *const Connection, code: http.Status, checked: *const m
 
 /// The final head, with `Connection: close` added when the connection closes after it and the
 /// fields do not say so already (RFC 9112 §9.6).
-fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const message.Checked) connection.SendError!usize {
+fn write_final_head(close_after: bool, output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const message.Checked) connection.Connection.SendError!usize {
     if (!close_after or checked.close) {
         return message.write_response_head_checked(output, status, reason, fields, checked);
     }
@@ -157,7 +157,7 @@ fn unfilled_lines() [core.constants.limits.field_count_max]Field {
 
 /// Writes the final head with `close_field` after the caller's fields, which it copies into
 /// `with_close` first. `checked` is the pass over `fields`.
-pub fn write_head_with_close(output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const message.Checked, with_close: *[core.constants.limits.field_count_max]Field) connection.SendError!usize {
+pub fn write_head_with_close(output: []u8, status: u16, reason: []const u8, fields: []const Field, checked: *const message.Checked, with_close: *[core.constants.limits.field_count_max]Field) connection.Connection.SendError!usize {
     // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
     if (fields.len >= with_close.len) return error.TooManyFields;
     @memcpy(with_close[0..fields.len], fields);

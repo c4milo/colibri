@@ -122,6 +122,77 @@ pub const Decoding = struct {
     /// The zlib stream, or the last gzip member, ended with every check passed.
     stream_ended: bool = false,
 
+    /// Takes a decoder for a message whose body carries `coding`.
+    pub fn start(decoding: *Decoding, storage: Storage, coding: message.Coding) Error!void {
+        assert(coding != .none);
+        // RFC 9110 §15.6.4 and decision 91: every decoder taken is a temporary overload, which a
+        // server answers 503 and a client fails on.
+        if (!reserve(decoding, storage)) return error.DecodersExhausted;
+        begin(decoding, storage, coding);
+    }
+
+    /// Takes a decoder before the message's coding is known, and returns false when every decoder
+    /// is taken. A client that offers codings in a request takes one as it sends the request, so
+    /// the response it offered them for always finds one (decision 101).
+    pub fn reserve(decoding: *Decoding, storage: Storage) bool {
+        assert(!decoding.active() and decoding.slot == no_slot);
+        decoding.slot = storage.take() orelse return false;
+        return true;
+    }
+
+    /// Starts the decoder `reserve` took on a message whose body carries `coding`.
+    pub fn begin(decoding: *Decoding, storage: Storage, coding: message.Coding) void {
+        assert(coding != .none);
+        assert(!decoding.active() and decoding.slot != no_slot);
+        decoding.coding = coding;
+        begin_stream(decoding, storage);
+    }
+
+    /// Decodes as much of the coded octets `input` into `output` as both allow.
+    pub fn decode(decoding: *Decoding, storage: Storage, input: []const u8, output: []u8) Error!Progress {
+        assert(decoding.active() and decoding.slot != no_slot);
+        assert(input.len > 0 and output.len > 0);
+        if (decoding.stream_ended) {
+            // RFC 1952 §2.2: a gzip body is a series of members, so octets after one start the
+            // next, whose header check refuses octets that are not one.
+            if (decoding.coding == .gzip) {
+                begin_stream(decoding, storage);
+            } else {
+                // RFC 9110 §8.4.1.2: deflate is one zlib stream (RFC 1950), so octets after it
+                // inside the body belong to no coding, which decision 91 refuses as malformed.
+                return error.CodingTrailing;
+            }
+        }
+        const slot = &storage.slots[decoding.slot];
+        const progress = switch (decoding.coding) {
+            .gzip => gzip.decode(&slot.decoder.gzip, input, output) catch |failure| {
+                return refused(gzip.refusal(failure));
+            },
+            .deflate => zlib.decode(&slot.decoder.zlib, input, output) catch |failure| {
+                return refused(zlib.refusal(failure));
+            },
+            .none => unreachable,
+        };
+        if (progress.status == .done) decoding.stream_ended = true;
+        return .{ .consumed = progress.consumed, .written = progress.written };
+    }
+
+    /// The body ended. The coded stream must have ended with it, and the decoder goes back.
+    pub fn finish(decoding: *Decoding, storage: Storage) Error!void {
+        assert(decoding.active());
+        const ended = decoding.stream_ended;
+        release(decoding, storage);
+        // RFC 1950 §2.2 and RFC 1952 §2.3: a stream ends with its checksum, so a body that ends
+        // before the checksum arrives is corrupt.
+        if (!ended) return error.CodingCorrupt;
+    }
+
+    /// Gives the decoder back, whether the body ended or the connection did.
+    pub fn release(decoding: *Decoding, storage: ?Storage) void {
+        if (decoding.slot != no_slot) storage.?.give_back(decoding.slot);
+        decoding.* = .{};
+    }
+
     pub fn active(decoding: *const Decoding) bool {
         return decoding.coding != .none;
     }
@@ -137,32 +208,6 @@ pub const Progress = struct {
     consumed: usize,
     written: usize,
 };
-
-/// Takes a decoder for a message whose body carries `coding`.
-pub fn start(decoding: *Decoding, storage: Storage, coding: message.Coding) Error!void {
-    assert(coding != .none);
-    // RFC 9110 §15.6.4 and decision 91: every decoder taken is a temporary overload, which a server
-    // answers 503 and a client fails on.
-    if (!reserve(decoding, storage)) return error.DecodersExhausted;
-    begin(decoding, storage, coding);
-}
-
-/// Takes a decoder before the message's coding is known, and returns false when every decoder is
-/// taken. A client that offers codings in a request takes one as it sends the request, so the
-/// response it offered them for always finds one (decision 101).
-pub fn reserve(decoding: *Decoding, storage: Storage) bool {
-    assert(!decoding.active() and decoding.slot == no_slot);
-    decoding.slot = storage.take() orelse return false;
-    return true;
-}
-
-/// Starts the decoder `reserve` took on a message whose body carries `coding`.
-pub fn begin(decoding: *Decoding, storage: Storage, coding: message.Coding) void {
-    assert(coding != .none);
-    assert(!decoding.active() and decoding.slot != no_slot);
-    decoding.coding = coding;
-    begin_stream(decoding, storage);
-}
 
 /// Starts the decoder on a stream, or on the next member of a gzip body.
 fn begin_stream(decoding: *Decoding, storage: Storage) void {
@@ -181,57 +226,12 @@ fn begin_stream(decoding: *Decoding, storage: Storage) void {
     decoding.stream_ended = false;
 }
 
-/// Decodes as much of the coded octets `input` into `output` as both allow.
-pub fn decode(decoding: *Decoding, storage: Storage, input: []const u8, output: []u8) Error!Progress {
-    assert(decoding.active() and decoding.slot != no_slot);
-    assert(input.len > 0 and output.len > 0);
-    if (decoding.stream_ended) {
-        // RFC 1952 §2.2: a gzip body is a series of members, so octets after one start the next,
-        // whose header check refuses octets that are not one.
-        if (decoding.coding == .gzip) {
-            begin_stream(decoding, storage);
-        } else {
-            // RFC 9110 §8.4.1.2: deflate is one zlib stream (RFC 1950), so octets after it inside
-            // the body belong to no coding, which decision 91 refuses as malformed.
-            return error.CodingTrailing;
-        }
-    }
-    const slot = &storage.slots[decoding.slot];
-    const progress = switch (decoding.coding) {
-        .gzip => gzip.decode(&slot.decoder.gzip, input, output) catch |failure| {
-            return refused(gzip.refusal(failure));
-        },
-        .deflate => zlib.decode(&slot.decoder.zlib, input, output) catch |failure| {
-            return refused(zlib.refusal(failure));
-        },
-        .none => unreachable,
-    };
-    if (progress.status == .done) decoding.stream_ended = true;
-    return .{ .consumed = progress.consumed, .written = progress.written };
-}
-
 /// Decision 91: a corrupt body is a 400, and a feature stdx refuses is a 501 (RFC 9112 §6.1).
 fn refused(refusal: codec.Refusal) Error {
     return switch (refusal) {
         .corrupt => error.CodingCorrupt,
         .unsupported => error.CodingFeatureRefused,
     };
-}
-
-/// The body ended. The coded stream must have ended with it, and the decoder goes back.
-pub fn finish(decoding: *Decoding, storage: Storage) Error!void {
-    assert(decoding.active());
-    const ended = decoding.stream_ended;
-    release(decoding, storage);
-    // RFC 1950 §2.2 and RFC 1952 §2.3: a stream ends with its checksum, so a body that ends before
-    // the checksum arrives is corrupt.
-    if (!ended) return error.CodingCorrupt;
-}
-
-/// Gives the decoder back, whether the body ended or the connection did.
-pub fn release(decoding: *Decoding, storage: ?Storage) void {
-    if (decoding.slot != no_slot) storage.?.give_back(decoding.slot);
-    decoding.* = .{};
 }
 
 const testing = std.testing;
@@ -273,7 +273,7 @@ fn decode_in_pieces(decoding: *Decoding, storage: Storage, coded: []const u8, pi
     for (0..coded.len + output.len + 1) |_| {
         if (taken == coded.len) return written;
         const piece = coded[taken..@min(coded.len, taken + piece_len)];
-        const progress = try decode(decoding, storage, piece, output[written..]);
+        const progress = try decoding.decode(storage, piece, output[written..]);
         try testing.expect(progress.consumed + progress.written > 0);
         taken += progress.consumed;
         written += progress.written;
@@ -288,22 +288,22 @@ test "RFC 9110 §8.4.1.3: a gzip body decodes in any pieces, and the decoder goe
     const coded = try gzip_of(test_text, &coded_room);
     for ([_]usize{ 1, 7, coded.len }) |piece_len| {
         var decoding: Decoding = .{};
-        try start(&decoding, storage, .gzip);
+        try decoding.start(storage, .gzip);
         var decoded: [test_room]u8 = undefined;
         const written = try decode_in_pieces(&decoding, storage, coded, piece_len, &decoded);
         try testing.expectEqualStrings(test_text, decoded[0..written]);
-        try finish(&decoding, storage);
+        try decoding.finish(storage);
         try testing.expect(!decoding.active());
     }
     // Both slots are free again: two messages take one each, and a third finds none.
     var first: Decoding = .{};
     var second: Decoding = .{};
     var third: Decoding = .{};
-    try start(&first, storage, .gzip);
-    try start(&second, storage, .deflate);
-    try testing.expectError(error.DecodersExhausted, start(&third, storage, .gzip));
-    release(&first, storage);
-    try start(&third, storage, .gzip);
+    try first.start(storage, .gzip);
+    try second.start(storage, .deflate);
+    try testing.expectError(error.DecodersExhausted, third.start(storage, .gzip));
+    first.release(storage);
+    try third.start(storage, .gzip);
 }
 
 test "RFC 1952 §2.2: a gzip body of two members decodes to both" {
@@ -313,11 +313,11 @@ test "RFC 1952 §2.2: a gzip body of two members decodes to both" {
     const first = try gzip_of("first member, ", coded_room[0..test_room]);
     const second = try gzip_of("second member", coded_room[first.len..]);
     var decoding: Decoding = .{};
-    try start(&decoding, storage, .gzip);
+    try decoding.start(storage, .gzip);
     var decoded: [test_room]u8 = undefined;
     const written = try decode_in_pieces(&decoding, storage, coded_room[0 .. first.len + second.len], 5, &decoded);
     try testing.expectEqualStrings("first member, second member", decoded[0..written]);
-    try finish(&decoding, storage);
+    try decoding.finish(storage);
 }
 
 test "RFC 9110 §8.4.1.2: deflate is zlib, and octets after its stream are refused" {
@@ -326,12 +326,12 @@ test "RFC 9110 §8.4.1.2: deflate is zlib, and octets after its stream are refus
     var coded_room: [test_room]u8 = undefined;
     const coded = try zlib_of(test_text, &coded_room);
     var decoding: Decoding = .{};
-    try start(&decoding, storage, .deflate);
+    try decoding.start(storage, .deflate);
     var decoded: [test_room]u8 = undefined;
     const written = try decode_in_pieces(&decoding, storage, coded, 3, &decoded);
     try testing.expectEqualStrings(test_text, decoded[0..written]);
-    try testing.expectError(error.CodingTrailing, decode(&decoding, storage, "x", &decoded));
-    release(&decoding, storage);
+    try testing.expectError(error.CodingTrailing, decoding.decode(storage, "x", &decoded));
+    decoding.release(storage);
 }
 
 test "decision 91: a corrupt body, a refused feature and a stream cut short each have their verdict" {
@@ -343,18 +343,19 @@ test "decision 91: a corrupt body, a refused feature and a stream cut short each
     var decoding: Decoding = .{};
     // RFC 1952 §2.3.1: a wrong CRC32 in the trailer.
     coded[coded.len - crc32_offset_from_end] +%= 1;
-    try start(&decoding, storage, .gzip);
-    try testing.expectError(error.CodingCorrupt, decode(&decoding, storage, coded, &decoded));
-    release(&decoding, storage);
-    // RFC 1950 §2.2: FDICT set, a preset dictionary, which stdx refuses. 0x78 0xbb has FCHECK valid.
-    try start(&decoding, storage, .deflate);
-    try testing.expectError(error.CodingFeatureRefused, decode(&decoding, storage, "\x78\xbb\x00\x00\x00\x01", &decoded));
-    release(&decoding, storage);
+    try decoding.start(storage, .gzip);
+    try testing.expectError(error.CodingCorrupt, decoding.decode(storage, coded, &decoded));
+    decoding.release(storage);
+    // RFC 1950 §2.2: FDICT set, a preset dictionary, which stdx refuses. 0x78 0xbb has FCHECK
+    // valid.
+    try decoding.start(storage, .deflate);
+    try testing.expectError(error.CodingFeatureRefused, decoding.decode(storage, "\x78\xbb\x00\x00\x00\x01", &decoded));
+    decoding.release(storage);
     // A body that ends before the stream's checksum.
     coded[coded.len - crc32_offset_from_end] -%= 1;
-    try start(&decoding, storage, .gzip);
-    _ = try decode(&decoding, storage, coded[0 .. coded.len - 1], &decoded);
-    try testing.expectError(error.CodingCorrupt, finish(&decoding, storage));
+    try decoding.start(storage, .gzip);
+    _ = try decoding.decode(storage, coded[0 .. coded.len - 1], &decoded);
+    try testing.expectError(error.CodingCorrupt, decoding.finish(storage));
     try testing.expect(!decoding.active());
 }
 
@@ -366,20 +367,20 @@ test "decision 101: a decoder reserved before the coding is known starts on it, 
     var reserved: Decoding = .{};
     var unused: Decoding = .{};
     var third: Decoding = .{};
-    try testing.expect(reserve(&reserved, storage));
-    try testing.expect(reserve(&unused, storage));
+    try testing.expect(reserved.reserve(storage));
+    try testing.expect(unused.reserve(storage));
     try testing.expect(reserved.holds() and !reserved.active());
     // Every decoder is reserved, so no third one is taken.
     try testing.expectEqual(0, storage.free_count());
-    try testing.expect(!reserve(&third, storage));
-    begin(&reserved, storage, .deflate);
+    try testing.expect(!third.reserve(storage));
+    reserved.begin(storage, .deflate);
     var decoded: [test_room]u8 = undefined;
     const written = try decode_in_pieces(&reserved, storage, coded, coded.len, &decoded);
     try testing.expectEqualStrings(test_text, decoded[0..written]);
-    try finish(&reserved, storage);
-    release(&unused, storage);
+    try reserved.finish(storage);
+    unused.release(storage);
     try testing.expect(!unused.holds());
     try testing.expectEqual(test_pool_count, storage.free_count());
-    try testing.expect(reserve(&third, storage));
-    try testing.expect(reserve(&unused, storage));
+    try testing.expect(third.reserve(storage));
+    try testing.expect(unused.reserve(storage));
 }

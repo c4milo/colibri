@@ -13,7 +13,7 @@ const harness = @import("connection_test.zig");
 
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
-const Event = connection_module.Event;
+const Event = connection_module.Connection.Event;
 const testing = std.testing;
 
 const client = &harness.client;

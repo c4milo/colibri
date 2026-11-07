@@ -91,7 +91,7 @@ fn refuse_trailers(connection: *QuicConnection, slot: *Slot) bool {
 }
 
 /// What a refused head means for its exchange. Returns whether the next exchange may be written.
-fn refused(connection: *QuicConnection, slot: *Slot, failure: h3.connection.SendError) bool {
+fn refused(connection: *QuicConnection, slot: *Slot, failure: h3.Connection.SendError) bool {
     switch (failure) {
         // RFC 9000 §4.6: the server's limit, or h3's slots, are taken: the exchange waits for the
         // server's MAX_STREAMS or a stream to close.
@@ -216,7 +216,7 @@ pub fn read_events(connection: *QuicConnection, now_ns: u64) void {
     }
 }
 
-fn record(connection: *QuicConnection, h3_event: h3.connection.Event) void {
+fn record(connection: *QuicConnection, h3_event: h3.Connection.Event) void {
     switch (h3_event) {
         .response => |head| on_response(connection, head),
         .data => |data| on_data(connection, data),
@@ -234,7 +234,7 @@ fn record(connection: *QuicConnection, h3_event: h3.connection.Event) void {
     }
 }
 
-fn on_response(connection: *QuicConnection, head: h3.connection.Response) void {
+fn on_response(connection: *QuicConnection, head: h3.Connection.Response) void {
     const slot = connection.slots.of_stream(head.stream_id) orelse return;
     // Decision 124: once a HEADERS frame arrived, the pool does not send the request again.
     slot.response_began = true;
@@ -266,7 +266,7 @@ fn on_trailers(connection: *QuicConnection, stream_id: u64) void {
     response_write.record_trailers(slot, section) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
 }
 
-fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {
+fn on_data(connection: *QuicConnection, data: h3.Connection.Data) void {
     const slot = connection.slots.of_stream(data.stream_id) orelse return;
     response_write.append_body(slot, data.octets) catch |failure| refuse(connection, slot, response_write.outcome_of(failure));
 }
@@ -310,7 +310,7 @@ fn end_response(connection: *QuicConnection, stream_id: u64) void {
     slots_module.end(slot, outcome);
 }
 
-fn on_reset(connection: *QuicConnection, ended: h3.connection.Ended) void {
+fn on_reset(connection: *QuicConnection, ended: h3.Connection.Ended) void {
     // RFC 9114 §4.1.1: H3_REQUEST_REJECTED says the server processed none of the request, which
     // "can be retried".
     if (ended.error_code == h3.constants.protocol.error_request_rejected) return end_stream(connection, ended.stream_id, .refused);

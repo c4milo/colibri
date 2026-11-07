@@ -48,16 +48,6 @@ const internal = @import("connection_internal.zig");
 const Role = @import("../role.zig").Role;
 const Writer = core.Writer;
 
-/// Why `receive` stopped. The peer broke the protocol, the connection is closing, and `failure`
-/// names the code of the GOAWAY now queued (RFC 9113 §5.4.1). The caller writes what is pending
-/// and closes the transport.
-pub const Error = error{ConnectionFailed};
-
-/// Why a send the caller asked for did not happen (`connection_send.zig`).
-pub const SendError = connection_send.Error;
-
-/// What `write_data` sent and wrote (`connection_send.zig`).
-pub const DataWritten = connection_send.DataWritten;
 pub const ShortBy = connection_send.ShortBy;
 
 /// The limit that ended a connection: a peer used a feature more than colibri or its provider
@@ -78,25 +68,15 @@ pub const Limit = enum {
     key_updates,
 };
 
-/// Why a request the caller asked for did not go out (`connection_request.zig`).
-pub const RequestError = connection_request.Error;
-
-pub const RequestIndexing = connection_request.Indexing;
 pub const PseudoIndexing = connection_request.PseudoIndexing;
 
 /// What `write_request` opened and wrote (`connection_request.zig`).
 pub const Sent = connection_request.Sent;
 
 /// The events `receive` returns, in `connection_event.zig`.
-pub const Request = connection_event.Request;
-pub const Response = connection_event.Response;
 pub const Trailers = connection_event.Trailers;
-pub const Data = connection_event.Data;
-pub const StreamReset = connection_event.StreamReset;
 pub const PeerGoaway = connection_event.PeerGoaway;
-pub const AltSvc = connection_event.AltSvc;
 pub const Event = connection_event.Event;
-pub const Received = connection_event.Received;
 
 /// One connection, in storage the caller places (decision 35).
 pub const Connection = struct {
@@ -185,9 +165,38 @@ pub const Connection = struct {
     /// from which on the floor applies (decision 110 as amended).
     tiny_update_read: bool,
 
+    // The types of the connection's calls, each in the file that holds its call (decision 158
+    // rulings 6 and 8). The events `receive` returns are in `connection_event.zig`.
+    pub const AltSvc = connection_event.AltSvc;
+    pub const Data = connection_event.Data;
+    /// What `write_data` sent and wrote (`connection_send.zig`).
+    pub const DataWritten = connection_send.DataWritten;
+    pub const Request = connection_event.Request;
+    /// Why a request the caller asked for did not go out (`connection_request.zig`).
+    pub const RequestError = connection_request.Error;
+    pub const RequestIndexing = connection_request.Indexing;
     /// The pseudo-header fields of a request a client sends, which `write_request` writes
     /// (`connection_request.zig`, decision 158 ruling 7).
     pub const RequestHead = connection_request.Request;
+    pub const Response = connection_event.Response;
+    /// Why a send the caller asked for did not happen (`connection_send.zig`).
+    pub const SendError = connection_send.Error;
+    pub const StreamReset = connection_event.StreamReset;
+    /// Why `receive` stopped. The peer broke the protocol, the connection is closing, and
+    /// `failure` names the code of the GOAWAY now queued (RFC 9113 §5.4.1). The caller writes
+    /// what is pending and closes the transport.
+    pub const Error = error{ConnectionFailed};
+    pub const Received = connection_event.Received;
+
+    // The calls of a connection over TLS, which `connection_tls.zig` holds (decision 158 ruling
+    // 8).
+    pub const AttachError = connection_tls.AttachError;
+    pub const RecordError = connection_tls.RecordError;
+    pub const close_notify = connection_tls.close_notify;
+    pub const decrypt = connection_tls.decrypt;
+    pub const encrypt = connection_tls.encrypt;
+    pub const encrypt_parts = connection_tls.encrypt_parts;
+    pub const writable_len = connection_tls.writable_len;
 
     /// Makes a connection for an endpoint in `role`, with nothing read and nothing written. The
     /// caller writes the preface with `write_pending` before it reads the peer's.
@@ -250,7 +259,7 @@ pub const Connection = struct {
 
     /// Attaches the TLS provider h2 runs over, after checking everything RFC 9113 §3.2 and §9.2
     /// require of the connection (decision 44).
-    pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) connection_tls.AttachError!void {
+    pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) AttachError!void {
         return connection_tls.attach(connection, provider);
     }
 
@@ -436,7 +445,11 @@ test "decision 115: the connection's public functions are the calls a caller out
     try core.public_names.expect(Connection, &.{
         // Design §8 step 21b.4 adds `sendable_len` (decision 119), step 17c adds
         // `write_data_header` (decision 138), and step 39 adds `release_stream` (decision 153).
-        "RequestHead",        "init",              "receive",       "write_response", "attach_tls",           "write_request",
+        // Decision 158 folds the namespaces `connection` and `connection_tls` into the type.
+        "AltSvc",             "Data",              "DataWritten",   "Request",        "RequestError",         "RequestIndexing",
+        "RequestHead",        "Response",          "SendError",     "StreamReset",    "Error",                "Received",
+        "AttachError",        "RecordError",       "close_notify",  "decrypt",        "encrypt",              "encrypt_parts",
+        "writable_len",       "init",              "receive",       "write_response", "attach_tls",           "write_request",
         "write_data",         "write_data_header", "sendable_len",  "write_trailers", "write_alt_svc",        "limit_peer_streams",
         "release_stream",     "reset_stream",      "shutdown",      "write_pending",  "write_replies",        "has_pending",
         "owes_window_update", "has_failed",        "field_section", "fail",           "settings_deadline_ns", "preface_done",

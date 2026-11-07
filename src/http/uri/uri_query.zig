@@ -15,13 +15,6 @@ const core = @import("core");
 const constants = @import("../constants.zig");
 const percent = @import("uri_percent.zig");
 
-pub const ReadError = error{
-    /// The query holds more pairs than `constants.limits.query_parameters_max`: the table is full.
-    Full,
-    /// The decoded names and values do not fit the buffer `read` was given.
-    NoSpaceLeft,
-};
-
 /// The pairs that one `read` wrote: a name and a value for each, in the order of the query.
 /// `read` sets `count` to 0 first, so a pair of an earlier read is never read.
 pub const QueryParameters = struct {
@@ -29,6 +22,14 @@ pub const QueryParameters = struct {
     values: [constants.limits.query_parameters_max][]const u8 = @splat(""),
     /// How many entries of `names` and `values` the last `read` wrote.
     count: std.math.IntFittingRange(0, constants.limits.query_parameters_max) = 0,
+
+    pub const ReadError = error{
+        /// The query holds more pairs than `constants.limits.query_parameters_max`: the table is
+        /// full.
+        Full,
+        /// The decoded names and values do not fit the buffer `read` was given.
+        NoSpaceLeft,
+    };
 
     /// Reads the pairs of `query`, the bytes after a target's "?", decoding each name and value
     /// into `storage`. A query whose decoded pairs do not fit `storage`, or that holds more than
@@ -71,7 +72,7 @@ pub const QueryParameters = struct {
 /// Writes `encoded` decoded into `writer`, and returns the bytes it wrote: "+" as a space (URL
 /// Standard `urlencoded-parsing` step 3.4), and "%" with two hex digits as the byte they name
 /// (RFC 3986 §2.1). A "%" that two hex digits do not follow stays as written.
-fn decode(writer: *core.Writer, encoded: []const u8) ReadError![]const u8 {
+fn decode(writer: *core.Writer, encoded: []const u8) QueryParameters.ReadError![]const u8 {
     const first = writer.written().len;
     var index: usize = 0;
     // Bounded: each pass takes one byte of `encoded`, or three for a decoded "%".
@@ -90,8 +91,8 @@ fn decode(writer: *core.Writer, encoded: []const u8) ReadError![]const u8 {
 
 const testing = std.testing;
 
-test "decision 127: QueryParameters exports read and get alone" {
-    try @import("core").public_names.expect(QueryParameters, &.{ "read", "get" });
+test "decision 127: QueryParameters exports ReadError, read and get alone" {
+    try @import("core").public_names.expect(QueryParameters, &.{ "ReadError", "read", "get" });
 }
 
 test "decision 127: read splits on & and on the first =, skips empty pieces, and keeps the order" {
@@ -164,7 +165,7 @@ const Reference = struct {
     len: usize = 0,
     limit: usize,
 
-    fn parse(reference: *Reference, query: []const u8) ReadError!void {
+    fn parse(reference: *Reference, query: []const u8) QueryParameters.ReadError!void {
         var first: usize = 0;
         for (0..query.len + 1) |index| {
             if (index < query.len and query[index] != '&') continue;
@@ -173,7 +174,7 @@ const Reference = struct {
         }
     }
 
-    fn pair(reference: *Reference, piece: []const u8) ReadError!void {
+    fn pair(reference: *Reference, piece: []const u8) QueryParameters.ReadError!void {
         if (reference.count == constants.limits.query_parameters_max) return error.Full;
         var mark = piece.len;
         for (piece, 0..) |byte, index| {
@@ -187,7 +188,7 @@ const Reference = struct {
         reference.count += 1;
     }
 
-    fn decode(reference: *Reference, encoded: []const u8) ReadError![]const u8 {
+    fn decode(reference: *Reference, encoded: []const u8) QueryParameters.ReadError![]const u8 {
         const first = reference.len;
         var index: usize = 0;
         while (index < encoded.len) {

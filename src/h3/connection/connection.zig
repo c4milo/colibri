@@ -46,84 +46,6 @@ const QuicConnection = quic.Connection;
 
 pub const Role = stream.Role;
 
-/// What a connection is built from. Every value is the caller's.
-pub const Options = struct {
-    role: Role,
-    /// The settings colibri's QPACK decoder advertises (RFC 9204 §5), both zero by default, which
-    /// keeps the peer's encoder to the static table.
-    qpack: qpack.Decoder.Settings = .{},
-    /// When colibri's QPACK encoder Huffman codes a string (RFC 9204 §4.1.2).
-    huffman: qpack.Encoder.HuffmanUse = .when_shorter,
-    /// The value RFC 9114 §7.2.4.1's reserved setting and §8.1's reserved error codes are drawn
-    /// from. colibri reads no randomness (invariant 5), so the caller supplies it, and a seed
-    /// replays (design §6.5).
-    grease: u64 = 0,
-    /// The log the connection writes its HTTP/3 events into (decision 102), whose header names
-    /// the HTTP/3 event schema. Passing the log the QUIC connection writes keeps both in one trace
-    /// (h3-events §1.1). Null, the default, logs nothing.
-    qlog: ?*connection_qlog.Log = null,
-};
-
-/// Why `receive` stopped: the peer broke a rule of the whole connection, `failure` names the
-/// code, and `quic` owes the peer a CONNECTION_CLOSE carrying it (RFC 9114 §8).
-pub const Error = error{ConnectionFailed};
-
-pub const SendError = connection_send.Error;
-/// A request stream that waits for its head, and since when (`connection_request_deadline.zig`).
-pub const HeadWait = connection_request_deadline.HeadWait;
-
-/// What the peer sent, one at a time.
-pub const Event = union(enum) {
-    /// The peer's SETTINGS frame arrived (RFC 9114 §7.2.4). `peer_settings` holds it.
-    settings,
-    /// A request's header section, at a server (RFC 9114 §4.1). `field_section` holds its lines
-    /// until the next call.
-    request: Request,
-    /// A response's header section, at a client: an interim one, or the final one (§4.1).
-    response: Response,
-    /// Content (§4.1, §7.2.1), written to the front of the buffer `receive` was given.
-    data: Data,
-    /// Content of a stream opened with `hold_data`: `len` octets arrived and are unread in
-    /// `quic`, and none was copied. `peek_data` copies them into the caller's memory. The stream
-    /// reports nothing more, and the peer gets no credit for them (RFC 9000 §4.1), until
-    /// `release_data` takes them.
-    data_available: struct { stream_id: u64, len: u64 },
-    /// A trailer section (§4.1). `field_section` holds its lines until the next call.
-    trailers: u64,
-    /// The peer ended the stream after a whole message (§4.1).
-    end: u64,
-    /// The peer reset the stream (RFC 9000 §19.4), which cancels its message (§4.1.1).
-    reset: Ended,
-    /// colibri found the message malformed or incomplete and refused the stream: it reset its
-    /// side and asked the peer to stop sending (§4.1.1, §4.1.2).
-    refused: Ended,
-    /// The peer's GOAWAY: the stream or push ID from which nothing is processed (§5.2).
-    goaway: u64,
-};
-
-pub const Request = struct {
-    stream_id: u64,
-    request: message.Request,
-    /// The stream ended with the head (§4.1), so no `end` event follows for it, and the request
-    /// is whole: it has no content and no trailer section.
-    end: bool,
-};
-
-pub const Response = struct {
-    stream_id: u64,
-    response: message.Response,
-};
-
-pub const Data = struct {
-    stream_id: u64,
-    octets: []const u8,
-};
-
-pub const Ended = struct {
-    stream_id: u64,
-    error_code: u64,
-};
-
 pub const Connection = struct {
     options: Options,
     /// The peer's SETTINGS once they arrived. Until then every setting has its default (RFC 9114
@@ -159,6 +81,86 @@ pub const Connection = struct {
     /// The instant of the call in progress, which each call that writes or reads a frame takes
     /// (decision 102 as amended). Only the qlog events it writes read it.
     now_ns: u64,
+
+    pub const Data = struct {
+        stream_id: u64,
+        octets: []const u8,
+    };
+
+    pub const Ended = struct {
+        stream_id: u64,
+        error_code: u64,
+    };
+
+    /// Why `receive` stopped: the peer broke a rule of the whole connection, `failure` names the
+    /// code, and `quic` owes the peer a CONNECTION_CLOSE carrying it (RFC 9114 §8).
+    pub const Error = error{ConnectionFailed};
+
+    /// What the peer sent, one at a time.
+    pub const Event = union(enum) {
+        /// The peer's SETTINGS frame arrived (RFC 9114 §7.2.4). `peer_settings` holds it.
+        settings,
+        /// A request's header section, at a server (RFC 9114 §4.1). `field_section` holds its lines
+        /// until the next call.
+        request: Request,
+        /// A response's header section, at a client: an interim one, or the final one (§4.1).
+        response: Response,
+        /// Content (§4.1, §7.2.1), written to the front of the buffer `receive` was given.
+        data: Data,
+        /// Content of a stream opened with `hold_data`: `len` octets arrived and are unread in
+        /// `quic`, and none was copied. `peek_data` copies them into the caller's memory. The
+        /// stream reports nothing more, and the peer gets no credit for them (RFC 9000 §4.1), until
+        /// `release_data` takes them.
+        data_available: struct { stream_id: u64, len: u64 },
+        /// A trailer section (§4.1). `field_section` holds its lines until the next call.
+        trailers: u64,
+        /// The peer ended the stream after a whole message (§4.1).
+        end: u64,
+        /// The peer reset the stream (RFC 9000 §19.4), which cancels its message (§4.1.1).
+        reset: Ended,
+        /// colibri found the message malformed or incomplete and refused the stream: it reset its
+        /// side and asked the peer to stop sending (§4.1.1, §4.1.2).
+        refused: Ended,
+        /// The peer's GOAWAY: the stream or push ID from which nothing is processed (§5.2).
+        goaway: u64,
+    };
+
+    /// A request stream that waits for its head, and since when
+    /// (`connection_request_deadline.zig`).
+    pub const HeadWait = connection_request_deadline.HeadWait;
+
+    /// What a connection is built from. Every value is the caller's.
+    pub const Options = struct {
+        role: Role,
+        /// The settings colibri's QPACK decoder advertises (RFC 9204 §5), both zero by default,
+        /// which keeps the peer's encoder to the static table.
+        qpack: qpack.Decoder.Settings = .{},
+        /// When colibri's QPACK encoder Huffman codes a string (RFC 9204 §4.1.2).
+        huffman: qpack.Encoder.HuffmanUse = .when_shorter,
+        /// The value RFC 9114 §7.2.4.1's reserved setting and §8.1's reserved error codes are drawn
+        /// from. colibri reads no randomness (invariant 5), so the caller supplies it, and a seed
+        /// replays (design §6.5).
+        grease: u64 = 0,
+        /// The log the connection writes its HTTP/3 events into (decision 102), whose header names
+        /// the HTTP/3 event schema. Passing the log the QUIC connection writes keeps both in one
+        /// trace (h3-events §1.1). Null, the default, logs nothing.
+        qlog: ?*connection_qlog.Log = null,
+    };
+
+    pub const Request = struct {
+        stream_id: u64,
+        request: message.Request,
+        /// The stream ended with the head (§4.1), so no `end` event follows for it, and the request
+        /// is whole: it has no content and no trailer section.
+        end: bool,
+    };
+
+    pub const Response = struct {
+        stream_id: u64,
+        response: message.Response,
+    };
+
+    pub const SendError = connection_send.Error;
 
     pub fn init(connection: *Connection, options: Options) void {
         connection.options = options;
@@ -351,11 +353,14 @@ pub fn initiator(connection: *const Connection) quic.stream.Initiator {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        // Design §8 step 39 adds `peek_data` and `release_data` (decision 153).
-        "init",          "start",               "provider",         "receive",           "field_section",
-        "write_request", "write_response",      "write_trailers",   "write_data_header", "peek_data",
-        "release_data",  "cancel",              "oldest_head_wait", "delay_head_waits",  "stop_reading",
-        "shutdown",      "goaway_acknowledged", "fail",             "no_error_code",
+        // Design §8 step 39 adds `peek_data` and `release_data` (decision 153). Decision 158 folds
+        // the namespace `connection` into the type.
+        "Data",                "Ended",            "Error",             "Event",         "HeadWait",
+        "Options",             "Request",          "Response",          "SendError",     "init",
+        "start",               "provider",         "receive",           "field_section", "write_request",
+        "write_response",      "write_trailers",   "write_data_header", "peek_data",     "release_data",
+        "cancel",              "oldest_head_wait", "delay_head_waits",  "stop_reading",  "shutdown",
+        "goaway_acknowledged", "fail",             "no_error_code",
     });
 }
 

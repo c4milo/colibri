@@ -96,7 +96,7 @@ fn send_frames(connection: *Connection, slot: *Slot, output: []u8, now_ns: u64) 
 /// would cost a second record of 9 octets.
 fn frame_room(connection: *const Connection, output_len: usize) usize {
     if (connection.config.tls == null) return output_len;
-    const writable = h2.connection_tls.writable_len(&connection.session.h2, output_len);
+    const writable = h2.Connection.writable_len(&connection.session.h2, output_len);
     return @min(writable, tls_provider.constants.protocol.record_plaintext_len_max);
 }
 

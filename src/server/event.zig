@@ -97,7 +97,7 @@ pub const Headers = struct {
     }
 
     /// The regular field lines in arrival order.
-    pub fn iterator(headers: Headers) http.field_section.Iterator {
+    pub fn iterator(headers: Headers) http.FieldSection.Iterator {
         return .{ .section = headers.section, .index = headers.first };
     }
 

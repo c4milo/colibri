@@ -19,8 +19,8 @@ const connection_qlog = @import("connection_qlog.zig");
 
 const Reader = core.Reader;
 const Connection = connection_module.Connection;
-const Error = connection_module.Error;
-const Event = connection_module.Event;
+const Error = connection_module.Connection.Error;
+const Event = connection_module.Connection.Event;
 const StreamId = quic.stream.StreamId;
 const QuicConnection = quic.Connection;
 const stream_read = quic.connection_stream_read;

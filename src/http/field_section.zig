@@ -30,16 +30,6 @@ const limits = core.constants;
 /// section and stay valid until its next `append`, `clear` or `init`.
 pub const Field = field.Field;
 
-/// Why `append` refused a line. Both are colibri's limits, not a protocol's: RFC 9110 §5.4 places
-/// no predefined limit on a field section and requires a server that cannot accept one to answer
-/// 4xx rather than truncate it.
-pub const AppendError = error{
-    /// The line would take `size` past `field_section_size_max`.
-    SectionTooLarge,
-    /// The section already holds `field_count_max` lines.
-    TooManyLines,
-};
-
 /// Where one line's octets are in `FieldSection.octets`: its name, then its value, at `offset`.
 const Line = struct {
     offset: u32,
@@ -70,6 +60,32 @@ pub const FieldSection = struct {
     /// The sum over the lines of name length, value length and `field_line_overhead`
     /// (RFC 9113 §6.5.2, RFC 9114 §4.2.2), at most `field_section_size_max`.
     size: u32,
+
+    /// Why `append` refused a line. Both are colibri's limits, not a protocol's: RFC 9110 §5.4
+    /// places no predefined limit on a field section and requires a server that cannot accept one
+    /// to answer 4xx rather than truncate it.
+    pub const AppendError = error{
+        /// The line would take `size` past `field_section_size_max`.
+        SectionTooLarge,
+        /// The section already holds `field_count_max` lines.
+        TooManyLines,
+    };
+
+    /// Walks a section's lines in arrival order (RFC 9110 §5.3). Made by `FieldSection.iterator`.
+    pub const Iterator = struct {
+        section: *const FieldSection,
+        /// The next line to return.
+        index: u32,
+
+        /// The next line, or null once every line has been returned; null again after that.
+        pub fn next(self: *Iterator) ?Field {
+            assert(self.index <= self.section.count);
+            if (self.index == self.section.count) return null;
+            const line = self.section.get(self.index);
+            self.index += 1;
+            return line;
+        }
+    };
 
     /// Makes `section` empty. The unused parts of `octets` and `lines` are never read, so they are
     /// left as they were. Every `Field` it handed out before is invalid after.
@@ -199,22 +215,6 @@ pub const FieldSection = struct {
         assert(section.octets_len <= section.size);
         const last = section.lines[section.count - 1];
         assert(last.offset + last.name_len + last.value_len == section.octets_len);
-    }
-};
-
-/// Walks a section's lines in arrival order (RFC 9110 §5.3). Made by `FieldSection.iterator`.
-pub const Iterator = struct {
-    section: *const FieldSection,
-    /// The next line to return.
-    index: u32,
-
-    /// The next line, or null once every line has been returned; null again after that.
-    pub fn next(self: *Iterator) ?Field {
-        assert(self.index <= self.section.count);
-        if (self.index == self.section.count) return null;
-        const line = self.section.get(self.index);
-        self.index += 1;
-        return line;
     }
 };
 

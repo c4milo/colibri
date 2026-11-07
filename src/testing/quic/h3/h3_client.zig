@@ -24,7 +24,7 @@ const qpack_settings: h3.qpack.Decoder.Settings = .{
     .blocked_streams = constants.h3_qpack_blocked_streams,
 };
 
-pub const Error = h3.connection.Error || h3.connection.SendError || h3.http.field_section.AppendError ||
+pub const Error = h3.Connection.Error || h3.Connection.SendError || h3.http.FieldSection.AppendError ||
     quic.connection_stream_send.Error || error{
     /// A file in the downloads directory could not be created or written.
     DownloadRefused,
@@ -121,7 +121,7 @@ pub const Client = struct {
         }
     }
 
-    fn on_event(client: *Client, event: h3.connection.Event) Error!void {
+    fn on_event(client: *Client, event: h3.Connection.Event) Error!void {
         switch (event) {
             .response => |held| {
                 // An interim response comes before the final one (RFC 9114 §4.1).

@@ -63,7 +63,7 @@ pub const Decoder = struct {
     /// Where an encoder instruction's strings are decoded before the table copies them.
     scratch: [constants.limits.encoder_instruction_len_max]u8,
 
-    pub const Error = representation.Error || http.field_section.AppendError || error{
+    pub const Error = representation.Error || http.FieldSection.AppendError || error{
         /// RFC 9204 §6's QPACK_DECOMPRESSION_FAILED: the decoder cannot interpret the field section
         /// and cannot continue decoding it. §2.2.3 names the references that produce it, §3.1 the
         /// static index, §2.1.2 the blocked stream too many, and §4.5.1 the prefixes.

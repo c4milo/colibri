@@ -62,7 +62,7 @@ test "a request body arrives as data then end, and a chunked one leaves its trai
     const head = try expect_request(target, fixed, "POST");
     const data = try target.receive(fixed[head..], &.{});
     try testing.expectEqualStrings("abc", data.event.?.data);
-    try testing.expectEqual(connection.Event.end, (try target.receive(fixed[head + data.consumed ..], &.{})).event.?);
+    try testing.expectEqual(connection.Connection.Event.end, (try target.receive(fixed[head + data.consumed ..], &.{})).event.?);
     try testing.expectEqual(connection.Phase.waiting, target.phase);
     target = server();
     const coded = "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\nT: v\r\n\r\n";

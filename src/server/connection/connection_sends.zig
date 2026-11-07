@@ -95,7 +95,7 @@ pub const Sends = struct {
 
 /// Notes an h2 write to request `id` that was offered `offered` octets: what the window let
 /// through, and whether a window held it short.
-pub fn on_write(connection: *Connection, id: Number, offered: usize, sent: h2.connection.DataWritten) void {
+pub fn on_write(connection: *Connection, id: Number, offered: usize, sent: h2.Connection.DataWritten) void {
     assert(id != 0);
     const sends = &connection.sends;
     const found = sends.find(id);

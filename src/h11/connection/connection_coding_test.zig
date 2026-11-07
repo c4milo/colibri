@@ -114,8 +114,8 @@ fn expect_refused(storage: coding.Storage, input: []const u8, status: u16) !void
 /// The pool's one decoder is free: a message can take it.
 fn expect_pool_free(storage: coding.Storage) !void {
     var decoding: coding.Decoding = .{};
-    try coding.start(&decoding, storage, .gzip);
-    coding.release(&decoding, storage);
+    try decoding.start(storage, .gzip);
+    decoding.release(storage);
 }
 
 test "decision 98: a gzip, chunked request decodes into whatever room the caller gives" {
@@ -143,11 +143,11 @@ test "RFC 9112 §6.1: a server with no decoders answers a coded request 501, and
     // RFC 9110 §15.6.4: every decoder taken is a temporary overload.
     const storage = pool();
     var holder: coding.Decoding = .{};
-    try coding.start(&holder, storage, .deflate);
+    try holder.start(storage, .deflate);
     test_connection.init(.server, .{ .decoders = storage });
     try testing.expectError(error.ConnectionFailed, test_connection.receive(input, &.{}));
     try testing.expectEqual(503, test_connection.reply_status.?);
-    coding.release(&holder, storage);
+    holder.release(storage);
 }
 
 test "decision 91: a corrupt body is a 400, a refused feature a 501, and each gives its decoder back" {

@@ -45,7 +45,7 @@ fn accepted(codings: []const Coding, request: event.Request) ?Coding {
         if (!http.field.names_equal(line.name, accept_encoding)) continue;
         // RFC 9110 §12.5.3: a value its grammar refuses names no coding as acceptable, and the
         // content goes uncoded, which every recipient reads.
-        http.content_coding.read_accept(&acceptance, line.value) catch return null;
+        acceptance.read(line.value) catch return null;
     }
     return acceptance.choose(codings);
 }

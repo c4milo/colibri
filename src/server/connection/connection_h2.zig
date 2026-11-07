@@ -82,7 +82,7 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?ConnectionEvent {
 /// §8.3; decision 19 refuses `:protocol`), and with `:method` always (§8.3.1). So the count of
 /// pseudo-header fields the request carries is the index of its first regular line. The code
 /// finds that index without reading a line, and the assertion reads that one line to check it.
-fn request_fields(section: *const http.FieldSection, arrived: h2.connection.Request) event.Headers {
+fn request_fields(section: *const http.FieldSection, arrived: h2.Connection.Request) event.Headers {
     const optional = [_]?[]const u8{ arrived.request.scheme, arrived.request.authority, arrived.request.path };
     var first: u32 = 1;
     for (optional) |value| first += @intFromBool(value != null);
@@ -208,7 +208,7 @@ fn check_count(fields: []const Field) SendError!void {
     if (fields.len > core.constants.limits.field_count_max) return error.SectionTooLarge;
 }
 
-fn send_error(connection: *const Connection, failure: h2.connection.SendError) SendError {
+fn send_error(connection: *const Connection, failure: h2.Connection.SendError) SendError {
     return switch (failure) {
         error.StreamNotSendable => error.RequestUnknown,
         // A section that does not fit an empty output never will.

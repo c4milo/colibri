@@ -16,7 +16,7 @@ const BodyKind = h11_exchange_plan.BodyKind;
 const Connection = h11.Connection;
 const Field = http.Field;
 
-pub const Error = h11.connection.SendError || h11.connection.Error || sim.trace.Error || error{
+pub const Error = h11.Connection.SendError || h11.Connection.Error || sim.trace.Error || error{
     /// A side read a head or a body other than the plan's.
     ExchangeDiffers,
     /// The close cut a message short, or left requests unanswered other than those sent after
@@ -157,7 +157,7 @@ pub const Run = struct {
         try run.respond();
     }
 
-    fn served(run: *Run, event: h11.connection.Event) Error!void {
+    fn served(run: *Run, event: h11.Connection.Event) Error!void {
         if (run.serving == run.plan.count) return error.ExchangeDiffers;
         const exchange = &run.plan.exchanges[run.serving];
         switch (event) {
@@ -204,7 +204,7 @@ pub const Run = struct {
         unreachable;
     }
 
-    fn read(run: *Run, event: h11.connection.Event) Error!void {
+    fn read(run: *Run, event: h11.Connection.Event) Error!void {
         if (run.reading == run.plan.count) return error.ExchangeDiffers;
         const seen = &run.response_seen[run.reading];
         switch (event) {

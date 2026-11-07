@@ -159,7 +159,7 @@ fn describe_stream(line: *sim.trace.Record, stream_id: u32, end_stream: bool) si
     try line.number("end_stream", @intFromBool(end_stream));
 }
 
-fn describe_reset(line: *sim.trace.Record, reset: h2.connection.StreamReset) sim.trace.Error!void {
+fn describe_reset(line: *sim.trace.Record, reset: h2.Connection.StreamReset) sim.trace.Error!void {
     try line.number("stream_id", reset.stream_id);
     try line.number("error_code", reset.error_code);
 }

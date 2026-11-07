@@ -22,7 +22,7 @@ const connection_send_window = @import("connection_send_window.zig");
 
 const Connection = connection.Connection;
 const Event = connection.Event;
-const Error = connection.Error;
+const Error = connection.Connection.Error;
 
 /// Applies one SETTINGS frame, or the peer's acknowledgment of one colibri sent (RFC 9113 §6.5.3).
 pub fn on_settings(target: *Connection, values: frame.Settings) Error!?Event {

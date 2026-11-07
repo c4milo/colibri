@@ -20,7 +20,7 @@ const Indexing = h3.qpack.Encoder.Indexing;
 const Plan = h3_trace_plan.Plan;
 const constants = sim.constants;
 
-pub const Error = quic_endpoint.Error || h3.connection.SendError || h3.http.field_section.AppendError || error{
+pub const Error = quic_endpoint.Error || h3.Connection.SendError || h3.http.FieldSection.AppendError || error{
     /// An event the model's endpoints never read: content or trailers in a response, an interim
     /// response, a refusal, or a reset whose code is not the model's.
     UnexpectedEvent,
@@ -201,7 +201,7 @@ pub const Endpoint = struct {
         }
     }
 
-    fn on_client_event(endpoint: *Endpoint, event: h3.connection.Event) Error!void {
+    fn on_client_event(endpoint: *Endpoint, event: h3.Connection.Event) Error!void {
         switch (event) {
             .settings, .goaway => {},
             // The model's server answers with a final response and nothing else.
@@ -226,7 +226,7 @@ pub const Endpoint = struct {
         if (held.* == .none) held.* = outcome;
     }
 
-    fn on_server_event(endpoint: *Endpoint, event: h3.connection.Event) Error!void {
+    fn on_server_event(endpoint: *Endpoint, event: h3.Connection.Event) Error!void {
         switch (event) {
             .settings => {},
             .request => |held| {
@@ -292,11 +292,11 @@ pub fn index_of(id: u64) usize {
 
 /// The client's decoder allows no dynamic table, so QPACK runs from the client to the server
 /// alone, as in the model.
-fn client_options(plan: *const Plan) h3.connection.Options {
+fn client_options(plan: *const Plan) h3.Connection.Options {
     return .{ .role = .client, .qpack = .{ .max_table_capacity = 0, .blocked_streams = 0 }, .grease = plan.client_grease };
 }
 
-fn server_options(plan: *const Plan) h3.connection.Options {
+fn server_options(plan: *const Plan) h3.Connection.Options {
     return .{ .role = .server, .qpack = plan.server_decoder, .grease = plan.server_grease };
 }
 

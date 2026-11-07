@@ -7,7 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const router_pattern = @import("router_pattern.zig");
-const percent = @import("http").uri_percent;
+const percent = @import("http").uri;
 
 /// The octet that ends a path and starts its query (RFC 3986 §3.3, §3.4).
 const query_start = '?';

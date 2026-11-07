@@ -16,7 +16,7 @@ const test_output_len = 512;
 
 const host: []const Field = &.{.{ .name = "Host", .value = "h" }};
 
-fn client(options: connection.Options) *Connection {
+fn client(options: connection.Connection.Options) *Connection {
     test_connection.init(.client, options);
     return &test_connection;
 }
@@ -38,7 +38,7 @@ test "a response goes to its request, and its body arrives as data then end" {
     const input = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
     const head = try expect_status(target, input, 200);
     try testing.expectEqualStrings("ok", (try target.receive(input[head..], &.{})).event.?.data);
-    try testing.expectEqual(connection.Event.end, (try target.receive(input[input.len..], &.{})).event.?);
+    try testing.expectEqual(connection.Connection.Event.end, (try target.receive(input[input.len..], &.{})).event.?);
     try testing.expectEqual(0, target.outstanding_len);
     try testing.expectEqual(connection.Phase.head, target.phase);
 }
