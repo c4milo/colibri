@@ -12669,6 +12669,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       from 31,692 to 30,799 instructions a request in job 1. Every other input is within the
       noise in both jobs. Callgrind on a laptop counted `connection_stream_send.write` at about
       750 instructions a request, from 2,330.
+    - **29d.17, one table entry for a datagram's connection, 2026-11-06.** The judge's profile of
+      main 779f7df0 (run 42327497518) gave `udp_run_h3.take` 2.2% and 3.6% of h3-many's samples,
+      in the function itself. Callgrind on a laptop showed that cost to be `slot_for` of
+      `server.Endpoint`, inlined. A probe of 20,000 GETs counted:
+      - at 16 connections, 0.11 lookups a request, 8.5 connections checked for each, and about
+        120 instructions a request in the lines of the scan;
+      - at 64 connections, 0.17 lookups a request, 32.3 checked for each, and about 570.
+      - The change: decision 157. `quic` does not change, and no public name changes.
+      - The checks:
+        - Tests in `endpoint_routes.zig`: an ID's bits name its entry; an entry in use moves the
+          next ID to a free one; a retired ID, a refused ID and a released slot free their
+          entries. Tests in `endpoint_routes_test.zig`, through the endpoint: a short header with
+          the client's first DCID reaches no connection; a closed connection takes no datagram;
+          an ID the peer retired frees its entry after the connection's next datagram.
+        - The IDs change, so three pinned values change: the endpoint check's trace and wire
+          values, and the h3 deadline check's wire value. Debug and ReleaseSafe agree on each.
+        - Nine mutations, by `zig build test-server`, or `test-sim-run` where named, each
+          CAUGHT: the index not written into the ID; an entry in use taken over; `sync` that
+          frees nothing; an endpoint that never calls `sync`; a released slot that keeps its
+          entries (`test-sim-run`); a hit on a closed connection routed; a short-header miss
+          that scans; a long-header miss that does not scan; spare IDs drawn outside the table.
+          The first run left three NOT CAUGHT, and the tests through the endpoint catch them.
+        - `server.Endpoint` grows by 5,088 octets at its default capacity, the table's 256
+          entries and the record of each slot's IDs, in docs/performance.md.
+      - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
+        input loses. The judge's 16 connections may put the gain within the noise, and then the
+        owner rules.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

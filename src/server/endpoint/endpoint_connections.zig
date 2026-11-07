@@ -13,6 +13,7 @@ const internal = @import("../quic/quic_connection_internal.zig");
 const endpoint_stateless = @import("endpoint_stateless.zig");
 const endpoint_slots = @import("endpoint_slots.zig");
 const endpoint_config = @import("endpoint_config.zig");
+const endpoint_routes = @import("endpoint_routes.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const PeerAddress = quic_connection.PeerAddress;
@@ -61,10 +62,24 @@ pub const Connections = struct {
     pools: []const ReceiveStorage,
     slots: *endpoint_slots.Slots,
     replies: Replies,
+    /// The connection IDs the connections issued, each in the entry its bits name (decision 157).
+    routes: endpoint_routes.Routes,
+
+    /// The arrays `EndpointOf` places for the QUIC connections, one entry for each QUIC slot, and
+    /// the entries of the table of connection IDs.
+    pub const Arrays = struct {
+        connections: []QuicConnection,
+        pools: []const ReceiveStorage,
+        route_entries: []endpoint_routes.Entry,
+        route_held: []endpoint_routes.Held,
+    };
 
     /// Holds no connection. Every value the endpoint draws comes from `random`.
-    pub fn init(held: *Connections, config: *const endpoint_config.Config, quic_config: *const quic_connection.Config, connections: []QuicConnection, pools: []const ReceiveStorage, slots: *endpoint_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+    pub fn init(held: *Connections, config: *const endpoint_config.Config, quic_config: *const quic_connection.Config, arrays: Arrays, slots: *endpoint_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+        const connections = arrays.connections;
+        const pools = arrays.pools;
         assert(connections.len == pools.len and slots.tcp_count + connections.len == slots.live.len);
+        assert(arrays.route_held.len == connections.len);
         held.* = .{
             .config = config,
             .quic = quic_config,
@@ -75,7 +90,9 @@ pub const Connections = struct {
             .pools = pools,
             .slots = slots,
             .replies = .{},
+            .routes = undefined,
         };
+        held.routes.init(arrays.route_entries, arrays.route_held);
     }
 
     /// The QUIC connection slot `slot` holds.
@@ -88,9 +105,12 @@ pub const Connections = struct {
     /// returns the slot of the connection that took it, or null when none did. With `accepting`
     /// false, a client's first Initial starts no connection.
     pub fn receive(held: *Connections, datagram: []u8, ecn: Ecn, from: PeerAddress, now_ns: u64, accepting: bool) ?u32 {
-        if (endpoint_stateless.destination_of(datagram)) |dcid| {
-            if (held.slot_for(dcid)) |slot| {
-                internal.take(held.at(slot), datagram, ecn, from, now_ns);
+        if (endpoint_stateless.destination_of(datagram)) |destination| {
+            if (held.slot_for(destination)) |slot| {
+                const connection = held.at(slot);
+                internal.take(connection, datagram, ecn, from, now_ns);
+                // Decision 157: an ID the peer retired in this datagram frees its entry.
+                held.routes.sync(slot - held.slots.tcp_count, &connection.transport.local_ids);
                 return slot;
             }
         }
@@ -110,8 +130,23 @@ pub const Connections = struct {
         return slot;
     }
 
-    /// The slot of the running connection `dcid` addresses (RFC 9000 §5.2), or null.
-    fn slot_for(held: *Connections, dcid: []const u8) ?u32 {
+    /// The slot of the running connection `destination` addresses (RFC 9000 §5.2), or null. An
+    /// ID this endpoint issued names its own table entry (decision 157). A short header follows
+    /// the server's first Initial, after which the client sends only the server's IDs (§7.2), so
+    /// only a long header may carry an ID the table lacks: the client's first DCID or a Retry's.
+    fn slot_for(held: *Connections, destination: endpoint_stateless.Destination) ?u32 {
+        if (held.routes.find(destination.dcid)) |quic_index| {
+            const slot: u32 = @intCast(held.slots.tcp_count + quic_index);
+            assert(held.slots.live[slot]);
+            // A closed connection takes no datagram, as `addressed_by` says.
+            return if (held.connections[quic_index].closed) null else slot;
+        }
+        if (destination.short) return null;
+        return held.scan_for(destination.dcid);
+    }
+
+    /// The slot of the running connection that a long header's `dcid` addresses, by a scan.
+    fn scan_for(held: *Connections, dcid: []const u8) ?u32 {
         for (held.connections, 0..) |*connection, index| {
             const slot: u32 = @intCast(held.slots.tcp_count + index);
             if (held.slots.live[slot] and internal.addressed_by(connection, dcid)) return slot;
@@ -190,20 +225,24 @@ pub const Connections = struct {
         // check could have sealed shorter under the same key (INV-24).
         if (original_destination.len < quic.constants.protocol.initial_destination_len_min) return null;
         const handle = held.slots.take(.quic) orelse return null;
+        const quic_index = handle.slot - held.slots.tcp_count;
         var how: quic_connection.Start = .{
             .version = version,
             .local_id = undefined,
+            .route = .{ .routes = &held.routes, .quic_index = quic_index },
             .original_destination = original_destination,
             .peer_source = peer_source,
             .retry_source = retry_source,
             .grease = held.random.int(u64),
             .peer = from,
         };
-        // RFC 9000 §7.2: the server chooses its own connection ID, unpredictable (§5.1).
-        held.random.bytes(&how.local_id);
+        // RFC 9000 §7.2: the server chooses its own connection ID, unpredictable (§5.1), in an
+        // entry of the table (decision 157).
+        held.routes.issue(quic_index, held.random, &how.local_id);
         const connection = held.at(handle.slot);
-        const pool = held.pools[handle.slot - held.slots.tcp_count];
+        const pool = held.pools[quic_index];
         internal.start(connection, held.quic, pool, how, held.random, held.seconds_at(now_ns), now_ns) catch {
+            held.routes.release(quic_index);
             held.slots.release(handle);
             return null;
         };
@@ -229,6 +268,13 @@ pub const Connections = struct {
         const peer = transport.path.address;
         if (transport.recovery.careful_resume.retreated) resumes.drop(peer);
         resumes.put(peer, quic.connection_resume.observe(transport, now_ns), now_ns);
+    }
+
+    /// Frees the table entries of the IDs the connection in `slot` issued, whose slot is released
+    /// (decision 157).
+    pub fn release_routes(held: *Connections, slot: u32) void {
+        assert(held.slots.kind_of(slot) == .quic);
+        held.routes.release(slot - held.slots.tcp_count);
     }
 
     /// Hands the log of a connection that is over back to the caller.

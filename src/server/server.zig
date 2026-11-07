@@ -215,6 +215,8 @@ test {
     _ = @import("quic/quic_head_test.zig");
     _ = @import("endpoint/endpoint_stateless.zig");
     _ = @import("endpoint/endpoint_slots.zig");
+    _ = @import("endpoint/endpoint_routes.zig");
+    _ = @import("endpoint/endpoint_routes_test.zig");
     _ = @import("endpoint/endpoint_ready.zig");
     _ = @import("endpoint/endpoint_deadline_heap.zig");
     _ = @import("endpoint/endpoint_requests.zig");

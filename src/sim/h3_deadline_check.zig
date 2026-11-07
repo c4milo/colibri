@@ -52,7 +52,7 @@ pub const census_crc32_expected: u32 = 0xc82bd847;
 /// The CRC-32 of the runs' datagram CRC-32s, in seed order. It follows what the wire carried apart
 /// from what the application reads, so a change to how the server reports events keeps it, and a
 /// change to what it sends does not (design §8 step 21b.3).
-pub const census_wire_crc32_expected: u32 = 0xc96d7446;
+pub const census_wire_crc32_expected: u32 = 0xfd358b2c;
 
 pub const Violation = h3_deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.

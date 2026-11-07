@@ -72,6 +72,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.resets_sent_passed = false;
     connection.random = random;
     connection.spare_ids_issued = false;
+    connection.route = how.route;
     connection.transport.init(.{
         .role = .server,
         .version = how.version,
@@ -249,9 +250,13 @@ fn issue_spare_ids(connection: *QuicConnection) void {
         var id: [constants.policy.quic_id_len]u8 = undefined;
         var token: [quic.constants.protocol.stateless_reset_token_len]u8 = undefined;
         // RFC 9000 §5.1: an ID unlinkable to the others; §10.3: a token no one can guess.
-        connection.random.bytes(&id);
+        // Decision 157: an endpoint's table draws the ID into an entry of its own.
+        if (connection.route) |route| route.routes.issue(route.quic_index, connection.random, &id) else connection.random.bytes(&id);
         connection.random.bytes(&token);
-        _ = quic.connection_id_frames.issue(&connection.transport, &id, &token) catch return;
+        _ = quic.connection_id_frames.issue(&connection.transport, &id, &token) catch {
+            if (connection.route) |route| route.routes.forget_last(route.quic_index);
+            return;
+        };
     }
 }
 

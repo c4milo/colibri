@@ -101,6 +101,7 @@ fn end(state: *State, slot: u32, connection: *QuicConnection, now_ns: u64) Event
     state.ready.remove(slot);
     state.sendable.remove(slot);
     state.failed[slot] = false;
+    state.connections.release_routes(slot);
     state.slots.release(handle);
     return .{ .ended = ended };
 }

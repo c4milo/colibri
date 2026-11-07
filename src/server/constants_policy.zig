@@ -21,6 +21,11 @@ pub const quic_resets_sent_period_ns: u64 = h2.constants.policy.rst_stream_rate_
 /// Destination Connection ID be at least 8 octets, and the server's are as long.
 pub const quic_id_len: usize = 8;
 
+/// How many entries the endpoint's table of connection IDs holds for each ID its connections may
+/// hold at once (decision 157). With twice as many entries as IDs, the table never fills, and an
+/// ID drawn at random seldom names an entry in use.
+pub const quic_route_spread: usize = 2;
+
 /// The window each QUIC connection grants a request stream's content, and each of the client's
 /// unidirectional streams: h3's control stream and QPACK's two (RFC 9114 §6.2).
 pub const quic_stream_window: u64 = 65_536;

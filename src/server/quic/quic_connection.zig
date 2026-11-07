@@ -31,6 +31,7 @@ const deadline = @import("../deadline.zig");
 const close_reason_module = @import("../close_reason.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const http = @import("http");
+const endpoint_routes = @import("../endpoint/endpoint_routes.zig");
 
 pub const RequestId = event.RequestId;
 /// The number of a request on this connection, which its calls take (decision 119): an event's
@@ -87,6 +88,9 @@ pub const Start = struct {
     version: quic.packet.header.Version = .v1,
     /// The connection ID the server chose (RFC 9000 §7.2).
     local_id: [constants.policy.quic_id_len]u8,
+    /// The endpoint's table of connection IDs, which draws each spare ID the connection issues
+    /// (decision 157), or null for a connection no endpoint holds, which draws them at random.
+    route: ?Route = null,
     /// The client's first Destination and Source Connection IDs (RFC 9000 §7.3), and a Retry's
     /// Source Connection ID when the Initial returned a Retry token (RFC 9000 §17.2.5.1).
     original_destination: []const u8,
@@ -96,6 +100,12 @@ pub const Start = struct {
     grease: u64,
     /// Where the client sent from, which the connection's datagrams go to (decision 72).
     peer: PeerAddress,
+};
+
+/// The endpoint's table of connection IDs and the connection's QUIC index in it (decision 157).
+pub const Route = struct {
+    routes: *endpoint_routes.Routes,
+    quic_index: u32,
 };
 
 pub const StartError = error{
@@ -168,6 +178,8 @@ pub const QuicConnection = struct {
     random: tls.Random,
     /// Whether the spare connection IDs went out (`issue_spare_ids`).
     spare_ids_issued: bool,
+    /// The endpoint's table its IDs go in, from `Start.route`.
+    route: ?Route,
 
     /// Reports the next event: a request's head, its content, its trailer section, its
     /// cancellation, or that its response is done. `consumed` is always 0: the endpoint passed the

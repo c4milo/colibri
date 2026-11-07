@@ -18,6 +18,7 @@ const connection_module = @import("../connection/connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const endpoint_connections = @import("endpoint_connections.zig");
+const endpoint_routes = @import("endpoint_routes.zig");
 const endpoint_config = @import("endpoint_config.zig");
 const endpoint_slots = @import("endpoint_slots.zig");
 const endpoint_ready = @import("endpoint_ready.zig");
@@ -63,6 +64,8 @@ pub const Storage = struct {
     quic: []QuicConnection,
     pools: []const ReceiveStorage,
     quic_tables: []QuicTable,
+    route_entries: []endpoint_routes.Entry,
+    route_held: []endpoint_routes.Held,
     generations: []u32,
     live: []bool,
     free: []u32,
@@ -132,7 +135,7 @@ pub const State = struct {
         state.tcp_configs = built.tcp;
         state.served = built.served;
         const quic_config = built.quic;
-        state.connections.init(config, quic_config, storage.quic, storage.pools, &state.slots, random, now_seconds, now_ns);
+        state.connections.init(config, quic_config, .{ .connections = storage.quic, .pools = storage.pools, .route_entries = storage.route_entries, .route_held = storage.route_held }, &state.slots, random, now_seconds, now_ns);
         state.ready.init(storage.ready_numbers, storage.ready_queued);
         state.sendable.init(storage.send_numbers, storage.send_queued);
         state.heap.init(storage.cached, storage.position, storage.order, storage.stale_numbers, storage.stale_queued);

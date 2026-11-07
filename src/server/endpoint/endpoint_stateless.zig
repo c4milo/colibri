@@ -13,16 +13,22 @@ const PeerAddress = quic.PeerAddress;
 /// subsequent packets with a different Destination Connection ID than the first packet in the
 /// datagram", so the first one routes the whole datagram. A short header carries no length, so
 /// its ID is as long as the ones this endpoint issues.
-pub fn destination_of(datagram: []const u8) ?[]const u8 {
+pub fn destination_of(datagram: []const u8) ?Destination {
     const parsed = quic.packet.header.read(datagram, constants.policy.quic_id_len) catch return null;
     return switch (parsed) {
         // RFC 9000 §5.2.2: a packet in a version the server does not speak gets a Version
         // Negotiation packet or is dropped, and reaches no connection.
-        .long => |long| if (quic.connection_version.speaks(@intFromEnum(long.version))) long.dcid else null,
-        .short => |short| short.dcid,
+        .long => |long| if (quic.connection_version.speaks(@intFromEnum(long.version))) .{ .dcid = long.dcid, .short = false } else null,
+        .short => |short| .{ .dcid = short.dcid, .short = true },
         else => null,
     };
 }
+
+/// A datagram's Destination Connection ID, and whether its first packet has a short header.
+pub const Destination = struct {
+    dcid: []const u8,
+    short: bool,
+};
 
 /// The long header of a client's first Initial packet, which a server starts a connection from
 /// (RFC 9000 §7.2), or null for any other datagram.
@@ -124,10 +130,11 @@ test "RFC 9000 §6.1: an unknown version large enough to start a connection gets
 test "RFC 9000 §7.2: a connection starts from a client's Initial alone, and §5.2 routes by the first ID" {
     const initial = try long_packet(.initial);
     try testing.expectEqualSlices(u8, &test_id, first_initial(initial).?.dcid);
-    try testing.expectEqualSlices(u8, &test_id, destination_of(initial).?);
+    try testing.expectEqualSlices(u8, &test_id, destination_of(initial).?.dcid);
+    try testing.expect(!destination_of(initial).?.short);
     const handshake = try long_packet(.handshake);
     try testing.expectEqual(null, first_initial(handshake));
-    try testing.expectEqualSlices(u8, &test_id, destination_of(handshake).?);
+    try testing.expectEqualSlices(u8, &test_id, destination_of(handshake).?.dcid);
 }
 
 test "RFC 9000 §8.1.4: a Retry token binds the client's address and its port" {

@@ -31,6 +31,7 @@ const deadline = @import("../deadline.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const endpoint_connections = @import("endpoint_connections.zig");
+const endpoint_routes = @import("endpoint_routes.zig");
 const endpoint_config = @import("endpoint_config.zig");
 const endpoint_state = @import("endpoint_state.zig");
 
@@ -87,6 +88,8 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         pools: [capacity.quic_connections]Pool,
         storages: [capacity.quic_connections]ReceiveStorage,
         quic_tables: [capacity.quic_connections]endpoint_state.QuicTable,
+        route_entries: [endpoint_routes.entries_for(capacity.quic_connections)]endpoint_routes.Entry,
+        route_held: [capacity.quic_connections]endpoint_routes.Held,
         generations: [slots_max]u32,
         live: [slots_max]bool,
         free: [slots_max]u32,
@@ -132,6 +135,8 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
                 .quic = &endpoint.quic,
                 .pools = &endpoint.storages,
                 .quic_tables = &endpoint.quic_tables,
+                .route_entries = &endpoint.route_entries,
+                .route_held = &endpoint.route_held,
                 .generations = &endpoint.generations,
                 .live = &endpoint.live,
                 .free = &endpoint.free,

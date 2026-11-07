@@ -225,11 +225,11 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 52462096 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 348464 | an endpoint that holds one TCP connection |
-| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2952896 | an endpoint that holds one QUIC connection, with its receive pool |
+| `server.Endpoint` | 52467184 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 348496 | an endpoint that holds one TCP connection |
+| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2953248 | an endpoint that holds one QUIC connection, with its receive pool |
 | `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 332544 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
-| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1430008 | the connection each QUIC slot of an endpoint holds, without its receive pool |
+| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 1430032 | the connection each QUIC slot of an endpoint holds, without its receive pool |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp"))` | 316328 | each TCP connection of a pool: h11 or h2, in cleartext or over TLS |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "tcp_links"))` | 56 | what a pool tracks of each TCP slot's connection |
 | `std.meta.Elem(@FieldType(client.ConnectionPool, "entries"))` | 72 | each exchange a pool holds at once |
