@@ -6661,21 +6661,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           The audit's `parse`, which returns the value, loses.
      2. A type whose `init` takes a `*const Config` copies the fields that it keeps. It keeps no
         pointer to the caller's `Config` (pattern 1).
-        - `server.Endpoint(capacity).init` and `client.ConnectionPool(capacity).init` keep
+        - `server.Engine(capacity).init` and `client.ConnectionPool(capacity).init` keep
           `config: *const Config`, and copy into the object each field they read after `init`.
         - A pointer that `Config` holds, such as a pool, an identity or a provider, still names
           the caller's storage. That storage lives as long as the object, as before.
         - A program no longer keeps its `Config` alive after `init`. It needs no global with
           `align(@alignOf(server.Config))`, and `colibri.Server` keeps no copy of `Config` only
           for a stable pointer.
-        - `Endpoint.init` takes one `server.Instant`, with the fields `ns` and `unix_seconds`, in
+        - `Engine.init` takes one `server.Instant`, with the fields `ns` and `unix_seconds`, in
           place of the two adjacent `u64` values `now_seconds` and `now_ns`. The compiler then
           refuses two instants in the wrong order.
      3. A type function takes the name of the thing (pattern 2). Ruling 1 of decision 156 now
         applies to each `*Of` name and each `Default*` alias.
-        - `server.Endpoint(capacity)` replaces `server.EndpointOf(capacity)` and
+        - `server.Engine(capacity)` replaces `server.EndpointOf(capacity)` and
           `server.Endpoint`, the type of the default capacity. A program writes
-          `server.Endpoint(.{})`.
+          `server.Engine(.{})`. Ruling 15 gives the name.
         - `client.ConnectionPool(capacity)` replaces `client.ConnectionPoolOf(capacity)` and
           `client.ConnectionPool`.
         - A pool with defaults takes one struct of comptime values, and the `Default*` alias
@@ -6743,9 +6743,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           `quic.stream.StreamId`, `quic.stream.StreamProvider` and `quic.frame.Frame`.
           `quic.Stream` is the stream that a connection holds. `quic.frame.Stream` stays the
           STREAM frame (RFC 9000 §19.8).
-        - `quic.Close` is the one path of the CONNECTION_CLOSE frame (RFC 9000 §19.19), with
-          `Close.transport` as its declaration. `quic.frame.frame_control.ConnectionClose`
-          goes, and `frame` holds no copy of it (ruling 7).
+        - `quic.ConnectionClose` is the one path of the CONNECTION_CLOSE frame (RFC 9000
+          §19.19), with `ConnectionClose.transport` as its declaration.
+          `quic.frame.frame_control.ConnectionClose` goes, and `frame` holds no copy of it
+          (ruling 7).
         - The 41 calls that a program makes on a `quic.Connection` become declarations of
           `quic.Connection`. A name that two files share takes its concept: `idle_deadline_ns`,
           `open_stream` and `owe_close`. `quic.connection_send.Ecn` becomes `quic.Ecn`.
@@ -6814,12 +6815,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          `tls_provider.QuicProvider` and `std.mem.Allocator` have. A program calls
          `provider.negotiated_parameters()`, not `provider.vtable.negotiated_parameters(
          provider.context)`. Only an implementer writes the vtable.
-     15. The name of `server.Endpoint` is open. On 2026-11-07 the owner asked whether it should
-         be `server.Engine`, `server.Connections` or stay `server.Endpoint`. Design §8 step 45
-         writes `Endpoint(capacity)` until he rules, and a rename then touches one commit.
+     15. `server.Endpoint` becomes `server.Engine`, a type function: a program writes
+         `server.Engine(.{})`. The owner ruled the name on 2026-11-07, after this decision was
+         written. He chose it over `server.Connections` and over `server.Endpoint`.
+         - The directory `src/server/endpoint/` becomes `src/server/engine/`, and each file
+           `endpoint_*.zig` becomes `engine_*.zig`.
+         - Prose, the decisions that comments cite, docs/usage.md and the examples say
+           "engine".
+         - The owner ruled two more names on the same day. The CONNECTION_CLOSE frame's one
+           public path is `quic.ConnectionClose`, not `quic.Close` (ruling 8). The connection ID
+           options are `quic.Connection.IdentityOptions`, as ruling 6 names them.
 
      What the amended decisions now say:
-     - Decisions 35 and 125: the comptime count of a server is `server.Endpoint(capacity)`, not
+     - Decisions 35 and 125: the comptime count of a server is `server.Engine(capacity)`, not
        `server.EndpointOf(capacity)`.
      - Decision 60: a program calls `quic.Connection.receive`, and
        `quic.Connection.receive_error_code` names the code of its error.
@@ -6832,9 +6840,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `DecoderPoolOptions`.
      - Decisions 117 (ruling 6), 122, 127 and 150: the router is `server.Router`, and
        `colibri.Server` takes a router that `server.Router` made.
-     - Decisions 119 and 120: the endpoint and the pool copy what they keep of `Config`, and do
+     - Decisions 119 and 120: the engine and the pool copy what they keep of `Config`, and do
        not read the caller's `Config` while they run.
-     - Decisions 124 and 126 (ruling 8): `server.Endpoint(capacity)` and
+     - Decisions 124 and 126 (ruling 8): `server.Engine(capacity)` and
        `client.ConnectionPool(capacity)` are the type functions, and the `Of` names go.
      - Decision 153 (ruling 7): `write_body` takes a `client.PieceEnd`.
      - Decision 156 (ruling 1): its reason, that the suffix `Of` says nothing to a program, now
@@ -6865,8 +6873,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        and a change touches about 1,800 definitions and each program's hooks.
      - `Config` by value in `init`. The struct passes 16 octets, so TigerStyle passes it by
        `*const`. The copy of the fields that the object keeps does the same work once.
-     - The endpoint and the pool keep their pointer to `Config`. Each program then keeps its
-       `Config` alive and aligned, and a change to it after `init` changes a running endpoint.
+     - The engine and the pool keep their pointer to `Config`. Each program then keeps its
+       `Config` alive and aligned, and a change to it after `init` changes a running engine.
      - The two instants as separate arguments, with a comment. The compiler cannot catch a swap.
      - `Default*` aliases beside the type functions. A program learns two names for one thing.
      - A struct parameter with no public name for each pool. Ruling 6 gives each type in a
@@ -6888,3 +6896,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `reset` as the name of a pool's initializer. Std keeps `reset` for a value that `init`
        already made.
      - Raw vtable calls through `Provider`. A program writes the context twice in each call.
+     - `server.Connections` as the name of the engine. The owner chose `server.Engine`.
+     - `server.Endpoint` kept as the name of the type function. The owner chose `server.Engine`.
+     - `quic.Close` as the path of the CONNECTION_CLOSE frame. The name does not say which close
+       it is, and RFC 9000 §19.19 names the frame CONNECTION_CLOSE.

@@ -14132,8 +14132,8 @@ library.
 - **Step 45 — colibri's public API in Zig's idioms, proposed 2026-11-07.** [Decision
   158](decisions.md). TigerStyle rules first, and Zig 0.16's std rules where TigerStyle says
   nothing. The step changes names and signatures, and no behaviour on the wire. It ships in
-  v0.15.0, and lands before step 44's commits 44b to 44j, which then use its names. The name
-  of `server.Endpoint` is open: see "The open question" below.
+  v0.15.0, and lands before step 44's commits 44b to 44j, which then use its names. The owner
+  ruled the open names on 2026-11-07: see "The owner's name rulings" below.
   - **The public names**, module by module, in decision 115's order. "Adds", "renames" and
     "removes" name a root's list or a type's list of `core.public_names.expect`. Each root's
     list after the step follows.
@@ -14204,15 +14204,15 @@ library.
         declarations that `init` takes today and that no path names (pattern 5). Its list then
         holds `Options`, `IdentityOptions`, `init`, `addressed_by` and each name in the right
         column.
-      - Adds to the root: `Ecn` (was `connection_send.Ecn`), `Close`, `Stream`, `StreamId`,
-        `StreamProvider`, `Frame`, `ReceivePool`, `ReceivePoolOptions`, `ReceiveStorage`, and
-        the namespaces `version` and `retry`.
+      - Adds to the root: `Ecn` (was `connection_send.Ecn`), `ConnectionClose`, `Stream`,
+        `StreamId`, `StreamProvider`, `Frame`, `ReceivePool`, `ReceivePoolOptions`,
+        `ReceiveStorage`, and the namespaces `version` and `retry`.
         - `Stream`, `StreamId` and `StreamProvider` move from `stream`, and `Frame` from
           `frame`. Each old path goes, so each type has one path (ruling 7).
         - `Stream` is the stream that a connection holds, which was `stream.Stream`.
           `frame.Stream` stays the STREAM frame (RFC 9000 §19.8).
-        - `Close` is the one path of the CONNECTION_CLOSE frame (RFC 9000 §19.19), and
-          `Close.transport` is its declaration. `frame` holds no copy of it.
+        - `ConnectionClose` is the one path of the CONNECTION_CLOSE frame (RFC 9000 §19.19),
+          and `ConnectionClose.transport` is its declaration. `frame` holds no copy of it.
       - Renames, with no name that repeats itself: `stream.stream_provider.VTable` to
         `StreamProvider.VTable`; `stream.stream_incoming.block_len` to
         `stream.receive_block_len`; `frame.frame_ack.Range` to `frame.AckRange`;
@@ -14222,7 +14222,7 @@ library.
       - Removes: the 17 namespaces from `connection_datagram` to `connection_qlog`,
         `stream.Stream`, `stream.StreamId`, `stream.StreamProvider`, `frame.Frame`,
         `stream.stream_incoming` with `DefaultPool`, `stream.stream_table`,
-        `frame.frame_ack`, `frame.frame_control` with `ConnectionClose`, and
+        `frame.frame_ack`, `frame.frame_control` with its `ConnectionClose`, and
         `transport_parameters_read`.
       - Stays: the names that only the simulator, the corpus and the test endpoints call, in
         `connection`, `connection_receive`, `connection_recovery`, `connection_frames`,
@@ -14230,7 +14230,7 @@ library.
         `recovery_ack` and `recovery_sent`. Their comment says so.
       - The root's list: `core`, `wire`, `crypto`, `tls_provider`, `qlog`, `constants`,
         `error_code`, `Connection`, `PeerAddress`, `CongestionController`, `ResumeState`,
-        `ResumeBounds`, `ResumeProvider`, `Space`, `Recovery`, `Ecn`, `Close`, `Stream`,
+        `ResumeBounds`, `ResumeProvider`, `Space`, `Recovery`, `Ecn`, `ConnectionClose`, `Stream`,
         `StreamId`, `StreamProvider`, `Frame`, `ReceivePool`, `ReceivePoolOptions`,
         `ReceiveStorage`, `version`, `retry`, `connection`, `connection_receive`,
         `connection_recovery`, `connection_frames`, `connection_keys`,
@@ -14244,7 +14244,7 @@ library.
       | `connection_timer.next`, `on_instant` | `Connection.deadline`, `on_instant` |
       | `connection_resume.observe` | `Connection.resume_state` |
       | `connection_idle.deadline_ns`, `timeout_ns`, `probe_timeout_ns`, `owe_keep_alive`, `keep_alive_owed` | `Connection.idle_deadline_ns`, `idle_timeout_ns`, `probe_timeout_ns`, `owe_keep_alive`, `keep_alive_owed` |
-      | `connection_close.owe`, `owes`, `transport` | `Connection.owe_close`, `owes_close`, `Close.transport` |
+      | `connection_close.owe`, `owes`, `transport` | `Connection.owe_close`, `owes_close`, `ConnectionClose.transport` |
       | `connection_stream_send.open`, `supply`, `reset`, `stop_sending`, `set_priority`, `write`, `write_endings`, `Error` | `Connection.open_stream`, `supply`, `reset_stream`, `stop_sending`, `set_stream_priority`, `write_stream_frame`, `write_stream_endings`, `StreamSendError` |
       | `stream.stream_table.OpenError` | `Connection.OpenStreamError` |
       | `connection_stream_read.read`, `peek`, `consume`, `reset_code`, `Read`, `Error` | `Connection.read`, `peek`, `consume`, `reset_code`, `StreamRead`, `StreamReadError` |
@@ -14275,9 +14275,11 @@ library.
     - `dnssec` (pattern 10). `Error` holds `SignatureVerificationFailed` and `InvalidEncoding`
       in place of `Auth` and `Invalid`. No list changes.
     - `server` (patterns 1 to 5).
-      - `Endpoint(capacity)` replaces `EndpointOf(capacity)` and the type of the default
-        capacity. `Endpoint(capacity)` adds `Accepted`, and `init` takes
-        `(endpoint, config, random, now: Instant)`.
+      - `Engine(capacity)` replaces `EndpointOf(capacity)` and `Endpoint`, the type of the
+        default capacity. `Engine(capacity)` adds `Accepted`, and `init` takes
+        `(engine, config, random, now: Instant)`.
+      - The directory `src/server/endpoint/` becomes `src/server/engine/`, and each file
+        `endpoint_*.zig` becomes `engine_*.zig`.
       - `Router(Context, table, options)` replaces `router`. Its type's list: `Route`, `Match`,
         `match`, `memory_bytes` and `handle`.
       - `EncoderPool(options)` and `DecoderPool(options)` replace `DefaultEncoderPool` and
@@ -14287,7 +14289,7 @@ library.
       - `ResponseWriter` adds `Error`. `Response.status` and `ResponseWriter.status` take
         `Status`.
       - The root's list: `constants`, `Config`, `Protocols`, `Limits`, `Timeout`, `Timeouts`,
-        `CloseReason`, `Limit`, `Endpoint`, `Capacity`, `Instant`, `Input`, `Datagram`,
+        `CloseReason`, `Limit`, `Engine`, `Capacity`, `Instant`, `Input`, `Datagram`,
         `StreamBytes`, `LogProvider`, `ResumeProvider`, `ResumeState`, `ResumeBounds`, `Sent`,
         `Address`, `Ecn`, `StartError`, `SendError`, `Header`, `RequestId`,
         `ConnectionHandle`, `Version`, `Headers`, `Event`, `Request`, `RequestBody`, `Trailers`,
@@ -14311,7 +14313,7 @@ library.
         `DefaultDecoderPool`. The other names stay in their order.
     - `colibri`. No root name changes in this step. Step 44 changes the root (decision 156).
       `colibri.Server` keeps no copy of `ServerConfig` for a stable pointer, because the
-      endpoint copies what it keeps.
+      engine copies what it keeps.
   - **The commits.** Each commit passes `zig build test`, `zig build examples`,
     `tools/doc_snippets.sh` and `tools/consumer_check.sh`. Each commit moves the examples,
     README.md, docs/usage.md and `tools/consumer/` to its names, so the checks pass at each
@@ -14350,20 +14352,22 @@ library.
          timer it reads (the test of two calls fails).
        - Run `zig build test-sim-run-quic`, whose census must not change.
     7. 45g `refactor!`: patterns 2 and 3, and the `init` of each pool (ruling 10).
-       `server.Endpoint(capacity)`, `client.ConnectionPool(capacity)`, the options of each pool,
-       and `server.Router`. `tools/fixtures/router_refused.zig` and `build/router_check.zig`
-       expect "server.Router:". CLAUDE.md's example of `server.router` becomes
-       `server.Router` in this commit, which adds the name.
+       `server.Engine(capacity)`, `client.ConnectionPool(capacity)`, the options of each pool,
+       and `server.Router`. `src/server/endpoint/` becomes `src/server/engine/`, its files
+       `engine_*.zig`, and prose, comments, docs/usage.md and the examples say "engine".
+       `tools/fixtures/router_refused.zig` and `build/router_check.zig` expect
+       "server.Router:". CLAUDE.md's example of `server.router` becomes `server.Router` in this
+       commit, which adds the name.
        - Tests: `zig build router-check` and `zig build router-hidden-check`; an h11 gzip body
          decodes through a pool after its `init`.
        - Mutations: `init` that does not set the features (an h11 gzip body decodes wrong);
          a default in an options struct that differs from the old alias (`zig build
          bench-memory` prints a different table, which `zig build test` compares).
-    8. 45h `refactor!`: pattern 1. The endpoint and the pool copy what they keep of `Config`.
+    8. 45h `refactor!`: pattern 1. The engine and the pool copy what they keep of `Config`.
        `server.Instant` replaces the two instants.
-       - Test: a program changes its `Config` after `init`, and the endpoint and the pool serve
+       - Test: a program changes its `Config` after `init`, and the engine and the pool serve
          as the first `Config` said.
-       - Mutations: the endpoint reads `config.timeouts` through the caller's pointer; the
+       - Mutations: the engine reads `config.timeouts` through the caller's pointer; the
          pool reads `protocols` through it. Each test must fail.
     9. 45i `feat(http)!`: pattern 4, `http.Status` as one enum, and the `status` fields of
        server and client.
@@ -14390,7 +14394,7 @@ library.
         - Mutation: a method that calls the wrong member (the h11 and h2 TLS tests fail).
   - **What programs change.** Each commit above changes these where its names appear:
     - `examples/`: `server_exchange.zig`, `client_peer.zig`, `client_pool_peer.zig` and
-      `client_stream_peer.zig` (`Endpoint(.{})`, `Instant`); `client_exchange.zig`,
+      `client_stream_peer.zig` (`Engine(.{})`, `Instant`); `client_exchange.zig`,
       `client_pool.zig`, `client_stream.zig` and `server_peers.zig` (`ConnectionPool(.{})`);
       `colibri_server.zig` and `client_peer.zig` (`server.Router`); the files that compare a
       status; `client_stream.zig` and `client_stream_peer.zig` (`write_body`, `RequestId`);
@@ -14402,13 +14406,18 @@ library.
   - **Step 44 after step 45.** Step 44's commits from 44b use the names of step 45.
     - `FetchResult.status` is an `http.Status`, and `FetchOptions.never_indexed` holds a
       header slice (decision 158 rulings 5 and 9).
-    - `colibri.Server` places an `Endpoint(capacity)`, and its `init` takes a router that
+    - `colibri.Server` places an `Engine(capacity)`, and its `init` takes a router that
       `server.Router` made.
-    - The poller calls `endpoint.init` with one `server.Instant`.
+    - The poller calls `engine.init` with one `server.Instant`.
     - `Client.InitError` and `Client.RunError` are the named sets of decision 158 ruling 6.
-  - **The open question.** On 2026-11-07 the owner asked whether `server.Endpoint` becomes
-    `server.Engine` or `server.Connections`, or keeps its name. This step writes
-    `Endpoint(capacity)`. A rename is one more commit after 45g, and it changes no other name.
+  - **The owner's name rulings of 2026-11-07** (decision 158 ruling 15). They close the open
+    question on the name of `server.Endpoint`, and came after this entry was written.
+    1. `server.Endpoint` becomes `server.Engine`, a type function: `server.Engine(.{})`. 45g
+       makes the change, with the directory `src/server/engine/` and its files `engine_*.zig`.
+    2. The CONNECTION_CLOSE frame's one public path is `quic.ConnectionClose`, not
+       `quic.Close`. 45f adds it.
+    3. The connection ID options are `quic.Connection.IdentityOptions`, as planned. 45f adds
+       them.
   - **The checks.** `zig build test`, `zig build examples`, `tools/doc_snippets.sh`,
     `tools/consumer_check.sh`, `zig build router-check` and `zig build router-hidden-check` at
     each commit, and `tools/ci.sh` once before the branch goes to main. The branch goes to main
