@@ -43,7 +43,7 @@ const prefixed_integer = wire.prefixed_integer;
 const string_literal = wire.string_literal;
 const entry_size = wire.table_size.entry_size;
 
-pub const Error = core.writer.Error;
+pub const Error = core.Writer.Error;
 
 /// How a line may be represented. `incremental` lets the encoder index it; `without_indexing`
 /// keeps it out of the table; `never_indexed` also tells every intermediary to do the same

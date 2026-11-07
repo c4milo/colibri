@@ -41,7 +41,7 @@ pub fn write_chunk(output: []u8, data: []const u8) Error!usize {
     return writer.written().len;
 }
 
-fn write_chunk_octets(writer: *Writer, data: []const u8) core.writer.Error!void {
+fn write_chunk_octets(writer: *Writer, data: []const u8) core.Writer.Error!void {
     try write_size_octets(writer, data.len);
     try writer.write_bytes(data);
     try writer.write_bytes("\r\n");
@@ -58,7 +58,7 @@ pub fn write_chunk_size(output: []u8, len: u64) Error!usize {
     return writer.written().len;
 }
 
-fn write_size_octets(writer: *Writer, len: u64) core.writer.Error!void {
+fn write_size_octets(writer: *Writer, len: u64) core.Writer.Error!void {
     // RFC 9112 §7.1: chunk-size = 1*HEXDIG.
     try writer.print("{x}\r\n", .{len});
 }
@@ -84,7 +84,7 @@ pub fn write_last_chunk(output: []u8, trailers: []const Field) Error!usize {
     return writer.written().len;
 }
 
-fn write_last_octets(writer: *Writer, trailers: []const Field) core.writer.Error!void {
+fn write_last_octets(writer: *Writer, trailers: []const Field) core.Writer.Error!void {
     try writer.write_bytes("0\r\n");
     for (trailers) |line| {
         try writer.write_bytes(line.name);

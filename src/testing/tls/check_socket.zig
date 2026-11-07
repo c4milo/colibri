@@ -56,7 +56,7 @@ pub const Input = struct {
 fn whole_record(octets: []const u8) bool {
     var reader = tls_provider.core.Reader.init(octets);
     _ = reader.take(record_length_offset) catch return false;
-    const length = reader.read_int(u16) catch return false;
+    const length = reader.take_int_big(u16) catch return false;
     _ = reader.take(length) catch return false;
     return true;
 }

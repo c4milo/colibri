@@ -136,7 +136,7 @@ pub fn read_decoder(reader: *Reader) Error!Decoder {
 }
 
 /// Writes one encoder instruction. All of the octets are written, or none.
-pub fn write_encoder(writer: *Writer, held: Encoder) core.writer.Error!void {
+pub fn write_encoder(writer: *Writer, held: Encoder) core.Writer.Error!void {
     var cursor = writer.*;
     switch (held) {
         .set_capacity => |capacity| try prefixed_integer.encode(
@@ -157,14 +157,14 @@ pub fn write_encoder(writer: *Writer, held: Encoder) core.writer.Error!void {
     writer.* = cursor;
 }
 
-fn write_insert_name_reference(cursor: *Writer, line: Encoder.InsertNameReference) core.writer.Error!void {
+fn write_insert_name_reference(cursor: *Writer, line: Encoder.InsertNameReference) core.Writer.Error!void {
     var high = constants.protocol.insert_name_reference_pattern;
     if (line.table == .static) high |= constants.protocol.insert_name_reference_static_flag;
     try prefixed_integer.encode(constants.protocol.insert_name_reference_prefix_bits, cursor, high, line.name_index);
     try string_literal.encode(constants.protocol.value_prefix_bits, cursor, 0, line.value, line.value_coding);
 }
 
-fn write_insert_literal(cursor: *Writer, line: Encoder.InsertLiteral) core.writer.Error!void {
+fn write_insert_literal(cursor: *Writer, line: Encoder.InsertLiteral) core.Writer.Error!void {
     try string_literal.encode(
         constants.protocol.insert_literal_name_prefix_bits,
         cursor,
@@ -176,7 +176,7 @@ fn write_insert_literal(cursor: *Writer, line: Encoder.InsertLiteral) core.write
 }
 
 /// Writes one decoder instruction. All of the octets are written, or none.
-pub fn write_decoder(writer: *Writer, held: Decoder) core.writer.Error!void {
+pub fn write_decoder(writer: *Writer, held: Decoder) core.Writer.Error!void {
     switch (held) {
         .section_acknowledgment => |id| try prefixed_integer.encode(
             constants.protocol.section_acknowledgment_prefix_bits,

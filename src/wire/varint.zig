@@ -26,7 +26,7 @@ pub const Decoded = struct {
 };
 
 /// Decodes one integer, consuming all of its octets or none.
-pub fn decode(reader: *Reader) core.reader.Error!Decoded {
+pub fn decode(reader: *Reader) core.Reader.Error!Decoded {
     const first = try reader.peek_byte();
     // RFC 9000 §16: the two most significant bits give the length as a power of two.
     const encoded_len: u8 = @as(u8, 1) << @intCast(first >> length_shift);
@@ -70,13 +70,13 @@ fn is_length(encoded_len: u8) bool {
 }
 
 /// Encodes `value` in the fewest octets.
-pub fn encode(writer: *Writer, value: u64) core.writer.Error!void {
+pub fn encode(writer: *Writer, value: u64) core.Writer.Error!void {
     return encode_with_len(writer, value, encoded_len_minimal(value));
 }
 
 /// Encodes `value` in exactly `encoded_len` octets, all of them or none. RFC 9000 §16 permits a
 /// longer encoding than the minimum outside the Frame Type field.
-pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.writer.Error!void {
+pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.Writer.Error!void {
     assert(is_length(encoded_len));
     assert(encoded_len >= encoded_len_minimal(value));
     // All of the octets or none. Each goes to the writer as it is made, so no octet is copied:

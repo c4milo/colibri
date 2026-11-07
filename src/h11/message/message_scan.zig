@@ -99,7 +99,7 @@ pub const Scanner = struct {
             _ = reader.take(run) catch unreachable;
             state.line_len += run;
             state.scanned += run;
-            const octet = reader.read_byte() catch break;
+            const octet = reader.take_byte() catch break;
             state.scanned += 1;
             if (try state.step(role, octet)) return state.span();
         }

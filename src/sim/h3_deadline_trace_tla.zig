@@ -15,7 +15,7 @@ const Writer = quic.core.Writer;
 const Plan = plan_module.Plan;
 const State = state_module.State;
 
-pub const Error = quic.core.writer.Error;
+pub const Error = quic.core.Writer.Error;
 
 /// The longest line one `print` writes.
 const line_len_max: usize = 256;

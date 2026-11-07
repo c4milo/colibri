@@ -31,7 +31,7 @@ const prefix_bits_max = wire.constants.protocol.integer_prefix_bits_max;
 const string_prefix_bits_min = wire.constants.protocol.string_prefix_bits_min;
 
 /// Every error a corpus decode can return. A rejection outside this set does not compile.
-pub const DecodeError = core.reader.Error || wire.string_literal.DecodeError || hpack.decoder.Error ||
+pub const DecodeError = core.Reader.Error || wire.string_literal.DecodeError || hpack.decoder.Error ||
     quic.packet.header.Error || corpus_receive.Error || corpus_h11.Error || error{
     /// The decoder succeeded without consuming every octet of the case.
     TrailingOctets,
@@ -66,7 +66,7 @@ pub fn find(format: Format, name: []const u8) *const Case {
 }
 
 /// Writes the octets `case` is built from.
-pub fn build(format: Format, case: *const Case, output: *Writer) core.writer.Error!void {
+pub fn build(format: Format, case: *const Case, output: *Writer) core.Writer.Error!void {
     switch (case.construction) {
         .literal => |octets| try output.write_bytes(octets),
         .varint => |varint| try wire.varint.encode_with_len(
@@ -175,7 +175,7 @@ fn decode_quic_packets(connection_id_len: u8, octets: []const u8) DecodeError!vo
 }
 
 /// Writes the version 1 manifest of one format.
-pub fn render_manifest(format: Format, output: *Writer) core.writer.Error!void {
+pub fn render_manifest(format: Format, output: *Writer) core.Writer.Error!void {
     const format_cases = cases_of(format);
     try output.print("colibri-golden-manifest version={d} format={t} cases={d}\n", .{
         constants.manifest_version,
@@ -198,7 +198,7 @@ pub fn render_manifest(format: Format, output: *Writer) core.writer.Error!void {
     }
 }
 
-fn render_parameters(format: Format, case: *const Case, output: *Writer) core.writer.Error!void {
+fn render_parameters(format: Format, case: *const Case, output: *Writer) core.Writer.Error!void {
     if (format == .prefixed_integer or format == .string_literal) {
         try output.print(" prefix_size={d}", .{case.prefix_size});
     }

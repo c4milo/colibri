@@ -321,7 +321,7 @@ fn skip_whitespace(reader: *core.Reader) void {
     for (0..reader.remaining_len()) |_| {
         const octet = reader.peek_byte() catch return;
         if (octet != ' ' and octet != '\t') return;
-        _ = reader.read_byte() catch unreachable;
+        _ = reader.take_byte() catch unreachable;
     }
 }
 
@@ -333,7 +333,7 @@ fn next_is(reader: *const core.Reader, octet: u8) bool {
 /// Reads `octet` when it is next, and answers whether it was.
 fn take(reader: *core.Reader, octet: u8) bool {
     if (!next_is(reader, octet)) return false;
-    _ = reader.read_byte() catch unreachable;
+    _ = reader.take_byte() catch unreachable;
     return true;
 }
 

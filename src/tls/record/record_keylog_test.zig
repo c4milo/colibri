@@ -97,8 +97,8 @@ fn seal(keys: Keys, sequence: u64, content_type: u8, content: []const u8, output
     const inner_len = content.len + 1;
     var writer = Writer.init(output);
     try writer.write_byte(content_application_data);
-    try writer.write_int(u16, legacy_record_version);
-    try writer.write_int(u16, @intCast(inner_len + Aead.tag_length));
+    try writer.write_int_big(u16, legacy_record_version);
+    try writer.write_int_big(u16, @intCast(inner_len + Aead.tag_length));
     const header_len = writer.written().len;
     var sealed: [content_len_max + 1]u8 = undefined;
     var tag: [Aead.tag_length]u8 = undefined;

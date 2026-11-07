@@ -69,7 +69,7 @@ pub fn encode(
     high_bits: u8,
     bytes: []const u8,
     coding: Coding,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     const flag = huffman_flag(prefix_size);
     assert(high_bits & ((flag << 1) -% 1) == 0);
     var cursor = output.*;

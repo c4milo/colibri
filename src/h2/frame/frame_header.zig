@@ -26,16 +26,16 @@ pub const Header = struct {
 };
 
 /// Reads one header. The reader moves past all nine octets or, on `error.Truncated`, none.
-pub fn read(reader: *Reader) core.reader.Error!Header {
+pub fn read(reader: *Reader) core.Reader.Error!Header {
     var cursor = reader.*;
     var length: u32 = 0;
     for (0..constants.protocol.frame_length_len) |_| {
-        length = (length << @bitSizeOf(u8)) | try cursor.read_byte();
+        length = (length << @bitSizeOf(u8)) | try cursor.take_byte();
     }
-    const frame_type = try cursor.read_byte();
-    const flags = try cursor.read_byte();
+    const frame_type = try cursor.take_byte();
+    const flags = try cursor.take_byte();
     // RFC 9113 §4.1: the reserved bit MUST be ignored when receiving.
-    const stream_id = (try cursor.read_int(u32)) & ~constants.protocol.reserved_bit_mask;
+    const stream_id = (try cursor.take_int_big(u32)) & ~constants.protocol.reserved_bit_mask;
     assert(length <= constants.protocol.frame_length_max);
     assert(stream_id <= constants.protocol.stream_id_max);
     reader.* = cursor;
@@ -43,15 +43,15 @@ pub fn read(reader: *Reader) core.reader.Error!Header {
 }
 
 /// Writes one header, all nine octets or none, with the reserved bit unset (RFC 9113 §4.1).
-pub fn write(writer: *Writer, header: Header) core.writer.Error!void {
+pub fn write(writer: *Writer, header: Header) core.Writer.Error!void {
     assert(header.length <= constants.protocol.frame_length_max);
     assert(header.stream_id <= constants.protocol.stream_id_max);
     var cursor = writer.*;
     // RFC 9113 §4.1: the 24-bit length, then the type, as the four octets of one integer.
-    try cursor.write_int(u32, header.length << @bitSizeOf(u8) | header.type);
+    try cursor.write_int_big(u32, header.length << @bitSizeOf(u8) | header.type);
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
-    try cursor.write_int(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
+    try cursor.write_int_big(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
     assert(cursor.offset - writer.offset == constants.protocol.frame_header_len);
     writer.* = cursor;
 }
@@ -138,7 +138,7 @@ test "has_flag reads one bit of the flags octet" {
 // fails leaves different octets, which no caller reads.
 
 /// The reference: `write` as it was.
-fn write_by_parts(writer: *Writer, header: Header) core.writer.Error!void {
+fn write_by_parts(writer: *Writer, header: Header) core.Writer.Error!void {
     var cursor = writer.*;
     var length_octets: [constants.protocol.frame_length_len]u8 = @splat(0);
     var rest = header.length;
@@ -150,7 +150,7 @@ fn write_by_parts(writer: *Writer, header: Header) core.writer.Error!void {
     try cursor.write_byte(header.type);
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
-    try cursor.write_int(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
+    try cursor.write_int_big(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
     writer.* = cursor;
 }
 

@@ -16,7 +16,7 @@ const constants = @import("constants.zig");
 
 const Writer = core.Writer;
 
-pub const Error = core.writer.Error;
+pub const Error = core.Writer.Error;
 
 /// The words of the first and last lines.
 const header_word = "colibri-sim-trace";

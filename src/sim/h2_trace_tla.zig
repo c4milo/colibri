@@ -13,7 +13,7 @@ const State = h2_trace_state.State;
 const Frame = h2_trace_state.Frame;
 const Plan = h2_trace_plan.Plan;
 
-pub const Error = h2.core.writer.Error;
+pub const Error = h2.core.Writer.Error;
 
 /// The longest line one `print` writes.
 const line_len_max: usize = 256;

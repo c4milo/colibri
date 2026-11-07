@@ -125,7 +125,7 @@ pub fn read_prefix(reader: *Reader) Error!Prefix {
 }
 
 /// Writes the field section prefix. All of the octets are written, or none.
-pub fn write_prefix(writer: *Writer, prefix: Prefix) core.writer.Error!void {
+pub fn write_prefix(writer: *Writer, prefix: Prefix) core.Writer.Error!void {
     var cursor = writer.*;
     try prefixed_integer.encode(constants.protocol.required_insert_count_prefix_bits, &cursor, 0, prefix.encoded_insert_count);
     const sign_bits: u8 = if (prefix.sign) constants.protocol.delta_base_sign_flag else 0;

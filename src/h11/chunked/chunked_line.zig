@@ -55,7 +55,7 @@ fn parse_size(reader: *Reader) Error!u64 {
     for (0..constants.limits.chunk_line_len_max) |_| {
         const octet = reader.peek_byte() catch break;
         const value = std.fmt.charToDigit(octet, hex_radix) catch break;
-        _ = reader.read_byte() catch unreachable;
+        _ = reader.take_byte() catch unreachable;
         digits += 1;
         // RFC 9112 §7.1: prevent integer conversion overflows on a large hexadecimal numeral.
         const shifted = std.math.mul(u64, size, hex_radix) catch return error.ChunkSizeTooLarge;
@@ -79,7 +79,7 @@ fn check_extensions(reader: *Reader) Error!void {
 
 /// One chunk extension, from its ";". True when the line ended with it.
 fn check_extension(reader: *Reader) Error!bool {
-    const octet = reader.read_byte() catch unreachable;
+    const octet = reader.take_byte() catch unreachable;
     // RFC 9112 §7.1.1: each chunk extension starts with ";".
     if (octet != extension_start) return error.ChunkExtensionInvalid;
     skip_whitespace(reader);
@@ -88,7 +88,7 @@ fn check_extension(reader: *Reader) Error!bool {
     if (try at_end_after_whitespace(reader)) return true;
     const next = reader.peek_byte() catch unreachable;
     if (next != extension_equals) return false;
-    _ = reader.read_byte() catch unreachable;
+    _ = reader.take_byte() catch unreachable;
     skip_whitespace(reader);
     try check_extension_value(reader);
     return false;
@@ -118,7 +118,7 @@ fn check_extension_value(reader: *Reader) Error!void {
 /// `quoted-string = DQUOTE *( qdtext / quoted-pair ) DQUOTE` (RFC 9110 §5.6.4).
 fn check_quoted_string(reader: *Reader) Error!void {
     assert((reader.peek_byte() catch unreachable) == double_quote);
-    _ = reader.read_byte() catch unreachable;
+    _ = reader.take_byte() catch unreachable;
     // Bounded by the line's length.
     for (0..constants.limits.chunk_line_len_max) |_| {
         if (try quoted_octet(reader)) return;
@@ -129,11 +129,11 @@ fn check_quoted_string(reader: *Reader) Error!void {
 /// One qdtext or quoted-pair of a quoted-string, or its closing DQUOTE, for which it returns true.
 fn quoted_octet(reader: *Reader) Error!bool {
     // RFC 9110 §5.6.4: the string ends at its closing DQUOTE, so the line may not end first.
-    const octet = reader.read_byte() catch return error.ChunkExtensionInvalid;
+    const octet = reader.take_byte() catch return error.ChunkExtensionInvalid;
     if (octet == double_quote) return true;
     if (octet == backslash) {
         // RFC 9110 §5.6.4: quoted-pair = "\" ( HTAB / SP / VCHAR / obs-text ), so an octet follows.
-        const quoted = reader.read_byte() catch return error.ChunkExtensionInvalid;
+        const quoted = reader.take_byte() catch return error.ChunkExtensionInvalid;
         // RFC 9110 §5.6.4: what a quoted-pair quotes is HTAB, SP, VCHAR or obs-text.
         if (!is_quoted_pair_octet(quoted)) return error.ChunkExtensionInvalid;
         return false;
@@ -159,7 +159,7 @@ fn take_token(reader: *Reader) []const u8 {
     for (0..constants.limits.chunk_line_len_max) |_| {
         const octet = reader.peek_byte() catch break;
         if (!http.field.is_tchar(octet)) break;
-        _ = reader.read_byte() catch unreachable;
+        _ = reader.take_byte() catch unreachable;
     }
     return reader.consumed_since(start);
 }
@@ -170,7 +170,7 @@ fn skip_whitespace(reader: *Reader) void {
     for (0..constants.limits.chunk_line_len_max) |_| {
         const octet = reader.peek_byte() catch return;
         if (octet != ' ' and octet != '\t') return;
-        _ = reader.read_byte() catch unreachable;
+        _ = reader.take_byte() catch unreachable;
     }
 }
 

@@ -170,7 +170,7 @@ fn read_ecn(reader: *Reader) frame.Error!EcnCounts {
 }
 
 /// Writes an ACK frame, all of it or none.
-pub fn write(writer: *Writer, ack: Ack) core.writer.Error!void {
+pub fn write(writer: *Writer, ack: Ack) core.Writer.Error!void {
     // RFC 9000 §19.3: the type is 0x02, or 0x03 when the ECN counts follow (§19.3.2).
     const frame_type = if (ack.ecn == null) constants.protocol.frame_ack else constants.protocol.frame_ack_ecn;
     try frame.write_type(writer, frame_type);

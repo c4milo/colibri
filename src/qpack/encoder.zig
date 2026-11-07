@@ -32,7 +32,7 @@ const Writer = core.Writer;
 const FieldSection = http.FieldSection;
 const Representation = representation.Representation;
 
-pub const Error = core.writer.Error;
+pub const Error = core.Writer.Error;
 
 pub const DecoderStreamError = error{
     /// RFC 9204 §6's QPACK_DECODER_STREAM_ERROR: the encoder could not interpret an instruction

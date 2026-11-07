@@ -250,7 +250,7 @@ pub fn server_only(id: Id) bool {
 
 /// Writes `parameters` as the sequence RFC 9000 §18 defines: each one an identifier, a length and
 /// a value, all three variable-length where §18 makes them so.
-pub fn write(writer: *Writer, parameters: *const Parameters, sender: Role) core.writer.Error!void {
+pub fn write(writer: *Writer, parameters: *const Parameters, sender: Role) core.Writer.Error!void {
     assert(parameters.valid());
     assert(sender == .server or parameters.original_destination_connection_id == null);
     assert(sender == .server or parameters.retry_source_connection_id == null);
@@ -271,14 +271,14 @@ pub fn write(writer: *Writer, parameters: *const Parameters, sender: Role) core.
 }
 
 /// RFC 9368 §3: the Chosen Version, then each Available Version, four octets each.
-fn write_version_information(writer: *Writer, info: *const VersionInformation) core.writer.Error!void {
+fn write_version_information(writer: *Writer, info: *const VersionInformation) core.Writer.Error!void {
     try wire.varint.encode(writer, @intFromEnum(Id.version_information));
     try wire.varint.encode(writer, @sizeOf(u32) * (1 + @as(usize, info.available_len)));
-    try writer.write_int(u32, info.chosen_version);
-    for (info.available_slice()) |version| try writer.write_int(u32, version);
+    try writer.write_int_big(u32, info.chosen_version);
+    for (info.available_slice()) |version| try writer.write_int_big(u32, version);
 }
 
-fn write_connection_ids(writer: *Writer, parameters: *const Parameters) core.writer.Error!void {
+fn write_connection_ids(writer: *Writer, parameters: *const Parameters) core.Writer.Error!void {
     if (parameters.original_destination_connection_id) |id| {
         try write_octets(writer, .original_destination_connection_id, id.slice());
     }
@@ -292,7 +292,7 @@ fn write_connection_ids(writer: *Writer, parameters: *const Parameters) core.wri
 
 /// The integer parameters. Each is written only when it differs from the default §18.2 gives it,
 /// because a parameter the peer does not send means that default and the octets cost nothing.
-fn write_integers(writer: *Writer, parameters: *const Parameters) core.writer.Error!void {
+fn write_integers(writer: *Writer, parameters: *const Parameters) core.Writer.Error!void {
     const defaults = Parameters.initial();
     const each = [_]struct { id: Id, value: u64, default: u64 }{
         .{ .id = .max_idle_timeout, .value = parameters.max_idle_timeout_ms, .default = defaults.max_idle_timeout_ms },
@@ -314,14 +314,14 @@ fn write_integers(writer: *Writer, parameters: *const Parameters) core.writer.Er
 }
 
 /// One parameter whose value is a variable-length integer (RFC 9000 §18).
-fn write_integer(writer: *Writer, id: Id, value: u64) core.writer.Error!void {
+fn write_integer(writer: *Writer, id: Id, value: u64) core.Writer.Error!void {
     try wire.varint.encode(writer, @intFromEnum(id));
     try wire.varint.encode(writer, wire.varint.encoded_len_minimal(value));
     try wire.varint.encode(writer, value);
 }
 
 /// One parameter whose value is a run of octets (RFC 9000 §18).
-fn write_octets(writer: *Writer, id: Id, octets: []const u8) core.writer.Error!void {
+fn write_octets(writer: *Writer, id: Id, octets: []const u8) core.Writer.Error!void {
     try wire.varint.encode(writer, @intFromEnum(id));
     try wire.varint.encode(writer, octets.len);
     try writer.write_bytes(octets);

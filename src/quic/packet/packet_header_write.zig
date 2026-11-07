@@ -37,7 +37,7 @@ pub const Long = struct {
     length_len: u8 = 0,
 };
 
-pub fn write_long(writer: *Writer, header: Long) core.writer.Error!void {
+pub fn write_long(writer: *Writer, header: Long) core.Writer.Error!void {
     assert(header.type != .retry);
     assert(header.type == .initial or header.token.len == 0);
     assert(@max(header.dcid.len, header.scid.len) <= constants.protocol.connection_id_len_max);
@@ -45,7 +45,7 @@ pub fn write_long(writer: *Writer, header: Long) core.writer.Error!void {
     // RFC 9000 §17.2: Header Form 1, Fixed Bit 1, the type, Reserved Bits 0, and the Packet
     // Number Length as one less than the field's octets.
     try copy.write_byte(long_first_octet(header.version, header.type) | (header.packet_number.len - 1));
-    try copy.write_int(u32, @intFromEnum(header.version));
+    try copy.write_int_big(u32, @intFromEnum(header.version));
     try invariant.write_connection_id(&copy, header.dcid);
     try invariant.write_connection_id(&copy, header.scid);
     // RFC 9000 §17.2.2: only an Initial packet carries a Token Length and a Token.
@@ -79,7 +79,7 @@ pub const Short = struct {
     spin: bool = false,
 };
 
-pub fn write_short(writer: *Writer, header: Short) core.writer.Error!void {
+pub fn write_short(writer: *Writer, header: Short) core.Writer.Error!void {
     assert(header.dcid.len <= constants.protocol.connection_id_len_max);
     var copy = writer.*;
     // RFC 9000 §17.3.1: Header Form 0, Fixed Bit 1, Reserved Bits 0.
@@ -104,13 +104,13 @@ pub const Retry = struct {
     token: []const u8,
 };
 
-pub fn write_retry(writer: *Writer, retry: Retry) core.writer.Error!void {
+pub fn write_retry(writer: *Writer, retry: Retry) core.Writer.Error!void {
     assert(@max(retry.dcid.len, retry.scid.len) <= constants.protocol.connection_id_len_max);
     // RFC 9000 §17.2.5.2: a client discards a Retry with a zero-length token, so none is sent.
     assert(retry.token.len > 0);
     var copy = writer.*;
     try copy.write_byte(long_first_octet(retry.version, .retry) | retry.unused_bits);
-    try copy.write_int(u32, @intFromEnum(retry.version));
+    try copy.write_int_big(u32, @intFromEnum(retry.version));
     try invariant.write_connection_id(&copy, retry.dcid);
     try invariant.write_connection_id(&copy, retry.scid);
     try copy.write_bytes(retry.token);
@@ -125,7 +125,7 @@ pub fn write_retry_pseudo_packet(
     writer: *Writer,
     original_dcid: []const u8,
     retry_without_tag: []const u8,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     assert(original_dcid.len <= constants.protocol.connection_id_len_max);
     var copy = writer.*;
     try invariant.write_connection_id(&copy, original_dcid);

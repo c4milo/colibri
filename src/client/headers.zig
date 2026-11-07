@@ -74,8 +74,8 @@ pub const Iterator = struct {
     pub fn next(each: *Iterator) ?Header {
         if (each.reader.remaining_len() == 0) return null;
         // The client wrote every line whole (`append`), so a short read is a broken buffer.
-        const name_len = each.reader.read_int(Length) catch unreachable;
-        const value_len = each.reader.read_int(Length) catch unreachable;
+        const name_len = each.reader.take_int_big(Length) catch unreachable;
+        const value_len = each.reader.take_int_big(Length) catch unreachable;
         const name = each.reader.take(name_len) catch unreachable;
         const value = each.reader.take(value_len) catch unreachable;
         return .{ .name = name, .value = value };
@@ -90,7 +90,7 @@ fn lines_max(len: usize) usize {
 /// Copies each field line of `from`, from index `first`, after the lines `lines` holds. A section
 /// that does not fit is refused whole, and `lines` keeps what it held. An empty buffer drops the
 /// section. The client calls it; a program does not, because the root does not export it.
-pub fn record(lines: anytype, from: *const http.FieldSection, first: u32) core.writer.Error!void {
+pub fn record(lines: anytype, from: *const http.FieldSection, first: u32) core.Writer.Error!void {
     assert(first <= from.len());
     if (lines.buffer.len == 0) return;
     const start = lines.len;
@@ -103,12 +103,12 @@ pub fn record(lines: anytype, from: *const http.FieldSection, first: u32) core.w
     }
 }
 
-fn append(lines: anytype, name: []const u8, value: []const u8) core.writer.Error!void {
+fn append(lines: anytype, name: []const u8, value: []const u8) core.Writer.Error!void {
     assert(name.len <= core.constants.limits.field_name_len_max);
     assert(value.len <= core.constants.limits.field_value_len_max);
     var writer = core.Writer.init(lines.buffer[lines.len..]);
-    try writer.write_int(Length, @intCast(name.len));
-    try writer.write_int(Length, @intCast(value.len));
+    try writer.write_int_big(Length, @intCast(name.len));
+    try writer.write_int_big(Length, @intCast(value.len));
     try writer.write_bytes(name);
     try writer.write_bytes(value);
     lines.len += writer.written().len;

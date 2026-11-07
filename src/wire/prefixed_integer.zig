@@ -22,7 +22,7 @@ const constants = @import("constants.zig");
 const Reader = core.Reader;
 const Writer = core.Writer;
 
-pub const DecodeError = core.reader.Error || error{
+pub const DecodeError = core.Reader.Error || error{
     /// More continuation octets than `integer_len_max` allows.
     IntegerTooLong,
     /// A value above `integer_value_max`.
@@ -44,7 +44,7 @@ fn prefix_max(comptime prefix_size: u4) u8 {
 pub fn decode(comptime prefix_size: u4, reader: *Reader) DecodeError!u64 {
     const mask = prefix_max(prefix_size);
     var cursor = reader.*;
-    const prefix = (try cursor.read_byte()) & mask;
+    const prefix = (try cursor.take_byte()) & mask;
     // RFC 7541 §5.1: a value strictly less than 2^N - 1 is encoded within the prefix.
     if (prefix < mask) {
         reader.* = cursor;
@@ -52,7 +52,7 @@ pub fn decode(comptime prefix_size: u4, reader: *Reader) DecodeError!u64 {
     }
     var value: u64 = mask;
     for (0..constants.protocol.integer_len_max - 1) |group| {
-        const octet = try cursor.read_byte();
+        const octet = try cursor.take_byte();
         const shift: u6 = @intCast(group * constants.protocol.integer_continuation_bits);
         value += @as(u64, octet & continuation_value_mask) << shift;
         // RFC 7541 §5.1: the continuation flag is clear on the last octet of the list.
@@ -73,7 +73,7 @@ pub fn encode(
     writer: *Writer,
     high_bits: u8,
     value: u64,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     const mask = prefix_max(prefix_size);
     assert(high_bits & mask == 0);
     assert(value <= constants.protocol.integer_value_max);
@@ -82,14 +82,14 @@ pub fn encode(
     const rest = value - mask;
     // RFC 7541 §5.1: a remainder of seven bits or fewer is one continuation octet, the last.
     if (rest <= continuation_value_mask) {
-        return writer.write_int(u16, @as(u16, high_bits | mask) << @bitSizeOf(u8) | @as(u16, @intCast(rest)));
+        return writer.write_int_big(u16, @as(u16, high_bits | mask) << @bitSizeOf(u8) | @as(u16, @intCast(rest)));
     }
     return encode_continued(writer, high_bits | mask, rest);
 }
 
 /// Writes `first`, the caller's high bits over a prefix of ones, then `remainder` in two
 /// continuation octets or more. It takes no prefix size, so it is compiled once for every one.
-fn encode_continued(writer: *Writer, first: u8, remainder: u64) core.writer.Error!void {
+fn encode_continued(writer: *Writer, first: u8, remainder: u64) core.Writer.Error!void {
     assert(remainder > continuation_value_mask);
     var octets: [constants.protocol.integer_len_max]u8 = @splat(0);
     octets[0] = first;
@@ -234,7 +234,7 @@ fn decode_at(prefix_size: u4, reader: *Reader) DecodeError!u64 {
 }
 
 /// `encode` at a prefix size a vector line names at run time. Test-only.
-fn encode_at(prefix_size: u4, writer: *Writer, high_bits: u8, value: u64) core.writer.Error!void {
+fn encode_at(prefix_size: u4, writer: *Writer, high_bits: u8, value: u64) core.Writer.Error!void {
     return switch (prefix_size) {
         inline constants.protocol.integer_prefix_bits_min...constants.protocol.integer_prefix_bits_max => |size| encode(size, writer, high_bits, value),
         else => unreachable,
@@ -310,7 +310,7 @@ test "the codec gives what the proved definitions give (spec/lean/Colibri/Wire/P
 // returns and leave the same octets written, at every prefix size and in every room.
 
 /// The reference: `encode` as it was.
-fn encode_by_array(comptime prefix_size: u4, writer: *Writer, high_bits: u8, value: u64) core.writer.Error!void {
+fn encode_by_array(comptime prefix_size: u4, writer: *Writer, high_bits: u8, value: u64) core.Writer.Error!void {
     const mask = prefix_max(prefix_size);
     var octets: [constants.protocol.integer_len_max]u8 = @splat(0);
     if (value < mask) {

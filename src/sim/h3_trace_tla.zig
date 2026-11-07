@@ -11,7 +11,7 @@ const Writer = quic.core.Writer;
 const State = h3_trace_state.State;
 const Scope = h3_trace_state.Scope;
 
-pub const Error = quic.core.writer.Error;
+pub const Error = quic.core.Writer.Error;
 
 /// The longest line one `print` writes.
 const line_len_max: usize = 256;

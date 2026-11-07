@@ -83,7 +83,7 @@ fn insert_entry(decoder: *Decoder, name: []const u8, value: []const u8) Error!vo
     assert(decoder.table.size <= decoder.table.capacity);
 }
 
-fn copy(strings: *Writer, octets: []const u8) core.writer.Error![]const u8 {
+fn copy(strings: *Writer, octets: []const u8) core.Writer.Error![]const u8 {
     const start = strings.written().len;
     try strings.write_bytes(octets);
     return strings.written()[start..];

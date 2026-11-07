@@ -46,7 +46,7 @@ pub fn strip(header: Header, payload: []const u8) Error!Unpadded {
     }
     var reader = Reader.init(payload);
     // RFC 9113 §4.2: a frame too small to contain its mandatory data is a FRAME_SIZE_ERROR.
-    const padding_len = reader.read_byte() catch return error.LengthInvalid;
+    const padding_len = reader.take_byte() catch return error.LengthInvalid;
     // RFC 9113 §6.1, §6.2, §6.6: padding of the payload length or greater is a connection error
     // of PROTOCOL_ERROR.
     if (padding_len >= payload.len) return error.PaddingTooLong;
@@ -73,14 +73,14 @@ pub fn padded_len(fields_len: usize, padding_len: u8) u32 {
 }
 
 /// Writes the Pad Length octet when `padding_len` is not 0 (RFC 9113 §6.1).
-pub fn write_pad_length(writer: *Writer, padding_len: u8) core.writer.Error!void {
+pub fn write_pad_length(writer: *Writer, padding_len: u8) core.Writer.Error!void {
     if (padding_len == 0) return;
     try writer.write_byte(padding_len);
 }
 
 /// Writes `padding_len` zero octets (RFC 9113 §6.1: padding octets MUST be set to zero when
 /// sending). The caller writes through a copy of its writer, so a short buffer costs nothing.
-pub fn write_padding(writer: *Writer, padding_len: u8) core.writer.Error!void {
+pub fn write_padding(writer: *Writer, padding_len: u8) core.Writer.Error!void {
     const start = writer.offset;
     for (0..padding_len) |_| try writer.write_byte(0);
     assert(writer.offset - start == padding_len);

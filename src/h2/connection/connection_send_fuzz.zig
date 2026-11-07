@@ -137,8 +137,8 @@ fn expect_frames(octets: []const u8, case: Case) !usize {
 fn feed_frame_size(size: u32) !void {
     var payload: [constants.protocol.setting_len]u8 = undefined;
     var writer = core.Writer.init(&payload);
-    try writer.write_int(u16, constants.protocol.setting_max_frame_size);
-    try writer.write_int(u32, size);
+    try writer.write_int_big(u16, constants.protocol.setting_max_frame_size);
+    try writer.write_int_big(u32, size);
     const settings = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_settings, 0, 0, writer.written());
     _ = try support.feed(settings);
 }

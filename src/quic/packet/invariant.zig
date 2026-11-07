@@ -84,10 +84,10 @@ pub const Long = struct {
 /// Reads the long header at the start of `datagram`.
 pub fn read_long(datagram: []const u8) Error!Long {
     var reader = Reader.init(datagram);
-    const first_octet = reader.read_byte() catch return error.Truncated;
+    const first_octet = reader.take_byte() catch return error.Truncated;
     // RFC 8999 §5.1: a long header has the high bit of the first byte set to 1.
     if (form_of(first_octet) != .long) return error.WrongForm;
-    const version = reader.read_int(u32) catch return error.Truncated;
+    const version = reader.take_int_big(u32) catch return error.Truncated;
     // RFC 8999 §5.1: each connection ID follows a one-octet length, so it is 0 to 255 octets and
     // no length the octet can carry is refused here.
     const dcid = read_connection_id(&reader) catch return error.Truncated;
@@ -104,8 +104,8 @@ pub fn read_long(datagram: []const u8) Error!Long {
 }
 
 /// One connection ID after its length octet (RFC 8999 §5.1).
-fn read_connection_id(reader: *Reader) core.reader.Error![]const u8 {
-    const len = try reader.read_byte();
+fn read_connection_id(reader: *Reader) core.Reader.Error![]const u8 {
+    const len = try reader.take_byte();
     return reader.take(len);
 }
 
@@ -122,7 +122,7 @@ pub const Short = struct {
 /// of the Destination Connection ID, so the caller passes the length it issued.
 pub fn read_short(datagram: []const u8, dcid_len: usize) Error!Short {
     var reader = Reader.init(datagram);
-    const first_octet = reader.read_byte() catch return error.Truncated;
+    const first_octet = reader.take_byte() catch return error.Truncated;
     // RFC 8999 §5.2: a short header has the high bit of the first byte set to 0.
     if (form_of(first_octet) != .short) return error.WrongForm;
     const dcid = reader.take(dcid_len) catch return error.Truncated;
@@ -142,7 +142,7 @@ pub const SupportedVersions = struct {
     pub fn at(versions: SupportedVersions, index: usize) u32 {
         assert(index < versions.count());
         var reader = Reader.init(versions.octets[index * version_len ..]);
-        return reader.read_int(u32) catch unreachable;
+        return reader.take_int_big(u32) catch unreachable;
     }
 
     pub fn contains(versions: SupportedVersions, version: u32) bool {
@@ -170,17 +170,17 @@ pub fn write_version_negotiation(
     unused_bits: u7,
     received: Long,
     supported: []const u32,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     assert(supported.len > 0);
     assert(!received.is_version_negotiation());
     var copy = writer.*;
     try copy.write_byte(header_form_bit | (@as(u8, unused_bits) & unused_bits_mask));
-    try copy.write_int(u32, version_negotiation);
+    try copy.write_int_big(u32, version_negotiation);
     // RFC 8999 §6: the Destination Connection ID carries the Source Connection ID of the packet
     // received, and the Source Connection ID carries its Destination Connection ID.
     try write_connection_id(&copy, received.scid);
     try write_connection_id(&copy, received.dcid);
-    for (supported) |version| try copy.write_int(u32, version);
+    for (supported) |version| try copy.write_int_big(u32, version);
     assert(copy.written().len - writer.written().len ==
         version_negotiation_len(received, supported.len));
     writer.* = copy;
@@ -198,7 +198,7 @@ pub fn version_negotiation_len(received: Long, supported_count: usize) usize {
 }
 
 /// One connection ID after its length octet (RFC 8999 §5.1).
-pub fn write_connection_id(writer: *Writer, connection_id: []const u8) core.writer.Error!void {
+pub fn write_connection_id(writer: *Writer, connection_id: []const u8) core.Writer.Error!void {
     assert(connection_id.len <= std.math.maxInt(u8));
     try writer.write_byte(@intCast(connection_id.len));
     try writer.write_bytes(connection_id);

@@ -294,7 +294,7 @@ pub fn apply(
     mutation: *const Mutation,
     octets: []const u8,
     output: *Writer,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     switch (mutation.edit) {
         .set => |set| {
             assert(set.offset < octets.len);

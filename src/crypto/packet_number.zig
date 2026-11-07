@@ -55,7 +55,7 @@ pub fn window_of(len: u8) u64 {
 }
 
 /// Reads a Packet Number field of `len` octets, which header protection has been removed from.
-pub fn read(reader: *Reader, len: u8) core.reader.Error!Truncated {
+pub fn read(reader: *Reader, len: u8) core.Reader.Error!Truncated {
     assert(len >= 1 and len <= constants.protocol.packet_number_len_max);
     const octets = try reader.take(len);
     var value: u32 = 0;

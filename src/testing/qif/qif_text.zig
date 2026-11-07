@@ -55,7 +55,7 @@ pub const Reader = struct {
 };
 
 /// Writes one header set under its `# stream <id>` comment, with the blank line after it.
-pub fn write_set(writer: *Writer, stream_id: u64, section: *const FieldSection) core.writer.Error!void {
+pub fn write_set(writer: *Writer, stream_id: u64, section: *const FieldSection) core.Writer.Error!void {
     try writer.print("# stream {d}\n", .{stream_id});
     for (0..section.len()) |index| {
         const line = section.get(@intCast(index));

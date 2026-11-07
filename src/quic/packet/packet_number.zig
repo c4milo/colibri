@@ -49,7 +49,7 @@ pub fn encode(full: u64, largest_acked: ?u64) EncodeError!Truncated {
 }
 
 /// Writes the Packet Number field, most significant octet first (RFC 9000 §17.1).
-pub fn write(writer: *Writer, truncated: Truncated) core.writer.Error!void {
+pub fn write(writer: *Writer, truncated: Truncated) core.Writer.Error!void {
     assert(truncated.len >= 1 and truncated.len <= constants.protocol.packet_number_len_max);
     var octets: [constants.protocol.packet_number_len_max]u8 = undefined;
     for (0..truncated.len) |index| {

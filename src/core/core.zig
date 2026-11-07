@@ -33,14 +33,6 @@ pub const Pool = files.slots.Pool;
 pub const Level = files.encryption_level.Level;
 pub const levels_count = files.encryption_level.levels_count;
 
-pub const reader = struct {
-    pub const Error = files.reader.Error;
-};
-
-pub const writer = struct {
-    pub const Error = files.writer.Error;
-};
-
 pub const fuzz = struct {
     pub const input = files.fuzz.input;
     pub const input_with_value = files.fuzz.input_with_value;
@@ -56,8 +48,18 @@ pub const public_names = struct {
 test "decision 115: the root exports the names code outside the module uses" {
     try files.public_names.expect(@This(), &.{
         "constants", "Reader",       "Writer", "Pool",
-        "Level",     "levels_count", "reader", "writer",
-        "fuzz",      "public_names",
+        "Level",     "levels_count", "fuzz",   "public_names",
+    });
+}
+
+test "decision 158: a read that consumes is take_*, and an integer codec names its byte order" {
+    try files.public_names.expect(Reader, &.{
+        "Error",        "init",      "remaining_len", "consumed",  "consumed_since",
+        "peek_byte",    "take_byte", "take",          "peek_rest", "take_rest",
+        "take_int_big",
+    });
+    try files.public_names.expect(Writer, &.{
+        "Error", "init", "remaining_len", "written", "write_byte", "write_bytes", "print", "write_int_big",
     });
 }
 

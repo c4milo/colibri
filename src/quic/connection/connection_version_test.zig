@@ -59,7 +59,7 @@ fn write_long(packet_version: u32, dcid: []const u8, scid: []const u8) usize {
     var writer = core.Writer.init(&datagram);
     // RFC 8999 §5.1: the Header Form bit is set, then the Version and both connection IDs.
     writer.write_byte(header_form_bit | constants.protocol.fixed_bit) catch unreachable;
-    writer.write_int(u32, packet_version) catch unreachable;
+    writer.write_int_big(u32, packet_version) catch unreachable;
     invariant.write_connection_id(&writer, dcid) catch unreachable;
     invariant.write_connection_id(&writer, scid) catch unreachable;
     return writer.written().len;
@@ -85,10 +85,10 @@ fn init_client() void {
 fn negotiation_of(dcid: []const u8, scid: []const u8, supported: []const u32) header.VersionNegotiation {
     var writer = core.Writer.init(&output);
     writer.write_byte(header_form_bit | constants.protocol.fixed_bit) catch unreachable;
-    writer.write_int(u32, invariant.version_negotiation) catch unreachable;
+    writer.write_int_big(u32, invariant.version_negotiation) catch unreachable;
     invariant.write_connection_id(&writer, dcid) catch unreachable;
     invariant.write_connection_id(&writer, scid) catch unreachable;
-    for (supported) |one| writer.write_int(u32, one) catch unreachable;
+    for (supported) |one| writer.write_int_big(u32, one) catch unreachable;
     return (header.read(writer.written(), client_source.len) catch unreachable).version_negotiation;
 }
 

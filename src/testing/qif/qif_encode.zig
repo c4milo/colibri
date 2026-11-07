@@ -24,7 +24,7 @@ pub const Settings = struct {
     immediate_acknowledgment: bool,
 };
 
-pub const Error = qif_text.Error || core.writer.Error || error{
+pub const Error = qif_text.Error || core.Writer.Error || error{
     /// The encoder refused an acknowledgment the tool made for it, which is the tool's defect.
     EncoderFailed,
 };

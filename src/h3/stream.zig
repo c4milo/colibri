@@ -24,7 +24,7 @@ const Reader = core.Reader;
 const Writer = core.Writer;
 const varint = wire.varint;
 
-pub const Error = core.reader.Error || error{
+pub const Error = core.Reader.Error || error{
     /// RFC 9114 §8.1's H3_STREAM_CREATION_ERROR: a second stream of a kind only one of which
     /// may exist, or a push stream from a peer that may not push.
     StreamCreationError,
@@ -75,7 +75,7 @@ pub fn read_header(reader: *Reader) Error!Kind {
 }
 
 /// Writes a unidirectional stream header (RFC 9114 §6.2). All of the octets are written, or none.
-pub fn write_header(writer: *Writer, kind: Kind) core.writer.Error!void {
+pub fn write_header(writer: *Writer, kind: Kind) core.Writer.Error!void {
     var cursor = writer.*;
     switch (kind) {
         .control => try varint.encode(&cursor, constants.protocol.stream_control),

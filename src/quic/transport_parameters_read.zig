@@ -147,7 +147,7 @@ fn version_information_of(body: []const u8, sender: Role) Error!transport_parame
     // RFC 9368 §4: one too short, or whose length is not divisible by four, fails to parse.
     if (body.len < @sizeOf(u32) or body.len % @sizeOf(u32) != 0) return Error.ParameterInvalid;
     var reader = Reader.init(body);
-    const chosen = reader.read_int(u32) catch unreachable;
+    const chosen = reader.take_int_big(u32) catch unreachable;
     // RFC 9368 §4: "If an endpoint receives a Chosen Version equal to zero, or any Available
     // Version equal to zero, it MUST treat it as a parsing failure."
     if (chosen == 0) return Error.ParameterInvalid;
@@ -166,7 +166,7 @@ fn read_available(reader: *Reader, info: *transport_parameters.VersionInformatio
     var lists_chosen = false;
     // Bounded by the octets: every turn takes four.
     while (reader.remaining_len() > 0) {
-        const available = reader.read_int(u32) catch unreachable;
+        const available = reader.take_int_big(u32) catch unreachable;
         // RFC 9368 §4: any Available Version equal to zero is a parsing failure.
         if (available == 0) return Error.ParameterInvalid;
         lists_chosen = lists_chosen or available == info.chosen_version;

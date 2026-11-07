@@ -243,13 +243,13 @@ fn read_at(reader: *Reader) Error!Frame {
 }
 
 /// Writes `frame`, all of it or none.
-pub fn write(writer: *Writer, frame: Frame) core.writer.Error!void {
+pub fn write(writer: *Writer, frame: Frame) core.Writer.Error!void {
     var copy = writer.*;
     try write_at(&copy, frame);
     writer.* = copy;
 }
 
-fn write_at(writer: *Writer, frame: Frame) core.writer.Error!void {
+fn write_at(writer: *Writer, frame: Frame) core.Writer.Error!void {
     switch (frame) {
         .padding => |padding| try frame_stream.write_padding(writer, padding.len),
         .ping => try write_type(writer, constants.protocol.frame_ping),
@@ -265,7 +265,7 @@ fn write_at(writer: *Writer, frame: Frame) core.writer.Error!void {
 /// Writes a frame type, which is a variable-length integer written in its shortest form: RFC 9000
 /// §12.4 requires the Frame Type field to be encoded as minimally as possible, and §16 admits a
 /// longer encoding everywhere else.
-pub fn write_type(writer: *Writer, frame_type: u64) core.writer.Error!void {
+pub fn write_type(writer: *Writer, frame_type: u64) core.Writer.Error!void {
     assert(frame_type <= constants.protocol.frame_handshake_done);
     try wire.varint.encode(writer, frame_type);
 }

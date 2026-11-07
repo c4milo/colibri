@@ -43,7 +43,7 @@ fn open_and_break(id: u32) !void {
         .flags = 0,
         .stream_id = id,
     });
-    try writer.write_int(u32, 0);
+    try writer.write_int_big(u32, 0);
     _ = try support.receive_copy(writer.written());
     _ = support.drain();
 }

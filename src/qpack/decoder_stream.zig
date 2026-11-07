@@ -42,7 +42,7 @@ pub fn owes(decoder: *const Decoder) bool {
     return decoder.owed_len > 0 or decoder.known_received < decoder.table.insert_count();
 }
 
-fn write_one(decoder: *Decoder, writer: *Writer, owed: Owed) core.writer.Error!void {
+fn write_one(decoder: *Decoder, writer: *Writer, owed: Owed) core.Writer.Error!void {
     switch (owed) {
         .section_acknowledgment => |section| {
             try instruction.write_decoder(writer, .{ .section_acknowledgment = section.stream_id });

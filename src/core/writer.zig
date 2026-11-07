@@ -15,15 +15,15 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub const Error = error{
-    /// The caller's buffer has fewer octets left than the write needs.
-    NoSpaceLeft,
-};
-
 pub const Writer = struct {
     buffer: []u8,
     /// Octets written so far. Never exceeds `buffer.len`.
     offset: usize = 0,
+
+    pub const Error = error{
+        /// The caller's buffer has fewer octets left than the write needs.
+        NoSpaceLeft,
+    };
 
     pub fn init(buffer: []u8) Writer {
         return .{ .buffer = buffer };
@@ -72,7 +72,7 @@ pub const Writer = struct {
     /// other way. The octets are stored as one array of a size known at compile time, which the
     /// compiler writes with stores where `write_bytes` calls `memcpy` for a length it learns at
     /// run time.
-    pub fn write_int(self: *Writer, comptime T: type, value: T) Error!void {
+    pub fn write_int_big(self: *Writer, comptime T: type, value: T) Error!void {
         comptime assert(@typeInfo(T).int.signedness == .unsigned);
         comptime assert(@bitSizeOf(T) % @bitSizeOf(u8) == 0 and @bitSizeOf(T) > 0);
         if (@sizeOf(T) > self.remaining_len()) return error.NoSpaceLeft;
@@ -96,7 +96,7 @@ test "a write inside the buffer lands and moves the cursor" {
     var writer = Writer.init(&buffer);
     try writer.write_byte(0x01);
     try writer.write_bytes(&.{ 0x02, 0x03 });
-    try writer.write_int(u16, 0x0405);
+    try writer.write_int_big(u16, 0x0405);
     try testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03, 0x04, 0x05 }, writer.written());
     try testing.expectEqual(3, writer.remaining_len());
 }
@@ -106,7 +106,7 @@ test "a write past the end returns NoSpaceLeft and writes nothing" {
     var writer = Writer.init(&buffer);
     try writer.write_byte(0x01);
     try testing.expectError(error.NoSpaceLeft, writer.write_bytes(&.{ 0x02, 0x03, 0x04 }));
-    try testing.expectError(error.NoSpaceLeft, writer.write_int(u32, 0x02030405));
+    try testing.expectError(error.NoSpaceLeft, writer.write_int_big(u32, 0x02030405));
     try testing.expectEqual(1, writer.offset);
     try testing.expectEqualSlices(u8, &.{ 0x01, 0xee, 0xee }, &buffer);
     try writer.write_bytes(&.{ 0x02, 0x03 });
@@ -117,10 +117,10 @@ test "a write past the end returns NoSpaceLeft and writes nothing" {
 test "integers write in network byte order" {
     var buffer: [15]u8 = @splat(0);
     var writer = Writer.init(&buffer);
-    try writer.write_int(u8, 0xab);
-    try writer.write_int(u16, 0x1234);
-    try writer.write_int(u32, 0x56789abc);
-    try writer.write_int(u64, 0x0102030405060708);
+    try writer.write_int_big(u8, 0xab);
+    try writer.write_int_big(u16, 0x1234);
+    try writer.write_int_big(u32, 0x56789abc);
+    try writer.write_int_big(u64, 0x0102030405060708);
     try testing.expectEqualSlices(u8, &.{
         0xab, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
     }, writer.written());
@@ -140,11 +140,11 @@ test "an empty buffer takes an empty write and refuses a byte" {
     try testing.expectError(error.NoSpaceLeft, writer.write_byte(0));
 }
 
-// The test below holds `write_int` to the one it replaced, which wrote its octets through
-// `write_bytes`. It stays here as the reference.
+// The test below holds `write_int_big` to the integer write it replaced, which wrote its octets
+// through `write_bytes`. It stays here as the reference.
 
-/// The reference: `write_int` as it was.
-fn write_int_by_bytes(writer: *Writer, comptime T: type, value: T) Error!void {
+/// The reference: the integer write as it was.
+fn write_int_by_bytes(writer: *Writer, comptime T: type, value: T) Writer.Error!void {
     var octets: [@sizeOf(T)]u8 = @splat(0);
     var rest: T = value;
     for (0..@sizeOf(T)) |index| {
@@ -162,7 +162,7 @@ const pattern: u64 = 0x0123456789abcdef;
 /// one octet more.
 const test_buffer_len = @sizeOf(u64) + @sizeOf(u64) + 1;
 
-/// Fails, printing both, when `write_int` and the reference differ for `value` in `room` octets,
+/// Fails, printing both, when `write_int_big` and the reference differ for `value` in `room` octets,
 /// after `before` octets already written.
 fn expect_same_int(comptime T: type, value: T, before: usize, room: usize) !void {
     var changed_buffer: [test_buffer_len]u8 = @splat(untouched);
@@ -171,18 +171,18 @@ fn expect_same_int(comptime T: type, value: T, before: usize, room: usize) !void
     var reference = Writer.init(reference_buffer[0 .. before + room]);
     changed.offset = before;
     reference.offset = before;
-    const changed_failed = if (changed.write_int(T, value)) false else |_| true;
+    const changed_failed = if (changed.write_int_big(T, value)) false else |_| true;
     const reference_failed = if (write_int_by_bytes(&reference, T, value)) false else |_| true;
     const same = changed_failed == reference_failed and changed.offset == reference.offset and
         std.mem.eql(u8, &changed_buffer, &reference_buffer);
     if (same) return;
-    std.debug.print("first difference: {s} {x} after {d} in room {d}: write_int {} {x}, reference {} {x}\n", .{
+    std.debug.print("first difference: {s} {x} after {d} in room {d}: write_int_big {} {x}, reference {} {x}\n", .{
         @typeName(T), value, before, room, changed_failed, changed.written(), reference_failed, reference.written(),
     });
     return error.TestUnexpectedResult;
 }
 
-test "write_int writes what the reference writes, at every width, offset and room" {
+test "write_int_big writes what the reference writes, at every width, offset and room" {
     inline for ([_]type{ u8, u16, u32, u64 }) |T| {
         for ([_]T{ 0, 1, std.math.maxInt(T), @truncate(pattern) }) |value| {
             for (0..@sizeOf(T) + 1) |before| {

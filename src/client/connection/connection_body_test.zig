@@ -298,9 +298,9 @@ fn peer_padded_data(stream_id: u32, data: []const u8, padding_len: u8) !void {
     const flags = h2.constants.protocol.flag_padded | h2.constants.protocol.flag_end_stream;
     const length: u32 = @intCast(1 + data.len + padding_len);
     try h2.frame.write_header(&frame, .{ .length = length, .type = h2.constants.protocol.frame_type_data, .flags = flags, .stream_id = stream_id });
-    try frame.write_int(u8, padding_len);
+    try frame.write_int_big(u8, padding_len);
     try frame.write_bytes(data);
-    for (0..padding_len) |_| try frame.write_int(u8, 0);
+    for (0..padding_len) |_| try frame.write_int_big(u8, 0);
     support.to_client_len += frame.written().len;
 }
 

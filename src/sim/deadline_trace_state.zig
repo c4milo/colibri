@@ -241,5 +241,5 @@ fn frame_of(header: h2.frame.Header, payload: []const u8) Frame {
 
 fn increment_of(payload: []const u8) u32 {
     var reader = h2.core.Reader.init(payload);
-    return (reader.read_int(u32) catch unreachable) & increment_mask;
+    return (reader.take_int_big(u32) catch unreachable) & increment_mask;
 }

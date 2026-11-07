@@ -123,7 +123,7 @@ fn read_weight(reader: *core.Reader) Error!Weight {
     if (!take(&ahead, ';')) return weight_max;
     skip_whitespace(&ahead);
     // RFC 9110 §12.4.2: a weight's ";" is followed by its parameter.
-    const q = ahead.read_byte() catch return error.AcceptEncodingInvalid;
+    const q = ahead.take_byte() catch return error.AcceptEncodingInvalid;
     // RFC 9110 §12.4.2: the parameter is named "q", case-insensitively, and nothing else.
     if (std.ascii.toLower(q) != 'q' or !take(&ahead, '=')) return error.AcceptEncodingInvalid;
     const weight = try read_qvalue(&ahead);
@@ -134,7 +134,7 @@ fn read_weight(reader: *core.Reader) Error!Weight {
 /// Reads `qvalue = ( "0" [ "." 0*3DIGIT ] ) / ( "1" [ "." 0*3("0") ] )` (RFC 9110 §12.4.2).
 fn read_qvalue(reader: *core.Reader) Error!Weight {
     // RFC 9110 §12.4.2: a qvalue has at least its integral digit.
-    const whole = reader.read_byte() catch return error.AcceptEncodingInvalid;
+    const whole = reader.take_byte() catch return error.AcceptEncodingInvalid;
     // RFC 9110 §12.4.2: the weight is 0 or 1 before the point.
     if (whole != '0' and whole != '1') return error.AcceptEncodingInvalid;
     const integral: Weight = if (whole == '1') weight_max else 0;
@@ -153,7 +153,7 @@ fn read_decimals(reader: *core.Reader) Weight {
     for (0..qvalue_decimals_max) |_| {
         const digit = reader.peek_byte() catch break;
         if (!std.ascii.isDigit(digit)) break;
-        _ = reader.read_byte() catch unreachable;
+        _ = reader.take_byte() catch unreachable;
         thousandths += (digit - '0') * scale;
         scale /= decimal_base;
     }
@@ -181,7 +181,7 @@ fn skip_whitespace(reader: *core.Reader) void {
 fn take(reader: *core.Reader, octet: u8) bool {
     const next = reader.peek_byte() catch return false;
     if (next != octet) return false;
-    _ = reader.read_byte() catch unreachable;
+    _ = reader.take_byte() catch unreachable;
     return true;
 }
 

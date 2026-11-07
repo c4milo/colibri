@@ -52,7 +52,7 @@ const canary_source =
     \\}
     \\var memory: Memory = undefined;
     \\pub fn parse(reader: *Reader, buffer: []u8) !void {
-    \\    _ = buffer[0..try reader.read_int(u16)];
+    \\    _ = buffer[0..try reader.take_int_big(u16)];
     \\}
     \\
 ++ "//\n" ** file_length_max_lines;

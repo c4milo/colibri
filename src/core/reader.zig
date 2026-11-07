@@ -16,15 +16,15 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub const Error = error{
-    /// The structure being read runs past the end of the bytes present.
-    Truncated,
-};
-
 pub const Reader = struct {
     bytes: []const u8,
     /// Octets consumed so far. Never exceeds `bytes.len`.
     offset: usize = 0,
+
+    pub const Error = error{
+        /// The structure being read runs past the end of the bytes present.
+        Truncated,
+    };
 
     pub fn init(bytes: []const u8) Reader {
         return .{ .bytes = bytes };
@@ -56,7 +56,7 @@ pub const Reader = struct {
         return self.bytes[self.offset];
     }
 
-    pub fn read_byte(self: *Reader) Error!u8 {
+    pub fn take_byte(self: *Reader) Error!u8 {
         const byte = try self.peek_byte();
         self.offset += 1;
         assert(self.offset <= self.bytes.len);
@@ -85,7 +85,7 @@ pub const Reader = struct {
     }
 
     /// An unsigned integer of `@sizeOf(T)` octets in network byte order.
-    pub fn read_int(self: *Reader, comptime T: type) Error!T {
+    pub fn take_int_big(self: *Reader, comptime T: type) Error!T {
         comptime assert(@typeInfo(T).int.signedness == .unsigned);
         comptime assert(@bitSizeOf(T) % @bitSizeOf(u8) == 0 and @bitSizeOf(T) > 0);
         const bytes = try self.take(@sizeOf(T));
@@ -101,7 +101,7 @@ const testing = std.testing;
 
 test "peek_rest shows what remains and consumes none of it" {
     var reader = Reader.init(&.{ 0x01, 0x02, 0x03 });
-    _ = try reader.read_byte();
+    _ = try reader.take_byte();
     try testing.expectEqualSlices(u8, &.{ 0x02, 0x03 }, reader.peek_rest());
     try testing.expectEqual(2, reader.remaining_len());
     _ = reader.take_rest();
@@ -111,7 +111,7 @@ test "peek_rest shows what remains and consumes none of it" {
 test "a read inside the slice returns the octets and moves the cursor" {
     var reader = Reader.init(&.{ 0x01, 0x02, 0x03, 0x04, 0x05 });
     try testing.expectEqual(0x01, try reader.peek_byte());
-    try testing.expectEqual(0x01, try reader.read_byte());
+    try testing.expectEqual(0x01, try reader.take_byte());
     try testing.expectEqualSlices(u8, &.{ 0x02, 0x03 }, try reader.take(2));
     try testing.expectEqual(2, reader.remaining_len());
     try testing.expectEqualSlices(u8, &.{ 0x01, 0x02, 0x03 }, reader.consumed());
@@ -124,20 +124,20 @@ test "a read past the end returns Truncated and consumes nothing" {
     var reader = Reader.init(&.{ 0xaa, 0xbb });
     try testing.expectError(error.Truncated, reader.take(3));
     try testing.expectEqual(0, reader.offset);
-    try testing.expectError(error.Truncated, reader.read_int(u32));
+    try testing.expectError(error.Truncated, reader.take_int_big(u32));
     try testing.expectEqual(0, reader.offset);
     _ = try reader.take(2);
-    try testing.expectError(error.Truncated, reader.read_byte());
+    try testing.expectError(error.Truncated, reader.take_byte());
     try testing.expectError(error.Truncated, reader.peek_byte());
     try testing.expectEqual(2, reader.offset);
 }
 
 test "integers read in network byte order" {
     var reader = Reader.init(&.{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11 });
-    try testing.expectEqual(0x1234, try reader.read_int(u16));
-    try testing.expectEqual(0x56789abc, try reader.read_int(u32));
-    try testing.expectEqual(0xde, try reader.read_int(u8));
-    try testing.expectEqual(0xf011, try reader.read_int(u16));
+    try testing.expectEqual(0x1234, try reader.take_int_big(u16));
+    try testing.expectEqual(0x56789abc, try reader.take_int_big(u32));
+    try testing.expectEqual(0xde, try reader.take_int_big(u8));
+    try testing.expectEqual(0xf011, try reader.take_int_big(u16));
 }
 
 test "an empty slice reads as truncated and takes zero octets" {

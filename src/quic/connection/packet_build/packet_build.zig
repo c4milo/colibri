@@ -416,7 +416,7 @@ fn write_and_seal(
     pending: Pending,
     header_scratch: []u8,
     output: []u8,
-) (core.writer.Error || crypto.suite.SealError)!usize {
+) (core.Writer.Error || crypto.suite.SealError)!usize {
     var header = Writer.init(header_scratch);
     try write_header(connection, suite, &header, pending);
     return suite.seal(.{
@@ -444,7 +444,7 @@ fn short_destination(connection: *const Connection) ConnectionId {
 
 /// RFC 9000 §17.2 and §17.3: the header through the Packet Number field, unprotected, which
 /// RFC 9001 §5.3 makes the AEAD's associated data.
-fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, pending: Pending) core.writer.Error!void {
+fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, pending: Pending) core.Writer.Error!void {
     const identity = &connection.identity;
     if (pending.level == .application) {
         return header_write.write_short(writer, .{

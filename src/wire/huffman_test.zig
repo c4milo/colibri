@@ -17,7 +17,7 @@ const ready_octets_max = (constants.protocol.huffman_padding_bits_max + constant
     @bitSizeOf(u8);
 
 /// The reference: the encoder `huffman.encode` replaced. All of the octets are written, or none.
-fn encode_by_octets(bytes: []const u8, output: *Writer) core.writer.Error!void {
+fn encode_by_octets(bytes: []const u8, output: *Writer) core.Writer.Error!void {
     if (huffman.encoded_len(bytes) > output.remaining_len()) return error.NoSpaceLeft;
     var pending: u64 = 0;
     var pending_bits: u8 = 0;

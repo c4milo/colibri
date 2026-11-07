@@ -24,7 +24,7 @@ const table = @import("huffman_table.zig");
 
 const Writer = core.Writer;
 
-pub const DecodeError = core.writer.Error || error{
+pub const DecodeError = core.Writer.Error || error{
     /// A complete EOS symbol appeared inside the data.
     HuffmanEosInData,
     /// The data ended with more than seven bits of an incomplete code.
@@ -193,7 +193,7 @@ comptime {
 /// Encodes `bytes` into `output`, padded with the most significant bits of EOS (RFC 7541 §5.2).
 /// When the octets do not fit, the output cursor does not move: it moves once, when the whole
 /// string is written, and octets past it are scratch.
-pub fn encode(bytes: []const u8, output: *Writer) core.writer.Error!void {
+pub fn encode(bytes: []const u8, output: *Writer) core.Writer.Error!void {
     var cursor = output.*;
     // The low `pending_bits` bits of `pending` are code not yet written. The bits above them are
     // written, and each shift moves them toward the top, where they fall off.
@@ -207,7 +207,7 @@ pub fn encode(bytes: []const u8, output: *Writer) core.writer.Error!void {
         pending_bits += row.bit_count;
         if (pending_bits < word_bits) continue;
         pending_bits -= word_bits;
-        try cursor.write_int(Word, @truncate(pending >> @intCast(pending_bits)));
+        try cursor.write_int_big(Word, @truncate(pending >> @intCast(pending_bits)));
     }
     assert(pending_bits < word_bits);
     // RFC 7541 §5.2: the last octet is padded with the most significant bits of EOS, all ones.

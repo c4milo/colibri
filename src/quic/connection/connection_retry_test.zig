@@ -154,7 +154,7 @@ pub const TagChecker = struct {
         // RFC 9369 §4.1: the token was bound to the original version.
         if (version != held.version) return .invalid;
         var reader = core.Reader.init(token);
-        const kind = reader.read_byte() catch return .not_retry;
+        const kind = reader.take_byte() catch return .not_retry;
         if (kind != retry_token_type) return .not_retry;
         return read_token(&reader, address, now_ns) catch .invalid;
     }
@@ -190,10 +190,10 @@ fn write_tag(pseudo_packet: []const u8, tag: *[tag_len]u8) void {
 }
 
 /// RFC 9000 §8.1.4's token, as a checksum of the address and the instant it expires at.
-fn write_token(writer: *Writer, address: []const u8, ids: *const crypto.suite.RetryConnectionIds, now_ns: u64) core.writer.Error!void {
+fn write_token(writer: *Writer, address: []const u8, ids: *const crypto.suite.RetryConnectionIds, now_ns: u64) core.Writer.Error!void {
     try writer.write_byte(retry_token_type);
-    try writer.write_int(u32, std.hash.Crc32.hash(address));
-    try writer.write_int(u64, now_ns +| token_lifetime_ns);
+    try writer.write_int_big(u32, std.hash.Crc32.hash(address));
+    try writer.write_int_big(u64, now_ns +| token_lifetime_ns);
     try writer.write_byte(ids.original_destination_len);
     try writer.write_bytes(ids.original_destination_slice());
     try writer.write_byte(ids.retry_source_len);
@@ -203,10 +203,10 @@ fn write_token(writer: *Writer, address: []const u8, ids: *const crypto.suite.Re
 /// A Retry token's rest, after its type octet. RFC 9000 §8.1.4 binds it to an address, so the
 /// checksum must match, and accepts it "only for a short time", read back rather than recomputed.
 fn read_token(reader: *core.Reader, address: []const u8, now_ns: u64) !crypto.suite.TokenCheck {
-    const name = try reader.read_int(u32);
-    const expires_ns = try reader.read_int(u64);
-    const original_destination = try reader.take(try reader.read_byte());
-    const retry_source = try reader.take(try reader.read_byte());
+    const name = try reader.take_int_big(u32);
+    const expires_ns = try reader.take_int_big(u64);
+    const original_destination = try reader.take(try reader.take_byte());
+    const retry_source = try reader.take(try reader.take_byte());
     if (reader.remaining_len() != 0 or name != std.hash.Crc32.hash(address) or now_ns >= expires_ns) return .invalid;
     return .{ .retry = crypto.suite.RetryConnectionIds.of(original_destination, retry_source) };
 }

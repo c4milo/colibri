@@ -14,19 +14,19 @@ pub const Block = struct {
 };
 
 /// Writes one block, whole or not at all.
-pub fn write(writer: *Writer, stream_id: u64, octets: []const u8) core.writer.Error!void {
+pub fn write(writer: *Writer, stream_id: u64, octets: []const u8) core.Writer.Error!void {
     var cursor = writer.*;
-    try cursor.write_int(u64, stream_id);
-    try cursor.write_int(u32, std.math.cast(u32, octets.len) orelse return error.NoSpaceLeft);
+    try cursor.write_int_big(u64, stream_id);
+    try cursor.write_int_big(u32, std.math.cast(u32, octets.len) orelse return error.NoSpaceLeft);
     try cursor.write_bytes(octets);
     writer.* = cursor;
 }
 
 /// Reads one block, whole or not at all.
-pub fn read(reader: *Reader) core.reader.Error!Block {
+pub fn read(reader: *Reader) core.Reader.Error!Block {
     var cursor = reader.*;
-    const stream_id = try cursor.read_int(u64);
-    const len = try cursor.read_int(u32);
+    const stream_id = try cursor.take_int_big(u64);
+    const len = try cursor.take_int_big(u32);
     const octets = try cursor.take(len);
     reader.* = cursor;
     return .{ .stream_id = stream_id, .octets = octets };

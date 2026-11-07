@@ -63,8 +63,8 @@ pub const Iterator = struct {
         if (self.reader.remaining_len() == 0) return null;
         assert(self.yielded < constants.limits.settings_per_frame_max);
         // `iterator` asserted the payload is whole settings, so neither read can fall short.
-        const id = self.reader.read_int(u16) catch unreachable;
-        const value = self.reader.read_int(u32) catch unreachable;
+        const id = self.reader.take_int_big(u16) catch unreachable;
+        const value = self.reader.take_int_big(u32) catch unreachable;
         self.yielded += 1;
         return .{ .id = id, .value = value };
     }
@@ -88,7 +88,7 @@ pub fn parse_settings(header: Header, payload: []const u8) Error!Settings {
 }
 
 /// Writes one SETTINGS frame carrying `settings` in order, all of it or nothing.
-pub fn write_settings(writer: *Writer, settings: []const Setting) core.writer.Error!void {
+pub fn write_settings(writer: *Writer, settings: []const Setting) core.Writer.Error!void {
     assert(settings.len <= constants.limits.settings_per_frame_max);
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
@@ -98,15 +98,15 @@ pub fn write_settings(writer: *Writer, settings: []const Setting) core.writer.Er
         .stream_id = constants.protocol.connection_stream_id,
     });
     for (settings) |setting| {
-        try cursor.write_int(u16, setting.id);
-        try cursor.write_int(u32, setting.value);
+        try cursor.write_int_big(u16, setting.id);
+        try cursor.write_int_big(u32, setting.value);
     }
     writer.* = cursor;
 }
 
 /// Writes the empty SETTINGS frame with the ACK flag that acknowledges the peer's settings
 /// (RFC 9113 §6.5.3).
-pub fn write_settings_ack(writer: *Writer) core.writer.Error!void {
+pub fn write_settings_ack(writer: *Writer) core.Writer.Error!void {
     try frame_header.write(writer, .{
         .length = 0,
         .type = constants.protocol.frame_type_settings,

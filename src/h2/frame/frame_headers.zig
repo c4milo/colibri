@@ -103,7 +103,7 @@ pub fn parse_push_promise(header: Header, payload: []const u8) Error!PushPromise
     var reader = Reader.init(unpadded.payload);
     // RFC 9113 §4.2: a PUSH_PROMISE frame too small for its Promised Stream ID (§6.6) is a
     // connection error of FRAME_SIZE_ERROR.
-    const promised_field = reader.read_int(u32) catch return error.LengthInvalid;
+    const promised_field = reader.take_int_big(u32) catch return error.LengthInvalid;
     // RFC 9113 §6.6: a reserved bit precedes the 31-bit Promised Stream ID; §4.1: ignored.
     const promised_stream_id = promised_field & ~constants.protocol.reserved_bit_mask;
     // RFC 9113 §6.6: a promise of an illegal stream identifier is a connection error of
@@ -145,7 +145,7 @@ pub fn write_headers(
     end_headers: bool,
     padding_len: u8,
     priority: ?Priority,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     const priority_len: usize = if (priority == null) 0 else constants.protocol.priority_fields_len;
     const length = frame_padding.padded_len(fragment.len + priority_len, padding_len);
@@ -177,7 +177,7 @@ pub fn write_push_promise(
     fragment: []const u8,
     end_headers: bool,
     padding_len: u8,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     assert(promised_stream_id != constants.protocol.connection_stream_id and promised_stream_id & 1 == 0);
     assert(promised_stream_id <= constants.protocol.stream_id_max);
@@ -192,7 +192,7 @@ pub fn write_push_promise(
     });
     try frame_padding.write_pad_length(&cursor, padding_len);
     // RFC 9113 §4.1: the reserved bit above the Promised Stream ID stays unset when sending.
-    try cursor.write_int(u32, promised_stream_id & ~constants.protocol.reserved_bit_mask);
+    try cursor.write_int_big(u32, promised_stream_id & ~constants.protocol.reserved_bit_mask);
     try cursor.write_bytes(fragment);
     try frame_padding.write_padding(&cursor, padding_len);
     assert(cursor.offset - writer.offset == constants.protocol.frame_header_len + length);
@@ -205,7 +205,7 @@ pub fn write_continuation(
     stream_id: u32,
     fragment: []const u8,
     end_headers: bool,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     assert(fragment.len <= constants.protocol.frame_length_max);
     var cursor = writer.*;

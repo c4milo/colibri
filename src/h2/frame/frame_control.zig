@@ -68,10 +68,10 @@ pub const Goaway = struct {
 pub const WindowUpdate = struct { increment: u32 };
 
 /// Reads the five priority octets: one Exclusive bit, a 31-bit dependency and a weight (§6.2, §6.3).
-pub fn read_priority(reader: *Reader) core.reader.Error!Priority {
+pub fn read_priority(reader: *Reader) core.Reader.Error!Priority {
     var cursor = reader.*;
-    const dependency_field = try cursor.read_int(u32);
-    const weight = try cursor.read_byte();
+    const dependency_field = try cursor.take_int_big(u32);
+    const weight = try cursor.take_byte();
     reader.* = cursor;
     return .{
         .exclusive = dependency_field & constants.protocol.exclusive_bit_mask != 0,
@@ -81,11 +81,11 @@ pub fn read_priority(reader: *Reader) core.reader.Error!Priority {
 }
 
 /// Writes the five priority octets, all or none.
-pub fn write_priority_fields(writer: *Writer, priority: Priority) core.writer.Error!void {
+pub fn write_priority_fields(writer: *Writer, priority: Priority) core.Writer.Error!void {
     assert(priority.dependency <= constants.protocol.stream_id_max);
     var cursor = writer.*;
     const exclusive_bit: u32 = if (priority.exclusive) constants.protocol.exclusive_bit_mask else 0;
-    try cursor.write_int(u32, exclusive_bit | priority.dependency);
+    try cursor.write_int_big(u32, exclusive_bit | priority.dependency);
     try cursor.write_byte(priority.weight);
     writer.* = cursor;
 }
@@ -115,7 +115,7 @@ pub fn parse_rst_stream(header: Header, payload: []const u8) Error!RstStream {
     // RFC 9113 §6.4: a length other than 4 octets is a connection error of FRAME_SIZE_ERROR.
     if (payload.len != constants.protocol.rst_stream_len) return error.LengthInvalid;
     var reader = Reader.init(payload);
-    const error_code = reader.read_int(u32) catch unreachable;
+    const error_code = reader.take_int_big(u32) catch unreachable;
     assert(reader.remaining_len() == 0);
     return .{ .error_code = error_code };
 }
@@ -131,7 +131,7 @@ pub fn parse_ping(header: Header, payload: []const u8) Error!Ping {
     if (payload.len != constants.protocol.ping_len) return error.LengthInvalid;
     var reader = Reader.init(payload);
     var opaque_data: [constants.protocol.ping_len]u8 = @splat(0);
-    for (&opaque_data) |*octet| octet.* = reader.read_byte() catch unreachable;
+    for (&opaque_data) |*octet| octet.* = reader.take_byte() catch unreachable;
     assert(reader.remaining_len() == 0);
     return .{ .opaque_data = opaque_data, .ack = frame_header.has_flag(header, constants.protocol.flag_ack) };
 }
@@ -149,8 +149,8 @@ pub fn parse_goaway(header: Header, payload: []const u8) Error!Goaway {
     if (payload.len < constants.protocol.goaway_len_min) return error.LengthInvalid;
     var reader = Reader.init(payload);
     // RFC 9113 §6.8: a reserved bit precedes the 31-bit Last-Stream-ID; §4.1: ignored on receipt.
-    const last_stream_id = (reader.read_int(u32) catch unreachable) & ~constants.protocol.reserved_bit_mask;
-    const error_code = reader.read_int(u32) catch unreachable;
+    const last_stream_id = (reader.take_int_big(u32) catch unreachable) & ~constants.protocol.reserved_bit_mask;
+    const error_code = reader.take_int_big(u32) catch unreachable;
     return .{ .last_stream_id = last_stream_id, .error_code = error_code, .debug_data = reader.take_rest() };
 }
 
@@ -163,7 +163,7 @@ pub fn parse_window_update(header: Header, payload: []const u8) Error!WindowUpda
     if (payload.len != constants.protocol.window_update_len) return error.LengthInvalid;
     var reader = Reader.init(payload);
     // RFC 9113 §6.9: a reserved bit precedes the 31-bit increment; §4.1: ignored on receipt.
-    const increment = (reader.read_int(u32) catch unreachable) & ~constants.protocol.reserved_bit_mask;
+    const increment = (reader.take_int_big(u32) catch unreachable) & ~constants.protocol.reserved_bit_mask;
     assert(reader.remaining_len() == 0);
     // RFC 9113 §6.9: an increment of 0 is a stream error of PROTOCOL_ERROR, and on the connection
     // flow-control window a connection error.
@@ -173,7 +173,7 @@ pub fn parse_window_update(header: Header, payload: []const u8) Error!WindowUpda
 }
 
 /// Writes one PRIORITY frame. colibri sends none (decision 18); the corpus round trip needs it.
-pub fn write_priority(writer: *Writer, stream_id: u32, priority: Priority) core.writer.Error!void {
+pub fn write_priority(writer: *Writer, stream_id: u32, priority: Priority) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
@@ -187,7 +187,7 @@ pub fn write_priority(writer: *Writer, stream_id: u32, priority: Priority) core.
 }
 
 /// Writes one RST_STREAM frame for `stream_id` carrying `error_code` (RFC 9113 §6.4).
-pub fn write_rst_stream(writer: *Writer, stream_id: u32, error_code: u32) core.writer.Error!void {
+pub fn write_rst_stream(writer: *Writer, stream_id: u32, error_code: u32) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
@@ -196,12 +196,12 @@ pub fn write_rst_stream(writer: *Writer, stream_id: u32, error_code: u32) core.w
         .flags = 0,
         .stream_id = stream_id,
     });
-    try cursor.write_int(u32, error_code);
+    try cursor.write_int_big(u32, error_code);
     writer.* = cursor;
 }
 
 /// Writes one PING frame on stream 0, with the ACK flag when `ack` (RFC 9113 §6.7).
-pub fn write_ping(writer: *Writer, opaque_data: [constants.protocol.ping_len]u8, ack: bool) core.writer.Error!void {
+pub fn write_ping(writer: *Writer, opaque_data: [constants.protocol.ping_len]u8, ack: bool) core.Writer.Error!void {
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = constants.protocol.ping_len,
@@ -216,7 +216,7 @@ pub fn write_ping(writer: *Writer, opaque_data: [constants.protocol.ping_len]u8,
 
 /// Writes one GOAWAY frame on stream 0 with `debug_data` as its Additional Debug Data
 /// (RFC 9113 §6.8).
-pub fn write_goaway(writer: *Writer, last_stream_id: u32, error_code: u32, debug_data: []const u8) core.writer.Error!void {
+pub fn write_goaway(writer: *Writer, last_stream_id: u32, error_code: u32, debug_data: []const u8) core.Writer.Error!void {
     assert(last_stream_id <= constants.protocol.stream_id_max);
     assert(debug_data.len <= constants.protocol.frame_length_max - constants.protocol.goaway_len_min);
     var cursor = writer.*;
@@ -227,14 +227,14 @@ pub fn write_goaway(writer: *Writer, last_stream_id: u32, error_code: u32, debug
         .stream_id = constants.protocol.connection_stream_id,
     });
     // RFC 9113 §4.1: the reserved bit above the Last-Stream-ID stays unset when sending.
-    try cursor.write_int(u32, last_stream_id & ~constants.protocol.reserved_bit_mask);
-    try cursor.write_int(u32, error_code);
+    try cursor.write_int_big(u32, last_stream_id & ~constants.protocol.reserved_bit_mask);
+    try cursor.write_int_big(u32, error_code);
     try cursor.write_bytes(debug_data);
     writer.* = cursor;
 }
 
 /// Writes one WINDOW_UPDATE frame for `stream_id`, 0 for the connection (RFC 9113 §6.9).
-pub fn write_window_update(writer: *Writer, stream_id: u32, increment: u32) core.writer.Error!void {
+pub fn write_window_update(writer: *Writer, stream_id: u32, increment: u32) core.Writer.Error!void {
     assert(stream_id <= constants.protocol.stream_id_max);
     assert(increment >= 1 and increment <= constants.protocol.window_max);
     var cursor = writer.*;
@@ -244,7 +244,7 @@ pub fn write_window_update(writer: *Writer, stream_id: u32, increment: u32) core
         .flags = 0,
         .stream_id = stream_id,
     });
-    try cursor.write_int(u32, increment & ~constants.protocol.reserved_bit_mask);
+    try cursor.write_int_big(u32, increment & ~constants.protocol.reserved_bit_mask);
     writer.* = cursor;
 }
 

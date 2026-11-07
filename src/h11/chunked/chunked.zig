@@ -95,7 +95,7 @@ const Search = struct {
         _ = reader.take(search.scanned) catch unreachable;
         // Bounded by `octets_max`.
         for (0..octets_max) |_| {
-            const octet = reader.read_byte() catch return null;
+            const octet = reader.take_byte() catch return null;
             search.scanned += 1;
             if (try search.step(until, octet)) {
                 const end = search.scanned;

@@ -65,7 +65,7 @@ pub fn SendBuffer(comptime capacity: usize) type {
         }
 
         /// Writes `octets` whole, or nothing when they do not fit.
-        pub fn write(buffer: *Buffer, octets: []const u8) core.writer.Error!void {
+        pub fn write(buffer: *Buffer, octets: []const u8) core.Writer.Error!void {
             var writer = buffer.free();
             try writer.write_bytes(octets);
             buffer.commit(writer.written());

@@ -141,7 +141,7 @@ fn check_framing(checked: *const Checked) Error!void {
 /// A start line's parts: three elements and the two SPs between them (RFC 9112 §3, §4).
 const start_line_parts = 5;
 
-fn write_head(writer: *Writer, fields: []const Field, start_line: [start_line_parts][]const u8) core.writer.Error!void {
+fn write_head(writer: *Writer, fields: []const Field, start_line: [start_line_parts][]const u8) core.Writer.Error!void {
     for (start_line) |part| try writer.write_bytes(part);
     try writer.write_bytes("\r\n");
     for (fields) |line| {

@@ -15,7 +15,7 @@ const constants = @import("constants.zig");
 const representation = @import("representation.zig");
 
 const Writer = core.Writer;
-const Error = core.writer.Error;
+const Error = core.Writer.Error;
 const Representation = representation.Representation;
 const Table = representation.Table;
 const prefixed_integer = wire.prefixed_integer;

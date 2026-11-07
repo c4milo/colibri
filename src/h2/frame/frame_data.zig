@@ -57,7 +57,7 @@ pub fn write_data(
     data: []const u8,
     end_stream: bool,
     padding_len: u8,
-) core.writer.Error!void {
+) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     const length = frame_padding.padded_len(data.len, padding_len);
     var cursor = writer.*;
@@ -77,7 +77,7 @@ pub fn write_data(
 
 /// Writes the header of a DATA frame with no padding whose `length` octets of data the caller
 /// writes after it itself (RFC 9113 §4.1, §6.1). The header is written whole or not at all.
-pub fn write_data_header(writer: *Writer, stream_id: u32, length: u32, end_stream: bool) core.writer.Error!void {
+pub fn write_data_header(writer: *Writer, stream_id: u32, length: u32, end_stream: bool) core.Writer.Error!void {
     assert(stream_id != constants.protocol.connection_stream_id and stream_id <= constants.protocol.stream_id_max);
     const end_stream_flag: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
     try frame_header.write(writer, .{

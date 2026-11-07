@@ -299,9 +299,9 @@ test "RFC 9368 §4: a list longer than colibri keeps is checked whole, and still
     const listed = constants.limits.version_information_versions_max + 1;
     var body: [(listed + 1) * @sizeOf(u32)]u8 = undefined;
     var writer = Writer.init(&body);
-    try writer.write_int(u32, version_2);
-    for (0..listed - 1) |i| try writer.write_int(u32, reserved_version + @as(u32, @intCast(i)));
-    try writer.write_int(u32, version_2);
+    try writer.write_int_big(u32, version_2);
+    for (0..listed - 1) |i| try writer.write_int_big(u32, reserved_version + @as(u32, @intCast(i)));
+    try writer.write_int_big(u32, version_2);
     var reader = Reader.init(try one(@intFromEnum(Id.version_information), writer.written()));
     const info = (try read(&reader, .client)).version_information.?;
     // The first versions in order, and the Chosen Version in the last place kept.
@@ -392,7 +392,7 @@ fn expect_versions(body: []const u8) !void {
     try testing.expect(body.len >= @sizeOf(u32) and body.len % @sizeOf(u32) == 0);
     var reader = Reader.init(body);
     // Bounded by the octets: every turn takes four.
-    while (reader.remaining_len() > 0) try testing.expect(try reader.read_int(u32) != 0);
+    while (reader.remaining_len() > 0) try testing.expect(try reader.take_int_big(u32) != 0);
 }
 
 /// The bounds RFC 9000 §18.2 states as values that are invalid, read again without `valid`.

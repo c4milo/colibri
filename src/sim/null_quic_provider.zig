@@ -411,7 +411,7 @@ const Framed = struct {
 fn read_framed(held: []const u8) ?Framed {
     var reader = core.Reader.init(held);
     // RFC 9846 §4: the HandshakeType, then the uint24 length of what follows it.
-    const kind = reader.read_byte() catch return null;
+    const kind = reader.take_byte() catch return null;
     const body_len = read_length(&reader) catch return null;
     const body = reader.take(body_len) catch return null;
     return .{ .kind = kind, .body = body, .total_len = header_len + body_len };
@@ -430,16 +430,16 @@ fn write_framed(output: []u8, kind: MessageType, body: []const u8) error{NoSpace
 }
 
 /// RFC 9846 §4's uint24 length, octet by octet in network byte order.
-fn read_length(reader: *core.Reader) core.reader.Error!usize {
+fn read_length(reader: *core.Reader) core.Reader.Error!usize {
     var value: usize = 0;
     for (0..length_len) |_| {
-        value = (value << @bitSizeOf(u8)) | try reader.read_byte();
+        value = (value << @bitSizeOf(u8)) | try reader.take_byte();
     }
     return value;
 }
 
 /// The same field on the way out.
-fn write_length(writer: *core.Writer, length: usize) core.writer.Error!void {
+fn write_length(writer: *core.Writer, length: usize) core.Writer.Error!void {
     for (0..length_len) |index| {
         const shift: u6 = @intCast((length_len - 1 - index) * @bitSizeOf(u8));
         try writer.write_byte(@truncate(length >> shift));

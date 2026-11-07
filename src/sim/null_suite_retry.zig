@@ -55,13 +55,13 @@ pub fn token_write(
     return writer.written().len;
 }
 
-fn write_token(writer: *core.Writer, version: Version, address: []const u8, ids: *const crypto.suite.RetryConnectionIds, now_ns: u64) core.writer.Error!void {
+fn write_token(writer: *core.Writer, version: Version, address: []const u8, ids: *const crypto.suite.RetryConnectionIds, now_ns: u64) core.Writer.Error!void {
     // §8.1.1: a server tells a Retry's token from a NEW_TOKEN frame's, so every token says which.
     try writer.write_byte(constants.null_suite_retry_token_type);
-    try writer.write_int(u32, address_name(version, address));
+    try writer.write_int_big(u32, address_name(version, address));
     // §8.1.4: "Servers SHOULD ensure that tokens sent in Retry packets are only accepted for a
     // short time", which is an instant written into the token rather than a clock read later.
-    try writer.write_int(u64, now_ns +| constants.null_suite_retry_token_lifetime_ns);
+    try writer.write_int_big(u64, now_ns +| constants.null_suite_retry_token_lifetime_ns);
     try writer.write_byte(ids.original_destination_len);
     try writer.write_bytes(ids.original_destination_slice());
     try writer.write_byte(ids.retry_source_len);
@@ -71,7 +71,7 @@ fn write_token(writer: *core.Writer, version: Version, address: []const u8, ids:
 pub fn token_check(context: *const anyopaque, version: Version, address: []const u8, token: []const u8, now_ns: u64) crypto.suite.TokenCheck {
     _ = context;
     var reader = core.Reader.init(token);
-    const kind = reader.read_byte() catch return .not_retry;
+    const kind = reader.take_byte() catch return .not_retry;
     // §8.1.3: a token that is not a Retry token leaves the server as if it had none.
     if (kind != constants.null_suite_retry_token_type) return .not_retry;
     return read_retry_token(&reader, version, address, now_ns) catch .invalid;
@@ -89,8 +89,8 @@ fn address_name(version: Version, address: []const u8) u32 {
 /// The rest of a Retry token, once its type octet has said it is one. Anything that does not read
 /// back whole is a token the client changed, which §8.1.2 answers with INVALID_TOKEN.
 fn read_retry_token(reader: *core.Reader, version: Version, address: []const u8, now_ns: u64) !crypto.suite.TokenCheck {
-    const name = try reader.read_int(u32);
-    const expires_ns = try reader.read_int(u64);
+    const name = try reader.take_int_big(u32);
+    const expires_ns = try reader.take_int_big(u64);
     const original_destination = try read_connection_id(reader);
     const retry_source = try read_connection_id(reader);
     if (reader.remaining_len() != 0) return .invalid;
@@ -103,7 +103,7 @@ fn read_retry_token(reader: *core.Reader, version: Version, address: []const u8,
 }
 
 fn read_connection_id(reader: *core.Reader) ![]const u8 {
-    const len = try reader.read_byte();
+    const len = try reader.take_byte();
     // RFC 9000 §17.2: a connection ID is at most 20 octets.
     if (len > crypto.constants.protocol.connection_id_len_max) return error.ConnectionIdTooLong;
     return reader.take(len);

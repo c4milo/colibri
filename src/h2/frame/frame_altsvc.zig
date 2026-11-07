@@ -34,7 +34,7 @@ pub fn parse(header: Header, payload: []const u8) ?AltSvc {
     assert(payload.len == header.length);
     var reader = Reader.init(payload);
     // RFC 7838 §4: the payload starts with the 16-bit Origin-Len.
-    const origin_len = reader.read_int(u16) catch return null;
+    const origin_len = reader.take_int_big(u16) catch return null;
     // RFC 7838 §4: the Origin holds Origin-Len octets, and the field value is every octet after.
     const origin = reader.take(origin_len) catch return null;
     return .{ .origin = origin, .value = reader.take_rest() };
@@ -42,7 +42,7 @@ pub fn parse(header: Header, payload: []const u8) ?AltSvc {
 
 /// Writes one ALTSVC frame on `stream_id`, naming `origin` and carrying the Alt-Svc field value
 /// `value` (RFC 7838 §4).
-pub fn write_altsvc(writer: *Writer, stream_id: u32, origin: []const u8, value: []const u8) core.writer.Error!void {
+pub fn write_altsvc(writer: *Writer, stream_id: u32, origin: []const u8, value: []const u8) core.Writer.Error!void {
     assert(stream_id <= constants.protocol.stream_id_max);
     assert(origin.len <= std.math.maxInt(u16));
     const length = constants.protocol.altsvc_origin_len_len + origin.len + value.len;
@@ -55,7 +55,7 @@ pub fn write_altsvc(writer: *Writer, stream_id: u32, origin: []const u8, value: 
         .flags = 0,
         .stream_id = stream_id,
     });
-    try cursor.write_int(u16, @intCast(origin.len));
+    try cursor.write_int_big(u16, @intCast(origin.len));
     try cursor.write_bytes(origin);
     try cursor.write_bytes(value);
     writer.* = cursor;

@@ -14,7 +14,7 @@ const huffman_flag: u8 = 1 << (constants.protocol.string_prefix_bits - 1);
 
 /// Writes `octets` as a string literal, Huffman-coded when the code is shorter than the octets and
 /// raw otherwise. All of the octets are written, or none.
-pub fn write_shorter(output: *Writer, octets: []const u8) core.writer.Error!void {
+pub fn write_shorter(output: *Writer, octets: []const u8) core.Writer.Error!void {
     const coded_len = wire.huffman.encoded_len(octets);
     if (coded_len >= octets.len) return wire.string_literal.encode(constants.protocol.string_prefix_bits, output, 0, octets, .raw);
     assert(coded_len < octets.len);
@@ -32,7 +32,7 @@ pub fn write_shorter(output: *Writer, octets: []const u8) core.writer.Error!void
 // choose the coding and once more inside `string_literal.encode`. It stays here as the reference.
 
 /// The reference: the string as the encoder wrote it before.
-fn write_by_two_measures(output: *Writer, octets: []const u8) core.writer.Error!void {
+fn write_by_two_measures(output: *Writer, octets: []const u8) core.Writer.Error!void {
     const coding: wire.string_literal.Coding = if (wire.huffman.encoded_len(octets) < octets.len) .huffman else .raw;
     try wire.string_literal.encode(constants.protocol.string_prefix_bits, output, 0, octets, coding);
 }

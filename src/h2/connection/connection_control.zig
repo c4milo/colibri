@@ -130,8 +130,8 @@ const test_input = &support.test_input;
 fn settings_frame(id: u16, value: u32) ![]const u8 {
     var payload: [constants.protocol.setting_len]u8 = undefined;
     var writer = Writer.init(&payload);
-    try writer.write_int(u16, id);
-    try writer.write_int(u32, value);
+    try writer.write_int_big(u16, id);
+    try writer.write_int_big(u32, value);
     return frame_bytes(test_input, constants.protocol.frame_type_settings, 0, 0, writer.written());
 }
 
@@ -147,10 +147,10 @@ test "http2/6.5.3/1: the settings of one frame are applied in the order they app
     try start_server();
     var payload: [2 * constants.protocol.setting_len]u8 = undefined;
     var writer = Writer.init(&payload);
-    try writer.write_int(u16, constants.protocol.setting_initial_window_size);
-    try writer.write_int(u32, 100);
-    try writer.write_int(u16, constants.protocol.setting_initial_window_size);
-    try writer.write_int(u32, 1);
+    try writer.write_int_big(u16, constants.protocol.setting_initial_window_size);
+    try writer.write_int_big(u32, 100);
+    try writer.write_int_big(u16, constants.protocol.setting_initial_window_size);
+    try writer.write_int_big(u32, 1);
     const bytes = try frame_bytes(test_input, constants.protocol.frame_type_settings, 0, 0, writer.written());
     _ = try feed(bytes);
     try testing.expectEqual(1, test_connection.peer.initial_window_size);

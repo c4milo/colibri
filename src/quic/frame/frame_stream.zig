@@ -57,7 +57,7 @@ pub fn read_stream(reader: *Reader, frame_type: u64) frame.Error!Stream {
     };
 }
 
-pub fn write_stream(writer: *Writer, stream: Stream) core.writer.Error!void {
+pub fn write_stream(writer: *Writer, stream: Stream) core.Writer.Error!void {
     assert(stream.offset <= constants.protocol.stream_offset_max - stream.data.len);
     var frame_type = constants.protocol.frame_stream_first;
     // RFC 9000 §19.8: an offset of 0 needs no Offset field, and the flags say what is present.
@@ -94,7 +94,7 @@ pub fn stream_header_len(stream_id: u64, offset: u64, length_len: u8) usize {
 const stream_type_len: usize = 1;
 
 /// Writes the header `stream_header_len` measured, with its Length field set.
-pub fn write_stream_header(writer: *Writer, header: StreamHeader) core.writer.Error!void {
+pub fn write_stream_header(writer: *Writer, header: StreamHeader) core.Writer.Error!void {
     assert(header.offset <= constants.protocol.stream_offset_max - header.data_len);
     // RFC 9000 §19.8: an offset of 0 needs no Offset field, and a Length field is always present
     // here so that PADDING may follow the frame.
@@ -117,7 +117,7 @@ pub fn read_crypto(reader: *Reader) frame.Error!Crypto {
     return .{ .offset = offset, .data = data };
 }
 
-pub fn write_crypto(writer: *Writer, crypto: Crypto) core.writer.Error!void {
+pub fn write_crypto(writer: *Writer, crypto: Crypto) core.Writer.Error!void {
     assert(crypto.offset <= constants.protocol.stream_offset_max - crypto.data.len);
     try frame.write_type(writer, constants.protocol.frame_crypto);
     try wire.varint.encode(writer, crypto.offset);
@@ -134,7 +134,7 @@ pub fn read_token(reader: *Reader) frame.Error![]const u8 {
     return token;
 }
 
-pub fn write_token(writer: *Writer, token: []const u8) core.writer.Error!void {
+pub fn write_token(writer: *Writer, token: []const u8) core.Writer.Error!void {
     assert(token.len > 0);
     try frame.write_type(writer, constants.protocol.frame_new_token);
     try wire.varint.encode(writer, token.len);
@@ -157,13 +157,13 @@ pub fn read_padding(reader: *Reader) usize {
     for (0..reader.remaining_len()) |_| {
         const next = reader.peek_byte() catch return len;
         if (next != constants.protocol.frame_padding) return len;
-        _ = reader.read_byte() catch unreachable;
+        _ = reader.take_byte() catch unreachable;
         len += 1;
     }
     return len;
 }
 
-pub fn write_padding(writer: *Writer, len: usize) core.writer.Error!void {
+pub fn write_padding(writer: *Writer, len: usize) core.Writer.Error!void {
     assert(len > 0);
     if (len > writer.remaining_len()) return error.NoSpaceLeft;
     for (0..len) |_| try writer.write_byte(@intCast(constants.protocol.frame_padding));

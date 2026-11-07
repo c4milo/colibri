@@ -158,7 +158,7 @@ pub const Plan = struct {
     }
 
     /// Encodes the preface, every frame and the refusal into `output`.
-    pub fn write(plan: *const Plan, output: *Writer) core.writer.Error!void {
+    pub fn write(plan: *const Plan, output: *Writer) core.Writer.Error!void {
         // RFC 9113 §3.4: a client starts the connection with 24 octets and a SETTINGS frame.
         try output.write_bytes(h2_constants.protocol.client_preface);
         try write_settings(plan.initial_window_size, output);
@@ -287,7 +287,7 @@ fn block_of(drawn: *const Frame) []const u8 {
     return if (drawn.with_authority) request_block_authority else request_block;
 }
 
-fn write_settings(initial_window_size: u32, output: *Writer) core.writer.Error!void {
+fn write_settings(initial_window_size: u32, output: *Writer) core.Writer.Error!void {
     const setting: frame.Setting = .{
         .id = h2_constants.protocol.setting_initial_window_size,
         .value = initial_window_size,
@@ -295,13 +295,13 @@ fn write_settings(initial_window_size: u32, output: *Writer) core.writer.Error!v
     try frame.write_settings(output, &.{setting});
 }
 
-fn write_request(drawn: *const Frame, output: *Writer, end_headers: bool) core.writer.Error!void {
+fn write_request(drawn: *const Frame, output: *Writer, end_headers: bool) core.Writer.Error!void {
     const block = block_of(drawn);
     const fragment = if (end_headers) block else block[0 .. block.len / drawn.fragments];
     try frame.write_headers(output, drawn.stream_id, fragment, drawn.end_stream, end_headers, no_padding, null);
 }
 
-fn write_frame(drawn: *const Frame, output: *Writer) core.writer.Error!void {
+fn write_frame(drawn: *const Frame, output: *Writer) core.Writer.Error!void {
     const id = drawn.stream_id;
     switch (drawn.kind) {
         .request => try write_request(drawn, output, true),
@@ -322,7 +322,7 @@ fn write_frame(drawn: *const Frame, output: *Writer) core.writer.Error!void {
 /// Writes one request as a HEADERS frame without END_HEADERS and the CONTINUATION frames that
 /// carry the rest of its field block (RFC 9113 §6.10). Every fragment but the last is the same
 /// length, which may be 0: §6.10 sets no lower bound on a fragment.
-fn write_continued(drawn: *const Frame, output: *Writer) core.writer.Error!void {
+fn write_continued(drawn: *const Frame, output: *Writer) core.Writer.Error!void {
     const block = block_of(drawn);
     assert(drawn.fragments >= constants.connection_check_fragments_min);
     assert(drawn.fragments <= constants.connection_check_fragments_max);
@@ -339,7 +339,7 @@ fn write_continued(drawn: *const Frame, output: *Writer) core.writer.Error!void 
     assert(offset == block.len);
 }
 
-fn write_refusal(plan: *const Plan, output: *Writer) core.writer.Error!void {
+fn write_refusal(plan: *const Plan, output: *Writer) core.Writer.Error!void {
     const id = plan.refusal_stream_id;
     switch (plan.refusal.?) {
         // RFC 9113 §5.1.1: the first use of an identifier closes every lower idle one the peer
@@ -368,7 +368,7 @@ fn write_refusal(plan: *const Plan, output: *Writer) core.writer.Error!void {
 }
 
 /// One HEADERS frame carrying the whole short request block, with END_STREAM unset.
-fn write_bare_headers(stream_id: u32, end_headers: bool, output: *Writer) core.writer.Error!void {
+fn write_bare_headers(stream_id: u32, end_headers: bool, output: *Writer) core.Writer.Error!void {
     try frame.write_headers(output, stream_id, request_block, false, end_headers, no_padding, null);
 }
 

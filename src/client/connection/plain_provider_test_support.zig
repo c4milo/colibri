@@ -121,8 +121,8 @@ pub const PlainProvider = struct {
         plain.answer_owed = false;
         var writer = core.Writer.init(output[answer_len..]);
         writer.write_byte(content_application_data) catch unreachable;
-        writer.write_int(u16, legacy_record_version) catch unreachable;
-        writer.write_int(u16, @intCast(head.len + data.len)) catch unreachable;
+        writer.write_int_big(u16, legacy_record_version) catch unreachable;
+        writer.write_int_big(u16, @intCast(head.len + data.len)) catch unreachable;
         writer.write_bytes(head) catch unreachable;
         writer.write_bytes(data) catch unreachable;
         return answer_len + writer.written().len;
@@ -233,8 +233,8 @@ pub const PlainProvider = struct {
 pub fn seal(content_type: u8, content: []const u8, output: []u8) error{NoSpaceLeft}![]u8 {
     var writer = core.Writer.init(output);
     writer.write_byte(content_type) catch return error.NoSpaceLeft;
-    writer.write_int(u16, legacy_record_version) catch return error.NoSpaceLeft;
-    writer.write_int(u16, @intCast(content.len)) catch return error.NoSpaceLeft;
+    writer.write_int_big(u16, legacy_record_version) catch return error.NoSpaceLeft;
+    writer.write_int_big(u16, @intCast(content.len)) catch return error.NoSpaceLeft;
     writer.write_bytes(content) catch return error.NoSpaceLeft;
     return output[0..writer.written().len];
 }
@@ -244,9 +244,9 @@ pub const Opened = struct { content_type: u8, content: []const u8 };
 /// The record at the front of `input`, or null while it is not whole (RFC 9846 §5.1).
 pub fn open(input: []const u8) ?Opened {
     var reader = core.Reader.init(input);
-    const content_type = reader.read_byte() catch return null;
-    _ = reader.read_int(u16) catch return null;
-    const length = reader.read_int(u16) catch return null;
+    const content_type = reader.take_byte() catch return null;
+    _ = reader.take_int_big(u16) catch return null;
+    const length = reader.take_int_big(u16) catch return null;
     const content = reader.take(length) catch return null;
     return .{ .content_type = content_type, .content = content };
 }

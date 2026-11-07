@@ -358,7 +358,7 @@ test "§8.4: a PUSH_PROMISE at a server ends the connection (decision 17)" {
     const fragment = try support.request_block(&test_block, "/");
     var payload: [constants.protocol.frame_header_len + constants.limits.frame_size_max]u8 = undefined;
     var writer = Writer.init(&payload);
-    try writer.write_int(u32, 2);
+    try writer.write_int_big(u32, 2);
     try writer.write_bytes(fragment);
     const bytes = try frame_bytes(test_input, constants.protocol.frame_type_push_promise, constants.protocol.flag_end_headers, 1, writer.written());
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));

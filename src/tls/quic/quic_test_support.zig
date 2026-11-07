@@ -113,7 +113,7 @@ const key_phase_bit: u8 = 0x04;
 pub fn initial_header(packet_number: u32, payload_len: usize, output: []u8) ![]const u8 {
     var writer = Writer.init(output);
     try writer.write_byte(initial_first_octet | (packet_number_len - 1));
-    try writer.write_int(u32, version_1);
+    try writer.write_int_big(u32, version_1);
     try writer.write_byte(destination_id.len);
     try writer.write_bytes(&destination_id);
     try writer.write_byte(source_id.len);
@@ -121,8 +121,8 @@ pub fn initial_header(packet_number: u32, payload_len: usize, output: []u8) ![]c
     // RFC 9000 §17.2.2: no token.
     try writer.write_byte(0);
     const length = packet_number_len + payload_len + crypto.constants.protocol.aead_tag_len;
-    try writer.write_int(u16, varint_two_octets | @as(u16, @intCast(length)));
-    try writer.write_int(u32, packet_number);
+    try writer.write_int_big(u16, varint_two_octets | @as(u16, @intCast(length)));
+    try writer.write_int_big(u32, packet_number);
     return writer.written();
 }
 
@@ -132,7 +132,7 @@ pub fn short_header(packet_number: u32, key_phase: bool, output: []u8) ![]const 
     const phase: u8 = if (key_phase) key_phase_bit else 0;
     try writer.write_byte(short_first_octet | phase | (packet_number_len - 1));
     try writer.write_bytes(&destination_id);
-    try writer.write_int(u32, packet_number);
+    try writer.write_int_big(u32, packet_number);
     return writer.written();
 }
 

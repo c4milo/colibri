@@ -67,7 +67,7 @@ pub const Plan = struct {
     }
 
     /// Encodes every value, then the refusal, into `output`.
-    pub fn write(plan: *const Plan, output: *Writer) core.writer.Error!void {
+    pub fn write(plan: *const Plan, output: *Writer) core.Writer.Error!void {
         for (plan.values[0..plan.count]) |*value| try write_value(value, output);
         if (plan.refusal) |refusal| try write_refusal(refusal, output);
     }
@@ -124,7 +124,7 @@ fn varint_value_max(encoded_len: u8) u64 {
     return (@as(u64, 1) << @intCast(value_bits)) - 1;
 }
 
-fn write_value(value: *const Value, output: *Writer) core.writer.Error!void {
+fn write_value(value: *const Value, output: *Writer) core.Writer.Error!void {
     switch (value.format) {
         .varint => try wire.varint.encode_with_len(output, value.integer, value.encoded_len),
         .prefixed_integer => switch (value.prefix_size) {
@@ -169,7 +169,7 @@ const huffman_eos_in_data = [_]u8{huffman_flag | eos_data_len} ++
     [_]u8{std.math.maxInt(u8)} ** eos_data_len;
 const huffman_padding_not_eos = [_]u8{ huffman_flag | 1, 0 };
 
-fn write_refusal(refusal: Refusal, output: *Writer) core.writer.Error!void {
+fn write_refusal(refusal: Refusal, output: *Writer) core.Writer.Error!void {
     try output.write_bytes(switch (refusal) {
         .integer_too_long => &integer_too_long,
         .huffman_eos_in_data => &huffman_eos_in_data,

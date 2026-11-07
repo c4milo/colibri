@@ -247,8 +247,8 @@ pub fn run_file(arena: Allocator, encoded: []const u8, expected: []const []const
     var blocks = Reader.init(encoded);
     // Bounded by the file, since every block consumes at least its twelve-octet header.
     while (blocks.remaining_len() > 0) {
-        const stream_id = try blocks.read_int(u64);
-        const len = try blocks.read_int(u32);
+        const stream_id = try blocks.take_int_big(u64);
+        const len = try blocks.take_int_big(u32);
         const octets = try blocks.take(len);
         if (stream_id == encoder_stream_id) {
             try run.encoder_stream(octets);

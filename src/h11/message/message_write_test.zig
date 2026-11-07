@@ -92,7 +92,7 @@ pub const reference = struct {
 
     const start_line_parts = 5;
 
-    fn write_head(writer: *Writer, fields: []const Field, start_line: [start_line_parts][]const u8) core.writer.Error!void {
+    fn write_head(writer: *Writer, fields: []const Field, start_line: [start_line_parts][]const u8) core.Writer.Error!void {
         for (start_line) |part| try writer.write_bytes(part);
         try writer.write_bytes("\r\n");
         for (fields) |line| {

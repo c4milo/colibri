@@ -20,7 +20,7 @@ fn message(comptime read: []const u8) []const u8 {
 
 const length_fixture: [:0]const u8 =
     \\pub fn parse(reader: *Reader, buffer: []u8) !void {
-    \\    const len = try reader.read_int(u16);
+    \\    const len = try reader.take_int_big(u16);
     \\    _ = buffer[0..len];
     \\}
 ;
@@ -43,7 +43,7 @@ test "peer-index passes literal indexes, lengths, and values no Reader produced"
         \\}
         \\test "a test slices as it likes" {
         \\    var reader = Reader.init(&bytes);
-        \\    const len = try reader.read_int(u8);
+        \\    const len = try reader.take_int_big(u8);
         \\    _ = bytes[0..len];
         \\}
     , &.{});
@@ -56,7 +56,7 @@ test "peer-index flags a length a Reader parameter produced, at a slice end" {
 test "peer-index flags an index, a slice start and a sentinel" {
     try expect_findings("src/h2/frame.zig",
         \\pub fn parse(cursor: Reader, buffer: [:0]u8) !void {
-        \\    const at = try cursor.read_int(u8);
+        \\    const at = try cursor.take_int_big(u8);
         \\    _ = buffer[at];
         \\    _ = buffer[at..];
         \\    _ = buffer[0..1 :at];
@@ -94,7 +94,7 @@ test "peer-index follows a local Reader, an assignment and each kind of capture"
 test "peer-index reads each function, a nested one too, with only its own names" {
     try expect_findings("src/h2/frame.zig",
         \\pub fn parse(reader: *Reader, table: []u8) !u16 {
-        \\    const len = try reader.read_int(u16);
+        \\    const len = try reader.take_int_big(u16);
         \\    const Local = struct {
         \\        fn fill(buffer: []u8, len: usize) void {
         \\            _ = buffer[0..len];

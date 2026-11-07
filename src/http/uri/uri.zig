@@ -94,7 +94,7 @@ fn matches_encoded(class: Class, octets: []const u8) bool {
     var reader = Reader.init(octets);
     // Bounded: each pass consumes at least one octet.
     for (0..octets.len) |_| {
-        const octet = reader.read_byte() catch return true;
+        const octet = reader.take_byte() catch return true;
         if (octet != '%') {
             if (!in_class(class, octet)) return false;
             continue;
@@ -142,7 +142,7 @@ fn is_ip_literal(octets: []const u8) bool {
 /// section makes its "v" case-insensitive, so "V" matches too.
 fn is_ip_future(octets: []const u8) bool {
     var reader = Reader.init(octets);
-    _ = reader.read_byte() catch unreachable;
+    _ = reader.take_byte() catch unreachable;
     const version, const rest = std.mem.cutScalar(u8, reader.take_rest(), '.') orelse return false;
     if (version.len == 0 or rest.len == 0) return false;
     for (version) |octet| {
@@ -238,7 +238,7 @@ pub fn split_host_port(octets: []const u8) ?struct { []const u8, ?[]const u8 } {
         const end = std.mem.indexOfScalar(u8, octets, ']') orelse return null;
         var reader = Reader.init(octets);
         const host = reader.take(end + literal_close.len) catch unreachable;
-        const separator = reader.read_byte() catch return .{ host, null };
+        const separator = reader.take_byte() catch return .{ host, null };
         if (separator != ':') return null;
         return .{ host, reader.take_rest() };
     }
@@ -297,7 +297,7 @@ pub fn absolute_uri(octets: []const u8) ?AbsoluteUri {
 /// `scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )` (RFC 3986 §3.1).
 fn is_scheme(octets: []const u8) bool {
     var reader = Reader.init(octets);
-    const first = reader.read_byte() catch return false;
+    const first = reader.take_byte() catch return false;
     if (!std.ascii.isAlphabetic(first)) return false;
     for (reader.take_rest()) |octet| {
         const allowed = std.ascii.isAlphanumeric(octet) or octet == '+' or octet == '-' or octet == '.';

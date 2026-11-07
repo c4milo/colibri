@@ -21,7 +21,7 @@ const constants = @import("constants.zig");
 const Reader = core.Reader;
 const varint = wire.varint;
 
-pub const Error = core.reader.Error || error{
+pub const Error = core.Reader.Error || error{
     /// RFC 9114 §8.1's H3_FRAME_ERROR: a payload with octets after the fields its type defines,
     /// or one that ended before them.
     FrameError,

@@ -238,8 +238,8 @@ pub fn peer_h2_owe() void {
 pub fn peer_setting(id: u16, value: u32) !void {
     var payload: [h2.constants.protocol.setting_len]u8 = undefined;
     var writer = h2.core.Writer.init(&payload);
-    try writer.write_int(u16, id);
-    try writer.write_int(u32, value);
+    try writer.write_int_big(u16, id);
+    try writer.write_int_big(u32, value);
     var frame = h2.core.Writer.init(to_client[to_client_len..]);
     try h2.frame.write_header(&frame, .{ .length = @intCast(writer.written().len), .type = h2.constants.protocol.frame_type_settings, .flags = 0, .stream_id = 0 });
     try frame.write_bytes(writer.written());

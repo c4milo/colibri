@@ -28,7 +28,7 @@ fn scan_by_pointer(scanner: *Scanner, role: Role, input: []const u8) Error!?Span
     _ = reader.take(scanner.scanned) catch unreachable;
     // Bounded by `head_len_max`, which `limit` never exceeds.
     for (0..constants.limits.head_len_max) |_| {
-        const octet = reader.read_byte() catch break;
+        const octet = reader.take_byte() catch break;
         scanner.scanned += 1;
         if (try step_by_pointer(scanner, role, octet)) return span_by_pointer(scanner);
     }

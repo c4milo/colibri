@@ -9,7 +9,7 @@
 //! 1. A value is peer-derived when it is a parameter whose type names `Reader`, or a local whose
 //!    type names `Reader` or whose value calls `Reader.init`.
 //! 2. A name declared, assigned or captured from an expression that reads a peer-derived name is
-//!    peer-derived too: `const len = try reader.read_int(u16);`, `total += len;`,
+//!    peer-derived too: `const len = try reader.take_int_big(u16);`, `total += len;`,
 //!    `if (reader.peek()) |octet|`. A `for` capture follows its own input, so in
 //!    `for (octets, 0..) |octet, index|` the octet is peer-derived and the index is not.
 //! 3. A `[...]` index, or a slice's start, end or sentinel, that reads a peer-derived name is a

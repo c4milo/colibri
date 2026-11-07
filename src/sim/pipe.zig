@@ -172,7 +172,7 @@ const LengthPrefixed = struct {
 
     pub fn step(subject: *LengthPrefixed, held: []const u8) Step {
         var reader = core.Reader.init(held);
-        const len = reader.read_byte() catch return .need_more;
+        const len = reader.take_byte() catch return .need_more;
         if (len == refused_len) return .{ .reject = error.LengthRefused };
         subject.last = reader.take(len) catch return .need_more;
         return .{ .accept = reader.offset };

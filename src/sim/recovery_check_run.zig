@@ -123,9 +123,9 @@ const Run = struct {
     /// The receiver takes one data datagram.
     fn receive_data(run: *Run, octets: []const u8, ecn: sim.network.Ecn) Violation!void {
         var reader = Reader.init(octets);
-        const kind = reader.read_byte() catch return Violation.DatagramNotRead;
+        const kind = reader.take_byte() catch return Violation.DatagramNotRead;
         if (kind != kind_data) return Violation.DatagramNotRead;
-        const number = reader.read_int(u64) catch return Violation.DatagramNotRead;
+        const number = reader.take_int_big(u64) catch return Violation.DatagramNotRead;
         _ = run.storage.receiver.receive(number, run.now_ns, true, space_ecn(ecn));
     }
 
@@ -145,7 +145,7 @@ const Run = struct {
     /// The sender takes one acknowledgment (RFC 9002 Appendix A.7).
     fn receive_ack(run: *Run, octets: []const u8) Violation!void {
         var reader = Reader.init(octets);
-        const kind = reader.read_byte() catch return Violation.DatagramNotRead;
+        const kind = reader.take_byte() catch return Violation.DatagramNotRead;
         if (kind != kind_ack) return Violation.DatagramNotRead;
         const read = quic.frame.read(&reader) catch return Violation.DatagramNotRead;
         const ack = switch (read) {
@@ -212,7 +212,7 @@ const Run = struct {
         const number = run.next_number;
         var writer = Writer.init(&run.storage.datagram);
         writer.write_byte(kind_data) catch return Violation.DatagramNotRead;
-        writer.write_int(u64, number) catch return Violation.DatagramNotRead;
+        writer.write_int_big(u64, number) catch return Violation.DatagramNotRead;
         // RFC 9000 §14.1: an ack-eliciting packet fills a datagram of at least 1200 octets.
         // Bounded by the datagram, which is a named limit.
         while (writer.written().len < datagram_len) {

@@ -106,7 +106,7 @@ pub fn parse_status_line(line: []const u8) Error!StatusLine {
 fn expect_separator(reader: *Reader) Error!void {
     // RFC 9112 §4: the version and the status code are each followed by an SP, so the line does
     // not end here.
-    const octet = reader.read_byte() catch return error.StartLineInvalid;
+    const octet = reader.take_byte() catch return error.StartLineInvalid;
     // RFC 9112 §4: status-line = HTTP-version SP status-code SP [ reason-phrase ].
     if (octet != separator) return error.StartLineInvalid;
 }
@@ -120,9 +120,9 @@ fn parse_version(octets: []const u8) Error!Version {
     const name = reader.take(constants.protocol.version_name.len) catch unreachable;
     // RFC 9112 §2.3: HTTP-version is case-sensitive, so "http/1.1" is not one.
     if (!std.mem.eql(u8, name, constants.protocol.version_name)) return error.VersionInvalid;
-    const major = reader.read_byte() catch unreachable;
-    const dot = reader.read_byte() catch unreachable;
-    const minor = reader.read_byte() catch unreachable;
+    const major = reader.take_byte() catch unreachable;
+    const dot = reader.take_byte() catch unreachable;
+    const minor = reader.take_byte() catch unreachable;
     assert(reader.remaining_len() == 0);
     const numbers_valid = std.ascii.isDigit(major) and dot == version_dot and std.ascii.isDigit(minor);
     // RFC 9112 §2.3: DIGIT "." DIGIT.

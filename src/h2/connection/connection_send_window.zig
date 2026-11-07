@@ -169,7 +169,7 @@ test "decision 110 as amended: until the peer sends an increment below the floor
 fn window_update(stream_id: u32, increment: u32) ![]const u8 {
     var payload: [constants.protocol.window_update_len]u8 = undefined;
     var writer = Writer.init(&payload);
-    try writer.write_int(u32, increment);
+    try writer.write_int_big(u32, increment);
     return support.frame_bytes(&support.test_input, constants.protocol.frame_type_window_update, 0, stream_id, writer.written());
 }
 

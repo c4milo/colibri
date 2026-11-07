@@ -257,7 +257,7 @@ pub const Space = struct {
         now_ns: u64,
         ack_delay_exponent: u6,
         report_ecn: bool,
-    ) core.writer.Error!bool {
+    ) core.Writer.Error!bool {
         if (space.received.is_empty()) return false;
         var copy = writer.*;
         try space.write_ack_at(&copy, now_ns, ack_delay_exponent, report_ecn);
@@ -275,7 +275,7 @@ pub const Space = struct {
         now_ns: u64,
         ack_delay_exponent: u6,
         report_ecn: bool,
-    ) core.writer.Error!void {
+    ) core.Writer.Error!void {
         const count = space.received.len - 1;
         // RFC 9000 §19.3: the type is 0x02, or 0x03 when the ECN counts follow (§19.3.2).
         const frame_type = if (report_ecn) constants.protocol.frame_ack_ecn else constants.protocol.frame_ack;

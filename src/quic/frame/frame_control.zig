@@ -103,7 +103,7 @@ fn read_new_connection_id(reader: *Reader) frame.Error!NewConnectionId {
     const retire_prior_to = try frame.read_varint(reader);
     // RFC 9000 §19.15: Retire Prior To greater than the Sequence Number is a connection error.
     if (retire_prior_to > sequence_number) return error.RetirePriorToTooLarge;
-    const len = reader.read_byte() catch return error.Truncated;
+    const len = reader.take_byte() catch return error.Truncated;
     const admitted = len >= constants.protocol.connection_id_len_min and len <= constants.protocol.connection_id_len_max;
     // RFC 9000 §19.15: a connection ID length below 1 or above 20 is invalid and is a connection
     // error of FRAME_ENCODING_ERROR.
@@ -140,7 +140,7 @@ fn read_connection_close(reader: *Reader, frame_type: u64) frame.Error!Connectio
 }
 
 /// Writes the frame, which `frame.zig` did not handle.
-pub fn write(writer: *Writer, value: Frame) core.writer.Error!void {
+pub fn write(writer: *Writer, value: Frame) core.Writer.Error!void {
     switch (value) {
         .reset_stream => |reset| {
             try frame.write_type(writer, constants.protocol.frame_reset_stream);
@@ -194,11 +194,11 @@ fn type_of(bidirectional: u64, directionality: Directionality) u64 {
     return if (directionality == .unidirectional) bidirectional | constants.protocol.frame_low_bit else bidirectional;
 }
 
-fn write_varints(writer: *Writer, values: []const u64) core.writer.Error!void {
+fn write_varints(writer: *Writer, values: []const u64) core.Writer.Error!void {
     for (values) |value| try wire.varint.encode(writer, value);
 }
 
-fn write_new_connection_id(writer: *Writer, new: NewConnectionId) core.writer.Error!void {
+fn write_new_connection_id(writer: *Writer, new: NewConnectionId) core.Writer.Error!void {
     assert(new.retire_prior_to <= new.sequence_number);
     assert(new.connection_id.len >= constants.protocol.connection_id_len_min);
     assert(new.connection_id.len <= constants.protocol.connection_id_len_max);
@@ -209,12 +209,12 @@ fn write_new_connection_id(writer: *Writer, new: NewConnectionId) core.writer.Er
     try writer.write_bytes(new.stateless_reset_token);
 }
 
-fn write_path(writer: *Writer, frame_type: u64, data: *const [constants.protocol.path_challenge_len]u8) core.writer.Error!void {
+fn write_path(writer: *Writer, frame_type: u64, data: *const [constants.protocol.path_challenge_len]u8) core.Writer.Error!void {
     try frame.write_type(writer, frame_type);
     try writer.write_bytes(data);
 }
 
-fn write_connection_close(writer: *Writer, close: ConnectionClose) core.writer.Error!void {
+fn write_connection_close(writer: *Writer, close: ConnectionClose) core.Writer.Error!void {
     const transport = close.layer == .transport;
     assert(transport == (close.frame_type != null));
     const frame_type = if (transport)
