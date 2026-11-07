@@ -13370,7 +13370,7 @@ library.
   §14.3 and §14.4 and RFC 8899 §4 and §5. It ships after v0.15.0. The owner ruled on 2026-11-05 that v0.14.0 tags once
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps
   39 and 42 ship as v0.15.0. On 2026-11-06 the owner added steps 38b, 43 and 44 to v0.15.0.
-  v0.15.0 waits for Rotor's tag with the code of Rotor's decisions 26 and 27, which step 44
+  v0.15.0 waits for Rotor's tag with the code of Rotor's decisions 26 to 29, which step 44
   needs. The owner makes that tag once Rotor's reactor architecture is stable.
   - **The public names.** A connection option `datagram_len_max`, 1,452 octets by default and up
     to 65,527 (decision 155 ruling 6), which `server.Config` and `client.Config` carry, and the
@@ -13562,7 +13562,8 @@ library.
   `colibri.Client` and `colibri.Server` run on a `rotor.Loop` that the program may share with
   other libraries, such as a resolver. Only the program ticks a shared loop. It ships in
   v0.15.0. Commit 44b waits for Rotor's tag: see "The Rotor bump" below. Decision 156 was
-  amended on 2026-11-06 for Rotor's decisions 28 and 29, and this entry follows the amendment.
+  amended on 2026-11-06 for Rotor's decisions 28 and 29, and again for the thread that calls
+  `shutdown`. This entry follows both amendments.
   - **The public names**, in decision 115's order:
     - The root: `client`, `server`, `constants`, `Server`, `ServerConfig`, `Identity`,
       `InitError`, `RunError`, `Client`, `ClientCapacity` and `ClientConfig`. `client` and
@@ -13687,23 +13688,23 @@ library.
       `undrained` or a flag, and the next poll serves it.
     - Program code never runs inside colibri's poller, where Rotor refuses `add_poller` and
       `remove_poller`.
-  - **The deadline and the wake.** colibri arms no timer (decision 156, third amendment).
+  - **The deadline and the stop.** colibri arms no timer (decision 156, third amendment).
     - The poller's `.at` bounds the wait of each tick at the next deadline, as a timer bounds it.
       A deadline that moves costs no operation, no cancel and no second record.
     - A deadline that is due at the tick's first clock read gives a tick that does not block.
       So the poller sees it at most one tick late (Rotor's decision 29).
-    - `shutdown` stores `stopping` with release order. From the handler, that is all: Rotor does
-      not block the tick after a task while a poller is in its table.
-    - On a shared loop, a `shutdown` from another thread is followed by `rotor.Message.wake` to
-      the loop. The loop takes the wake, does not block, and the next poll loads `stopping`.
-    - A wake needs a registry that holds the loop, and a `rotor.Remote` on the thread that posts.
-      A `Remote` belongs to the thread that made it (Rotor's decision 4), so colibri holds none.
-    - On a private loop, colibri's loop has no registry, so no thread can post a wake to it. So
-      `run` and `fetch` tick with a wait of `stop_wait_ns_max` (50 ms), and a `shutdown` from
-      another thread takes effect within 50 ms, as on main.
-    - Open: how the wake gets to a shared loop. Either `shutdown` takes the caller's
-      `*rotor.Remote` and the loop's id and posts the wake, or the program posts it after
-      `shutdown`. The owner rules it before 44d.
+    - On `.shared`, only the loop's thread calls `shutdown` (decision 156 ruling 9). `shutdown`
+      asserts that it runs on the thread that called `init`. colibri keeps no flag for another
+      thread, posts no `rotor.Message.wake` and takes no `rotor.Remote`.
+    - On the loop's thread, `shutdown` stores `stopping` directly. The next tick calls the poller
+      before it waits, so the poller loads `stopping` first. This applies to a `shutdown` from
+      the handler too.
+    - To stop colibri on a shared loop, the program wakes its loop by its own means. Code on the
+      loop's thread then calls `shutdown`, and the program ticks until `stopped()`.
+    - On `.private`, any thread may call `shutdown`, which stores `stopping` with release order.
+      colibri's loop has no registry, so no thread can post a wake to it. So `run` and `fetch`
+      tick with a wait of `stop_wait_ns_max` (50 ms), and a `shutdown` from another thread takes
+      effect within 50 ms, as on main.
   - **`run`, `fetch`, `stopped` and `deinit`.**
     - Only the program ticks a shared loop. colibri never calls `tick` on it (Rotor's decision
       27), and `rotor.SharedLoop` refuses `tick` at compile time (Rotor's decision 28). On
@@ -13798,13 +13799,16 @@ library.
          instructions and the system calls for each request.
     4. 44d `feat(colibri)!`: `Client` and `Server` as type functions of a capacity and a loop
        kind, with `ClientOf` and `ServerOf` gone, the configuration's `loop`, the handler and the
-       router at `init`, the task, the wake, the end by handle, `release_buffers`, `stopped`,
-       `loop_operations`, and the compile errors of `run` and `fetch` on `.shared`.
+       router at `init`, the task, the thread assertion of `shutdown`, the end by handle,
+       `release_buffers`, `stopped`, `loop_operations`, and the compile errors of `run` and
+       `fetch` on `.shared`.
        - Tests: a stand-in library ticks alone with a wait of 1 s, and an h3 PTO and the idle
-         timeout still fire on time; a `shutdown` from a thread, then its wake, stops a shared
-         loop ticked with a wait of one day within 500 ms, a loose bound against noise; a
-         `shutdown` from a thread stops `run` on `.private` within 50 ms and a margin; a program
-         timer with a record stays armed through both ends; a program timer with no record
+         timeout still fire on time; the program wakes a shared loop ticked with a wait of one
+         day, calls `shutdown` on the loop's thread, and reaches `stopped()` within 500 ms, a
+         loose bound against noise; a `shutdown` from another thread on `.shared` halts, under
+         the halt harness; a `shutdown` from the handler on `.shared` stops colibri with no
+         wait; a `shutdown` from a thread stops `run` on `.private` within 50 ms and a margin; a
+         program timer with a record stays armed through both ends; a program timer with no record
          reaches the program's tick; an idle client causes fewer than a stated count of ticks in
          200 ms; `unix_seconds` is correct on a new loop.
        - Tests of the group: `init`, `deinit` and `init` again on a group that the program
@@ -13827,8 +13831,10 @@ library.
          `.shared` client and server that call `init`, must compile. Its name ends in `-check`,
          so `zig build test` runs it (`build/check_steps.zig`).
        - Mutations: the poller's `.at` one deadline late; the poller does not load `stopping`
-         after a wake; a poller that returns `.now` when idle; `started_ns` read at `init`; no
-         `remove_poller`; no `release_buffers` (a Rotor halt at the second `init` on one group,
+         before the tick waits; no thread assertion in `shutdown` on `.shared` (caught under the
+         halt harness alone; with no harness, **NOT CAUGHT**); a poller that returns `.now` when
+         idle; `started_ns` read at `init`; no `remove_poller`; no `release_buffers` (a Rotor
+         halt at the second `init` on one group,
          **NOT CAUGHT**); the program's `buffer_group` ignored; the `@compileError` of `fetch` on
          `.shared` removed (caught by the compile check); the poller returns `.none` when it
          scheduled the task; the handler called from

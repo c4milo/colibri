@@ -6332,21 +6332,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         where Rotor refuses `add_poller` and `remove_poller`.
      8. The poller's `WaitLimit` bounds the wait of each tick at colibri's next deadline. So a
         long wait in another library's tick does not delay a deadline, and colibri arms no timer.
-        - A `shutdown` from another thread stores colibri's flag, and then `rotor.Message.wake`
-          goes to the loop. The tick then does not block, and the next poll reads the flag. So
-          the stop does not wait 50 ms. Design §8 step 44 holds the open question of which
-          call posts the wake.
-        - A `shutdown` from the handler stores the flag alone. Rotor does not block the tick
-          after a task while a poller is in its table.
-        - On a private loop, `run` and `fetch` still tick with a wait of `stop_wait_ns_max`
-          (50 ms). A wake needs a registry that holds the loop, and a `rotor.Remote` on the
-          thread that posts (Rotor's decision 4).
-        - colibri's private loop has no registry, and a `Remote` belongs to the thread that made
-          it. So on a private loop, the 50 ms bound is how a `shutdown` from another thread
-          takes effect.
+        - On a shared loop, only the loop's thread calls `shutdown` (ruling 9). colibri keeps no
+          flag for another thread, posts no `rotor.Message.wake` and takes no `rotor.Remote`.
+        - On the loop's thread, `shutdown` changes colibri's state directly. The next tick calls
+          the poller before it waits, so the poller sees the new state first. This applies to a
+          `shutdown` from the handler too.
+        - To stop colibri on a shared loop, the program wakes its loop by its own means. Code on
+          the loop's thread then calls `shutdown`, and the program ticks until `stopped()`.
+        - On a private loop, any thread may call `shutdown`, which stores colibri's flag. `run`
+          and `fetch` tick with a wait of `stop_wait_ns_max` (50 ms), so the stop takes effect
+          within 50 ms.
+        - colibri's private loop has no registry, so no thread can post a wake to it.
      9. One thread runs a colibri object for its whole life: `init`, `run`, `fetch`,
-        `set_destination`, `cancel` and `deinit` run on the loop's thread. `shutdown` is the one
-        call another thread may make. colibri makes its private loop at `init`, not at `run`.
+        `set_destination`, `cancel` and `deinit` run on the loop's thread.
+        - On a shared loop, `shutdown` runs on the loop's thread too, and colibri asserts the
+          thread.
+        - On a private loop, `shutdown` is the one call another thread may make.
+        - colibri makes its private loop at `init`, not at `run`.
      10. colibri counts its own operations and cancels only its own handles. `rotor.SharedLoop`
          refuses `cancel_all` at compile time (Rotor's decision 28), so colibri cannot call it on
          a shared loop.
@@ -6407,8 +6409,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         program may pass a group that it reserved with `reserve_group`. When the field is null,
         colibri calls `reserve_group` at `init`.
      2. The one-shot timer of ruling 8 and its wake of 50 ms go. The poller returns `.at` of the
-        next deadline, `.now` when work is left, and `.none` when it is idle with no deadline. A
-        `shutdown` from another thread stores a flag and posts `rotor.Message.wake`.
+        next deadline, `.now` when work is left, and `.none` when it is idle with no deadline.
      3. Each colibri object on a shared loop holds one of the loop's 16 group ids until the loop's
         `deinit`. Past 16, `init` returns `error.GroupsFull`. docs/usage.md states it once step 44
         is built.
@@ -6420,6 +6421,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Ruling 10 gave the group back with `release_buffers`. Now the call takes the buffers back,
        and the id stays reserved.
      - Ruling 15 pinned Rotor's next tag. Now it names the tag that carries decisions 26 to 29.
+
+     Amended a fourth time by the owner on 2026-11-06. The third amendment let another thread
+     call `shutdown` on a shared loop. That call stored a flag and posted `rotor.Message.wake`,
+     and design §8 step 44 held open which call posts the wake. Rulings 8 and 9 replace that
+     text. On a shared loop, only the loop's thread calls `shutdown`, as it calls `init`, `cancel`
+     and `deinit`.
 
      Alternatives that lost:
      - Tags in `user_data`, with `LoopIds` and `Host`, in the first draft of this decision. Each
@@ -6460,11 +6467,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        for each tick.
      - A poller that returns "did work". It adds a tick that waits 0 ns to every turn: one more
        system call for each request.
-     - A poller with no timer. Another library's long wait would delay a deadline.
+     - A poller that returns a `bool`, with no timer, in the first text of ruling 6. Another
+       library's long wait would delay a deadline. The `WaitLimit` of the third amendment
+       removes this problem, so the poller now needs no timer.
      - A repeating timer of 50 ms alone. QUIC needs deadlines in milliseconds.
      - One poller for all of colibri. It needs state that every instance shares.
-     - A Rotor `post` or a `Remote` for `shutdown`. A post goes to the caller of `tick`, and a
-       `Remote` needs a registry.
+     - A Rotor `post` for `shutdown`. A post goes to the caller of `tick`.
+     - `shutdown` takes the caller's `*rotor.Remote` and posts the wake, in the third amendment.
+       A program that owns a shared loop already wakes it to stop it. A second path for the wake
+       adds a name and a step that a program can forget. A `Remote` also needs a registry.
+     - The program posts the wake after `shutdown`, in the third amendment. The program already
+       wakes its loop to stop it, so a second wake adds a rule and a step that a program can
+       forget.
      - `buffer_group` with a default of 0. Two users that keep the default halt on one group.
      - `cancel_all` at the end on any loop. It cancels the operations of other libraries.
      - `payload`, `header_buffer` and a URL, as std names them. Decision 126 names the request
@@ -6476,7 +6490,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `reserve_group` for colibri, though Rotor already gives out ids that cannot clash.
      - The one-shot timer of ruling 8, capped at 50 ms, in the first text of ruling 8. Each
        earlier deadline costs a cancel and a second timer, and a `shutdown` waits up to 50 ms. A
-       `WaitLimit` and a wake do both with no operation.
+       `WaitLimit` bounds the wait with no operation. On a shared loop, a `shutdown` on the
+       loop's thread takes effect with no wait.
      - A `shutdown` from another thread that waits for the 50 ms bound on a shared loop too. The
        stop is then up to 50 ms late, and each idle tick ends at 50 ms.
 
