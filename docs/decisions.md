@@ -6011,9 +6011,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           once `init` returns.
 
      12. Amended by decision 156 on 2026-11-06, for rulings 6 and 7:
-        - A program whose `colibri.Client` or `colibri.Server` type names `.shared` passes its own
-          `rotor.Loop`, and `colibri` then shares it with other libraries. Only the program ticks
-          that loop.
+        - A program whose `colibri.Client` or `colibri.Server` type names `.shared` passes the
+          `*rotor.SharedLoop` of its own loop, and `colibri` then shares it with other libraries.
+          Only the program ticks that loop.
         - `colibri` makes the loop it owns at `init`, not at `run`. So `init`, `run` and `deinit`
           run on one thread.
 
@@ -6259,7 +6259,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      (`docs/decisions/0026-a-shared-loop.md` in https://github.com/c4milo/rotor) gives each operation a completion record, which the tick
      calls. Rotor's decision 27 adds `rotor.Task`, and rules that only the program ticks a shared
      loop. It answers [rotor#14](https://github.com/c4milo/rotor/issues/14). Rotor's b5a7804 adds
-     `release_buffers`, which takes a buffer group back
+     `release_buffers`, which takes a buffer group's buffers back
      ([rotor#13](https://github.com/c4milo/rotor/issues/13)). This decision amends decisions 96,
      150 (rulings 6 and 7) and 153 (rulings 8 and 9).
 
@@ -6284,18 +6284,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - A Loop type can come later as a third argument.
      2. The configuration follows the capacity.
         - With `.shared`, the configuration that `init` takes requires the field
-          `loop: struct { rotor: *rotor.Loop, buffer_group: u16 }`, with no default. The program
-          gives each Client and each Server on its loop a different `buffer_group`. Rotor halts
-          when two users provide one group.
+          `loop: struct { rotor: *rotor.SharedLoop, buffer_group: ?rotor.BufferGroup = null }`.
+          `rotor` has no default. The program gets it from `loop.shared()` (Rotor's decision 28).
+        - A program may pass a `buffer_group` that it reserved with `reserve_group`. When the
+          field is null, colibri calls `reserve_group` at `init`. A literal id fails to compile
+          (Rotor's decision 29).
+        - Each Client and each Server on a shared loop holds one of the loop's 16 group ids until
+          the loop's `deinit`. Past 16, `init` returns `error.GroupsFull`.
         - With `.private`, the configuration has no `loop` field. colibri makes the loop at `init`,
-          owns it and picks its own group.
+          owns it and reserves its own group.
         - The configuration of `.shared` is a private type. A program writes it as a literal, so
           it needs no new public name. `ClientConfig` and `ServerConfig` stay the configurations
           of `.private`.
         - The `server` module owns no I/O and knows no loop, so `server.Capacity` holds no loop
           kind. The kind is the second argument of `colibri.Server`.
      3. Only the program ticks a shared loop. colibri never calls `tick` on a loop that it does
-        not own (Rotor's decision 27). On a shared loop, colibri submits its operations and
+        not own (Rotor's decision 27). `rotor.SharedLoop` refuses `tick` at compile time (Rotor's
+        decision 28). On a shared loop, colibri submits its operations and
         returns. It does its work in its completion records, its poller and its Rotor task.
      4. `run` and `fetch` exist only for an object whose loop colibri owns. On a type whose
         `loop` is `.shared`, a call of `Client.run`, `Client.fetch` or `Server.run` is a
@@ -6308,11 +6313,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           `on_connected`.
         - `Server.init(config, router, context)` and `Server.run()` replace v0.14.0's
           `Server.init(config)` and `Server.run(router, context)`. `Client.run()` takes no handler.
-     6. `init` binds, provides the buffer group, arms the receives and the accept, and adds one
-        `rotor.Poller`. Each operation names a `rotor.Completion` in colibri's own struct. A
-        callback only records the result. The poller does the work of a turn: the deadlines, the
-        drain, the steps, the arms, the flush and the timer. It returns true only when work is
-        left, so an idle colibri never makes the loop spin.
+     6. `init` binds, reserves a buffer group when the configuration names none, provides the
+        group, arms the receives and the accept, and adds one `rotor.Poller`. Each operation names
+        a `rotor.Completion` in colibri's own struct. A callback only records the result. The
+        poller does the work of a turn: the deadlines, the drain, the steps, the arms and the
+        flush.
+        - The poller returns a `rotor.WaitLimit` (Rotor's decision 29). It returns `.now` only
+          when work is left, so an idle colibri never makes the loop spin.
+        - Otherwise it returns `.at` of colibri's next deadline, or `.none` when no deadline
+          exists.
         - The poller reads `loop.now_ns()`. A tick that waits reads the clock again after its
           wait and before the records (Rotor's decision 9 rule 4 as amended). The pollers see
           that reading, the last of the tick.
@@ -6321,21 +6330,34 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         a task that a record or a poller queues in the same tick, after the records. The task
         calls `on_finished` and `on_connected`. So the program's code never runs inside a poller,
         where Rotor refuses `add_poller` and `remove_poller`.
-     8. One one-shot timer with a record wakes colibri at its next deadline, at most
-        `stop_wait_ns_max` (50 ms) ahead. So a long wait in another library's tick does not delay
-        a deadline. A `shutdown` from another thread takes effect within 50 ms. This wake stays
-        for v0.15.0.
+     8. The poller's `WaitLimit` bounds the wait of each tick at colibri's next deadline. So a
+        long wait in another library's tick does not delay a deadline, and colibri arms no timer.
+        - A `shutdown` from another thread stores colibri's flag, and then `rotor.Message.wake`
+          goes to the loop. The tick then does not block, and the next poll reads the flag. So
+          the stop does not wait 50 ms. Design §8 step 44 holds the open question of which
+          call posts the wake.
+        - A `shutdown` from the handler stores the flag alone. Rotor does not block the tick
+          after a task while a poller is in its table.
+        - On a private loop, `run` and `fetch` still tick with a wait of `stop_wait_ns_max`
+          (50 ms). A wake needs a registry that holds the loop, and a `rotor.Remote` on the
+          thread that posts (Rotor's decision 4).
+        - colibri's private loop has no registry, and a `Remote` belongs to the thread that made
+          it. So on a private loop, the 50 ms bound is how a `shutdown` from another thread
+          takes effect.
      9. One thread runs a colibri object for its whole life: `init`, `run`, `fetch`,
         `set_destination`, `cancel` and `deinit` run on the loop's thread. `shutdown` is the one
         call another thread may make. colibri makes its private loop at `init`, not at `run`.
-     10. colibri counts its own operations and cancels only its own handles. It never calls
-         `cancel_all` on a shared loop.
+     10. colibri counts its own operations and cancels only its own handles. `rotor.SharedLoop`
+         refuses `cancel_all` at compile time (Rotor's decision 28), so colibri cannot call it on
+         a shared loop.
          - On a shared loop, `deinit` does not tick. It asserts `stopped()`. The program reaches
            `stopped()` when it calls `shutdown` and ticks the loop until `stopped()` returns true.
          - `stopped()` is true only when no operation and no task of colibri is in flight. So
            `release_buffers` is valid, because the group's last operation had its final event.
-         - `deinit` then removes the poller and gives the group back with `release_buffers`.
-           Rotor's `deinit` halts while a poller or a task is still queued, so the program calls
+         - `deinit` then removes the poller and takes the buffers back with `release_buffers`.
+           The group id stays reserved until the loop's `deinit`, because no Rotor call gives an
+           id back (Rotor's decision 29).
+         - Rotor's `deinit` halts while a poller or a task is still queued, so the program calls
            colibri's `deinit` before the loop's `deinit`.
          - On a private loop, `deinit` calls `shutdown` and ticks until `stopped()` when the program
            did not.
@@ -6355,10 +6377,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      14. The root re-exports the modules `client` and `server`. Each type declares
          `loop_operations`, so a program can size a shared loop. The examples name the variable
          `client`.
-     15. Rotor's main holds the code of decision 26 at d1657ce and of decision 27 at a03d95d. On
-         2026-11-06 Rotor had no tag for them, because the owner first makes Rotor's reactor
-         architecture stable. colibri pins Rotor's tag when the owner makes one, and v0.15.0
-         waits for it.
+     15. Rotor's main holds the code of decision 26 at d1657ce and of decision 27 at a03d95d.
+         The owner accepted Rotor's decisions 28 and 29 on 2026-11-06, at 1dfccaf. Rotor's
+         decision 29 rules that both land before Rotor's next tag, `v0.10.0`.
+         - colibri pins the Rotor tag that carries decisions 26 to 29, and v0.15.0 waits for it.
+         - On 2026-11-06 Rotor had no such tag, because the owner first makes Rotor's reactor
+           architecture stable.
 
      Amended by the owner on 2026-11-06, as Rotor's session first relayed it and the owner then
      confirmed it. The first text let any library tick the loop, and let colibri's `run`, `fetch`
@@ -6371,6 +6395,31 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      `loop` of `ClientCapacity` and of a new `colibri.ServerCapacity`, and kept `ClientOf` and
      `ServerOf`. Ruling 1 replaces that text: the kind is the second comptime argument of
      `Client` and `Server`. Rulings 1 and 2 drop `colibri.ServerCapacity`, which never shipped.
+
+     Amended a third time by the owner on 2026-11-06, after he accepted Rotor's decisions 28 and
+     29 (`docs/decisions/0028-correct-use-and-stalls.md` and
+     `docs/decisions/0029-what-libraries-ask-of-a-shared-loop.md`, Rotor's 1dfccaf). Decision 28
+     gives a library the view `*rotor.SharedLoop`, which refuses `tick`, `drain`, `deinit`,
+     `cancel_all` and `discard_tasks` at compile time. Decision 29 adds `rotor.WaitLimit`,
+     `rotor.Message.wake`, `rotor.BufferGroup` and `reserve_group`. The owner ruled three changes:
+     1. The `.shared` configuration's field becomes
+        `loop: struct { rotor: *rotor.SharedLoop, buffer_group: ?rotor.BufferGroup = null }`. A
+        program may pass a group that it reserved with `reserve_group`. When the field is null,
+        colibri calls `reserve_group` at `init`.
+     2. The one-shot timer of ruling 8 and its wake of 50 ms go. The poller returns `.at` of the
+        next deadline, `.now` when work is left, and `.none` when it is idle with no deadline. A
+        `shutdown` from another thread stores a flag and posts `rotor.Message.wake`.
+     3. Each colibri object on a shared loop holds one of the loop's 16 group ids until the loop's
+        `deinit`. Past 16, `init` returns `error.GroupsFull`. docs/usage.md states it once step 44
+        is built.
+
+     Rulings 2, 3, 6, 8, 10 and 15 above hold these changes. The text that they replace:
+     - Ruling 2 held a `*rotor.Loop` and a `buffer_group: u16` with no default.
+     - Ruling 6 had a poller that returns true when work is left.
+     - Ruling 8 armed a one-shot timer with a record, at most `stop_wait_ns_max` ahead.
+     - Ruling 10 gave the group back with `release_buffers`. Now the call takes the buffers back,
+       and the id stays reserved.
+     - Ruling 15 pinned Rotor's next tag. Now it names the tag that carries decisions 26 to 29.
 
      Alternatives that lost:
      - Tags in `user_data`, with `LoopIds` and `Host`, in the first draft of this decision. Each
@@ -6420,6 +6469,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `cancel_all` at the end on any loop. It cancels the operations of other libraries.
      - `payload`, `header_buffer` and a URL, as std names them. Decision 126 names the request
        body, and a pool serves one origin (RFC 9110 §4.3.1).
+     - colibri always reserves its group, with no `buffer_group` field, in the third amendment. A
+       program that reserves the ids of its libraries in an order of its own could then not give
+       colibri one of them.
+     - The program always passes `buffer_group`, in the third amendment. Each program then calls
+       `reserve_group` for colibri, though Rotor already gives out ids that cannot clash.
+     - The one-shot timer of ruling 8, capped at 50 ms, in the first text of ruling 8. Each
+       earlier deadline costs a cancel and a second timer, and a `shutdown` waits up to 50 ms. A
+       `WaitLimit` and a wake do both with no operation.
+     - A `shutdown` from another thread that waits for the 50 ms bound on a shared loop too. The
+       stop is then up to 50 ms late, and each idle tick ends at 50 ms.
 
      The alternative that won on the amendment:
      - The type names the owner of the loop. The first draft of this decision refused a flag
