@@ -161,7 +161,7 @@ pub const CryptoStream = struct {
     pub fn forget_acknowledged(stream: *CryptoStream, in_flight_from: u64) void {
         if (!stream.send_full()) return;
         const keep_from = @min(in_flight_from, stream.sent_len);
-        // A packet in flight carries no octet the window forgot, which is what `on_lost` needs.
+        // INV-34: a packet in flight carries no octet the window forgot, which `on_lost` needs.
         assert(keep_from >= stream.send_base);
         const forget: usize = @intCast(keep_from - stream.send_base);
         if (forget == 0) return;

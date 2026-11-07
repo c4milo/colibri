@@ -411,16 +411,14 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   acknowledgment of a packet already declared lost finds nothing to count. A probe carries new
   octets or a PING and never a stream range already in flight (RFC 9002 §6.2.4 permits either).
   CRYPTO octets are not stream octets and keep no acknowledged count: at the Initial and
-  Handshake levels the second probe repeats the first one's (decision 64 as amended). A CRYPTO
-  octet that a packet in flight carried stays in its level's send window, because the window
-  forgets only octets the peer acknowledged (design §8 step 33e).
+  Handshake levels the second probe repeats the first one's (decision 64 as amended). INV-34
+  covers them.
   [Decision 57](decisions.md#the-h2-connection) is why colibri resends exact ranges rather than
   rewinding a stream, which would put an octet in two packets at once.
 - **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count
   never passes the framed offset, and `acknowledged_end` (decision 78) asserts that its answer,
-  read off the packets in flight and the lost table, never passes that count.
-  `CryptoStream.forget_acknowledged` asserts that the lowest Offset in flight is at or above the
-  window's `send_base`. A simulator invariant that each stream's acknowledged count
+  read off the packets in flight and the lost table, never passes that count. A simulator
+  invariant that each stream's acknowledged count
   equals its final size at "Data Recvd" lands with the QUIC connection check (design §8 step 9e,
   piece 10). Step 9e.
 - **Violation.** A probe that resends octets still in flight, or a rewind to the lowest lost
@@ -443,6 +441,26 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   records out of order, and read each record's ranges back. Step 26.
 - **Violation.** A tail that moves past a record still held. A later packet then writes over that
   record's ranges, and its loss resends another stream's octets.
+
+### INV-34 — a CRYPTO octet in flight stays in its level's send window
+
+- **Claim.** Every CRYPTO octet that a packet in flight carries is in its level's send window,
+  at or above `send_base`. So `on_lost` can always frame a lost CRYPTO octet again, as RFC 9000
+  §13.3 requires "until all data has been acknowledged".
+- **Mechanism.** The window forgets octets only when it is full, and then only octets below two
+  bounds. The first is the lowest Offset of a CRYPTO frame in a packet still in flight at the
+  level, which `connection_crypto.write_crypto` reads from the sent table. The second is
+  `sent_len`. `on_lost` moves `sent_len` down to a lost packet's Offset, and each new packet's
+  Offset is at or above `sent_len`. So an octet below both bounds was last carried by a packet
+  the peer acknowledged.
+- **Check.** Runtime assertion: `CryptoStream.forget_acknowledged` asserts that the smaller of
+  the two bounds is at or above the old `send_base`. So no packet in flight holds an octet that
+  the window forgets. Tests in `src/quic/connection/connection_crypto_window_test.zig` lose
+  packets of a flight longer than the window, by a PTO and by the packet threshold, and require
+  each resend to carry the flight's own octets. A packet below `send_base` closes the connection
+  with `CryptoForgotten`, which peer input cannot reach while this invariant holds. Step 33e.
+- **Violation.** A window that forgets every octet it framed when it is full. A PTO before the
+  peer's first ACK then declares lost a packet whose octets are gone, and the handshake fails.
 
 ## What the caller supplies
 

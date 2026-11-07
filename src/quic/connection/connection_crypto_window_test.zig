@@ -220,3 +220,27 @@ test "RFC 9000 §13.3: an acknowledgment frees the window, and the rest of the f
     try testing.expectEqual(long_flight_len, stream.sent_len);
     try testing.expectEqual(0, stream.unsent().len);
 }
+
+test "RFC 9000 §13.3: a resend of a lost packet keeps its octets while older packets are in flight" {
+    open_server();
+    var flight: Flight = .{};
+    const first = try send_until_held(&flight);
+    // RFC 9002 §6.1.1: an ACK of packets 4 to 6 declares packets 0 to 3 lost. Packets 7 and up
+    // stay in flight, and each has a lower number and a higher Offset than any resend.
+    try testing.expect(first.packets > 7);
+    try take_ack(4, 6);
+    const stream = connection_module.crypto_at(&endpoint, .handshake);
+    try testing.expectEqual(0, stream.sent_len);
+    // The resends fill the window again from offset 0. The resend at offset 0 is in flight, so
+    // the window keeps its octets.
+    const resent = try send_until_held(&flight);
+    try testing.expect(resent.packets > 0);
+    try testing.expectEqual(0, stream.send_base);
+    // An ACK of the last resend alone declares the resend at offset 0 lost, so the next frame
+    // carries the flight from its first octet again.
+    const last = first.packets + resent.packets - 1;
+    try take_ack(last, last);
+    const again = try connection_crypto.write_crypto(&endpoint, flight.provider(), .handshake, &output);
+    try testing.expectEqual(0, again.offset);
+    try expect_flight_octets(output[0..again.len]);
+}
