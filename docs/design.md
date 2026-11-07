@@ -6692,6 +6692,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Check met, 2026-11-05,** on macOS 26 on arm64: `tools/ci.sh` passed on the tree of this
     commit. The rename adds no check, so it needs no mutation.
 
+  **chapulin 0.4.1, 2026-11-07.** The pin moves from `v0.3.0` (`4da5b220`) to `v0.4.1`
+  (`22a70c13`). chapulin 0.4.0 moved its C headers to `include/chapulin/`, and 0.4.1 carries the
+  same library from a commit whose CI passed.
+  - colibri takes chapulin through its Zig module alone, and that module did not change. So the
+    bump changes no code.
+  - No session size changes: `zig build test` passed, and it fails when docs/performance.md's
+    table differs.
+  - **Check met, 2026-11-07,** on macOS 26 on arm64: `tools/ci.sh` passed on the tree of this
+    commit. The bump adds no check, so it needs no mutation.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27
