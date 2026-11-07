@@ -105,7 +105,7 @@ test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts i
     // Decision 68: the server's loop reads each codepoint, so its engine says so, whatever the
     // program's configuration says.
     try testing.expect(test_server.engine_config.ecn);
-    try test_server.engine.init(&test_server.engine_config, test_server.config.random.?, 0, 0);
+    try test_server.engine.init(&test_server.engine_config, test_server.config.random.?, .{ .ns = 0, .unix_seconds = 0 });
     test_server.entry_of = @splat(null);
     test_server.entries = @splat(.{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false });
     test_server.pending = .initEmpty();

@@ -57,6 +57,8 @@ fn start_resuming_engine(held: ?quic.ResumeState) !void {
     try support.start_engine(null);
     test_resumes = .{ .held = held, .taken = 0, .put = 0, .dropped = 0, .peer = .{}, .observed = null };
     engine_support.engine_config.resumes = .{ .context = &test_resumes, .vtable = &test_vtable };
+    // The engine copies its configuration at `init` (decision 158 ruling 2).
+    try engine_support.restart();
 }
 
 /// One request answered, then the connection shut down and over.

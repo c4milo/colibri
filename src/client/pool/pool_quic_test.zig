@@ -369,3 +369,15 @@ test "decision 120: start_quic draws the grease value and the two IDs, anew for 
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.response, second.response.result);
 }
+
+test "decision 158 ruling 2: the pool serves as the Config of init said, after the program changes it" {
+    try start_tcp_first(1);
+    // The program changes its own `Config` once `init` returned: QUIC first. The pool reads its
+    // copy, so TCP still opens first.
+    fixture.config.protocols.prefer = .quic;
+    var exchange = get(&bodies[0]);
+    _ = try pool.request(&exchange.request, &exchange.response);
+    try collect();
+    try testing.expectEqual(Transport.tcp, opened(0).?.transport);
+    try testing.expectEqual(null, opened(1));
+}

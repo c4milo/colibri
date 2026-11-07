@@ -149,7 +149,7 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     }
     storage.tls_random = Random.init(content_seed);
     const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.endpoint.init(&storage.endpoint_config, source, 0, now_ns);
+    try storage.endpoint.init(&storage.endpoint_config, source, .{ .ns = now_ns, .unix_seconds = 0 });
     // A new endpoint has its one slot free.
     storage.accepted = storage.endpoint.accept(.{ .tls = false }, now_ns) orelse return error.ExchangeRefused;
     const octets: [ipv4_len]u8 = @splat(address_octet);

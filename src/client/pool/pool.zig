@@ -28,8 +28,8 @@
 //! configuration of each transport the pool offers, with the ALPN list `versions` gives
 //! (decision 120). A caller that offers h3 also places the receive pool each QUIC connection holds
 //! the server's octets in, one at a time (decision 61), and sizes it to the longest response it
-//! expects: `ReceivePool(capacity)`. The pool stays in place after `init`: the TLS
-//! configurations it built point into it.
+//! expects: `ReceivePool(.{ .capacity = capacity })`. The pool copies the configuration, and stays
+//! in place after `init`: the TLS configurations it built point into its copy.
 //!
 //! A pool's functions are the calls a program makes, and `phase`, which the simulator's trace
 //! reads. Their bodies are in `pool_calls.zig`, and the steps the pool takes on its own are
@@ -217,7 +217,9 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         const Self = @This();
         /// The capacity, which `pool_calls.zig` and `pool_events.zig` read at build time.
         comptime capacity: Capacity = capacity,
-        config: *const Config,
+        /// The copy of the program's `Config` that `init` took, which the pool reads while it runs
+        /// (decision 158 ruling 2).
+        config: Config,
         values: Destination,
         /// The transports the configuration offers (decision 120): TCP while `versions` allows
         /// h11 or h2, and QUIC for h3 over TLS with a receive pool given.
@@ -296,7 +298,9 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         /// on a pool with no QUIC, and the other errors that the TLS value names more than a TLS
         /// configuration holds. A program may call `init` again on a pool with no open transport
         /// and no exchange, for example with new addresses. The ids then count from 1 again, and
-        /// the handles count again too, so the program keeps no id and no handle from before.
+        /// the handles count again too, so the program keeps no id and no handle from before. The
+        /// pool copies `config`, so the program may change or free its own `Config` once `init`
+        /// returns. The pools, the anchors and the providers `config` names stay the program's.
         pub fn init(pool: *Self, memory: []align(memory_alignment) u8, config: *const Config, destination: Destination, receive_pool: ?ReceiveStorage) StartError!void {
             return pool_calls.init(pool, memory, config, destination, receive_pool);
         }

@@ -138,7 +138,7 @@ pub const World = struct {
         world.server_random = Random.init(seed);
         world.peer_random = Random.init(~seed);
         world.now_ns = limits.start_ns;
-        world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.server_random, fill), identity.now_seconds, world.now_ns) catch return error.ServerRefused;
+        world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.server_random, fill), .{ .ns = world.now_ns, .unix_seconds = identity.now_seconds }) catch return error.ServerRefused;
         world.served = null;
         world.handle = null;
         world.peer_plan = honest_plan();

@@ -179,7 +179,7 @@ pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.endpoint_config = .{ .protocols = versions, .timeouts = plan.deadlines };
     storage.tls_random = Random.init(seed);
     const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.endpoint.init(&storage.endpoint_config, source, 0, ns_of(plan, 0));
+    try storage.endpoint.init(&storage.endpoint_config, source, .{ .ns = ns_of(plan, 0), .unix_seconds = 0 });
     // A new endpoint has its one slot free.
     storage.accepted = storage.endpoint.accept(.{ .tls = false }, ns_of(plan, 0)) orelse return error.ExchangeRefused;
     storage.closed = false;

@@ -159,7 +159,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             server_loop.reset(self);
             // The server issues no ticket unless the program gave a ticket key, so the instant in
             // seconds it judges tickets at is chapulin's 0 for none.
-            try self.engine.init(&self.engine_config, self.config.random.?, 0, self.now_ns);
+            try self.engine.init(&self.engine_config, self.config.random.?, .{ .ns = self.now_ns, .unix_seconds = 0 });
             if (self.udp.open) try self.udp.start(&self.loop);
             const Run = struct { server: *Self, router: @TypeOf(router), context: @TypeOf(context) };
             var running: Run = .{ .server = self, .router = router, .context = context };

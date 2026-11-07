@@ -24,7 +24,8 @@ const engine_connections = @import("engine_connections.zig");
 
 const StartError = connection_errors.StartError;
 
-/// The engine reads it while it runs, so the caller keeps it alive and in place after `init`.
+/// The engine copies it at `init`, so the program may change or free it once `init` returns
+/// (decision 158 ruling 2). The pools, the identity and the providers it names stay the program's.
 pub const Config = struct {
     /// The server's certificate chain and key, given once (RFC 9846 §4.5.1, §4.5.2). Its `alpn`
     /// stays empty: the engine names the protocol `versions` allows, "h3" over QUIC (RFC 9114
@@ -261,7 +262,7 @@ threadlocal var tcp_only_config: Config align(@alignOf(Config)) = undefined;
 
 fn start_tcp_only(identity: ?tls.Server, deadlines: deadline.Timeouts) StartError!void {
     tcp_only_config = .{ .tls = identity, .protocols = .{ .h2 = false }, .timeouts = deadlines };
-    return tcp_only.init(&tcp_only_config, tcp_support.stream.random(), 0, tcp_support.now_ns);
+    return tcp_only.init(&tcp_only_config, tcp_support.stream.random(), .{ .ns = tcp_support.now_ns, .unix_seconds = 0 });
 }
 
 test "decision 110 as amended: units are judged only where a body may arrive in them" {

@@ -122,7 +122,7 @@ pub fn SessionOf(comptime connections_max: usize) type {
             session.pending = Pending.initEmpty();
             session.undrained = false;
             session.now_ns = now_ns;
-            try session.endpoint.init(config, random, 0, now_ns);
+            try session.endpoint.init(config, random, .{ .ns = now_ns, .unix_seconds = 0 });
         }
 
         /// Starts the connection of a socket the listener accepted at `now_ns`, in the free entry

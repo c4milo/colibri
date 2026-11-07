@@ -34,8 +34,11 @@ const Link = pool_module.Link;
 const Phase = pool_module.Phase;
 const ConnectionHandle = pool_module.ConnectionHandle;
 
-pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Destination, receive_pool: ?ReceiveStorage) StartError!void {
+pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, given: *const Config, values: Destination, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
+    // Decision 158 ruling 2: the pool reads its own copy, and never the program's `Config`.
+    pool.config = given.*;
+    const config = &pool.config;
     const counts: pool_module.ConnectionPool(.{}).Counts = .{ .tcp_connections = config.tcp_connections, .requests = config.requests };
     // Decision 125 ruling 2: memory of another length than the counts need is a programmer
     // error.
@@ -50,7 +53,6 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     assert(!offered.quic or receive_pool != null);
     pool.offered = offered;
     if (pool.capacity.quic) pool.receive_pool = receive_pool;
-    pool.config = config;
     pool.values = values;
     pool.counts = counts;
     pool.tcp = std.mem.bytesAsSlice(connection_module.Connection, memory[0..layout.tcp_len]);

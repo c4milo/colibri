@@ -88,7 +88,7 @@ pub fn start(with: ?tls.Server, versions: protocols_module.Protocols) !void {
     flushing = true;
     client_saw_alert = false;
     instant_ns = now_ns;
-    try engine.init(&config, support.stream.random(), support.now_seconds, now_ns);
+    try engine.init(&config, support.stream.random(), .{ .ns = now_ns, .unix_seconds = support.now_seconds });
 }
 
 /// Passes `octets` as what the socket of `handle` read, again until the engine consumed them or

@@ -168,7 +168,7 @@ test "decision 119: a TCP connection borrows the engine's h11 decoders, its Alt-
     try support.start(support.identity(), .{});
     support.config.decoded = &decoded_storage;
     support.config.h3_alternative = .{ .port = 443 };
-    try support.engine.init(&support.config, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns);
+    try support.engine.init(&support.config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = tcp_support.now_seconds });
     for ([_]*const @TypeOf(engine.tcp_configs.cleartext){ &engine.tcp_configs.cleartext, &engine.tcp_configs.secure }) |borrowed| {
         try testing.expectEqual(decoded_storage.len, borrowed.decoded.len);
         try testing.expectEqual(443, borrowed.h3_alternative.?.port);
@@ -314,7 +314,7 @@ test "decision 110 as amended: retry_from_percent is a share of the QUIC slots a
     retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
     support.config.retry = &retry;
     support.config.retry_from_percent = 50;
-    try engine.init(&support.config, tcp_support.stream.random(), tcp_support.now_seconds, support.now_ns);
+    try engine.init(&support.config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = tcp_support.now_seconds });
     for (0..support.tcp_slots) |_| _ = engine.accept(.{ .tls = false }, support.now_ns).?;
     // Both TCP slots hold a connection and the one QUIC slot holds none, so no Retry is owed,
     // and the Initial takes the QUIC slot.
@@ -322,4 +322,23 @@ test "decision 110 as amended: retry_from_percent is a share of the QUIC slots a
     // One QUIC slot of one holds a connection, which reaches 50 percent of the QUIC slots and not
     // of all three.
     try testing.expect(try answers_with_retry(&other_id));
+}
+
+/// The span of the first-request deadline that `init` takes, and the one the program writes into
+/// its own `Config` after `init`. Test-only.
+const first_request_at_init_ns: u64 = server_constants.policy.head_timeout_ns;
+const first_request_after_ns: u64 = server_constants.policy.idle_timeout_ns;
+
+test "decision 158 ruling 2: the engine serves as the Config of init said, after the program changes it" {
+    try support.start(null, .{});
+    support.config.timeouts.first_request_ns = first_request_at_init_ns;
+    try engine.init(&support.config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = 0 });
+    // The program changes its own `Config` once `init` returned: other deadlines, and no
+    // protocol at all. The engine reads its copy.
+    support.config.timeouts.first_request_ns = first_request_after_ns;
+    support.config.protocols = .{ .h11 = false, .h2 = false, .h3 = false };
+    const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
+    try testing.expectEqual(@as(?u64, support.now_ns + first_request_at_init_ns), engine.deadline_ns());
+    _ = support.give(handle, get_h11);
+    try testing.expectEqual(support.Kind.request, support.seen[0].kind);
 }

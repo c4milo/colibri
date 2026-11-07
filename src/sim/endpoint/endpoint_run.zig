@@ -122,7 +122,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.server_random = Random.init(seed ^ limits.server_salt);
     storage.program_random = Random.init(seed ^ limits.program_salt);
     const source = tls.Random.init(&storage.server_random, tcp_module.fill);
-    storage.endpoint.init(&storage.endpoint_config, source, identity.now_seconds, route_module.ns_of(plan, 0)) catch return error.ServerRefused;
+    storage.endpoint.init(&storage.endpoint_config, source, .{ .ns = route_module.ns_of(plan, 0), .unix_seconds = identity.now_seconds }) catch return error.ServerRefused;
     storage.ledger.init();
     storage.program.init(&storage.endpoint, &storage.ledger);
     storage.tcp.init(seed);

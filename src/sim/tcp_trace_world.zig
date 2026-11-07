@@ -132,7 +132,7 @@ pub const World = struct {
         // Every handshake judges the chain at the identity's instant, so no run reads a clock. The
         // server's connection starts here, and the client's at the first request, which every plan
         // makes before any other action, so each draws what it drew before.
-        try world.endpoint.init(&world.endpoint_config, source, identity.now_seconds, world.now_ns);
+        try world.endpoint.init(&world.endpoint_config, source, .{ .ns = world.now_ns, .unix_seconds = identity.now_seconds });
         world.accepted = world.endpoint.accept(.{ .tls = over_tls }, world.now_ns) orelse return error.StartRefused;
         const octets: [limits.ipv4_len]u8 = @splat(limits.address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};

@@ -59,6 +59,14 @@ pub const Capacity = struct {
     receive_pool_len: usize = quic.constants.limits.receive_pool_len_default,
 };
 
+/// An instant as the program reads its clocks: the nanoseconds of its monotonic clock, and the Unix
+/// time in seconds at that instant, or 0 for none (decision 158 ruling 2). One value holds both, so
+/// the compiler refuses the two in the wrong order.
+pub const Instant = struct {
+    ns: u64,
+    unix_seconds: u64,
+};
+
 /// An engine that holds the connections `capacity` names: the server side of every connection one
 /// thread serves, over TCP and over QUIC. A program with several threads places one for each, and
 /// `Engine(.{})` holds the default capacity.
@@ -70,6 +78,9 @@ pub fn Engine(comptime capacity: Capacity) type {
         const Pool = quic.ReceivePool(.{ .capacity = capacity.receive_pool_len });
 
         state: engine_state.State,
+        /// The copy of the program's `Config` that `init` took. The engine reads this copy while it
+        /// runs, and never the program's `Config` (decision 158 ruling 2).
+        config: Config,
         /// The TLS configuration of each transport, and what each connection borrows, which
         /// `init` builds from `Config`.
         quic_tls: tls.quic.ServerConfig,
@@ -106,18 +117,21 @@ pub fn Engine(comptime capacity: Capacity) type {
         pub const Accepted = engine_state.Accepted;
 
         /// Prepares an engine that holds no connection. Every value it draws comes from
-        /// `random`. `now_seconds` is the Unix time at `now_ns`, which the server's tickets are
-        /// issued at, or 0 for none. It builds the TLS configuration of each transport it serves
+        /// `random`. `now.unix_seconds` is the Unix time at `now.ns`, which the server's tickets
+        /// are issued at, or 0 for none. It builds the TLS configuration of each transport it serves
         /// from `config.tls` and checks that its key signs. `error.NoVersion` says no slot it
         /// holds serves a version `versions` allows: its TCP slots no h11 or h2, and its QUIC
         /// slots no h3 or no identity. `error.TimeoutInvalid` says that
         /// `config.deadlines` holds a limit `Timeouts.validate` or `validate_units` refuses
         /// (decision 110 as amended). `error.IdentityRefused`, `TooManyCertificates`,
         /// `TooManySuites` and `SuitesUnavailable` say the TLS configuration refused the
-        /// identity. The engine reads `config` while it runs.
-        pub fn init(engine: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
+        /// identity. The engine copies `config`, so the program may change or free its own
+        /// `Config` once `init` returns. The pools, the identity and the providers `config`
+        /// names stay the program's, and live as long as the engine.
+        pub fn init(engine: *Self, config: *const Config, random: tls.Random, now: Instant) StartError!void {
+            engine.config = config.*;
             const counts: engine_config.Counts = .{ .tcp = capacity.tcp_connections, .quic = capacity.quic_connections };
-            const served = try engine_config.build(config, counts, .{
+            const served = try engine_config.build(&engine.config, counts, .{
                 .quic_tls = &engine.quic_tls,
                 .quic = &engine.quic_config,
                 .tcp_tls = &engine.tcp_tls,
@@ -126,7 +140,7 @@ pub fn Engine(comptime capacity: Capacity) type {
             for (&engine.pools, &engine.storages) |*pool, *storage| storage.* = pool.storage();
             for (&engine.quic_tables) |*table| table.init();
             const built: engine_state.Built = .{ .quic = &engine.quic_config, .tcp = &engine.tcp_configs, .served = served };
-            engine.state.init(config, built, .{
+            engine.state.init(&engine.config, built, .{
                 .tcp = &engine.tcp,
                 .tcp_tables = &engine.tcp_tables,
                 .transports = &engine.transports,
@@ -151,7 +165,7 @@ pub fn Engine(comptime capacity: Capacity) type {
                 .order = &engine.order,
                 .stale_numbers = &engine.stale_numbers,
                 .stale_queued = &engine.stale_queued,
-            }, random, now_seconds, now_ns);
+            }, random, now.unix_seconds, now.ns);
         }
 
         /// Starts a connection on a TCP socket the program accepted, over TLS by default, `.{}`,

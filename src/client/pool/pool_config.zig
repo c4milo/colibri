@@ -17,8 +17,8 @@ const connection_module = @import("../connection/connection.zig");
 const quic_module = @import("quic");
 const quic_connection = @import("../quic/quic_connection.zig");
 
-/// What every pool to one origin borrows. The caller keeps it alive and in place while any
-/// pool holds it.
+/// What a pool to one origin starts from. Each pool copies it at `init` (decision 158 ruling 2),
+/// so the program may change or free it once `init` returns.
 pub const Config = struct {
     /// How the client judges the server, given once for TCP and QUIC, or null for cleartext. Its
     /// `alpn` stays empty: the pool names the protocols `versions` allows (decision 117).

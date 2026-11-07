@@ -116,7 +116,7 @@ pub const World = struct {
             .tcp_connections = @intCast(world.plan.slots),
             .requests = @intCast(world.plan.requests),
         };
-        try world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.random, fill), 0, now_ns);
+        try world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.random, fill), .{ .ns = now_ns, .unix_seconds = 0 });
         const octets: [ipv4_len]u8 = @splat(address_octet);
         world.addresses = .{client.Address.of(&octets, 0)};
         // Decision 125 ruling 2: the pool takes the memory its counts need, and no more.

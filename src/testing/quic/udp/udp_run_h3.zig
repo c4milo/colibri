@@ -96,7 +96,7 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
         .retry = if (asked.retry) udp_identity.retry_config() else null,
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
     };
-    endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns) catch |failure| fail("the endpoint did not start: {t}", .{failure});
+    endpoint.init(&endpoint_config, entropy.random(), .{ .ns = started_ns, .unix_seconds = asked.now_seconds }) catch |failure| fail("the endpoint did not start: {t}", .{failure});
     for (&files) |*held| held.init(asked.www, &mapped);
     if (asked.routes) route_pool = .{};
     batches = .of(asked.segments);

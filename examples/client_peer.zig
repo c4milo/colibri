@@ -90,7 +90,7 @@ pub fn init(stream: *Link, cpu: tls.Cpu) !void {
             .cpu = cpu,
         },
     };
-    try engine.init(&config, program.random(), now_seconds, link.now_ns(.server));
+    try engine.init(&config, program.random(), .{ .ns = link.now_ns(.server), .unix_seconds = now_seconds });
 }
 
 /// The listener accepts the socket the client connected.
