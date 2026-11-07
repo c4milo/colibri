@@ -6642,12 +6642,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 158. **colibri's public API follows TigerStyle first, and Zig 0.16's std where TigerStyle says
      nothing.** Ruled by the owner on 2026-11-07 (design §8 step 45), for v0.15.0. An audit
      compared each public name of colibri with the idioms of Zig 0.16's std. It found 12
-     patterns. A second pass checked 14 more findings: 6 were real, and they join patterns 5, 6,
+     patterns. A second pass checked 14 more findings: 7 were real, and they join patterns 5, 6,
      9 and 10, or make a new pattern 13. The owner ruled that patterns 1 to 13 go into v0.15.0,
      with the audit's recommendations, as TigerStyle adjusts them. For pattern 1, TigerStyle keeps
      the `*const Config` (ruling 2).
-     This decision amends decisions 61, 93, 98, 101, 115, 117, 119, 120, 122, 124, 126, 127,
-     150, 153 (ruling 7) and 156 (ruling 1).
+     This decision amends decisions 35, 60, 61, 93, 98, 101, 115, 117, 119, 120, 122, 124, 125,
+     126, 127, 150, 153 (ruling 7) and 156 (ruling 1).
 
      The rulings:
      1. TigerStyle (CLAUDE.md non-negotiable 4) comes first. Where TigerStyle says nothing, a
@@ -6715,6 +6715,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - A file's namespace stays when it holds names that belong to no one type, such as
           `http.field.validate_name`.
         - `tls.record` exports `Error`, `Progress` and `ConfigError`, which its sessions return.
+        - `quic.Connection.Options` and `quic.Connection.IdentityOptions` name what
+          `quic.Connection.init` takes. Today they are file declarations that no path names.
         - `colibri.Client.InitError` and `Client.RunError` come from decision 156 and step 44.
           The run error of a client holds no error of the server.
      7. Each type and each call has one public path (pattern 6).
@@ -6728,7 +6730,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           `tls_provider.provider.Content`, `tls_provider.quic_provider.VTable` and
           `hpack.encoder.Indexing`. Decision 115's root order puts each type under its own name.
         - `tls_provider.Provider.is_complete` goes, and the method `handshake_complete` of
-          ruling 14 stays.
+          ruling 14 stays. The two change in one commit, so no caller writes a raw vtable call.
      8. A public path follows the concept, not the file (pattern 7). This amends decision 115.
         - A type may hold a declaration alias of a function in another file of its module:
           `pub const send = @import("connection_send.zig").send;`. A program then calls
@@ -6736,8 +6738,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - Such an alias is a call that a program makes. It is not a method made public so that
           another file can call it. A call that only the module's own files make stays a free
           function, as decision 115 rules. The root does not export its file.
-        - No public name repeats itself: `quic.StreamId` replaces `quic.stream.StreamId`, and
-          `quic.frame.ConnectionClose` replaces `quic.frame.frame_control.ConnectionClose`.
+        - No public name repeats itself. `quic.Stream`, `quic.StreamId`,
+          `quic.StreamProvider` and `quic.Frame` replace `quic.stream.Stream`,
+          `quic.stream.StreamId`, `quic.stream.StreamProvider` and `quic.frame.Frame`.
+          `quic.Stream` is the stream that a connection holds. `quic.frame.Stream` stays the
+          STREAM frame (RFC 9000 §19.8).
+        - `quic.Close` is the one path of the CONNECTION_CLOSE frame (RFC 9000 §19.19), with
+          `Close.transport` as its declaration. `quic.frame.frame_control.ConnectionClose`
+          goes, and `frame` holds no copy of it (ruling 7).
         - The 41 calls that a program makes on a `quic.Connection` become declarations of
           `quic.Connection`. A name that two files share takes its concept: `idle_deadline_ns`,
           `open_stream` and `owe_close`. `quic.connection_send.Ecn` becomes `quic.Ecn`.
@@ -6770,9 +6778,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - `h11.Connection.init(role, options)` and `h2.Connection.init(role)` take
            `h11.Connection.Options` and `h2.Connection.Options`. h3's form does not change.
          - A pool that a program places has `init(pool: *Pool, features)`, as std initializes
-           large state in place. `reset` leaves the program's calls of `h11.coding.Pool`,
-           `client.ZstdDecoderPool`, `client.BrotliDecoderPool` and `server.EncoderPool`, and
-           `storage()` stays. This amends decision 98.
+           large state in place. This amends decision 98.
+         - `reset` leaves the program's calls of the storage types `h11.coding.Storage`
+           (`server.Decoders` and `client.Decoders`), `client.ZstdDecoders` and
+           `client.BrotliDecoders`. Their pools gain `init`, and `storage()` stays.
+         - `server.EncoderPool.reset` becomes `server.EncoderPool.init`, and `encoders()` stays.
          - The QUIC `ReceiveStorage.reset` stays. `quic.Connection.init` calls it, and it resets
            the pool at the start of each connection, as `std.heap.FixedBufferAllocator.reset`
            does.
@@ -6809,12 +6819,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          writes `Endpoint(capacity)` until he rules, and a rename then touches one commit.
 
      What the amended decisions now say:
+     - Decisions 35 and 125: the comptime count of a server is `server.Endpoint(capacity)`, not
+       `server.EndpointOf(capacity)`.
+     - Decision 60: a program calls `quic.Connection.receive`, and
+       `quic.Connection.receive_error_code` names the code of its error.
      - Decision 61: the program places a `quic.ReceivePool(options)`, not a
        `stream_incoming.Pool(capacity)`.
      - Decisions 93 and 115: h2's outgoing request is `h2.Connection.RequestHead`. Ruling 8 holds
        the amendment of decision 115.
-     - Decisions 98 and 101: a program calls `pool.init(features)` once, then `pool.storage()`.
-       `DecoderPool` takes a `DecoderPoolOptions`.
+     - Decisions 98 and 101: a program calls `pool.init(features)` once, then `pool.storage()`,
+       or `pool.encoders()` for a `server.EncoderPool`. `DecoderPool` takes a
+       `DecoderPoolOptions`.
      - Decisions 117 (ruling 6), 122, 127 and 150: the router is `server.Router`, and
        `colibri.Server` takes a router that `server.Router` made.
      - Decisions 119 and 120: the endpoint and the pool copy what they keep of `Config`, and do
@@ -6857,7 +6872,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - A struct parameter with no public name for each pool. Ruling 6 gives each type in a
        public signature a name.
      - The router as a zero-size value with a type behind `Of`. A program writes `@TypeOf` to
-       reach the type that it places.
+       get the type that it places.
      - `http.Status` as a struct around a `u16` beside the enum `http.status.Code`. A program
        learns two types, and `.status = 404` compares with neither.
      - `take_int(T, .big)` with the byte order as an argument, as std writes it. colibri reads

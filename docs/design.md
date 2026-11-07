@@ -14177,19 +14177,30 @@ library.
         `decoder_stream` and `instruction`.
     - `quic` (patterns 2, 5, 7 and 11).
       - `Connection` adds one declaration for each call a program makes. The table below maps
-        each one. Its list then holds `init`, `addressed_by` and each name in the right column.
+        each one. `Connection` also adds `Options` and `IdentityOptions`, the file
+        declarations that `init` takes today and that no path names (pattern 5). Its list then
+        holds `Options`, `IdentityOptions`, `init`, `addressed_by` and each name in the right
+        column.
       - Adds to the root: `Ecn` (was `connection_send.Ecn`), `Close`, `Stream`, `StreamId`,
         `StreamProvider`, `Frame`, `ReceivePool`, `ReceivePoolOptions`, `ReceiveStorage`, and
         the namespaces `version` and `retry`.
+        - `Stream`, `StreamId` and `StreamProvider` move from `stream`, and `Frame` from
+          `frame`. Each old path goes, so each type has one path (ruling 7).
+        - `Stream` is the stream that a connection holds, which was `stream.Stream`.
+          `frame.Stream` stays the STREAM frame (RFC 9000 §19.8).
+        - `Close` is the one path of the CONNECTION_CLOSE frame (RFC 9000 §19.19), and
+          `Close.transport` is its declaration. `frame` holds no copy of it.
       - Renames, with no name that repeats itself: `stream.stream_provider.VTable` to
         `StreamProvider.VTable`; `stream.stream_incoming.block_len` to
         `stream.receive_block_len`; `frame.frame_ack.Range` to `frame.AckRange`;
-        `frame.frame_control.ConnectionClose` and `NewConnectionId` to
-        `frame.ConnectionClose` and `frame.NewConnectionId`; `packet.packet_number` to
-        `packet.number`; `transport_parameters_read.read` to `transport_parameters.read`.
+        `frame.frame_control.NewConnectionId` to `frame.NewConnectionId`;
+        `packet.packet_number` to `packet.number`; `transport_parameters_read.read` to
+        `transport_parameters.read`.
       - Removes: the 17 namespaces from `connection_datagram` to `connection_qlog`,
+        `stream.Stream`, `stream.StreamId`, `stream.StreamProvider`, `frame.Frame`,
         `stream.stream_incoming` with `DefaultPool`, `stream.stream_table`,
-        `frame.frame_ack`, `frame.frame_control` and `transport_parameters_read`.
+        `frame.frame_ack`, `frame.frame_control` with `ConnectionClose`, and
+        `transport_parameters_read`.
       - Stays: the names that only the simulator, the corpus and the test endpoints call, in
         `connection`, `connection_receive`, `connection_recovery`, `connection_frames`,
         `connection_keys`, `connection_stream_frames`, `connection_stream_recovery`,
@@ -14247,7 +14258,9 @@ library.
       - `Router(Context, table, options)` replaces `router`. Its type's list: `Route`, `Match`,
         `match`, `memory_bytes` and `handle`.
       - `EncoderPool(options)` and `DecoderPool(options)` replace `DefaultEncoderPool` and
-        `DefaultDecoderPool`, and each pool adds `init(pool, features)`.
+        `DefaultDecoderPool`. `EncoderPool.reset` becomes `EncoderPool.init`, and `encoders()`
+        stays. `DecoderPool` adds `init(pool, features)`, and `Decoders.reset` leaves the
+        program's calls.
       - `ResponseWriter` adds `Error`. `Response.status` and `ResponseWriter.status` take
         `Status`.
       - The root's list: `constants`, `Config`, `Protocols`, `Limits`, `Timeout`, `Timeouts`,
@@ -14265,7 +14278,8 @@ library.
       - `ReceivePool(options)` and `DecoderPool(options)` replace `DefaultReceivePool` and
         `DefaultDecoderPool`. `ZstdDecoderPool(count)` and `BrotliDecoderPool(count)` keep
         their count. `DecoderPool`, `ZstdDecoderPool` and `BrotliDecoderPool` add
-        `init(pool, features)`.
+        `init(pool, features)`. `Decoders.reset`, `ZstdDecoders.reset` and
+        `BrotliDecoders.reset` leave the program's calls, and `storage()` stays.
       - `Headers` and `Trailers` add `Iterator`. `Event` adds `Piece`.
       - `RequestId` becomes `enum(u64) { _ }`. `Response.status` takes `Status`, with no
         default. `Request.never_indexed.headers` holds `[]const Header`.
@@ -14287,8 +14301,11 @@ library.
        - Mutations: `take_int_big` reads little-endian (the wire vectors catch it);
          `read_int` put back (the names test).
     3. 45c `refactor!`: pattern 6, in http, h2, crypto, tls_provider and hpack.
-       - Mutations: each removed name put back in its root, six times; `FieldSection.clear`
-         put back (the type's names test).
+       `Provider.is_complete` stays until 45m, which adds `handshake_complete` in its place.
+       - Mutations: each removed name put back, nine times: the six namespace copies,
+         `h2.connection.Event`, `h2.connection_tls.attach` and the old name `Request_` (the
+         names test of the root or of the type); `FieldSection.clear` put back (the type's
+         names test).
     4. 45d `refactor!`: the types of pattern 5 as declarations, in hpack, qpack, tls,
        server and client, and the `client.Event.Piece`, `ConnectionPool.Counts` and
        `Headers.Iterator` that a program could not name.
@@ -14299,11 +14316,11 @@ library.
        namespaces of h11, h2 and h3 fold into each `Connection`. `http.uri` and
        `QueryParameters` take the names of `uri_percent` and `uri_query`. `h11.coding`'s
        functions become declarations of `Decoding`. CLAUDE.md "The public API is written first"
-       gains decision 158's rule on a declaration alias, and its example of
-       `server.router` becomes `server.Router`.
+       gains decision 158's rule on a declaration alias.
        - Mutation: a declaration alias left out of a `Connection` (the type's names test).
-    6. 45f `refactor(quic)!`: pattern 7 and pattern 11 in quic, by the table above. h3,
-       `server`, `client`, the simulator, the corpus and `src/testing/` move to the new names.
+    6. 45f `refactor(quic)!`: pattern 7 and pattern 11 in quic, by the table above, and
+       `Connection.Options` and `Connection.IdentityOptions` of pattern 5. h3, `server`,
+       `client`, the simulator, the corpus and `src/testing/` move to the new names.
        - Tests: `deadline` returns the same value on two calls with no input between;
          `attach_log` on a connection that `init` made writes the first qlog event.
        - Mutations: a stutter name put back (the names test); a `deadline` that changes the
@@ -14312,7 +14329,8 @@ library.
     7. 45g `refactor!`: patterns 2 and 3, and the `init` of each pool (ruling 10).
        `server.Endpoint(capacity)`, `client.ConnectionPool(capacity)`, the options of each pool,
        and `server.Router`. `tools/fixtures/router_refused.zig` and `build/router_check.zig`
-       expect "server.Router:".
+       expect "server.Router:". CLAUDE.md's example of `server.router` becomes
+       `server.Router` in this commit, which adds the name.
        - Tests: `zig build router-check` and `zig build router-hidden-check`; an h11 gzip body
          decodes through a pool after its `init`.
        - Mutations: `init` that does not set the features (an h11 gzip body decodes wrong);
@@ -14343,8 +14361,9 @@ library.
         - Mutations: an unknown frame type refused; the alert's octet mapped to the wrong
           member.
     13. 45m `refactor!`: pattern 13 in `tls_provider`. `Provider` calls each member through a
-        method, and no file outside `tls_provider` writes `.vtable.`.
-        - Test: the type's names test lists the 13 methods.
+        method, and no file outside `tls_provider` writes `.vtable.`. `handshake_complete`
+        replaces `Provider.is_complete` (decision 158 ruling 7).
+        - Test: the type's names test lists the 13 methods, and not `is_complete`.
         - Mutation: a method that calls the wrong member (the h11 and h2 TLS tests fail).
   - **What programs change.** Each commit above changes these where its names appear:
     - `examples/`: `server_exchange.zig`, `client_peer.zig`, `client_pool_peer.zig` and
