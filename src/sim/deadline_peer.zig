@@ -21,7 +21,7 @@ pub const Piece = struct {
     len: u32,
 };
 
-pub const Error = h2.core.Writer.Error || h2.hpack.encoder.Error || error{
+pub const Error = h2.core.Writer.Error || h2.hpack.Encoder.Error || error{
     /// The script holds more pieces than `pieces_max`.
     ScriptFull,
 };

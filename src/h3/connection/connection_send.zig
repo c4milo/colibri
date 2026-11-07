@@ -29,7 +29,7 @@ const FieldSection = http.FieldSection;
 const Connection = connection_module.Connection;
 const StreamId = quic.stream.StreamId;
 const QuicConnection = quic.Connection;
-const Indexing = qpack.encoder.Indexing;
+const Indexing = qpack.Encoder.Indexing;
 
 pub const Error = core.Writer.Error || connection_module.Error || error{
     /// `start` has not opened colibri's control stream.

@@ -45,6 +45,9 @@ pub const record = struct {
     pub const ServerConfig = files.record.ServerConfig;
     pub const alert_record_len = files.record.alert_record_len;
     pub const FailError = files.record.FailError;
+    pub const Error = files.record.Error;
+    pub const Progress = files.record.Progress;
+    pub const ConfigError = files.record.ConfigError;
 };
 
 pub const quic = struct {
@@ -75,7 +78,8 @@ test "decision 115: the root exports the names code outside the module uses" {
     });
     try @import("crypto").core.public_names.expect(pem, &.{ "Error", "chain", "key", "anchors" });
     try @import("crypto").core.public_names.expect(record, &.{
-        "Client", "ClientConfig", "Server", "ServerConfig", "alert_record_len", "FailError",
+        "Client",    "ClientConfig", "Server",   "ServerConfig", "alert_record_len",
+        "FailError", "Error",        "Progress", "ConfigError",
     });
 }
 

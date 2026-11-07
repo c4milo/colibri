@@ -306,7 +306,7 @@ fn read_headers(connection: *Connection, transport: *QuicConnection, request: *R
     return on_section(connection, transport, request);
 }
 
-fn on_decode_failure(connection: *Connection, transport: *QuicConnection, request: *RequestStream, failure: qpack.decoder.Error) Error!Step {
+fn on_decode_failure(connection: *Connection, transport: *QuicConnection, request: *RequestStream, failure: qpack.Decoder.Error) Error!Step {
     return switch (failure) {
         // RFC 9204 §7.4: a string longer than colibri accepts refuses the stream alone.
         error.FieldTooLong => refuse(connection, transport, request, qpack.constants.protocol.error_decompression_failed),
@@ -315,7 +315,7 @@ fn on_decode_failure(connection: *Connection, transport: *QuicConnection, reques
         error.SectionTooLarge, error.TooManyLines => refuse(connection, transport, request, constants.protocol.error_message_error),
         // RFC 9204 §2.2.3 and §6: every other failure to interpret a section is a connection
         // error of QPACK_DECOMPRESSION_FAILED.
-        else => connection.fail(transport, qpack.decoder.error_code(failure)),
+        else => connection.fail(transport, qpack.Decoder.error_code(failure)),
     };
 }
 

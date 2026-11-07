@@ -45,6 +45,9 @@ fn FieldLines(comptime section: Section) type {
         /// Octets of `buffer` the field lines filled.
         len: usize = 0,
 
+        /// What `iterator` returns.
+        pub const Iterator = LineIterator;
+
         /// The value of the first field line named `name`, compared case-insensitively (RFC 9110
         /// §5.1), or null when the section has none.
         pub fn get(lines: *const Lines, name: []const u8) ?[]const u8 {
@@ -66,12 +69,13 @@ fn FieldLines(comptime section: Section) type {
     };
 }
 
-/// Walks the field lines of a `Headers` or a `Trailers`.
-pub const Iterator = struct {
+/// Walks the field lines of a `Headers` or a `Trailers`, as `Headers.Iterator` and
+/// `Trailers.Iterator`.
+const LineIterator = struct {
     reader: core.Reader,
 
     /// The next field line, or null after the last.
-    pub fn next(each: *Iterator) ?Header {
+    pub fn next(each: *LineIterator) ?Header {
         if (each.reader.remaining_len() == 0) return null;
         // The client wrote every line whole (`append`), so a short read is a broken buffer.
         const name_len = each.reader.take_int_big(Length) catch unreachable;
@@ -126,10 +130,12 @@ const testing = std.testing;
 threadlocal var test_section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
 
 test "decision 152: Headers and Trailers each have two calls, get and iterator" {
+    // Decision 158 ruling 6 adds `Iterator`, which `iterator` returns.
     const public_names = core.public_names;
-    try public_names.expect(Headers, &.{ "get", "iterator" });
-    try public_names.expect(Trailers, &.{ "get", "iterator" });
-    try public_names.expect(Iterator, &.{"next"});
+    try public_names.expect(Headers, &.{ "Iterator", "get", "iterator" });
+    try public_names.expect(Trailers, &.{ "Iterator", "get", "iterator" });
+    try public_names.expect(Headers.Iterator, &.{"next"});
+    try testing.expect(Headers.Iterator == Trailers.Iterator);
     try testing.expect(Headers != Trailers);
 }
 

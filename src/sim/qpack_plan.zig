@@ -12,7 +12,7 @@ const qpack = @import("qpack");
 
 const Random = sim.Random;
 const constants = sim.constants;
-const Indexing = qpack.encoder.Indexing;
+const Indexing = qpack.Encoder.Indexing;
 
 /// Names the lines use: some the static table holds, some it does not.
 const names = [_][]const u8{
@@ -49,8 +49,8 @@ pub const Section = struct {
 };
 
 pub const Plan = struct {
-    settings: qpack.decoder.Settings,
-    huffman: qpack.encoder.HuffmanUse,
+    settings: qpack.Decoder.Settings,
+    huffman: qpack.Encoder.HuffmanUse,
     sections: [constants.qpack_check_sections_max]Section,
     len: u32,
     /// The values the seed drew, which the lines point into.
@@ -63,7 +63,7 @@ pub const Plan = struct {
             .max_table_capacity = capacities[random.below(capacities.len)],
             .blocked_streams = blocked_counts[random.below(blocked_counts.len)],
         };
-        plan.huffman = @enumFromInt(random.below(std.meta.fields(qpack.encoder.HuffmanUse).len));
+        plan.huffman = @enumFromInt(random.below(std.meta.fields(qpack.Encoder.HuffmanUse).len));
         for (&plan.value_octets, &plan.value_lens) |*octets, *len| {
             len.* = @intCast(random.below(constants.qpack_check_value_len_max + 1));
             for (octets[0..len.*]) |*octet| octet.* = value_alphabet[random.below(value_alphabet.len)];

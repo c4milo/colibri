@@ -267,7 +267,7 @@ pub fn stage_request(method: []const u8, path: []const u8, fields: []const Field
     try client_section.append(":authority", "localhost");
     try client_section.append(":path", path);
     for (fields) |line| try client_section.append(line.name, line.value);
-    const indexing: [request_lines + request_fields_max]h3.qpack.encoder.Indexing = @splat(.no_insert);
+    const indexing: [request_lines + request_fields_max]h3.qpack.Encoder.Indexing = @splat(.no_insert);
     var writer = quic.core.Writer.init(&fetch.prefix);
     fetch.id = try client_h3.write_request(&client, &client_section, indexing[0..client_section.len()], false, &writer, now_ns);
     if (content.len > 0) try client_h3.write_data_header(fetch.id, content.len, &writer, now_ns);

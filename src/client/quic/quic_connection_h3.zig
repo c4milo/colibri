@@ -24,7 +24,7 @@ const internal = @import("quic_connection_internal.zig");
 const QuicConnection = quic_connection.QuicConnection;
 const Request = event.Request;
 const Slot = slots_module.Slot;
-const Indexing = h3.qpack.encoder.Indexing;
+const Indexing = h3.qpack.Encoder.Indexing;
 
 /// Writes the heads of the exchanges waiting at `now_ns`, oldest first, so the streams open in the
 /// order `request` took them (RFC 9000 §2.1).

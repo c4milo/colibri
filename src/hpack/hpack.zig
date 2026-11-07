@@ -30,8 +30,8 @@ pub const FieldLine = files.decoder.FieldLine;
 pub const Encoder = files.encoder.Encoder;
 pub const Indexing = files.encoder.Indexing;
 
+/// Test-only: the tests of h2 decode what it sends with these. A program never names them.
 pub const decoder = struct {
-    pub const Error = files.decoder.Error;
     pub const expect_lines = files.decoder.expect_lines;
     /// A variable of the file, which a test of another module shares. Test-only.
     pub fn test_decoder() *@TypeOf(files.decoder.test_decoder) {
@@ -39,20 +39,20 @@ pub const decoder = struct {
     }
 };
 
-pub const encoder = struct {
-    pub const Error = files.encoder.Error;
-};
-
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
         "core",    "wire",         "http",    "constants",
         "Field",   "DynamicTable", "Decoder", "FieldLine",
-        "Encoder", "Indexing",     "decoder", "encoder",
+        "Encoder", "Indexing",     "decoder",
     });
 }
 
-test "decision 158: the encoder namespace holds no copy of hpack.Indexing" {
-    try core.public_names.expect(encoder, &.{"Error"});
+test "decision 158: each type in a signature of Decoder and Encoder is a declaration of it" {
+    try core.public_names.expect(Decoder, &.{ "Error", "Block", "init", "set_capacity_limit", "block" });
+    try core.public_names.expect(Encoder, &.{
+        "Error", "HuffmanUse", "init", "set_capacity_limit", "begin_block", "commit_block", "write_field",
+    });
+    try core.public_names.expect(decoder, &.{ "expect_lines", "test_decoder" });
 }
 
 test {

@@ -3,9 +3,19 @@
 //! a `test` block references it, so it is never compiled into the library.
 const std = @import("std");
 
+/// The public declarations of `T`, a struct, a union or an enum.
+fn declarations(comptime T: type) []const std.builtin.Type.Declaration {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |info| info.decls,
+        .@"union" => |info| info.decls,
+        .@"enum" => |info| info.decls,
+        else => @compileError("public_names: a struct, a union or an enum holds declarations"),
+    };
+}
+
 /// The names of `T`'s public declarations, in the order its file declares them.
-pub fn names(comptime T: type) [@typeInfo(T).@"struct".decls.len][]const u8 {
-    const declared = @typeInfo(T).@"struct".decls;
+pub fn names(comptime T: type) [declarations(T).len][]const u8 {
+    const declared = comptime declarations(T);
     var held: [declared.len][]const u8 = undefined;
     inline for (declared, &held) |declaration, *name| name.* = declaration.name;
     return held;
@@ -93,6 +103,19 @@ test "decision 115: a type's public declarations are its names, in order, and no
     try std.testing.expect(!matches(Sample, &.{"first"}));
     try std.testing.expect(!matches(Sample, &.{ "first", "second", "hidden" }));
     try std.testing.expect(!matches(Sample, &.{ "second", "first" }));
+}
+
+const SampleUnion = union(enum) {
+    held: u8,
+
+    pub const Held = u8;
+};
+
+test "decision 158: a union's public declarations are its names, as a struct's are" {
+    const sample: SampleUnion = .{ .held = 1 };
+    try std.testing.expectEqual(@as(SampleUnion.Held, 1), sample.held);
+    try expect(SampleUnion, &.{"Held"});
+    try std.testing.expect(!matches(SampleUnion, &.{}));
 }
 
 const SampleRoot = struct {

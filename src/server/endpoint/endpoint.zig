@@ -48,7 +48,6 @@ pub const Config = endpoint_config.Config;
 pub const LogProvider = endpoint_connections.LogProvider;
 pub const Input = endpoint_state.Input;
 pub const Datagram = endpoint_state.Datagram;
-pub const Accepted = endpoint_state.Accepted;
 pub const StreamBytes = endpoint_state.StreamBytes;
 
 /// How many connections an endpoint holds, fixed at build time (decision 35): its TCP and its
@@ -104,6 +103,9 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         order: [slots_max]u32,
         stale_numbers: [slots_max]u32,
         stale_queued: [slots_max]bool,
+
+        /// What `accept` takes of a TCP socket the program accepted.
+        pub const Accepted = endpoint_state.Accepted;
 
         /// Prepares an endpoint that holds no connection. Every value it draws comes from
         /// `random`. `now_seconds` is the Unix time at `now_ns`, which the server's tickets are
@@ -271,10 +273,10 @@ test "design §8 step 17f: the endpoint's public functions are the calls a progr
     const public_names = @import("core").public_names;
     // Design §8 step 21b.3 (decision 119): the endpoint answers requests by id.
     // Design §8 step 21b.4 adds `accept`, `send_stream` and `transport_closed` (decision 119).
+    // Decision 158 ruling 6 adds `Accepted`, the type `accept` takes.
     try public_names.expect(Endpoint, &.{
-        "init",             "accept",         "receive",     "set_user_data", "respond",
-        "write_body",       "write_trailers", "cancel",      "shutdown",      "send_stream",
-        "transport_closed", "send_datagram",  "deadline_ns", "on_instant",    "set_timeouts",
-        "server_name",
+        "Accepted",      "init",           "accept",     "receive",      "set_user_data", "respond",
+        "write_body",    "write_trailers", "cancel",     "shutdown",     "send_stream",   "transport_closed",
+        "send_datagram", "deadline_ns",    "on_instant", "set_timeouts", "server_name",
     });
 }

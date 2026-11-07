@@ -29,7 +29,7 @@ const SendError = quic_connection.SendError;
 const Field = quic_connection.Field;
 const Number = event.Number;
 const StreamId = quic.stream.StreamId;
-const Indexing = h3.qpack.encoder.Indexing;
+const Indexing = h3.qpack.Encoder.Indexing;
 
 /// RFC 9114 is HTTP/3, which RFC 9110 §2.5 numbers 3.0.
 const version: event.Version = .{ .major = version_major, .minor = 0 };

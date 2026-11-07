@@ -31,7 +31,7 @@ const prefix_bits_max = wire.constants.protocol.integer_prefix_bits_max;
 const string_prefix_bits_min = wire.constants.protocol.string_prefix_bits_min;
 
 /// Every error a corpus decode can return. A rejection outside this set does not compile.
-pub const DecodeError = core.Reader.Error || wire.string_literal.DecodeError || hpack.decoder.Error ||
+pub const DecodeError = core.Reader.Error || wire.string_literal.DecodeError || hpack.Decoder.Error ||
     quic.packet.header.Error || corpus_receive.Error || corpus_h11.Error || error{
     /// The decoder succeeded without consuming every octet of the case.
     TrailingOctets,

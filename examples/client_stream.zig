@@ -194,16 +194,8 @@ fn report(event: client.Event, now_ns: u64) !void {
             taken += 1;
             try hand_next();
         },
-        // `body` holds a piece of the response. The program copies it out and releases it, and
-        // the pool reads no more of the response until then.
-        .body => |held| {
-            if (held.id != call_id or !heard_headers) return error.ExchangeWrong;
-            if (received_len + held.len > received.len) return error.ExchangeWrong;
-            @memcpy(received[received_len..][0..held.len], response.body[0..held.len]);
-            received_len += held.len;
-            pool.release_body(held.id);
-            try hand_next();
-        },
+        // `body` holds a piece of the response, which `on_piece` copies out and releases.
+        .body => |held| try on_piece(held),
         .finished => |ended| try on_finished(ended),
         // A pool in cleartext gets no ticket.
         .ticket => return error.ExchangeWrong,
@@ -212,11 +204,32 @@ fn report(event: client.Event, now_ns: u64) !void {
     }
 }
 
+/// The response's head arrived. `get` reads the first header of a name, and an iterator walks
+/// each header in the order it arrived.
 fn on_headers(id: client.RequestId) !void {
     if (id != call_id or response.status != 200) return error.ExchangeWrong;
     const kind = response.headers.get("content-type") orelse "";
     if (!std.mem.eql(u8, kind, peer.content_type)) return error.ExchangeWrong;
+    var lines: client.Headers.Iterator = response.headers.iterator();
+    var content_types: usize = 0;
+    // Bounded: each header takes octets of the buffer, which holds `section_len`.
+    for (0..section_len) |_| {
+        const line = lines.next() orelse break;
+        if (std.ascii.eqlIgnoreCase(line.name, "content-type")) content_types += 1;
+    }
+    if (content_types != 1) return error.ExchangeWrong;
     heard_headers = true;
+}
+
+/// `body` holds a piece of the response. The program copies it out and releases it, and the
+/// pool reads no more of the response until then.
+fn on_piece(held: client.Event.Piece) !void {
+    if (held.id != call_id or !heard_headers) return error.ExchangeWrong;
+    if (received_len + held.len > received.len) return error.ExchangeWrong;
+    @memcpy(received[received_len..][0..held.len], response.body[0..held.len]);
+    received_len += held.len;
+    pool.release_body(held.id);
+    try hand_next();
 }
 
 /// The call ended: every message came back, and the trailers say it succeeded.

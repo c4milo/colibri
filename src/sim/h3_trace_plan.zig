@@ -51,7 +51,7 @@ pub const Plan = struct {
     goaways: u32,
     /// The server decoder's settings (RFC 9204 §5): the model's `BlockedStreams`, and a capacity
     /// of 0 or `h3_trace.capacity`.
-    server_decoder: h3.qpack.decoder.Settings,
+    server_decoder: h3.qpack.Decoder.Settings,
     client_grease: u64,
     server_grease: u64,
 

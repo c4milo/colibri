@@ -36,29 +36,6 @@ const Writer = core.Writer;
 const DynamicTable = dynamic_table.DynamicTable;
 pub const Field = dynamic_table.Field;
 
-/// The representation reader, split off this file for length: `decoder_block.zig`.
-pub const Block = @import("decoder_block.zig").Block;
-
-pub const Error = error{
-    /// An indexed field with index 0 (RFC 7541 §6.1).
-    IndexZero,
-    /// An index past both tables (RFC 7541 §2.3.3).
-    IndexOutOfRange,
-    /// A size update above the protocol's limit (RFC 7541 §6.3).
-    SizeUpdateTooLarge,
-    /// A size update after a field line of the same block (RFC 7541 §4.2).
-    SizeUpdateNotFirst,
-    /// A third size update in one block (RFC 7541 §4.2).
-    SizeUpdateTooMany,
-    /// A block after a lowered limit that does not start with a size update at or below it
-    /// (RFC 9113 §4.3.1).
-    SizeUpdateMissing,
-    /// A name or value longer than the implementation limit (RFC 7541 §7.4).
-    StringTooLong,
-    /// The block ended inside a representation.
-    Truncated,
-} || wire.prefixed_integer.DecodeError || wire.huffman.DecodeError;
-
 /// One decoded field line. `never_indexed` is set for the representation of RFC 7541 §6.2.3,
 /// which an intermediary must forward in the same representation. The slices are valid until
 /// the next call on the block.
@@ -78,6 +55,29 @@ pub const Decoder = struct {
     lowered_limit: ?u64,
     name_scratch: [constants.limits.name_len_max]u8,
     value_scratch: [constants.limits.value_len_max]u8,
+
+    pub const Error = error{
+        /// An indexed field with index 0 (RFC 7541 §6.1).
+        IndexZero,
+        /// An index past both tables (RFC 7541 §2.3.3).
+        IndexOutOfRange,
+        /// A size update above the protocol's limit (RFC 7541 §6.3).
+        SizeUpdateTooLarge,
+        /// A size update after a field line of the same block (RFC 7541 §4.2).
+        SizeUpdateNotFirst,
+        /// A third size update in one block (RFC 7541 §4.2).
+        SizeUpdateTooMany,
+        /// A block after a lowered limit that does not start with a size update at or below it
+        /// (RFC 9113 §4.3.1).
+        SizeUpdateMissing,
+        /// A name or value longer than the implementation limit (RFC 7541 §7.4).
+        StringTooLong,
+        /// The block ended inside a representation.
+        Truncated,
+    } || wire.prefixed_integer.DecodeError || wire.huffman.DecodeError;
+
+    /// The representation reader, split off this file for length: `decoder_block.zig`.
+    pub const Block = @import("decoder_block.zig").Block;
 
     /// A decoder whose table's capacity and limit are both `capacity`: the protocol's initial
     /// value, 4,096 in h2 (RFC 9113 §6.5.2).
@@ -124,7 +124,7 @@ pub fn expect_lines(octets: []const u8, expected: []const Field) !void {
 }
 
 /// Requires `octets` to be refused with `expected`, after any lines it yields first. Test-only.
-pub fn expect_refused(octets: []const u8, expected: Error) !void {
+pub fn expect_refused(octets: []const u8, expected: Decoder.Error) !void {
     var block = test_decoder.block(octets);
     // The refusal may come after accepted lines; a block of n octets holds at most n of them.
     for (0..octets.len + 1) |_| {

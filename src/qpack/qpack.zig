@@ -29,18 +29,6 @@ const files = struct {
 pub const Encoder = files.encoder.Encoder;
 pub const Decoder = files.decoder.Decoder;
 
-pub const encoder = struct {
-    pub const HuffmanUse = files.encoder.HuffmanUse;
-    pub const Indexing = files.encoder.Indexing;
-};
-
-pub const decoder = struct {
-    pub const Error = files.decoder.Error;
-    pub const Outcome = files.decoder.Outcome;
-    pub const Settings = files.decoder.Settings;
-    pub const error_code = files.decoder.error_code;
-};
-
 pub const decoder_stream = struct {
     pub const owes = files.decoder_stream.owes;
 };
@@ -53,9 +41,21 @@ pub const instruction = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",           "wire",        "http",    "constants",
-        "Encoder",        "Decoder",     "encoder", "decoder",
-        "decoder_stream", "instruction",
+        "core",    "wire",    "http",           "constants",
+        "Encoder", "Decoder", "decoder_stream", "instruction",
+    });
+}
+
+test "decision 158: each type in a signature of Encoder and Decoder is a declaration of it" {
+    try core.public_names.expect(Encoder, &.{
+        "HuffmanUse",          "Indexing",    "DecoderStreamError", "Coding",
+        "init",                "on_settings", "capacity",           "write_section",
+        "read_decoder_stream", "coding",
+    });
+    try core.public_names.expect(Decoder, &.{
+        "Error",                "Outcome", "Settings",     "error_code",
+        "Abandoned",            "init",    "read_section", "read_encoder_stream",
+        "write_decoder_stream", "owes",    "ready_stream", "abandon_stream",
     });
 }
 

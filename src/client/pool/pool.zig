@@ -152,13 +152,17 @@ pub const Event = union(enum) {
     /// response (decision 153 ruling 7). The caller gives it back with `release_body`, and the
     /// pool reads no more of the response until then. Over h2 and h3 the server gets no flow
     /// credit for the piece until then (RFC 9113 §5.2, RFC 9000 §4.1).
-    body: event.Piece,
+    body: Piece,
     /// An exchange ended, and the caller may reuse the memory of its request and its response.
     /// A streamed response's last piece was released before it, and its trailers are in
     /// `Response.trailers`.
     finished: Finished,
     /// The pool was shut down, every exchange has finished, and every transport closed.
     closed,
+
+    /// What a `body` event holds: the exchange's id, and the length of the piece in its
+    /// `Response.body`.
+    pub const Piece = event.Piece;
 };
 
 /// A datagram the UDP flow read, with its ECN codepoint and the address it came from.
@@ -198,7 +202,6 @@ pub const Capacity = struct {
     quic: bool = true,
 };
 
-pub const Counts = pool_state.Counts;
 pub const Layout = pool_state.Layout;
 /// The alignment of the memory a pool's `init` takes. Each pool type names it `memory_alignment`.
 pub const pool_memory_alignment = pool_state.memory_alignment;
@@ -256,6 +259,9 @@ pub fn ConnectionPoolOf(comptime capacity: Capacity) type {
         /// The receive pool of each QUIC connection, which the caller placed, or null when it
         /// gave none.
         receive_pool: QuicField(capacity, ?ReceiveStorage),
+
+        /// The counts of a `Config` that `memory_bytes` sizes the memory of `init` for.
+        pub const Counts = pool_state.Counts;
 
         /// The alignment of the memory `init` takes (decision 35 as amended).
         pub const memory_alignment = pool_memory_alignment;
@@ -433,19 +439,22 @@ test "design §8 step 17f: the pool's public names are the calls a program makes
     // `receive_events_without_input_max`, which size a pool and bound a program's loop, and step
     // 22.7 adds `set_destination`, which a program calls after a later DNS answer. Step 39e adds
     // `write_body`, which a program streams a request body with, and 39f `release_body`, which it
-    // reads a streamed response body with (decision 153).
+    // reads a streamed response body with (decision 153). Decision 158 ruling 6 adds `Counts`,
+    // which `memory_bytes` takes.
     const public_names = @import("core").public_names;
     // Decision 124: a pool with no QUIC names the same calls, and its `start_quic` does not
     // compile.
     inline for (.{ ConnectionPool, ConnectionPoolOf(.{ .quic = false }) }) |Type| {
         try public_names.expect(Type, &.{
-            "memory_alignment", "memory_bytes",    "receive_events_without_input_max",
-            "init",             "set_destination", "request",
-            "write_body",       "release_body",    "cancel",
-            "shutdown",         "receive",         "send_datagram",
-            "send_stream",      "deadline_ns",     "on_instant",
-            "start_quic",       "start_tcp",       "transport_closed",
-            "take_ticket",      "alternative",     "phase",
+            "Counts",                           "memory_alignment", "memory_bytes",
+            "receive_events_without_input_max", "init",             "set_destination",
+            "request",                          "write_body",       "release_body",
+            "cancel",                           "shutdown",         "receive",
+            "send_datagram",                    "send_stream",      "deadline_ns",
+            "on_instant",                       "start_quic",       "start_tcp",
+            "transport_closed",                 "take_ticket",      "alternative",
+            "phase",
         });
     }
+    try public_names.expect(Event, &.{"Piece"});
 }

@@ -23,7 +23,7 @@ pub const Settings = struct {
     blocked_streams: u64,
 };
 
-pub const Error = qpack.decoder.Error || core.Writer.Error || core.Reader.Error || error{
+pub const Error = qpack.Decoder.Error || core.Writer.Error || core.Reader.Error || error{
     /// The file ended with a section still waiting for entries that never arrived.
     StillBlocked,
 };

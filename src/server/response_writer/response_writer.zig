@@ -61,9 +61,12 @@ pub const ResponseWriter = struct {
     /// finish.
     end_asked: internal.EndAsked = .none,
 
+    /// What `header`, `write_kept`, `end` and `trailers` return.
+    pub const Error = internal.Error;
+
     /// Adds one header to the head. Each name and value is copied into the entry's memory. A
     /// header after the body started is refused, as is one past `response_headers_max`.
-    pub fn header(response: *ResponseWriter, name: []const u8, value: []const u8) internal.Error!void {
+    pub fn header(response: *ResponseWriter, name: []const u8, value: []const u8) Error!void {
         // RFC 9110 §6.3: header fields go before the content.
         if (response.body_started) return error.SectionOutOfOrder;
         // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
@@ -83,7 +86,7 @@ pub const ResponseWriter = struct {
 
     /// Sends `bytes` after the body written so far, with no copy. The program keeps them valid
     /// until the request's `finished`. The head goes out first, when it has not.
-    pub fn write_kept(response: *ResponseWriter, bytes: []const u8) internal.Error!void {
+    pub fn write_kept(response: *ResponseWriter, bytes: []const u8) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
@@ -96,7 +99,7 @@ pub const ResponseWriter = struct {
 
     /// Ends the response. A head that has not gone out carries the whole body, so `end` adds its
     /// Content-Length when the program set none.
-    pub fn end(response: *ResponseWriter) internal.Error!void {
+    pub fn end(response: *ResponseWriter) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
@@ -110,7 +113,7 @@ pub const ResponseWriter = struct {
 
     /// Ends the response with a trailer section (RFC 9110 §6.5). Each name and value is copied into
     /// the entry's memory after the body.
-    pub fn trailers(response: *ResponseWriter, headers: []const http.Field) internal.Error!void {
+    pub fn trailers(response: *ResponseWriter, headers: []const http.Field) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
         if (!response.body_started) internal.start_body(response);
@@ -134,7 +137,10 @@ pub const ResponseWriter = struct {
 };
 
 test "decision 127: ResponseWriter exports header, body, write_kept, end, trailers and head_sent" {
-    try @import("core").public_names.expect(ResponseWriter, &.{ "header", "body", "write_kept", "end", "trailers", "head_sent" });
+    // Decision 158 ruling 6 adds `Error`, which the calls return.
+    try @import("core").public_names.expect(ResponseWriter, &.{
+        "Error", "header", "body", "write_kept", "end", "trailers", "head_sent",
+    });
 }
 
 test {

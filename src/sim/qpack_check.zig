@@ -187,7 +187,7 @@ const Run = struct {
             storage.states[index] = .cancelled;
             return;
         }
-        var indexing: [constants.qpack_check_lines_max]qpack.encoder.Indexing = undefined;
+        var indexing: [constants.qpack_check_lines_max]qpack.Encoder.Indexing = undefined;
         storage.written_section.init();
         for (storage.plan.lines(index), 0..) |line, at| {
             storage.written_section.append(line.name, line.value) catch unreachable;
@@ -277,7 +277,7 @@ const Run = struct {
 
     /// Hands section `index` to the decoder, writing out what the decoder owes when its queue is
     /// full, and checks what it decodes.
-    fn decode(run: *Run, index: u32) (Violation || sim.trace.Error)!qpack.decoder.Outcome {
+    fn decode(run: *Run, index: u32) (Violation || sim.trace.Error)!qpack.Decoder.Outcome {
         const storage = run.storage;
         const stream_id = storage.plan.sections[index].stream_id;
         // Bounded: once the queue is written the decoder decodes or blocks.

@@ -16,7 +16,7 @@ const quic_endpoint = @import("quic_endpoint.zig");
 
 const Writer = quic.core.Writer;
 const FieldSection = h3.http.FieldSection;
-const Indexing = h3.qpack.encoder.Indexing;
+const Indexing = h3.qpack.Encoder.Indexing;
 const Plan = h3_trace_plan.Plan;
 const constants = sim.constants;
 

@@ -51,9 +51,9 @@ pub const Options = struct {
     role: Role,
     /// The settings colibri's QPACK decoder advertises (RFC 9204 §5), both zero by default, which
     /// keeps the peer's encoder to the static table.
-    qpack: qpack.decoder.Settings = .{},
+    qpack: qpack.Decoder.Settings = .{},
     /// When colibri's QPACK encoder Huffman codes a string (RFC 9204 §4.1.2).
-    huffman: qpack.encoder.HuffmanUse = .when_shorter,
+    huffman: qpack.Encoder.HuffmanUse = .when_shorter,
     /// The value RFC 9114 §7.2.4.1's reserved setting and §8.1's reserved error codes are drawn
     /// from. colibri reads no randomness (invariant 5), so the caller supplies it, and a seed
     /// replays (design §6.5).
@@ -223,7 +223,7 @@ pub const Connection = struct {
         connection: *Connection,
         transport: *QuicConnection,
         section: *const FieldSection,
-        indexing: []const qpack.encoder.Indexing,
+        indexing: []const qpack.Encoder.Indexing,
         hold_data: bool,
         output: *Writer,
         now_ns: u64,
@@ -239,7 +239,7 @@ pub const Connection = struct {
         transport: *QuicConnection,
         stream_id: u64,
         section: *const FieldSection,
-        indexing: []const qpack.encoder.Indexing,
+        indexing: []const qpack.Encoder.Indexing,
         output: *Writer,
         now_ns: u64,
     ) SendError!void {

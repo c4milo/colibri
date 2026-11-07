@@ -184,7 +184,7 @@ fn read_encoder_stream(connection: *Connection, transport: *QuicConnection) Erro
     const octets = try peek_critical(connection, transport, id, connection.scratch[0..qpack.constants.limits.encoder_instruction_len_max]);
     var reader = Reader.init(octets);
     connection.decoder.read_encoder_stream(&reader) catch |failure|
-        return connection.fail(transport, qpack.decoder.error_code(failure));
+        return connection.fail(transport, qpack.Decoder.error_code(failure));
     _ = stream_read.consume(transport, .{ .value = id }, octets.len - reader.remaining_len()) catch unreachable;
 }
 

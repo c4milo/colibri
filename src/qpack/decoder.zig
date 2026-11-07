@@ -35,54 +35,6 @@ const Writer = core.Writer;
 const FieldSection = http.FieldSection;
 const Representation = representation.Representation;
 
-pub const Error = representation.Error || http.field_section.AppendError || error{
-    /// RFC 9204 §6's QPACK_DECOMPRESSION_FAILED: the decoder cannot interpret the field section
-    /// and cannot continue decoding it. §2.2.3 names the references that produce it, §3.1 the
-    /// static index, §2.1.2 the blocked stream too many, and §4.5.1 the prefixes.
-    DecompressionFailed,
-    /// RFC 9204 §7.4: a name or value longer than colibri accepts (`field_name_len_max`,
-    /// `field_value_len_max`), which §7.4 makes a stream error of QPACK_DECOMPRESSION_FAILED.
-    FieldTooLong,
-    /// RFC 9204 §6's QPACK_ENCODER_STREAM_ERROR: an encoder instruction the decoder cannot
-    /// interpret. `decoder_table.zig` names each rule that produces it.
-    EncoderStreamError,
-};
-
-/// What RFC 9204 §6 has HTTP/3 send for an error from here.
-pub fn error_code(failure: Error) u64 {
-    return switch (failure) {
-        error.EncoderStreamError => constants.protocol.error_encoder_stream,
-        // Everything else is a failure to interpret one field section.
-        else => constants.protocol.error_decompression_failed,
-    };
-}
-
-/// The two settings a decoder advertises (RFC 9204 §5), both zero by default.
-pub const Settings = struct {
-    /// §3.2.3's `SETTINGS_QPACK_MAX_TABLE_CAPACITY`, at most `dynamic_table_capacity_max`.
-    max_table_capacity: u64 = 0,
-    /// §2.1.2's `SETTINGS_QPACK_BLOCKED_STREAMS`, at most `blocked_streams_max`.
-    blocked_streams: u64 = 0,
-};
-
-/// What `read_section` did.
-pub const Outcome = enum {
-    /// The section is in the caller's field section, and its octets are consumed.
-    decoded,
-    /// RFC 9204 §2.2.1: the section needs entries not yet received. Nothing is consumed, and the
-    /// caller asks again once `ready_stream` names the stream.
-    blocked,
-    /// The queue of owed instructions is full. Nothing is consumed, and the caller writes the
-    /// decoder stream before it asks again (decision 74).
-    owes_instructions,
-    /// The list of blocked streams is full, and some of them can now be decoded. Nothing is
-    /// consumed, and the caller reads those first, as `ready_stream` names them (decision 74).
-    read_ready_first,
-};
-
-/// What `abandon_stream` did.
-pub const Abandoned = enum { cancelled, owes_instructions };
-
 /// A field section on a stream, named by the insert count it needs (RFC 9204 §4.5.1.1).
 pub const Section = struct {
     stream_id: u64,
@@ -110,6 +62,54 @@ pub const Decoder = struct {
     known_received: u64,
     /// Where an encoder instruction's strings are decoded before the table copies them.
     scratch: [constants.limits.encoder_instruction_len_max]u8,
+
+    pub const Error = representation.Error || http.field_section.AppendError || error{
+        /// RFC 9204 §6's QPACK_DECOMPRESSION_FAILED: the decoder cannot interpret the field section
+        /// and cannot continue decoding it. §2.2.3 names the references that produce it, §3.1 the
+        /// static index, §2.1.2 the blocked stream too many, and §4.5.1 the prefixes.
+        DecompressionFailed,
+        /// RFC 9204 §7.4: a name or value longer than colibri accepts (`field_name_len_max`,
+        /// `field_value_len_max`), which §7.4 makes a stream error of QPACK_DECOMPRESSION_FAILED.
+        FieldTooLong,
+        /// RFC 9204 §6's QPACK_ENCODER_STREAM_ERROR: an encoder instruction the decoder cannot
+        /// interpret. `decoder_table.zig` names each rule that produces it.
+        EncoderStreamError,
+    };
+
+    /// What `read_section` did.
+    pub const Outcome = enum {
+        /// The section is in the caller's field section, and its octets are consumed.
+        decoded,
+        /// RFC 9204 §2.2.1: the section needs entries not yet received. Nothing is consumed, and the
+        /// caller asks again once `ready_stream` names the stream.
+        blocked,
+        /// The queue of owed instructions is full. Nothing is consumed, and the caller writes the
+        /// decoder stream before it asks again (decision 74).
+        owes_instructions,
+        /// The list of blocked streams is full, and some of them can now be decoded. Nothing is
+        /// consumed, and the caller reads those first, as `ready_stream` names them (decision 74).
+        read_ready_first,
+    };
+
+    /// The two settings a decoder advertises (RFC 9204 §5), both zero by default.
+    pub const Settings = struct {
+        /// §3.2.3's `SETTINGS_QPACK_MAX_TABLE_CAPACITY`, at most `dynamic_table_capacity_max`.
+        max_table_capacity: u64 = 0,
+        /// §2.1.2's `SETTINGS_QPACK_BLOCKED_STREAMS`, at most `blocked_streams_max`.
+        blocked_streams: u64 = 0,
+    };
+
+    /// What RFC 9204 §6 has HTTP/3 send for an error from here.
+    pub fn error_code(failure: Error) u64 {
+        return switch (failure) {
+            error.EncoderStreamError => constants.protocol.error_encoder_stream,
+            // Everything else is a failure to interpret one field section.
+            else => constants.protocol.error_decompression_failed,
+        };
+    }
+
+    /// What `abandon_stream` did.
+    pub const Abandoned = enum { cancelled, owes_instructions };
 
     pub fn init(decoder: *Decoder, settings: Settings) void {
         assert(settings.max_table_capacity <= constants.limits.dynamic_table_capacity_max);
@@ -290,9 +290,9 @@ const Origin = struct {
     base: u64,
 
     /// RFC 9204 §3.2.5: in a field line, relative index 0 is the entry at absolute `base - 1`.
-    fn relative(origin: Origin, index: u64) Error!u64 {
+    fn relative(origin: Origin, index: u64) Decoder.Error!u64 {
         // §2.2.3: an index that names no entry below the Base references nothing that exists.
-        if (index >= origin.base) return Error.DecompressionFailed;
+        if (index >= origin.base) return Decoder.Error.DecompressionFailed;
         return origin.base - 1 - index;
     }
 
@@ -310,19 +310,19 @@ const Resolved = struct {
 };
 
 /// The static entry at `index` (RFC 9204 §3.1), with `literal_value` in place of its value.
-fn static_line(index: u64, literal_value: ?[]const u8) Error!Resolved {
+fn static_line(index: u64, literal_value: ?[]const u8) Decoder.Error!Resolved {
     // RFC 9204 §3.1: an invalid static table index in a field line representation is
     // QPACK_DECOMPRESSION_FAILED.
-    if (index >= constants.protocol.static_table_entries) return Error.DecompressionFailed;
+    if (index >= constants.protocol.static_table_entries) return Decoder.Error.DecompressionFailed;
     const entry = static_table.entries[@intCast(index)];
     return .{ .name = entry.name, .value = literal_value orelse entry.value };
 }
 
-fn append(section: *FieldSection, name: []const u8, value: []const u8) Error!void {
+fn append(section: *FieldSection, name: []const u8, value: []const u8) Decoder.Error!void {
     // RFC 9204 §7.4: a value larger than the decoder is able to decode is a stream error of
     // QPACK_DECOMPRESSION_FAILED.
-    if (name.len > core.constants.limits.field_name_len_max) return Error.FieldTooLong;
-    if (value.len > core.constants.limits.field_value_len_max) return Error.FieldTooLong;
+    if (name.len > core.constants.limits.field_name_len_max) return Decoder.Error.FieldTooLong;
+    if (value.len > core.constants.limits.field_value_len_max) return Decoder.Error.FieldTooLong;
     try section.append(name, value);
 }
 

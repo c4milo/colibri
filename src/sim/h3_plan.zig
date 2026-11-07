@@ -114,7 +114,7 @@ pub const Plan = struct {
     }
 };
 
-fn draw_settings(random: *Random) h3.qpack.decoder.Settings {
+fn draw_settings(random: *Random) h3.qpack.Decoder.Settings {
     const capacities = constants.h3_check_capacities;
     const blocked = constants.h3_check_blocked_counts;
     return .{

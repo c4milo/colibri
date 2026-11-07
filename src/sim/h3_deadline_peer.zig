@@ -311,7 +311,7 @@ pub const Peer = struct {
             .{ .name = ":path", .value = "/" },
         };
         for (lines) |line| peer.section.append(line.name, line.value) catch return error.PeerFailed;
-        const indexing: [request_lines]h3.qpack.encoder.Indexing = @splat(.no_insert);
+        const indexing: [request_lines]h3.qpack.Encoder.Indexing = @splat(.no_insert);
         var writer = quic.core.Writer.init(&fetch.prefix);
         fetch.id = peer.h3.write_request(&peer.connection, &peer.section, &indexing, false, &writer, now_ns) catch |failure| {
             // RFC 9000 §4.6: the server's limit on streams is no failure of the peer's.

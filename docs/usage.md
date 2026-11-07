@@ -1597,16 +1597,35 @@ Three events carry a streamed response:
     taken += 1;
     try hand_next();
 },
-// `body` holds a piece of the response. The program copies it out and releases it, and
-// the pool reads no more of the response until then.
-.body => |held| {
+// `body` holds a piece of the response, which `on_piece` copies out and releases.
+.body => |held| try on_piece(held),
+```
+
+A `body` event holds a `client.Event.Piece`:
+
+```zig
+fn on_piece(held: client.Event.Piece) !void {
     if (held.id != call_id or !heard_headers) return error.ExchangeWrong;
     if (received_len + held.len > received.len) return error.ExchangeWrong;
     @memcpy(received[received_len..][0..held.len], response.body[0..held.len]);
     received_len += held.len;
     pool.release_body(held.id);
     try hand_next();
-},
+}
+```
+
+`Headers.get` reads the first header of a name. A `client.Headers.Iterator` walks each header in
+the order it arrived, for a header that can come more than once, such as Set-Cookie (RFC 9110
+§5.3):
+
+```zig
+var lines: client.Headers.Iterator = response.headers.iterator();
+var content_types: usize = 0;
+// Bounded: each header takes octets of the buffer, which holds `section_len`.
+for (0..section_len) |_| {
+    const line = lines.next() orelse break;
+    if (std.ascii.eqlIgnoreCase(line.name, "content-type")) content_types += 1;
+}
 ```
 
 A gRPC call ends with its status in the trailers:

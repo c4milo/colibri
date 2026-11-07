@@ -16,10 +16,10 @@ const Connection = connection_module.Connection;
 
 /// A pool of fewer requests than one connection holds, so a request past them is refused.
 const few_requests: u16 = 8;
-const few: pool_module.Counts = .{ .requests = few_requests };
+const few: pool_module.ConnectionPool.Counts = .{ .requests = few_requests };
 /// A pool of several TCP connections, and of fewer requests.
 const counted_tcp: u16 = 3;
-const counted: pool_module.Counts = .{ .tcp_connections = counted_tcp, .requests = few_requests };
+const counted: pool_module.ConnectionPool.Counts = .{ .tcp_connections = counted_tcp, .requests = few_requests };
 
 /// The pool the tests drive, its memory and its configuration, outside any stack frame.
 /// Test-only.

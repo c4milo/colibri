@@ -14,8 +14,8 @@ const Reader = core.Reader;
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
 const Decoder = decoder_module.Decoder;
-const Error = decoder_module.Error;
-const Outcome = decoder_module.Outcome;
+const Error = Decoder.Error;
+const Outcome = Decoder.Outcome;
 
 /// The decoder the tests drive, the section it fills, and room for what they write.
 var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
@@ -27,7 +27,7 @@ var test_octets: [test_room]u8 = undefined;
 /// Appendix B's table capacity, and room for one blocked stream. Test-only.
 const example_capacity: u64 = 220;
 const example_blocked_streams: u64 = 1;
-const example_settings: decoder_module.Settings = .{
+const example_settings: Decoder.Settings = .{
     .max_table_capacity = example_capacity,
     .blocked_streams = example_blocked_streams,
 };
@@ -96,7 +96,7 @@ test "B.2 to B.5: the RFC's examples, in order, through one decoder" {
     try testing.expectEqual(Outcome.blocked, try decode_on(stream_eight, &section_eight));
     try testing.expectEqual(null, test_decoder.ready_stream());
     // The stream is cancelled before the Duplicate arrives.
-    try testing.expectEqual(decoder_module.Abandoned.cancelled, test_decoder.abandon_stream(stream_eight));
+    try testing.expectEqual(Decoder.Abandoned.cancelled, test_decoder.abandon_stream(stream_eight));
     try testing.expectEqual(0, test_decoder.blocked_len);
     try expect_decoder_stream(&.{0x48});
     try encoder_stream(&.{0x02});
@@ -214,7 +214,7 @@ test "decision 74: a full queue of owed instructions stops the reading until it 
         try testing.expectEqual(Outcome.decoded, try decode_on(stream_four, &section));
     }
     try testing.expectEqual(Outcome.owes_instructions, try decode_on(stream_four, &section));
-    try testing.expectEqual(decoder_module.Abandoned.owes_instructions, test_decoder.abandon_stream(stream_eight));
+    try testing.expectEqual(Decoder.Abandoned.owes_instructions, test_decoder.abandon_stream(stream_eight));
     var writer = Writer.init(&test_octets);
     test_decoder.write_decoder_stream(&writer);
     try testing.expectEqual(constants.limits.decoder_instructions_owed_max, writer.written().len);
@@ -223,7 +223,7 @@ test "decision 74: a full queue of owed instructions stops the reading until it 
 
 test "§2.2.2.2: a decoder that permits no dynamic table owes no cancellation" {
     test_decoder.init(.{});
-    try testing.expectEqual(decoder_module.Abandoned.cancelled, test_decoder.abandon_stream(stream_four));
+    try testing.expectEqual(Decoder.Abandoned.cancelled, test_decoder.abandon_stream(stream_four));
     try expect_decoder_stream(&.{});
 }
 
@@ -320,16 +320,16 @@ test "§4.5.1: with no dynamic table, a prefix naming dynamic state is refused" 
 }
 
 test "§6: an encoder stream failure has its own code, and every other failure one code" {
-    try testing.expectEqual(constants.protocol.error_encoder_stream, decoder_module.error_code(Error.EncoderStreamError));
-    try testing.expectEqual(constants.protocol.error_decompression_failed, decoder_module.error_code(Error.DecompressionFailed));
-    try testing.expectEqual(constants.protocol.error_decompression_failed, decoder_module.error_code(Error.FieldTooLong));
-    try testing.expectEqual(constants.protocol.error_decompression_failed, decoder_module.error_code(Error.Truncated));
+    try testing.expectEqual(constants.protocol.error_encoder_stream, Decoder.error_code(Error.EncoderStreamError));
+    try testing.expectEqual(constants.protocol.error_decompression_failed, Decoder.error_code(Error.DecompressionFailed));
+    try testing.expectEqual(constants.protocol.error_decompression_failed, Decoder.error_code(Error.FieldTooLong));
+    try testing.expectEqual(constants.protocol.error_decompression_failed, Decoder.error_code(Error.Truncated));
     try testing.expectEqual(0x0200, constants.protocol.error_decompression_failed);
     try testing.expectEqual(0x0201, constants.protocol.error_encoder_stream);
 }
 
 test "what the encoder writes is what the decoder reads, coded and not" {
-    for ([_]encoder_module.HuffmanUse{ .never, .always, .when_shorter }) |use| {
+    for ([_]encoder_module.Encoder.HuffmanUse{ .never, .always, .when_shorter }) |use| {
         var held: encoder_module.Encoder = undefined;
         held.init(use);
         var section: FieldSection = undefined;

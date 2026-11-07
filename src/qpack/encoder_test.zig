@@ -13,7 +13,7 @@ const Reader = core.Reader;
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
 const Encoder = encoder_module.Encoder;
-const Indexing = encoder_module.Indexing;
+const Indexing = Encoder.Indexing;
 
 /// The pair the tests drive, and room for what they write. Test-only.
 var test_encoder: Encoder align(@alignOf(Encoder)) = undefined;
@@ -61,7 +61,7 @@ fn write_one(name: []const u8, value: []const u8, indexing: Indexing) ![]const u
 }
 
 /// An encoder and a decoder that agree on `settings`. Test-only.
-fn start_pair(settings: decoder_module.Settings) void {
+fn start_pair(settings: decoder_module.Decoder.Settings) void {
     test_encoder.init(.never);
     test_encoder.on_settings(.{ .max_table_capacity = settings.max_table_capacity, .blocked_streams = settings.blocked_streams });
     test_decoder.init(settings);
@@ -76,7 +76,7 @@ fn deliver(stream_id: u64) !void {
     decoded_section.init();
     var reader = Reader.init(written_section);
     var writer = Writer.init(&strings);
-    try testing.expectEqual(decoder_module.Outcome.decoded, try test_decoder.read_section(stream_id, &reader, &writer, &decoded_section));
+    try testing.expectEqual(decoder_module.Decoder.Outcome.decoded, try test_decoder.read_section(stream_id, &reader, &writer, &decoded_section));
     try testing.expectEqual(test_section.len(), decoded_section.len());
     for (0..test_section.len()) |index| {
         try testing.expectEqualStrings(test_section.get(@intCast(index)).name, decoded_section.get(@intCast(index)).name);

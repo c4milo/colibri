@@ -36,7 +36,7 @@ const ConnectionHandle = pool_module.ConnectionHandle;
 
 pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8, config: *const Config, values: Destination, receive_pool: ?ReceiveStorage) StartError!void {
     assert(values.addresses.len > 0);
-    const counts: pool_module.Counts = .{ .tcp_connections = config.tcp_connections, .requests = config.requests };
+    const counts: pool_module.ConnectionPool.Counts = .{ .tcp_connections = config.tcp_connections, .requests = config.requests };
     // Decision 125 ruling 2: memory of another length than the counts need is a programmer
     // error.
     const layout = pool_module.Layout.of(counts);

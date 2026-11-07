@@ -34,27 +34,6 @@ const Representation = representation.Representation;
 
 pub const Error = core.Writer.Error;
 
-pub const DecoderStreamError = error{
-    /// RFC 9204 §6's QPACK_DECODER_STREAM_ERROR: the encoder could not interpret an instruction
-    /// on the decoder stream. `encoder_state.zig` names the rules that produce it.
-    DecoderStreamError,
-};
-
-/// When a string is Huffman coded (RFC 9204 §4.1.2). `when_shorter` is what §7.2 leaves an
-/// implementation to decide: coding a string that does not shrink costs octets and cycles.
-pub const HuffmanUse = enum { never, always, when_shorter };
-
-/// What the encoder may do with one field line (decision 76).
-pub const Indexing = enum {
-    /// The line may be inserted into the dynamic table, and referenced there.
-    may_insert,
-    /// The line may reference an entry already in a table, but is not inserted.
-    no_insert,
-    /// The line MUST be a literal and MUST carry the `N` bit, so no intermediary puts it in a
-    /// table on a later hop (§4.5.4, §7.1.3).
-    never_indexed,
-};
-
 /// The two QPACK settings the peer's decoder advertised (RFC 9204 §5), both zero by default.
 pub const Settings = struct {
     /// §3.2.3's `SETTINGS_QPACK_MAX_TABLE_CAPACITY`.
@@ -72,6 +51,30 @@ pub const Encoder = struct {
     /// Whether Set Dynamic Table Capacity has gone out (decision 76).
     capacity_sent: bool,
     plan: encoder_plan.Plan,
+
+    /// When a string is Huffman coded (RFC 9204 §4.1.2). `when_shorter` is what §7.2 leaves an
+    /// implementation to decide: coding a string that does not shrink costs octets and cycles.
+    pub const HuffmanUse = enum { never, always, when_shorter };
+
+    /// What the encoder may do with one field line (decision 76).
+    pub const Indexing = enum {
+        /// The line may be inserted into the dynamic table, and referenced there.
+        may_insert,
+        /// The line may reference an entry already in a table, but is not inserted.
+        no_insert,
+        /// The line MUST be a literal and MUST carry the `N` bit, so no intermediary puts it in a
+        /// table on a later hop (§4.5.4, §7.1.3).
+        never_indexed,
+    };
+
+    pub const DecoderStreamError = error{
+        /// RFC 9204 §6's QPACK_DECODER_STREAM_ERROR: the encoder could not interpret an
+        /// instruction on the decoder stream. `encoder_state.zig` names the rules that produce it.
+        DecoderStreamError,
+    };
+
+    /// How one string goes on the wire (RFC 9204 §4.1.2), as `coding` chooses it.
+    pub const Coding = representation.Coding;
 
     pub fn init(encoder: *Encoder, huffman: HuffmanUse) void {
         encoder.huffman = huffman;
@@ -205,7 +208,7 @@ pub const Encoder = struct {
         };
     }
 
-    pub fn coding(encoder: *const Encoder, octets: []const u8) representation.Coding {
+    pub fn coding(encoder: *const Encoder, octets: []const u8) Coding {
         return switch (encoder.huffman) {
             .never => .raw,
             .always => .huffman,

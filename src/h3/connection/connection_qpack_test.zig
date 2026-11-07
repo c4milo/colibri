@@ -148,7 +148,7 @@ test "design §8 step 29d.13: a section that may insert no line does not use the
     // writes without failure did not use it.
     try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
     try exchange();
-    const no_insert = [_]qpack.encoder.Indexing{ .no_insert, .never_indexed };
+    const no_insert = [_]qpack.Encoder.Indexing{ .no_insert, .never_indexed };
     const section = try harness.section_of(&harness.test_section, &custom_lines);
     var writer = server.writer_for(id);
     try server.h3.write_response(&server.transport, id, section, &no_insert, &writer, harness.test_now_ns);

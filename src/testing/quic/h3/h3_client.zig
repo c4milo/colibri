@@ -19,7 +19,7 @@ const StreamId = quic.stream.StreamId;
 const StreamProvider = quic.stream.StreamProvider;
 
 /// What the endpoint's QPACK decoder advertises, so the peer's encoder uses a dynamic table.
-const qpack_settings: h3.qpack.decoder.Settings = .{
+const qpack_settings: h3.qpack.Decoder.Settings = .{
     .max_table_capacity = constants.h3_qpack_capacity,
     .blocked_streams = constants.h3_qpack_blocked_streams,
 };

@@ -21,7 +21,7 @@ const encoder_module = @import("encoder.zig");
 
 const Writer = core.Writer;
 const Encoder = encoder_module.Encoder;
-const Indexing = encoder_module.Indexing;
+const Indexing = Encoder.Indexing;
 const entry_size = wire.table_size.entry_size;
 
 /// How one field line will be written (RFC 9204 §4.5).

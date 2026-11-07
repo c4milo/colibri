@@ -23,7 +23,7 @@ const FieldSection = qpack.http.FieldSection;
 const Line = vectors.Line;
 
 /// The table sizes and blocked-stream counts colibri's encoder runs at.
-const round_trip_settings = [vectors.round_trip_settings_count]qpack.decoder.Settings{
+const round_trip_settings = [vectors.round_trip_settings_count]qpack.Decoder.Settings{
     .{},
     .{ .blocked_streams = blocked_streams },
     .{ .max_table_capacity = table_capacity },
@@ -71,7 +71,7 @@ pub fn run(io: Io, gpa: Allocator, root_path: []const u8, counts: *vectors.Count
     }
 }
 
-fn round_trip(arena: Allocator, sets: []const []const Line, settings: qpack.decoder.Settings, comptime mode: Mode, index: usize, counts: *vectors.Counts) !void {
+fn round_trip(arena: Allocator, sets: []const []const Line, settings: qpack.Decoder.Settings, comptime mode: Mode, index: usize, counts: *vectors.Counts) !void {
     encoder.init(.when_shorter);
     encoder.on_settings(.{ .max_table_capacity = settings.max_table_capacity, .blocked_streams = settings.blocked_streams });
     var file: std.ArrayList(u8) = .empty;
@@ -153,7 +153,7 @@ test "a round trip decodes what the encoder wrote in both modes, and a wrong inp
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const sets = try vectors.parse_qif(arena, ":method\tGET\nx-a\t1\n\nx-a\t1\nx-b\t2\n\n");
-    const settings: qpack.decoder.Settings = .{ .max_table_capacity = table_capacity, .blocked_streams = blocked_streams };
+    const settings: qpack.Decoder.Settings = .{ .max_table_capacity = table_capacity, .blocked_streams = blocked_streams };
     var counts: vectors.Counts = .{};
     try round_trip(arena, sets, settings, .immediate, 0, &counts);
     try round_trip(arena, sets, settings, .none, 0, &counts);

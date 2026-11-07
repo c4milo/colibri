@@ -43,15 +43,10 @@ const prefixed_integer = wire.prefixed_integer;
 const string_literal = wire.string_literal;
 const entry_size = wire.table_size.entry_size;
 
-pub const Error = core.Writer.Error;
-
 /// How a line may be represented. `incremental` lets the encoder index it; `without_indexing`
 /// keeps it out of the table; `never_indexed` also tells every intermediary to do the same
 /// (RFC 7541 §6.2.3, §7.1.3).
 pub const Indexing = enum { incremental, without_indexing, never_indexed };
-
-/// When a string is Huffman-coded (RFC 7541 §5.2 leaves the choice to the encoder).
-pub const HuffmanUse = enum { never, always, when_shorter };
 
 pub const Encoder = struct {
     table: DynamicTable,
@@ -68,6 +63,11 @@ pub const Encoder = struct {
     inserted_uncommitted: bool,
     /// A block was abandoned after an insert, so the next block empties both tables first.
     empty_owed: bool,
+
+    pub const Error = core.Writer.Error;
+
+    /// When a string is Huffman-coded (RFC 7541 §5.2 leaves the choice to the encoder).
+    pub const HuffmanUse = enum { never, always, when_shorter };
 
     /// An encoder whose table's capacity and limit are both `capacity`: the protocol's initial
     /// value, 4,096 in h2 (RFC 9113 §6.5.2).
@@ -208,7 +208,7 @@ pub const Encoder = struct {
 };
 
 /// A size update (RFC 7541 §6.3).
-fn write_size_update(output: *Writer, capacity: u64) Error!void {
+fn write_size_update(output: *Writer, capacity: u64) Encoder.Error!void {
     try prefixed_integer.encode(constants.protocol.size_update_prefix_bits, output, constants.protocol.size_update_pattern, capacity);
 }
 

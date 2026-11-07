@@ -16,7 +16,7 @@ const decoder_module = @import("decoder.zig");
 const Reader = core.Reader;
 const Writer = core.Writer;
 const Decoder = decoder_module.Decoder;
-const Error = decoder_module.Error;
+const Error = Decoder.Error;
 
 /// Applies every whole instruction in `reader`, and leaves a partial one unread.
 pub fn read(decoder: *Decoder, reader: *Reader) Error!void {
