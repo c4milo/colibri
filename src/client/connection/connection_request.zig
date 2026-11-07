@@ -65,8 +65,6 @@ const reserved_names = [_][]const u8{
 
 /// Refuses a request no protocol could send, before its exchange takes a slot.
 pub fn check_request(request: *const Request) CheckError!void {
-    // The caller marks each of its field lines, or none.
-    assert(request.never_indexed.headers.len == 0 or request.never_indexed.headers.len == request.headers.len);
     // Decision 153: a streamed body goes through `write_body`, so `body` is empty, and only a
     // streamed body states its length.
     assert(!request.streamed.request or request.body.len == 0);
@@ -78,13 +76,8 @@ pub fn check_request(request: *const Request) CheckError!void {
     if (request.path.len == 0) return error.RequestUnsupported;
     // RFC 9110 §9.3.6: CONNECT asks for a tunnel, which is no exchange of a request and a response.
     if (std.mem.eql(u8, request.method, "CONNECT")) return error.RequestUnsupported;
-    for (request.headers) |field| {
-        for (reserved_names) |reserved| {
-            // RFC 9113 §8.2.2, RFC 9112 §3.2 and RFC 9110 §8.6: see `reserved_names`. Field names
-            // are case-insensitive (RFC 9110 §5.1).
-            if (std.ascii.eqlIgnoreCase(field.name, reserved)) return error.FieldReserved;
-        }
-    }
+    try check_headers(request.headers);
+    try check_headers(request.never_indexed.headers);
     var trailers_size: u64 = 0;
     for (request.trailers) |field| {
         try check_trailer(field);
@@ -107,6 +100,17 @@ const trailer_forbidden_names = [_][]const u8{
     // RFC 9110 §6.6.2: the client names the trailer fields itself.
     "trailer",
 };
+
+/// Refuses a header that names what the client adds itself.
+fn check_headers(headers: []const event.Header) CheckError!void {
+    for (headers) |field| {
+        for (reserved_names) |reserved| {
+            // RFC 9113 §8.2.2, RFC 9112 §3.2 and RFC 9110 §8.6: see `reserved_names`. Field names
+            // are case-insensitive (RFC 9110 §5.1).
+            if (std.ascii.eqlIgnoreCase(field.name, reserved)) return error.FieldReserved;
+        }
+    }
+}
 
 /// Refuses a trailer field that no protocol may send, before the exchange takes a slot. The pool
 /// chooses the protocol, so a trailer section goes out on h11, h2 or h3 alike.

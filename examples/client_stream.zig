@@ -146,9 +146,9 @@ pub fn main() !void {
 fn hand_next() !void {
     if (handed == payloads.len or taken < handed) return;
     if (received_len < end_of(handed)) return;
-    const last = handed + 1 == payloads.len;
+    const end: client.PieceEnd = if (handed + 1 == payloads.len) .last else .more;
     // The pool copies none of the message: `chat` stays in place until its `body_taken`.
-    try pool.write_body(call_id, chat[end_of(handed)..end_of(handed + 1)], last);
+    try pool.write_body(call_id, chat[end_of(handed)..end_of(handed + 1)], end);
     handed += 1;
 }
 

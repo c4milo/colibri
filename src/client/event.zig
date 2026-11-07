@@ -62,8 +62,8 @@ pub const Request = struct {
     /// neither, nor anything that frames the message (RFC 9110 §6.1).
     headers: []const Header = &.{},
     /// The path and the headers no intermediary may add to a compression table, such as a
-    /// credential: never-indexed literals in h2 (RFC 7541 §6.2.3, §7.1.3). h11 compresses nothing,
-    /// and writes them as it writes any other.
+    /// credential: never-indexed literals in h2 (RFC 7541 §6.2.3, §7.1.3) and h3 (RFC 9204
+    /// §4.5.4). h11 compresses nothing, and writes them as it writes any other.
     never_indexed: NeverIndexed = .{},
     /// The request's body, sent whole. Empty for none, and for a body that goes in pieces.
     body: []const u8 = "",
@@ -76,6 +76,10 @@ pub const Request = struct {
     /// and `request` refuses a field RFC 9110 §6.5.1 forbids here with `InvalidTrailer`.
     trailers: []const Header = &.{},
 };
+
+/// Whether a piece that `ConnectionPool.write_body` hands is the last of the request body
+/// (decision 158 ruling 9).
+pub const PieceEnd = enum { more, last };
 
 /// Which body of an exchange goes in pieces (decision 153 ruling 3). A streamed request body goes
 /// out through `ConnectionPool.write_body`, one piece at a time, and `Request.body` is empty. A
@@ -140,8 +144,9 @@ pub const Response = struct {
 pub const NeverIndexed = struct {
     /// The path, which carries the query, as a DoH GET's does (RFC 8484 §4.1).
     path: bool = false,
-    /// One flag for each of the request's headers, in order, or empty for none.
-    headers: []const bool = &.{},
+    /// The headers that go out never-indexed, after `Request.headers`, as std's
+    /// `privileged_headers` do (decision 158 ruling 9). Empty for none.
+    headers: []const Header = &.{},
 };
 
 /// An exchange that ended: its id, the request, and the response, whose outcome says how. The

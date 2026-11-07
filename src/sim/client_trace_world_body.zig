@@ -85,7 +85,7 @@ pub fn hand_next(world: *World, index: usize) world_module.Error!void {
     const content = content_source[0..world.plan.content_len[index]];
     const from = content.len * pieces.handed[index] / count;
     const to = content.len * (pieces.handed[index] + 1) / count;
-    const end = pieces.handed[index] + 1 == count;
+    const end: client.PieceEnd = if (pieces.handed[index] + 1 == count) .last else .more;
     world.pool.write_body(world.ids[index].?, content[from..to], end) catch |failure| switch (failure) {
         // RFC 9113 §8.1 and RFC 9114 §4.1: the exchange ended, or its server stopped the body.
         error.BodyStopped => {

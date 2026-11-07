@@ -48,8 +48,8 @@ pub fn adds_te(request: *const Request, response: *const Response) bool {
 
 /// Whether `request`'s own headers name TE (RFC 9110 §10.1.4).
 pub fn names_te(request: *const Request) bool {
-    for (request.headers) |field| {
-        if (http.connection_specific.classify(field.name) == .te) return true;
+    for ([_][]const event.Header{ request.headers, request.never_indexed.headers }) |list| {
+        for (list) |field| if (http.connection_specific.classify(field.name) == .te) return true;
     }
     return false;
 }

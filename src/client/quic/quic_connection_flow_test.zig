@@ -184,17 +184,18 @@ test "RFC 9114 §3.1: a handshake that selects another protocol ends the connect
     try testing.expectEqual(0, support.answers_len);
 }
 
-test "RFC 9204 §4.5.4: a marked path and field line go out as literals with the N bit, and nothing else changes" {
+test "RFC 9204 §4.5.4: a marked path and a never-indexed header go out as literals with the N bit, and nothing else changes" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
     const path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE";
-    const fields = [_]event.Header{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
-    const marks = [_]bool{ true, false };
+    const fields = [_]event.Header{.{ .name = "accept", .value = "application/dns-message" }};
+    const marks = [_]event.Header{.{ .name = "authorization", .value = "secret" }};
+    const all = fields ++ marks;
     var marked: Exchange = .{
         .request = .{ .method = "GET", .path = path, .headers = &fields, .never_indexed = .{ .path = true, .headers = &marks } },
         .response = .{ .body = &bodies[0] },
     };
-    var plain: Exchange = .{ .request = .{ .method = "GET", .path = path, .headers = &fields }, .response = .{ .body = &bodies[1] } };
+    var plain: Exchange = .{ .request = .{ .method = "GET", .path = path, .headers = &all }, .response = .{ .body = &bodies[1] } };
     _ = try connection.request(&marked.request, &marked.response);
     _ = try connection.request(&plain.request, &plain.response);
     try support.pump(support.rounds_default);
@@ -209,7 +210,7 @@ test "RFC 9204 §4.5.4: a marked path and field line go out as literals with the
         try testing.expectEqual(n_bit, with ^ without);
         try testing.expect(with & n_bit != 0);
     }
-    // The path's line and the marked field line; the unmarked one is the same in both.
+    // The path's line and the never-indexed header; the other header is the same in both.
     try testing.expectEqual(2, differing);
 }
 

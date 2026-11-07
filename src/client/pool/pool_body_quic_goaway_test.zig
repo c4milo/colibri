@@ -29,7 +29,7 @@ test "decision 153 ruling 3: a GOAWAY at or below a taken h3 PUT's stream refuse
     const put_id = try pool.request(&put.request, &put.response);
     var get = fixture.get(&fixture.bodies[1]);
     const get_id = try pool.request(&get.request, &get.response);
-    try pool.write_body(put_id, first, false);
+    try pool.write_body(put_id, first, .more);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
     pool.cancel(get_id, quic_support.now_ns);

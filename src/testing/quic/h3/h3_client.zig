@@ -108,7 +108,7 @@ pub const Client = struct {
             try client.section.append(":authority", client.authority);
             try client.section.append(":path", path);
             var writer = Writer.init(&request.prefix);
-            const id = client.connection.write_request(transport, &client.section, &.{}, false, &writer, now_ns) catch |failure| switch (failure) {
+            const id = client.connection.write_request(transport, &.{ .section = &client.section }, &writer, now_ns) catch |failure| switch (failure) {
                 // RFC 9000 §4.6: past the server's limit the rest wait for its MAX_STREAMS.
                 error.StreamsExhausted => return,
                 else => return failure,

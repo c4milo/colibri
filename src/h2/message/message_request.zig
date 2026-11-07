@@ -20,9 +20,9 @@ const Error = message.Error;
 const FieldSection = http.FieldSection;
 const Seen = message_lines.Seen;
 
-/// Step 3 for a request whose lines `walk` accepted. Returns true when the request is CONNECT.
-/// Each reason `http` returns becomes the h2 error RFC 9113 §8 assigns it.
-pub fn check(seen: Seen) Error!bool {
+/// Step 3 for a request whose lines `walk` accepted. Returns the request's kind. Each reason
+/// `http` returns becomes the h2 error RFC 9113 §8 assigns it.
+pub fn check(seen: Seen) Error!http.message_request.Kind {
     return http.message_request.check(seen) catch |reason| switch (reason) {
         // RFC 9113 §8.3.1: every request includes exactly one valid value for :method.
         error.MethodMissing => error.MethodMissing,
@@ -189,7 +189,7 @@ test "an http or https :authority holding userinfo is AuthorityUserinfo, and oth
 
 test "check reports whether a request is CONNECT, over a record walk filled" {
     const connect = try message_lines.walk(try request_of("CONNECT", null, "a:1", null), .request);
-    try testing.expect(try check(connect));
+    try testing.expectEqual(.connect, try check(connect));
     const get = try message_lines.walk(try request_of("GET", "https", null, "/"), .request);
-    try testing.expect(!try check(get));
+    try testing.expectEqual(.other, try check(get));
 }

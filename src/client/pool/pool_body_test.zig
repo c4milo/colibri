@@ -123,33 +123,33 @@ test "decision 153: write_body refuses an unknown id, a second piece while one i
     try start();
     var put = streamed_put();
     const id = try pool.request(&put.request, &put.response);
-    try testing.expectError(error.UnknownRequest, pool.write_body(id + 1, first_piece, false));
-    try pool.write_body(id, first_piece, false);
-    try testing.expectError(error.PieceHeld, pool.write_body(id, last_piece, true));
+    try testing.expectError(error.UnknownRequest, pool.write_body(id + 1, first_piece, .more));
+    try pool.write_body(id, first_piece, .more);
+    try testing.expectError(error.PieceHeld, pool.write_body(id, last_piece, .last));
     // The piece handed while the exchange waited goes out once the connection takes it.
     try collect();
     try send();
     try testing.expectEqual(1, count(.body_taken));
     try testing.expectEqual(id, events[events_len - 1].body_taken);
-    try pool.write_body(id, last_piece, true);
-    try testing.expectError(error.PieceHeld, pool.write_body(id, last_piece, true));
+    try pool.write_body(id, last_piece, .last);
+    try testing.expectError(error.PieceHeld, pool.write_body(id, last_piece, .last));
     try send();
     try testing.expectEqual(2, count(.body_taken));
-    try testing.expectError(error.BodyEnded, pool.write_body(id, last_piece, true));
+    try testing.expectError(error.BodyEnded, pool.write_body(id, last_piece, .last));
     try peer_read();
     try testing.expectEqualStrings(first_piece ++ last_piece, read_body[0..read_len]);
     // The exchange ends, and its id is unknown from then on.
     support.to_client_len = (try support.peer_h11.write_response(&support.to_client, 200, "", &.{.{ .name = "Content-Length", .value = "0" }}));
     try collect();
     try testing.expectEqual(.response, put.response.result);
-    try testing.expectError(error.UnknownRequest, pool.write_body(id, last_piece, true));
+    try testing.expectError(error.UnknownRequest, pool.write_body(id, last_piece, .last));
 }
 
 test "decision 153 ruling 3: a streamed request whose connection closed before its first take goes out again, piece and all" {
     try start();
     var put = streamed_put();
     const id = try pool.request(&put.request, &put.response);
-    try pool.write_body(id, first_piece, true);
+    try pool.write_body(id, first_piece, .last);
     try collect();
     // The connection closes before it wrote the request.
     pool.transport_closed(pool_support.connection_of(&pool, .tcp));
@@ -168,7 +168,7 @@ test "decision 153 ruling 3: a streamed request whose connection closed after a 
     try start();
     var put = streamed_put();
     const id = try pool.request(&put.request, &put.response);
-    try pool.write_body(id, first_piece, false);
+    try pool.write_body(id, first_piece, .more);
     try collect();
     try send();
     try testing.expectEqual(1, count(.body_taken));
@@ -186,9 +186,9 @@ test "decision 153: cancel gives the held piece back with the exchange" {
     try start();
     var put = streamed_put();
     const id = try pool.request(&put.request, &put.response);
-    try pool.write_body(id, first_piece, false);
+    try pool.write_body(id, first_piece, .more);
     pool.cancel(id, support.now_ns);
-    try testing.expectError(error.UnknownRequest, pool.write_body(id, last_piece, true));
+    try testing.expectError(error.UnknownRequest, pool.write_body(id, last_piece, .last));
     try collect();
     try testing.expectEqual(0, count(.body_taken));
     try testing.expectEqual(0, count(.finished));
@@ -205,7 +205,7 @@ test "decision 153 ruling 3: a streamed request refused after a take ends closed
         try support.peer_h2_read();
         try collect();
     }
-    try pool.write_body(id, first_piece, false);
+    try pool.write_body(id, first_piece, .more);
     try send();
     try support.peer_h2_read();
     try testing.expectEqual(1, count(.body_taken));
@@ -314,9 +314,9 @@ test "decision 153 ruling 7: write_body on an exchange the pool ended returns Bo
         if (reported == .open) pool.transport_closed(reported.open.connection);
         if (reported == .finished) break;
     }
-    try testing.expectError(error.UnknownRequest, pool.write_body(first_id, first_piece, false));
+    try testing.expectError(error.UnknownRequest, pool.write_body(first_id, first_piece, .more));
     // RFC 9113 §8.7: no server processed the exchange, and no more of it goes out.
-    try testing.expectError(error.BodyStopped, pool.write_body(second_id, first_piece, false));
+    try testing.expectError(error.BodyStopped, pool.write_body(second_id, first_piece, .more));
     try testing.expectEqual(.refused, second.response.result);
 }
 
@@ -337,12 +337,12 @@ test "decision 125: write_body gives a connection that found nothing to send its
     try start();
     var put = streamed_put();
     const id = try pool.request(&put.request, &put.response);
-    try pool.write_body(id, first_piece, false);
+    try pool.write_body(id, first_piece, .more);
     try collect();
     try send();
     try testing.expectEqual(1, count(.body_taken));
     try expect_blocked();
-    try pool.write_body(id, last_piece, true);
+    try pool.write_body(id, last_piece, .last);
     try collect();
     try testing.expectEqual(1, count(.send));
 }

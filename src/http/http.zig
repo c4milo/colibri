@@ -67,6 +67,7 @@ pub const message_lines = struct {
 };
 
 pub const message_request = struct {
+    pub const Kind = files.message_request.Kind;
     pub const check = files.message_request.check;
 };
 
@@ -109,6 +110,10 @@ test "decision 158: a field section is emptied by init alone" {
     try core.public_names.expect(FieldSection, &.{
         "AppendError", "Iterator", "init", "len", "append", "extend_last", "get", "iterator", "find",
     });
+}
+
+test "decision 158: a request's kind is a named value, not a bool" {
+    try core.public_names.expect(message_request, &.{ "Kind", "check" });
 }
 
 test "decision 122: the method namespace exports the type the router's table names" {

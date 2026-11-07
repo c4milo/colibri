@@ -92,7 +92,7 @@ test "§7.1: a DATA frame cut short after the server's side of the stream has fi
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, false, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, &.{ .section = section }, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), false);
     try exchange();
     _ = (try next(server)).?.request;
@@ -119,7 +119,7 @@ test "RFC 9000 §4.6: colibri opens no request stream past the peer's limit" {
     var octets: [harness.kept_len]u8 = undefined;
     var writer = Writer.init(&octets);
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
-    try testing.expectError(error.StreamsExhausted, client.h3.write_request(&client.transport, section, &.{}, false, &writer, harness.test_now_ns));
+    try testing.expectError(error.StreamsExhausted, client.h3.write_request(&client.transport, &.{ .section = section }, &writer, harness.test_now_ns));
     try testing.expectEqual(0, writer.written().len);
 }
 
@@ -128,7 +128,7 @@ test "a HEADERS frame that may not fit the caller's buffer is not written, nor i
     var small: [8]u8 = undefined;
     var writer = Writer.init(&small);
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
-    try testing.expectError(error.NoSpaceLeft, client.h3.write_request(&client.transport, section, &.{}, false, &writer, harness.test_now_ns));
+    try testing.expectError(error.NoSpaceLeft, client.h3.write_request(&client.transport, &.{ .section = section }, &writer, harness.test_now_ns));
     try testing.expectEqual(0, writer.written().len);
     try testing.expectEqual(0, client.transport.streams.next_index[0]);
 }

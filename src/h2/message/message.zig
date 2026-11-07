@@ -185,7 +185,7 @@ pub const Response = struct {
 /// Reads `section` as a request (RFC 9113 §8.3.1, §8.5).
 pub fn validate_request(section: *const FieldSection) Error!Request {
     const seen = try message_lines.walk(section, .request);
-    const is_connect = try message_request.check(seen);
+    const is_connect = try message_request.check(seen) == .connect;
     const content_length = try content_length_of(section, seen);
     const method = seen.method.?;
     assert(is_connect == (http.method.standard(method) == .connect));

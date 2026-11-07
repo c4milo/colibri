@@ -324,12 +324,12 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         }
 
         /// Hands exchange `id`'s streamed request its next `piece` (decision 153), the last one
-        /// when `end` is set. The pool copies no octet of it: the caller keeps it in place until
+        /// when `end` is `.last`. The pool copies no octet of it: the caller keeps it in place until
         /// the exchange's `body_taken` event, its `finished` event, or until `cancel` returns. The
         /// pool holds one piece of each exchange at a time. With a length stated, the pieces add
         /// up to it.
-        pub fn write_body(pool: *Self, id: RequestId, piece: []const u8, end: bool) WriteBodyError!void {
-            return pool_calls.write_body(pool, id, piece, end);
+        pub fn write_body(pool: *Self, id: RequestId, piece: []const u8, end: event.PieceEnd) WriteBodyError!void {
+            return pool_calls.write_body(pool, id, piece, end == .last);
         }
 
         /// Gives back the piece of exchange `id`'s streamed response that its `Response.body`

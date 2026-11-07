@@ -48,6 +48,8 @@ pub const Response = files.event.Response;
 pub const Status = http.Status;
 /// Which body of an exchange goes in pieces (decision 153): `Request.streamed`.
 pub const Streamed = files.event.Streamed;
+/// Whether a piece `ConnectionPool.write_body` hands is the last (decision 158 ruling 9).
+pub const PieceEnd = files.event.PieceEnd;
 pub const Headers = files.headers.Headers;
 pub const Trailers = files.headers.Trailers;
 pub const Result = files.event.Result;
@@ -139,18 +141,18 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // adds `ResumeProvider`, `ResumeState` and `ResumeBounds` (decision 149). Step 38 replaces
     // `WantedHeader` with `Headers` and `Trailers` (decision 152). Step 39e adds `WriteBodyError`
     // and `Streamed`, which a program streams a request body with (decision 153). Step 45i adds
-    // `Status` (decision 158 ruling 5).
+    // `Status` (decision 158 ruling 5), and 45j `PieceEnd` (ruling 9).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",         "Config",         "Timeouts",           "Protocols",      "StartError",         "RequestError",
-        "WriteBodyError",    "Header",         "RequestId",          "Protocol",       "Request",            "Response",
-        "Status",            "Streamed",       "Headers",            "Trailers",       "Result",             "Finished",
-        "Sent",              "Address",        "Ecn",                "ResumeProvider", "ResumeState",        "ResumeBounds",
-        "ConnectionPool",    "Capacity",       "Destination",        "HttpsRecord",    "Alternative",        "Input",
-        "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",          "Open",               "ConnectionHandle",
-        "Connected",         "Transport",      "Phase",              "ReceivePool",    "ReceivePoolOptions", "ReceiveStorage",
-        "Coding",            "DecoderPool",    "DecoderPoolOptions", "Decoders",       "ZstdDecoderPool",    "ZstdDecoders",
-        "BrotliDecoderPool", "BrotliDecoders", "Features",
+        "constants",        "Config",            "Timeouts",       "Protocols",          "StartError",     "RequestError",
+        "WriteBodyError",   "Header",            "RequestId",      "Protocol",           "Request",        "Response",
+        "Status",           "Streamed",          "PieceEnd",       "Headers",            "Trailers",       "Result",
+        "Finished",         "Sent",              "Address",        "Ecn",                "ResumeProvider", "ResumeState",
+        "ResumeBounds",     "ConnectionPool",    "Capacity",       "Destination",        "HttpsRecord",    "Alternative",
+        "Input",            "StreamBytes",       "Datagram",       "ReceiveResult",      "Event",          "Open",
+        "ConnectionHandle", "Connected",         "Transport",      "Phase",              "ReceivePool",    "ReceivePoolOptions",
+        "ReceiveStorage",   "Coding",            "DecoderPool",    "DecoderPoolOptions", "Decoders",       "ZstdDecoderPool",
+        "ZstdDecoders",     "BrotliDecoderPool", "BrotliDecoders", "Features",
     });
 }
 

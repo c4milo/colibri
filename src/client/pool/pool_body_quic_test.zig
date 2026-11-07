@@ -52,7 +52,7 @@ test "RFC 9114 §4.1: streamed pieces go out in DATA frames of their own, and th
     var put: connection_support.Exchange = undefined;
     const id = try start(&put);
     for (pieces, 1..) |piece, handed| {
-        try pool.write_body(id, piece, handed == pieces.len);
+        try pool.write_body(id, piece, if (handed == pieces.len) .last else .more);
         try pump(quic_support.rounds_default);
         try testing.expectEqual(handed, count(.body_taken));
     }
@@ -69,12 +69,12 @@ test "RFC 9114 §4.1: streamed pieces go out in DATA frames of their own, and th
 test "RFC 9000 §13.3: a piece over h3 is taken once the server acknowledged it, and not once it was sent" {
     var put: connection_support.Exchange = undefined;
     const id = try start(&put);
-    try pool.write_body(id, pieces[1], false);
+    try pool.write_body(id, pieces[1], .more);
     // The datagrams that carry the piece are lost, so the server acknowledges none of it.
     fixture.blocked = true;
     try pump(quic_support.rounds_default);
     try testing.expectEqual(0, count(.body_taken));
-    try testing.expectError(error.PieceHeld, pool.write_body(id, pieces[2], true));
+    try testing.expectError(error.PieceHeld, pool.write_body(id, pieces[2], .last));
     // QUIC sends the piece again, read from the program's memory, and the server acknowledges it.
     fixture.blocked = false;
     try pump(fixture.rounds_past_probe);
@@ -86,15 +86,15 @@ test "RFC 9000 §13.3: a piece over h3 is taken once the server acknowledged it,
 test "RFC 9000 §13.3: a piece handed at the last one's `body_taken` waits for its own acknowledgment" {
     var put: connection_support.Exchange = undefined;
     const id = try start(&put);
-    try pool.write_body(id, pieces[0], false);
+    try pool.write_body(id, pieces[0], .more);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
     // The program hands the next piece as it reads the event, and calls `receive` again before
     // the piece goes out: the server acknowledged every octet the stream holds so far.
-    try pool.write_body(id, pieces[1], false);
+    try pool.write_body(id, pieces[1], .more);
     const received = pool.receive(.none, quic_support.now_ns);
     try testing.expectEqual(null, received.event);
-    try testing.expectError(error.PieceHeld, pool.write_body(id, pieces[2], true));
+    try testing.expectError(error.PieceHeld, pool.write_body(id, pieces[2], .last));
     try pump(quic_support.rounds_default);
     try testing.expectEqual(2, count(.body_taken));
     try testing.expectEqual(pieces[0].len + pieces[1].len, quic_support.answers[0].received);
@@ -103,26 +103,26 @@ test "RFC 9000 §13.3: a piece handed at the last one's `body_taken` waits for i
 test "RFC 9000 §3.5: a piece handed before the server stopped the body is taken once QUIC reset the stream" {
     var put: connection_support.Exchange = undefined;
     const id = try start(&put);
-    try pool.write_body(id, pieces[0], false);
+    try pool.write_body(id, pieces[0], .more);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
     const stream: quic.StreamId = .{ .value = quic_support.answers[0].id };
     try quic.Connection.stop_sending(&quic_support.server, stream, h3.constants.protocol.error_no_error);
     // The program hands the next piece, and the STOP_SENDING arrives before the piece goes out.
-    try pool.write_body(id, pieces[1], false);
+    try pool.write_body(id, pieces[1], .more);
     const len = (try quic_support.server_send(&fixture.datagram)).?;
     @memcpy(fixture.crossing[0..len], fixture.datagram[0..len]);
     try fixture.deliver(fixture.crossing[0..len]);
     // QUIC reset the stream's sending part (RFC 9000 §3.5), so it reads none of the piece.
     try fixture.collect();
     try testing.expectEqual(2, count(.body_taken));
-    try testing.expectError(error.BodyStopped, pool.write_body(id, pieces[2], true));
+    try testing.expectError(error.BodyStopped, pool.write_body(id, pieces[2], .last));
 }
 
 test "RFC 9114 §4.1: a server that asks the client to stop sending ends the body, and the exchange still finishes" {
     var put: connection_support.Exchange = undefined;
     const id = try start(&put);
-    try pool.write_body(id, pieces[0], false);
+    try pool.write_body(id, pieces[0], .more);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
     // RFC 9114 §4.1: "The error code H3_NO_ERROR SHOULD be used when requesting that the client
@@ -130,7 +130,7 @@ test "RFC 9114 §4.1: a server that asks the client to stop sending ends the bod
     const stream: quic.StreamId = .{ .value = quic_support.answers[0].id };
     try quic.Connection.stop_sending(&quic_support.server, stream, h3.constants.protocol.error_no_error);
     try pump(quic_support.rounds_default);
-    try testing.expectError(error.BodyStopped, pool.write_body(id, pieces[1], true));
+    try testing.expectError(error.BodyStopped, pool.write_body(id, pieces[1], .last));
     // RFC 9114 §4.1: "Clients MUST NOT discard complete responses as a result of having their
     // request terminated abruptly".
     quic_support.server_answers = true;
@@ -143,7 +143,7 @@ test "RFC 9114 §4.1: a server that asks the client to stop sending ends the bod
 test "RFC 9114 §4.1.1: a response that ends before the request body resets the request stream, and the exchange finishes" {
     var put: connection_support.Exchange = undefined;
     const id = try start(&put);
-    try pool.write_body(id, pieces[0], false);
+    try pool.write_body(id, pieces[0], .more);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
     // The server answers whole while the request body is still open, so the stream's sending part
@@ -153,7 +153,7 @@ test "RFC 9114 §4.1.1: a response that ends before the request body resets the 
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.finished));
     try testing.expectEqual(.response, put.response.result);
-    try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], true));
+    try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], .last));
 }
 
 /// A receive pool smaller than the response, so the stream's window holds the server back
@@ -349,7 +349,7 @@ test "decision 153 ruling 7: a cancel gives back the request piece and the respo
     quic_support.server_answers = true;
     quic_support.answer_early = true;
     quic_support.answer_open = true;
-    try pool.write_body(id, pieces[0], false);
+    try pool.write_body(id, pieces[0], .more);
     fixture.blocked = true;
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body));
@@ -359,7 +359,7 @@ test "decision 153 ruling 7: a cancel gives back the request piece and the respo
     try pump(quic_support.rounds_default);
     try testing.expectEqual(0, count(.body_taken));
     try testing.expectEqual(0, count(.finished));
-    try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], true));
+    try testing.expectError(error.UnknownRequest, pool.write_body(id, pieces[1], .last));
 }
 
 test "decision 153 ruling 3: a cancel, a refusal after a take, a GOAWAY and a shutdown report the PUT and close" {
@@ -367,7 +367,7 @@ test "decision 153 ruling 3: a cancel, a refusal after a take, a GOAWAY and a sh
     const put_id = try start(&put);
     var get = fixture.get(&fixture.bodies[1]);
     const get_id = try pool.request(&get.request, &get.response);
-    try pool.write_body(put_id, pieces[0], false);
+    try pool.write_body(put_id, pieces[0], .more);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(1, count(.body_taken));
     pool.cancel(get_id, quic_support.now_ns);
@@ -398,7 +398,7 @@ test "RFC 9114 §4.1: over h3 a request body goes on after the response's head, 
     try read_new(id, read_body, 0, &read);
     var from = fixture.events_len;
     for (pieces, 1..) |handed_piece, handed| {
-        try pool.write_body(id, handed_piece, handed == pieces.len);
+        try pool.write_body(id, handed_piece, if (handed == pieces.len) .last else .more);
         try pump(quic_support.rounds_default);
         try testing.expectEqual(handed, count(.body_taken));
     }

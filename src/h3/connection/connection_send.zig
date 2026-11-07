@@ -48,16 +48,19 @@ pub const Error = core.Writer.Error || connection_module.Connection.Error || err
     StreamsExhausted,
 };
 
-/// Opens a request stream and writes its HEADERS frame (RFC 9114 §4.1, §6.1).
-pub fn write_request(
-    connection: *Connection,
-    transport: *QuicConnection,
+/// A request that `write_request` writes: its field section and how each line goes out.
+pub const RequestHead = struct {
     section: *const FieldSection,
-    indexing: []const Indexing,
-    hold_data: bool,
-    output: *Writer,
-) Error!u64 {
+    /// Each line's QPACK choice (RFC 9204 §4.5), or empty for the encoder's own.
+    indexing: []const Indexing = &.{},
+    /// The response's content comes as `data_available` events, each held until `release_data`.
+    hold_data: bool = false,
+};
+
+/// Opens a request stream and writes its HEADERS frame (RFC 9114 §4.1, §6.1).
+pub fn write_request(connection: *Connection, transport: *QuicConnection, head: *const RequestHead, output: *Writer) Error!u64 {
     assert(connection.options.role == .client);
+    const section = head.section;
     // RFC 9114 §5.2: "Endpoints MUST NOT initiate new requests or promise new pushes on the
     // connection after receipt of a GOAWAY frame from the peer."
     if (connection.goaway_received != null) return error.GoawayReceived;
@@ -72,14 +75,14 @@ pub fn write_request(
     // The encoder records the section against its stream, so the ID comes before the stream
     // opens, and the stream opens only once its frame is written.
     const id = StreamId.of(.client, .bidirectional, streams.next_index[which]);
-    const payload_len = try write_headers(connection, transport, id.value, section, indexing, output);
+    const payload_len = try write_headers(connection, transport, id.value, section, head.indexing, output);
     // RFC 9000 §4.6: the limit was checked above, so only colibri's table can refuse the stream.
     const opened = quic.Connection.open_stream(transport, .bidirectional) catch return error.StreamsExhausted;
     assert(opened.value == id.value);
     connection_qlog.request_stream_set(connection, .local, id.value);
     connection_qlog.frame_event(connection, .created, id.value, .{ .headers = .{ .section = section, .payload_len = payload_len } });
     // RFC 9110 §9.3.2: a response to HEAD carries no content, whatever its content-length.
-    slot.* = .{ .id = id.value, .head_request = std.mem.eql(u8, found.method, "HEAD"), .hold_data = hold_data };
+    slot.* = .{ .id = id.value, .head_request = std.mem.eql(u8, found.method, "HEAD"), .hold_data = head.hold_data };
     return id.value;
 }
 

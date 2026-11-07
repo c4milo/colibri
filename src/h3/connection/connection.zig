@@ -162,6 +162,10 @@ pub const Connection = struct {
 
     pub const SendError = connection_send.Error;
 
+    /// The request that `write_request` writes (decision 158 ruling 9), as h2's `RequestHead`
+    /// holds its choices.
+    pub const RequestHead = connection_send.RequestHead;
+
     pub fn init(connection: *Connection, options: Options) void {
         connection.options = options;
         connection.peer_settings = null;
@@ -216,22 +220,18 @@ pub const Connection = struct {
         return &connection.section;
     }
 
-    /// Opens a request stream and writes a HEADERS frame carrying `section` into `output`, at a
-    /// client (RFC 9114 §4.1). `indexing` gives each line's QPACK choice, or is empty. With
-    /// `hold_data`, the response's content comes as `data_available` events, each held until
-    /// `release_data`. The caller keeps the octets as the stream's first, and returns the stream's
-    /// ID to `quic`'s `supply`.
+    /// Opens a request stream and writes a HEADERS frame carrying `head.section` into `output`,
+    /// at a client (RFC 9114 §4.1). The caller keeps the octets as the stream's first, and returns
+    /// the stream's ID to `quic`'s `supply`.
     pub fn write_request(
         connection: *Connection,
         transport: *QuicConnection,
-        section: *const FieldSection,
-        indexing: []const qpack.Encoder.Indexing,
-        hold_data: bool,
+        head: *const RequestHead,
         output: *Writer,
         now_ns: u64,
     ) SendError!u64 {
         connection.now_ns = now_ns;
-        return connection_send.write_request(connection, transport, section, indexing, hold_data, output);
+        return connection_send.write_request(connection, transport, head, output);
     }
 
     /// Writes a HEADERS frame carrying a response on `stream_id` into `output`, at a server
@@ -354,13 +354,13 @@ pub fn initiator(connection: *const Connection) quic.stream.Initiator {
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
         // Design §8 step 39 adds `peek_data` and `release_data` (decision 153). Decision 158 folds
-        // the namespace `connection` into the type.
-        "Data",                "Ended",            "Error",             "Event",         "HeadWait",
-        "Options",             "Request",          "Response",          "SendError",     "init",
-        "start",               "provider",         "receive",           "field_section", "write_request",
-        "write_response",      "write_trailers",   "write_data_header", "peek_data",     "release_data",
-        "cancel",              "oldest_head_wait", "delay_head_waits",  "stop_reading",  "shutdown",
-        "goaway_acknowledged", "fail",             "no_error_code",
+        // the namespace `connection` into the type, and 45j adds `RequestHead`.
+        "Data",          "Ended",               "Error",            "Event",             "HeadWait",
+        "Options",       "Request",             "Response",         "SendError",         "RequestHead",
+        "init",          "start",               "provider",         "receive",           "field_section",
+        "write_request", "write_response",      "write_trailers",   "write_data_header", "peek_data",
+        "release_data",  "cancel",              "oldest_head_wait", "delay_head_waits",  "stop_reading",
+        "shutdown",      "goaway_acknowledged", "fail",             "no_error_code",
     });
 }
 

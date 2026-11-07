@@ -50,7 +50,7 @@ fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     // RFC 9000 §4.1: a streamed response's content stays in QUIC, which gives no credit for it,
     // until the caller releases each piece (decision 153 ruling 7).
     const hold_data = slot.request.streamed.response;
-    const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], hold_data, &writer, now_ns) catch |failure| {
+    const id = connection.h3.write_request(&connection.transport, &.{ .section = &connection.section, .indexing = indexing[0..lines], .hold_data = hold_data }, &writer, now_ns) catch |failure| {
         return refused(connection, slot, failure);
     };
     stream.prefix_len = @intCast(writer.written().len);
@@ -122,7 +122,7 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
     section.init();
     append_pseudo(connection, request, indexing) orelse return null;
     append_fields(section, request, indexing) orelse return null;
-    var count = pseudo_fields + request.headers.len;
+    var count = pseudo_fields + request.headers.len + request.never_indexed.headers.len;
     var digits: [constants.limits.content_length_digits_max]u8 = undefined;
     if (event_internal.content_length(request, &digits)) |value| {
         section.append("content-length", value) catch return null;
@@ -170,14 +170,19 @@ fn append_pseudo(connection: *QuicConnection, request: *const Request, indexing:
     if (request.never_indexed.path) indexing[pseudo_fields - 1] = .never_indexed;
 }
 
-/// Appends the caller's field lines after the pseudo-header fields, each marked one written
-/// never-indexed (RFC 9204 §4.5.4, §7.1.3).
+/// Appends the caller's field lines after the pseudo-header fields, then its never-indexed ones,
+/// each written with the N bit (RFC 9204 §4.5.4, §7.1.3).
 fn append_fields(section: *h3.http.FieldSection, request: *const Request, indexing: []Indexing) ?void {
-    const marked = request.never_indexed.headers;
-    for (request.headers, 0..) |field, index| {
+    var index: usize = pseudo_fields;
+    for (request.headers) |field| {
         section.append(field.name, field.value) catch return null;
-        const never = marked.len > 0 and marked[index];
-        indexing[pseudo_fields + index] = if (never) .never_indexed else .no_insert;
+        indexing[index] = .no_insert;
+        index += 1;
+    }
+    for (request.never_indexed.headers) |field| {
+        section.append(field.name, field.value) catch return null;
+        indexing[index] = .never_indexed;
+        index += 1;
     }
 }
 

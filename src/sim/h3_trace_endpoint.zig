@@ -158,7 +158,7 @@ pub const Endpoint = struct {
                 indexing[pseudo_lines] = .may_insert;
             }
             const lines = endpoint.section.len();
-            const id = endpoint.h3.write_request(&endpoint.transport.connection, &endpoint.section, indexing[0..lines], false, &writer, endpoint.now_ns) catch |failure| switch (failure) {
+            const id = endpoint.h3.write_request(&endpoint.transport.connection, &.{ .section = &endpoint.section, .indexing = indexing[0..lines] }, &writer, endpoint.now_ns) catch |failure| switch (failure) {
                 // RFC 9114 §5.2: no request opens after the server's GOAWAY.
                 error.GoawayReceived => return,
                 else => return failure,

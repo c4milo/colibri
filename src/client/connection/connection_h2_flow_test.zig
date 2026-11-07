@@ -159,10 +159,10 @@ fn sent_holds(octets: []const u8) bool {
     return std.mem.indexOf(u8, support.to_peer[0..support.to_peer_len], octets) != null;
 }
 
-test "RFC 7541 §7.1.3: the path and a marked field line go out never-indexed, and the rest without indexing" {
+test "RFC 7541 §6.2.3: the path and a never-indexed header go out as never-indexed literals, and the rest without indexing" {
     try start();
-    const fields = [_]Header{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
-    const marks = [_]bool{ true, false };
+    const fields = [_]Header{.{ .name = "accept", .value = "application/dns-message" }};
+    const marks = [_]Header{.{ .name = "authorization", .value = "secret" }};
     var exchange: Exchange = .{
         .request = .{
             .method = "GET",

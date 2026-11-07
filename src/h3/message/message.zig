@@ -145,7 +145,7 @@ pub const Response = struct {
 /// Reads `section` as a request (RFC 9114 §4.3.1, §4.4).
 pub fn validate_request(section: *const FieldSection) Error!Request {
     const seen = try walk(section, .request);
-    const is_connect = try target(seen);
+    const is_connect = try target(seen) == .connect;
     try authority(section, seen);
     const length = try content_length_of(section);
     const method = seen.method.?;
@@ -210,8 +210,8 @@ fn walk(section: *const FieldSection, kind: http.message_lines.Kind) Error!Seen 
     };
 }
 
-/// The request target rules both RFCs state. Returns true when the request is CONNECT.
-fn target(seen: Seen) Error!bool {
+/// The request target rules both RFCs state. Returns the request's kind.
+fn target(seen: Seen) Error!http.message_request.Kind {
     return http.message_request.check(seen) catch |reason| switch (reason) {
         // RFC 9114 §4.3.1: every request includes exactly one valid value for :method.
         error.MethodMissing => error.MethodMissing,

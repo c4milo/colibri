@@ -65,8 +65,12 @@ const port_separator = ':';
 /// The delimiter that ends the userinfo subcomponent of an authority (RFC 9110 §4.2.4).
 const userinfo_delimiter = '@';
 
-/// The rules of the kind, for a request whose lines `walk` accepted. Returns true for CONNECT.
-pub fn check(seen: Seen) Error!bool {
+/// What `check` found a request to be: CONNECT, whose rules differ (RFC 9113 §8.5, RFC 9114
+/// §4.4), or any other method (decision 158 ruling 9).
+pub const Kind = enum { connect, other };
+
+/// The rules of the kind, for a request whose lines `walk` accepted. Returns the request's kind.
+pub fn check(seen: Seen) Error!Kind {
     assert(seen.status == null);
     // RFC 9113 §8.3.1 and RFC 9114 §4.3.1: every request includes exactly one valid value
     // for :method.
@@ -77,7 +81,7 @@ pub fn check(seen: Seen) Error!bool {
     if (is_connect) try check_connect(seen) else try check_target(seen, method);
     assert(!is_connect or (seen.scheme == null and seen.path == null and seen.authority != null));
     assert(is_connect or (seen.scheme != null and seen.path != null));
-    return is_connect;
+    return if (is_connect) .connect else .other;
 }
 
 /// The rules of a CONNECT request (RFC 9113 §8.5, RFC 9114 §4.4).

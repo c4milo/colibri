@@ -172,7 +172,7 @@ fn held_exchange(content: []const u8) !u64 {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, true, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, &.{ .section = section, .hold_data = true }, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), true);
     try exchange();
     // Decision 116 as amended: a head the stream ended with reports the end itself.
@@ -260,7 +260,7 @@ test "§7.1: a held stream that ends inside a DATA frame is H3_FRAME_ERROR" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, true, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, &.{ .section = section, .hold_data = true }, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), true);
     try exchange();
     var answer = server.writer_for(id);
@@ -306,7 +306,7 @@ fn arrive(id: u64, head_len: usize, from: usize, to: usize) !void {
 test "RFC 9000 §2.2: a held stream reports its content up to the first octet missing, and no further than its DATA frame" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, try harness.section_of(&harness.test_section, &harness.get_lines), &.{}, true, &writer, harness.test_now_ns);
+    const id = try client.h3.write_request(&client.transport, &.{ .section = try harness.section_of(&harness.test_section, &harness.get_lines), .hold_data = true }, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), true);
     try exchange();
     try testing.expect((try next(server)).?.request.end);

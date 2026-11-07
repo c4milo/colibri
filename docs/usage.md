@@ -1543,8 +1543,8 @@ var response: client.Response align(@alignOf(client.Response)) = .{
 The request's trailers go after its last piece. The example's call says in a trailer how many
 messages it sent, and its server reads the trailer before it ends the response.
 
-`write_body(id, piece, end)` hands the pool the next piece of the request body, and `end` says
-that it is the last piece. The program keeps the piece in place until the exchange's
+`write_body(id, piece, end)` hands the pool the next piece of the request body. `end` is a
+`client.PieceEnd`: `.last` for the last piece, and `.more` for each other piece. The program keeps the piece in place until the exchange's
 `body_taken` event. Over h11 and h2, that event comes when the connection has written the piece.
 Over h3, it comes when the server has acknowledged the piece, because QUIC sends a lost octet again
 from the program's memory (RFC 9000 §13.3). The pool holds one piece of each exchange at a time.
@@ -1556,9 +1556,9 @@ that message back whole:
 fn hand_next() !void {
     if (handed == payloads.len or taken < handed) return;
     if (received_len < end_of(handed)) return;
-    const last = handed + 1 == payloads.len;
+    const end: client.PieceEnd = if (handed + 1 == payloads.len) .last else .more;
     // The pool copies none of the message: `chat` stays in place until its `body_taken`.
-    try pool.write_body(call_id, chat[end_of(handed)..end_of(handed + 1)], last);
+    try pool.write_body(call_id, chat[end_of(handed)..end_of(handed + 1)], end);
     handed += 1;
 }
 ```

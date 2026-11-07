@@ -368,11 +368,14 @@ fn request_fields(
     offer: *[coding.offer_len_max]u8,
 ) ?[]const Header {
     const request = slot.request;
-    if (request.headers.len + request.trailers.len + constants.limits.added_fields_max > lines.len) return null;
+    const never = request.never_indexed.headers;
+    if (request.headers.len + never.len + request.trailers.len + constants.limits.added_fields_max > lines.len) return null;
     // RFC 9112 §3.2: "A client MUST send a Host header field in all HTTP/1.1 request messages."
     lines[0] = .{ .name = "Host", .value = connection.config.authority };
     @memcpy(lines[1..][0..request.headers.len], request.headers);
-    var count = 1 + request.headers.len;
+    // h11 compresses nothing, so a never-indexed header goes out as any other.
+    @memcpy(lines[1 + request.headers.len ..][0..never.len], never);
+    var count = 1 + request.headers.len + never.len;
     // RFC 9112 §7.1: a body whose length is not known in advance goes in the chunked coding, and
     // RFC 9112 §6.1 names it in Transfer-Encoding, in place of Content-Length (decision 153). RFC
     // 9112 §7.1.2: only a chunked body carries a trailer section (decision 152).

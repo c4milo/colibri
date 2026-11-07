@@ -377,15 +377,20 @@ fn request_fields(
     offer: *[coding.offer_len_max]u8,
 ) ?[]const h2.hpack.Field {
     const request = slot.request;
-    if (request.headers.len + request.trailers.len + constants.limits.added_fields_max > lines.len) return null;
-    const marked = request.never_indexed.headers;
-    for (request.headers, lines[0..request.headers.len], indexing[0..request.headers.len], 0..) |field, *line, *how, index| {
-        line.* = .{ .name = field.name, .value = field.value };
-        // RFC 7541 §7.1.3: a line the caller marked goes out never-indexed.
-        const never = marked.len > 0 and marked[index];
-        how.* = if (never) .never_indexed else .without_indexing;
+    const never = request.never_indexed.headers;
+    if (request.headers.len + never.len + request.trailers.len + constants.limits.added_fields_max > lines.len) return null;
+    var count: usize = 0;
+    for (request.headers) |field| {
+        lines[count] = .{ .name = field.name, .value = field.value };
+        indexing[count] = .without_indexing;
+        count += 1;
     }
-    var count = request.headers.len;
+    for (never) |field| {
+        lines[count] = .{ .name = field.name, .value = field.value };
+        // RFC 7541 §7.1.3: a header the caller names never-indexed goes out so (§6.2.3).
+        indexing[count] = .never_indexed;
+        count += 1;
+    }
     if (event_internal.content_length(request, digits)) |length| {
         lines[count] = .{ .name = "content-length", .value = length };
         indexing[count] = .without_indexing;

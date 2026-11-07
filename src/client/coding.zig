@@ -78,8 +78,8 @@ pub fn offer(codings: []const Coding, pools: Pools, slot: *Slot, into: *[offer_l
     // itself, so the client offers no coding for it.
     if (slot.request.streamed.response) return null;
     // Decision 101: a request that names Accept-Encoding goes out as its caller wrote it.
-    for (slot.request.headers) |field| {
-        if (http.field.names_equal(field.name, accept_encoding)) return null;
+    for ([_][]const http.Field{ slot.request.headers, slot.request.never_indexed.headers }) |headers| {
+        for (headers) |field| if (http.field.names_equal(field.name, accept_encoding)) return null;
     }
     assert(codings.len <= codings_max);
     var offered: [codings_max]Coding = undefined;
