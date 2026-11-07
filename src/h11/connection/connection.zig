@@ -129,7 +129,12 @@ pub const Connection = struct {
     /// The decoding of the body being read, when it carries `gzip` or `deflate`.
     decoding: coding.Decoding,
 
+    /// What a connection is built from, as h2's and h3's `Options` hold it (decision 158 ruling
+    /// 10). Every value is the caller's.
     pub const Options = struct {
+        /// The end of the connection this side is. It has no default, because each role reads
+        /// and writes other messages (RFC 9112 §3, §4).
+        role: Role,
         /// A client connection opened to retry requests an earlier one left unanswered: it sends
         /// one request and waits for its response before pipelining (RFC 9112 §9.3.2).
         retrying: bool = false,
@@ -196,8 +201,8 @@ pub const Connection = struct {
     pub const encrypt = connection_tls.encrypt;
     pub const close_notify = connection_tls.close_notify;
 
-    pub fn init(connection: *Connection, role: Role, options: Options) void {
-        connection.role = role;
+    pub fn init(connection: *Connection, options: Options) void {
+        connection.role = options.role;
         connection.phase = .head;
         connection.scanner = .{};
         connection.reader = .{};
@@ -223,7 +228,7 @@ pub const Connection = struct {
         connection.decoders = options.decoders;
         connection.decoding = .{};
         assert(connection.phase == .head and connection.failure == null);
-        assert(role == .client or !options.retrying);
+        assert(options.role == .client or !options.retrying);
     }
 
     /// Attaches the TLS provider h11 runs over, after checking the finished handshake

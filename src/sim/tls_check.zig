@@ -149,7 +149,7 @@ fn run_once(storage: *Storage, cuts: u64, chunked: bool, seed: u64) Violation!vo
     const stream = build_stream(&storage.stream);
     const records = cut_into_records(storage, stream, cuts, &random);
     storage.provider = .{};
-    storage.connection.init(.server);
+    storage.connection.init(.{ .role = .server });
     storage.connection.attach_tls(storage.provider.provider()) catch
         return error.OutcomeUnexpected;
     storage.events.init();

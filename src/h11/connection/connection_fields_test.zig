@@ -151,7 +151,7 @@ fn expect_same_state(new: *const Connection, old: *const Connection) !void {
 fn expect_same_response(request: []const u8, status: u16, reason: []const u8, fields: []const Field) !void {
     errdefer std.debug.print("request \"{s}\", status {d}, reason \"{s}\", fields {any}\n", .{ request, status, reason, fields });
     for ([_]*Connection{ &test_new, &test_old }) |target| {
-        target.init(.server, .{});
+        target.init(.{ .role = .server });
         _ = try target.receive(request, &.{});
     }
     const new = test_new.write_response(&test_output_new, status, reason, fields);
@@ -202,8 +202,8 @@ const client_atoms = [_]Field{
 
 fn expect_same_request(method: []const u8, target: []const u8, fields: []const Field) !void {
     errdefer std.debug.print("method \"{s}\", target \"{s}\", fields {any}\n", .{ method, target, fields });
-    test_new.init(.client, .{});
-    test_old.init(.client, .{});
+    test_new.init(.{ .role = .client });
+    test_old.init(.{ .role = .client });
     const new = test_new.write_request(&test_output_new, method, target, fields);
     const old = reference.write_request(&test_old, &test_output_old, method, target, fields);
     try message_write_test.expect_same(new, &test_output_new, old, &test_output_old);

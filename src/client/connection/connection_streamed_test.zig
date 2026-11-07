@@ -166,7 +166,7 @@ test "decision 139: streamed pieces go out over TLS chunked, and the server open
     try tls_support.run_handshake();
     try tls_support.server_open();
     tls_support.peer_plain_len = 0;
-    support.peer_h11.init(.server, .{});
+    support.peer_h11.init(.{ .role = .server });
     var post = streamed_post(null);
     const id = try connection.request(&post.request, &post.response);
     support.client_send();

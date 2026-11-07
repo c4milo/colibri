@@ -154,7 +154,7 @@ fn write_frame(writer: *sim.core.Writer, frame_type: u8, flags: u8, stream_id: u
 /// What one request and its response cost at a cleartext server.
 pub fn measure_server_cleartext(storage: *Storage) !Cost {
     var cost: Cost = .{};
-    storage.connection.init(.server);
+    storage.connection.init(.{ .role = .server });
     const octets = client_octets(storage);
     @memcpy(storage.input[0..octets.len], octets);
     try drive(storage, storage.input[0..octets.len], &cost);
@@ -167,7 +167,7 @@ pub fn measure_server_cleartext(storage: *Storage) !Cost {
 /// What one request and its response cost at a cleartext client.
 pub fn measure_client_cleartext(storage: *Storage) !Cost {
     var cost: Cost = .{};
-    storage.connection.init(.client);
+    storage.connection.init(.{ .role = .client });
     // RFC 9113 §3.4: the client's preface goes out before its request.
     const preface_len = storage.connection.write_pending(&storage.output, 0);
     cost.write_calls += 1;
@@ -191,7 +191,7 @@ pub fn measure_client_cleartext(storage: *Storage) !Cost {
 pub fn measure_server_tls(storage: *Storage) !Cost {
     var cost: Cost = .{};
     storage.provider = .{};
-    storage.connection.init(.server);
+    storage.connection.init(.{ .role = .server });
     try storage.connection.attach_tls(storage.provider.provider());
     const octets = client_octets(storage);
     var record: [constants.cost_check_buffer_len]u8 = undefined;

@@ -111,7 +111,7 @@ test "an empty reader accepts a connection that has read nothing" {
     var invariants: Invariants = undefined;
     invariants.init();
     var connection: h2.Connection = undefined;
-    connection.init(.server);
+    connection.init(.{ .role = .server });
     try std.testing.expectEqual(null, invariants.read(&connection));
     // Reading twice changes nothing, because nothing about the connection moved.
     try std.testing.expectEqual(null, invariants.read(&connection));

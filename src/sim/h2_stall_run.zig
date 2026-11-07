@@ -161,8 +161,8 @@ pub const Storage = struct {
     }
 
     fn init(storage: *Storage, plan: *const Plan) void {
-        storage.client.init(.client);
-        storage.server.init(.server);
+        storage.client.init(.{ .role = .client });
+        storage.server.init(.{ .role = .server });
         storage.to_server.len = 0;
         storage.to_server.capacity = plan.capacity;
         storage.to_client.len = 0;

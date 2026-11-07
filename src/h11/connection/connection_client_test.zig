@@ -16,8 +16,8 @@ const test_output_len = 512;
 
 const host: []const Field = &.{.{ .name = "Host", .value = "h" }};
 
-fn client(options: connection.Connection.Options) *Connection {
-    test_connection.init(.client, options);
+fn client(options: Connection.Options) *Connection {
+    test_connection.init(options);
     return &test_connection;
 }
 
@@ -32,7 +32,7 @@ fn expect_status(target: *Connection, input: []const u8, status: u16) !usize {
 }
 
 test "a response goes to its request, and its body arrives as data then end" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     const written = try target.write_request(&test_output, "GET", "/a", host);
     try testing.expectEqualStrings("GET /a HTTP/1.1\r\nHost: h\r\n\r\n", test_output[0..written]);
     const input = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
@@ -44,7 +44,7 @@ test "a response goes to its request, and its body arrives as data then end" {
 }
 
 test "RFC 9112 §9.2: pipelined responses go to requests in order, and HEAD's has no body" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     try get(target, "HEAD");
     try get(target, "GET");
     try testing.expectEqual(2, target.outstanding_len);
@@ -56,7 +56,7 @@ test "RFC 9112 §9.2: pipelined responses go to requests in order, and HEAD's ha
 }
 
 test "decision 88: no pipelining after a non-idempotent request until its final response" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     try get(target, "POST");
     try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
     // An interim response is not the final one (RFC 9112 §9.2).
@@ -67,7 +67,7 @@ test "decision 88: no pipelining after a non-idempotent request until its final 
 }
 
 test "RFC 9112 §9.3.2: a connection opened to retry pipelines only after its first response" {
-    const target = client(.{ .retrying = true });
+    const target = client(.{ .role = .client, .retrying = true });
     try get(target, "GET");
     try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
     _ = try expect_status(target, "HTTP/1.1 204 \r\n\r\n", 204);
@@ -76,10 +76,10 @@ test "RFC 9112 §9.3.2: a connection opened to retry pipelines only after its fi
 }
 
 test "the queue holds pipeline_depth_max requests, and a body goes out before the next head" {
-    var target = client(.{});
+    var target = client(.{ .role = .client });
     for (0..constants.limits.pipeline_depth_max) |_| try get(target, "GET");
     try testing.expectError(error.PipelineFull, target.write_request(&test_output, "GET", "/", host));
-    target = client(.{});
+    target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "PUT", "/", &.{ host[0], .{ .name = "Content-Length", .value = "2" } });
     try testing.expectError(error.BodyInProgress, target.write_request(&test_output, "GET", "/", host));
     _ = try target.write_body(&test_output, "ab");
@@ -88,19 +88,19 @@ test "the queue holds pipeline_depth_max requests, and a body goes out before th
 }
 
 test "RFC 9112 §9.6: the close option ends the connection, and the unanswered requests are reported" {
-    var target = client(.{});
+    var target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "GET", "/", &.{ host[0], .{ .name = "Connection", .value = "close" } });
     try testing.expectError(error.ConnectionClosed, target.write_request(&test_output, "GET", "/", host));
     // The client closes after the final response to its close, not before, though the response
     // lacks one.
-    target = client(.{});
+    target = client(.{ .role = .client });
     try get(target, "GET");
     _ = try target.write_request(&test_output, "GET", "/", &.{ host[0], .{ .name = "Connection", .value = "close" } });
     _ = try expect_status(target, "HTTP/1.1 204 \r\n\r\n", 204);
     try testing.expect(!target.should_close());
     _ = try expect_status(target, "HTTP/1.1 204 \r\n\r\n", 204);
     try testing.expect(target.should_close());
-    target = client(.{});
+    target = client(.{ .role = .client });
     try get(target, "GET");
     try get(target, "GET");
     try get(target, "GET");
@@ -112,7 +112,7 @@ test "RFC 9112 §9.6: the close option ends the connection, and the unanswered r
 }
 
 test "RFC 9112 §8 and §6.3 rule 8: a close ends a close-delimited body, and cuts any other" {
-    var target = client(.{});
+    var target = client(.{ .role = .client });
     try get(target, "GET");
     try get(target, "GET");
     const input = "HTTP/1.0 200 OK\r\n\r\nall of it";
@@ -121,7 +121,7 @@ test "RFC 9112 §8 and §6.3 rule 8: a close ends a close-delimited body, and cu
     const ended = target.transport_closed();
     try testing.expect(ended.ended_body and !ended.incomplete);
     try testing.expectEqual(1, ended.unanswered);
-    target = client(.{});
+    target = client(.{ .role = .client });
     try get(target, "GET");
     _ = try expect_status(target, "HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n", 200);
     const cut = target.transport_closed();
@@ -130,7 +130,7 @@ test "RFC 9112 §8 and §6.3 rule 8: a close ends a close-delimited body, and cu
 }
 
 test "RFC 9112 §9.2: octets with no request outstanding are refused, unless they are CRLF" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     try testing.expectEqual(connection.Received{ .consumed = 2, .event = null }, try target.receive("\r\nHT", &.{}));
     try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive("\r", &.{}));
     try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 200 OK\r\n\r\n", &.{}));
@@ -139,16 +139,16 @@ test "RFC 9112 §9.2: octets with no request outstanding are refused, unless the
 }
 
 test "101 and malformed responses fail the connection, and a 2xx to CONNECT tunnels" {
-    var target = client(.{});
+    var target = client(.{ .role = .client });
     try get(target, "GET");
     try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 101 Switching Protocols\r\n\r\n", &.{}));
     try testing.expectEqual(error.UpgradeUnsupported, target.failure.?);
-    target = client(.{});
+    target = client(.{ .role = .client });
     try get(target, "GET");
     try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n", &.{}));
     try testing.expectEqual(error.TransferEncodingWithContentLength, target.failure.?);
     try testing.expectEqual(1, target.transport_closed().unanswered);
-    target = client(.{});
+    target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});
     _ = try expect_status(target, "HTTP/1.1 200 OK\r\n\r\n", 200);
     try testing.expectEqual(connection.Phase.tunnel, target.phase);
@@ -157,7 +157,7 @@ test "101 and malformed responses fail the connection, and a 2xx to CONNECT tunn
 }
 
 test "RFC 9931 §8: a client writes nothing after a CONNECT until its 2xx" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});
     // Neither a tunnel octet nor a pipelined request goes out before the answer.
     try testing.expectError(error.NoBody, target.write_body(&test_output, "raw"));
@@ -170,7 +170,7 @@ test "RFC 9931 §8: a client writes nothing after a CONNECT until its 2xx" {
 }
 
 test "decision 109: h11 implements no upgrade, so a request carrying Upgrade is not written" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     const upgrade = [_]Field{ host[0], .{ .name = "upgrade", .value = "websocket" }, .{ .name = "Connection", .value = "upgrade" } };
     try testing.expectError(error.UpgradeUnsupported, target.write_request(&test_output, "GET", "/", &upgrade));
     try testing.expectEqual(0, target.outstanding_len);
@@ -178,7 +178,7 @@ test "decision 109: h11 implements no upgrade, so a request carrying Upgrade is 
 }
 
 test "RFC 9110 §6.4.1: a 204 to CONNECT opens the tunnel as a 200 does" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});
     _ = try expect_status(target, "HTTP/1.1 204 No Content\r\n\r\n", 204);
     try testing.expectEqual(connection.Phase.tunnel, target.phase);
@@ -186,7 +186,7 @@ test "RFC 9110 §6.4.1: a 204 to CONNECT opens the tunnel as a 200 does" {
 }
 
 test "decision 95: a fixed body's octets the caller sends itself are counted, not copied" {
-    var target = client(.{});
+    var target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "PUT", "/", &.{ host[0], .{ .name = "Content-Length", .value = "5" } });
     try target.count_body(2);
     // `write_body` and `count_body` share the one Content-Length.
@@ -201,7 +201,7 @@ test "decision 95: a fixed body's octets the caller sends itself are counted, no
     try testing.expectError(error.NoBody, target.count_body(1));
     // RFC 9112 §7.1: a chunk needs its size line, so octets counted before a chunk head are
     // refused.
-    target = client(.{});
+    target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
     try testing.expectError(error.BodyTooLong, target.count_body(1));
 }
@@ -228,7 +228,7 @@ fn write_pieces(target: *Connection, pieces: []const []const u8) !usize {
 
 /// Reads `input` with a server's h11 connection, and returns the request body it read.
 fn read_back(input: []const u8) ![]const u8 {
-    test_server.init(.server, .{});
+    test_server.init(.{ .role = .server });
     var offset: usize = 0;
     var read_len: usize = 0;
     // Bounded: each event takes at least an octet, or ends the body.
@@ -249,7 +249,7 @@ fn read_back(input: []const u8) ![]const u8 {
 }
 
 test "RFC 9112 §7.1: chunk heads frame pieces the caller sends in place, and a server reads them whole" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     // The middle piece is 26 octets long, which reads 0x1a in hex and 26 in decimal.
     const pieces = [_][]const u8{ "first", "abcdefghijklmnopqrstuvwxyz", "end" };
     const length = try write_pieces(target, &pieces);
@@ -260,7 +260,7 @@ test "RFC 9112 §7.1: chunk heads frame pieces the caller sends in place, and a 
 }
 
 test "RFC 9112 §7.1: a chunk head of length 0 is refused, as is one before the last chunk's data" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], chunked_field });
     // A chunk-size of 0 is the last-chunk, which `write_end` writes.
     try testing.expectError(error.ChunkEmpty, target.write_chunk_head(&test_output, 0));
@@ -279,7 +279,7 @@ test "RFC 9112 §7.1: a chunk head of length 0 is refused, as is one before the 
 }
 
 test "RFC 9112 §6.1: a body that is not chunked takes no chunk head" {
-    const target = client(.{});
+    const target = client(.{ .role = .client });
     _ = try target.write_request(&test_output, "PUT", "/", &.{ host[0], .{ .name = "Content-Length", .value = "2" } });
     try testing.expectError(error.BodyNotChunked, target.write_chunk_head(&test_output, 2));
     _ = try target.write_body(&test_output, "ab");

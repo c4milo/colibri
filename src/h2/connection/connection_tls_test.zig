@@ -174,7 +174,7 @@ test "decision 45: the three suites of RFC 9846 §9.1 are admitted and nothing e
 test "a cleartext connection holds no provider, and attach stores one before any octet moves" {
     Fake.init_table();
     var state: Fake = .{};
-    support.test_connection.init(.server);
+    support.test_connection.init(.{ .role = .server });
     // RFC 9113 §3.3: prior-knowledge cleartext h2 has no TLS connection under it at all.
     try testing.expectEqual(null, support.test_connection.provider);
     try attach(&support.test_connection, state.provider());
@@ -185,7 +185,7 @@ test "a cleartext connection holds no provider, and attach stores one before any
 test "§9.2.3: a post-handshake CertificateRequest is a connection error of PROTOCOL_ERROR" {
     Fake.init_table();
     var state: Fake = .{ .content = .certificate_request };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     try testing.expectEqual(
@@ -199,7 +199,7 @@ test "§9.2.3: a NewSessionTicket or a KeyUpdate is consumed, yields no plaintex
     Fake.init_table();
     var plaintext: [16]u8 = undefined;
     var state: Fake = .{ .content = .without_data, .body = "ignored" };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
     try testing.expectEqual(0, opened.plaintext_len);
@@ -214,7 +214,7 @@ test "encrypt asks the provider for owed octets only after a failure" {
     // The provider says that it owes octets, but no failure happened. colibri does not ask for
     // them, so `encrypt` calls the vtable once for the common record.
     var state: Fake = .{ .owed = "stray" };
-    support.test_connection.init(.server);
+    support.test_connection.init(.{ .role = .server });
     try attach(&support.test_connection, state.provider());
     var output: [16]u8 = undefined;
     const sealed = try encrypt(&support.test_connection, "data", &output, 0);
@@ -229,7 +229,7 @@ test "RFC 9846 §6.1: a peer close_notify is the end of data, and an error alert
         .content = .alert,
         .alert_held = .{ .description = .close_notify, .origin = .peer },
     };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     const closed = try decrypt(&support.test_connection, "record", &plaintext, 0);
     try testing.expect(closed.end_of_data);
@@ -239,7 +239,7 @@ test "RFC 9846 §6.1: a peer close_notify is the end of data, and an error alert
 
     // RFC 9846 §6.2: every other description is an error alert.
     state = .{ .content = .alert, .alert_held = .{ .description = .bad_record_mac, .origin = .local } };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     try testing.expectEqual(
         error.TlsFailed,
@@ -250,7 +250,7 @@ test "RFC 9846 §6.1: a peer close_notify is the end of data, and an error alert
 test "application data reaches the caller's buffer, and a cleartext connection has no record path" {
     Fake.init_table();
     var state: Fake = .{ .body = "frame octets" };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [32]u8 = undefined;
     const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
@@ -261,7 +261,7 @@ test "application data reaches the caller's buffer, and a cleartext connection h
     try testing.expectEqual(1, try close_notify(&support.test_connection, &output));
 
     // RFC 9113 §3.3: a prior-knowledge cleartext connection has no records at all.
-    support.test_connection.init(.server);
+    support.test_connection.init(.{ .role = .server });
     try testing.expectEqual(
         error.NoProvider,
         decrypt(&support.test_connection, "record", &plaintext, 0),
@@ -276,7 +276,7 @@ test "RFC 9846 §5.1: a record that is not whole consumes nothing, whatever the 
     // caller must be told nothing was taken, or it would drop the start of the record it is
     // still waiting for.
     var state: Fake = .{ .content = .incomplete, .body = "partial" };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [32]u8 = undefined;
     const opened = try decrypt(&support.test_connection, "half a record", &plaintext, 0);
@@ -292,7 +292,7 @@ test "RFC 9846 §6.1: a user_canceled is neither the end of data nor an error" {
         .content = .alert,
         .alert_held = .{ .description = .user_canceled, .origin = .peer },
     };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     // RFC 9846 §6.1: the alert precedes a close_notify, so the reader carries on and waits.
     const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
@@ -310,7 +310,7 @@ test "RFC 9846 §6.1: a user_canceled is neither the end of data nor an error" {
 test "a run of records carrying no data is bounded, and one past it is ENHANCE_YOUR_CALM" {
     Fake.init_table();
     var state: Fake = .{ .content = .without_data };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     // The bound is what a peer may send, so the last permitted record still succeeds.
@@ -331,7 +331,7 @@ test "a run of records carrying no data is bounded, and one past it is ENHANCE_Y
 test "a limit passed after another failure names no limit, since the first failure stands" {
     Fake.init_table();
     var state: Fake = .{ .content = .without_data };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     try testing.expectEqual(error.ConnectionFailed, support.test_connection.fail(constants.protocol.error_protocol_error));
@@ -353,7 +353,7 @@ test "a limit passed after another failure names no limit, since the first failu
 test "a record carrying data ends the run, so an interleaved stream never reaches the bound" {
     Fake.init_table();
     var state: Fake = .{};
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     // Many times the bound in total, with one record carrying data after every full run of them.
@@ -406,7 +406,7 @@ fn expect_ended(state: *Fake, alert: []const u8) !void {
 test "RFC 9846 §5.2: a record the provider refuses ends the connection, and only its alert goes out" {
     Fake.init_table();
     var state: Fake = .{ .refusal = error.TlsFailed };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     try testing.expectEqual(error.TlsFailed, decrypt(&support.test_connection, "record", &plaintext, 0));
@@ -417,7 +417,7 @@ test "RFC 9846 §5.2: a record the provider refuses ends the connection, and onl
 test "a run of KeyUpdates past the provider's limit ends the connection with its alert, and the failure names the limit" {
     Fake.init_table();
     var state: Fake = .{ .refusal = error.KeyUpdates };
-    support.test_connection.init(.server);
+    support.test_connection.init(.{ .role = .server });
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     try testing.expectEqual(error.TlsFailed, decrypt(&support.test_connection, "record", &plaintext, 0));
@@ -430,7 +430,7 @@ test "a run of KeyUpdates past the provider's limit ends the connection with its
 test "RFC 9846 §6.2: an error alert from the peer ends the connection, and nothing is owed" {
     Fake.init_table();
     var state: Fake = .{ .content = .alert, .alert_held = .{ .description = .bad_record_mac, .origin = .peer } };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     try testing.expectEqual(error.TlsFailed, decrypt(&support.test_connection, "record", &plaintext, 0));
@@ -441,7 +441,7 @@ test "RFC 9846 §6.2: an error alert from the peer ends the connection, and noth
 test "RFC 9846 §6: a record the provider will not seal ends the connection too" {
     Fake.init_table();
     var state: Fake = .{ .refuse_seal = true };
-    support.test_connection.init(.client);
+    support.test_connection.init(.{ .role = .client });
     try attach(&support.test_connection, state.provider());
     var output: [64]u8 = undefined;
     try testing.expectEqual(error.TlsFailed, encrypt(&support.test_connection, "data", &output, 0));

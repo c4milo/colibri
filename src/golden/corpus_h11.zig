@@ -177,7 +177,7 @@ const status_fields_too_large: u16 = 431;
 /// A server case: requests read in order and each answered once it is read whole, until the
 /// stream ends, the connection closes, or it refuses a request.
 pub fn decode_server(octets: []const u8) Error!void {
-    connection.init(.server, .{});
+    connection.init(.{ .role = .server });
     var reader = core.Reader.init(octets);
     serve(&reader) catch |failure| switch (failure) {
         error.ConnectionFailed => return refusal(connection.reply_status orelse unreachable),

@@ -288,7 +288,7 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(event.Protocol.h2, find(.connected).?.connected.protocol);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
-            support.peer_h2.init(.server);
+            support.peer_h2.init(.{ .role = .server });
             try support.peer_h2.attach_tls(tls_support.server.provider());
             // A later request goes out on that connection, and the pool opens no second one.
             var exchange = get(&bodies[1]);
@@ -419,7 +419,7 @@ fn Tests(comptime Pool: type) type {
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
             if (protocol == .h11) return;
-            support.peer_h2.init(.server);
+            support.peer_h2.init(.{ .role = .server });
             try support.peer_h2.attach_tls(tls_support.server.provider());
         }
 

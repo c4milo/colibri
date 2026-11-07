@@ -158,8 +158,8 @@ pub fn start_configured(value: Config) !void {
     to_client_len = 0;
     events_len = 0;
     switch (protocol) {
-        .h2 => peer_h2.init(.server),
-        .h11 => peer_h11.init(.server, .{}),
+        .h2 => peer_h2.init(.{ .role = .server }),
+        .h11 => peer_h11.init(.{ .role = .server }),
         .h3 => unreachable,
     }
 }

@@ -103,8 +103,8 @@ pub const Pair = struct {
 
     /// Both endpoints with nothing written or read.
     pub fn init(pair: *Pair, now_ns: u64) void {
-        pair.client.init(.client);
-        pair.server.init(.server);
+        pair.client.init(.{ .role = .client });
+        pair.server.init(.{ .role = .server });
         pair.to_server = .{};
         pair.to_client = .{};
         pair.seen = .{};

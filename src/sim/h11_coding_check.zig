@@ -153,9 +153,9 @@ fn start(storage: *Storage) Violation!void {
     if (storage.plan.defect == .exhausted) storage.holder.start(pool, .gzip) catch unreachable;
     storage.seen = @splat(.{});
     switch (storage.plan.role) {
-        .server => storage.connection.init(.server, .{ .decoders = pool }),
+        .server => storage.connection.init(.{ .role = .server, .decoders = pool }),
         .client => {
-            storage.connection.init(.client, .{ .decoders = pool });
+            storage.connection.init(.{ .role = .client, .decoders = pool });
             for (0..storage.plan.count) |_| {
                 _ = storage.connection.write_request(&storage.scratch, "GET", "/m", host) catch return error.OutcomeUnexpected;
             }

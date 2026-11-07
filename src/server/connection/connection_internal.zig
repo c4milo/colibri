@@ -59,7 +59,7 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
     switch (chosen) {
         .h2 => {
             make_h2_session(connection);
-            connection.session.h2.init(.server);
+            connection.session.h2.init(.{ .role = .server });
             connection.session.h2.data_frame_len_min = connection.config.limits.data_frame_len_min;
             connection.session.h2.peer_resets_max = connection.config.limits.peer_resets_max;
             connection.session.h2.resets_sent_max = connection.config.limits.resets_sent_max;
@@ -67,7 +67,7 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
         },
         .h11 => {
             make_h11_session(connection);
-            connection.session.h11.init(.server, .{ .decoders = connection.config.decoders });
+            connection.session.h11.init(.{ .role = .server, .decoders = connection.config.decoders });
         },
         // RFC 9114 §3.1: h3 runs over QUIC alone, which `QuicConnection` serves.
         .h3 => unreachable,

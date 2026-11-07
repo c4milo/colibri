@@ -99,8 +99,8 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!SeedResult {
 /// Runs the plan with each direction delivered in chunks drawn from `random`, or whole as soon as
 /// it is written when `random` is null.
 fn run_once(storage: *Storage, seed: u64, random: ?*Random, buffer: []u8) Violation!SeedResult {
-    storage.client.init(.client, .{});
-    storage.server.init(.server, .{});
+    storage.client.init(.{ .role = .client });
+    storage.server.init(.{ .role = .server });
     storage.to_server = .{};
     storage.to_client = .{};
     storage.request_seen = @splat(.{});

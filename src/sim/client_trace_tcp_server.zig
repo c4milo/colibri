@@ -153,7 +153,7 @@ pub const TcpServer = struct {
         try to_client.push(server.sealed[0..progress.written], now_ns + limits.tcp_delay_ns);
         if (progress.complete) {
             server.handshaken = true;
-            server.h2.init(.server);
+            server.h2.init(.{ .role = .server });
             try server.h2.attach_tls(server.session.provider());
             // RFC 9113 §3.4: the server's preface, a SETTINGS frame, is its first frame.
             server.out_used += server.h2.write_pending(server.out[server.out_used..], now_ns);

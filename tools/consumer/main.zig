@@ -92,7 +92,7 @@ const server_addresses = [_]client_module.Address{.of(&loopback, 0)};
 const server_port: u16 = 80;
 
 pub fn main() !void {
-    client.init(.client, .{});
+    client.init(.{ .role = .client });
     const head_len = try client.write_request(&output, "GET", "/", &.{
         .{ .name = "Host", .value = "example.test" },
     });
@@ -102,7 +102,7 @@ pub fn main() !void {
     if (status != 204) return error.ResponseWrong;
 
     // h2's client preface starts with the 24 octets of RFC 9113 §3.4.
-    h2_client.init(.client);
+    h2_client.init(.{ .role = .client });
     const preface_len = h2_client.write_pending(&output, 0);
     if (!std.mem.startsWith(u8, output[0..preface_len], "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")) return error.PrefaceWrong;
 

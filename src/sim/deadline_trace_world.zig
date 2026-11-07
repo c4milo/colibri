@@ -134,7 +134,7 @@ pub const World = struct {
         try world.endpoint.init(&world.endpoint_config, source, .{ .ns = world.now_ns, .unix_seconds = 0 });
         // A new endpoint has its one slot free.
         world.accepted = world.endpoint.accept(.{ .tls = false }, world.now_ns) orelse return error.StartRefused;
-        world.client.init(.client);
+        world.client.init(.{ .role = .client });
         world.to_server = .{};
         world.to_client = .{};
         world.req_read = @splat(.none);

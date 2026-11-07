@@ -13,7 +13,7 @@ const test_connection = &support.test_connection;
 const test_output = &support.test_output;
 
 test "a server writes its SETTINGS and no preface, and a client writes the 24 octets first" {
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     try testing.expect(test_connection.has_pending());
     const server_len = test_connection.write_pending(test_output, 0);
     // The server's SETTINGS omits ENABLE_PUSH, so it carries five of the six settings.
@@ -21,7 +21,7 @@ test "a server writes its SETTINGS and no preface, and a client writes the 24 oc
     try testing.expectEqual(constants.protocol.frame_type_settings, test_output[3]);
     try testing.expect(!test_connection.has_pending());
     try testing.expectEqual(1, test_connection.pending.len());
-    test_connection.init(.client);
+    test_connection.init(.{ .role = .client });
     const client_len = test_connection.write_pending(test_output, 0);
     try testing.expectEqualStrings(constants.protocol.client_preface, test_output[0..constants.protocol.client_preface_len]);
     try testing.expectEqual(constants.protocol.client_preface_len + constants.protocol.frame_header_len + 6 * constants.protocol.setting_len, client_len);
@@ -29,7 +29,7 @@ test "a server writes its SETTINGS and no preface, and a client writes the 24 oc
 }
 
 test "a buffer too short for the preface writes nothing and keeps it pending" {
-    test_connection.init(.client);
+    test_connection.init(.{ .role = .client });
     try testing.expectEqual(0, test_connection.write_pending(test_output[0 .. constants.protocol.client_preface_len - 1], 0));
     try testing.expect(test_connection.has_pending());
     try testing.expectEqual(0, test_connection.pending.len());
@@ -42,7 +42,7 @@ test "a buffer too short for the preface writes nothing and keeps it pending" {
 }
 
 test "RFC 9113 §3.4: no reply goes out ahead of the preface" {
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     // A connection error before the preface is out queues a GOAWAY (RFC 9113 §5.4.1).
     try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.protocol.error_protocol_error));
     try testing.expectEqual(0, test_connection.write_replies(test_output));
@@ -55,7 +55,7 @@ test "RFC 9113 §3.4: no reply goes out ahead of the preface" {
 }
 
 test "fail queues one GOAWAY, records it against the streams and stands on the first code" {
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     _ = test_connection.write_pending(test_output, 0);
     try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.protocol.error_protocol_error));
     try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);
@@ -147,8 +147,8 @@ test "init writes every field but the storage it leaves, for each role" {
     for ([_]Role{ .server, .client }) |role| {
         @memset(std.mem.asBytes(&over_zeros), 0);
         @memset(std.mem.asBytes(&over_ones), std.math.maxInt(u8));
-        over_zeros.init(role);
-        over_ones.init(role);
+        over_zeros.init(.{ .role = role });
+        over_ones.init(.{ .role = role });
         try expect_written(Connection, &over_zeros, &over_ones, "");
     }
 }

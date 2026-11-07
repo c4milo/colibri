@@ -76,7 +76,7 @@ fn peer_h2_answer_after(before: []const u8, fields: []const h2.hpack.Field, cont
 test "RFC 7301 §3.2: ALPN's h2 serves the connection, and an exchange goes out sealed" {
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
     try testing.expectEqual(event.Protocol.h2, support.find(.connected).?.connected);
-    support.peer_h2.init(.server);
+    support.peer_h2.init(.{ .role = .server });
     try support.peer_h2.attach_tls(server.provider());
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -93,7 +93,7 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and an exchange goes out 
 test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify follows the close" {
     try start_tls(&support.protocols_h11, &support.protocols_both, "localhost", false);
     try testing.expectEqual(event.Protocol.h11, support.find(.connected).?.connected);
-    support.peer_h11.init(.server, .{});
+    support.peer_h11.init(.{ .role = .server });
     try support.peer_h11.attach_tls(server.provider());
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -121,7 +121,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
 
 test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_alt_svc" {
     try start_tls(&support.protocols_h11, &support.protocols_both, "localhost", false);
-    support.peer_h11.init(.server, .{});
+    support.peer_h11.init(.{ .role = .server });
     try support.peer_h11.attach_tls(server.provider());
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -142,7 +142,7 @@ test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_
 
 test "RFC 7838 §3: an h2 response's Alt-Svc over TLS names h3 for take_alt_svc" {
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
-    support.peer_h2.init(.server);
+    support.peer_h2.init(.{ .role = .server });
     try support.peer_h2.attach_tls(server.provider());
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);
@@ -163,7 +163,7 @@ const altsvc_frame_len: usize = 64;
 /// writes ahead of its response over h2 and TLS. Test-only.
 fn learned_from_altsvc(stream_id: u32, origin: []const u8) !?client_alt_svc.Advert {
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
-    support.peer_h2.init(.server);
+    support.peer_h2.init(.{ .role = .server });
     try support.peer_h2.attach_tls(server.provider());
     var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = &bodies[0] } };
     _ = try connection.request(&exchange.request, &exchange.response);

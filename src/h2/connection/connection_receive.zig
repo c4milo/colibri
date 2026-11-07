@@ -153,26 +153,26 @@ const write_queued = support.write_queued;
 const test_input = &support.test_input;
 
 test "a server reads the client preface, in pieces, and refuses the first octet that differs" {
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     const half = constants.protocol.client_preface_len / 2;
     try testing.expectEqual(null, try feed(constants.protocol.client_preface[0..half]));
     try testing.expectEqual(half, test_connection.preface_read_len);
     try testing.expectEqual(null, try feed(constants.protocol.client_preface[half..]));
     try testing.expectEqual(constants.protocol.client_preface_len, test_connection.preface_read_len);
     // RFC 9113 §3.4: a preface that is not those octets ends the connection.
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive("PRI * HTTP/3.0\r\n", 0));
     try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);
 }
 
 test "http2/3.5: the first frame the peer sends is a SETTINGS frame that is not an acknowledgment" {
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     try testing.expectEqual(null, try feed(constants.protocol.client_preface));
     const ping = try frame_bytes(test_input, constants.protocol.frame_type_ping, 0, 0, "12345678");
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(ping, 0));
     try testing.expectEqual(constants.protocol.error_protocol_error, test_connection.failure.?);
     // RFC 9113 §3.4: an acknowledgment is not the SETTINGS frame the preface asks for.
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     try testing.expectEqual(null, try feed(constants.protocol.client_preface));
     const ack = try frame_bytes(test_input, constants.protocol.frame_type_settings, constants.protocol.flag_ack, 0, "");
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(ack, 0));

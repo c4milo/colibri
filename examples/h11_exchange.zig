@@ -68,8 +68,8 @@ var received: Received align(@alignOf(Received)) = .{};
 pub fn main() !void {
     try link.init();
     defer link.deinit();
-    client.init(.client, .{});
-    server.init(.server, .{});
+    client.init(.{ .role = .client });
+    server.init(.{ .role = .server });
 
     try send_requests();
     try serve();

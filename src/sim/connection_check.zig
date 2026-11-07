@@ -77,7 +77,7 @@ pub const Subject = struct {
 
     /// Empties the connection and the values the invariants are compared against.
     pub fn init(subject: *Subject, clock: *Clock) void {
-        subject.connection.init(.server);
+        subject.connection.init(.{ .role = .server });
         subject.clock = clock;
         subject.event = null;
         subject.violation = null;

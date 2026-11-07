@@ -198,9 +198,18 @@ pub const Connection = struct {
     pub const encrypt_parts = connection_tls.encrypt_parts;
     pub const writable_len = connection_tls.writable_len;
 
-    /// Makes a connection for an endpoint in `role`, with nothing read and nothing written. The
-    /// caller writes the preface with `write_pending` before it reads the peer's.
-    pub fn init(connection: *Connection, role: Role) void {
+    /// What a connection is built from, as h11's and h3's `Options` hold it (decision 158 ruling
+    /// 10). Every value is the caller's.
+    pub const Options = struct {
+        /// The end of the connection this side is. It has no default, because the two roles
+        /// differ in preface, stream parity and settings (RFC 9113 §3.4, §5.1.1, §6.5.2).
+        role: Role,
+    };
+
+    /// Makes a connection for an endpoint in `options.role`, with nothing read and nothing
+    /// written. The caller writes the preface with `write_pending` before it reads the peer's.
+    pub fn init(connection: *Connection, options: Options) void {
+        const role = options.role;
         connection.role = role;
         connection.local = settings.advertised(role);
         connection.peer = settings.initial;
@@ -445,14 +454,16 @@ test "decision 115: the connection's public functions are the calls a caller out
     try core.public_names.expect(Connection, &.{
         // Design §8 step 21b.4 adds `sendable_len` (decision 119), step 17c adds
         // `write_data_header` (decision 138), and step 39 adds `release_stream` (decision 153).
-        // Decision 158 folds the namespaces `connection` and `connection_tls` into the type.
-        "AltSvc",             "Data",              "DataWritten",   "Request",        "RequestError",         "RequestIndexing",
-        "RequestHead",        "Response",          "SendError",     "StreamReset",    "Error",                "Received",
-        "AttachError",        "RecordError",       "close_notify",  "decrypt",        "encrypt",              "encrypt_parts",
-        "writable_len",       "init",              "receive",       "write_response", "attach_tls",           "write_request",
-        "write_data",         "write_data_header", "sendable_len",  "write_trailers", "write_alt_svc",        "limit_peer_streams",
-        "release_stream",     "reset_stream",      "shutdown",      "write_pending",  "write_replies",        "has_pending",
-        "owes_window_update", "has_failed",        "field_section", "fail",           "settings_deadline_ns", "preface_done",
+        // Decision 158 folds the namespaces `connection` and `connection_tls` into the type, and
+        // its ruling 10 adds `Options`.
+        "AltSvc",             "Data",               "DataWritten",       "Request",       "RequestError",   "RequestIndexing",
+        "RequestHead",        "Response",           "SendError",         "StreamReset",   "Error",          "Received",
+        "AttachError",        "RecordError",        "close_notify",      "decrypt",       "encrypt",        "encrypt_parts",
+        "writable_len",       "Options",            "init",              "receive",       "write_response", "attach_tls",
+        "write_request",      "write_data",         "write_data_header", "sendable_len",  "write_trailers", "write_alt_svc",
+        "limit_peer_streams", "release_stream",     "reset_stream",      "shutdown",      "write_pending",  "write_replies",
+        "has_pending",        "owes_window_update", "has_failed",        "field_section", "fail",           "settings_deadline_ns",
+        "preface_done",
     });
 }
 

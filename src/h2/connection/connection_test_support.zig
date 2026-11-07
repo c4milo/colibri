@@ -67,7 +67,7 @@ pub fn feed(input: []const u8) !?Event {
 /// Starts a server that has written its preface and read the client's, with nothing else read.
 /// Test-only.
 pub fn start_server() !void {
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     _ = test_connection.write_pending(&test_output, 0);
     try testing.expectEqual(null, try feed(constants.protocol.client_preface));
     try testing.expectEqual(Event.settings_applied, (try feed(empty_settings)).?);
@@ -79,7 +79,7 @@ pub fn start_server() !void {
 /// Starts a client that has written its preface and read the server's, with nothing else read.
 /// Test-only.
 pub fn start_client() !void {
-    test_connection.init(.client);
+    test_connection.init(.{ .role = .client });
     _ = test_connection.write_pending(&test_output, 0);
     try testing.expectEqual(Event.settings_applied, (try feed(empty_settings)).?);
     _ = test_connection.write_pending(&test_output, 0);

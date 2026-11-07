@@ -116,7 +116,7 @@ fn get(body: []u8) Exchange {
 /// The h2 peer of the next connection the pool opens: it starts again, with nothing read or
 /// written either way.
 fn fresh_peer() void {
-    support.peer_h2.init(.server);
+    support.peer_h2.init(.{ .role = .server });
     support.to_peer_len = 0;
     support.to_client_len = 0;
     support.peer_events_len = 0;
@@ -167,7 +167,7 @@ fn Tests(comptime Pool: type) type {
             @memset(std.mem.asBytes(&pool), unstarted_octet);
             try pool.init(&pool_memory, &config, .{ .addresses = to, .port = https_port }, null);
             starts = true;
-            support.peer_h2.init(.server);
+            support.peer_h2.init(.{ .role = .server });
             support.to_peer_len = 0;
             support.to_client_len = 0;
             support.peer_events_len = 0;

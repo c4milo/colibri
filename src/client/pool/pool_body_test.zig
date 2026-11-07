@@ -50,8 +50,8 @@ fn start_speaking(protocol: pool_module.Protocol) !void {
 
 /// The peer of the next connection the pool opens, with nothing read or written either way.
 fn fresh_peer() void {
-    support.peer_h11.init(.server, .{});
-    support.peer_h2.init(.server);
+    support.peer_h11.init(.{ .role = .server });
+    support.peer_h2.init(.{ .role = .server });
     support.to_peer_len = 0;
     support.to_client_len = 0;
 }

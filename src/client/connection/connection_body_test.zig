@@ -152,7 +152,7 @@ test "decision 153 ruling 7: over TLS an h11 response's pieces wait in the opene
     try tls_support.run_handshake();
     try tls_support.server_open();
     tls_support.peer_plain_len = 0;
-    support.peer_h11.init(.server, .{});
+    support.peer_h11.init(.{ .role = .server });
     try support.peer_h11.attach_tls(tls_support.server.provider());
     reset_counts();
     var get = streamed_get(&piece);
@@ -227,7 +227,7 @@ test "RFC 9846 §6.1: over TLS an h11 response read whole ends `response` when c
     try tls_support.run_handshake();
     try tls_support.server_open();
     tls_support.peer_plain_len = 0;
-    support.peer_h11.init(.server, .{});
+    support.peer_h11.init(.{ .role = .server });
     try support.peer_h11.attach_tls(tls_support.server.provider());
     var get = streamed_get(&piece);
     const id = try connection.request(&get.request, &get.response);

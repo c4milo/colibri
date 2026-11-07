@@ -104,7 +104,7 @@ fn read_all(target: *Connection, input: []const u8, room: usize, body: []u8) !Wh
 
 /// Requires the connection to have failed on `input`, owing `status`, with the decoder back.
 fn expect_refused(storage: coding.Storage, input: []const u8, status: u16) !void {
-    test_connection.init(.server, .{ .decoders = storage });
+    test_connection.init(.{ .role = .server, .decoders = storage });
     var body: [test_text.len]u8 = undefined;
     try testing.expectError(error.ConnectionFailed, read_all(&test_connection, input, test_text.len, &body));
     try testing.expectEqual(status, test_connection.reply_status.?);
@@ -123,7 +123,7 @@ test "decision 98: a gzip, chunked request decodes into whatever room the caller
     var coded_room: [test_input_len]u8 = undefined;
     const input = try chunked_message(request_head, try gzip_of(test_text, &coded_room));
     for ([_]usize{ 1, 7, test_text.len }) |room| {
-        test_connection.init(.server, .{ .decoders = storage });
+        test_connection.init(.{ .role = .server, .decoders = storage });
         var body: [test_text.len]u8 = undefined;
         const whole = try read_all(&test_connection, input, room, &body);
         try testing.expectEqual(input.len, whole.consumed);
@@ -137,14 +137,14 @@ test "decision 98: a gzip, chunked request decodes into whatever room the caller
 test "RFC 9112 §6.1: a server with no decoders answers a coded request 501, and one whose are taken 503" {
     var coded_room: [test_input_len]u8 = undefined;
     const input = try chunked_message(request_head, try gzip_of(test_text, &coded_room));
-    test_connection.init(.server, .{});
+    test_connection.init(.{ .role = .server });
     try testing.expectError(error.ConnectionFailed, test_connection.receive(input, &.{}));
     try testing.expectEqual(501, test_connection.reply_status.?);
     // RFC 9110 §15.6.4: every decoder taken is a temporary overload.
     const storage = pool();
     var holder: coding.Decoding = .{};
     try holder.start(storage, .deflate);
-    test_connection.init(.server, .{ .decoders = storage });
+    test_connection.init(.{ .role = .server, .decoders = storage });
     try testing.expectError(error.ConnectionFailed, test_connection.receive(input, &.{}));
     try testing.expectEqual(503, test_connection.reply_status.?);
     holder.release(storage);
@@ -175,7 +175,7 @@ test "decision 91: octets after a deflate stream, inside the body, are a 400" {
 
 test "RFC 9112 §7.4: a client with decoders sends TE and reads a gzip response; one without refuses it" {
     const storage = pool();
-    test_connection.init(.client, .{ .decoders = storage });
+    test_connection.init(.{ .role = .client, .decoders = storage });
     const written = try test_connection.write_request(&test_output, "GET", "/", host);
     try testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: h\r\nTE: gzip, deflate\r\nConnection: TE\r\n\r\n", test_output[0..written]);
     var coded_room: [test_input_len]u8 = undefined;
@@ -185,7 +185,7 @@ test "RFC 9112 §7.4: a client with decoders sends TE and reads a gzip response;
     try testing.expectEqualStrings(test_text, whole.body);
     try testing.expect(whole.ended);
     try expect_pool_free(storage);
-    test_connection.init(.client, .{});
+    test_connection.init(.{ .role = .client });
     const plain = try test_connection.write_request(&test_output, "GET", "/", host);
     try testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: h\r\n\r\n", test_output[0..plain]);
     try testing.expectError(error.ConnectionFailed, test_connection.receive(input, &.{}));
@@ -197,7 +197,7 @@ test "RFC 9112 §6.3 rule 4: a gzip response that runs until the close ended onl
     var coded_room: [test_input_len]u8 = undefined;
     const coded = try gzip_of(test_text, &coded_room);
     for ([_]bool{ true, false }) |whole_stream| {
-        test_connection.init(.client, .{ .decoders = storage });
+        test_connection.init(.{ .role = .client, .decoders = storage });
         _ = try test_connection.write_request(&test_output, "GET", "/", host);
         const head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\n";
         @memcpy(test_input[0..head.len], head);
@@ -216,7 +216,7 @@ test "RFC 9112 §9.3: a server that answers before a coded body ends closes, and
     const storage = pool();
     var coded_room: [test_input_len]u8 = undefined;
     const input = try chunked_message(request_head, try gzip_of(test_text, &coded_room));
-    test_connection.init(.server, .{ .decoders = storage });
+    test_connection.init(.{ .role = .server, .decoders = storage });
     const head = try test_connection.receive(input, &.{});
     try testing.expect(head.event.? == .request);
     try testing.expectError(error.DecodersExhausted, expect_pool_free(storage));

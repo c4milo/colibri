@@ -64,8 +64,8 @@ var output: [output_len]u8 = undefined;
 pub fn main() !void {
     try link.init();
     defer link.deinit();
-    client.init(.client);
-    server.init(.server);
+    client.init(.{ .role = .client });
+    server.init(.{ .role = .server });
 
     // The client's first octets: its preface and SETTINGS, then a request on a new stream. GET
     // carries no content, so the request ends the stream.

@@ -43,8 +43,8 @@ test "init writes every field but the storage it leaves, for each role" {
     for ([_]Role{ .server, .client }) |role| {
         @memset(std.mem.asBytes(&over_zeros), 0);
         @memset(std.mem.asBytes(&over_ones), std.math.maxInt(u8));
-        over_zeros.init(role, .{});
-        over_ones.init(role, .{});
+        over_zeros.init(.{ .role = role });
+        over_ones.init(.{ .role = role });
         try expect_written(Connection, &over_zeros, &over_ones, "");
     }
 }

@@ -133,7 +133,7 @@ const test_buffer_len = 64;
 /// A connection of `role` with `state` attached as its provider. Test-only.
 fn attached(role: connection.Role, state: *Fake) !*Connection {
     Fake.init_table();
-    test_connection.init(role, .{});
+    test_connection.init(.{ .role = role });
     try attach(&test_connection, state.provider());
     return &test_connection;
 }
@@ -173,7 +173,7 @@ test "application data reaches the caller's buffer, and a cleartext connection h
     const opened = try decrypt(target, "record", &test_plaintext);
     try testing.expectEqualStrings("GET / HTTP/1.1\r\n", test_plaintext[0..opened.plaintext_len]);
     try testing.expectEqual(1, try close_notify(target, &test_output));
-    test_connection.init(.client, .{});
+    test_connection.init(.{ .role = .client });
     try testing.expectEqual(error.NoProvider, decrypt(&test_connection, "record", &test_plaintext));
     try testing.expectEqual(error.NoProvider, encrypt(&test_connection, "x", &test_output, 0));
     try testing.expectEqual(error.NoProvider, close_notify(&test_connection, &test_output));

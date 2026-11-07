@@ -20,7 +20,7 @@ const test_output_len = 512;
 const test_calls_past_len = 2;
 
 fn server() *Connection {
-    test_connection.init(.server, .{});
+    test_connection.init(.{ .role = .server });
     return &test_connection;
 }
 

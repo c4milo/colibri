@@ -231,7 +231,7 @@ fn Tests(comptime Pool: type) type {
             send();
             // The peer reads the preface and the request, and writes its SETTINGS, which the client
             // reads.
-            support.peer_h2.init(.server);
+            support.peer_h2.init(.{ .role = .server });
             try support.peer_h2_read();
             try collect(&pool);
             support.to_client_len += try support.peer_h2.write_response(support.to_client[support.to_client_len..], 1, ok, &.{}, false);
@@ -266,7 +266,7 @@ fn Tests(comptime Pool: type) type {
             try collect(&pool);
             send();
             try testing.expectEqual(true, tls_support.server_flight().?);
-            support.peer_h2.init(.server);
+            support.peer_h2.init(.{ .role = .server });
             try support.peer_h2.attach_tls(tls_support.server.provider());
             try tls_support.server_open();
             var consumed: usize = 0;

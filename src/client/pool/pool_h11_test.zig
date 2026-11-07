@@ -138,7 +138,7 @@ fn Tests(comptime Pool: type) type {
         fn start(exchange: *Exchange) !void {
             config = .{ .authority = support.authority, .protocols = pool_support.versions_for(&pool, support.only(.h11)) };
             try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port }, null);
-            support.peer_h11.init(.server, .{});
+            support.peer_h11.init(.{ .role = .server });
             support.peer_requests = 0;
             support.to_peer_len = 0;
             support.to_client_len = 0;
@@ -251,7 +251,7 @@ fn Tests(comptime Pool: type) type {
             const closed_at = index_of(.close, 0) orelse return error.TestUnexpectedResult;
             try testing.expectEqual(pool_support.slot_of(&pool, .tcp), events[closed_at].close.slot);
             // The peer serves the new connection from here on.
-            support.peer_h11.init(.server, .{});
+            support.peer_h11.init(.{ .role = .server });
             support.to_peer_len = 0;
             var next = get(&bodies[1]);
             _ = try pool.request(&next.request, &next.response);
@@ -302,7 +302,7 @@ fn Tests(comptime Pool: type) type {
         /// peer of the next connection starts with nothing read or written.
         fn close_transport() !void {
             pool.transport_closed(pool_support.connection_of(pool, .tcp));
-            support.peer_h11.init(.server, .{});
+            support.peer_h11.init(.{ .role = .server });
             support.peer_requests = 0;
             support.to_peer_len = 0;
             support.to_client_len = 0;
@@ -413,7 +413,7 @@ fn Tests(comptime Pool: type) type {
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
             try testing.expectEqual(response.len, try give(response));
             try testing.expectEqual(2, count(.connected));
-            support.peer_h11.init(.server, .{});
+            support.peer_h11.init(.{ .role = .server });
             support.to_peer_len = 0;
             send();
             try testing.expectEqual(1, (try peer_read()).requests);
@@ -462,7 +462,7 @@ fn Tests(comptime Pool: type) type {
             const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
             try testing.expectEqual(response.len, try give(response));
             try testing.expectEqual(2, count(.connected));
-            support.peer_h11.init(.server, .{});
+            support.peer_h11.init(.{ .role = .server });
             support.to_peer_len = 0;
             send();
             try testing.expectEqual(2, pool.tcp[0].slots.count(.sent));

@@ -269,7 +269,7 @@ const lowered_streams_max: u32 = 2;
 
 test "decision 110: a server that lowers the streams a client may open says so, and refuses the stream past it" {
     const limit = lowered_streams_max;
-    test_connection.init(.server);
+    test_connection.init(.{ .role = .server });
     test_connection.limit_peer_streams(limit);
     const preface = support.test_output[0..test_connection.write_pending(&support.test_output, 0)];
     // RFC 9113 §6.5.2: SETTINGS_MAX_CONCURRENT_STREAMS carries the limit.
