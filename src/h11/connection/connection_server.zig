@@ -54,7 +54,7 @@ fn read_request(target: *Connection, input: []const u8) connection.Error!Receive
     target.responded = false;
     // RFC 9112 §7.1.2: only a chunked body carries a trailer section, so a message's trailers never
     // hold the lines of the message before it.
-    target.trailers.clear();
+    target.trailers.init();
     target.reader = connection_body.Reader.start(request.body.length);
     target.phase = if (target.reader.open()) .body else .waiting;
     // Decision 91: a body carrying gzip or deflate takes a decoder before its first octet.

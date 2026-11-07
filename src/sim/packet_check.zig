@@ -23,8 +23,8 @@ const constants = sim.constants;
 
 const crypto = quic.crypto;
 const Writer = quic.core.Writer;
-const Level = crypto.suite.Level;
-const Role = crypto.suite.Role;
+const Level = crypto.Level;
+const Role = crypto.Role;
 const header = quic.packet.header;
 const header_write = quic.packet.header_write;
 const packet_number = quic.packet.packet_number;

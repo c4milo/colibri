@@ -73,7 +73,7 @@ pub fn frame_len(octets: []const u8) usize {
 
 /// The request each stream carries, its pseudo-header fields written without indexing so every
 /// request's HEADERS is the same length (RFC 7541 §6.2.2).
-const request: h2.connection.Request_ = .{ .method = "POST", .scheme = "http", .path = "/", .authority = "example.test" };
+const request: h2.Connection.RequestHead = .{ .method = "POST", .scheme = "http", .path = "/", .authority = "example.test" };
 /// RFC 9110 §15.3.1: 200 (OK).
 const ok_status: u16 = 200;
 /// The octets every body is made of.

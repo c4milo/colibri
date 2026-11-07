@@ -115,7 +115,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     // record hides its type, so the server opens it to see an alert.
     const provider = server.provider();
     const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], peer_plain);
-    try testing.expectEqual(tls_provider.provider.Content.alert, record.content);
+    try testing.expectEqual(tls_provider.Content.alert, record.content);
     try testing.expect(connection.should_close());
 }
 

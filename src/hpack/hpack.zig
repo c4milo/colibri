@@ -41,7 +41,6 @@ pub const decoder = struct {
 
 pub const encoder = struct {
     pub const Error = files.encoder.Error;
-    pub const Indexing = files.encoder.Indexing;
 };
 
 test "decision 115: the root exports the names code outside the module uses" {
@@ -50,6 +49,10 @@ test "decision 115: the root exports the names code outside the module uses" {
         "Field",   "DynamicTable", "Decoder", "FieldLine",
         "Encoder", "Indexing",     "decoder", "encoder",
     });
+}
+
+test "decision 158: the encoder namespace holds no copy of hpack.Indexing" {
+    try core.public_names.expect(encoder, &.{"Error"});
 }
 
 test {

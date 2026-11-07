@@ -192,7 +192,7 @@ pub fn measure_server_tls(storage: *Storage) !Cost {
     var cost: Cost = .{};
     storage.provider = .{};
     storage.connection.init(.server);
-    try h2.connection_tls.attach(&storage.connection, storage.provider.provider());
+    try storage.connection.attach_tls(storage.provider.provider());
     const octets = client_octets(storage);
     var record: [constants.cost_check_buffer_len]u8 = undefined;
     const record_len = try sim.null_provider.write_application_record(&record, octets);

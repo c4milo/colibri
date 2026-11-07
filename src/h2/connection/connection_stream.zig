@@ -428,7 +428,7 @@ test "the peer's reset count starts again in the next period, and a reset of a c
 
 test "a server's resets of the streams a client opened are not counted" {
     try support.start_client();
-    const request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
+    const request: connection.Connection.RequestHead = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
     for (0..constants.policy.peer_reset_rate_max + 1) |_| {
         const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, true);
         // RFC 9113 §8.7: REFUSED_STREAM tells the client it may send the request again.

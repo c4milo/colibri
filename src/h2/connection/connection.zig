@@ -81,8 +81,6 @@ pub const Limit = enum {
 /// Why a request the caller asked for did not go out (`connection_request.zig`).
 pub const RequestError = connection_request.Error;
 
-/// The pseudo-header fields of a request a client sends (`connection_request.zig`).
-pub const Request_ = connection_request.Request;
 pub const RequestIndexing = connection_request.Indexing;
 pub const PseudoIndexing = connection_request.PseudoIndexing;
 
@@ -187,6 +185,10 @@ pub const Connection = struct {
     /// from which on the floor applies (decision 110 as amended).
     tiny_update_read: bool,
 
+    /// The pseudo-header fields of a request a client sends, which `write_request` writes
+    /// (`connection_request.zig`, decision 158 ruling 7).
+    pub const RequestHead = connection_request.Request;
+
     /// Makes a connection for an endpoint in `role`, with nothing read and nothing written. The
     /// caller writes the preface with `write_pending` before it reads the peer's.
     pub fn init(connection: *Connection, role: Role) void {
@@ -257,7 +259,7 @@ pub const Connection = struct {
     pub fn write_request(
         connection: *Connection,
         output: []u8,
-        request: connection_request.Request,
+        request: RequestHead,
         fields: []const hpack.Field,
         indexing: []const connection_request.Indexing,
         end_stream: bool,
@@ -434,11 +436,10 @@ test "decision 115: the connection's public functions are the calls a caller out
     try core.public_names.expect(Connection, &.{
         // Design §8 step 21b.4 adds `sendable_len` (decision 119), step 17c adds
         // `write_data_header` (decision 138), and step 39 adds `release_stream` (decision 153).
-        "init",               "receive",              "write_response",     "attach_tls",     "write_request",
-        "write_data",         "write_data_header",    "sendable_len",       "write_trailers", "write_alt_svc",
-        "limit_peer_streams", "release_stream",       "reset_stream",       "shutdown",       "write_pending",
-        "write_replies",      "has_pending",          "owes_window_update", "has_failed",     "field_section",
-        "fail",               "settings_deadline_ns", "preface_done",
+        "RequestHead",        "init",              "receive",       "write_response", "attach_tls",           "write_request",
+        "write_data",         "write_data_header", "sendable_len",  "write_trailers", "write_alt_svc",        "limit_peer_streams",
+        "release_stream",     "reset_stream",      "shutdown",      "write_pending",  "write_replies",        "has_pending",
+        "owes_window_update", "has_failed",        "field_section", "fail",           "settings_deadline_ns", "preface_done",
     });
 }
 

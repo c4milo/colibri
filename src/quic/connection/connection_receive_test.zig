@@ -139,10 +139,10 @@ const Opener = struct {
 
 /// The walk calls `open` alone, so every other member is unreached: a call to one would mean a
 /// test drove something these cases do not cover.
-fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
+fn unreachable_install(_: *anyopaque, _: crypto.Role, _: []const u8) crypto.suite.InstallError!void {
     unreachable;
 }
-fn unreachable_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
+fn unreachable_available(_: *const anyopaque, _: Level, _: crypto.Direction) bool {
     unreachable;
 }
 fn unreachable_seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {

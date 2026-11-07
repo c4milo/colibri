@@ -148,7 +148,7 @@ var test_representation: [representation_len_max]u8 = undefined;
 const representation_len_max: usize = 256;
 
 /// How h2's encoder writes one field line `how`, with no size update before it. Test-only.
-fn representation(name: []const u8, value: []const u8, how: h2.hpack.encoder.Indexing) ![]const u8 {
+fn representation(name: []const u8, value: []const u8, how: h2.hpack.Indexing) ![]const u8 {
     test_encoder.init(h2.constants.protocol.header_table_size_initial, .when_shorter);
     var writer = h2.core.Writer.init(&test_representation);
     try test_encoder.write_field(&writer, name, value, how);

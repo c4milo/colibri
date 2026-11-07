@@ -22,7 +22,7 @@ const constants = @import("../constants.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 
 const ConnectionId = transport_parameters.ConnectionId;
-const Role = crypto.suite.Role;
+const Role = crypto.Role;
 
 /// What the caller supplies about the handshake's connection IDs. A client knows two of these
 /// before it sends anything; a server reads both of the peer's off the first Initial it accepted.

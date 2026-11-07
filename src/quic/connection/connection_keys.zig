@@ -22,7 +22,7 @@ const space_module = @import("../space/space.zig");
 const connection_module = @import("connection.zig");
 
 const Level = core.Level;
-const Direction = crypto.suite.Direction;
+const Direction = crypto.Direction;
 const Suite = crypto.Suite;
 const Connection = connection_module.Connection;
 

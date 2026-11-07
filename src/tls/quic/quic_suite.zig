@@ -22,7 +22,7 @@ const level_of = quic_provider.level_of;
 
 comptime {
     // colibri's directions and key sets are chapulin's, value for value.
-    for ([_]suite_module.Direction{ .read, .write }) |direction| {
+    for ([_]crypto.Direction{ .read, .write }) |direction| {
         assert(@intFromEnum(direction) == @intFromEnum(@field(chapulin.quic.Direction, @tagName(direction))));
     }
     assert(crypto.constants.protocol.retry_integrity_tag_len == c.GCM_TAG);
@@ -70,7 +70,7 @@ pub fn Suite(comptime Held: type) type {
             return @ptrCast(@alignCast(context));
         }
 
-        fn install_initial_keys(context: *anyopaque, role: suite_module.Role, dcid: []const u8) suite_module.InstallError!void {
+        fn install_initial_keys(context: *anyopaque, role: crypto.Role, dcid: []const u8) suite_module.InstallError!void {
             return install(held(context), role, dcid);
         }
 
@@ -78,7 +78,7 @@ pub fn Suite(comptime Held: type) type {
             return switch_role(held(context), named);
         }
 
-        fn keys_available(context: *const anyopaque, level: Level, direction: suite_module.Direction) bool {
+        fn keys_available(context: *const anyopaque, level: Level, direction: crypto.Direction) bool {
             const role = held_const(context);
             return role.state.started and role.session.keysReady(level_of(level), @enumFromInt(@intFromEnum(direction)));
         }
@@ -129,8 +129,8 @@ pub fn Suite(comptime Held: type) type {
 /// RFC 9001 §5.2: the Initial keys derive from the Destination Connection ID. chapulin fixes a
 /// session's role when it starts, and the caller installs before the first packet, so the session
 /// must have started by then.
-fn install(role: anytype, asked: suite_module.Role, dcid: []const u8) suite_module.InstallError!void {
-    const own: suite_module.Role = if (@TypeOf(role.*).is_client) .client else .server;
+fn install(role: anytype, asked: crypto.Role, dcid: []const u8) suite_module.InstallError!void {
+    const own: crypto.Role = if (@TypeOf(role.*).is_client) .client else .server;
     // RFC 9001 §5.2: a session derives the keys of its own role, once it has started.
     if (asked != own or !role.state.started) return error.Unsupported;
     // RFC 9001 §5.2: chapulin refuses a connection ID it cannot derive from.
@@ -302,13 +302,13 @@ fn retry_token_check(context: *const anyopaque, named: suite_module.Version, add
 }
 
 /// The members a session holds and a Retry never reaches: a Retry is written before any key exists.
-fn no_session_install(_: *anyopaque, _: suite_module.Role, _: []const u8) suite_module.InstallError!void {
+fn no_session_install(_: *anyopaque, _: crypto.Role, _: []const u8) suite_module.InstallError!void {
     unreachable;
 }
 fn no_session_switch(_: *anyopaque, _: suite_module.Version) suite_module.SwitchError!void {
     unreachable;
 }
-fn no_session_available(_: *const anyopaque, _: Level, _: suite_module.Direction) bool {
+fn no_session_available(_: *const anyopaque, _: Level, _: crypto.Direction) bool {
     unreachable;
 }
 fn no_session_seal(_: *anyopaque, _: suite_module.Sealing, _: []u8) suite_module.SealError!usize {

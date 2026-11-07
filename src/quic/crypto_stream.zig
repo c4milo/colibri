@@ -260,18 +260,18 @@ pub const Levels = struct {
     }
 
     /// The stream a packet at `level` carries CRYPTO frames on.
-    pub fn at(levels: *Levels, level: crypto.suite.Level) *CryptoStream {
+    pub fn at(levels: *Levels, level: crypto.Level) *CryptoStream {
         return &levels.streams[@intFromEnum(level)];
     }
 
-    pub fn at_const(levels: *const Levels, level: crypto.suite.Level) *const CryptoStream {
+    pub fn at_const(levels: *const Levels, level: crypto.Level) *const CryptoStream {
         return &levels.streams[@intFromEnum(level)];
     }
 };
 
 comptime {
     // One stream per encryption level, and `Level` is what names them.
-    assert(constants.protocol.packet_number_spaces == @typeInfo(crypto.suite.Level).@"enum".fields.len);
+    assert(constants.protocol.packet_number_spaces == @typeInfo(crypto.Level).@"enum".fields.len);
 }
 
 test {

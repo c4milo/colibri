@@ -113,6 +113,10 @@ test "decision 115: the root exports the names code outside the module uses" {
     });
 }
 
+test "decision 158: a field section is emptied by init alone" {
+    try core.public_names.expect(FieldSection, &.{ "init", "len", "append", "extend_last", "get", "iterator", "find" });
+}
+
 test "decision 122: the method namespace exports the type the router's table names" {
     try core.public_names.expect(method, &.{ "Standard", "standard", "validate" });
 }

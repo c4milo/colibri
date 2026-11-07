@@ -172,10 +172,10 @@ const GoldenSuite = struct {
     }
     fn discard_previous_keys(_: *anyopaque) void {}
     fn discard_keys(_: *anyopaque, _: Level) void {}
-    fn keys_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
+    fn keys_available(_: *const anyopaque, _: Level, _: crypto.Direction) bool {
         return true;
     }
-    fn install_initial_keys(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {}
+    fn install_initial_keys(_: *anyopaque, _: crypto.Role, _: []const u8) crypto.suite.InstallError!void {}
     fn unreachable_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {
         unreachable;
     }

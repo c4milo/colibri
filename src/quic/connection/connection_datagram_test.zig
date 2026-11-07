@@ -333,7 +333,7 @@ test "decision 62: send marks the keys the suite holds, and never a level colibr
     suite_holder.available = @splat(@splat(true));
     // RFC 9001 §4.1.4: "TLS indicates to QUIC that reading or writing keys at that encryption
     // level are available", one direction at a time.
-    suite_holder.available[@intFromEnum(Level.handshake)][@intFromEnum(crypto.suite.Direction.read)] = false;
+    suite_holder.available[@intFromEnum(Level.handshake)][@intFromEnum(crypto.Direction.read)] = false;
     provider_holder = .{ .owed = &flight, .owed_level = .initial };
     _ = try send_from(&client);
     try testing.expectEqual(keys.State.none, client.keys.at(.handshake, .read));
@@ -377,7 +377,7 @@ const RetrySuite = struct {
     fn suite(self: *RetrySuite) crypto.Suite {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
-    fn install(context: *anyopaque, _: crypto.suite.Role, dcid: []const u8) crypto.suite.InstallError!void {
+    fn install(context: *anyopaque, _: crypto.Role, dcid: []const u8) crypto.suite.InstallError!void {
         const self: *RetrySuite = @ptrCast(@alignCast(context));
         // RFC 9001 §5: "Initial packets use AEAD_AES_128_GCM", which a suite without it cannot
         // derive keys for (invariant 25).
@@ -390,7 +390,7 @@ const RetrySuite = struct {
         return version == self.tag_version;
     }
     /// The test marks the client's levels itself, so the suite reports holding none.
-    fn none_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
+    fn none_available(_: *const anyopaque, _: Level, _: crypto.Direction) bool {
         return false;
     }
     fn unreached_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {

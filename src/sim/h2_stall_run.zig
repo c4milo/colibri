@@ -128,7 +128,7 @@ const Sender = struct {
 const Turn = enum { client_read, client_write, server_read, server_write };
 
 /// The request each stream carries, a POST whose body the plan sizes (RFC 9113 §8.3.1).
-const request: h2.connection.Request_ = .{ .method = "POST", .scheme = "https", .path = "/", .authority = "example.test" };
+const request: h2.Connection.RequestHead = .{ .method = "POST", .scheme = "https", .path = "/", .authority = "example.test" };
 /// RFC 9110 §15.3.1: 200 OK.
 const status_ok: u16 = 200;
 /// The octets every DATA frame carries: their value does not matter, only their count.

@@ -6,8 +6,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const crypto = @import("crypto");
 
-const Level = crypto.suite.Level;
-const Role = crypto.suite.Role;
+const Level = crypto.Level;
+const Role = crypto.Role;
 const Version = crypto.suite.Version;
 
 pub const Versions = struct {

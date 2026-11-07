@@ -6,7 +6,7 @@ const null_suite = @import("null_suite.zig");
 const null_suite_keys = @import("null_suite_keys.zig");
 
 const testing = std.testing;
-const Level = crypto.suite.Level;
+const Level = crypto.Level;
 const Sealing = crypto.suite.Sealing;
 const Opened = crypto.suite.Opened;
 const KeySet = crypto.suite.KeySet;

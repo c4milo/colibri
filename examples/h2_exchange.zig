@@ -123,7 +123,7 @@ fn step(connection: *Connection, side: Side, state: *State) !void {
     try link.send(side, output[0..written]);
 }
 
-fn handle(side: Side, event: h2.connection.Event, state: *State) void {
+fn handle(side: Side, event: h2.Event, state: *State) void {
     switch (event) {
         .request => |request| {
             std.debug.print("server: {s} {s} on stream {d}\n", .{

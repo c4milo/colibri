@@ -25,7 +25,7 @@ const constants = sim.constants;
 
 const crypto = quic.crypto;
 const Writer = quic.core.Writer;
-const Level = crypto.suite.Level;
+const Level = crypto.Level;
 const Endpoint = sim.network.Endpoint;
 const Ecn = sim.network.Ecn;
 const header = quic.packet.header;
@@ -146,7 +146,7 @@ fn prepare(storage: *Storage, random: *sim.Random) void {
     for ([_]Endpoint{ .client, .server }) |endpoint| {
         const peer = storage.peer_of(endpoint);
         peer.suite = .{};
-        const role: crypto.suite.Role = if (endpoint == .client) .client else .server;
+        const role: crypto.Role = if (endpoint == .client) .client else .server;
         const suite = peer.suite.suite();
         suite.vtable.install_initial_keys(suite.context, role, storage.connection_id[0..storage.connection_id_len]) catch unreachable;
         peer.suite.install(.handshake);

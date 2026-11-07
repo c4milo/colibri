@@ -30,9 +30,9 @@ const crypto = @import("crypto");
 const constants = @import("constants.zig");
 
 const Crc32 = std.hash.Crc32;
-const Level = crypto.suite.Level;
-const Direction = crypto.suite.Direction;
-const Role = crypto.suite.Role;
+const Level = crypto.Level;
+const Direction = crypto.Direction;
+const Role = crypto.Role;
 const KeySet = crypto.suite.KeySet;
 const Sealing = crypto.suite.Sealing;
 const Opening = crypto.suite.Opening;

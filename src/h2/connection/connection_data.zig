@@ -243,7 +243,7 @@ test "the padding of a DATA frame costs window and is not part of the payload (Â
 /// Opens stream 1 at a client with a request that ends the client's side. Test-only.
 fn open_stream_1() !void {
     try start_client();
-    const request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
+    const request: connection.Connection.RequestHead = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
     const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, true);
     try testing.expectEqual(1, sent.stream_id);
 }

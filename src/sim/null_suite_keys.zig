@@ -9,8 +9,8 @@ const assert = std.debug.assert;
 const crypto = @import("crypto");
 
 const Crc32 = std.hash.Crc32;
-const Level = crypto.suite.Level;
-const Role = crypto.suite.Role;
+const Level = crypto.Level;
+const Role = crypto.Role;
 const KeySet = crypto.suite.KeySet;
 const Version = crypto.suite.Version;
 

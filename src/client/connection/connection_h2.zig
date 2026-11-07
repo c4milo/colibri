@@ -311,7 +311,7 @@ fn open(connection: *Connection, slot: *Slot) bool {
     };
     // RFC 9113 §8.3.1: `:scheme` is the target URI's, https over TLS (RFC 9110 §4.2.2).
     const scheme: []const u8 = if (connection.config.tls == null) "http" else "https";
-    const head: h2.connection.Request_ = .{
+    const head: h2.Connection.RequestHead = .{
         .method = request.method,
         .scheme = scheme,
         .path = request.path,

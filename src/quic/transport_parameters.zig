@@ -31,7 +31,7 @@ const constants = @import("constants.zig");
 const Writer = core.Writer;
 
 /// Which endpoint sent a set of parameters. Three parameters are the server's alone (§18.2).
-pub const Role = crypto.suite.Role;
+pub const Role = crypto.Role;
 
 /// Why a peer's parameters are refused. Every one is a connection error of
 /// TRANSPORT_PARAMETER_ERROR (RFC 9000 §7.4), which `error_code.transport_parameter_error` names.

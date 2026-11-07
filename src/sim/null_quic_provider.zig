@@ -36,7 +36,7 @@ const Level = tls_provider.Level;
 
 /// Which endpoint of the connection this is. It is `crypto.suite`'s, so the null provider and the
 /// null suite of one endpoint are told apart by the same value.
-pub const Role = crypto.suite.Role;
+pub const Role = crypto.Role;
 
 /// The HandshakeType of the messages the null handshake carries (RFC 9846 §4). The four are the
 /// ones §4.1.5's Figure 5 moves; the null provider sends no certificate and no session ticket.

@@ -66,7 +66,7 @@ pub const State = struct {
 /// The vtable for a role's session type `Held`.
 pub fn Provider(comptime Held: type) type {
     return struct {
-        pub const vtable: provider_module.VTable = .{
+        pub const vtable: tls_provider.QuicVTable = .{
             .set_transport_params = set_transport_params,
             .peer_transport_params = peer_transport_params,
             .provide_handshake = provide_handshake,

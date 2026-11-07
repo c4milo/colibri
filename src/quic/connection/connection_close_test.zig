@@ -184,7 +184,7 @@ test "RFC 9000 §10.2.3: a client with no Handshake keys closes in an Initial pa
     // "An endpoint can send a CONNECTION_CLOSE frame in an Initial packet. This might be in
     // response to unauthenticated information received in Initial or Handshake packets."
     // Take the client's Handshake keys away and the Initial becomes the one packet it can send.
-    client.keys.state[@intFromEnum(Level.handshake)][@intFromEnum(crypto.suite.Direction.write)] = .none;
+    client.keys.state[@intFromEnum(Level.handshake)][@intFromEnum(crypto.Direction.write)] = .none;
     close_module.owe(&client, close_module.transport(test_error_code, null));
     try testing.expect(close_module.carries(&client, .initial));
     const read = try walk_back(&server, (try send_from(&client)).?);
@@ -340,7 +340,7 @@ test "RFC 9000 §10.2.3: a connection owing no close writes none, at any level" 
     // And a level with no keys carries none even once one is owed (RFC 9001 §4.9).
     close_module.owe(&client, close_module.transport(test_error_code, null));
     try testing.expect(close_module.owes(&client));
-    client.keys.state[@intFromEnum(Level.application)][@intFromEnum(crypto.suite.Direction.write)] = .discarded;
+    client.keys.state[@intFromEnum(Level.application)][@intFromEnum(crypto.Direction.write)] = .discarded;
     try testing.expect(!close_module.carries(&client, .application));
 }
 
@@ -401,7 +401,7 @@ test "decision 84: after the TLS provider fails, the close goes out only where t
     // RFC 9001 §4.8: the failed stack kept only its Initial write keys, so of the three levels
     // §10.2.3 would close at, one can carry the close.
     server.tls_failed = true;
-    suite_holder.available[@intFromEnum(Level.initial)][@intFromEnum(crypto.suite.Direction.write)] = true;
+    suite_holder.available[@intFromEnum(Level.initial)][@intFromEnum(crypto.Direction.write)] = true;
     close_module.owe(&server, close_module.transport(test_error_code, test_frame_type));
     const sent = (try send_from(&server)).?;
     try testing.expectEqual(1, sent.count);

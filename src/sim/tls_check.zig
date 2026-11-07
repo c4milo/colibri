@@ -150,7 +150,7 @@ fn run_once(storage: *Storage, cuts: u64, chunked: bool, seed: u64) Violation!vo
     const records = cut_into_records(storage, stream, cuts, &random);
     storage.provider = .{};
     storage.connection.init(.server);
-    h2.connection_tls.attach(&storage.connection, storage.provider.provider()) catch
+    storage.connection.attach_tls(storage.provider.provider()) catch
         return error.OutcomeUnexpected;
     storage.events.init();
     storage.invariants.init();

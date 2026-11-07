@@ -57,7 +57,7 @@ const Parameters = transport_parameters.Parameters;
 
 /// Which endpoint colibri is. It is the suite's, because `install_initial_keys` takes the same
 /// answer and RFC 9001 §5.2 derives a different key for each side from it.
-pub const Role = crypto.suite.Role;
+pub const Role = crypto.Role;
 
 /// What a connection is built from. Everything here is the caller's decision, including the
 /// instant, which no file under `src/` may read.

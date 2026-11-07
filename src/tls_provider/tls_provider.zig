@@ -38,7 +38,6 @@ pub const alert = struct {
 
 pub const provider = struct {
     pub const CloseError = files.provider.CloseError;
-    pub const Content = files.provider.Content;
     pub const ExportError = files.provider.ExportError;
     pub const HandshakeReadError = files.provider.HandshakeReadError;
     pub const HandshakeWriteError = files.provider.HandshakeWriteError;
@@ -55,7 +54,6 @@ pub const quic_provider = struct {
     pub const ExportError = files.quic_provider.ExportError;
     pub const ProvideError = files.quic_provider.ProvideError;
     pub const TransportParamsError = files.quic_provider.TransportParamsError;
-    pub const VTable = files.quic_provider.VTable;
     pub const WriteError = files.quic_provider.WriteError;
 };
 
@@ -65,6 +63,17 @@ test "decision 115: the root exports the names code outside the module uses" {
         "Provider",     "VTable",     "Content",        "Negotiated",
         "QuicProvider", "QuicVTable", "VersionChooser", "Level",
         "alert",        "provider",   "quic_provider",
+    });
+}
+
+test "decision 158: the namespaces hold no copy of a type the root exports" {
+    try core.public_names.expect(provider, &.{
+        "CloseError",     "ExportError",      "HandshakeReadError",    "HandshakeWriteError",
+        "KeyUpdateError", "KeyUpdateRequest", "OpenError",             "Opened",
+        "SealError",      "Sealed",           "cipher_suite_admitted",
+    });
+    try core.public_names.expect(quic_provider, &.{
+        "ExportError", "ProvideError", "TransportParamsError", "WriteError",
     });
 }
 

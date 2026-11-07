@@ -13,7 +13,7 @@ const test_connection = &support.test_connection;
 const test_output = &support.test_output;
 
 /// A request with every pseudo-header field RFC 9113 §8.3.1 requires. Test-only.
-const test_request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
+const test_request: connection.Connection.RequestHead = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
 
 /// RFC 7541 §6.3: a dynamic table size update starts with the bits 001. Test-only.
 const size_update_mask: u8 = 0xe0;

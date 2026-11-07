@@ -166,7 +166,7 @@ test "a frame carrying no octets is neither an error nor a change" {
 
 test "RFC 9000 §19.6: each encryption level is a separate stream starting at offset 0" {
     test_levels.init();
-    const levels = [_]crypto.suite.Level{ .initial, .handshake, .application };
+    const levels = [_]crypto.Level{ .initial, .handshake, .application };
     for (levels) |level| {
         try testing.expectEqual(0, test_levels.at(level).readable().len);
         try testing.expectEqual(0, test_levels.at(level).consumed_len());

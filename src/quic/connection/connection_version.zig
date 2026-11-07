@@ -40,7 +40,7 @@ const connection_module = @import("connection.zig");
 
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
-const Role = crypto.suite.Role;
+const Role = crypto.Role;
 const Version = crypto.suite.Version;
 const Level = core.Level;
 

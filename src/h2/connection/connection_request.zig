@@ -255,7 +255,7 @@ fn encode_request(target: *Connection, request: Request, fields: []const hpack.F
 
 /// One field line, never inserted into the dynamic table (`Indexing`).
 fn write_line(target: *Connection, writer: *Writer, name: []const u8, value: []const u8, how: Indexing) !void {
-    const representation: hpack.encoder.Indexing = switch (how) {
+    const representation: hpack.Indexing = switch (how) {
         .without_indexing => .without_indexing,
         .never_indexed => .never_indexed,
     };

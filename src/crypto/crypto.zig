@@ -22,16 +22,13 @@ pub const Direction = files.suite.Direction;
 pub const Role = files.suite.Role;
 
 pub const suite = struct {
-    pub const Direction = files.suite.Direction;
     pub const InstallError = files.suite.InstallError;
     pub const KeySet = files.suite.KeySet;
-    pub const Level = files.suite.Level;
     pub const OpenError = files.suite.OpenError;
     pub const Opened = files.suite.Opened;
     pub const Opening = files.suite.Opening;
     pub const RetryConnectionIds = files.suite.RetryConnectionIds;
     pub const RetryTagError = files.suite.RetryTagError;
-    pub const Role = files.suite.Role;
     pub const SealError = files.suite.SealError;
     pub const Sealing = files.suite.Sealing;
     pub const SwitchError = files.suite.SwitchError;
@@ -55,6 +52,15 @@ test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
         "core",      "constants", "Suite", "Level",
         "Direction", "Role",      "suite", "packet_number",
+    });
+}
+
+test "decision 158: the suite namespace holds no copy of a type the root exports" {
+    try core.public_names.expect(suite, &.{
+        "InstallError",       "KeySet",        "OpenError",   "Opened",  "Opening",
+        "RetryConnectionIds", "RetryTagError", "SealError",   "Sealing", "SwitchError",
+        "TokenCheck",         "TokenError",    "UpdateError", "VTable",  "Version",
+        "directions_count",   "levels_count",
     });
 }
 

@@ -81,7 +81,7 @@ pub const Seen = struct {
 };
 
 /// The field lines each request, interim response and trailer section carries.
-const request: h2.connection.Request_ = .{ .method = "POST", .scheme = "https", .path = "/", .authority = "example.test" };
+const request: h2.Connection.RequestHead = .{ .method = "POST", .scheme = "https", .path = "/", .authority = "example.test" };
 const trailers = [_]h2.hpack.Field{.{ .name = "grpc-status", .value = "0" }};
 /// RFC 9110 §15.2.4: 103 Early Hints, an interim response, and §15.3.1: 200 OK, a final one.
 const interim_status: u16 = 103;

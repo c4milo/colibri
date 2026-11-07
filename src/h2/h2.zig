@@ -77,11 +77,9 @@ pub const connection = struct {
     pub const AltSvc = files.connection.AltSvc;
     pub const Data = files.connection.Data;
     pub const DataWritten = files.connection.DataWritten;
-    pub const Event = files.connection.Event;
     pub const Request = files.connection.Request;
     pub const RequestError = files.connection.RequestError;
     pub const RequestIndexing = files.connection.RequestIndexing;
-    pub const Request_ = files.connection.Request_;
     pub const Response = files.connection.Response;
     pub const SendError = files.connection.SendError;
     pub const StreamReset = files.connection.StreamReset;
@@ -89,7 +87,6 @@ pub const connection = struct {
 
 pub const connection_tls = struct {
     pub const RecordError = files.connection_tls.RecordError;
-    pub const attach = files.connection_tls.attach;
     pub const close_notify = files.connection_tls.close_notify;
     pub const decrypt = files.connection_tls.decrypt;
     pub const encrypt = files.connection_tls.encrypt;
@@ -103,6 +100,18 @@ test "decision 115: the root exports the names code outside the module uses" {
         "tls_provider", "constants", "Role",       "FieldBlock",
         "Connection",   "Event",     "Limit",      "Window",
         "frame",        "stream",    "connection", "connection_tls",
+    });
+}
+
+test "decision 158: each type and each call has one public path" {
+    // `h2.Event` is the event, `h2.Connection.RequestHead` the request head, and
+    // `h2.Connection.attach_tls` the call that attaches a provider (ruling 7).
+    try core.public_names.expect(connection, &.{
+        "AltSvc",          "Data",     "DataWritten", "Request",     "RequestError",
+        "RequestIndexing", "Response", "SendError",   "StreamReset",
+    });
+    try core.public_names.expect(connection_tls, &.{
+        "RecordError", "close_notify", "decrypt", "encrypt", "encrypt_parts", "writable_len",
     });
 }
 

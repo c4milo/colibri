@@ -18,7 +18,7 @@ const test_output = &support.test_output;
 const rst_stream_frame_len = constants.protocol.frame_header_len + constants.protocol.rst_stream_len;
 
 /// A request with every pseudo-header field RFC 9113 §8.3.1 requires. Test-only.
-const test_request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
+const test_request: connection.Connection.RequestHead = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
 
 /// The identifier of the `index`th stream a client opens, counting from 0 (RFC 9113 §5.1.1).
 /// Test-only.

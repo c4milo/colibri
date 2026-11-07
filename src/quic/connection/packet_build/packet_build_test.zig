@@ -169,7 +169,7 @@ pub const RoundTrip = struct {
         return held.phase;
     }
 
-    fn keys_available(context: *const anyopaque, level: Level, direction: crypto.suite.Direction) bool {
+    fn keys_available(context: *const anyopaque, level: Level, direction: crypto.Direction) bool {
         const held: *const RoundTrip = @ptrCast(@alignCast(context));
         return held.available[@intFromEnum(level)][@intFromEnum(direction)];
     }
@@ -191,7 +191,7 @@ pub const RoundTrip = struct {
     };
 };
 
-fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
+fn unreachable_install(_: *anyopaque, _: crypto.Role, _: []const u8) crypto.suite.InstallError!void {
     unreachable;
 }
 fn unreachable_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {

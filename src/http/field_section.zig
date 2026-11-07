@@ -72,18 +72,13 @@ pub const FieldSection = struct {
     size: u32,
 
     /// Makes `section` empty. The unused parts of `octets` and `lines` are never read, so they are
-    /// left as they were.
+    /// left as they were. Every `Field` it handed out before is invalid after.
     pub fn init(section: *FieldSection) void {
         section.count = 0;
         section.octets_len = 0;
         section.size = 0;
         assert(section.len() == 0);
         assert(section.size == 0 and section.octets_len == 0);
-    }
-
-    /// Empties `section`, the same as `init`. Every `Field` it handed out before is invalid after.
-    pub fn clear(section: *FieldSection) void {
-        section.init();
     }
 
     /// Lines held.
@@ -365,7 +360,7 @@ test "clear empties the section, and it accepts lines again" {
     test_section.init();
     try test_section.append("a", "1");
     try test_section.append("b", "2");
-    test_section.clear();
+    test_section.init();
     try expect_state(0, 0, 0);
     try testing.expectEqual(null, test_section.find("a"));
     var lines = test_section.iterator();
