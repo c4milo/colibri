@@ -203,7 +203,8 @@ pub const Layout = pool_state.Layout;
 /// The alignment of the memory a pool's `init` takes. Each pool type names it `memory_alignment`.
 pub const pool_memory_alignment = pool_state.memory_alignment;
 
-/// A pool of the default capacity, which tries QUIC first and TCP after (decision 120).
+/// A pool of the default capacity. By default it opens TCP first, and QUIC only once TCP fails
+/// (decision 117 as amended, design §8 step 43).
 pub const ConnectionPool = ConnectionPoolOf(.{});
 
 /// A pool that holds the connections `capacity` names (decision 124). A pool with no QUIC

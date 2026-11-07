@@ -160,8 +160,8 @@ pub const World = struct {
     fn values(world: *World) client.Destination {
         world.addresses = .{client.Address.of(&server_host, 0)};
         var held: client.Destination = .{ .addresses = &world.addresses, .port = https_port };
-        // RFC 9460 §7.1.2: an HTTPS record naming h3 has the pool try QUIC first, and one naming
-        // no h3 has it wait for Alt-Svc.
+        // RFC 9460 §7.1.2: an HTTPS record that names h3 lets the pool open QUIC, and one that
+        // names no h3 makes it wait for Alt-Svc.
         if (world.plan.https) held.https_record = .{ .h3 = world.plan.policy == .first };
         return held;
     }

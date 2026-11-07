@@ -14,7 +14,8 @@ const one_in_two: u64 = 2;
 
 /// How the pool chooses QUIC, as spec/tla/client_exchanges's `QuicPolicy` names it.
 pub const Policy = enum {
-    /// QUIC first: the configuration says to try it, or an HTTPS record names h3.
+    /// QUIC may open when nothing advertises h3 (`quic_unadvertised`), or an HTTPS record names
+    /// h3. The plan's `prefer` says which transport opens first.
     first,
     /// TCP first, and QUIC once a TCP response's Alt-Svc named h3 (RFC 7838 §3).
     learn,
