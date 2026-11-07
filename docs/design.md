@@ -12696,6 +12696,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
         input loses. The judge's 16 connections may put the gain within the noise, and then the
         owner rules.
+    - **29d.17, the judge, 2026-11-06.** Run 42337266301, `--h3 --base ccbcdc66` at 10 rounds:
+      h3-many 0.9921 and 0.9905, within the noise in both jobs, and 30,621 to 30,378
+      instructions a request in job 1. h3-one 0.9954 and 0.9926, and h3-bbr-one 0.9937 and 0.9939,
+      each a win in job 2 and within the noise in job 1. No input loses. The owner admitted the
+      step on 2026-11-06: each h3 input moves the right way, and the gain grows with the number
+      of connections.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
