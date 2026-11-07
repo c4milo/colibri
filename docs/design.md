@@ -14089,8 +14089,9 @@ library.
        `scheduling_group: rotor.NamedSchedulingGroup = .default`. colibri's task calls
        `schedule_in` with it.
     2. On `.private`, colibri names `.default`, and the configuration has no such field.
-    3. Rotor marks its named groups "not ruled", so 44d waits for Rotor's ruling on them. 44a to
-       44c do not wait.
+    3. Rotor ruled its named groups on 2026-11-07, in its decisions 30 and 32 at 0c1fcf7. So 44d,
+       like 44a to 44c, waits only for Rotor's `v0.10.0`. Each test of 44d that names a group
+       passes its own table, as Rotor's decision 30 rule 7 says.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

@@ -6501,8 +6501,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      1. The configuration of `.shared` gains the field `scheduling_group`, with a default of
         `.default`. A program that uses no groups writes nothing new.
      2. The field is a `rotor.NamedSchedulingGroup`, as Rotor's own example of its decision 30
-        passes a library. Rotor marks the named groups "not ruled", so step 44d waits for Rotor's
-        ruling on them.
+        passes a library. Rotor marked the named groups "not ruled", so step 44d waited for Rotor's
+        ruling on them. Rotor ruled them on 2026-11-07, in its decisions 30 and 32 at 0c1fcf7.
      3. `Client` and `Server` both take the field on `.shared`. `Server` holds no task today, so
         a task that it adds later breaks no configuration. On `.private`, colibri names
         `.default`, and its configuration has no such field.
