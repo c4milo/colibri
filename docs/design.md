@@ -13171,7 +13171,8 @@ library.
       no TE among the program's headers, the client sends `te: trailers`. h11 also sends
       `Connection: TE` whenever the request carries TE (RFC 9110 §10.1.4).
     - `added_fields_max` went from 3 to 5, for TE and h11's Connection. The Trailer lines count
-      apart.
+      apart. The owner approved the change on 2026-11-06, and the test of
+      `src/client/constants_limits.zig` pins 5.
     - `request` refuses with `InvalidTrailer` the five names of decision 152 ruling 9 and the other
       connection-specific fields. It also refuses a name with an uppercase letter, which h2 and h3
       refuse (RFC 9113 §8.2.1, RFC 9114 §4.2), and a name or value RFC 9110 §5.1 or §5.5 refuses.
@@ -13205,6 +13206,14 @@ library.
     - A body with trailers not chunked over h11; END_STREAM on h2's last DATA frame before the
       section.
     - `zig build test-sim-run` **CAUGHT** the section dropped over h2 and over h3.
+  - **The owner's rulings of 2026-11-06** (decision 152 as amended on that day):
+    - `added_fields_max` of 5 is approved. A mutation that sets it to 4 is **CAUGHT** by `zig
+      build test-client`: the test of decision 137 expects 5 and finds 4.
+    - `InvalidTrailer` refuses more than ruling 9 named, and the owner accepted each refusal of
+      the build above.
+    - Over h3 the header section and the trailer section share one `prefix` of 16,436 octets for
+      each stream. A request whose two sections do not fit in it together ends `invalid` at
+      `open`. The owner accepted this, and docs/usage.md states it.
 - **Step 39 — streamed bodies in the pool, proposed 2026-11-05.** [Decision 153](decisions.md)
   as amended. It depends on no other step, and ships in v0.15.0 with steps 38b, 42, 43 and 44.
   - **The public names:** `client.Streamed`, `client.WriteBodyError`, `Request.streamed`,
@@ -13606,8 +13615,8 @@ library.
   - **The checks.** The simulator's pool run with `.tcp` connects over TCP when both work, and
     over QUIC when TCP fails. A mutation that opens QUIC first under `.tcp` is caught.
   - **The build, 2026-11-06.** `client.Protocols.prefer` takes `client.Transport`, which the
-    root already exports, so no name joins a public list. `Config.quic_first` stays: it says
-    whether QUIC may open at all with no HTTPS record and no Alt-Svc.
+    root already exports, so no name joins a public list. `Config.quic_first` stayed at first: it
+    says whether QUIC may open at all with no HTTPS record and no Alt-Svc.
     - Under `.tcp`, QUIC opens when this attempt's TCP failed, or when TCP is not allowed. No TCP
       slot opens while QUIC's handshake runs, and the pool sets no fallback instant.
     - A review found that the first build also opened QUIC when no TCP slot was free. A TCP
@@ -13641,6 +13650,19 @@ library.
     fallback instant set under `.tcp`. `tcp_tried` never set was **NOT CAUGHT** at first, and a
     pool test of two TCP slots now catches it. `zig build test-sim-run` **CAUGHT** QUIC first
     under `.tcp`, the preference ignored, and TCP beside a QUIC handshake.
+  - **The owner's rulings of 2026-11-06** (decision 117 as amended on that day):
+    - The fix of the review stays. Under `.tcp`, QUIC waits for a TCP slot that closes, and opens
+      only once a TCP connect failed.
+    - `client.Config.quic_first` becomes `client.Config.quic_unadvertised`. The old name said
+      "first", but under `.tcp` QUIC does not open first. The field says whether QUIC may open
+      when no HTTPS record and no Alt-Svc name h3. Its default stays `true`.
+    - The rename is a breaking change of v0.15.0. A program that sets `quic_first` does not
+      compile, and it sets `quic_unadvertised` in its place.
+    - The rename changed `src/client/pool/`, `src/sim/client_trace_world.zig` and docs/usage.md.
+      No example, `tools/` file, `tools/consumer/` file or README names the field. The model
+      `spec/tla/client_exchanges` names a `Policy`, not the field, so no `.cfg` file changed. A
+      field is not on a public list, so no list changed. The entries of step 17d keep the old
+      name, because they record the build of that day.
 - **Step 44 — colibri on a shared Rotor loop, proposed 2026-11-06.** [Decision 156](decisions.md).
   `colibri.Client` and `colibri.Server` run on a `rotor.Loop` that the program may share with
   other libraries, such as a resolver. Only the program ticks a shared loop. It ships in

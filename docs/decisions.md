@@ -4280,6 +4280,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      The alternatives that lost: an ordered list of protocols, which needs rules for repeats and
      for h3 between the TCP versions, and a preference for each destination alone.
 
+     Amended by the owner on 2026-11-06, after the review of design §8 step 43:
+     - Under `.tcp`, QUIC waits for a TCP slot that closes. QUIC opens only once a TCP connect
+       failed. A TCP connection that drains after a GOAWAY is not a failure.
+     - `client.Config.quic_first` becomes `client.Config.quic_unadvertised`, with the same default,
+       `true`. The field says whether QUIC may open when no HTTPS record and no Alt-Svc name h3.
+       Under `.tcp`, QUIC does not open first, so the old name was wrong. The rename breaks a
+       dependent's code at v0.15.0.
+
 119. **How one endpoint serves TCP and QUIC.** Adopted on 2026-10-09 for design §8 step 21b,
      which decision 117 rules; the owner may overrule any part of it.
      - A request's `Id` is a packed struct: a `ConnectionHandle` and the request's number on
@@ -6082,6 +6090,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `trailing_headers`. RFC 9110 §6.5 calls them trailer fields, and Go, Node and curl call
        them trailers.
      - Wait for streamed bodies. Trailers do not depend on them.
+
+     Amended by the owner on 2026-11-06, after the build of design §8 step 38b:
+     - `InvalidTrailer` refuses more than ruling 9 names, and the owner accepted each refusal.
+       It also refuses the connection-specific fields Connection, Keep-Alive, Proxy-Connection
+       and Upgrade (RFC 9113 §8.2.2). It refuses a name with an uppercase letter, which h2 and h3
+       refuse (RFC 9113 §8.2.1, RFC 9114 §4.2). It refuses a name or a value that RFC 9110 §5.1
+       or §5.5 refuses, and a section larger than `field_section_size_max`.
+     - Over h3 the header section and the trailer section share one prefix of 16,436 octets for
+       each stream. A request whose two sections do not fit in it together ends `invalid` at
+       `open`. docs/usage.md states it.
+     - `added_fields_max` goes from 3 to 5, for TE and, over h11, Connection.
 153. **A client that runs on a `std.Io`, with streamed bodies under it.** Ruled by the owner on
      2026-11-05 (design §8 step 39), as the client's counterpart of `colibri` (decision 150). A
      dependent that implements Connect and gRPC streams request and response bodies, and runs its
