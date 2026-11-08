@@ -48,9 +48,9 @@ test "decision 115: the root exports the names code outside the module uses" {
 
 test "decision 158: each type in a signature of Encoder and Decoder is a declaration of it" {
     try core.public_names.expect(Encoder, &.{
-        "HuffmanUse",          "Indexing",    "DecoderStreamError", "Coding",
-        "init",                "on_settings", "capacity",           "write_section",
-        "read_decoder_stream", "coding",
+        "HuffmanUse", "Settings",    "Indexing", "DecoderStreamError", "Coding",
+        "init",       "on_settings", "capacity", "write_section",      "read_decoder_stream",
+        "coding",
     });
     try core.public_names.expect(Decoder, &.{
         "Error",                "Outcome", "Settings",     "error_code",

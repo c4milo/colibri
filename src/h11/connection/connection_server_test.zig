@@ -46,7 +46,7 @@ test "requests are read one at a time, each after the last one's final response"
     const input = "GET /a HTTP/1.1\r\nHost: h\r\n\r\nGET /b HTTP/1.1\r\nHost: h\r\n\r\n";
     const first = try expect_request(target, input, "GET");
     // decision 92: the second request stays unread until the first is answered.
-    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..], &.{}));
+    try testing.expectEqual(connection.Connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..], &.{}));
     const written = try target.write_response(&test_output, 200, "OK", &.{.{ .name = "Content-Length", .value = "2" }});
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n", test_output[0..written]);
     try testing.expectEqual(2, try target.write_body(&test_output, "ok"));
@@ -88,7 +88,7 @@ test "RFC 9112 §9.6: a response that carries the close option ends the connecti
     _ = try target.write_response(&test_output, 204, "", &.{.{ .name = "Connection", .value = "close" }});
     try testing.expect(target.should_close());
     // The server processes no further request received on the connection.
-    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..], &.{}));
+    try testing.expectEqual(connection.Connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..], &.{}));
 }
 
 test "decision 92: a malformed request owes an error response with the close, by its status" {
@@ -226,7 +226,7 @@ test "RFC 9931 §8: a refused CONNECT ends the connection, and what follows it i
     const written = try target.write_response(&test_output, 504, "", &.{.{ .name = "Content-Length", .value = "0" }});
     try testing.expect(std.mem.indexOf(u8, test_output[0..written], "Connection: close\r\n") != null);
     try testing.expect(target.should_close());
-    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(smuggled[first..], &.{}));
+    try testing.expectEqual(connection.Connection.Received{ .consumed = 0, .event = null }, try target.receive(smuggled[first..], &.{}));
     // Any other request refused keeps the connection.
     target = server();
     const refused = "GET /a HTTP/1.1\r\nHost: h\r\n\r\nGET /b HTTP/1.1\r\nHost: h\r\n\r\n";

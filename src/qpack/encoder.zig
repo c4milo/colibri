@@ -34,14 +34,6 @@ const Representation = representation.Representation;
 
 pub const Error = core.Writer.Error;
 
-/// The two QPACK settings the peer's decoder advertised (RFC 9204 §5), both zero by default.
-pub const Settings = struct {
-    /// §3.2.3's `SETTINGS_QPACK_MAX_TABLE_CAPACITY`.
-    max_table_capacity: u64 = 0,
-    /// §2.1.2's `SETTINGS_QPACK_BLOCKED_STREAMS`.
-    blocked_streams: u64 = 0,
-};
-
 pub const Encoder = struct {
     huffman: HuffmanUse,
     peer: Settings,
@@ -55,6 +47,15 @@ pub const Encoder = struct {
     /// When a string is Huffman coded (RFC 9204 §4.1.2). `when_shorter` is what §7.2 leaves an
     /// implementation to decide: coding a string that does not shrink costs octets and cycles.
     pub const HuffmanUse = enum { never, always, when_shorter };
+
+    /// The two QPACK settings the peer's decoder advertised (RFC 9204 §5), both zero by default.
+    /// `on_settings` takes them (decision 158 ruling 16).
+    pub const Settings = struct {
+        /// §3.2.3's `SETTINGS_QPACK_MAX_TABLE_CAPACITY`.
+        max_table_capacity: u64 = 0,
+        /// §2.1.2's `SETTINGS_QPACK_BLOCKED_STREAMS`.
+        blocked_streams: u64 = 0,
+    };
 
     /// What the encoder may do with one field line (decision 76).
     pub const Indexing = enum {

@@ -21,7 +21,7 @@ const connection = @import("connection.zig");
 const connection_body = @import("connection_body.zig");
 
 const Connection = connection.Connection;
-const Received = connection.Received;
+const Received = connection.Connection.Received;
 const Field = http.Field;
 const Code = http.Status;
 

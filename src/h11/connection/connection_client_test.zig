@@ -131,8 +131,8 @@ test "RFC 9112 §8 and §6.3 rule 8: a close ends a close-delimited body, and cu
 
 test "RFC 9112 §9.2: octets with no request outstanding are refused, unless they are CRLF" {
     const target = client(.{ .role = .client });
-    try testing.expectEqual(connection.Received{ .consumed = 2, .event = null }, try target.receive("\r\nHT", &.{}));
-    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive("\r", &.{}));
+    try testing.expectEqual(connection.Connection.Received{ .consumed = 2, .event = null }, try target.receive("\r\nHT", &.{}));
+    try testing.expectEqual(connection.Connection.Received{ .consumed = 0, .event = null }, try target.receive("\r", &.{}));
     try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 200 OK\r\n\r\n", &.{}));
     try testing.expectEqual(error.ResponseUnexpected, target.failure.?);
     try testing.expect(!target.has_pending());

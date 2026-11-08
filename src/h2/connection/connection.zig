@@ -70,9 +70,6 @@ pub const Limit = enum {
 
 pub const PseudoIndexing = connection_request.PseudoIndexing;
 
-/// What `write_request` opened and wrote (`connection_request.zig`).
-pub const Sent = connection_request.Sent;
-
 /// The events `receive` returns, in `connection_event.zig`.
 pub const Trailers = connection_event.Trailers;
 pub const PeerGoaway = connection_event.PeerGoaway;
@@ -181,6 +178,8 @@ pub const Connection = struct {
     pub const Response = connection_event.Response;
     /// Why a send the caller asked for did not happen (`connection_send.zig`).
     pub const SendError = connection_send.Error;
+    /// What `write_request` opened and wrote (`connection_request.zig`).
+    pub const Sent = connection_request.Sent;
     pub const StreamReset = connection_event.StreamReset;
     /// Why `receive` stopped. The peer broke the protocol, the connection is closing, and
     /// `failure` names the code of the GOAWAY now queued (RFC 9113 §5.4.1). The caller writes
@@ -283,7 +282,7 @@ pub const Connection = struct {
         fields: []const hpack.Field,
         indexing: []const connection_request.Indexing,
         end_stream: bool,
-    ) connection_request.Error!connection_request.Sent {
+    ) connection_request.Error!Sent {
         connection.assert_preface_written();
         return connection_request.write_request(connection, output, request.*, fields, indexing, end_stream);
     }
@@ -458,14 +457,14 @@ test "decision 115: the connection's public functions are the calls a caller out
         // `write_data_header` (decision 138), and step 39 adds `release_stream` (decision 153).
         // Decision 158 folds the namespaces `connection` and `connection_tls` into the type, and
         // its ruling 10 adds `Options`.
-        "AltSvc",             "Data",               "DataWritten",       "Request",       "RequestError",   "RequestIndexing",
-        "RequestHead",        "Response",           "SendError",         "StreamReset",   "Error",          "Received",
-        "AttachError",        "RecordError",        "close_notify",      "decrypt",       "encrypt",        "encrypt_parts",
-        "writable_len",       "Options",            "init",              "receive",       "write_response", "attach_tls",
-        "write_request",      "write_data",         "write_data_header", "sendable_len",  "write_trailers", "write_alt_svc",
-        "limit_peer_streams", "release_stream",     "reset_stream",      "shutdown",      "write_pending",  "write_replies",
-        "has_pending",        "owes_window_update", "has_failed",        "field_section", "fail",           "settings_deadline_ns",
-        "preface_done",
+        "AltSvc",               "Data",               "DataWritten",        "Request",           "RequestError",  "RequestIndexing",
+        "RequestHead",          "Response",           "SendError",          "Sent",              "StreamReset",   "Error",
+        "Received",             "AttachError",        "RecordError",        "close_notify",      "decrypt",       "encrypt",
+        "encrypt_parts",        "writable_len",       "Options",            "init",              "receive",       "write_response",
+        "attach_tls",           "write_request",      "write_data",         "write_data_header", "sendable_len",  "write_trailers",
+        "write_alt_svc",        "limit_peer_streams", "release_stream",     "reset_stream",      "shutdown",      "write_pending",
+        "write_replies",        "has_pending",        "owes_window_update", "has_failed",        "field_section", "fail",
+        "settings_deadline_ns", "preface_done",
     });
 }
 

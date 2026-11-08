@@ -42,11 +42,6 @@ pub const Response = struct {
     body: message.Body,
 };
 
-pub const Received = struct {
-    consumed: usize,
-    event: ?Connection.Event,
-};
-
 /// Where the reading of the connection stands.
 pub const Phase = enum {
     /// Before a head.
@@ -66,16 +61,6 @@ pub const Outstanding = struct {
     asked: message.Asked,
     /// RFC 9110 §9.2.2: a method whose repeat has the same effect as one request.
     idempotent: bool,
-};
-
-/// What the transport's close meant (RFC 9112 §8).
-pub const Closed = struct {
-    /// A body that runs until the close ended with it (RFC 9112 §6.3 rule 8).
-    ended_body: bool,
-    /// A message was cut short: its head or body had not all arrived (RFC 9112 §8).
-    incomplete: bool,
-    /// Requests a client sent that have no final response, in order from the oldest.
-    unanswered: u32,
 };
 
 pub const Connection = struct {
@@ -192,6 +177,22 @@ pub const Connection = struct {
         body: message.Body,
     };
 
+    /// What `receive` returns: the octets of `input` it read, and the event they made, if any.
+    pub const Received = struct {
+        consumed: usize,
+        event: ?Event,
+    };
+
+    /// What the transport's close meant (RFC 9112 §8), which `transport_closed` returns.
+    pub const Closed = struct {
+        /// A body that runs until the close ended with it (RFC 9112 §6.3 rule 8).
+        ended_body: bool,
+        /// A message was cut short: its head or body had not all arrived (RFC 9112 §8).
+        incomplete: bool,
+        /// Requests a client sent that have no final response, in order from the oldest.
+        unanswered: u32,
+    };
+
     pub const SendError = message.WriteError || connection_body.WriteError || error{
         /// The connection has failed or closed, or the last request carried `Connection: close`.
         ConnectionClosed,
@@ -213,7 +214,8 @@ pub const Connection = struct {
     };
 
     // The record calls of a connection over TLS, which `connection_tls.zig` holds (decision 158
-    // ruling 8).
+    // ruling 8). `attach_tls` returns `AttachError` (decision 158 ruling 16).
+    pub const AttachError = connection_tls.AttachError;
     pub const RecordError = connection_tls.RecordError;
     pub const decrypt = connection_tls.decrypt;
     pub const encrypt = connection_tls.encrypt;
@@ -251,7 +253,7 @@ pub const Connection = struct {
 
     /// Attaches the TLS provider h11 runs over, after checking the finished handshake
     /// (`connection_tls.zig`). Called once, before any octet of HTTP moves.
-    pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) connection_tls.AttachError!void {
+    pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) AttachError!void {
         return connection_tls.attach(connection, provider);
     }
 
@@ -433,10 +435,11 @@ pub fn is_idempotent(method: []const u8) bool {
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     // Decision 158 ruling 8 folds the namespaces `connection` and `connection_tls` into the type.
     try @import("core").public_names.expect(Connection, &.{
-        "Options",     "Error",         "Failure",        "Event",        "Request",          "SendError",
-        "RecordError", "decrypt",       "encrypt",        "close_notify", "init",             "attach_tls",
-        "receive",     "write_request", "write_response", "write_body",   "count_body",       "write_chunk_head",
-        "write_end",   "has_pending",   "write_pending",  "should_close", "transport_closed", "fail",
+        "Options",      "Error",            "Failure",          "Event",       "Request",       "Received",
+        "Closed",       "SendError",        "AttachError",      "RecordError", "decrypt",       "encrypt",
+        "close_notify", "init",             "attach_tls",       "receive",     "write_request", "write_response",
+        "write_body",   "count_body",       "write_chunk_head", "write_end",   "has_pending",   "write_pending",
+        "should_close", "transport_closed", "fail",
     });
 }
 
