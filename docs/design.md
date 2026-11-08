@@ -14462,6 +14462,28 @@ library.
       - `h2.frame` gained a names test, so that a name left out of the namespace fails a test.
       - The tests in `src/tls/quic/` still call `QuicProvider`'s vtable. Step 45 changes the
         calls of `Provider` alone.
+    - The review of the branch, 2026-11-07, added four commits and left seven findings open.
+      - A test guards each read of `never_indexed.headers`: the h11 send, the check of the
+        reserved names, and the scans for Accept-Encoding and TE. Each mutation was CAUGHT.
+      - `h2.Connection.write_request` takes `*const RequestHead`, as ruling 1 rules for an
+        argument over 16 octets. `h11.Connection.fail` takes an `?http.Status` (pattern 4).
+      - The root of h3 lists the names of `frame` and of `message`.
+      - The comments and the private names of `src/testing/` say "engine" for the engine. The
+        simulator keeps "endpoint", because its `endpoint` check names the command and its
+        worlds.
+    - What the review left open, for the owner:
+      - `client.Response.status` has the default `undefined`. Ruling 5 refuses a default of 0.
+        With no default, each program that writes `client.Response = .{}` must name the field.
+      - `colibri.Server` keeps `config` and `engine_config`. It fills `engine_config` from the
+        identity, and after the bind, and the engine's `init` runs in `run`. Step 44 moves it.
+      - `colibri.ServerConfig.endpoint` keeps its name, which decision 150 gives the field.
+      - These options have no default, and no decision names the reason: `role` in
+        `h11.Connection.Options` and `h2.Connection.Options`, and `requests` and
+        `response_bytes` in `server.RouterOptions`.
+      - These types are in a public signature, and step 45 gives them no public name (ruling
+        6): `qpack`'s `Settings`, which `Encoder.on_settings` takes; h11's `AttachError`,
+        `Received` and `Closed`; and h2's `Sent`, which `write_request` returns.
+      - The tests in `src/tls/quic/` call `QuicProvider`'s vtable, as the run found.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
