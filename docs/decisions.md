@@ -6835,7 +6835,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
            `h2.Connection.Options` and `h3.Connection.Options` is `.server` by default.
            `server.RouterOptions.requests` is 32 by default, one for each connection of
            `server.Engine(.{})`. `response_bytes` is 256 by default, as each example passes. The
-           two values are in `server.constants.policy`, because a program may choose others.
+           owner put the two values in `server.constants.policy`.
+         - The review of 45o found two differences, which stay open for the owner (design §8
+           step 45):
+           - Ruling 1 of decision 137 puts a value that sizes memory in `limits`, and the two
+             router values size the router's memory.
+           - `quic.Connection.Options` keeps `role`, `local_parameters`, `now_ns` and `identity`
+             with no default, and `quic.Connection.IdentityOptions` keeps
+             `local_initial_source` and `original_destination` with no default.
          - Five types in a public signature get a public name, as ruling 6 rules:
            `qpack.Encoder.Settings`, `h11.Connection.AttachError`, `h11.Connection.Received`,
            `h11.Connection.Closed` and `h2.Connection.Sent`.

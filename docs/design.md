@@ -14479,6 +14479,16 @@ library.
       - `colibri.Server` keeps `config` and `engine_config`. It fills `engine_config` from the
         identity, and after the bind, and the engine's `init` runs in `run`. Step 44 moves it.
       - The tests in `src/tls/quic/` call `QuicProvider`'s vtable, as the run found.
+      - The review of 45o found two differences from the rulings:
+        - Decision 137 ruling 1 puts a value that sizes memory in `limits`. The owner put
+          `router_requests_default` and `router_response_bytes_default` in `policy`, and the
+          two values size the router's memory. The header of `constants_policy.zig` says that
+          its values size nothing.
+        - Ruling 16 gives each field of an options struct a default. `quic.Connection.Options`
+          keeps `role`, `local_parameters`, `now_ns` and `identity` with no default, and
+          `quic.Connection.IdentityOptions` keeps `local_initial_source` and
+          `original_destination` with no default. The `quic` `role` has the same server or
+          client choice as the `role` of h11, h2 and h3.
     - The owner ruled four of the review's findings on 2026-11-07 (decision 158 ruling 16):
       1. `client.Response.status` keeps the default `undefined`, so a program writes
          `client.Response = .{}` and names no status. Ruling 5 still refuses a default of 0. This
@@ -14490,8 +14500,8 @@ library.
            each of the 16 TCP and 16 QUIC connections of `server.Engine(.{})`.
          - `server.RouterOptions.response_bytes` is `router_response_bytes_default`, 256, the
            value that each example passes.
-         - The two values are in `src/server/constants_policy.zig`, because a program may choose
-           others (decision 137). A test pins each default.
+         - The two values are in `src/server/constants_policy.zig`, as the owner ruled. A test
+           pins each default.
       3. Five types in a public signature get a public name (ruling 6). 45p adds each one to its
          type and to the type's names list: `qpack.Encoder.Settings`, which
          `Encoder.on_settings` takes; `h11.Connection.AttachError`, `Received` and `Closed`; and
