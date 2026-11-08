@@ -107,6 +107,8 @@ pub fn unix_seconds(state: anytype, now_ns: u64) u64 {
 /// `unix_seconds` counts from, because its `init` takes no instant.
 pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run;
+    host.enter(&state.in_turn, "turn()");
+    defer state.in_turn = false;
     if (!state.started) start(state, now_ns);
     var out: operation_table.Outbox = .{ .operations = operations };
     pass_shutdown(state);
@@ -134,6 +136,8 @@ pub fn wait(state: anytype, full: bool) host.Wait {
 /// halt (decision 159, rule 6).
 pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
     const state = run;
+    host.enter(&state.in_turn, "complete()");
+    defer state.in_turn = false;
     const slot = state.operations.held(completion.id);
     if (completion.final()) state.operations.finish(slot);
     if (state.udp.served and state.udp.owns(slot)) return @import("client_udp.zig").complete(run, slot, completion, now_ns);

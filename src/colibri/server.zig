@@ -111,6 +111,8 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         stopping: std.atomic.Value(bool),
         shut_down: bool,
         over: bool,
+        /// A `turn` or a `complete` runs, and the router with it (decision 159, rule 4).
+        in_turn: bool,
         /// colibri's own Rotor host of `.private`: the loop and the descriptors
         /// (`rotor_host.zig`).
         host: Host,
@@ -129,6 +131,7 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
             self.engine_config = config.engine;
             assert(self.engine_config.tls == null);
             self.stopping = .init(false);
+            self.in_turn = false;
             return Kinded.init(self, config, capacity.quic_connections > 0);
         }
 
@@ -154,6 +157,7 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         /// thread that starts it.
         pub fn run(self: *Self) RunError!void {
             comptime host.require(kind, .private, "colibri: a .hosted object has no run(); its host calls turn() and complete() (decision 159)");
+            host.refuse_inside(self.in_turn, "run()");
             assert(self.host.open(listener));
             defer self.host.close_open();
             const now_ns = try self.host.begin();

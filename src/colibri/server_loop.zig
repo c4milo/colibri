@@ -83,6 +83,8 @@ pub fn reset(state: anytype, now_ns: u64) void {
 /// one needs, which it writes into `operations`.
 pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run;
+    host.enter(&state.in_turn, "turn()");
+    defer state.in_turn = false;
     var out: operation_table.Outbox = .{ .operations = operations };
     if (state.stopping.load(.acquire) and !state.shut_down) shut_down(state, now_ns);
     const due = if (state.engine.deadline_ns()) |at_ns| at_ns <= now_ns else false;
@@ -121,6 +123,8 @@ fn shut_down(state: anytype, now_ns: u64) void {
 /// halt (decision 159, rule 6).
 pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
     const state = run;
+    host.enter(&state.in_turn, "complete()");
+    defer state.in_turn = false;
     const slot = state.operations.held(completion.id);
     if (completion.final()) state.operations.finish(slot);
     const tcp_connections = state.sockets.len;
@@ -257,6 +261,8 @@ pub fn take_half_close(run: anytype) ?host.SocketId {
 /// ends the connection, as a failed send does.
 pub fn half_closed(run: anytype, socket_id: host.SocketId, shut: bool, now_ns: u64) void {
     const state = run;
+    host.enter(&state.in_turn, "complete()");
+    defer state.in_turn = false;
     const index = @intFromEnum(socket_id);
     const socket = &state.sockets[index];
     assert(socket.live);

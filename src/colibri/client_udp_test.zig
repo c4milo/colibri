@@ -48,6 +48,10 @@ test "design §8 step 42: a client fetches over h3 from a server's UDP socket" {
     try testing.expect(handler.greeted());
     try testing.expectEqual(client.Protocol.h3, handler.connected.?);
     try testing.expectEqual(1, handler.connections);
+    // Decision 159, rule 4: the handler and the route ran inside a turn or a complete, which each
+    // object marks.
+    try testing.expectEqual(0, handler.outside_turn);
+    try testing.expectEqual(0, fixture.routes_outside_turn.load(.monotonic));
 }
 
 test "design §8 step 42: three exchanges go over one QUIC connection" {

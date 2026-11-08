@@ -8,6 +8,7 @@
 //! runs the driver on colibri's own Rotor adapter (`rotor_host.zig`). With `.hosted` the program
 //! is the host. The root exports the seven types of the contract, from `SocketId` to `Turn`, and
 //! neither `ObjectKind` nor `Features`, which a program writes as literals.
+const std = @import("std");
 const server = @import("server");
 
 /// Who runs the loop of a `colibri.Server` or a `colibri.Client`: colibri, on its own Rotor loop,
@@ -19,6 +20,20 @@ pub const ObjectKind = enum { private, hosted };
 /// kind does not have (decision 156 ruling 4 as amended by decision 159).
 pub fn require(comptime kind: ObjectKind, comptime wanted: ObjectKind, comptime message: []const u8) void {
     if (kind != wanted) @compileError(message);
+}
+
+/// Halts when `call` comes from inside a `turn` or a `complete`, which `in_turn` records. The
+/// program's handler or router runs inside each of them, so such a call comes from the handler,
+/// and it breaks decision 159's rule 4.
+pub fn refuse_inside(in_turn: bool, comptime call: []const u8) void {
+    if (in_turn) std.debug.panic("colibri: " ++ call ++ " called inside turn() or complete() (decision 159, rule 4)", .{});
+}
+
+/// Marks the start of a `turn` or a `complete` in `in_turn`, after `refuse_inside`. The caller
+/// clears it when the call returns.
+pub fn enter(in_turn: *bool, comptime call: []const u8) void {
+    refuse_inside(in_turn.*, call);
+    in_turn.* = true;
 }
 
 /// What a host does on one UDP socket that it opened before `init` (decision 159).

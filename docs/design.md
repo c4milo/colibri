@@ -14419,6 +14419,17 @@ library.
     5. 44e `feat(colibri)`: the `in_turn` flag, which now also guards `turn` and `complete`.
        - Test: a `fetch` from `on_finished` on `.private`, and a `turn` from the handler on
          `.hosted`, halt under the halt harness.
+       - Done on 2026-11-08.
+         - Each `turn` and each `complete` of the driver sets `in_turn`, and halts when it is
+           already set. `run` of `.private` halts when it is set. The flag is set in `complete`
+           too, because `complete` still calls the handler for the events of a datagram (44c).
+         - `fetch` comes in 44h, so 44e halts `run` from `on_finished` on `.private`. 44h adds
+           `fetch` to the guard and its halt case.
+         - `zig build colibri-loop-check` runs six new halt cases. A client's handler calls
+           `turn`, `complete` or `run`, and a server's route does the same.
+         - The test of h3 in `client_udp_test.zig` requires each call of the handler and of the
+           route to come while `in_turn` is set.
+         - Checks and mutations: see the commit body of 44e.
     6. 44f `feat(colibri)`: one UDP socket for each family. On `.hosted`, each family is a field
        of the configuration.
        - Mutations: a send's socket not chosen by family; the second receive not written.

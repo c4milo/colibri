@@ -122,6 +122,8 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         closed: bool,
         /// `run` was called since `init`.
         ran: bool,
+        /// A `turn` or a `complete` runs, and the handler with it (decision 159, rule 4).
+        in_turn: bool,
         /// colibri's own Rotor host of `.private`: the loop and the descriptors
         /// (`rotor_host.zig`).
         host: Host,
@@ -139,6 +141,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
             self.handler = .of(handler);
             self.udp.served = false;
             self.ran = false;
+            self.in_turn = false;
             self.started = false;
             // A run that fails before its first turn holds no live socket.
             for (&self.sockets) |*socket| socket.live = false;
@@ -185,6 +188,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// that starts it (decision 150 ruling 7). A program calls `run` once for each `init`.
         pub fn run(self: *Self) RunError!void {
             comptime host.require(kind, .private, "colibri: a .hosted object has no run(); its host calls turn() and complete() (decision 159)");
+            host.refuse_inside(self.in_turn, "run()");
             return client_loop.run_loop(self);
         }
 

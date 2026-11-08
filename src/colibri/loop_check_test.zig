@@ -7,10 +7,14 @@
 //!   `shutdown`, `stopped` and `deinit`. It must compile.
 //! - Each other compile case calls one function that its kind does not have. Its compile must fail
 //!   with colibri's message (decision 156 ruling 4 as amended by decision 159).
-//! - `halt_stray_completion` and `halt_deinit_early` must compile. Each run must halt with
-//!   colibri's message: a completion that names no operation in flight (rule 6), and `deinit` of a
-//!   `.hosted` object before `stopped()` (rule 2). A test binary does not live through its own
-//!   halt, so the step runs each one as a program.
+//! - Each `halt_` case must compile, and its run must halt with colibri's message:
+//!   - `halt_stray_completion`: a completion that names no operation in flight (rule 6).
+//!   - `halt_deinit_early`: `deinit` of a `.hosted` object before `stopped()` (rule 2).
+//!   - `halt_client_turn_in_handler`, `halt_client_complete_in_handler`,
+//!     `halt_client_run_in_handler`, `halt_server_turn_in_route`, `halt_server_complete_in_route`
+//!     and `halt_server_run_in_route`: a handler or a route that calls `turn`, `complete` or `run`
+//!     from inside a turn (rule 4, design §8 step 44e).
+//!   A test binary does not live through its own halt, so the step runs each one as a program.
 const std = @import("std");
 const colibri = @import("colibri");
 const server = @import("server");
@@ -38,6 +42,30 @@ const routes = .{
 const Router = server.Router(void, routes, .{ .requests = 1 });
 var router: Router align(@alignOf(Router)) = .{};
 var context: void = {};
+
+/// A route that calls `turn`, `complete` or `run` of its own server, as `route_call` names, which
+/// breaks decision 159's rule 4.
+const reentrant_routes = .{
+    .error_handler = on_error,
+    .routes = .{
+        .{ .get, "/", call_inside },
+    },
+};
+const ReentrantRouter = server.Router(void, reentrant_routes, .{ .requests = 1 });
+var reentrant_router: ReentrantRouter align(@alignOf(ReentrantRouter)) = .{};
+const RouteCall = enum { turn, complete, run };
+var route_call: RouteCall align(@alignOf(RouteCall)) = .turn;
+
+fn call_inside(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+    switch (route_call) {
+        .turn => _ = hosted_server.turn(0, &inner_operations),
+        // Its id names no operation, so a complete that the flag does not refuse halts with rule
+        // 6's message instead.
+        .complete => hosted_server.complete(&.{ .id = stray_id, .result = .closed }, 0),
+        .run => private_server.run() catch {},
+    }
+    try response.end();
+}
 
 fn answer(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
     try response.end();
@@ -74,6 +102,50 @@ const cpu: tls.Cpu = .{
 
 /// The room of the operations that one turn writes.
 var operations: [HostedServer.operations_max + HostedClient.operations_max]colibri.Operation align(@alignOf(colibri.Operation)) = undefined;
+
+/// The room of the operations that a turn from inside a turn writes.
+var inner_operations: [HostedServer.operations_max + HostedClient.operations_max]colibri.Operation align(@alignOf(colibri.Operation)) = undefined;
+
+/// A client's handler that calls `turn` or `run` of its own client from `on_finished`, which
+/// breaks decision 159's rule 4.
+const TurnInHandler = struct {
+    pub fn on_finished(_: *TurnInHandler, running: *HostedClient, _: client.Finished) void {
+        _ = running.turn(0, &inner_operations);
+    }
+};
+const CompleteInHandler = struct {
+    pub fn on_finished(_: *CompleteInHandler, running: *HostedClient, _: client.Finished) void {
+        running.complete(&.{ .id = stray_id, .result = .closed }, 0);
+    }
+};
+const RunInHandler = struct {
+    pub fn on_finished(_: *RunInHandler, running: *PrivateClient, _: client.Finished) void {
+        running.run() catch {};
+    }
+};
+var turn_in_handler: TurnInHandler align(@alignOf(TurnInHandler)) = .{};
+var complete_in_handler: CompleteInHandler align(@alignOf(CompleteInHandler)) = .{};
+var run_in_handler: RunInHandler align(@alignOf(RunInHandler)) = .{};
+
+/// One GET of `/` and the response it fills.
+const get: client.Request = .{ .method = "GET", .path = "/" };
+var answer_of_get: client.Response align(@alignOf(client.Response)) = .{};
+
+/// RFC 9112 §3: a request of `/` with its Host field (RFC 9112 §3.2).
+const request_head = "GET / HTTP/1.1\r\nhost: localhost\r\n\r\n";
+
+/// A port that no server of the check binds, so a connect to it on loopback is refused, or ends
+/// at `connect_ns`.
+const unserved_port: u16 = 1;
+const connect_ns: u64 = 100_000_000;
+
+/// The first operation of `kind` among the first `count` that a turn wrote.
+fn written(count: u32, comptime kind: std.meta.Tag(colibri.Operation.Kind)) !colibri.Operation {
+    for (operations[0..count]) |operation| {
+        if (operation.kind == kind) return operation;
+    }
+    return error.OperationMissing;
+}
 
 /// An id that no turn wrote: its slot is past every table (`operation_table.zig`).
 const stray_id: colibri.OperationId = @enumFromInt(std.math.maxInt(u32));
@@ -140,8 +212,83 @@ const cases = struct {
     }
 };
 
+const halts = struct {
+    /// A handler that calls `turn` from `on_finished`, which runs inside a turn.
+    pub fn halt_client_turn_in_handler() !void {
+        try refuse_inside_handler(&turn_in_handler);
+    }
+
+    /// A handler that calls `complete` from `on_finished`. Its id names no operation, so a
+    /// complete that the flag does not refuse halts with rule 6's message instead.
+    pub fn halt_client_complete_in_handler() !void {
+        try refuse_inside_handler(&complete_in_handler);
+    }
+
+    /// Ends one exchange refused, so `handler`'s `on_finished` runs inside the last turn.
+    fn refuse_inside_handler(handler: anytype) !void {
+        try hosted_client.init(&.{ .host = "127.0.0.1", .port = unserved_port, .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, handler);
+        _ = try hosted_client.request(&get, &answer_of_get);
+        const first = hosted_client.turn(0, &operations);
+        const connect = try written(first.operations, .connect);
+        // The connect fails, so the exchange ends refused at the next turn.
+        hosted_client.complete(&.{ .id = connect.id, .result = .{ .failed = .refused } }, 0);
+        _ = hosted_client.turn(0, &operations);
+    }
+
+    /// A route's function that calls `turn` of its server, which runs inside a turn.
+    pub fn halt_server_turn_in_route() !void {
+        try route_inside(.turn);
+    }
+
+    /// A route's function that calls `complete` of its server.
+    pub fn halt_server_complete_in_route() !void {
+        try route_inside(.complete);
+    }
+
+    /// A route's function that calls `run` of its `.private` server. A client on a thread of
+    /// its own sends the request over loopback.
+    pub fn halt_server_run_in_route() !void {
+        route_call = .run;
+        try private_server.init(&.{ .cpu = cpu, .random = zero_source }, &reentrant_router, &context);
+        const peer = try std.Thread.spawn(.{}, get_from, .{private_server.port()});
+        peer.detach();
+        try private_server.run();
+    }
+
+    /// Sends one GET of `/` to `port` on loopback from a `.private` client. The server halts
+    /// before it answers.
+    fn get_from(port: u16) void {
+        private_client.init(&.{ .host = "127.0.0.1", .port = port, .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null) catch return;
+        _ = private_client.request(&get, &answer_of_get) catch return;
+        private_client.run() catch return;
+    }
+
+    /// Gives a hosted server one request, so its route calls what `call` names inside a turn.
+    fn route_inside(call: RouteCall) !void {
+        route_call = call;
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source }, &reentrant_router, &context);
+        const first = hosted_server.turn(0, &operations);
+        const accept = try written(first.operations, .accept);
+        hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, 0);
+        const second = hosted_server.turn(0, &operations);
+        const receive = try written(second.operations, .receive);
+        @memcpy(receive.kind.receive.buffer[0..request_head.len], request_head);
+        hosted_server.complete(&.{ .id = receive.id, .result = .{ .received = request_head.len } }, 0);
+        _ = hosted_server.turn(0, &operations);
+    }
+
+    /// A handler that calls `run` from `on_finished`, which runs inside a turn of `run`.
+    pub fn halt_client_run_in_handler() !void {
+        var pool: client.Config = .{ .authority = "localhost", .protocols = .{ .h3 = false } };
+        pool.timeouts.connect_ns = connect_ns;
+        try private_client.init(&.{ .host = "127.0.0.1", .port = unserved_port, .pool = pool, .random = zero_source, .unix_seconds = 0 }, &run_in_handler);
+        _ = try private_client.request(&get, &answer_of_get);
+        try private_client.run();
+    }
+};
+
 pub fn main() !void {
-    try @field(cases, case)();
+    if (@hasDecl(halts, case)) try @field(halts, case)() else try @field(cases, case)();
     // A halt case that returns broke its rule with no halt.
     if (std.mem.startsWith(u8, case, "halt_")) return error.NoHalt;
 }

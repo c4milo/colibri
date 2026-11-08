@@ -49,7 +49,13 @@ const routes = .{
 };
 const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = 0 });
 
+/// The routes that ran while the running server's `in_turn` was clear: none, because each runs
+/// inside a `turn` or a `complete` (decision 159, rule 4). The server's thread writes it.
+pub var routes_outside_turn: std.atomic.Value(u32) align(@alignOf(std.atomic.Value(u32))) = .init(0);
+
 fn greet(_: *void, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+    const in_turn = if (udp_served) test_server.in_turn else tcp_server.in_turn;
+    if (!in_turn) _ = routes_outside_turn.fetchAdd(1, .monotonic);
     try response.header("content-type", "text/plain");
     try response.body().writeAll(greeting);
     try response.end();
@@ -141,6 +147,7 @@ pub fn start_server(identity: bool, udp: bool) !void {
     if (identity) config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     router = .{};
     udp_served = udp;
+    routes_outside_turn.store(0, .monotonic);
     if (udp) try test_server.init(&config, &router, &context) else try tcp_server.init(&config, &router, &context);
     server_thread = try std.Thread.spawn(.{}, serve, .{});
 }
@@ -204,6 +211,9 @@ pub const Handler = struct {
     streams: u32 = 0,
     path: []const u8 = "/greeting",
     method: []const u8 = "GET",
+    /// The calls of the handler that came while the client's `in_turn` was clear: none, because
+    /// each comes from inside a `turn` or a `complete` (decision 159, rule 4).
+    outside_turn: u32 = 0,
 
     /// Requests `count` GETs of `/greeting` through the client.
     pub fn request(handler: *Handler, count: u32) !void {
@@ -220,6 +230,7 @@ pub const Handler = struct {
 
     pub fn on_finished(handler: *Handler, running: *TestClient, finished: client.Finished) void {
         std.debug.assert(running == &test_client);
+        if (!running.in_turn) handler.outside_turn += 1;
         handler.finished += 1;
         if (greeting_in(finished.response)) handler.greetings += 1;
         if (stream_in(finished.response)) handler.streams += 1;
@@ -230,7 +241,8 @@ pub const Handler = struct {
         if (handler.finished == handler.stop_after) running.shutdown();
     }
 
-    pub fn on_connected(handler: *Handler, _: *TestClient, connected: client.Connected) void {
+    pub fn on_connected(handler: *Handler, running: *TestClient, connected: client.Connected) void {
+        if (!running.in_turn) handler.outside_turn += 1;
         handler.connected = connected.protocol;
         handler.connections += 1;
     }
