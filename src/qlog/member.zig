@@ -11,7 +11,7 @@ const TextWriter = @import("batch.zig").Batch;
 
 /// What a write fails with: stdx's refusal of a string that is not UTF-8, or a buffer the record
 /// does not fit.
-pub const Error = json.EncodeError || error{NoSpaceLeft};
+pub const Error = json.TextWriter.Error;
 
 /// A string: colibri's own ASCII, or a peer's field line that is printable ASCII. Any other octets
 /// of a peer's are a hexstring (decision 102 as amended).

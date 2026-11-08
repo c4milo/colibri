@@ -165,8 +165,8 @@ test "decision 101: content past the ring's room waits for the ring to empty, an
     }
     try testing.expect(coded.finished and coded.ring.held() == 0);
     try testing.expect(coded.ring.written > constants.limits.encoder_ring_len);
-    gzip.init(&test_decoder, .none());
-    const decoded = try gzip.decode_all(&test_decoder, test_coded_octets[0..copied], &test_decoded);
+    test_decoder.init(.none());
+    const decoded = try test_decoder.decode_all(test_coded_octets[0..copied], &test_decoded);
     try testing.expectEqualSlices(u8, &test_input, test_decoded[0..decoded.written]);
     encoders.give_back(coded.slot);
 }

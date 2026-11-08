@@ -133,12 +133,12 @@ const incompressible_rings: usize = 3;
 pub fn decode(coding: http.content_coding.Coding, coded: []const u8) ![]const u8 {
     const whole = switch (coding) {
         .gzip => blk: {
-            gzip.init(&gzip_decoder, .none());
-            break :blk try gzip.decode_all(&gzip_decoder, coded, &decoded);
+            gzip_decoder.init(.none());
+            break :blk try gzip_decoder.decode_all(coded, &decoded);
         },
         .deflate => blk: {
-            zlib.init(&zlib_decoder, .none());
-            break :blk try zlib.decode_all(&zlib_decoder, coded, &decoded);
+            zlib_decoder.init(.none());
+            break :blk try zlib_decoder.decode_all(coded, &decoded);
         },
         // The server encodes `gzip` and `deflate` alone (decision 101 as amended).
         .zstd, .br => unreachable,

@@ -12,7 +12,7 @@ const quic = @import("quic");
 
 const qlog = quic.qlog;
 const TextReader = qlog.json.TextReader;
-const Item = qlog.json.Item;
+const Item = qlog.json.TextReader.Item;
 const Kind = qlog.json.Kind;
 const quic_event = qlog.quic_event;
 const h3_event = qlog.h3_event;

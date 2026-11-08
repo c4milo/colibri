@@ -111,8 +111,8 @@ pub fn main() !void {
     // stdx's gzip, which colibri's package exports (decision 101), codes content and decodes it.
     gzip_encoder.init(.target());
     const coded_len = try gzip_encoder.encode_all("colibri", &coded);
-    gzip.init(&gzip_decoder, .target());
-    const decoded = try gzip.decode_all(&gzip_decoder, coded[0..coded_len], &output);
+    gzip_decoder.init(.target());
+    const decoded = try gzip_decoder.decode_all(coded[0..coded_len], &output);
     if (!std.mem.eql(u8, output[0..decoded.written], "colibri")) return error.CodingWrong;
 
     // The `server` and `client` modules (decision 100), in cleartext h2: the client's request and

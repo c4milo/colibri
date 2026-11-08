@@ -193,12 +193,12 @@ fn verify_exchange(storage: *Storage, planned: *const content_coding_plan.Exchan
 fn decode(storage: *Storage, coding: Coding, coded: []const u8) Violation![]const u8 {
     const whole = switch (coding) {
         .gzip => blk: {
-            gzip.init(&storage.gzip_decoder, .none());
-            break :blk gzip.decode_all(&storage.gzip_decoder, coded, &storage.decoded) catch return error.ExchangeDiffers;
+            storage.gzip_decoder.init(.none());
+            break :blk storage.gzip_decoder.decode_all(coded, &storage.decoded) catch return error.ExchangeDiffers;
         },
         .deflate => blk: {
-            zlib.init(&storage.zlib_decoder, .none());
-            break :blk zlib.decode_all(&storage.zlib_decoder, coded, &storage.decoded) catch return error.ExchangeDiffers;
+            storage.zlib_decoder.init(.none());
+            break :blk storage.zlib_decoder.decode_all(coded, &storage.decoded) catch return error.ExchangeDiffers;
         },
         // The plan draws the codings both modules code: the server encodes no other.
         .zstd, .br => unreachable,

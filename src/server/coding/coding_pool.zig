@@ -225,12 +225,12 @@ test "decision 101: a slot codes gzip and deflate, which stdx's decoders read ba
     const deflate_slot = encoders.take(.deflate).?;
     try testing.expect(gzip_slot != deflate_slot);
     const gzipped = try code_all(encoders, gzip_slot);
-    gzip.init(&test_gzip_decoder, .none());
-    const unzipped = try gzip.decode_all(&test_gzip_decoder, gzipped, &test_decoded);
+    test_gzip_decoder.init(.none());
+    const unzipped = try test_gzip_decoder.decode_all(gzipped, &test_decoded);
     try testing.expectEqualStrings(test_text, test_decoded[0..unzipped.written]);
     const deflated = try code_all(encoders, deflate_slot);
-    zlib.init(&test_zlib_decoder, .none());
-    const inflated = try zlib.decode_all(&test_zlib_decoder, deflated, &test_decoded);
+    test_zlib_decoder.init(.none());
+    const inflated = try test_zlib_decoder.decode_all(deflated, &test_decoded);
     try testing.expectEqualStrings(test_text, test_decoded[0..inflated.written]);
 }
 
@@ -246,7 +246,7 @@ test "decision 101: every slot taken leaves a response uncoded, and one given ba
     try testing.expectEqual(first, encoders.take(.deflate).?);
     // A slot taken again starts a new stream on its new coding.
     const deflated = try code_all(encoders, first);
-    zlib.init(&test_zlib_decoder, .none());
-    const inflated = try zlib.decode_all(&test_zlib_decoder, deflated, &test_decoded);
+    test_zlib_decoder.init(.none());
+    const inflated = try test_zlib_decoder.decode_all(deflated, &test_decoded);
     try testing.expectEqualStrings(test_text, test_decoded[0..inflated.written]);
 }

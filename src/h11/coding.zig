@@ -175,10 +175,10 @@ pub const Decoding = struct {
         }
         const slot = &storage.slots[decoding.slot];
         const progress = switch (decoding.coding) {
-            .gzip => gzip.decode(&slot.decoder.gzip, input, output) catch |failure| {
+            .gzip => slot.decoder.gzip.decode(input, output) catch |failure| {
                 return refused(gzip.refusal(failure));
             },
-            .deflate => zlib.decode(&slot.decoder.zlib, input, output) catch |failure| {
+            .deflate => slot.decoder.zlib.decode(input, output) catch |failure| {
                 return refused(zlib.refusal(failure));
             },
             .none => unreachable,
@@ -225,11 +225,11 @@ fn begin_stream(decoding: *Decoding, storage: Storage) void {
     switch (decoding.coding) {
         .gzip => {
             slot.decoder = .{ .gzip = undefined };
-            gzip.init(&slot.decoder.gzip, storage.header.features);
+            slot.decoder.gzip.init(storage.header.features);
         },
         .deflate => {
             slot.decoder = .{ .zlib = undefined };
-            zlib.init(&slot.decoder.zlib, storage.header.features);
+            slot.decoder.zlib.init(storage.header.features);
         },
         .none => unreachable,
     }

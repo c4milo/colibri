@@ -15,7 +15,7 @@ const constants = @import("constants.zig");
 const Item = json.Encoder.Item;
 const Token = json.Token;
 
-pub const Error = json.EncodeError || error{NoSpaceLeft};
+pub const Error = json.TextWriter.Error;
 
 pub const Batch = struct {
     text: json.TextWriter,
