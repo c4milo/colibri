@@ -6723,6 +6723,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Each options struct gains `context`, one pointer. `tls.quic.Client` grows by 8 octets to
     101,616 and `tls.quic.Server` to 101,104. The default `server.Engine` grows by 144 octets and
     a pool's fixed part by 24. docs/performance.md's table is printed again.
+  - **Check met, 2026-11-08,** on macOS 26 on arm64. `zig fmt --check`, `zig build test`, `zig
+    build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` passed. The TLS and QUIC
+    scripts of `tools/ci.sh` passed too: `tools/tls_handshake.sh`, `tools/tls_accept.sh`,
+    `tools/tls_openssl.sh`, `tools/quic_loopback.sh` and `tools/quic_udp.sh`.
+  - The bump adds one assertion, that `init` stored the state in the hook. Mutation, under `zig
+    build test-tls`: remove the line that writes the options' `context`, and its assertion:
+    CAUGHT, 2 tests crash.
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
