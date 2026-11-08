@@ -174,7 +174,7 @@ fn decode(wire: []const u8) !Outcome {
     }
     if (rest.len > header.length) return error.CaseMalformed;
     const payload = frame.parse(header, rest) catch |failure| {
-        return .{ .refused = frame.verdict(failure, @enumFromInt(header.type), header.stream_id) };
+        return .{ .refused = frame.verdict(failure, header.type, header.stream_id) };
     };
     return .{ .decoded = .{ .header = header, .payload = payload } };
 }
@@ -275,7 +275,7 @@ fn write_settings_back(writer: *Writer, settings: frame.Settings) !void {
 
 fn expect_header(header: frame.Header, expected: ObjectMap) !void {
     try expect_integer(expected, "length", header.length);
-    try expect_integer(expected, "type", header.type);
+    try expect_integer(expected, "type", @intFromEnum(header.type));
     try expect_integer(expected, "flags", header.flags);
     try expect_integer(expected, "stream_identifier", header.stream_id);
 }

@@ -233,7 +233,7 @@ fn write_in_place(target: *Connection, output: []u8, stream_id: u32, code: http.
     var writer = Writer.init(output[0..constants.protocol.frame_header_len]);
     frame.write_header(&writer, .{
         .length = @intCast(block.len),
-        .type = constants.protocol.frame_type_headers,
+        .type = .headers,
         .flags = flags,
         .stream_id = stream_id,
     }) catch unreachable;

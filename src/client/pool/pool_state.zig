@@ -26,13 +26,13 @@ pub const Stage = enum {
 
 pub const Entry = struct {
     stage: Stage = .free,
-    id: RequestId = 0,
+    id: RequestId = @enumFromInt(0),
     /// The request the program placed, and its response (decision 124).
     request: *const Request = undefined,
     response: *Response = undefined,
     /// The slot of the connection that carries it (decision 125).
     carrier: u32 = 0,
-    carried_id: RequestId = 0,
+    carried_id: RequestId = @enumFromInt(0),
     /// Times it moved to another connection.
     moves: u8 = 0,
     /// The pool sent it again after a connection closed before any of its response arrived

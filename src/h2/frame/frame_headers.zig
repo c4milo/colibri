@@ -69,7 +69,7 @@ pub const Continuation = struct {
 
 /// Parses the payload of a HEADERS frame whose header the connection has read and sized.
 pub fn parse_headers(header: Header, payload: []const u8) Error!Headers {
-    assert(header.type == constants.protocol.frame_type_headers);
+    assert(header.type == .headers);
     assert(payload.len == header.length);
     // RFC 9113 §6.2: a HEADERS frame whose Stream Identifier field is 0x00 is a connection error
     // of PROTOCOL_ERROR.
@@ -94,7 +94,7 @@ pub fn parse_headers(header: Header, payload: []const u8) Error!Headers {
 
 /// Parses the payload of a PUSH_PROMISE frame whose header the connection has read and sized.
 pub fn parse_push_promise(header: Header, payload: []const u8) Error!PushPromise {
-    assert(header.type == constants.protocol.frame_type_push_promise);
+    assert(header.type == .push_promise);
     assert(payload.len == header.length);
     // RFC 9113 §6.6: a PUSH_PROMISE frame whose Stream Identifier field is 0x00 is a connection
     // error of PROTOCOL_ERROR.
@@ -123,7 +123,7 @@ pub fn parse_push_promise(header: Header, payload: []const u8) Error!PushPromise
 /// Parses the payload of a CONTINUATION frame whose header the connection has read and sized:
 /// the whole payload is the fragment.
 pub fn parse_continuation(header: Header, payload: []const u8) Error!Continuation {
-    assert(header.type == constants.protocol.frame_type_continuation);
+    assert(header.type == .continuation);
     assert(payload.len == header.length);
     // RFC 9113 §6.10: a CONTINUATION frame with a Stream Identifier field of 0x00 is a connection
     // error of PROTOCOL_ERROR.
@@ -156,7 +156,7 @@ pub fn write_headers(
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = length,
-        .type = constants.protocol.frame_type_headers,
+        .type = .headers,
         .flags = flags,
         .stream_id = stream_id,
     });
@@ -186,7 +186,7 @@ pub fn write_push_promise(
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = length,
-        .type = constants.protocol.frame_type_push_promise,
+        .type = .push_promise,
         .flags = end_headers_flag | frame_padding.flag(padding_len),
         .stream_id = stream_id,
     });
@@ -211,7 +211,7 @@ pub fn write_continuation(
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = @intCast(fragment.len),
-        .type = constants.protocol.frame_type_continuation,
+        .type = .continuation,
         .flags = if (end_headers) constants.protocol.flag_end_headers else 0,
         .stream_id = stream_id,
     });
@@ -222,7 +222,7 @@ pub fn write_continuation(
 const testing = std.testing;
 
 fn header_of(frame_type: u8, length: u32, flags: u8, stream_id: u32) Header {
-    return .{ .length = length, .type = frame_type, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = @enumFromInt(frame_type), .flags = flags, .stream_id = stream_id };
 }
 
 test "HEADERS yields its fragment and flags, with no priority when the flag is unset" {

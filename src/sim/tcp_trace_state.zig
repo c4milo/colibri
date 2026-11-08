@@ -177,7 +177,7 @@ fn preface_len_of(start: []const u8, magic_len: usize) usize {
     var reader = h2.core.Reader.init(start[magic_len..]);
     const header = h2.frame.read_header(&reader) catch return 0;
     const len = magic_len + h2.constants.protocol.frame_header_len + header.length;
-    if (header.type != h2.constants.protocol.frame_type_settings or len > start.len) return 0;
+    if (header.type != .settings or len > start.len) return 0;
     return len;
 }
 

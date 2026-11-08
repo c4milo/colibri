@@ -78,7 +78,7 @@ const pad_length_len: usize = 1;
 fn note_head(connection: *Connection, octets: []const u8) ?h2.frame.Header {
     var reader = h2.core.Reader.init(octets);
     const header = h2.frame.read_header(&reader) catch return null;
-    if (header.type != h2.constants.protocol.frame_type_headers) return header;
+    if (header.type != .headers) return header;
     const slot = connection.slots.of_stream(header.stream_id) orelse return header;
     slot.response_began = true;
     return header;

@@ -116,7 +116,7 @@ fn expect_verifies(example: Example) !void {
     const data = try signed_data(example.signed, &room);
     try check(example, data);
     room[data.len - 1] ^= 1;
-    try testing.expectError(error.Auth, check(example, data));
+    try testing.expectError(error.SignatureVerificationFailed, check(example, data));
 }
 
 test "RFC 5702 §6.1: the RSA/SHA-256 example verifies, and data one octet off does not" {
@@ -214,6 +214,6 @@ test "decision 142: an algorithm or a digest type colibri cannot check is null" 
 test "RFC 8080 §3 and §4: an Ed25519 key or signature of the wrong length is refused" {
     if (comptime !algorithm_file.available) return error.SkipZigTest;
     const signature: [64]u8 = @splat(0);
-    try testing.expectError(error.Invalid, dnssec.Hash.init(.ed25519, ed25519_key[0 .. ed25519_key.len - 1], &signature));
-    try testing.expectError(error.Invalid, dnssec.Hash.init(.ed25519, &ed25519_key, signature[0 .. signature.len - 1]));
+    try testing.expectError(error.InvalidEncoding, dnssec.Hash.init(.ed25519, ed25519_key[0 .. ed25519_key.len - 1], &signature));
+    try testing.expectError(error.InvalidEncoding, dnssec.Hash.init(.ed25519, &ed25519_key, signature[0 .. signature.len - 1]));
 }

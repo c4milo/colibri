@@ -176,7 +176,7 @@ test "RFC 9113 §5.4.1: a connection that failed writes no coded octets after it
     var writer = h2.core.Writer.init(&h2_support.frames);
     // RFC 9113 §6.1: a DATA frame on stream 0 is a connection error. h2's writer sends none, so
     // the test writes its header itself.
-    try h2.frame.write_header(&writer, .{ .length = 1, .type = constants.protocol.frame_type_data, .flags = 0, .stream_id = 0 });
+    try h2.frame.write_header(&writer, .{ .length = 1, .type = .data, .flags = 0, .stream_id = 0 });
     try writer.write_bytes("x");
     try testing.expectError(error.ConnectionFailed, support.receive_copy(writer.written()));
     var sent_len: usize = 0;

@@ -246,8 +246,8 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         /// TCP slots share theirs, so a new slot starts where the others are.
         quic_address_index: usize,
         tcp_address_index: usize,
-        /// The id the next exchange gets.
-        next_id: RequestId,
+        /// The number of the id the next exchange gets.
+        next_id: u64,
         /// Whether the fallback delay passed during QUIC's handshake, as
         /// spec/tla/client_exchanges names it. Each link says whether this attempt opened it.
         fallback: bool,

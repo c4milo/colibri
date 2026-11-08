@@ -49,7 +49,7 @@ pub const Exchange = struct {
                 .body = content[0..plan.content_len],
             },
             .response = .{ .body = body },
-            .id = 0,
+            .id = @enumFromInt(0),
             .finished = false,
         };
     }

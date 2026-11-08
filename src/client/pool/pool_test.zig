@@ -396,7 +396,7 @@ fn Tests(comptime Pool: type) type {
         /// then `payload`, which is the frame's payload or the first octets of it.
         fn peer_headers(payload_len: u32, payload: []const u8) !void {
             var frame = h2.core.Writer.init(support.to_client[support.to_client_len..]);
-            try h2.frame.write_header(&frame, .{ .length = payload_len, .type = h2.constants.protocol.frame_type_headers, .flags = h2.constants.protocol.flag_end_headers, .stream_id = 1 });
+            try h2.frame.write_header(&frame, .{ .length = payload_len, .type = .headers, .flags = h2.constants.protocol.flag_end_headers, .stream_id = 1 });
             try frame.write_bytes(payload);
             support.to_client_len += frame.written().len;
         }

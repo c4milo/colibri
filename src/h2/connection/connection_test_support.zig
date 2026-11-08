@@ -36,7 +36,7 @@ pub fn frame_bytes(buffer: []u8, frame_type: u8, flags: u8, stream_id: u32, payl
     var writer = Writer.init(buffer);
     try frame.write_header(&writer, .{
         .length = @intCast(payload.len),
-        .type = frame_type,
+        .type = @enumFromInt(frame_type),
         .flags = flags,
         .stream_id = stream_id,
     });
@@ -135,7 +135,7 @@ pub fn updates_on(queued: []const u8, stream_id: u32) !usize {
         if (reader.remaining_len() == 0) return count;
         const header = try frame.frame_header.read(&reader);
         _ = try reader.take(header.length);
-        if (header.type == constants.protocol.frame_type_window_update and header.stream_id == stream_id) count += 1;
+        if (header.type == .window_update and header.stream_id == stream_id) count += 1;
     }
     return count;
 }

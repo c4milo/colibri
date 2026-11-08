@@ -59,25 +59,11 @@ pub const AltSvc = frame_altsvc.AltSvc;
 pub const parse_altsvc = frame_altsvc.parse;
 pub const write_altsvc = frame_altsvc.write_altsvc;
 
-/// The ten frame types RFC 9113 §6 defines. Non-exhaustive: any other Type octet is an unknown
-/// type, which a receiver ignores and discards (§4.1, §5.5) after consuming its octets.
-pub const Type = enum(u8) {
-    data = constants.protocol.frame_type_data,
-    headers = constants.protocol.frame_type_headers,
-    priority = constants.protocol.frame_type_priority,
-    rst_stream = constants.protocol.frame_type_rst_stream,
-    settings = constants.protocol.frame_type_settings,
-    push_promise = constants.protocol.frame_type_push_promise,
-    ping = constants.protocol.frame_type_ping,
-    goaway = constants.protocol.frame_type_goaway,
-    window_update = constants.protocol.frame_type_window_update,
-    continuation = constants.protocol.frame_type_continuation,
-    _,
-};
+pub const Type = frame_header.Type;
 
 /// A frame of a type RFC 9113 does not define: its Type octet and its whole payload.
 pub const Unknown = struct {
-    type: u8,
+    type: Type,
     payload: []const u8,
 };
 
@@ -105,8 +91,7 @@ pub fn parse(header: Header, payload: []const u8) ParseError!Payload {
     assert(payload.len == header.length);
     assert(header.length <= constants.limits.frame_size_max);
     assert(header.stream_id <= constants.protocol.stream_id_max);
-    const frame_type: Type = @enumFromInt(header.type);
-    return switch (frame_type) {
+    return switch (header.type) {
         .data => .{ .data = try frame_data.parse(header, payload) },
         .headers => .{ .headers = try frame_headers.parse_headers(header, payload) },
         .priority => .{ .priority = try frame_control.parse_priority(header, payload) },
@@ -200,7 +185,7 @@ fn fuzz_frame(_: void, smith: *testing.Smith) anyerror!void {
     const rest = reader.take_rest();
     if (rest.len != header.length or header.length > constants.limits.frame_size_max) return;
     const payload = parse(header, rest) catch |failure| {
-        const outcome = verdict(failure, @enumFromInt(header.type), header.stream_id);
+        const outcome = verdict(failure, header.type, header.stream_id);
         try testing.expect(outcome.code == constants.protocol.error_protocol_error or outcome.code == constants.protocol.error_frame_size_error);
         return;
     };
@@ -224,7 +209,7 @@ test "fuzz: a frame reads, parses or is refused with a verdict, and never traps"
 }
 
 fn header_of(frame_type: u8, length: u32, flags: u8, stream_id: u32) Header {
-    return .{ .length = length, .type = frame_type, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = @enumFromInt(frame_type), .flags = flags, .stream_id = stream_id };
 }
 
 test "parse dispatches each defined type to its parser" {
@@ -242,10 +227,20 @@ test "parse dispatches each defined type to its parser" {
 
 test "an unknown type is returned with its type octet and every payload octet (RFC 9113 §4.1, §5.5)" {
     const payload = try parse(header_of(0x0a, 3, 0xff, 0), "\xaa\xbb\xcc");
-    try testing.expectEqual(0x0a, payload.unknown.type);
+    try testing.expectEqual(0x0a, @intFromEnum(payload.unknown.type));
     try testing.expectEqualStrings("\xaa\xbb\xcc", payload.unknown.payload);
     const extension = try parse(header_of(0xff, 0, 0, 7), "");
-    try testing.expectEqual(0xff, extension.unknown.type);
+    try testing.expectEqual(0xff, @intFromEnum(extension.unknown.type));
+}
+
+test "decision 158 ruling 11: a header of an unknown type reads as `_`, and parse ignores it (RFC 9113 §5.5)" {
+    var reader = core.Reader.init(&.{ 0x00, 0x00, 0x02, 0x16, 0x0f, 0x00, 0x00, 0x00, 0x00, 0xaa, 0xbb });
+    const header = try read_header(&reader);
+    // RFC 9113 §4.1: "Implementations MUST ignore and discard frames of unknown types."
+    try testing.expectEqual(null, std.enums.tagName(Type, header.type));
+    try testing.expectEqual(0x16, @intFromEnum(header.type));
+    const payload = try parse(header, reader.take_rest());
+    try testing.expectEqualStrings("\xaa\xbb", payload.unknown.payload);
 }
 
 test "parse returns each parser's error unchanged" {

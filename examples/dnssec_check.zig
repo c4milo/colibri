@@ -58,7 +58,7 @@ pub fn main() !void {
     std.debug.print("dnssec_check: the RRSIG over www.example.net/A verifies\n", .{});
     data[signed.len - 1] ^= 1;
     if (check(algorithm, &key, &signature, signed)) |_| return error.ChangedDataVerified else |failure| {
-        if (failure != error.Auth) return failure;
+        if (failure != error.SignatureVerificationFailed) return failure;
     }
 
     var expected: [32]u8 = undefined;

@@ -11,6 +11,7 @@ const tls_support = @import("connection_tls_test_support.zig");
 const testing = std.testing;
 const connection = &support.connection;
 const Exchange = support.Exchange;
+const RequestId = @import("connection.zig").RequestId;
 const Header = support.Header;
 
 /// Where each piece lands: four octets, so most runs of content leave a tail. Test-only.
@@ -59,7 +60,7 @@ fn reset_counts() void {
 
 /// Reads what the peer sent until the client reads nothing more, keeps the piece of exchange `id`
 /// it reported, if any, and releases it. Returns whether a piece came.
-fn read_piece(id: u64) !bool {
+fn read_piece(id: RequestId) !bool {
     support.events_len = 0;
     try support.client_receive();
     var held = false;
@@ -100,7 +101,7 @@ fn read_piece(id: u64) !bool {
 }
 
 /// Reads and releases every piece of exchange `id` the peer sent.
-fn read_pieces(id: u64) !void {
+fn read_pieces(id: RequestId) !void {
     for (0..rounds_max) |_| {
         if (!try read_piece(id)) return;
     }
@@ -172,7 +173,7 @@ test "decision 153 ruling 7: over TLS an h11 response's pieces wait in the opene
 }
 
 /// Reads until the client reports the piece of exchange `id`, which it holds. Test-only.
-fn read_held(id: u64) !void {
+fn read_held(id: RequestId) !void {
     support.events_len = 0;
     try support.client_receive();
     try testing.expectEqual(id, support.find(.body).?.body.id);
@@ -180,7 +181,7 @@ fn read_held(id: u64) !void {
 
 /// Releases the held piece of exchange `id`, and requires the exchange to finish only after the
 /// release. Test-only.
-fn finish_at_release(id: u64) !void {
+fn finish_at_release(id: RequestId) !void {
     try testing.expectEqual(null, support.find(.finished));
     connection.release_body(id);
     support.events_len = 0;
@@ -297,7 +298,7 @@ fn peer_padded_data(stream_id: u32, data: []const u8, padding_len: u8) !void {
     var frame = h2.core.Writer.init(support.to_client[support.to_client_len..]);
     const flags = h2.constants.protocol.flag_padded | h2.constants.protocol.flag_end_stream;
     const length: u32 = @intCast(1 + data.len + padding_len);
-    try h2.frame.write_header(&frame, .{ .length = length, .type = h2.constants.protocol.frame_type_data, .flags = flags, .stream_id = stream_id });
+    try h2.frame.write_header(&frame, .{ .length = length, .type = .data, .flags = flags, .stream_id = stream_id });
     try frame.write_int_big(u8, padding_len);
     try frame.write_bytes(data);
     for (0..padding_len) |_| try frame.write_int_big(u8, 0);
@@ -306,7 +307,7 @@ fn peer_padded_data(stream_id: u32, data: []const u8, padding_len: u8) !void {
 
 /// Starts an h2 connection in cleartext, and sends a streamed GET whose response comes in pieces
 /// of `body`'s length.
-fn start_h2(get: *Exchange) !u64 {
+fn start_h2(get: *Exchange) !RequestId {
     try support.start_cleartext(.h2);
     try support.pump_h2();
     reset_counts();

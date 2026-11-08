@@ -221,7 +221,7 @@ fn push(frames: *Frames, frame: Frame) Error!void {
 
 fn frame_of(header: h2.frame.Header, payload: []const u8) Frame {
     const end = header.flags & flag_end_stream != 0;
-    return switch (header.type) {
+    return switch (@intFromEnum(header.type)) {
         type_data => .{ .kind = .data, .stream = header.stream_id, .len = header.length, .end = end },
         type_headers => .{ .kind = .headers, .stream = header.stream_id, .len = header.length, .end = end },
         type_settings => if (header.flags & flag_ack != 0)

@@ -336,7 +336,7 @@ fn oldest(pool: anytype, stage: Stage) ?*Entry {
     var found: ?*Entry = null;
     for (pool.entries) |*entry| {
         if (entry.stage != stage) continue;
-        if (found == null or entry.id < found.?.id) found = entry;
+        if (found == null or @intFromEnum(entry.id) < @intFromEnum(found.?.id)) found = entry;
     }
     return found;
 }

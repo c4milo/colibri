@@ -62,7 +62,7 @@ pub fn request_frame_with(stream_id: u32, method: []const u8, path: []const u8, 
     const end_flag: u8 = if (end) constants.protocol.flag_end_stream else 0;
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
-        .type = constants.protocol.frame_type_headers,
+        .type = .headers,
         .flags = constants.protocol.flag_end_headers | end_flag,
         .stream_id = stream_id,
     });

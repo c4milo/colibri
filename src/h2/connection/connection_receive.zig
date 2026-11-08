@@ -64,7 +64,7 @@ fn nothing() Received {
 /// open a stream, and no record gives up its slot while it owes a RST_STREAM not yet written
 /// (decision 113). A client opens no stream on a frame it reads (decision 17).
 fn waits_for_slot(target: *const Connection, header: frame.Header) bool {
-    if (target.role != .server or header.type != constants.protocol.frame_type_headers) return false;
+    if (target.role != .server or header.type != .headers) return false;
     return target.streams.open_waits_for_write();
 }
 
@@ -112,7 +112,7 @@ fn dispatch(target: *Connection, header: frame.Header, payload: []const u8, now_
 /// The verdict `frame.verdict` gives a payload that did not parse: a connection error ends the
 /// connection, and a stream error queues a RST_STREAM (RFC 9113 §5.4).
 fn refuse_parse(target: *Connection, header: frame.Header, failure: frame.ParseError, now_ns: u64) Error!?connection.Event {
-    const verdict = frame.verdict(failure, @enumFromInt(header.type), header.stream_id);
+    const verdict = frame.verdict(failure, header.type, header.stream_id);
     switch (verdict.kind) {
         .connection => return target.fail(verdict.code),
         .stream => return stream_frames.refuse_stream(target, header.stream_id, verdict.code, now_ns),
@@ -123,7 +123,7 @@ fn refuse_parse(target: *Connection, header: frame.Header, failure: frame.ParseE
 /// an acknowledgment is not that frame.
 fn check_first_frame(target: *Connection, header: frame.Header) Error!void {
     if (target.first_frame_read) return;
-    const is_settings = header.type == constants.protocol.frame_type_settings;
+    const is_settings = header.type == .settings;
     const is_ack = frame.has_flag(header, constants.protocol.flag_ack);
     if (!is_settings or is_ack) return target.fail(constants.protocol.error_protocol_error);
     target.first_frame_read = true;
@@ -135,10 +135,10 @@ fn check_first_frame(target: *Connection, header: frame.Header) Error!void {
 fn check_field_block(target: *Connection, header: frame.Header) Error!void {
     const in_progress = target.block.stream_id() orelse {
         // A CONTINUATION with no block in progress has no HEADERS to continue (§6.10).
-        if (header.type == constants.protocol.frame_type_continuation) return target.fail(constants.protocol.error_protocol_error);
+        if (header.type == .continuation) return target.fail(constants.protocol.error_protocol_error);
         return;
     };
-    if (header.type != constants.protocol.frame_type_continuation or header.stream_id != in_progress) {
+    if (header.type != .continuation or header.stream_id != in_progress) {
         return target.fail(constants.protocol.error_protocol_error);
     }
 }

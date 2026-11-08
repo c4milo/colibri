@@ -23,7 +23,7 @@ const Slot = slots_module.Slot;
 /// The rest of a run of content that did not fit the caller's `Response.body`.
 pub const Tail = struct {
     /// The exchange the octets are for.
-    id: event.RequestId = 0,
+    id: event.RequestId = @enumFromInt(0),
     /// Octets of content left, at the front of the next call's octets.
     len: usize = 0,
     /// Octets the protocol read after the content, which carry none: h2's padding (RFC 9113

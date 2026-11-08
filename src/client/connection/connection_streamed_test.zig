@@ -9,6 +9,7 @@ const tls_support = @import("connection_tls_test_support.zig");
 const testing = std.testing;
 const connection = &support.connection;
 const Exchange = support.Exchange;
+const RequestId = @import("connection.zig").RequestId;
 
 var body: [body_len]u8 = undefined;
 const body_len: usize = 1024;
@@ -40,7 +41,7 @@ fn streamed_post(request_len: ?u64) Exchange {
 
 /// Hands each piece in turn, the last one ending the body, and sends what the connection owes
 /// after each. Each piece's `body_taken` event comes before the next is handed.
-fn send_pieces(id: u64, receive: bool) !void {
+fn send_pieces(id: RequestId, receive: bool) !void {
     for (pieces, 1..) |piece, handed| {
         try connection.write_body(id, piece, handed == pieces.len);
         support.client_send();

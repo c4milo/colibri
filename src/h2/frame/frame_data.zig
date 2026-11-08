@@ -36,7 +36,7 @@ pub const Data = struct {
 
 /// Parses the payload of a DATA frame whose header the connection has read and sized.
 pub fn parse(header: Header, payload: []const u8) Error!Data {
-    assert(header.type == constants.protocol.frame_type_data);
+    assert(header.type == .data);
     assert(payload.len == header.length);
     // RFC 9113 §6.1: a DATA frame whose Stream Identifier field is 0x00 is a connection error of
     // PROTOCOL_ERROR.
@@ -64,7 +64,7 @@ pub fn write_data(
     const end_stream_flag: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
     try frame_header.write(&cursor, .{
         .length = length,
-        .type = constants.protocol.frame_type_data,
+        .type = .data,
         .flags = end_stream_flag | frame_padding.flag(padding_len),
         .stream_id = stream_id,
     });
@@ -82,7 +82,7 @@ pub fn write_data_header(writer: *Writer, stream_id: u32, length: u32, end_strea
     const end_stream_flag: u8 = if (end_stream) constants.protocol.flag_end_stream else 0;
     try frame_header.write(writer, .{
         .length = length,
-        .type = constants.protocol.frame_type_data,
+        .type = .data,
         .flags = end_stream_flag,
         .stream_id = stream_id,
     });
@@ -91,7 +91,7 @@ pub fn write_data_header(writer: *Writer, stream_id: u32, length: u32, end_strea
 const testing = std.testing;
 
 fn data_header(length: u32, flags: u8, stream_id: u32) Header {
-    return .{ .length = length, .type = constants.protocol.frame_type_data, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = .data, .flags = flags, .stream_id = stream_id };
 }
 
 test "a DATA frame yields its data, its padding length and END_STREAM" {

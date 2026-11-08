@@ -72,7 +72,7 @@ pub const Iterator = struct {
 
 /// Parses the payload of a SETTINGS frame whose header the connection has read and sized.
 pub fn parse_settings(header: Header, payload: []const u8) Error!Settings {
-    assert(header.type == constants.protocol.frame_type_settings);
+    assert(header.type == .settings);
     assert(payload.len == header.length and payload.len <= constants.limits.frame_size_max);
     // RFC 9113 §6.5: a SETTINGS frame whose Stream Identifier field is anything other than 0x00
     // is a connection error of PROTOCOL_ERROR.
@@ -93,7 +93,7 @@ pub fn write_settings(writer: *Writer, settings: []const Setting) core.Writer.Er
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = @intCast(settings.len * constants.protocol.setting_len),
-        .type = constants.protocol.frame_type_settings,
+        .type = .settings,
         .flags = 0,
         .stream_id = constants.protocol.connection_stream_id,
     });
@@ -109,7 +109,7 @@ pub fn write_settings(writer: *Writer, settings: []const Setting) core.Writer.Er
 pub fn write_settings_ack(writer: *Writer) core.Writer.Error!void {
     try frame_header.write(writer, .{
         .length = 0,
-        .type = constants.protocol.frame_type_settings,
+        .type = .settings,
         .flags = constants.protocol.flag_ack,
         .stream_id = constants.protocol.connection_stream_id,
     });
@@ -118,7 +118,7 @@ pub fn write_settings_ack(writer: *Writer) core.Writer.Error!void {
 const testing = std.testing;
 
 fn settings_header(length: u32, flags: u8, stream_id: u32) Header {
-    return .{ .length = length, .type = constants.protocol.frame_type_settings, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = .settings, .flags = flags, .stream_id = stream_id };
 }
 
 test "SETTINGS yields each setting in order and then null (RFC 9113 §6.5.1, §6.5.3)" {

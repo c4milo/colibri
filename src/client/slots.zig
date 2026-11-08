@@ -31,7 +31,7 @@ pub const Stage = enum {
 
 pub const Slot = struct {
     stage: Stage = .free,
-    id: RequestId = 0,
+    id: RequestId = @enumFromInt(0),
     /// The request the program placed, which the client only reads, and its response, which the
     /// client writes (decision 124).
     request: *const Request = undefined,
@@ -153,8 +153,8 @@ pub const Owing = enum { taken_owed, headers_owed, body_owed };
 
 pub const Slots = struct {
     slots: [constants.limits.requests_max]Slot,
-    /// The id the next exchange gets.
-    next_id: RequestId,
+    /// The number of the id the next exchange gets.
+    next_id: u64,
 
     pub fn init(slots: *Slots) void {
         slots.slots = @splat(.{});
@@ -168,14 +168,14 @@ pub const Slots = struct {
         // Decision 153: a streamed response comes into `body` one piece at a time, so it has room.
         assert(!request.streamed.response or response.body.len > 0);
         const slot = slots.first(.free) orelse return null;
-        slot.* = .{ .stage = .queued, .id = slots.next_id, .request = request, .response = response };
+        slot.* = .{ .stage = .queued, .id = @enumFromInt(slots.next_id), .request = request, .response = response };
         // A request that is not streamed has one piece, its whole body, which ends the content.
         if (!request.streamed.request) {
             slot.piece = request.body;
             slot.piece_end = true;
         }
         slots.next_id += 1;
-        assert(slot.id < slots.next_id);
+        assert(@intFromEnum(slot.id) < slots.next_id);
         return slot.id;
     }
 
@@ -201,7 +201,7 @@ pub const Slots = struct {
         var found: ?*Slot = null;
         for (&slots.slots) |*slot| {
             if (slot.stage != stage) continue;
-            if (found == null or slot.id < found.?.id) found = slot;
+            if (found == null or @intFromEnum(slot.id) < @intFromEnum(found.?.id)) found = slot;
         }
         return found;
     }
@@ -214,7 +214,7 @@ pub const Slots = struct {
         for (&slots.slots) |*slot| {
             if (slot.stage != .ended or slot.holds_octets) continue;
             if (slot.body_held or slot.headers_owed) continue;
-            if (found == null or slot.id < found.?.id) found = slot;
+            if (found == null or @intFromEnum(slot.id) < @intFromEnum(found.?.id)) found = slot;
         }
         return found;
     }
@@ -249,7 +249,7 @@ pub const Slots = struct {
         const dropping = slots.oldest(.dropping);
         if (sent == null) return dropping;
         if (dropping == null) return sent;
-        return if (sent.?.id < dropping.?.id) sent else dropping;
+        return if (@intFromEnum(sent.?.id) < @intFromEnum(dropping.?.id)) sent else dropping;
     }
 
     /// How many slots are at `stage`.
@@ -361,12 +361,12 @@ test "ids rise in the order exchanges are taken, and a released slot is taken ag
     slots.init();
     var responses: [constants.limits.requests_max + 1]Response = @splat(.{});
     for (responses[0..constants.limits.requests_max], 1..) |*response, expected| {
-        try testing.expectEqual(expected, slots.take(&test_request, response).?);
+        try testing.expectEqual(expected, @intFromEnum(slots.take(&test_request, response).?));
     }
     try testing.expectEqual(null, slots.take(&test_request, &responses[constants.limits.requests_max]));
-    release(slots.of_id(3).?);
-    try testing.expectEqual(constants.limits.requests_max + 1, slots.take(&test_request, &responses[constants.limits.requests_max]).?);
-    try testing.expectEqual(1, slots.oldest(.queued).?.id);
+    release(slots.of_id(@enumFromInt(3)).?);
+    try testing.expectEqual(constants.limits.requests_max + 1, @intFromEnum(slots.take(&test_request, &responses[constants.limits.requests_max]).?));
+    try testing.expectEqual(1, @intFromEnum(slots.oldest(.queued).?.id));
 }
 
 test "the oldest exchange awaiting its response may be sent or dropping" {
@@ -377,10 +377,10 @@ test "the oldest exchange awaiting its response may be sent or dropping" {
     for (&slots.slots) |*slot| {
         if (slot.stage == .queued) slot.stage = .sent;
     }
-    drop(slots.of_id(1).?, false);
-    try testing.expectEqual(1, slots.oldest_awaiting().?.id);
-    settle_drop(slots.of_id(1).?);
-    try testing.expectEqual(2, slots.oldest_awaiting().?.id);
+    drop(slots.of_id(@enumFromInt(1)).?, false);
+    try testing.expectEqual(@as(RequestId, @enumFromInt(1)), slots.oldest_awaiting().?.id);
+    settle_drop(slots.of_id(@enumFromInt(1)).?);
+    try testing.expectEqual(@as(RequestId, @enumFromInt(2)), slots.oldest_awaiting().?.id);
     // A connection that carries nothing more ends every exchange it holds.
     slots.end_all(.refused, .closed);
     try testing.expectEqual(.closed, responses[1].result);

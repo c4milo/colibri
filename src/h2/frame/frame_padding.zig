@@ -89,11 +89,11 @@ pub fn write_padding(writer: *Writer, padding_len: u8) core.Writer.Error!void {
 const testing = std.testing;
 
 fn padded_header(length: u32) Header {
-    return .{ .length = length, .type = constants.protocol.frame_type_data, .flags = constants.protocol.flag_padded, .stream_id = 1 };
+    return .{ .length = length, .type = .data, .flags = constants.protocol.flag_padded, .stream_id = 1 };
 }
 
 test "an unpadded payload is returned whole with a padding length of 0" {
-    const header: Header = .{ .length = 3, .type = constants.protocol.frame_type_data, .flags = 0, .stream_id = 1 };
+    const header: Header = .{ .length = 3, .type = .data, .flags = 0, .stream_id = 1 };
     const unpadded = try strip(header, "abc");
     try testing.expectEqualStrings("abc", unpadded.payload);
     try testing.expectEqual(0, unpadded.padding_len);

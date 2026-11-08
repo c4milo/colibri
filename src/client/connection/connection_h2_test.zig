@@ -47,7 +47,7 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     // RFC 9113 §8.3: `:status` is a pseudo-header field and no field, so the caller reads none.
     var exchange = get(&bodies[0]);
     exchange.response.headers = .{ .buffer = &values };
-    try testing.expectEqual(1, try connection.request(&exchange.request, &exchange.response));
+    try testing.expectEqual(1, @intFromEnum(try connection.request(&exchange.request, &exchange.response)));
     try support.pump_h2();
     const arrived = peer_request().?;
     try testing.expectEqual(1, arrived.stream_id);
@@ -60,7 +60,7 @@ test "RFC 9113 §8.3.1: a GET goes out on stream 1, and its response fills the e
     try support.client_receive();
     try testing.expectEqual(event.Protocol.h2, support.find(.connected).?.connected);
     const finished = support.find(.finished).?.finished;
-    try testing.expectEqual(1, finished.id);
+    try testing.expectEqual(1, @intFromEnum(finished.id));
     try testing.expectEqual(&exchange.response, finished.response);
     try testing.expectEqual(&exchange.request, finished.request);
     try testing.expectEqual(.response, exchange.response.result);

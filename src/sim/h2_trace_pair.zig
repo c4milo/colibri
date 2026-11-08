@@ -330,7 +330,7 @@ fn settings_len(octets: []const u8) usize {
     var reader = h2.core.Reader.init(octets);
     const header = h2.frame.read_header(&reader) catch unreachable;
     const len = h2.constants.protocol.frame_header_len + header.length;
-    assert(header.type == h2.constants.protocol.frame_type_settings and len <= octets.len);
+    assert(header.type == .settings and len <= octets.len);
     return len;
 }
 

@@ -144,7 +144,7 @@ fn server_octets(storage: *Storage) []const u8 {
 fn write_frame(writer: *sim.core.Writer, frame_type: u8, flags: u8, stream_id: u32, payload: []const u8) void {
     h2.frame.write_header(writer, .{
         .length = @intCast(payload.len),
-        .type = frame_type,
+        .type = @enumFromInt(frame_type),
         .flags = flags,
         .stream_id = stream_id,
     }) catch unreachable;

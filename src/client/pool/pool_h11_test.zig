@@ -472,7 +472,7 @@ fn Tests(comptime Pool: type) type {
             var exchange = get(&bodies[0]);
             try start(&exchange);
             // A pool's first exchange gets id 1.
-            pool.cancel(1, support.now_ns);
+            pool.cancel(@enumFromInt(1), support.now_ns);
             try close_transport();
             try testing.expectEqual(null, find(.finished));
             try testing.expectEqual(1, count(.open));

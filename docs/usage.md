@@ -1970,8 +1970,8 @@ number on a target that is not arm64 or x86-64, whose chapulin object holds no D
 A `dnssec.Hash` the program holds reads an RRSIG's signed data (RFC 4034 §3.1.8.1), and
 `dnssec.verify` checks the signature over its digest. `key` is the DNSKEY's Public Key field as it
 arrives, RFC 3110's form for RSA, and `init` takes the signature too, because Ed25519 hashes it
-first (RFC 8080). `verify` returns `error.Auth` for a signature the key does not verify, and
-`error.Invalid` for a key, digest or signature of the wrong form. colibri sets no floor on an RSA
+first (RFC 8080). `verify` returns `error.SignatureVerificationFailed` for a signature the key does not
+verify, and `error.InvalidEncoding` for a key, digest or signature of the wrong form. colibri sets no floor on an RSA
 key's length, which is the resolver's to set. The program of
 [`examples/dnssec_check.zig`](../examples/dnssec_check.zig) checks RFC 6605's RRSIG:
 

@@ -22,7 +22,7 @@ const Writer = core.Writer;
 pub fn on_unknown(target: *const Connection, header: frame.Header, payload: []const u8) ?connection.Event {
     assert(payload.len == header.length);
     // RFC 9113 §4.1 and §5.5: a frame of an unknown type is discarded, whatever it carries.
-    if (header.type != constants.protocol.frame_type_altsvc) return null;
+    if (@intFromEnum(header.type) != constants.protocol.frame_type_altsvc) return null;
     // RFC 7838 §4: "A device acting as a server MUST ignore it."
     if (target.role == .server) return null;
     const read = frame.parse_altsvc(header, payload) orelse return null;
@@ -131,7 +131,7 @@ test "RFC 7838 §4: a server writes ALTSVC with no Origin on a request's stream 
     const written = try write_alt_svc(test_connection, test_output, constants.protocol.stream_id_client_first, test_value);
     var reader = core.Reader.init(test_output[0..written]);
     const header = try frame.read_header(&reader);
-    try testing.expectEqual(constants.protocol.frame_type_altsvc, header.type);
+    try testing.expectEqual(constants.protocol.frame_type_altsvc, @intFromEnum(header.type));
     try testing.expectEqual(constants.protocol.stream_id_client_first, header.stream_id);
     const read = frame.parse_altsvc(header, reader.take_rest()).?;
     try testing.expectEqualStrings("", read.origin);

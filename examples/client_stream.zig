@@ -107,7 +107,7 @@ var response: client.Response align(@alignOf(client.Response)) = .{
     .headers = .{ .buffer = &header_buffer },
     .trailers = .{ .buffer = &trailer_buffer },
 };
-var call_id: client.RequestId align(@alignOf(client.RequestId)) = 0;
+var call_id: client.RequestId align(@alignOf(client.RequestId)) = @enumFromInt(0);
 
 /// The connection of the socket, once the pool opened it.
 var socket: ?client.ConnectionHandle align(@alignOf(client.ConnectionHandle)) = null;

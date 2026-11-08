@@ -74,7 +74,7 @@ test "design §8 step 21c.3: a call with no octets waits for half a head or chun
     try testing.expectEqual(0, size_line.consumed);
     try expect_nothing();
     const body = give("5\r\nhello\r\n0\r\n\r\n");
-    try testing.expectEqual(1, body.event.?.finished.id);
+    try testing.expectEqual(1, @intFromEnum(body.event.?.finished.id));
     try testing.expectEqual(.response, exchange.response.result);
     try testing.expectEqualStrings("hello", exchange.response.body_received());
 }
@@ -96,7 +96,7 @@ test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the
     try start();
     var exchange = get(&bodies[0]);
     exchange.response.headers = .{ .buffer = &values };
-    try testing.expectEqual(1, try connection.request(&exchange.request, &exchange.response));
+    try testing.expectEqual(1, @intFromEnum(try connection.request(&exchange.request, &exchange.response)));
     support.client_send();
     // RFC 9110 §7.2: a user agent sends Host first; RFC 9110 §8.6: a GET with no content sends
     // no Content-Length.
@@ -106,7 +106,7 @@ test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the
     try support.peer_h11_answer(ok, &hello_fields, "hello");
     try support.client_receive();
     try testing.expectEqual(event.Protocol.h11, support.find(.connected).?.connected);
-    try testing.expectEqual(1, support.find(.finished).?.finished.id);
+    try testing.expectEqual(1, @intFromEnum(support.find(.finished).?.finished.id));
     try testing.expectEqual(ok, @intFromEnum(exchange.response.status));
     try testing.expectEqualStrings("hello", exchange.response.body_received());
     try testing.expectEqualStrings("5", exchange.response.headers.get("content-length").?);

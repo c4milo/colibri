@@ -48,6 +48,8 @@ pub const frame = struct {
     pub const Priority = files.frame.Priority;
     pub const Setting = files.frame.Setting;
     pub const Settings = files.frame.Settings;
+    /// The type of `Header.type` (decision 158 ruling 11).
+    pub const Type = files.frame.Type;
     pub const Verdict = files.frame.Verdict;
     pub const has_flag = files.frame.has_flag;
     pub const parse = files.frame.parse;
@@ -79,6 +81,15 @@ test "decision 115: the root exports the names code outside the module uses" {
         "tls_provider", "constants", "Role",  "FieldBlock",
         "Connection",   "Event",     "Limit", "Window",
         "frame",        "stream",
+    });
+    try core.public_names.expect(frame, &.{
+        "Header",              "ParseError",         "Payload",        "Priority",
+        "Setting",             "Settings",           "Type",           "Verdict",
+        "has_flag",            "parse",              "read_header",    "verdict",
+        "write_altsvc",        "write_continuation", "write_data",     "write_goaway",
+        "write_header",        "write_headers",      "write_ping",     "write_priority",
+        "write_push_promise",  "write_rst_stream",   "write_settings", "write_settings_ack",
+        "write_window_update",
     });
 }
 

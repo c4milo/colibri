@@ -92,7 +92,7 @@ pub fn write_priority_fields(writer: *Writer, priority: Priority) core.Writer.Er
 
 /// Parses the payload of a PRIORITY frame whose header the connection has read and sized.
 pub fn parse_priority(header: Header, payload: []const u8) Error!Priority {
-    assert(header.type == constants.protocol.frame_type_priority);
+    assert(header.type == .priority);
     assert(payload.len == header.length);
     // RFC 9113 §6.3: a PRIORITY frame with a stream identifier of 0x00 is a connection error of
     // PROTOCOL_ERROR.
@@ -107,7 +107,7 @@ pub fn parse_priority(header: Header, payload: []const u8) Error!Priority {
 
 /// Parses the payload of a RST_STREAM frame whose header the connection has read and sized.
 pub fn parse_rst_stream(header: Header, payload: []const u8) Error!RstStream {
-    assert(header.type == constants.protocol.frame_type_rst_stream);
+    assert(header.type == .rst_stream);
     assert(payload.len == header.length);
     // RFC 9113 §6.4: a RST_STREAM frame with a stream identifier of 0x00 is a connection error of
     // PROTOCOL_ERROR.
@@ -122,7 +122,7 @@ pub fn parse_rst_stream(header: Header, payload: []const u8) Error!RstStream {
 
 /// Parses the payload of a PING frame whose header the connection has read and sized.
 pub fn parse_ping(header: Header, payload: []const u8) Error!Ping {
-    assert(header.type == constants.protocol.frame_type_ping);
+    assert(header.type == .ping);
     assert(payload.len == header.length);
     // RFC 9113 §6.7: a PING frame with a Stream Identifier other than 0x00 is a connection error
     // of PROTOCOL_ERROR.
@@ -139,7 +139,7 @@ pub fn parse_ping(header: Header, payload: []const u8) Error!Ping {
 /// Parses the payload of a GOAWAY frame whose header the connection has read and sized. The
 /// Additional Debug Data is every octet after the Error Code, and may be empty.
 pub fn parse_goaway(header: Header, payload: []const u8) Error!Goaway {
-    assert(header.type == constants.protocol.frame_type_goaway);
+    assert(header.type == .goaway);
     assert(payload.len == header.length);
     // RFC 9113 §6.8: a GOAWAY frame with a stream identifier other than 0x00 is a connection
     // error of PROTOCOL_ERROR.
@@ -157,7 +157,7 @@ pub fn parse_goaway(header: Header, payload: []const u8) Error!Goaway {
 /// Parses the payload of a WINDOW_UPDATE frame whose header the connection has read and sized.
 /// The frame is legal on any stream, 0 included (RFC 9113 §6.9).
 pub fn parse_window_update(header: Header, payload: []const u8) Error!WindowUpdate {
-    assert(header.type == constants.protocol.frame_type_window_update);
+    assert(header.type == .window_update);
     assert(payload.len == header.length);
     // RFC 9113 §6.9: a length other than 4 octets is a connection error of FRAME_SIZE_ERROR.
     if (payload.len != constants.protocol.window_update_len) return error.LengthInvalid;
@@ -178,7 +178,7 @@ pub fn write_priority(writer: *Writer, stream_id: u32, priority: Priority) core.
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = constants.protocol.priority_fields_len,
-        .type = constants.protocol.frame_type_priority,
+        .type = .priority,
         .flags = 0,
         .stream_id = stream_id,
     });
@@ -192,7 +192,7 @@ pub fn write_rst_stream(writer: *Writer, stream_id: u32, error_code: u32) core.W
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = constants.protocol.rst_stream_len,
-        .type = constants.protocol.frame_type_rst_stream,
+        .type = .rst_stream,
         .flags = 0,
         .stream_id = stream_id,
     });
@@ -205,7 +205,7 @@ pub fn write_ping(writer: *Writer, opaque_data: [constants.protocol.ping_len]u8,
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = constants.protocol.ping_len,
-        .type = constants.protocol.frame_type_ping,
+        .type = .ping,
         .flags = if (ack) constants.protocol.flag_ack else 0,
         .stream_id = constants.protocol.connection_stream_id,
     });
@@ -222,7 +222,7 @@ pub fn write_goaway(writer: *Writer, last_stream_id: u32, error_code: u32, debug
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = @intCast(constants.protocol.goaway_len_min + debug_data.len),
-        .type = constants.protocol.frame_type_goaway,
+        .type = .goaway,
         .flags = 0,
         .stream_id = constants.protocol.connection_stream_id,
     });
@@ -240,7 +240,7 @@ pub fn write_window_update(writer: *Writer, stream_id: u32, increment: u32) core
     var cursor = writer.*;
     try frame_header.write(&cursor, .{
         .length = constants.protocol.window_update_len,
-        .type = constants.protocol.frame_type_window_update,
+        .type = .window_update,
         .flags = 0,
         .stream_id = stream_id,
     });
@@ -251,7 +251,7 @@ pub fn write_window_update(writer: *Writer, stream_id: u32, increment: u32) core
 const testing = std.testing;
 
 fn header_of(frame_type: u8, length: u32, flags: u8, stream_id: u32) Header {
-    return .{ .length = length, .type = frame_type, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = @enumFromInt(frame_type), .flags = flags, .stream_id = stream_id };
 }
 
 test "PRIORITY yields its three fields, with the Exclusive bit split from the dependency" {

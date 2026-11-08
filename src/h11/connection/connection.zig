@@ -93,7 +93,7 @@ pub const Connection = struct {
     /// The connection closes after the current exchange (RFC 9112 §9.3, §9.6).
     close_after: bool,
     /// Why the connection failed, once it has.
-    failure: ?anyerror,
+    failure: ?Failure,
     /// The status of the error response a server owes until `write_pending` writes it.
     reply_status: ?u16,
     /// A server: what the current request asked, and whether its final response head is written
@@ -148,6 +148,24 @@ pub const Connection = struct {
     /// The connection failed: the peer sent what h11 refuses. `failure` names why, a server owes
     /// the error response `write_pending` writes, and the caller closes the transport after it.
     pub const Error = error{ConnectionFailed};
+
+    /// Why the connection failed, as `failure` holds it and `fail` takes it (decision 158 ruling
+    /// 11).
+    pub const Failure = message.Error || connection_body.ReadError || coding.Error || connection_tls.Failure || error{
+        /// A body carries a coding the connection does not decode (RFC 9112 §6.1, §7.4).
+        CodingUndecoded,
+        /// Octets other than CRLF arrived at a client with no request outstanding (RFC 9112 §9.2).
+        ResponseUnexpected,
+        /// A 101 (Switching Protocols), which h11 does not implement (decision 109).
+        UpgradeUnsupported,
+        /// The record layer failed: a record did not open or seal, or an error alert arrived (RFC
+        /// 9846 §6).
+        TlsFailed,
+        /// A server's deadline passed before the whole request arrived (decision 110).
+        RequestTimeout,
+        /// A server's deadline passed before the peer took the response (decision 110).
+        SendTimeout,
+    };
 
     pub const Event = union(enum) {
         /// A request head, at a server.
@@ -346,7 +364,7 @@ pub const Connection = struct {
 
     /// Ends the connection on `failure`: nothing more is read, and a server owes `status` when it
     /// has not written a response to the current request.
-    pub fn fail(connection: *Connection, failure: anyerror, status: ?u16) Error {
+    pub fn fail(connection: *Connection, failure: Failure, status: ?u16) Error {
         connection.failure = failure;
         connection.phase = .closed;
         connection.writer = .{};
@@ -415,10 +433,9 @@ pub fn is_idempotent(method: []const u8) bool {
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     // Decision 158 ruling 8 folds the namespaces `connection` and `connection_tls` into the type.
     try @import("core").public_names.expect(Connection, &.{
-        "Options",      "Error",            "Event",         "Request",        "SendError",
-        "RecordError",  "decrypt",          "encrypt",       "close_notify",   "init",
-        "attach_tls",   "receive",          "write_request", "write_response", "write_body",
-        "count_body",   "write_chunk_head", "write_end",     "has_pending",    "write_pending",
-        "should_close", "transport_closed", "fail",
+        "Options",     "Error",         "Failure",        "Event",        "Request",          "SendError",
+        "RecordError", "decrypt",       "encrypt",        "close_notify", "init",             "attach_tls",
+        "receive",     "write_request", "write_response", "write_body",   "count_body",       "write_chunk_head",
+        "write_end",   "has_pending",   "write_pending",  "should_close", "transport_closed", "fail",
     });
 }

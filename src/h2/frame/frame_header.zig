@@ -14,12 +14,28 @@ const constants = @import("../constants.zig");
 const Reader = core.Reader;
 const Writer = core.Writer;
 
+/// The ten frame types RFC 9113 §6 defines. Non-exhaustive: any other Type octet is an unknown
+/// type, which a receiver ignores and discards (§4.1, §5.5) after consuming its octets.
+pub const Type = enum(u8) {
+    data = constants.protocol.frame_type_data,
+    headers = constants.protocol.frame_type_headers,
+    priority = constants.protocol.frame_type_priority,
+    rst_stream = constants.protocol.frame_type_rst_stream,
+    settings = constants.protocol.frame_type_settings,
+    push_promise = constants.protocol.frame_type_push_promise,
+    ping = constants.protocol.frame_type_ping,
+    goaway = constants.protocol.frame_type_goaway,
+    window_update = constants.protocol.frame_type_window_update,
+    continuation = constants.protocol.frame_type_continuation,
+    _,
+};
+
 /// The four fields of a frame header (RFC 9113 §4.1), the reserved bit already dropped.
 pub const Header = struct {
     /// Octets of payload after the header, as the Length field states (RFC 9113 §4.1).
     length: u32,
-    /// The Type octet, which `frame.Type` names for the ten defined types.
-    type: u8,
+    /// The Type octet. `_` holds each type that RFC 9113 §6 does not define (§4.1, §5.5).
+    type: Type,
     flags: u8,
     /// The 31-bit Stream Identifier with the reserved bit already masked off.
     stream_id: u32,
@@ -39,7 +55,7 @@ pub fn read(reader: *Reader) core.Reader.Error!Header {
     assert(length <= constants.protocol.frame_length_max);
     assert(stream_id <= constants.protocol.stream_id_max);
     reader.* = cursor;
-    return .{ .length = length, .type = frame_type, .flags = flags, .stream_id = stream_id };
+    return .{ .length = length, .type = @enumFromInt(frame_type), .flags = flags, .stream_id = stream_id };
 }
 
 /// Writes one header, all nine octets or none, with the reserved bit unset (RFC 9113 §4.1).
@@ -48,7 +64,7 @@ pub fn write(writer: *Writer, header: Header) core.Writer.Error!void {
     assert(header.stream_id <= constants.protocol.stream_id_max);
     var cursor = writer.*;
     // RFC 9113 §4.1: the 24-bit length, then the type, as the four octets of one integer.
-    try cursor.write_int_big(u32, header.length << @bitSizeOf(u8) | header.type);
+    try cursor.write_int_big(u32, header.length << @bitSizeOf(u8) | @intFromEnum(header.type));
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
     try cursor.write_int_big(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
@@ -71,7 +87,7 @@ test "a header reads its four fields in network byte order and moves past nine o
     var reader = Reader.init(&.{ 0x00, 0x00, 0x14, 0x00, 0x08, 0x00, 0x00, 0x00, 0x02, 0xff });
     const header = try read(&reader);
     try testing.expectEqual(20, header.length);
-    try testing.expectEqual(constants.protocol.frame_type_data, header.type);
+    try testing.expectEqual(.data, header.type);
     try testing.expectEqual(constants.protocol.flag_padded, header.flags);
     try testing.expectEqual(2, header.stream_id);
     try testing.expectEqual(1, reader.remaining_len());
@@ -101,7 +117,7 @@ test "a header writes the nine octets read reads, with the reserved bit unset (R
     var writer = Writer.init(&buffer);
     try write(&writer, .{
         .length = 0x010203,
-        .type = constants.protocol.frame_type_goaway,
+        .type = .goaway,
         .flags = 0,
         .stream_id = constants.protocol.stream_id_max,
     });
@@ -117,7 +133,7 @@ test "a header write into a short buffer commits nothing" {
     var writer = Writer.init(&buffer);
     try testing.expectError(error.NoSpaceLeft, write(&writer, .{
         .length = 0,
-        .type = constants.protocol.frame_type_ping,
+        .type = .ping,
         .flags = 0,
         .stream_id = 0,
     }));
@@ -126,7 +142,7 @@ test "a header write into a short buffer commits nothing" {
 }
 
 test "has_flag reads one bit of the flags octet" {
-    const header: Header = .{ .length = 0, .type = 0, .flags = 0x05, .stream_id = 1 };
+    const header: Header = .{ .length = 0, .type = .data, .flags = 0x05, .stream_id = 1 };
     try testing.expect(has_flag(header, constants.protocol.flag_end_stream));
     try testing.expect(has_flag(header, constants.protocol.flag_end_headers));
     try testing.expect(!has_flag(header, constants.protocol.flag_padded));
@@ -147,7 +163,7 @@ fn write_by_parts(writer: *Writer, header: Header) core.Writer.Error!void {
         rest >>= @bitSizeOf(u8);
     }
     try cursor.write_bytes(&length_octets);
-    try cursor.write_byte(header.type);
+    try cursor.write_byte(@intFromEnum(header.type));
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
     try cursor.write_int_big(u32, header.stream_id & ~constants.protocol.reserved_bit_mask);
@@ -182,7 +198,7 @@ test "write writes what the reference writes, for each length, type, flags and s
         for (octets) |kind| {
             for (octets) |flags| {
                 for (streams) |stream_id| {
-                    const header: Header = .{ .length = length, .type = kind, .flags = flags, .stream_id = stream_id };
+                    const header: Header = .{ .length = length, .type = @enumFromInt(kind), .flags = flags, .stream_id = stream_id };
                     for (0..constants.protocol.frame_header_len + 2) |room| try expect_same_header(header, room);
                 }
             }

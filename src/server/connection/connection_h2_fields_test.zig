@@ -187,7 +187,7 @@ fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool)
     const end_flag: u8 = if (end) h2.constants.protocol.flag_end_stream else 0;
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
-        .type = h2.constants.protocol.frame_type_headers,
+        .type = .headers,
         .flags = h2.constants.protocol.flag_end_headers | end_flag,
         .stream_id = 1,
     });

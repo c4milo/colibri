@@ -45,7 +45,7 @@ pub const Tracker = struct {
 
     pub fn init(tracker: *Tracker) void {
         tracker.carrier = @splat(null);
-        tracker.carried_id = @splat(0);
+        tracker.carried_id = @splat(@enumFromInt(0));
         tracker.moved = @splat(0);
     }
 

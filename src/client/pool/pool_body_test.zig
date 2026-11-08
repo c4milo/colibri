@@ -123,7 +123,7 @@ test "decision 153: write_body refuses an unknown id, a second piece while one i
     try start();
     var put = streamed_put();
     const id = try pool.request(&put.request, &put.response);
-    try testing.expectError(error.UnknownRequest, pool.write_body(id + 1, first_piece, .more));
+    try testing.expectError(error.UnknownRequest, pool.write_body(@enumFromInt(@intFromEnum(id) + 1), first_piece, .more));
     try pool.write_body(id, first_piece, .more);
     try testing.expectError(error.PieceHeld, pool.write_body(id, last_piece, .last));
     // The piece handed while the exchange waited goes out once the connection takes it.

@@ -89,7 +89,7 @@ pub fn request(pool: anytype, message: *const Request, response: *Response) Requ
     try connection_module.check_request(message);
     const entry = free_entry(pool) orelse return error.Full;
     event_internal.clear(response);
-    entry.* = .{ .stage = .waiting, .id = pool.next_id, .request = message, .response = response };
+    entry.* = .{ .stage = .waiting, .id = @enumFromInt(pool.next_id), .request = message, .response = response };
     pool.next_id += 1;
     pool_events.assign_waiting(pool);
     pool_events.unblock_sends(pool);

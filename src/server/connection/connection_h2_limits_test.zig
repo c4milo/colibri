@@ -39,7 +39,7 @@ fn open_and_break(id: u32) !void {
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
         .length = constants.protocol.window_update_len,
-        .type = constants.protocol.frame_type_window_update,
+        .type = .window_update,
         .flags = 0,
         .stream_id = id,
     });

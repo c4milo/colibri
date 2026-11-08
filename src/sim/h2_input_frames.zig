@@ -135,7 +135,7 @@ fn write_unknown(writer: *Writer, random: *Random, payload: []const u8) !void {
     var copy = writer.*;
     try frame.write_header(&copy, .{
         .length = @intCast(payload.len),
-        .type = @intCast(random.between(type_unknown_first, std.math.maxInt(u8))),
+        .type = @enumFromInt(random.between(type_unknown_first, std.math.maxInt(u8))),
         .flags = @truncate(random.next()),
         .stream_id = @intCast(draw.bounded(random, 0, limits.protocol.stream_id_max)),
     });
@@ -168,7 +168,7 @@ pub fn read_stream(storage: *Storage, stream: []const u8, frames_read: *u64) Vio
 /// names a stream other than 0. Every refusal of the frame layer carries PROTOCOL_ERROR or
 /// FRAME_SIZE_ERROR.
 fn check_verdict(failure: frame.ParseError, header: frame.Header) Violation!void {
-    const verdict = frame.verdict(failure, @enumFromInt(header.type), header.stream_id);
+    const verdict = frame.verdict(failure, header.type, header.stream_id);
     const code_known = verdict.code == limits.protocol.error_protocol_error or verdict.code == limits.protocol.error_frame_size_error;
     if (!code_known) return error.VerdictWrong;
     if (verdict.kind == .stream and header.stream_id == limits.protocol.connection_stream_id) return error.VerdictWrong;
@@ -226,7 +226,7 @@ fn check_round_trip(storage: *Storage, header: frame.Header, parsed: frame.Paylo
     const first = try write_into(storage, &storage.rewritten, header.stream_id, parsed);
     var reader = Reader.init(first);
     const first_header = frame.read_header(&reader) catch return error.FrameChanged;
-    const kept = kept_flags(header.type);
+    const kept = kept_flags(@intFromEnum(header.type));
     const same_header = first_header.type == header.type and first_header.stream_id == header.stream_id and
         first_header.flags & kept == header.flags & kept;
     if (!same_header) return error.FrameChanged;

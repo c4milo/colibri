@@ -112,7 +112,7 @@ fn expect_frames(octets: []const u8, case: Case) !usize {
     while (reader.remaining_len() > 0) : (count += 1) {
         const header = try frame.read_header(&reader);
         const expected_type = if (count == 0) constants.protocol.frame_type_headers else constants.protocol.frame_type_continuation;
-        try testing.expectEqual(expected_type, header.type);
+        try testing.expectEqual(expected_type, @intFromEnum(header.type));
         try testing.expectEqual(1, header.stream_id);
         // RFC 9113 §4.2: no frame is longer than the peer's SETTINGS_MAX_FRAME_SIZE.
         try testing.expect(header.length <= case.frame_size);

@@ -13,8 +13,9 @@ const headers_module = @import("headers.zig");
 /// One header: a field line's name and value (RFC 9110 §5.2).
 pub const Header = http.Field;
 
-/// A request's id. A pool numbers its requests from 1, in the order `request` took them.
-pub const RequestId = u64;
+/// A request's id, which a program compares and does not compute with (decision 158 ruling 11).
+/// A pool numbers its requests from 1, in the order `request` took them, and no request has 0.
+pub const RequestId = enum(u64) { _ };
 
 /// The protocol serving a connection: h11 or h2 over TCP, or h3 over QUIC.
 pub const Protocol = enum { h11, h2, h3 };

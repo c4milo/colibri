@@ -11,9 +11,13 @@ const digest_type_file = @import("digest_type.zig");
 const Algorithm = algorithm_file.Algorithm;
 const DigestType = digest_type_file.DigestType;
 
-/// `Auth`: a signature the key does not verify. `Invalid`: a key, a digest or a signature of a
-/// form its algorithm refuses.
-pub const Error = error{ Auth, Invalid };
+/// Why a check failed, as `std.crypto.errors` names each failure (decision 158 ruling 11).
+pub const Error = error{
+    /// A signature the key does not verify.
+    SignatureVerificationFailed,
+    /// A key, a digest or a signature of a form its algorithm refuses.
+    InvalidEncoding,
+};
 
 pub const Hash = struct {
     state: State = undefined,
@@ -28,7 +32,7 @@ pub const Hash = struct {
         assert(algorithm_file.available);
         // RFC 8080 §3 and §4: an Ed25519 key is 32 octets and its signature 64, which chapulin
         // checks here.
-        const state = chapulin.dnssec.Hash.init(algorithm_file.chapulin_of(algorithm), key, signature) catch return error.Invalid;
+        const state = chapulin.dnssec.Hash.init(algorithm_file.chapulin_of(algorithm), key, signature) catch return error.InvalidEncoding;
         return .{ .state = state };
     }
 

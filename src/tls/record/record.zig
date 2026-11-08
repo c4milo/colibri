@@ -169,9 +169,11 @@ pub const Client = struct {
         return client.session.pskSelected();
     }
 
-    /// The alert a failure chose (RFC 9846 §6), or null: chapulin's `ch_alert_sent`.
-    pub fn alert(client: *const Client) ?u8 {
-        return client.session.alertSent();
+    /// The alert a failure chose (RFC 9846 §6), or null: chapulin's `ch_alert_sent`, as the
+    /// description it names (decision 158 ruling 11).
+    pub fn alert(client: *const Client) ?tls_provider.Alert {
+        const description = client.session.alertSent() orelse return null;
+        return @enumFromInt(description);
     }
 
     /// Sends the fatal alert `description` names into `output`, at most `alert_record_len` octets, and
@@ -255,8 +257,9 @@ pub const Server = struct {
     }
 
     /// The alert a failure chose (RFC 9846 §6), or null: chapulin's `ch_alert_sent`.
-    pub fn alert(server: *const Server) ?u8 {
-        return server.session.alertSent();
+    pub fn alert(server: *const Server) ?tls_provider.Alert {
+        const description = server.session.alertSent() orelse return null;
+        return @enumFromInt(description);
     }
 
     /// Sends the fatal alert `description` names into `output` and fails the session, as `Client.fail`

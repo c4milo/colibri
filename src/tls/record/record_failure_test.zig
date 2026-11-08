@@ -43,10 +43,10 @@ fn server_flight() !void {
 }
 
 /// Checks that `provider`'s side read the peer's fatal alert `description`.
-fn expect_peer_alert(provider: tls_provider.Provider, description: ?u8) !void {
+fn expect_peer_alert(provider: tls_provider.Provider, description: ?tls_provider.Alert) !void {
     const report = provider.vtable.take_alert(provider.context).?;
     try testing.expectEqual(tls_provider.AlertReport.Origin.peer, report.origin);
-    try testing.expectEqual(description.?, @intFromEnum(report.description));
+    try testing.expectEqual(description.?, report.description);
 }
 
 test "RFC 9846 §6.2: a server that refuses its first message sends the alert in the clear" {
@@ -58,7 +58,7 @@ test "RFC 9846 §6.2: a server that refuses its first message sends the alert in
     try testing.expectEqual(clear_alert_len, alert.len);
     try testing.expectEqual(content_type_alert, alert[0]);
     try testing.expectEqual(level_fatal, alert[record_header_len]);
-    try testing.expectEqual(server.alert().?, alert[clear_alert_len - 1]);
+    try testing.expectEqual(@intFromEnum(server.alert().?), alert[clear_alert_len - 1]);
     to_client.len += alert.len;
     // The client reads it as the server's fatal alert, which nothing answers.
     try testing.expectError(error.HandshakeFailed, client.handshake(to_client.held(), to_server.free()));

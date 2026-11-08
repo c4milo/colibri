@@ -28,7 +28,7 @@ const body_len: usize = 64;
 var upload: [upload_len]u8 = undefined;
 const upload_len: usize = 70_000;
 /// The upload's exchange id. Test-only.
-var post_id: pool_module.RequestId align(@alignOf(pool_module.RequestId)) = 0;
+var post_id: pool_module.RequestId align(@alignOf(pool_module.RequestId)) = @enumFromInt(0);
 /// Calls of `send_stream` that an upload takes at most until the window is spent.
 const sends_max: usize = 16;
 
@@ -140,7 +140,7 @@ test "decision 125: exchanges past an h2 connection's slots wait for a slot, and
     try pool.init(&many_memory, &config, .{ .addresses = &addresses, .port = https_port }, null);
     support.to_peer_len = 0;
     events_len = 0;
-    var first: pool_module.RequestId = 0;
+    var first: pool_module.RequestId = @enumFromInt(0);
     for (&many, &many_bodies, 0..) |*exchange, *body, index| {
         exchange.* = .{ .request = .{ .method = "GET", .path = "/" }, .response = .{ .body = body } };
         const id = try pool.request(&exchange.request, &exchange.response);

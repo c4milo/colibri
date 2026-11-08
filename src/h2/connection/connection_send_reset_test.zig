@@ -46,7 +46,7 @@ fn reset_ids(written: []const u8, ids: []u32) ![]const u32 {
         if (reader.remaining_len() == 0) break;
         const header = try frame.read_header(&reader);
         const payload = try reader.take(header.length);
-        if (header.type != constants.protocol.frame_type_rst_stream) continue;
+        if (header.type != .rst_stream) continue;
         try testing.expectEqual(constants.protocol.error_cancel, std.mem.readInt(u32, payload[0..constants.protocol.rst_stream_len], .big));
         ids[count] = header.stream_id;
         count += 1;

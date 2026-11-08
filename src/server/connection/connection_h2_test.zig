@@ -282,7 +282,7 @@ test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and e
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
-        .type = constants.protocol.frame_type_headers,
+        .type = .headers,
         .flags = constants.protocol.flag_end_headers | constants.protocol.flag_end_stream,
         .stream_id = 1,
     });
@@ -358,7 +358,7 @@ test "RFC 9110 §10.1.1: an h2 request expecting 100-continue gets a 100 HEADERS
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
-        .type = constants.protocol.frame_type_headers,
+        .type = .headers,
         .flags = constants.protocol.flag_end_headers,
         .stream_id = 1,
     });

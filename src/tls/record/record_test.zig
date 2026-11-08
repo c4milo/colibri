@@ -236,7 +236,7 @@ test "RFC 9846 §6: a chain no anchor signed, or one outside its validity, fails
     for ([_]u64{ support.not_before_seconds - 1, support.not_after_seconds + 1 }) |seconds| {
         try support.configure(support.web_pki, .{});
         try testing.expectError(error.HandshakeFailed, support.handshake_at(seconds, null));
-        try testing.expectEqual(@intFromEnum(tls_provider.Alert.certificate_expired), client.alert().?);
+        try testing.expectEqual(tls_provider.Alert.certificate_expired, client.alert().?);
     }
     // A clock of 0 with anchors is no clock at all.
     try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), 0, null));

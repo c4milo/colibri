@@ -17,5 +17,8 @@ pub fn verify(algorithm: Algorithm, key: []const u8, digest: []const u8, signatu
     assert(algorithm_file.available);
     // RFC 4034 §3.1.8.1 and the algorithm's RFC: chapulin refuses a key or a signature of the
     // wrong form with Invalid, and a signature the key does not verify with Auth.
-    return chapulin.dnssec.verify(algorithm_file.chapulin_of(algorithm), key, digest, signature);
+    chapulin.dnssec.verify(algorithm_file.chapulin_of(algorithm), key, digest, signature) catch |failure| return switch (failure) {
+        error.Auth => error.SignatureVerificationFailed,
+        error.Invalid => error.InvalidEncoding,
+    };
 }
