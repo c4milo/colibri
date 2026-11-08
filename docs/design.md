@@ -14422,6 +14422,46 @@ library.
     `tools/consumer_check.sh`, `zig build router-check` and `zig build router-hidden-check` at
     each commit, and `tools/ci.sh` once before the branch goes to main. The branch goes to main
     once, after 45m.
+  - **The run, 2026-11-07.** One MacBook Pro, Apple M1 Pro, 32 GB, macOS 26.6.2, Zig 0.16.0.
+    The branch `step-45` holds the commits 45a to 45m. `zig build test` runs `zig build
+    router-check`, `zig build router-hidden-check` and the QUIC checks of `zig build
+    test-sim-run-quic`, whose census each test pins. `tools/ci.sh` runs once, before the branch
+    goes to main.
+    - Each commit from 45b to 45j records its mutations in its body:
+      - 45b: `take_int_big` reads little-endian, CAUGHT; `read_int` put back, CAUGHT.
+      - 45c: each of the nine names put back, and `FieldSection.clear`, CAUGHT.
+      - 45d: each new name made private or left out of its type, CAUGHT, 21 of 21.
+      - 45e: a declaration alias left out of a `Connection`, CAUGHT in h11, h2 and h3.
+      - 45f: a stutter name put back, CAUGHT; a `deadline` that moves its timer, CAUGHT.
+      - 45g: `init` with the features unset, CAUGHT; a default that differs, CAUGHT by `zig
+        build bench-memory`; each old name put back, CAUGHT.
+      - 45h: the engine reads `timeouts` and the pool reads `protocols` through the caller's
+        pointer, CAUGHT each.
+      - 45i: `from_code` takes 600, CAUGHT; `class` of 299 is not `success`, CAUGHT.
+      - 45j: `.last` read as `.more`, CAUGHT; a never-indexed header sent with indexing over h2
+        and with no N bit over h3, CAUGHT each.
+    - Before 45k, 45l and 45m, the six checks printed `rc=0` each: `zig fmt --check build.zig
+      bench build examples src tools`, `zig build lint`, `zig build test`, `zig build examples`,
+      `tools/doc_snippets.sh` and `tools/consumer_check.sh`. `zig build lint-commits` printed
+      `rc=0` after each commit.
+    - 45k: `init` that ignores `options.role` and sets `.server`, CAUGHT in h11 (1 test fails
+      and 19 stop on an assertion) and in h2 (35 fail). With `.client`, CAUGHT in h11 (27 fail)
+      and in h2 (96 fail).
+    - 45l: an unknown frame type refused, CAUGHT (7 h2 tests). The alert's octet mapped to the
+      next member, CAUGHT in `Client.alert` and in `Server.alert` (2 tests each). The two dnssec
+      errors swapped, CAUGHT by `examples/dnssec_check.zig` and 5 dnssec tests. `Failure` and
+      `frame.Type` left out of their lists, CAUGHT each.
+    - 45m: `handshake_complete` calls `negotiated_alpn`, CAUGHT (an h11 and an h2 TLS test).
+      `negotiated_alpn` calls `negotiated_parameters`, CAUGHT (12 h11 and 1 h2 TLS tests).
+      `is_complete` put back, CAUGHT (the names test of `Provider`).
+    - What the run found that the plan did not say:
+      - The role of `h11.Connection.Options` and `h2.Connection.Options` has no default, as
+        in h3's `Options`, because each role reads and writes other messages.
+      - `h11.Connection.Failure` holds `RequestTimeout` and `SendTimeout`, which the server's
+        deadlines pass to `fail`.
+      - `h2.frame` gained a names test, so that a name left out of the namespace fails a test.
+      - The tests in `src/tls/quic/` still call `QuicProvider`'s vtable. Step 45 changes the
+        calls of `Provider` alone.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
