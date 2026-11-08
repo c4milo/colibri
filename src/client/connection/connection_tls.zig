@@ -60,7 +60,7 @@ fn attach(connection: *Connection) bool {
 pub fn attach_provider(connection: *Connection, provider: tls_provider.Provider) bool {
     // RFC 7301 §3.2: the protocol the server selected is definitive for the connection, and a
     // selection of none is h11 only while `versions` allows it (decisions 88 and 117).
-    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context), connection.config.protocols));
+    internal.open_session(connection, protocol_of(provider.negotiated_alpn(), connection.config.protocols));
     // RFC 9113 §3.2, §3.3, §9.2 and decision 88: the handshake is checked before any HTTP octet
     // moves, and h2 refuses one that did not select it.
     const attached = switch (connection.session) {

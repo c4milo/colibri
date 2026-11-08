@@ -77,7 +77,7 @@ pub fn handshake_both(resumption: ?values.Resumption) !void {
 }
 
 pub fn complete(provider: tls_provider.QuicProvider) bool {
-    return provider.vtable.handshake_complete(provider.context);
+    return provider.handshake_complete();
 }
 
 /// Moves what `from` owes at each level to `to`.

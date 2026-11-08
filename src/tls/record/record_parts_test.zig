@@ -22,8 +22,8 @@ test "decision 139: two parts seal as one run of plaintext, whole or not at all"
     const sender = client.provider();
     const receiver = server.provider();
     const room = to_server.free();
-    try testing.expect(sender.vtable.writable_len(sender.context, room.len) >= head.len + data.len);
-    to_server.len += try sender.vtable.encrypt_parts(sender.context, head, &data, room);
+    try testing.expect(sender.writable_len(room.len) >= head.len + data.len);
+    to_server.len += try sender.encrypt_parts(head, &data, room);
     // RFC 9846 §5.1: the peer opens the head and then the data, across the records' boundaries.
     const opened = scratch[0..try support.open_all(receiver, to_server, scratch)];
     try testing.expectEqual(head.len + data.len, opened.len);
@@ -31,9 +31,9 @@ test "decision 139: two parts seal as one run of plaintext, whole or not at all"
     try testing.expectEqualSlices(u8, &data, opened[head.len..]);
     // One octet past the writable length seals nothing, and the writable length seals both whole.
     var small: [small_len]u8 = undefined;
-    const fits = sender.vtable.writable_len(sender.context, small.len);
+    const fits = sender.writable_len(small.len);
     try testing.expect(fits > head.len);
-    try testing.expectError(error.NoSpaceLeft, sender.vtable.encrypt_parts(sender.context, head, data[0 .. fits - head.len + 1], &small));
-    const written = try sender.vtable.encrypt_parts(sender.context, head, data[0 .. fits - head.len], &small);
+    try testing.expectError(error.NoSpaceLeft, sender.encrypt_parts(head, data[0 .. fits - head.len + 1], &small));
+    const written = try sender.encrypt_parts(head, data[0 .. fits - head.len], &small);
     try testing.expect(written > fits and written <= small.len);
 }

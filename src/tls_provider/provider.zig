@@ -264,14 +264,65 @@ pub const Provider = struct {
     /// True when the handshake has selected exactly the "h2" identifier RFC 9113 §3.1 defines.
     /// Anything else, a missing selection included, is the same answer: h2 does not run here.
     pub fn speaks_h2(provider: Provider) bool {
-        const selected = provider.vtable.negotiated_alpn(provider.context) orelse return false;
+        const selected = provider.negotiated_alpn() orelse return false;
         // RFC 9113 §3.1: "h2" is the two-octet sequence 0x68, 0x32.
         return std.mem.eql(u8, selected, &constants.protocol.alpn_h2);
     }
 
+    // One method for each member of `VTable`, in its order, so a program never writes the context
+    // (decision 158 ruling 14). Each member's comment in `VTable` says what it does.
+
+    pub fn handshake_read(provider: Provider, input: []const u8, now_ns: u64) HandshakeReadError!usize {
+        return provider.vtable.handshake_read(provider.context, input, now_ns);
+    }
+
+    pub fn handshake_write(provider: Provider, output: []u8, now_ns: u64) HandshakeWriteError!usize {
+        return provider.vtable.handshake_write(provider.context, output, now_ns);
+    }
+
+    pub fn encrypt_record(provider: Provider, plaintext: []const u8, output: []u8) SealError!Sealed {
+        return provider.vtable.encrypt_record(provider.context, plaintext, output);
+    }
+
+    pub fn writable_len(provider: Provider, output_len: usize) usize {
+        return provider.vtable.writable_len(provider.context, output_len);
+    }
+
+    pub fn encrypt_parts(provider: Provider, head: []const u8, data: []const u8, output: []u8) SealError!usize {
+        return provider.vtable.encrypt_parts(provider.context, head, data, output);
+    }
+
+    pub fn decrypt_record(provider: Provider, input: []const u8, plaintext: []u8) OpenError!Opened {
+        return provider.vtable.decrypt_record(provider.context, input, plaintext);
+    }
+
+    pub fn negotiated_alpn(provider: Provider) ?[]const u8 {
+        return provider.vtable.negotiated_alpn(provider.context);
+    }
+
     /// Whether the handshake has completed (RFC 9846 Appendix E.5).
-    pub fn is_complete(provider: Provider) bool {
+    pub fn handshake_complete(provider: Provider) bool {
         return provider.vtable.handshake_complete(provider.context);
+    }
+
+    pub fn negotiated_parameters(provider: Provider) ?Negotiated {
+        return provider.vtable.negotiated_parameters(provider.context);
+    }
+
+    pub fn take_alert(provider: Provider) ?AlertReport {
+        return provider.vtable.take_alert(provider.context);
+    }
+
+    pub fn send_close_notify(provider: Provider, output: []u8) CloseError!usize {
+        return provider.vtable.send_close_notify(provider.context, output);
+    }
+
+    pub fn initiate_key_update(provider: Provider, request: KeyUpdateRequest, output: []u8) KeyUpdateError!usize {
+        return provider.vtable.initiate_key_update(provider.context, request, output);
+    }
+
+    pub fn export_keying_material(provider: Provider, label: []const u8, context_value: ?[]const u8, output: []u8) ExportError!void {
+        return provider.vtable.export_keying_material(provider.context, label, context_value, output);
     }
 };
 
@@ -297,7 +348,7 @@ test "a provider that selects h2 speaks h2, and every other answer does not" {
     const provider: Provider = .{ .context = @ptrCast(&state), .vtable = &table };
     // RFC 9113 §3.1: nothing is selected yet, so h2 does not run.
     try testing.expect(!provider.speaks_h2());
-    try testing.expect(!provider.is_complete());
+    try testing.expect(!provider.handshake_complete());
     state.selected = "http/1.1";
     try testing.expect(!provider.speaks_h2());
     // RFC 9113 §3.2: the "h2c" identifier is never selected.
@@ -306,5 +357,5 @@ test "a provider that selects h2 speaks h2, and every other answer does not" {
     state.selected = &constants.protocol.alpn_h2;
     state.complete = true;
     try testing.expect(provider.speaks_h2());
-    try testing.expect(provider.is_complete());
+    try testing.expect(provider.handshake_complete());
 }

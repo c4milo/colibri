@@ -222,7 +222,7 @@ fn Tests(comptime Pool: type) type {
             // The server reads the record as the client's fatal alert, which ends its handshake.
             try testing.expectEqual(null, tls_support.server_flight());
             const provider = tls_support.server.provider();
-            try testing.expectEqual(.peer, provider.vtable.take_alert(provider.context).?.origin);
+            try testing.expectEqual(.peer, provider.take_alert().?.origin);
             try collect(&pool);
             try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // No connection carried the exchange, and the attempt has no other transport to open.
@@ -252,8 +252,8 @@ fn Tests(comptime Pool: type) type {
             try testing.expectEqual(true, tls_support.server_flight().?);
             try testing.expectEqual(tls.record.alert_record_len, support.to_peer_len);
             const provider = tls_support.server.provider();
-            try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], &tls_support.peer_plain));
-            try testing.expectEqual(.bad_record_mac, provider.vtable.take_alert(provider.context).?.description);
+            try testing.expectError(error.TlsFailed, provider.decrypt_record(support.to_peer[0..support.to_peer_len], &tls_support.peer_plain));
+            try testing.expectEqual(.bad_record_mac, provider.take_alert().?.description);
             try collect(&pool);
             try testing.expectEqual(pool_support.slot_of(pool, .tcp), find(.close).?.close.slot);
             // The attempt went on with TCP counted in it, so it opened no second connection.

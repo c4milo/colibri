@@ -166,7 +166,7 @@ pub const TcpServer = struct {
         const provider = server.session.provider();
         // Bounded: each pass opens a record, or stops.
         for (0..reads_max) |_| {
-            const record = try provider.vtable.decrypt_record(provider.context, server.input[0..server.input_used], server.plain[server.plain_used..]);
+            const record = try provider.decrypt_record(server.input[0..server.input_used], server.plain[server.plain_used..]);
             if (record.content == .incomplete) return;
             server.consume_input(record.consumed);
             if (record.content == .application_data) server.plain_used += record.plaintext_len;
@@ -247,7 +247,7 @@ pub const TcpServer = struct {
         // Bounded: each pass seals at least one record's plaintext.
         for (0..reads_max) |_| {
             if (taken == server.out_used) break;
-            const sealed = try provider.vtable.encrypt_record(provider.context, server.out[taken..server.out_used], &server.sealed);
+            const sealed = try provider.encrypt_record(server.out[taken..server.out_used], &server.sealed);
             taken += sealed.consumed;
             try to_client.push(server.sealed[0..sealed.written], now_ns + limits.tcp_delay_ns);
         }

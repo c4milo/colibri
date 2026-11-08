@@ -1903,7 +1903,7 @@ key-exchange group, each as its codepoint, such as 0x11EC for X25519MLKEM768 ([d
 
 ```zig
 const provider = tls_client.provider();
-if (provider.vtable.negotiated_parameters(provider.context)) |chosen| {
+if (provider.negotiated_parameters()) |chosen| {
     std.debug.print("consumer: group 0x{x:0>4}\n", .{chosen.group});
     return error.NegotiatedWrong;
 }

@@ -386,18 +386,18 @@ test "the handshake completes after the scripted flights, and nothing is negotia
     const view = endpoint.provider();
     // RFC 7301 §3.1: in TLS 1.3 the selected protocol arrives in EncryptedExtensions, so there is
     // no answer before the handshake finishes.
-    try testing.expect(!view.is_complete());
+    try testing.expect(!view.handshake_complete());
     try testing.expect(!view.speaks_h2());
-    try testing.expectEqual(null, view.vtable.negotiated_parameters(view.context));
+    try testing.expectEqual(null, view.negotiated_parameters());
     var output: [64]u8 = undefined;
-    const written = try view.vtable.handshake_write(view.context, &output, 0);
+    const written = try view.handshake_write(&output, 0);
     try testing.expect(written > 0);
-    try testing.expectEqual(written, try view.vtable.handshake_read(view.context, output[0..written], 0));
-    try testing.expect(view.is_complete());
+    try testing.expectEqual(written, try view.handshake_read(output[0..written], 0));
+    try testing.expect(view.handshake_complete());
     try testing.expect(view.speaks_h2());
     try testing.expectEqual(
         tls_provider.constants.protocol.version_tls_1_3,
-        view.vtable.negotiated_parameters(view.context).?.version,
+        view.negotiated_parameters().?.version,
     );
 }
 
@@ -406,12 +406,12 @@ test "§6.1: close_notify is written once and reports itself as the peer's alert
     var endpoint: NullProvider = .{};
     const view = endpoint.provider();
     var output: [64]u8 = undefined;
-    const written = try view.vtable.send_close_notify(view.context, &output);
+    const written = try view.send_close_notify(&output);
     try testing.expect(written > 0);
     // RFC 9846 §6.1: sending it twice is not required, and the second call writes nothing.
-    try testing.expectEqual(0, try view.vtable.send_close_notify(view.context, &output));
+    try testing.expectEqual(0, try view.send_close_notify(&output));
     var plaintext: [64]u8 = undefined;
-    const opened = try view.vtable.decrypt_record(view.context, output[0..written], &plaintext);
+    const opened = try view.decrypt_record(output[0..written], &plaintext);
     try testing.expectEqual(tls_provider.Content.alert, opened.content);
     try testing.expectEqual(@intFromEnum(tls_provider.Alert.close_notify), plaintext[0]);
 }
@@ -424,7 +424,7 @@ test "the exporter is the member a provider without one refuses" {
     // RFC 9846 §7.5 standardises the interface without obliging a stack to offer it.
     try testing.expectEqual(
         error.Unsupported,
-        view.vtable.export_keying_material(view.context, "label", null, &secret),
+        view.export_keying_material("label", null, &secret),
     );
 }
 
@@ -433,16 +433,16 @@ test "§4.7.3: the last key update is written, and the one past the cap is refus
     var endpoint: NullProvider = .{ .key_updates_sent = tls_provider.constants.protocol.key_updates_max - 1 };
     const view = endpoint.provider();
     var output: [tls_provider.constants.protocol.record_write_len_min]u8 = undefined;
-    const written = try view.vtable.initiate_key_update(view.context, .update_not_requested, &output);
+    const written = try view.initiate_key_update(.update_not_requested, &output);
     try testing.expect(written > 0);
     try testing.expectEqual(tls_provider.constants.protocol.key_updates_max, endpoint.key_updates_sent);
     try testing.expectError(
         error.EpochExhausted,
-        view.vtable.initiate_key_update(view.context, .update_requested, &output),
+        view.initiate_key_update(.update_requested, &output),
     );
     // The refusal leaves the count and the connection as they were: records still go out.
     try testing.expectEqual(tls_provider.constants.protocol.key_updates_max, endpoint.key_updates_sent);
-    const sealed = try view.vtable.encrypt_record(view.context, "after", &output);
+    const sealed = try view.encrypt_record("after", &output);
     try testing.expectEqual("after".len, sealed.consumed);
 }
 
@@ -453,7 +453,7 @@ test "§4.7.3: a key update that does not fit counts nothing" {
     var output: [header_len]u8 = undefined;
     try testing.expectError(
         error.NoSpaceLeft,
-        view.vtable.initiate_key_update(view.context, .update_not_requested, &output),
+        view.initiate_key_update(.update_not_requested, &output),
     );
     try testing.expectEqual(0, endpoint.key_updates_sent);
 }
@@ -465,7 +465,7 @@ test "decision 139: two parts go out in the records encrypt_record writes for th
     const head = "HEAD";
     const data: [tls_provider.constants.protocol.record_plaintext_len_max]u8 = @splat('x');
     var output: [2 * (tls_provider.constants.protocol.record_plaintext_len_max + header_len + constants.record_tag_len)]u8 = undefined;
-    const written = try provider.vtable.encrypt_parts(provider.context, head, &data, &output);
+    const written = try provider.encrypt_parts(head, &data, &output);
     // The first record is full, so the head's octets push the data's last four into a second.
     const first = read_record(output[0..written]).?;
     try testing.expectEqual(tls_provider.constants.protocol.record_plaintext_len_max, first.body_len);
@@ -474,7 +474,7 @@ test "decision 139: two parts go out in the records encrypt_record writes for th
     try testing.expectEqual(head.len, second.body_len);
     try testing.expectEqual(written, first.total_len + second.total_len);
     // An output one octet short of the two seals nothing.
-    const fits = provider.vtable.writable_len(provider.context, written);
+    const fits = provider.writable_len(written);
     try testing.expectEqual(head.len + data.len, fits);
-    try testing.expectError(error.NoSpaceLeft, provider.vtable.encrypt_parts(provider.context, head, &data, output[0 .. written - 1]));
+    try testing.expectError(error.NoSpaceLeft, provider.encrypt_parts(head, &data, output[0 .. written - 1]));
 }

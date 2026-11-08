@@ -44,7 +44,7 @@ fn server_flight() !void {
 
 /// Checks that `provider`'s side read the peer's fatal alert `description`.
 fn expect_peer_alert(provider: tls_provider.Provider, description: ?tls_provider.Alert) !void {
-    const report = provider.vtable.take_alert(provider.context).?;
+    const report = provider.take_alert().?;
     try testing.expectEqual(tls_provider.AlertReport.Origin.peer, report.origin);
     try testing.expectEqual(description.?, report.description);
 }
@@ -98,7 +98,7 @@ test "RFC 9846 §6.2: a server that refuses the client's Finished sends the aler
     to_client.len += server.failure_written();
     // The client, whose handshake completed, opens it as the server's fatal alert.
     const provider = client.provider();
-    try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, to_client.held(), &support.scratch));
+    try testing.expectError(error.TlsFailed, provider.decrypt_record(to_client.held(), &support.scratch));
     try expect_peer_alert(provider, server.alert());
 }
 

@@ -66,6 +66,15 @@ test "decision 115: the root exports the names code outside the module uses" {
     });
 }
 
+test "decision 158 ruling 14: a provider has one method for each member of its vtable" {
+    try core.public_names.expect(Provider, &.{
+        "speaks_h2",           "handshake_read",         "handshake_write", "encrypt_record",
+        "writable_len",        "encrypt_parts",          "decrypt_record",  "negotiated_alpn",
+        "handshake_complete",  "negotiated_parameters",  "take_alert",      "send_close_notify",
+        "initiate_key_update", "export_keying_material",
+    });
+}
+
 test "decision 158: the namespaces hold no copy of a type the root exports" {
     try core.public_names.expect(provider, &.{
         "CloseError",     "ExportError",      "HandshakeReadError",    "HandshakeWriteError",

@@ -117,7 +117,7 @@ test "a record of data ends a run of KeyUpdates, so the next run has the whole l
     try testing.expectEqual(plain_support.content_alert, alert.content_type);
     // `take_alert` names the alert that this side sent, as the provider's contract says.
     const view = plain.provider();
-    const report = view.vtable.take_alert(view.context).?;
+    const report = view.take_alert().?;
     try testing.expectEqual(tls_provider.Alert.unexpected_message, report.description);
     try testing.expectEqual(tls_provider.AlertReport.Origin.local, report.origin);
 }

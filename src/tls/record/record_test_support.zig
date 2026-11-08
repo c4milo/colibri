@@ -217,7 +217,7 @@ pub fn handshake_at(seconds: u64, resumption: ?values.Resumption) !void {
 pub fn open_all(provider: tls_provider.Provider, wire: *Wire, plaintext: []u8) !usize {
     var gathered: usize = 0;
     for (0..wire_len) |_| {
-        const opened = try provider.vtable.decrypt_record(provider.context, wire.held(), plaintext[gathered..]);
+        const opened = try provider.decrypt_record(wire.held(), plaintext[gathered..]);
         if (opened.content == .incomplete) return gathered;
         wire.take(opened.consumed);
         gathered += opened.plaintext_len;

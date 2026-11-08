@@ -64,7 +64,7 @@ fn expect_run_alert() !void {
     try testing.expectEqual(@intFromEnum(tls_provider.Alert.unexpected_message), alert.content[1]);
     try testing.expect(connection.should_close());
     const view = plain.provider();
-    const report = view.vtable.take_alert(view.context).?;
+    const report = view.take_alert().?;
     try testing.expectEqual(tls_provider.Alert.unexpected_message, report.description);
     try testing.expectEqual(tls_provider.AlertReport.Origin.local, report.origin);
 }

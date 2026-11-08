@@ -20,10 +20,10 @@ test "a client and a server complete the handshake and report what they chose" {
     try support.configure(support.web_pki, .{});
     try support.handshake_both(null);
     for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
-        try testing.expect(provider.vtable.handshake_complete(provider.context));
+        try testing.expect(provider.handshake_complete());
         // RFC 7301 §3.2: the server selects the first protocol it offers that the client does.
-        try testing.expectEqualStrings("h2", provider.vtable.negotiated_alpn(provider.context).?);
-        const chosen = provider.vtable.negotiated_parameters(provider.context).?;
+        try testing.expectEqualStrings("h2", provider.negotiated_alpn().?);
+        const chosen = provider.negotiated_parameters().?;
         try testing.expectEqual(tls_provider.constants.protocol.version_tls_1_3, chosen.version);
         try testing.expect(tls_provider.provider.cipher_suite_admitted(chosen.cipher_suite));
         // RFC 9846 §4.3.8: a Web PKI client of chapulin offers the hybrid group first, which the
@@ -40,10 +40,10 @@ test "RFC 9846 §9.1: each suite the object holds, named alone in a server's ord
         try support.configure(support.web_pki, .{ .suites = support.order_of(&order) });
         try support.handshake_both(null);
         for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
-            try testing.expectEqual(suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
+            try testing.expectEqual(suite, provider.negotiated_parameters().?.cipher_suite);
         }
         const sender = client.provider();
-        const sealed = try sender.vtable.encrypt_record(sender.context, "suite", to_server.free());
+        const sealed = try sender.encrypt_record("suite", to_server.free());
         to_server.len += sealed.written;
         try testing.expectEqualStrings("suite", scratch[0..try support.open_all(server.provider(), to_server, scratch)]);
     }
@@ -55,7 +55,7 @@ test "RFC 9846 §4.2.2: each suite the object holds, offered alone in a client's
         try support.configure(support.offering(&order), .{});
         try support.handshake_both(null);
         for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
-            try testing.expectEqual(suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
+            try testing.expectEqual(suite, provider.negotiated_parameters().?.cipher_suite);
         }
     }
 }
@@ -64,7 +64,7 @@ test "chapulin's own order runs AES-256-GCM in an object with AES-GCM, and ChaCh
     try support.configure(support.web_pki, .{});
     try support.handshake_both(null);
     for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
-        try testing.expectEqual(support.default_suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
+        try testing.expectEqual(support.default_suite, provider.negotiated_parameters().?.cipher_suite);
     }
 }
 
@@ -73,23 +73,23 @@ test "RFC 9846 §5.2: records carry data each way, and a seal takes only what fi
     try support.handshake_both(null);
     const sender = client.provider();
     const receiver = server.provider();
-    const sealed = try sender.vtable.encrypt_record(sender.context, "hello", to_server.free());
+    const sealed = try sender.encrypt_record("hello", to_server.free());
     try testing.expectEqual(5, sealed.consumed);
     to_server.len += sealed.written;
     try testing.expectEqualStrings("hello", scratch[0..try support.open_all(receiver, to_server, scratch)]);
     // Three records' worth goes out whole into an output that holds them.
     const long: [40_000]u8 = @splat('x');
-    const whole = try receiver.vtable.encrypt_record(receiver.context, &long, to_client.free());
+    const whole = try receiver.encrypt_record(&long, to_client.free());
     try testing.expectEqual(long.len, whole.consumed);
     to_client.len += whole.written;
     try testing.expectEqual(long.len, try support.open_all(sender, to_client, scratch));
     // An output short of the whole takes what fits, and one that holds no sealed octet takes none.
     var small: [64]u8 = undefined;
-    const part = try sender.vtable.encrypt_record(sender.context, &long, &small);
+    const part = try sender.encrypt_record(&long, &small);
     try testing.expect(part.consumed > 0 and part.consumed < long.len and part.written <= small.len);
-    try testing.expectError(error.NoSpaceLeft, sender.vtable.encrypt_record(sender.context, &long, small[0..20]));
+    try testing.expectError(error.NoSpaceLeft, sender.encrypt_record(&long, small[0..20]));
     // No plaintext seals nothing, whatever room there is.
-    const nothing = try sender.vtable.encrypt_record(sender.context, "", &small);
+    const nothing = try sender.encrypt_record("", &small);
     try testing.expectEqual(0, nothing.consumed + nothing.written);
 }
 
@@ -104,11 +104,11 @@ test "a session reports nothing it chose before its handshake completes" {
     const flight = try server.handshake(to_server.held(), to_client.free());
     try testing.expect(!flight.complete);
     const provider = server.provider();
-    try testing.expect(!provider.vtable.handshake_complete(provider.context));
-    try testing.expectEqual(null, provider.vtable.negotiated_alpn(provider.context));
-    try testing.expectEqual(null, provider.vtable.negotiated_parameters(provider.context));
+    try testing.expect(!provider.handshake_complete());
+    try testing.expectEqual(null, provider.negotiated_alpn());
+    try testing.expectEqual(null, provider.negotiated_parameters());
     var exported: [32]u8 = undefined;
-    try testing.expectError(error.HandshakeIncomplete, provider.vtable.export_keying_material(provider.context, "EXPORTER-test", null, &exported));
+    try testing.expectError(error.HandshakeIncomplete, provider.export_keying_material("EXPORTER-test", null, &exported));
 }
 
 test "RFC 9846 §5.1: a record not yet whole is incomplete, and a short plaintext buffer is refused" {
@@ -116,11 +116,11 @@ test "RFC 9846 §5.1: a record not yet whole is incomplete, and a short plaintex
     try support.handshake_both(null);
     const sender = client.provider();
     const receiver = server.provider();
-    const sealed = try sender.vtable.encrypt_record(sender.context, "abcdef", to_server.free());
-    const opened = try receiver.vtable.decrypt_record(receiver.context, to_server.octets[0 .. sealed.written - 1], scratch);
+    const sealed = try sender.encrypt_record("abcdef", to_server.free());
+    const opened = try receiver.decrypt_record(to_server.octets[0 .. sealed.written - 1], scratch);
     try testing.expectEqual(tls_provider.Content.incomplete, opened.content);
     try testing.expectEqual(0, opened.consumed);
-    try testing.expectError(error.NoSpaceLeft, receiver.vtable.decrypt_record(receiver.context, to_server.octets[0..sealed.written], scratch[0..2]));
+    try testing.expectError(error.NoSpaceLeft, receiver.decrypt_record(to_server.octets[0..sealed.written], scratch[0..2]));
 }
 
 test "RFC 9846 §6: a record that does not authenticate fails, and its alert is owed to the peer" {
@@ -129,28 +129,28 @@ test "RFC 9846 §6: a record that does not authenticate fails, and its alert is 
     const sender = client.provider();
     const receiver = server.provider();
     // A live session has raised nothing, and asking does not use up what a failure leaves.
-    try testing.expectEqual(null, receiver.vtable.take_alert(receiver.context));
-    const sealed = try sender.vtable.encrypt_record(sender.context, "tampered", to_server.free());
+    try testing.expectEqual(null, receiver.take_alert());
+    const sealed = try sender.encrypt_record("tampered", to_server.free());
     to_server.octets[sealed.written - 1] ^= 1;
-    try testing.expectError(error.TlsFailed, receiver.vtable.decrypt_record(receiver.context, to_server.octets[0..sealed.written], scratch));
-    const local = receiver.vtable.take_alert(receiver.context).?;
+    try testing.expectError(error.TlsFailed, receiver.decrypt_record(to_server.octets[0..sealed.written], scratch));
+    const local = receiver.take_alert().?;
     try testing.expectEqual(tls_provider.Alert.bad_record_mac, local.description);
     try testing.expectEqual(tls_provider.AlertReport.Origin.local, local.origin);
-    try testing.expectEqual(null, receiver.vtable.take_alert(receiver.context));
+    try testing.expectEqual(null, receiver.take_alert());
     // The alert chapulin sent from inside the read goes out through `handshake_write`, whole and
     // once, and the peer's read fails on it.
     var short: [1]u8 = undefined;
-    try testing.expectError(error.NoSpaceLeft, receiver.vtable.handshake_write(receiver.context, &short, 0));
-    const written = try receiver.vtable.handshake_write(receiver.context, to_client.free(), 0);
+    try testing.expectError(error.NoSpaceLeft, receiver.handshake_write(&short, 0));
+    const written = try receiver.handshake_write(to_client.free(), 0);
     try testing.expectEqual(chapulin.tcp.alert_record_len, written);
     to_client.len += written;
-    try testing.expectEqual(0, try receiver.vtable.handshake_write(receiver.context, to_client.free(), 0));
-    try testing.expectError(error.TlsFailed, sender.vtable.decrypt_record(sender.context, to_client.held(), scratch));
+    try testing.expectEqual(0, try receiver.handshake_write(to_client.free(), 0));
+    try testing.expectError(error.TlsFailed, sender.decrypt_record(to_client.held(), scratch));
     // RFC 9846 §6.2: the peer names the alert it received, and sends none in answer.
-    const received = sender.vtable.take_alert(sender.context).?;
+    const received = sender.take_alert().?;
     try testing.expectEqual(tls_provider.Alert.bad_record_mac, received.description);
     try testing.expectEqual(tls_provider.AlertReport.Origin.peer, received.origin);
-    try testing.expectEqual(null, sender.vtable.take_alert(sender.context));
+    try testing.expectEqual(null, sender.take_alert());
 }
 
 test "RFC 9846 §6.1: close_notify goes out once, reaches the peer, and the peer still writes" {
@@ -159,20 +159,20 @@ test "RFC 9846 §6.1: close_notify goes out once, reaches the peer, and the peer
     const closing = client.provider();
     const peer = server.provider();
     var short: [8]u8 = undefined;
-    try testing.expectError(error.NoSpaceLeft, closing.vtable.send_close_notify(closing.context, &short));
-    const written = try closing.vtable.send_close_notify(closing.context, to_server.free());
+    try testing.expectError(error.NoSpaceLeft, closing.send_close_notify(&short));
+    const written = try closing.send_close_notify(to_server.free());
     try testing.expect(written > 0);
     to_server.len += written;
-    try testing.expectEqual(0, try closing.vtable.send_close_notify(closing.context, to_server.free()));
+    try testing.expectEqual(0, try closing.send_close_notify(to_server.free()));
     // Once sent, there is nothing more to send, whatever the room.
-    try testing.expectEqual(0, try closing.vtable.send_close_notify(closing.context, &short));
-    const opened = try peer.vtable.decrypt_record(peer.context, to_server.held(), scratch);
+    try testing.expectEqual(0, try closing.send_close_notify(&short));
+    const opened = try peer.decrypt_record(to_server.held(), scratch);
     try testing.expectEqual(tls_provider.Content.alert, opened.content);
-    const report = peer.vtable.take_alert(peer.context).?;
+    const report = peer.take_alert().?;
     try testing.expectEqual(tls_provider.Alert.close_notify, report.description);
     try testing.expectEqual(tls_provider.AlertReport.Origin.peer, report.origin);
-    try testing.expectEqual(null, peer.vtable.take_alert(peer.context));
-    const sealed = try peer.vtable.encrypt_record(peer.context, "after", to_client.free());
+    try testing.expectEqual(null, peer.take_alert());
+    const sealed = try peer.encrypt_record("after", to_client.free());
     try testing.expectEqual(5, sealed.consumed);
 }
 
@@ -181,7 +181,7 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a st
     try support.handshake_both(null);
     // The ticket rides a record after the handshake, which the client opens.
     const receiver = client.provider();
-    const opened = try receiver.vtable.decrypt_record(receiver.context, to_client.held(), scratch);
+    const opened = try receiver.decrypt_record(to_client.held(), scratch);
     try testing.expectEqual(tls_provider.Content.without_data, opened.content);
     var ticket = client.take_ticket().?;
     defer ticket.wipe();
@@ -210,19 +210,19 @@ test "RFC 9846 §7.5: both sides export the same keying material" {
     var from_client: [32]u8 = undefined;
     var from_server: [32]u8 = undefined;
     const sides = [_]tls_provider.Provider{ client.provider(), server.provider() };
-    try sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER-test", null, &from_client);
-    try sides[1].vtable.export_keying_material(sides[1].context, "EXPORTER-test", null, &from_server);
+    try sides[0].export_keying_material("EXPORTER-test", null, &from_client);
+    try sides[1].export_keying_material("EXPORTER-test", null, &from_server);
     try testing.expectEqualSlices(u8, &from_client, &from_server);
     var too_long: [256]u8 = undefined;
-    try testing.expectError(error.OutputTooLong, sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER-test", null, &too_long));
+    try testing.expectError(error.OutputTooLong, sides[0].export_keying_material("EXPORTER-test", null, &too_long));
     // chapulin takes a label as a C string of at most `CH_EXPORT_LABEL_MAX` octets, and refuses an
     // empty one itself.
-    try testing.expectError(error.Unsupported, sides[0].vtable.export_keying_material(sides[0].context, "", null, &from_client));
-    try testing.expectError(error.Unsupported, sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER\x00", null, &from_client));
+    try testing.expectError(error.Unsupported, sides[0].export_keying_material("", null, &from_client));
+    try testing.expectError(error.Unsupported, sides[0].export_keying_material("EXPORTER\x00", null, &from_client));
     const long_label: [chapulin.c.CH_EXPORT_LABEL_MAX + 1]u8 = @splat('x');
-    try testing.expectError(error.Unsupported, sides[0].vtable.export_keying_material(sides[0].context, &long_label, null, &from_client));
+    try testing.expectError(error.Unsupported, sides[0].export_keying_material(&long_label, null, &from_client));
     // An empty output asks for nothing, which it gets.
-    try sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER-test", null, from_client[0..0]);
+    try sides[0].export_keying_material("EXPORTER-test", null, from_client[0..0]);
 }
 
 test "RFC 9846 §6: a chain no anchor signed, or one outside its validity, fails with an alert" {
@@ -311,7 +311,7 @@ test "a ClientHello that offers a ticket goes out whole into `handshake_output_l
     try support.configure(support.web_pki, .{ .tickets = true });
     try support.handshake_both(null);
     const receiver = client.provider();
-    _ = try receiver.vtable.decrypt_record(receiver.context, to_client.held(), scratch);
+    _ = try receiver.decrypt_record(to_client.held(), scratch);
     var ticket = client.take_ticket().?;
     defer ticket.wipe();
     client.close();
@@ -424,7 +424,7 @@ test "a rule of chapulin's is chapulin's to report, when a session starts or a s
         .cpu = support.cpu,
     });
     try support.handshake_both(null);
-    try testing.expectEqual(null, client.provider().vtable.negotiated_alpn(client.provider().context));
+    try testing.expectEqual(null, client.provider().negotiated_alpn());
 }
 
 test "decision 117: a client's values that name no `alpn` convert to a list of no protocol" {
@@ -439,7 +439,7 @@ test "decision 117: a client's values that name no `alpn` convert to a list of n
         .cpu = support.cpu,
     });
     try support.handshake_both(null);
-    try testing.expectEqual(null, client.provider().vtable.negotiated_alpn(client.provider().context));
+    try testing.expectEqual(null, client.provider().negotiated_alpn());
 }
 
 test "a server's identity passes chapulin's check, and a key that does not match fails it" {

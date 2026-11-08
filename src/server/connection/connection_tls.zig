@@ -52,7 +52,7 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Connec
 /// protocol's checks.
 pub fn attach(connection: *Connection, provider: tls_provider.Provider) Error!void {
     // RFC 7301 §3.2: the protocol ALPN selected is definitive for the connection.
-    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context), connection.config.protocols));
+    internal.open_session(connection, protocol_of(provider.negotiated_alpn(), connection.config.protocols));
     // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet moves.
     const attached = switch (connection.session) {
         .h2 => |*session| session.attach_tls(provider),

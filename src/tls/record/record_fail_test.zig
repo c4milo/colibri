@@ -17,14 +17,14 @@ const greeting = "hello";
 
 /// Checks that `provider`'s side reports the alert `description` once, from `origin`.
 fn expect_alert(provider: tls_provider.Provider, description: tls_provider.Alert, origin: tls_provider.AlertReport.Origin) !void {
-    const report = provider.vtable.take_alert(provider.context).?;
+    const report = provider.take_alert().?;
     try testing.expectEqual(origin, report.origin);
     try testing.expectEqual(description, report.description);
 }
 
 /// Seals `greeting` through `from` into `wire` and opens it through `to`.
 fn expect_data_moves(from: tls_provider.Provider, to: tls_provider.Provider, wire: *support.Wire) !void {
-    const sealed = try from.vtable.encrypt_record(from.context, greeting, wire.free());
+    const sealed = try from.encrypt_record(greeting, wire.free());
     try testing.expectEqual(greeting.len, sealed.consumed);
     wire.len += sealed.written;
     try testing.expectEqualStrings(greeting, support.scratch[0..try support.open_all(to, wire, &support.scratch)]);
@@ -39,12 +39,12 @@ test "RFC 9846 §6.2: a client's fail sends the alert it names, and the server r
     try testing.expectEqual(record.alert_record_len, written);
     to_server.len += written;
     const opener = server.provider();
-    try testing.expectError(error.TlsFailed, opener.vtable.decrypt_record(opener.context, to_server.held(), &support.scratch));
+    try testing.expectError(error.TlsFailed, opener.decrypt_record(to_server.held(), &support.scratch));
     try expect_alert(opener, .record_overflow, .peer);
     // The client failed: it reports the alert it sent, seals nothing, and sends no second alert.
     const sealer = client.provider();
     try expect_alert(sealer, .record_overflow, .local);
-    try testing.expectError(error.TlsFailed, sealer.vtable.encrypt_record(sealer.context, greeting, to_server.free()));
+    try testing.expectError(error.TlsFailed, sealer.encrypt_record(greeting, to_server.free()));
     try testing.expectError(error.NotConnected, client.fail(.internal_error, to_server.free()));
 }
 
@@ -56,7 +56,7 @@ test "RFC 9846 §6.2: a server's fail sends the alert it names, and the client r
     try testing.expectEqual(record.alert_record_len, written);
     to_client.len += written;
     const opener = client.provider();
-    try testing.expectError(error.TlsFailed, opener.vtable.decrypt_record(opener.context, to_client.held(), &support.scratch));
+    try testing.expectError(error.TlsFailed, opener.decrypt_record(to_client.held(), &support.scratch));
     try expect_alert(opener, .decode_error, .peer);
     try expect_alert(server.provider(), .decode_error, .local);
 }
@@ -76,7 +76,7 @@ test "RFC 9846 §6.2: fail refuses a closure alert, a value no alert holds and a
     try testing.expectEqual(0, to_server.len);
     try expect_data_moves(client.provider(), server.provider(), to_server);
     try expect_data_moves(server.provider(), client.provider(), to_client);
-    try testing.expectEqual(null, client.provider().vtable.take_alert(client.provider().context));
+    try testing.expectEqual(null, client.provider().take_alert());
 }
 
 test "RFC 9846 §6: fail sends nothing before the handshake completes or after close_notify" {
@@ -89,6 +89,6 @@ test "RFC 9846 §6: fail sends nothing before the handshake completes or after c
     try support.handshake_both(null);
     const closer = client.provider();
     to_server.* = .{};
-    to_server.len += try closer.vtable.send_close_notify(closer.context, to_server.free());
+    to_server.len += try closer.send_close_notify(to_server.free());
     try testing.expectError(error.NotConnected, client.fail(.internal_error, to_server.free()));
 }

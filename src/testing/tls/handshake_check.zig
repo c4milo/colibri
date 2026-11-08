@@ -66,13 +66,13 @@ fn parse(init: std.process.Init.Minimal) Arguments {
 /// Reports what the handshake negotiated, and refuses anything but h2.
 fn report() void {
     const held = client.provider();
-    const alpn = held.vtable.negotiated_alpn(held.context) orelse {
+    const alpn = held.negotiated_alpn() orelse {
         // RFC 9113 §3.1: without "h2" there is no HTTP/2 to speak, and colibri's `attach_tls`
         // refuses the session rather than guessing.
         std.debug.print("tls-handshake: the server selected no protocol\n", .{});
         std.process.exit(exit_failed);
     };
-    const negotiated = held.vtable.negotiated_parameters(held.context).?;
+    const negotiated = held.negotiated_parameters().?;
     std.debug.print(
         "tls-handshake: complete alpn={s} version=0x{x:0>4} suite=0x{x:0>4}\n",
         .{ alpn, negotiated.version, negotiated.cipher_suite },
@@ -90,8 +90,7 @@ fn report() void {
 fn report_exporter() void {
     const held = client.provider();
     var exported: [constants.tls_exporter_len]u8 = undefined;
-    held.vtable.export_keying_material(
-        held.context,
+    held.export_keying_material(
         constants.tls_exporter_label,
         constants.tls_exporter_context,
         &exported,
@@ -174,7 +173,7 @@ fn read_until_data(socket: std.c.fd_t) !void {
     var messages: usize = 0;
     for (0..post_handshake_records_max) |_| {
         const record = try input.read_record(socket);
-        const opened = held.vtable.decrypt_record(held.context, record, &plaintext_storage) catch |failure| {
+        const opened = held.decrypt_record(record, &plaintext_storage) catch |failure| {
             std.debug.print("tls-handshake: a record after the handshake did not open: {t}\n", .{failure});
             std.process.exit(exit_failed);
         };

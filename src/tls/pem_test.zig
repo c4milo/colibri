@@ -125,7 +125,7 @@ test "issue 97: a server read from its PEM files and a client read from its bund
     });
     try support.server_config.check(support.random());
     try support.handshake_both(null);
-    try testing.expect(support.client.provider().is_complete());
+    try testing.expect(support.client.provider().handshake_complete());
 }
 
 /// The DER room of the ML-DSA-87 chain: two certificates of about 7,500 octets each. Test-only.
@@ -161,7 +161,7 @@ test "decision 147: a server holds one identity for each scheme, and chapulin's 
     try support.server_config.check(support.random());
     // colibri's client offers no ML-DSA-87, so the handshake signs with the P-256 key.
     try support.handshake_both(null);
-    try testing.expect(support.client.provider().is_complete());
+    try testing.expect(support.client.provider().handshake_complete());
     // Two of one scheme, and a key no call filled, are each refused.
     const twice = [_]values.Identity{ support.identities[0], support.identities[0] };
     try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice, .cookie_key = &support.cookie_key, .cpu = support.cpu }));
@@ -213,7 +213,7 @@ test "decision 147: a server holds a P-256, an RSA and an ML-DSA-87 identity, an
     try testing.expectEqualSlices(u8, rsa_key.public_key[0..rsa_modulus_len], rsa_pss.public_key);
     try support.server_config.check(support.random());
     try support.handshake_both(null);
-    try testing.expect(support.client.provider().is_complete());
+    try testing.expect(support.client.provider().handshake_complete());
     // RFC 9846 §4.5.1.2: two RSA identities are refused.
     const twice_rsa = [_]values.Identity{ all[1], all[1] };
     try testing.expectError(error.IdentityRepeated, support.server_config.init(.{ .identities = &twice_rsa, .cookie_key = &support.cookie_key, .cpu = support.cpu }));

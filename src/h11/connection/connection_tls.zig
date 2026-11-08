@@ -48,15 +48,15 @@ pub fn attach(target: *Connection, provider: tls_provider.Provider) AttachError!
 pub fn check(provider: tls_provider.Provider) AttachError!void {
     // RFC 9846 Appendix E.5: the application must be able to tell whether the handshake completed,
     // and nothing below is decided until it has.
-    if (!provider.is_complete()) return error.HandshakeIncomplete;
-    if (provider.vtable.negotiated_alpn(provider.context)) |selected| {
+    if (!provider.handshake_complete()) return error.HandshakeIncomplete;
+    if (provider.negotiated_alpn()) |selected| {
         // RFC 7301 §3.2: the selected protocol is definitive for the connection, so any other
         // selection means h11 does not run here.
         if (!std.mem.eql(u8, selected, tls_provider.constants.protocol.alpn_http_1_1)) return error.AlpnNotHttp11;
     }
     // A handshake that selected nothing runs h11 too: RFC 9846 §4.2.2 has a server ignore an
     // extension it does not recognise, and RFC 9112 §9.7 asks for no ALPN (decision 88).
-    const negotiated = provider.vtable.negotiated_parameters(provider.context) orelse
+    const negotiated = provider.negotiated_parameters() orelse
         // The handshake is complete, so a provider that reports neither codepoint is one colibri
         // cannot check decision 45 against.
         return error.ParametersUnknown;
@@ -140,7 +140,7 @@ const OpenError = RecordError || error{KeyUpdates};
 
 /// Opens the record through the provider and says what it held.
 fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8, plaintext: []u8) OpenError!Decrypted {
-    const opened = provider.vtable.decrypt_record(provider.context, input, plaintext) catch |failure| {
+    const opened = provider.decrypt_record(input, plaintext) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,
             error.KeyUpdates => error.KeyUpdates,
@@ -186,7 +186,7 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
 fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usize) RecordError!Decrypted {
     // RFC 9846 §6: an alert record carries a description, so a provider that classified this
     // record as an alert and then reports none has broken its own contract.
-    const report = provider.vtable.take_alert(provider.context) orelse return error.TlsFailed;
+    const report = provider.take_alert() orelse return error.TlsFailed;
     switch (tls_provider.alert.verdict(report)) {
         .end_of_data => {
             // RFC 9112 §9.8: a valid closure alert, which alone completes a body that runs until
@@ -220,7 +220,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
     // Only `end_tls` makes the provider owe handshake octets: the alert of the failure.
     assert(!target.handshake_owed);
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
-    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output) catch |failure|
+    const sealed = provider.encrypt_record(plaintext, output) catch |failure|
         return seal_refused(target, failure);
     assert(sealed.consumed <= plaintext.len and sealed.written <= output.len);
     return sealed;
@@ -254,7 +254,7 @@ fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError) R
 fn write_owed(target: *Connection, provider: tls_provider.Provider, output: []u8, now_ns: u64) RecordError!usize {
     assert(target.tls_failed);
     if (!target.handshake_owed) return 0;
-    const written = provider.vtable.handshake_write(provider.context, output, now_ns) catch |failure| {
+    const written = provider.handshake_write(output, now_ns) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,
             error.NoSpaceLeft => error.NoSpaceLeft,
@@ -272,7 +272,7 @@ pub fn close_notify(target: *Connection, output: []u8) RecordError!usize {
     // RFC 9846 §6: a connection whose record layer failed is closed, and no close_notify follows
     // the fatal alert.
     if (target.tls_failed) return 0;
-    return provider.vtable.send_close_notify(provider.context, output) catch error.NoSpaceLeft;
+    return provider.send_close_notify(output) catch error.NoSpaceLeft;
 }
 
 test {

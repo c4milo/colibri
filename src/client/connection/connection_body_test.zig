@@ -243,7 +243,7 @@ test "RFC 9846 §6.1: over TLS an h11 response read whole ends `response` when c
     // RFC 9846 §6.1: the close_notify arrives in the same input as the last piece, so the client
     // reads it while the caller holds the piece.
     const provider = tls_support.server.provider();
-    support.to_client_len += try provider.vtable.send_close_notify(provider.context, support.to_client[support.to_client_len..]);
+    support.to_client_len += try provider.send_close_notify(support.to_client[support.to_client_len..]);
     try read_held(id);
     try finish_at_release(id);
     try testing.expectEqual(.response, get.response.result);

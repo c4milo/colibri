@@ -13,7 +13,7 @@ const server = &support.server;
 
 fn expect_suite(suite: u16) !void {
     for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
-        try testing.expectEqual(suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
+        try testing.expectEqual(suite, provider.negotiated_parameters().?.cipher_suite);
     }
 }
 
@@ -99,7 +99,7 @@ test "decision 97: every description a test may run under carries records each w
     for (support.cpus) |described| {
         try support.configure(web_pki_under(described), .{ .cpu = described });
         try support.handshake_both(null);
-        const sealed = try client.provider().vtable.encrypt_record(client.provider().context, "probe", support.to_server.free());
+        const sealed = try client.provider().encrypt_record("probe", support.to_server.free());
         support.to_server.len += sealed.written;
         try testing.expectEqualStrings("probe", support.scratch[0..try support.open_all(server.provider(), &support.to_server, &support.scratch)]);
     }

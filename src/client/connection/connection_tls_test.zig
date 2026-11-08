@@ -114,7 +114,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     // RFC 9846 §6.1: the client's close_notify goes out before it closes. RFC 9846 §5.2: the
     // record hides its type, so the server opens it to see an alert.
     const provider = server.provider();
-    const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], peer_plain);
+    const record = try provider.decrypt_record(support.to_peer[0..support.to_peer_len], peer_plain);
     try testing.expectEqual(tls_provider.Content.alert, record.content);
     try testing.expect(connection.should_close());
 }
@@ -272,8 +272,8 @@ fn expect_forged_record_refused(server_protocols: []const []const u8) !void {
     try testing.expect(connection.should_close());
     // RFC 9846 §6.2: the server reads the error alert as the end of the connection, and names it.
     const provider = server.provider();
-    try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], peer_plain));
-    const report = provider.vtable.take_alert(provider.context).?;
+    try testing.expectError(error.TlsFailed, provider.decrypt_record(support.to_peer[0..support.to_peer_len], peer_plain));
+    const report = provider.take_alert().?;
     try testing.expectEqual(.bad_record_mac, report.description);
     try testing.expectEqual(.peer, report.origin);
 }
@@ -284,7 +284,7 @@ test "RFC 9846 §6.1: the server's close_notify ends the exchange awaiting its r
     _ = try connection.request(&exchange.request, &exchange.response);
     support.client_send();
     const provider = server.provider();
-    support.to_client_len += try provider.vtable.send_close_notify(provider.context, support.to_client[support.to_client_len..]);
+    support.to_client_len += try provider.send_close_notify(support.to_client[support.to_client_len..]);
     try support.client_receive();
     try testing.expectEqual(.closed, exchange.response.result);
     try testing.expect(support.find(.closed) != null);
@@ -335,7 +335,7 @@ fn short_records() !usize {
     var plaintext_len: usize = 0;
     // Bounded: each pass opens one record.
     for (0..support.to_peer_len) |_| {
-        const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[offset..support.to_peer_len], peer_plain[plaintext_len..]);
+        const record = try provider.decrypt_record(support.to_peer[offset..support.to_peer_len], peer_plain[plaintext_len..]);
         if (record.content == .incomplete) break;
         offset += record.consumed;
         plaintext_len += record.plaintext_len;

@@ -21,8 +21,8 @@ test "RFC 9001 §4.1: a client and a server complete the handshake and read each
     try support.configure(support.web_pki, .{});
     try support.handshake_both(null);
     for ([_]tls_provider.QuicProvider{ client.provider(), server.provider() }) |provider| {
-        try testing.expectEqualStrings("h3", provider.vtable.negotiated_alpn(provider.context).?);
-        try testing.expectEqual(null, provider.vtable.take_alert(provider.context));
+        try testing.expectEqualStrings("h3", provider.negotiated_alpn().?);
+        try testing.expectEqual(null, provider.take_alert());
     }
     // RFC 9001 §8.2: each side's parameters reach the other.
     try testing.expectEqualStrings(support.server_parameters, client.provider().vtable.peer_transport_params(client.provider().context).?);
@@ -38,7 +38,7 @@ test "RFC 9001 §4.1: a client and a server complete the handshake and read each
     // chapulin has no QUIC exporter.
     var exported: [32]u8 = undefined;
     const provider = client.provider();
-    try testing.expectError(error.Unsupported, provider.vtable.export_keying_material(provider.context, "EXPORTER-test", null, &exported));
+    try testing.expectError(error.Unsupported, provider.export_keying_material("EXPORTER-test", null, &exported));
     client.close();
     server.close();
 }
@@ -216,9 +216,9 @@ test "RFC 9001 §4.8: a flight chapulin refuses fails the handshake, and the ale
     try testing.expectError(error.WrongLevel, provider.vtable.provide_handshake(provider.context, .handshake, "\x08\x00\x00\x00"));
     // RFC 9846 §4.2.3: a ServerHello whose body is empty.
     try testing.expectError(error.TlsFailed, provider.vtable.provide_handshake(provider.context, .initial, "\x02\x00\x00\x00"));
-    try testing.expect(provider.vtable.take_alert(provider.context) != null);
-    try testing.expectEqual(null, provider.vtable.take_alert(provider.context));
-    try testing.expect(!provider.vtable.handshake_complete(provider.context));
+    try testing.expect(provider.take_alert() != null);
+    try testing.expectEqual(null, provider.take_alert());
+    try testing.expect(!provider.handshake_complete());
     // RFC 9001 §4.1.3: parameters come before the handshake, once.
     try testing.expectError(error.HandshakeStarted, provider.vtable.set_transport_params(provider.context, support.client_parameters));
     // RFC 9001 §4.8: the failed session still seals one CONNECTION_CLOSE at the level, and then
@@ -289,10 +289,10 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     const provider = client.provider();
     try testing.expectError(error.WrongLevel, provider.vtable.provide_handshake(provider.context, .initial, "\x02"));
     try testing.expectEqual(null, provider.vtable.peer_transport_params(provider.context));
-    try testing.expectEqual(null, provider.vtable.negotiated_alpn(provider.context));
-    try testing.expect(!provider.vtable.handshake_complete(provider.context));
+    try testing.expectEqual(null, provider.negotiated_alpn());
+    try testing.expect(!provider.handshake_complete());
     try testing.expectEqual(null, client.negotiated());
-    try testing.expectEqual(null, provider.vtable.take_alert(provider.context));
+    try testing.expectEqual(null, provider.take_alert());
     try testing.expectEqual(0, try provider.vtable.write_handshake(provider.context, .initial, &support.scratch));
     try testing.expectEqual(null, client.take_ticket());
     try testing.expect(!client.resumed());

@@ -52,12 +52,12 @@ pub fn attach(target: *Connection, provider: tls_provider.Provider) AttachError!
 pub fn check(provider: tls_provider.Provider) AttachError!void {
     // RFC 9846 Appendix E.5: the application must be able to tell whether the handshake completed,
     // and nothing below is decided until it has.
-    if (!provider.is_complete()) return error.HandshakeIncomplete;
+    if (!provider.handshake_complete()) return error.HandshakeIncomplete;
     // RFC 9113 §3.3: HTTP/2 connections over TLS MUST use protocol negotiation, and §3.1 names the
     // identifier. A client's provider reports what the server chose, so any other answer, null
     // included, means h2 does not run here.
     if (!provider.speaks_h2()) return error.AlpnNotH2;
-    const negotiated = provider.vtable.negotiated_parameters(provider.context) orelse
+    const negotiated = provider.negotiated_parameters() orelse
         // The handshake is complete, so a provider that reports neither codepoint is one colibri
         // cannot check RFC 9113 §9.2 against, and §9.2's floor is a MUST.
         return error.ParametersUnknown;
@@ -134,7 +134,7 @@ const OpenError = RecordError || error{KeyUpdates};
 
 /// Opens the record through the provider and says what it held.
 fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8, plaintext: []u8) OpenError!Decrypted {
-    const opened = provider.vtable.decrypt_record(provider.context, input, plaintext) catch |failure| {
+    const opened = provider.decrypt_record(input, plaintext) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,
             error.KeyUpdates => error.KeyUpdates,
@@ -206,7 +206,7 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
 fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usize) RecordError!Decrypted {
     // RFC 9846 §6: an alert record carries a description, so a provider that classified this
     // record as an alert and then reports none has broken its own contract.
-    const report = provider.vtable.take_alert(provider.context) orelse return error.TlsFailed;
+    const report = provider.take_alert() orelse return error.TlsFailed;
     return switch (tls_provider.alert.verdict(report)) {
         // RFC 9846 §6.1: close_notify tells the recipient that the sender will not send any more
         // messages, which design §8 step 5 makes the end of the h2 byte stream.
@@ -237,7 +237,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
     // Only `end_tls` makes the provider owe handshake octets: the alert of the failure.
     assert(!target.handshake_owed);
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
-    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output) catch |failure|
+    const sealed = provider.encrypt_record(plaintext, output) catch |failure|
         return seal_refused(target, failure);
     assert(sealed.consumed <= plaintext.len and sealed.written <= output.len);
     return sealed;
@@ -246,7 +246,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
 /// The most plaintext one `encrypt_parts` seals into `output_len` octets.
 pub fn writable_len(target: *const Connection, output_len: usize) usize {
     const provider = target.provider orelse return 0;
-    return provider.vtable.writable_len(provider.context, output_len);
+    return provider.writable_len(output_len);
 }
 
 /// Protects a frame's `head` and then its `data`, which the caller holds apart, as one run of
@@ -255,7 +255,7 @@ pub fn encrypt_parts(target: *Connection, head: []const u8, data: []const u8, ou
     // RFC 9113 §3.3: a cleartext connection writes its frames straight to the transport.
     const provider = target.provider orelse return error.NoProvider;
     assert(!target.tls_failed and !target.handshake_owed);
-    return provider.vtable.encrypt_parts(provider.context, head, data, output) catch |failure| {
+    return provider.encrypt_parts(head, data, output) catch |failure| {
         // `seal_refused` returns an error for every failure, and ends the record layer on one.
         _ = try seal_refused(target, failure);
         unreachable;
@@ -279,7 +279,7 @@ fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError) R
 fn write_owed(target: *Connection, provider: tls_provider.Provider, output: []u8, now_ns: u64) RecordError!usize {
     assert(target.tls_failed);
     if (!target.handshake_owed) return 0;
-    const written = provider.vtable.handshake_write(provider.context, output, now_ns) catch |failure| {
+    const written = provider.handshake_write(output, now_ns) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,
             error.NoSpaceLeft => error.NoSpaceLeft,
@@ -296,7 +296,7 @@ pub fn close_notify(target: *Connection, output: []u8) RecordError!usize {
     // RFC 9846 §6: a connection whose record layer failed is closed, and no close_notify follows
     // the fatal alert.
     if (target.tls_failed) return 0;
-    return provider.vtable.send_close_notify(provider.context, output) catch error.NoSpaceLeft;
+    return provider.send_close_notify(output) catch error.NoSpaceLeft;
 }
 
 test {

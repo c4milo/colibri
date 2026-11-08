@@ -280,7 +280,7 @@ pub fn seal_all(offset: usize, plaintext: []const u8) !usize {
     // Bounded: each record takes at least one octet of plaintext.
     for (0..plaintext.len) |_| {
         if (taken == plaintext.len) break;
-        const sealed = try provider.vtable.encrypt_record(provider.context, plaintext[taken..], input[sealed_len..]);
+        const sealed = try provider.encrypt_record(plaintext[taken..], input[sealed_len..]);
         taken += sealed.consumed;
         sealed_len += sealed.written;
     }
@@ -299,7 +299,7 @@ pub fn open_sent() ![]const u8 {
     const provider = client.provider();
     var gathered: usize = 0;
     for (0..output_len) |_| {
-        const record = provider.vtable.decrypt_record(provider.context, to_client[0..to_client_len], opened[gathered..]) catch |failure| {
+        const record = provider.decrypt_record(to_client[0..to_client_len], opened[gathered..]) catch |failure| {
             // The client reads a close_notify as the end of the data, and nothing after it.
             if (failure == error.TlsFailed) break;
             return failure;

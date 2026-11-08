@@ -242,7 +242,7 @@ pub fn give_sealed(handle: ConnectionHandle, plaintext: []const u8) !usize {
     // Bounded: each record takes at least one octet of plaintext.
     for (0..plaintext.len) |_| {
         if (taken == plaintext.len) break;
-        const sealed = try provider.vtable.encrypt_record(provider.context, plaintext[taken..], records[sealed_len..]);
+        const sealed = try provider.encrypt_record(plaintext[taken..], records[sealed_len..]);
         taken += sealed.consumed;
         sealed_len += sealed.written;
     }
@@ -256,7 +256,7 @@ pub fn open_sent(slot: u32) ![]const u8 {
     var gathered: usize = 0;
     // Bounded: each record the client opens takes at least its header.
     for (0..sent_len_max) |_| {
-        const record = provider.vtable.decrypt_record(provider.context, sent[slot][client_read[slot]..sent_len[slot]], support.opened[gathered..]) catch |failure| {
+        const record = provider.decrypt_record(sent[slot][client_read[slot]..sent_len[slot]], support.opened[gathered..]) catch |failure| {
             // The client reads a close_notify as the end of the data, and nothing after it.
             if (failure == error.TlsFailed) break;
             return failure;

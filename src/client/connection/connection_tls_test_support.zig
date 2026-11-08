@@ -102,7 +102,7 @@ pub fn take_to_peer(consumed: usize) void {
 pub fn server_open() !void {
     const provider = server.provider();
     for (0..support.buffer_len) |_| {
-        const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], peer_plain[peer_plain_len..]);
+        const record = try provider.decrypt_record(support.to_peer[0..support.to_peer_len], peer_plain[peer_plain_len..]);
         if (record.content == .incomplete) return;
         take_to_peer(record.consumed);
         if (record.content == .application_data) peer_plain_len += record.plaintext_len;
@@ -115,7 +115,7 @@ pub fn server_seal(plaintext: []const u8) !void {
     var taken: usize = 0;
     for (0..plaintext.len) |_| {
         if (taken == plaintext.len) return;
-        const sealed = try provider.vtable.encrypt_record(provider.context, plaintext[taken..], support.to_client[support.to_client_len..]);
+        const sealed = try provider.encrypt_record(plaintext[taken..], support.to_client[support.to_client_len..]);
         taken += sealed.consumed;
         support.to_client_len += sealed.written;
     }

@@ -73,13 +73,13 @@ fn parse(init: std.process.Init.Minimal) Arguments {
 /// Reports what the handshake negotiated, and refuses anything but h2.
 fn report() void {
     const held = server.provider();
-    const alpn = held.vtable.negotiated_alpn(held.context) orelse {
+    const alpn = held.negotiated_alpn() orelse {
         // RFC 9113 §3.1: without "h2" there is no HTTP/2 to speak, and colibri's `attach_tls`
         // refuses the session rather than guessing.
         std.debug.print("tls-accept: the client offered no protocol this server speaks\n", .{});
         std.process.exit(exit_failed);
     };
-    const negotiated = held.vtable.negotiated_parameters(held.context).?;
+    const negotiated = held.negotiated_parameters().?;
     std.debug.print(
         "tls-accept: complete alpn={s} version=0x{x:0>4} suite=0x{x:0>4} group=0x{x:0>4}\n",
         .{ alpn, negotiated.version, negotiated.cipher_suite, negotiated.group },
@@ -97,8 +97,7 @@ fn report() void {
 fn report_exporter() void {
     const held = server.provider();
     var exported: [constants.tls_exporter_len]u8 = undefined;
-    held.vtable.export_keying_material(
-        held.context,
+    held.export_keying_material(
         constants.tls_exporter_label,
         constants.tls_exporter_context,
         &exported,
@@ -178,7 +177,7 @@ fn run_handshake(socket: std.c.fd_t) !void {
 fn echo_once(socket: std.c.fd_t) !void {
     const held = server.provider();
     const record = try input.read_record(socket);
-    const opened = held.vtable.decrypt_record(held.context, record, &plaintext_storage) catch {
+    const opened = held.decrypt_record(record, &plaintext_storage) catch {
         std.debug.print("tls-accept: the peer's record did not open\n", .{});
         std.process.exit(exit_failed);
     };
@@ -187,8 +186,7 @@ fn echo_once(socket: std.c.fd_t) !void {
         std.process.exit(exit_failed);
     }
     input.take(opened.consumed);
-    const sealed = try held.vtable.encrypt_record(
-        held.context,
+    const sealed = try held.encrypt_record(
         plaintext_storage[0..opened.plaintext_len],
         &output_storage,
     );
@@ -201,7 +199,7 @@ fn echo_once(socket: std.c.fd_t) !void {
 fn await_close(socket: std.c.fd_t) !void {
     const held = server.provider();
     const record = try input.read_record(socket);
-    const opened = held.vtable.decrypt_record(held.context, record, &plaintext_storage) catch {
+    const opened = held.decrypt_record(record, &plaintext_storage) catch {
         std.debug.print("tls-accept: the peer's close did not open\n", .{});
         std.process.exit(exit_failed);
     };
@@ -209,7 +207,7 @@ fn await_close(socket: std.c.fd_t) !void {
         std.debug.print("tls-accept: expected an alert, got {s}\n", .{@tagName(opened.content)});
         std.process.exit(exit_failed);
     }
-    const report_held = held.vtable.take_alert(held.context) orelse {
+    const report_held = held.take_alert() orelse {
         std.debug.print("tls-accept: the alert carried no description\n", .{});
         std.process.exit(exit_failed);
     };

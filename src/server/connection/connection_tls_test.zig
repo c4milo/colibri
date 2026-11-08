@@ -106,7 +106,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the close_notify follows the 
 test "RFC 9846 §6.1: the peer's close_notify ends its data, and this side's follows" {
     try support.start_tls(&support.protocols_both, &support.protocols_h11);
     const provider = support.client.provider();
-    const close_len = try provider.vtable.send_close_notify(provider.context, &support.input);
+    const close_len = try provider.send_close_notify(&support.input);
     const received = try connection.receive(support.input[0..close_len], support.now_ns);
     try testing.expectEqual(close_len, received.consumed);
     try testing.expectEqual(null, received.event);
@@ -162,7 +162,7 @@ fn expect_forged_record_refused(client_protocols: []const []const u8) !void {
     // RFC 9846 §6.2: the client reads the error alert as the end of the connection, and names it.
     _ = try support.open_sent();
     const provider = support.client.provider();
-    const report = provider.vtable.take_alert(provider.context).?;
+    const report = provider.take_alert().?;
     try testing.expectEqual(.bad_record_mac, report.description);
     try testing.expectEqual(.peer, report.origin);
     try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));

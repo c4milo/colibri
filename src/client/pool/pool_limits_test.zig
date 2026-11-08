@@ -103,7 +103,7 @@ fn peer_write_content(out: []u8) !usize {
 fn seal_largest_first(plaintext: []const u8) !usize {
     const largest = tls_provider.constants.protocol.record_plaintext_len_max;
     const provider = tls_support.server.provider();
-    const first = try provider.vtable.encrypt_record(provider.context, plaintext[0..largest], support.to_client[support.to_client_len..]);
+    const first = try provider.encrypt_record(plaintext[0..largest], support.to_client[support.to_client_len..]);
     try testing.expectEqual(largest, first.consumed);
     support.to_client_len += first.written;
     try tls_support.server_seal(plaintext[largest..]);
@@ -316,7 +316,7 @@ fn Tests(comptime Pool: type) type {
             // The server opens the first record whole, and it holds the most plaintext a record
             // carries (RFC 9846 §5.1).
             const provider = tls_support.server.provider();
-            const opened = try provider.vtable.decrypt_record(provider.context, output[0..written], &tls_support.peer_plain);
+            const opened = try provider.decrypt_record(output[0..written], &tls_support.peer_plain);
             try testing.expectEqual(.application_data, opened.content);
             try testing.expectEqual(tls_provider.constants.protocol.record_plaintext_len_max, opened.plaintext_len);
         }
