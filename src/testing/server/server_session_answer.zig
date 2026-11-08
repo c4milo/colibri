@@ -3,7 +3,7 @@
 //! mode an h11 request is answered with its echo (`../h11/h11_echo.zig`) instead. The server opens
 //! no tunnel, so a CONNECT is answered 501 in every mode.
 //!
-//! `write` answers through the calls every program makes on the server's endpoint, by the
+//! `write` answers through the calls every program makes on the server's engine, by the
 //! request's id. One response waits for the one before it, so a response the connection has no
 //! room or window for holds every later one of its connection, and no other connection's. Split
 //! off `server_session.zig` for length.
@@ -17,7 +17,7 @@ const h11_echo = @import("../h11/h11_echo.zig");
 const http = h2.http;
 
 comptime {
-    // The endpoint holds `tcp_requests_max` open requests of a connection and refuses one more
+    // The engine holds `tcp_requests_max` open requests of a connection and refuses one more
     // itself, so the queues below, which hold the open requests alone, always have room.
     assert(constants.responses_owed_max > server.constants.limits.tcp_requests_max);
 }
@@ -44,7 +44,7 @@ const too_large_status: u16 = 413;
 /// The answer to CONNECT, a tunnel the server does not implement (RFC 9110 §9.3.6, §15.6.2).
 const not_implemented_status: u16 = 501;
 
-/// What one `write` did: the responses it finished, and whether the endpoint took anything, which
+/// What one `write` did: the responses it finished, and whether the engine took anything, which
 /// the connection then owes its socket.
 pub const Written = struct {
     finished: usize,
@@ -61,7 +61,7 @@ pub const Answers = struct {
     /// Whether the oldest owed response's head is written, and octets of its content sent.
     head_written: bool,
     content_sent: usize,
-    /// Whether the endpoint took a head or content since `write` began.
+    /// Whether the engine took a head or content since `write` began.
     wrote: bool,
     /// Where the `--echo` mode keeps the request it returns, or null in every other mode.
     echo: ?*h11_echo.Echo,
@@ -76,7 +76,7 @@ pub const Answers = struct {
         answers.echo = echo;
     }
 
-    /// A request's head arrived. Its octets are valid until the endpoint's next call, so the echo
+    /// A request's head arrived. Its octets are valid until the engine's next call, so the echo
     /// copies them now.
     pub fn on_request(answers: *Answers, request: server.Request) void {
         if (answers.echo) |echo| echo.begin(.{
@@ -128,24 +128,24 @@ pub const Answers = struct {
         remove(&answers.owed, &answers.owed_count, index);
     }
 
-    /// Writes as much of the owed responses as `endpoint` takes for `connection`, oldest first.
-    pub fn write(answers: *Answers, endpoint: anytype, connection: server.ConnectionHandle) Written {
+    /// Writes as much of the owed responses as `engine` takes for `connection`, oldest first.
+    pub fn write(answers: *Answers, engine: anytype, connection: server.ConnectionHandle) Written {
         answers.wrote = false;
         var finished: usize = 0;
         for (0..constants.responses_owed_max) |_| {
             if (answers.owed_count == 0) break;
-            if (!answers.write_oldest(endpoint, connection)) break;
+            if (!answers.write_oldest(engine, connection)) break;
             finished += 1;
         }
         return .{ .finished = finished, .wrote = answers.wrote };
     }
 
     /// Writes what is left of the oldest owed response, and returns whether it is written whole.
-    fn write_oldest(answers: *Answers, endpoint: anytype, connection: server.ConnectionHandle) bool {
+    fn write_oldest(answers: *Answers, engine: anytype, connection: server.ConnectionHandle) bool {
         const oldest = answers.owed[0];
         const id: server.RequestId = .{ .connection = connection, .number = oldest.number };
         if (!answers.head_written) {
-            answers.write_head(endpoint, id, oldest) catch |failure| return answers.write_failed(failure);
+            answers.write_head(engine, id, oldest) catch |failure| return answers.write_failed(failure);
             answers.head_written = true;
             answers.wrote = true;
             if (oldest.head or oldest.connect or answers.echo_refused()) {
@@ -154,7 +154,7 @@ pub const Answers = struct {
             }
         }
         const octets = answers.content();
-        const taken = endpoint.write_body(id, .{ .bytes = octets[answers.content_sent..], .end = true }) catch |failure| {
+        const taken = engine.write_body(id, .{ .bytes = octets[answers.content_sent..], .end = true }) catch |failure| {
             return answers.write_failed(failure);
         };
         answers.content_sent += taken;
@@ -167,18 +167,18 @@ pub const Answers = struct {
     /// Writes the head of the response owed: 200 with its content's fields, or, when the echo could
     /// not keep the request's content, 413 with none (RFC 9110 §15.5.14), or 501 with none to a
     /// CONNECT.
-    fn write_head(answers: *Answers, endpoint: anytype, id: server.RequestId, request: Request) server.SendError!void {
-        if (request.connect) return endpoint.respond(id, .{ .status = @enumFromInt(not_implemented_status), .end = true });
+    fn write_head(answers: *Answers, engine: anytype, id: server.RequestId, request: Request) server.SendError!void {
+        if (request.connect) return engine.respond(id, .{ .status = @enumFromInt(not_implemented_status), .end = true });
         // Decision 101: the fixed answer may be coded, and an echo goes out as it arrived.
-        const echo = answers.echo orelse return endpoint.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &response_fields, .end = request.head, .codable = true });
-        if (echo.body_too_long) return endpoint.respond(id, .{ .status = @enumFromInt(too_large_status), .end = true });
+        const echo = answers.echo orelse return engine.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &response_fields, .end = request.head, .codable = true });
+        if (echo.body_too_long) return engine.respond(id, .{ .status = @enumFromInt(too_large_status), .end = true });
         var digits: [constants.content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{echo.written().len}) catch unreachable;
         const fields = [_]server.Header{
             .{ .name = "content-type", .value = echo_content_type },
             .{ .name = "content-length", .value = length },
         };
-        return endpoint.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &fields, .end = request.head });
+        return engine.respond(id, .{ .status = @enumFromInt(constants.response_status), .headers = &fields, .end = request.head });
     }
 
     fn echo_refused(answers: *const Answers) bool {
@@ -194,7 +194,7 @@ pub const Answers = struct {
     }
 
     /// What a write that failed means for the oldest response: it waits for room or a window,
-    /// which the endpoint reports with `writable`, or the request is gone and so is its response.
+    /// which the engine reports with `writable`, or the request is gone and so is its response.
     fn write_failed(answers: *Answers, failure: server.SendError) bool {
         switch (failure) {
             error.NoSpaceLeft, error.Blocked => return false,

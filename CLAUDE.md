@@ -129,7 +129,7 @@ code that serves it.
   files. A function the type's other files call is therefore a free function that takes the
   type's pointer, in a file the root does not export, such as `connection_internal.zig`. Never
   make a method of an exported type `pub` to call it from another file. A type the root does not
-  export, such as the connection an endpoint's slot holds, has no program's calls: its `pub`
+  export, such as the connection an engine's slot holds, has no program's calls: its `pub`
   methods are the calls its module's other files make.
 - **A type may hold a declaration alias of a call in another file** (decision 158 ruling 8). The
   alias names a function of another file of the module, as in

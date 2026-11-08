@@ -1,16 +1,16 @@
 //! One worker of the test-only server (`../server.zig`): a core's Rotor loop, its listening socket,
-//! its sockets in a fixed array, and one session, whose endpoint serves every connection of the
+//! its sockets in a fixed array, and one session, whose engine serves every connection of the
 //! worker (`server_session.zig`, design §8 step 21b.6).
 //!
-//! Each turn waits in the loop's `tick` until an operation ends or the endpoint's next deadline
-//! passes. It hands each event to the socket it names (`server_socket.zig`), hands the endpoint
-//! the instant when a deadline is due, steps every entry a socket or the endpoint named, and last
+//! Each turn waits in the loop's `tick` until an operation ends or the engine's next deadline
+//! passes. It hands each event to the socket it names (`server_socket.zig`), hands the engine
+//! the instant when a deadline is due, steps every entry a socket or the engine named, and last
 //! submits what each socket it changed needs next. A socket whose peer closed first tells the
-//! endpoint, which ends its connection.
+//! engine, which ends its connection.
 //!
 //! A socket and its entry in the session share an index, and the worker accepts from the kernel
-//! only while a socket is free. Every connection the endpoint holds belongs to a socket that is
-//! not free, so a free socket implies a free slot in the endpoint.
+//! only while a socket is free. Every connection the engine holds belongs to a socket that is
+//! not free, so a free socket implies a free slot in the engine.
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -61,10 +61,10 @@ pub const Worker = struct {
     decoded: [constants.h11_decoded_len]u8,
     /// The encoders the worker's connections code responses with under `--coded` (decision 101).
     encoders: server.EncoderPool(.{ .count = constants.encoders_per_worker, .level = server.constants.policy.encoder_level_default }),
-    /// What the worker's endpoint serves under: the identity or none, the versions, and the
+    /// What the worker's engine serves under: the identity or none, the versions, and the
     /// decoders.
     config: server.Config,
-    /// The endpoint and what each socket's connection owes. It stays where `start` found it.
+    /// The engine and what each socket's connection owes. It stays where `start` found it.
     session: server_session.Session,
 };
 
@@ -107,9 +107,9 @@ pub fn bind_listeners(port: u16, count: usize) !u16 {
     return bound;
 }
 
-/// Prepares `workers[index]` and starts its endpoint under what the command line asked for
+/// Prepares `workers[index]` and starts its engine under what the command line asked for
 /// (`server_mode.zig`). The main thread calls it for every worker before a listener is bound, so
-/// an identity the endpoint refuses ends the run before a peer can connect.
+/// an identity the engine refuses ends the run before a peer can connect.
 pub fn start(index: usize) server.StartError!void {
     const worker = &workers[index];
     worker.index = index;
@@ -130,7 +130,7 @@ pub fn start(index: usize) server.StartError!void {
         worker.config.codings = &server_mode.served_codings;
         worker.config.encoders = worker.encoders.encoders();
     }
-    // The loop starts on the worker's own thread, later, so no instant is read yet. The endpoint
+    // The loop starts on the worker's own thread, later, so no instant is read yet. The engine
     // takes this one for its tickets' clock alone, and the server issues no ticket.
     try worker.session.init(&worker.config, entropy.random(), 0);
     if (server_mode.routes_mode) {
@@ -171,12 +171,12 @@ pub fn wait_ns(worker: *const Worker, deadline_ns: ?u64, now_ns: u64) u64 {
 }
 
 /// What a turn does with its tick's events at `now_ns`, with no call on the loop: each event goes
-/// to its socket, the endpoint gets the instant when `deadline_ns`, read before the tick, has
+/// to its socket, the engine gets the instant when `deadline_ns`, read before the tick, has
 /// passed, and every entry an event named is stepped.
 pub fn handle(worker: *Worker, events: []const rotor.Event, deadline_ns: ?u64, now_ns: u64) void {
     for (events) |event| on_event(worker, event, now_ns);
     const due = if (deadline_ns) |at_ns| at_ns <= now_ns else false;
-    // With no deadline due the endpoint has nothing to fire, so the call is skipped.
+    // With no deadline due the engine has nothing to fire, so the call is skipped.
     if (due or worker.session.undrained) worker.session.on_instant(now_ns);
     serve(worker, now_ns);
 }
@@ -192,7 +192,7 @@ fn on_event(worker: *Worker, event: rotor.Event, now_ns: u64) void {
         .send => socket.on_sent(event),
         .close => socket.closed = true,
     }
-    // The peer closed first, or the socket failed: the endpoint ends the connection.
+    // The peer closed first, or the socket failed: the engine ends the connection.
     if (socket.failed) worker.session.peer_closed(index, now_ns);
     worker.session.mark(index);
 }
@@ -207,7 +207,7 @@ fn arm_accept(worker: *Worker) void {
 }
 
 /// Takes the socket an accept delivered into a free entry, at `now_ns`, and starts its
-/// connection in the endpoint.
+/// connection in the engine.
 fn on_accept(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     worker.accepting = false;
     const descriptor: rotor.Descriptor = @intCast(event.outcome() catch return);
@@ -218,7 +218,7 @@ fn on_accept(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     // `server_options.read` refuses `--echo` but for h11 in cleartext.
     const echo: ?*h11_echo.Echo = if (server_mode.echo_mode) &echoes[worker.index][index] else null;
     const tls = server_mode.identity != null;
-    // A free socket implies a free slot, so the endpoint refuses only a session chapulin does
+    // A free socket implies a free slot, so the engine refuses only a session chapulin does
     // not start.
     if (!worker.session.accept(index, tls, echo, now_ns)) socket.failed = true;
     worker.session.mark(index);
@@ -240,7 +240,7 @@ pub fn free_socket(worker: *Worker) ?usize {
     return null;
 }
 
-/// Steps every entry a socket or the endpoint named, until none is named.
+/// Steps every entry a socket or the engine named, until none is named.
 fn serve(worker: *Worker, now_ns: u64) void {
     for (0..steps_per_turn_max) |_| {
         const index = worker.session.next_pending() orelse return;
@@ -250,7 +250,7 @@ fn serve(worker: *Worker, now_ns: u64) void {
 
 /// Steps the session over the socket at `index`: its unread octets go in, and what its connection
 /// owes is appended to its output. A socket with no room left waits for its send's event. A
-/// socket Rotor has finished with, whose connection the endpoint has ended, frees its entry.
+/// socket Rotor has finished with, whose connection the engine has ended, frees its entry.
 fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
     const socket = &worker.sockets[index];
     if (!socket.live) return;
@@ -266,7 +266,7 @@ fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
         socket.wrote(stepped.written);
         socket.consume(stepped.consumed);
     }
-    // The endpoint closed the connection: the socket closes once its octets are out.
+    // The engine closed the connection: the socket closes once its octets are out.
     if (worker.session.entries[index].closing) socket.closing = true;
 }
 

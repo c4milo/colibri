@@ -11,7 +11,7 @@
 //! session consumes the input from the front by moving `input_start`.
 //! A send reads `output[output_sent..output_len]`, and the session only appends after that.
 //!
-//! A socket outlives its connection. The endpoint frees a connection's slot as soon as it has
+//! A socket outlives its connection. The engine frees a connection's slot as soon as it has
 //! reported its `close`, while the socket still sends the last octets and waits for the final
 //! event of each operation, so the socket is free for another connection only after those.
 const std = @import("std");
@@ -59,7 +59,7 @@ pub const Socket = struct {
     closed: bool,
     /// Whether this entry holds a socket.
     live: bool,
-    /// Whether the endpoint closed the connection, so the octets left are the last the peer gets.
+    /// Whether the engine closed the connection, so the octets left are the last the peer gets.
     closing: bool,
     /// Whether the socket closes now, with nothing more sent: the peer left or a call failed.
     failed: bool,

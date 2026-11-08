@@ -15,7 +15,7 @@ const constants = @import("../../constants.zig");
 const hq = @import("../hq/hq.zig");
 const hq_file = @import("../hq/hq_file.zig");
 
-/// The endpoint the `h3` mode serves through: as many connections as the UDP server holds, each
+/// The engine the `h3` mode serves through: as many connections as the UDP server holds, each
 /// with its receive pool.
 pub const Engine = server.Engine(.{
     .tcp_connections = 0,
@@ -72,7 +72,7 @@ pub const Files = struct {
     www: []const u8,
     mapped: *Mapped,
     answers: [server.constants.limits.quic_requests_max]Answer,
-    /// Responses answered with a file or the root body, which the endpoint reports.
+    /// Responses answered with a file or the root body, which the engine reports.
     served: u64,
 
     pub fn init(files: *Files, www: []const u8, mapped: *Mapped) void {
@@ -91,19 +91,19 @@ pub const Files = struct {
 
     /// Acts on an event of a request of this table's connection, and answers each request whose
     /// content ended.
-    pub fn on_event(files: *Files, endpoint: *Engine, reported: server.Event) void {
+    pub fn on_event(files: *Files, engine: *Engine, reported: server.Event) void {
         switch (reported) {
             .request => |request| {
                 files.take(request);
                 // Decision 116 as amended: a head that ended its stream is the whole request.
-                if (request.end) files.answer(endpoint, request.id);
+                if (request.end) files.answer(engine, request.id);
             },
-            .body => |body| if (body.end) files.answer(endpoint, body.id),
-            .trailers => |trailers| files.answer(endpoint, trailers.id),
+            .body => |body| if (body.end) files.answer(engine, body.id),
+            .trailers => |trailers| files.answer(engine, trailers.id),
             .finished => |finished| files.release(finished.id),
             .writable => {},
             // The run reads `ended`. A QUIC connection owes no `send` or `close`, and the run never
-            // shuts the endpoint down (decision 119).
+            // shuts the engine down (decision 119).
             .send, .close, .ended, .closed => unreachable,
         }
     }
@@ -123,14 +123,14 @@ pub const Files = struct {
     }
 
     /// Answers a request whose content ended: the root body, a file, or 404.
-    fn answer(files: *Files, endpoint: *Engine, id: server.RequestId) void {
+    fn answer(files: *Files, engine: *Engine, id: server.RequestId) void {
         const entry = files.entry_of(id) orelse return;
         if (entry.answered) return;
         entry.answered = true;
         const path = entry.path[0..entry.path_len];
-        if (std.mem.eql(u8, path, "/")) return files.respond(endpoint, entry, constants.h3_root_body);
-        const content = files.content_of(entry, path) orelse return respond_missing(endpoint, entry);
-        files.respond(endpoint, entry, content);
+        if (std.mem.eql(u8, path, "/")) return files.respond(engine, entry, constants.h3_root_body);
+        const content = files.content_of(entry, path) orelse return respond_missing(engine, entry);
+        files.respond(engine, entry, content);
     }
 
     /// The content of the file `path` names: the mapping `Mapped` kept, or the file mapped now and
@@ -152,15 +152,15 @@ pub const Files = struct {
     }
 
     /// Answers 200 with `content`, whose octets stay where they are until the request is over.
-    fn respond(files: *Files, endpoint: *Engine, entry: *Answer, content: []const u8) void {
+    fn respond(files: *Files, engine: *Engine, entry: *Answer, content: []const u8) void {
         assert(entry.in_use and entry.answered);
         var digits: [content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
         const fields = [_]server.Header{.{ .name = "content-length", .value = length }};
         // RFC 9110 §9.3.2: a response to HEAD carries no content.
         const carries = !entry.head and content.len > 0;
-        endpoint.respond(entry.id, .{ .status = @enumFromInt(ok), .headers = &fields, .end = !carries }) catch return endpoint.cancel(entry.id);
-        if (carries) _ = endpoint.write_body(entry.id, .{ .bytes = content, .end = true }) catch return endpoint.cancel(entry.id);
+        engine.respond(entry.id, .{ .status = @enumFromInt(ok), .headers = &fields, .end = !carries }) catch return engine.cancel(entry.id);
+        if (carries) _ = engine.write_body(entry.id, .{ .bytes = content, .end = true }) catch return engine.cancel(entry.id);
         files.served += 1;
     }
 
@@ -188,10 +188,10 @@ pub const Files = struct {
 
 /// RFC 9110 §15.5.5: 404 (Not Found), with no content. A response the server would not take is
 /// cancelled, and its `cancelled` releases the entry.
-fn respond_missing(endpoint: *Engine, entry: *Answer) void {
+fn respond_missing(engine: *Engine, entry: *Answer) void {
     assert(entry.in_use and entry.answered);
     const fields = [_]server.Header{.{ .name = "content-length", .value = "0" }};
-    endpoint.respond(entry.id, .{ .status = @enumFromInt(not_found), .headers = &fields, .end = true }) catch endpoint.cancel(entry.id);
+    engine.respond(entry.id, .{ .status = @enumFromInt(not_found), .headers = &fields, .end = true }) catch engine.cancel(entry.id);
 }
 
 const ok: u16 = 200;

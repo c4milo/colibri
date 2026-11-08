@@ -1,6 +1,6 @@
 //! A pool's slots and connection handles (decision 125): the slot of each connection, its link,
 //! and the slot and the generation that each event and each call about a connection name. The
-//! TCP slots come first, and the QUIC connection has the slot after them, as an endpoint numbers
+//! TCP slots come first, and the QUIC connection has the slot after them, as an engine numbers
 //! its slots (decision 119). The module's root does not export this file.
 const std = @import("std");
 const assert = std.debug.assert;

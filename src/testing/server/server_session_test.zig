@@ -1,6 +1,6 @@
 //! The tests of design §9's server session (`server_session.zig`) in cleartext, over h11 and h2:
 //! every request is answered once it is read whole, in the order it was read, and the echo mode
-//! answers with what h11 parsed. Then two connections on one endpoint: an event reaches the entry
+//! answers with what h11 parsed. Then two connections on one engine: an event reaches the entry
 //! of the connection it names, a slot serves a new entry while its last one still holds its
 //! socket, and a `send_stream` that filled its room is called again. The TLS half is `server`'s,
 //! and `src/server/` tests it.
@@ -14,7 +14,7 @@ const server_routes = @import("server_routes.zig");
 const entropy = @import("../entropy.zig");
 
 const testing = std.testing;
-/// A session of two entries over an endpoint of two slots, so a slot is taken again after one
+/// A session of two entries over an engine of two slots, so a slot is taken again after one
 /// other connection. Test-only.
 const Session = session_module.SessionOf(test_connections);
 const test_connections: usize = 2;
@@ -223,7 +223,7 @@ test "an h2 GET is answered with 200, its body, and END_STREAM on the DATA frame
     // A second stream is answered too, and both close.
     _ = step(get_frame(3), &test_output);
     const slot = test_session.entries[0].handle.slot;
-    try testing.expectEqual(0, test_session.endpoint.tcp[slot].session.h2.streams.peer_active);
+    try testing.expectEqual(0, test_session.engine.tcp[slot].session.h2.streams.peer_active);
     try testing.expectEqual(0, owed_count(0));
 }
 
@@ -288,7 +288,7 @@ const get_h11_close = "GET / HTTP/1.1\r\nHost: a\r\nConnection: close\r\n\r\n";
 
 test "decision 119: an event that names another connection reaches that connection's entry" {
     // h2 alone: each connection owes its preface, a SETTINGS frame, before it reads anything
-    // (RFC 9113 §3.4), and the endpoint reports each one's `send` when its turn comes.
+    // (RFC 9113 §3.4), and the engine reports each one's `send` when its turn comes.
     _ = try fresh_session(.h2, null);
     try testing.expect(test_session.accept(1, false, null, test_now_ns));
     const first = step_entry(0, client_preface, &test_output);
@@ -317,7 +317,7 @@ test "decision 110: one instant's deadlines end two connections, each in its own
     try testing.expectEqual(0, step_entry(1, "", &test_other_output).written);
     try testing.expectEqual(null, test_session.next_pending());
     // Both were accepted at one instant, so the first-request deadline passes for both at once,
-    // and the endpoint's events name both.
+    // and the engine's events name both.
     test_now_ns = test_session.deadline_ns().?;
     test_session.on_instant(test_now_ns);
     try testing.expectEqual(@as(?usize, 0), test_session.next_pending());
@@ -336,12 +336,12 @@ test "decision 119: a slot serves a new entry while its last entry still holds i
     _ = try fresh_session(.h11, null);
     try testing.expect(test_session.accept(1, false, null, test_now_ns));
     const first = test_session.entries[0].handle;
-    // Entry 0's connection ends with its response: the endpoint frees its slot, and the entry
+    // Entry 0's connection ends with its response: the engine frees its slot, and the entry
     // stays its socket's until the octets are sent and the socket is closed.
     const closing = step_entry(0, get_h11_close, &test_output);
     try testing.expect(closing.done and !test_session.entries[0].attached);
     // Entry 1's peer leaves, so its slot frees after entry 0's. Nothing of its socket's is read
-    // from here on, and the endpoint reported no `close` for it.
+    // from here on, and the engine reported no `close` for it.
     test_session.peer_closed(1, test_now_ns);
     try testing.expect(!test_session.entries[1].attached);
     const left = step_entry(1, get_h11, &test_other_output);
@@ -369,7 +369,7 @@ test "decision 119: a slot serves a new entry while its last entry still holds i
 test "an entry whose close was read passes its connection no more input" {
     _ = try fresh_session(.h11, null);
     // What an entry holds between its connection's `close` and its `ended`. One read of the
-    // endpoint's events reports both, unless the read stops at its bound between them.
+    // engine's events reports both, unless the read stops at its bound between them.
     test_session.entries[0].closing = true;
     const stepped = step_entry(0, get_h11, &test_output);
     try testing.expectEqual(0, stepped.consumed + stepped.written);
@@ -446,7 +446,7 @@ test "the echo mode returns each of two connections its own request" {
 test "an entry a new socket takes starts with nothing owed and not closing" {
     _ = try fresh_session(.h11, null);
     const entry = &test_session.entries[0];
-    // The endpoint closes the entry's first connection after its response.
+    // The engine closes the entry's first connection after its response.
     try testing.expect(step_entry(0, get_h11_close, &test_output).done);
     try testing.expect(entry.closing and !entry.attached);
     // The entry's next socket: its connection reads and answers, and is not closing.

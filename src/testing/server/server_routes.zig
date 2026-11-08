@@ -64,33 +64,33 @@ test "design §8 step 13f: the GitHub API's routes build, and a GET route matche
     try testing.expectEqualStrings("hummingbird", parameters.get("repo").?);
 }
 
-/// An endpoint that takes every call and records the status of the head. Test-only.
-const Endpoint = struct {
+/// An engine that takes every call and records the status of the head. Test-only.
+const Engine = struct {
     status: u16 = 0,
     user_data: usize = 0,
 
-    pub fn respond(endpoint: *Endpoint, _: server.RequestId, response: server.Response) server.SendError!void {
-        endpoint.status = @intFromEnum(response.status);
+    pub fn respond(engine: *Engine, _: server.RequestId, response: server.Response) server.SendError!void {
+        engine.status = @intFromEnum(response.status);
     }
 
-    pub fn write_body(_: *Endpoint, _: server.RequestId, body: server.ResponseBody) server.SendError!usize {
+    pub fn write_body(_: *Engine, _: server.RequestId, body: server.ResponseBody) server.SendError!usize {
         return body.bytes.len;
     }
 
-    pub fn write_trailers(_: *Endpoint, _: server.RequestId, _: []const server.Header) server.SendError!void {}
+    pub fn write_trailers(_: *Engine, _: server.RequestId, _: []const server.Header) server.SendError!void {}
 
-    pub fn set_user_data(endpoint: *Endpoint, _: server.RequestId, user_data: usize) error{RequestUnknown}!void {
-        endpoint.user_data = user_data;
+    pub fn set_user_data(engine: *Engine, _: server.RequestId, user_data: usize) error{RequestUnknown}!void {
+        engine.user_data = user_data;
     }
 
-    pub fn cancel(_: *Endpoint, _: server.RequestId) void {}
+    pub fn cancel(_: *Engine, _: server.RequestId) void {}
 };
 
 test "design §8 step 13f: the router's handle compiles over the 203 routes, and answers one" {
     const pool = try testing.allocator.create(Pool);
     defer testing.allocator.destroy(pool);
     pool.* = .{};
-    var endpoint: Endpoint = .{};
+    var engine: Engine = .{};
     var context: void = {};
     const path = "/repos/colibri/hummingbird/events";
     const head: server.Request = .{
@@ -105,8 +105,8 @@ test "design §8 step 13f: the router's handle compiles over the 203 routes, and
         .headers = undefined,
         .end = true,
     };
-    try testing.expect(pool.handle(&context, &endpoint, .{ .request = head }) == .taken);
-    try testing.expectEqual(200, endpoint.status);
-    const finished: server.Finished = .{ .id = head.id, .user_data = endpoint.user_data, .result = .sent };
-    try testing.expect(pool.handle(&context, &endpoint, .{ .finished = finished }) == .taken);
+    try testing.expect(pool.handle(&context, &engine, .{ .request = head }) == .taken);
+    try testing.expectEqual(200, engine.status);
+    const finished: server.Finished = .{ .id = head.id, .user_data = engine.user_data, .result = .sent };
+    try testing.expect(pool.handle(&context, &engine, .{ .finished = finished }) == .taken);
 }

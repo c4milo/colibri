@@ -196,7 +196,7 @@ pub fn start_quic(pool: anytype, random: tls.Random, now_seconds: u64, now_ns: u
     assert(!link.open_owed);
     pool.quic_config.server_address = link.to;
     // Decision 120: the grease value, then the source ID, then the original destination ID, then
-    // the session's draws, in the order the server's endpoint draws its own.
+    // the session's draws, in the order the server's engine draws its own.
     var start: quic_connection.Start = undefined;
     // RFC 9114 §7.2.4.1, §8.1: h3's reserved setting and error codes come from this value.
     start.grease = random.int(u64);

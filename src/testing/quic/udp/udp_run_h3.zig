@@ -3,8 +3,8 @@
 //!
 //! Each turn waits in Rotor's `tick` until a datagram arrives or a connection's next deadline
 //! passes, then reads the instant that tick read (decision 63). It hands each datagram to the
-//! endpoint, which routes it (RFC 9000 §5.2) or starts a connection from it, fires every deadline,
-//! answers each event the endpoint reports, by its connection's slot, and sends what the endpoint
+//! engine, which routes it (RFC 9000 §5.2) or starts a connection from it, fires every deadline,
+//! answers each event the engine reports, by its connection's slot, and sends what the engine
 //! owes. A sent datagram's
 //! octets belong to Rotor until its send's event (Rotor's rule 3), so each goes into a batch of its
 //! peer's, which holds it until then, and a datagram Rotor has no room for is one lost on the way,
@@ -14,7 +14,7 @@
 //! one segmented send (UDP_SEGMENT, `udp_batch.zig`, design §8 step 13f.6). Rotor splits what the
 //! kernel coalesced, so each delivery holds one datagram (Rotor's decision 15 as amended).
 //!
-//! With `qlogdir`, each connection writes its qlog there: the endpoint asks its log provider for a
+//! With `qlogdir`, each connection writes its qlog there: the engine asks its log provider for a
 //! log as each connection starts, and hands it back once the connection is over (decision 102 as
 //! amended). Each turn writes what every open log took.
 const std = @import("std");
@@ -34,14 +34,14 @@ const server_routes = @import("../../server/server_routes.zig");
 
 const Engine = udp_h3_files.Engine;
 
-var endpoint: Engine align(@alignOf(Engine)) = undefined;
-var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
-/// The files each connection serves, at its slot in the endpoint.
+var engine: Engine align(@alignOf(Engine)) = undefined;
+var engine_config: server.Config align(@alignOf(server.Config)) = undefined;
+/// The files each connection serves, at its slot in the engine.
 var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;
 /// The files every connection's table keeps mapped for the run.
 var mapped: udp_h3_files.Mapped align(@alignOf(udp_h3_files.Mapped)) = .{};
 var events: [constants.udp_operations_max]udp.Event align(@alignOf(udp.Event)) = undefined;
-/// The datagram the endpoint writes, before it joins its peer's batch.
+/// The datagram the engine writes, before it joins its peer's batch.
 var datagram: [constants.quic_datagram_len_max]u8 = undefined;
 var batches: udp_batch.Batches align(@alignOf(udp_batch.Batches)) = .{};
 /// Where each batch goes, which its send reads until its event (Rotor's rule 3).
@@ -51,7 +51,7 @@ var batch_outbound: [constants.udp_batches]udp.Outbound align(@alignOf(udp.Outbo
 var connection_errors: u64 = 0;
 var served: u64 = 0;
 var ended: u64 = 0;
-/// The logs the endpoint's provider gives out, whether each is in use, and the directory their
+/// The logs the engine's provider gives out, whether each is in use, and the directory their
 /// files go in, null for a run that logs nothing.
 var qlogs: [constants.quic_connections_max]udp_qlog.Qlog align(@alignOf(udp_qlog.Qlog)) = undefined;
 var qlog_in_use: [constants.quic_connections_max]bool = @splat(false);
@@ -71,7 +71,7 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
         const now_ns = socket.now_ns();
         const ended_before = ended;
         for (ready) |event| on_event(asked, socket, event, now_ns);
-        endpoint.on_instant(now_ns);
+        engine.on_instant(now_ns);
         take(asked, .none, now_ns);
         flush(socket, now_ns);
         write_logs();
@@ -79,15 +79,15 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
     }
     close_logs();
     socket.close() catch |failure| fail("the socket did not close: {t}", .{failure});
-    // The controller the endpoint gave its connections, which tools/quic_udp.sh checks (decision 136).
-    std.debug.print("quic-udp: served {d} files, {d} connection errors, controller {t}\n", .{ served, connection_errors, endpoint_config.congestion_controller });
+    // The controller the engine gave its connections, which tools/quic_udp.sh checks (decision 136).
+    std.debug.print("quic-udp: served {d} files, {d} connection errors, controller {t}\n", .{ served, connection_errors, engine_config.congestion_controller });
 }
 
-/// Starts the endpoint, the files of `<www>`, with `routes=github` the router's pool, and the
+/// Starts the engine, the files of `<www>`, with `routes=github` the router's pool, and the
 /// batches, which hold one datagram each with `no-gso`.
 fn start(asked: udp_arguments.Server, started_ns: u64) void {
     qlog_directory = asked.qlogdir;
-    endpoint_config = .{
+    engine_config = .{
         .tls = udp_identity.server_identity(),
         .ecn = asked.ecn,
         .idle_timeout_ms = constants.quic_idle_timeout_ms,
@@ -96,16 +96,16 @@ fn start(asked: udp_arguments.Server, started_ns: u64) void {
         .retry = if (asked.retry) udp_identity.retry_config() else null,
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
     };
-    endpoint.init(&endpoint_config, entropy.random(), .{ .ns = started_ns, .unix_seconds = asked.now_seconds }) catch |failure| fail("the endpoint did not start: {t}", .{failure});
+    engine.init(&engine_config, entropy.random(), .{ .ns = started_ns, .unix_seconds = asked.now_seconds }) catch |failure| fail("the engine did not start: {t}", .{failure});
     for (&files) |*held| held.init(asked.www, &mapped);
     if (asked.routes) route_pool = .{};
     batches = .of(asked.segments);
 }
 
-/// How long the next tick may wait: until the endpoint's next deadline, and never longer than
+/// How long the next tick may wait: until the engine's next deadline, and never longer than
 /// `quic_tick_wait_ns_max`.
 fn wait_ns(socket: *const udp.Endpoint) u64 {
-    const deadline_ns = endpoint.deadline_ns() orelse return constants.quic_tick_wait_ns_max;
+    const deadline_ns = engine.deadline_ns() orelse return constants.quic_tick_wait_ns_max;
     return @min(constants.quic_tick_wait_ns_max, deadline_ns -| socket.now_ns());
 }
 
@@ -119,7 +119,7 @@ fn on_event(asked: udp_arguments.Server, socket: *udp.Endpoint, event: udp.Event
     socket.finish_receive(event);
 }
 
-/// Hands the endpoint the datagram of a delivery, which holds one (Rotor's decision 15 as
+/// Hands the engine the datagram of a delivery, which holds one (Rotor's decision 15 as
 /// amended). A delivery cut short is dropped, as a lost datagram is.
 fn take_delivery(asked: udp_arguments.Server, delivery: udp.Delivery, now_ns: u64) void {
     std.debug.assert(delivery.from.segment_bytes == 0);
@@ -129,22 +129,22 @@ fn take_delivery(asked: udp_arguments.Server, delivery: udp.Delivery, now_ns: u6
     take(asked, .{ .datagram = .{ .bytes = delivery.bytes, .ecn = ecn, .from = from } }, now_ns);
 }
 
-/// Passes `input` to the endpoint, then answers every event it reports until it reports none.
+/// Passes `input` to the engine, then answers every event it reports until it reports none.
 fn take(asked: udp_arguments.Server, input: server.Input, now_ns: u64) void {
     var rest = input;
     for (0..constants.h3_endpoint_events_max) |_| {
-        const reported = endpoint.receive(rest, now_ns).event orelse return;
+        const reported = engine.receive(rest, now_ns).event orelse return;
         rest = .none;
         switch (reported) {
             .ended => |over| end(asked, over),
-            // A QUIC connection owes no `send` or `close`, and the run never shuts the endpoint
+            // A QUIC connection owes no `send` or `close`, and the run never shuts the engine
             // down.
             .send, .close, .closed => unreachable,
             inline else => |carried| if (asked.routes) {
                 var context: void = {};
-                const handled = route_pool.handle(&context, &endpoint, reported);
+                const handled = route_pool.handle(&context, &engine, reported);
                 std.debug.assert(handled == .taken);
-            } else files[carried.id.connection.slot].on_event(&endpoint, reported),
+            } else files[carried.id.connection.slot].on_event(&engine, reported),
         }
     }
 }
@@ -162,13 +162,13 @@ fn end(asked: udp_arguments.Server, over: server.Ended) void {
     if (!asked.errors) fail("a connection ended on a connection error", .{});
 }
 
-/// Sends every datagram the endpoint owes now, while a batch is free to take it, in one send for
+/// Sends every datagram the engine owes now, while a batch is free to take it, in one send for
 /// each batch.
 fn flush(socket: *udp.Endpoint, now_ns: u64) void {
     // Bounded: each pass adds one datagram, and the batches hold at most this many.
     for (0..constants.udp_batches * constants.udp_segments_max) |_| {
         if (!batches.has_free()) break;
-        const sent = endpoint.send_datagram(&datagram, now_ns) orelse break;
+        const sent = engine.send_datagram(&datagram, now_ns) orelse break;
         batches.add(sent);
     }
     for (&batches.batches, 0..) |*batch, index| {
@@ -192,7 +192,7 @@ fn outbound(batch: *const udp_batch.Batch) udp.Outbound {
     };
 }
 
-/// The endpoint's log provider: a free log, whose file is named for the connection (main schema
+/// The engine's log provider: a free log, whose file is named for the connection (main schema
 /// §12.1), or null when every log is in use or the file cannot be created.
 fn open_log(context: *anyopaque, original_destination: []const u8, now_ns: u64) ?*quic.qlog.Log {
     _ = context;
@@ -205,7 +205,7 @@ fn open_log(context: *anyopaque, original_destination: []const u8, now_ns: u64) 
     return null;
 }
 
-/// Writes the rest of a connection's log and closes its file, once the endpoint hands it back.
+/// Writes the rest of a connection's log and closes its file, once the engine hands it back.
 fn close_log(context: *anyopaque, log: *quic.qlog.Log) void {
     _ = context;
     for (&qlogs, &qlog_in_use) |*qlog, *in_use| {

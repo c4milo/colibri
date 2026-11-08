@@ -97,7 +97,7 @@ pub const Alternative = struct {
 };
 
 /// A connection of a pool, by its slot and the generation of the slot (decision 125), as
-/// `server.ConnectionHandle` names one of an endpoint (decision 119). The TCP slots come first,
+/// `server.ConnectionHandle` names one of an engine (decision 119). The TCP slots come first,
 /// and the QUIC connection has the slot after them. A slot holds a new connection after the
 /// `close` of the one before, with the next generation, so a handle names nothing once its
 /// connection's `close` went out, and a call with it changes nothing.
@@ -126,7 +126,7 @@ pub const Event = union(enum) {
     /// Open this transport, then start its connection with `start_quic` or `start_tcp`.
     open: Open,
     /// The TCP connection owes octets: the program calls `send_stream` for it (decision 125), as a
-    /// server's program does for its endpoint (decision 119). The event comes once for each debt.
+    /// server's program does for its engine (decision 119). The event comes once for each debt.
     /// A call of `send_stream` that leaves room in its output ends the debt, and the next debt
     /// gives the next event.
     send: ConnectionHandle,

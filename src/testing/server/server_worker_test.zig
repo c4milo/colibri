@@ -73,15 +73,15 @@ test "a peer that closes first ends its connection, and its socket and its slot 
     const index = accept(worker, 0);
     const connection = worker.session.entries[index].handle;
     try testing.expect(worker.session.entries[index].attached);
-    try testing.expect(worker.session.endpoint.live[connection.slot]);
+    try testing.expect(worker.session.engine.live[connection.slot]);
     // The turn that accepted the socket arms it, with its first receive.
     try testing.expect(worker.touched.isSet(index));
-    // A receive of no octets is the peer closing its side: the endpoint hears
+    // A receive of no octets is the peer closing its side: the engine hears
     // `transport_closed`, reports the connection's `ended`, and frees its slot.
     handle(worker, &.{event_of(index, .receive, 0)}, null, constants.tick_ns);
     try testing.expect(worker.sockets[index].failed);
     try testing.expect(!worker.session.entries[index].attached);
-    try testing.expect(!worker.session.endpoint.live[connection.slot]);
+    try testing.expect(!worker.session.engine.live[connection.slot]);
     try testing.expectEqual(null, worker.session.entry_of[connection.slot]);
     // The socket is the worker's until Rotor's close of it, its last operation.
     try testing.expect(worker.sockets[index].live);
@@ -90,11 +90,11 @@ test "a peer that closes first ends its connection, and its socket and its slot 
     try testing.expectEqual(index, server_worker.free_socket(worker).?);
 }
 
-test "decision 110: a silent connection is closed once its deadline is handed to the endpoint" {
+test "decision 110: a silent connection is closed once its deadline is handed to the engine" {
     const worker = try fresh_worker();
     const index = accept(worker, 0);
     const deadline_ns = worker.session.deadline_ns().?;
-    // Before the deadline the endpoint is not handed the instant, and nothing changes.
+    // Before the deadline the engine is not handed the instant, and nothing changes.
     handle(worker, &.{}, deadline_ns, deadline_ns - 1);
     try testing.expectEqual(0, worker.session.now_ns);
     try testing.expect(!worker.sockets[index].closing);
@@ -104,7 +104,7 @@ test "decision 110: a silent connection is closed once its deadline is handed to
     try testing.expectEqual(0, worker.sockets[index].output_len);
 }
 
-test "the tick waits until the endpoint's deadline, and not at all while work is left" {
+test "the tick waits until the engine's deadline, and not at all while work is left" {
     const worker = try fresh_worker();
     const far_ns = rotor.constants.wait_ns_max + constants.tick_ns;
     try testing.expectEqual(rotor.constants.wait_ns_max, server_worker.wait_ns(worker, null, 0));
@@ -128,9 +128,9 @@ test "with every socket taken, a slot serves a new socket while its last one sti
     const first = worker.session.entries[0].handle;
     deliver(worker, 0, get_close, constants.tick_ns);
     try testing.expect(worker.sockets[0].closing and worker.sockets[0].live);
-    try testing.expect(!worker.session.endpoint.live[first.slot]);
+    try testing.expect(!worker.session.engine.live[first.slot]);
     try testing.expectEqualStrings(response_closing, staged(worker, 0));
-    // Another socket's peer leaves, and Rotor closes it: one socket is free, and the endpoint
+    // Another socket's peer leaves, and Rotor closes it: one socket is free, and the engine
     // hands out the slot freed first, the first socket's.
     const other: usize = 5;
     handle(worker, &.{ event_of(other, .receive, 0), event_of(other, .close, 0) }, null, constants.tick_ns);
@@ -142,12 +142,12 @@ test "with every socket taken, a slot serves a new socket while its last one sti
     deliver(worker, other, get, constants.tick_ns);
     try testing.expectEqualStrings(response, staged(worker, other));
     try testing.expectEqualStrings(response_closing, staged(worker, 0));
-    // The first socket's send fails late. Its connection ended, so the endpoint hears nothing,
+    // The first socket's send fails late. Its connection ended, so the engine hears nothing,
     // and the connection now in its slot stays.
     handle(worker, &.{rotor.Event.failure(server_socket.user_data(0, .send), .connection_reset)}, null, constants.tick_ns);
     try testing.expect(worker.sockets[0].failed);
     try testing.expect(worker.session.entries[other].attached);
-    try testing.expect(worker.session.endpoint.live[second.slot]);
+    try testing.expect(worker.session.engine.live[second.slot]);
 }
 
 test "a socket whose send made room takes the rest its connection owes" {
@@ -214,12 +214,12 @@ test "steps that stop at their bound are taken again until the response is whole
     try testing.expect(!worker.session.entries[index].attached);
 }
 
-test "a read of the endpoint's events that stops at its bound goes on in the next turn" {
+test "a read of the engine's events that stops at its bound goes on in the next turn" {
     const worker = try fresh_worker();
     const index = accept(worker, 0);
     deliver(worker, index, "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 3\r\n\r\n", constants.tick_ns);
     // One event a read. The peer leaves, which owes two events: its request's `cancelled` and its
-    // connection's `ended`. Its socket failed, so no step of its entry reads the endpoint's
+    // connection's `ended`. Its socket failed, so no step of its entry reads the engine's
     // events: the worker does, in this turn and the next, with no deadline due.
     worker.session.events_max = 1;
     handle(worker, &.{event_of(index, .receive, 0)}, null, constants.tick_ns);
@@ -233,12 +233,12 @@ test "a read of the endpoint's events that stops at its bound goes on in the nex
 test "a socket Rotor has closed keeps its entry until its connection has ended" {
     const worker = try fresh_worker();
     const index = accept(worker, 0);
-    // What a read of the endpoint's events that stopped at its bound leaves: the socket's last
+    // What a read of the engine's events that stopped at its bound leaves: the socket's last
     // event arrived, and its connection's `ended` has not been read.
     handle(worker, &.{event_of(index, .close, 0)}, null, constants.tick_ns);
     try testing.expect(worker.sockets[index].live);
     try testing.expect(worker.session.entries[index].attached);
-    // The endpoint reports the end, and the entry is free for the next socket.
+    // The engine reports the end, and the entry is free for the next socket.
     worker.session.peer_closed(index, constants.tick_ns);
     handle(worker, &.{}, null, constants.tick_ns);
     try testing.expect(!worker.sockets[index].live);

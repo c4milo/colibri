@@ -20,7 +20,7 @@ pub const served_codings = [_]server.Coding{ .gzip, .deflate };
 pub var h3_alternative: ?server.Alternative align(@alignOf(?server.Alternative)) = null;
 
 /// The TLS mode's identity (`--tls`), or null in cleartext, and the storage it points into. It
-/// names no protocol: each worker's endpoint builds its TLS configuration from it, checks that
+/// names no protocol: each worker's engine builds its TLS configuration from it, checks that
 /// its key signs, and offers through ALPN the protocols `versions` allows (decision 119).
 pub var identity: ?tls.Server align(@alignOf(?tls.Server)) = null;
 pub var identity_storage: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
