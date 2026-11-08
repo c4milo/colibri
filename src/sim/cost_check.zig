@@ -172,7 +172,7 @@ pub fn measure_client_cleartext(storage: *Storage) !Cost {
     const preface_len = storage.connection.write_pending(&storage.output, 0);
     cost.write_calls += 1;
     cost.octets_out += @intCast(preface_len);
-    const sent = try storage.connection.write_request(storage.output[preface_len..], .{
+    const sent = try storage.connection.write_request(storage.output[preface_len..], &.{
         .method = "GET",
         .scheme = "https",
         .path = "/",

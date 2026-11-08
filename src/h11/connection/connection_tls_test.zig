@@ -302,7 +302,7 @@ test "RFC 9846 §6: a server whose record layer failed owes no error response" {
     var state: Fake = .{ .refusal = error.TlsFailed };
     const target = try attached(.server, &state);
     // RFC 9112 §2.2: a request that broke the framing leaves the server owing a 400.
-    try testing.expectEqual(error.ConnectionFailed, target.fail(error.StartLineInvalid, 400));
+    try testing.expectEqual(error.ConnectionFailed, target.fail(error.StartLineInvalid, .bad_request));
     try testing.expect(target.has_pending());
     try testing.expectEqual(error.TlsFailed, decrypt(target, "record", &test_plaintext));
     try expect_ended(target, &state, Fake.refusal_alert);

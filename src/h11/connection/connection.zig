@@ -364,12 +364,12 @@ pub const Connection = struct {
 
     /// Ends the connection on `failure`: nothing more is read, and a server owes `status` when it
     /// has not written a response to the current request.
-    pub fn fail(connection: *Connection, failure: Failure, status: ?u16) Error {
+    pub fn fail(connection: *Connection, failure: Failure, status: ?http.Status) Error {
         connection.failure = failure;
         connection.phase = .closed;
         connection.writer = .{};
         release_decoding(connection);
-        if (connection.role == .server and !connection.answered) connection.reply_status = status;
+        if (connection.role == .server and !connection.answered) connection.reply_status = if (status) |code| @intFromEnum(code) else null;
         // RFC 9112 §2.2 and §9.6: a peer that breaks the message framing leaves no next message to
         // read, so the connection closes.
         return error.ConnectionFailed;

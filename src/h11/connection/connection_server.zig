@@ -43,7 +43,7 @@ pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection
 
 fn read_request(target: *Connection, input: []const u8) connection.Connection.Error!Received {
     const read = message.read_request(&target.scanner, input, &target.section) catch |failure| {
-        return target.fail(failure, status_of(failure));
+        return target.fail(failure, @enumFromInt(status_of(failure)));
     };
     const request = read orelse return .{ .consumed = 0, .event = null };
     // RFC 9112 §9.3 and §9.6: a request with the close option is the last, and so is an HTTP/1.0
@@ -58,7 +58,7 @@ fn read_request(target: *Connection, input: []const u8) connection.Connection.Er
     target.reader = connection_body.Reader.start(request.body.length);
     target.phase = if (target.reader.open()) .body else .waiting;
     // Decision 91: a body carrying gzip or deflate takes a decoder before its first octet.
-    connection.begin_decoding(target, request.body) catch |failure| return target.fail(failure, status_of(failure));
+    connection.begin_decoding(target, request.body) catch |failure| return target.fail(failure, @enumFromInt(status_of(failure)));
     return .{ .consumed = request.head_len, .event = .{ .request = .{
         .line = request.line,
         .form = request.form,
@@ -68,7 +68,7 @@ fn read_request(target: *Connection, input: []const u8) connection.Connection.Er
 
 fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Connection.Error!Received {
     const read = connection.read_body(target, .request, input, decoded) catch |failure| {
-        return target.fail(failure, status_of(failure));
+        return target.fail(failure, @enumFromInt(status_of(failure)));
     };
     // decision 92: the next request waits for this one's final response.
     if (read.ended) target.phase = .waiting;

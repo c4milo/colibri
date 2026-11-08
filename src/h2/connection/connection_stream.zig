@@ -430,7 +430,7 @@ test "a server's resets of the streams a client opened are not counted" {
     try support.start_client();
     const request: connection.Connection.RequestHead = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
     for (0..constants.policy.peer_reset_rate_max + 1) |_| {
-        const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, true);
+        const sent = try test_connection.write_request(&support.test_output, &request, &.{}, &.{}, true);
         // RFC 9113 §8.7: REFUSED_STREAM tells the client it may send the request again.
         const refused = try frame_bytes(test_input, constants.protocol.frame_type_rst_stream, 0, sent.stream_id, "\x00\x00\x00\x07");
         _ = try feed(refused);

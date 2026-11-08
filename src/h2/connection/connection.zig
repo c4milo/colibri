@@ -273,17 +273,18 @@ pub const Connection = struct {
     }
 
     /// Opens a stream and writes `request` on it as HEADERS and the CONTINUATION frames its field
-    /// section needs (RFC 9113 §8.1, §8.3.1). A client's call.
+    /// section needs (RFC 9113 §8.1, §8.3.1). A client's call. The head passes by pointer, because
+    /// it holds four slices (decision 158 ruling 1).
     pub fn write_request(
         connection: *Connection,
         output: []u8,
-        request: RequestHead,
+        request: *const RequestHead,
         fields: []const hpack.Field,
         indexing: []const connection_request.Indexing,
         end_stream: bool,
     ) connection_request.Error!connection_request.Sent {
         connection.assert_preface_written();
-        return connection_request.write_request(connection, output, request, fields, indexing, end_stream);
+        return connection_request.write_request(connection, output, request.*, fields, indexing, end_stream);
     }
 
     /// Writes as much of `payload` as the windows and the room allow: see `connection_send.zig`.

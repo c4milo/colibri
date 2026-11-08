@@ -234,7 +234,7 @@ pub const World = struct {
         // unless it pipelines.
         if (!plan.pipelining and !world.earlier_read(index)) return;
         const end = plan.request_body == 0;
-        const sent = world.client.write_request(world.to_server.room(plan.channel_len), request, &.{}, &.{}, end) catch return;
+        const sent = world.client.write_request(world.to_server.room(plan.channel_len), &request, &.{}, &.{}, end) catch return;
         assert(sent.stream_id == id_of(index));
         world.note_head_len(&world.request_head_len, sent.written);
         world.to_server.len += sent.written;

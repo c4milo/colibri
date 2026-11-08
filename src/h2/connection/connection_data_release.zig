@@ -104,7 +104,7 @@ fn open_held_stream() !void {
 fn open_held_stream_ending(end_stream: bool) !void {
     try support.start_client();
     const request: connection.Connection.RequestHead = .{ .method = "POST", .scheme = "https", .path = "/", .authority = "a", .hold_credit = true };
-    const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, end_stream);
+    const sent = try test_connection.write_request(&support.test_output, &request, &.{}, &.{}, end_stream);
     try testing.expectEqual(1, sent.stream_id);
     _ = try support.feed_response(1, "200", false);
 }
@@ -167,7 +167,7 @@ fn fill_reply_queue() !void {
     _ = try feed_data(1, &full_payload, false);
     _ = try feed_data(1, &full_payload, false);
     const plain: connection.Connection.RequestHead = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "a" };
-    _ = try test_connection.write_request(&support.test_output, plain, &.{}, &.{}, true);
+    _ = try test_connection.write_request(&support.test_output, &plain, &.{}, &.{}, true);
     _ = try support.feed_response(plain_stream_id, "200", false);
     for (0..frames_per_update * constants.limits.stream_replies_max) |_| _ = try feed_data(plain_stream_id, &full_payload, false);
     try testing.expectEqual(constants.limits.stream_replies_max, test_connection.replies.stream_reply_count);

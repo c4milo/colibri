@@ -99,7 +99,7 @@ test "RFC 9113 §8.1, §8.2: a field line colibri would send malformed is refuse
 
 test "RFC 9113 §8.1: a client's trailer section follows its request and its DATA" {
     try support.start_client();
-    const sent = try test_connection.write_request(test_output, .{ .method = "POST", .scheme = "https", .authority = "example.test", .path = "/" }, &.{}, &.{}, false);
+    const sent = try test_connection.write_request(test_output, &.{ .method = "POST", .scheme = "https", .authority = "example.test", .path = "/" }, &.{}, &.{}, false);
     var written = sent.written;
     written += (try test_connection.write_data(test_output[written..], sent.stream_id, body, false)).written;
     const trailer_len = try test_connection.write_trailers(test_output[written..], sent.stream_id, &trailers);

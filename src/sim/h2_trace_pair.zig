@@ -150,7 +150,7 @@ pub const Pair = struct {
     fn open(pair: *Pair, end: bool, plan: *const h2_trace_plan.Plan) void {
         // The model's client opens `N` streams at most.
         if (pair.seen.opened == plan.streams) return;
-        const sent = pair.client.write_request(pair.to_server.room(), request, &.{}, &.{}, end) catch return pair.note_refused();
+        const sent = pair.client.write_request(pair.to_server.room(), &request, &.{}, &.{}, end) catch return pair.note_refused();
         pair.to_server.len += sent.written;
         pair.to_server.note_head(.head);
         const index = index_of(sent.stream_id);

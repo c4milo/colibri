@@ -54,9 +54,9 @@ test "RFC 9113 §5.1.1: a request refused for room opens no stream, and its size
     try support.start_client();
     try feed_table_size(0);
     const short = test_output[0..room_short];
-    try testing.expectError(error.OutputTooSmall, test_connection.write_request(short, test_request, &.{}, &.{}, true));
+    try testing.expectError(error.OutputTooSmall, test_connection.write_request(short, &test_request, &.{}, &.{}, true));
     try testing.expectEqual(0, test_connection.streams.local_active);
-    const sent = try test_connection.write_request(test_output, test_request, &.{}, &.{}, true);
+    const sent = try test_connection.write_request(test_output, &test_request, &.{}, &.{}, true);
     // RFC 9113 §5.1.1: the refused request spent no identifier.
     try testing.expectEqual(1, sent.stream_id);
     // RFC 7541 §4.2: the size update the refused block carried opens this one.

@@ -325,7 +325,7 @@ fn open(connection: *Connection, slot: *Slot) bool {
     // RFC 9113 §8.1: a request with no content ends its stream with its HEADERS frame, as does a
     // streamed one whose only piece is an empty last one, unless a trailer section ends it.
     const ends = slot.ends_with_piece() and slot.piece.len == 0;
-    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], ends) catch |failure| {
+    const sent = connection.session.h2.write_request(internal.room(connection), &head, fields, indexing[0..fields.len], ends) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += sent.written;

@@ -129,21 +129,21 @@ test "an open drops the oldest closed record whose RST_STREAM is not owed, and n
 test "a client opens no stream while every slot holds a stream still owed its RST_STREAM" {
     try support.start_client();
     for (0..constants.limits.concurrent_streams_max) |_| {
-        const sent = try test_connection.write_request(test_output, test_request, &.{}, &.{}, false);
+        const sent = try test_connection.write_request(test_output, &test_request, &.{}, &.{}, false);
         try test_connection.reset_stream(sent.stream_id, constants.protocol.error_cancel);
     }
-    try testing.expectError(error.Full, test_connection.write_request(test_output, test_request, &.{}, &.{}, false));
+    try testing.expectError(error.Full, test_connection.write_request(test_output, &test_request, &.{}, &.{}, false));
     var ids: [constants.limits.concurrent_streams_max]u32 = undefined;
     try testing.expectEqual(constants.limits.concurrent_streams_max, (try written_resets(&ids)).len);
-    const sent = try test_connection.write_request(test_output, test_request, &.{}, &.{}, false);
+    const sent = try test_connection.write_request(test_output, &test_request, &.{}, &.{}, false);
     try testing.expectEqual(client_id(constants.limits.concurrent_streams_max), sent.stream_id);
 }
 
 test "a client reads its open stream's response while every other slot owes a RST_STREAM" {
     try support.start_client();
-    const kept = try test_connection.write_request(test_output, test_request, &.{}, &.{}, true);
+    const kept = try test_connection.write_request(test_output, &test_request, &.{}, &.{}, true);
     for (1..constants.limits.concurrent_streams_max) |_| {
-        const sent = try test_connection.write_request(test_output, test_request, &.{}, &.{}, false);
+        const sent = try test_connection.write_request(test_output, &test_request, &.{}, &.{}, false);
         try test_connection.reset_stream(sent.stream_id, constants.protocol.error_cancel);
     }
     // A response opens no stream at a client (decision 17), so nothing waits for a slot.

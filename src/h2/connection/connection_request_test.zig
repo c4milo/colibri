@@ -102,11 +102,11 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
     // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
     const settings = try support.frame_bytes(&support.test_input, constants.protocol.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
     _ = try support.feed(settings);
-    _ = try support.test_connection.write_request(output, request, &.{}, &.{}, true);
+    _ = try support.test_connection.write_request(output, &request, &.{}, &.{}, true);
     // RFC 7541 §4.2: the block opens with the size update the change owes.
     try std.testing.expectEqual(0x3f, output[constants.protocol.frame_header_len]);
     try std.testing.expectEqual(0x45, output[constants.protocol.frame_header_len + 1]);
-    _ = try support.test_connection.write_request(output, request, &.{}, &.{}, true);
+    _ = try support.test_connection.write_request(output, &request, &.{}, &.{}, true);
     // The first block reached the peer, so the second owes nothing.
     try std.testing.expect(output[constants.protocol.frame_header_len] != 0x3f);
 }

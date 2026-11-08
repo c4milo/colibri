@@ -305,7 +305,7 @@ pub const Storage = struct {
     fn open_next(storage: *Storage, plan: *const Plan) Error!bool {
         const index = std.mem.indexOfScalar(bool, storage.requests.headed[0..plan.streams], false) orelse return false;
         const end = plan.request_len[index] == 0;
-        const sent = storage.client.write_request(storage.to_server.room(), request, &.{}, &.{}, end) catch |failure| {
+        const sent = storage.client.write_request(storage.to_server.room(), &request, &.{}, &.{}, end) catch |failure| {
             return if (failure == error.OutputTooSmall) false else error.WriteRefused;
         };
         // RFC 9113 §5.1.1: the client's streams take the odd identifiers in order.

@@ -11,7 +11,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
 const h2 = @import("h2");
-const http = @import("http");
 const deadline = @import("../deadline.zig");
 const connection_module = @import("connection.zig");
 const connection_close = @import("connection_close.zig");
@@ -21,9 +20,6 @@ const connection_sends = @import("connection_sends.zig");
 const Connection = connection_module.Connection;
 const Timeout = deadline.Timeout;
 const Timeouts = deadline.Timeouts;
-
-/// RFC 9110 §15.5.9: 408 (Request Timeout).
-const request_timeout: u16 = @intFromEnum(http.Status.request_timeout);
 
 /// Where a connection stands for its deadlines.
 pub const Clock = struct {
@@ -298,7 +294,8 @@ fn end(connection: *Connection, passed: Timeout) void {
             // idle connection closes without one, since a 408 there could be read as the answer to
             // a request the client sent meanwhile.
             if (wait == .head or body) {
-                const failure = session.fail(error.RequestTimeout, request_timeout);
+                // RFC 9110 §15.5.9: 408 (Request Timeout).
+                const failure = session.fail(error.RequestTimeout, .request_timeout);
                 assert(failure == error.ConnectionFailed);
             }
             // RFC 9112 §9.6: a server that closes sends nothing after it; a 408 would wait behind

@@ -70,7 +70,7 @@ pub fn main() !void {
     // The client's first octets: its preface and SETTINGS, then a request on a new stream. GET
     // carries no content, so the request ends the stream.
     const preface_len = client.write_pending(&output, link.now_ns(.client));
-    const sent = try client.write_request(output[preface_len..], .{
+    const sent = try client.write_request(output[preface_len..], &.{
         .method = "GET",
         .scheme = "https",
         .authority = "example.test",
