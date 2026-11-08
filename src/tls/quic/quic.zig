@@ -51,7 +51,7 @@ pub const Client = struct {
     /// The ticket this connection offers, in chapulin's form; the session points at its PSK.
     offered: chapulin.Ticket,
     /// The values this connection starts from, which chapulin reads when its session starts.
-    chosen: chapulin.Client,
+    chosen: chapulin.ClientOptions,
     /// The instant `start` was given, which `chosen`'s clock answers (`config.clock_at`).
     instant: u64,
     state: State,
@@ -94,7 +94,7 @@ pub const Client = struct {
     }
 
     /// What a `KEYLOG=on` object's `ch_keylog` reads from the provider's state, which
-    /// `chapulin.hookContext` answers. Set after `start` and before the transport parameters.
+    /// `chapulin.hook_context` answers. Set after `start` and before the transport parameters.
     pub fn set_keylog_context(client: *Client, context: ?*anyopaque) void {
         client.state.keylog_context = context;
     }
@@ -108,14 +108,14 @@ pub const Client = struct {
     /// The latest ticket the server sent, which the call hands over and clears (RFC 9846 §4.7.1).
     pub fn take_ticket(client: *Client) ?values.Ticket {
         if (!client.state.started) return null;
-        var taken = client.session.takeTicket() orelse return null;
+        var taken = client.session.take_ticket() orelse return null;
         defer std.crypto.secureZero(u8, std.mem.asBytes(&taken));
         return ticket.value_of(chapulin, &taken);
     }
 
     /// Whether a ticket this client offered authenticated the handshake (RFC 9846 §2.2).
     pub fn resumed(client: *const Client) bool {
-        return client.state.started and client.session.pskSelected();
+        return client.state.started and client.session.psk_selected();
     }
 
     /// What the handshake selected, as a record session's provider reports it: TLS 1.3, the
@@ -145,7 +145,7 @@ pub const Server = struct {
     /// The server_name the client sent, which chapulin copies here (RFC 9846 §9.2).
     server_name: [constants.limits.server_name_len_max]u8,
     /// The values this connection starts from, which chapulin reads when its session starts.
-    chosen: chapulin.Server,
+    chosen: chapulin.ServerOptions,
     /// The instant `start` was given, which `chosen`'s clock answers (`config.clock_at`).
     instant: u64,
     state: State,
@@ -198,7 +198,7 @@ pub const Server = struct {
         const server: *Server = @fieldParentPtr("state", state);
         const chooser = state.chooser.?;
         // RFC 9001 §8.2: chapulin holds the client's parameters by now, so none is a refusal.
-        const client_parameters = (server.session.peerTransportParams() catch null) orelse &.{};
+        const client_parameters = (server.session.peer_transport_params() catch null) orelse &.{};
         return @enumFromInt(chooser.choose(chooser.context, client_parameters, state.local_parameters[0..state.local_len]));
     }
 
@@ -211,7 +211,7 @@ pub const Server = struct {
     /// Whether a ticket this server issued authenticated the handshake, which then carried no
     /// Certificate (RFC 9846 §2.2).
     pub fn resumed(server: *const Server) bool {
-        return server.state.started and server.session.pskSelected();
+        return server.state.started and server.session.psk_selected();
     }
 
     /// Wipes every key the session holds and ends it.

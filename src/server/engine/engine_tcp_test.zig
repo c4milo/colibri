@@ -257,18 +257,18 @@ test "RFC 9846 §6: a TLS slot's session is wiped at the engine's close, and at 
     const closed = engine.accept(.{}, support.now_ns).?;
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(closed));
-    try testing.expectEqual(.connected, engine.tcp[closed.slot].tls_server.session.tcpState());
+    try testing.expectEqual(.connected, engine.tcp[closed.slot].tls_server.session.state());
     var forged = forged_record.*;
     try testing.expect(close_follows(closed, &forged));
-    try testing.expectEqual(.closed, engine.tcp[closed.slot].tls_server.session.tcpState());
+    try testing.expectEqual(.closed, engine.tcp[closed.slot].tls_server.session.state());
     // The program closes: the peer left first, and `transport_closed` wipes with no `close`.
     try support.start(support.identity(), .{ .h2 = false });
     const left = engine.accept(.{}, support.now_ns).?;
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(left));
-    try testing.expectEqual(.connected, engine.tcp[left.slot].tls_server.session.tcpState());
+    try testing.expectEqual(.connected, engine.tcp[left.slot].tls_server.session.state());
     engine.transport_closed(left);
-    try testing.expectEqual(.closed, engine.tcp[left.slot].tls_server.session.tcpState());
+    try testing.expectEqual(.closed, engine.tcp[left.slot].tls_server.session.state());
     support.collect();
     try testing.expectEqual(null, support.nth(.close, 0));
     try testing.expectEqual(left, support.nth(.ended, 0).?.connection);

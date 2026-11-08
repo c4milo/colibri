@@ -13,12 +13,12 @@ pub fn offered(comptime chapulin: type, resumption: values.Resumption) error{Inv
         .identity = kept.identity[0..kept.identity_len],
         .psk = kept.psk[0..kept.psk_len],
         .age_add = kept.age_add,
-        .lifetime_s = kept.lifetime_s,
+        .lifetime_seconds = kept.lifetime_s,
         .binding = &kept.binding,
     };
     // RFC 9369 §5: a QUIC object's ticket names the version that issued it.
     if (@FieldType(chapulin.Ticket.Fields, "quic_version") != void) fields.quic_version = @enumFromInt(kept.quic_version);
-    return chapulin.Ticket.fromFields(fields);
+    return chapulin.Ticket.from_fields(&fields);
 }
 
 /// Whether a connection of QUIC version `version`, or 0 over TCP, may offer `kept`: RFC 9369 §5,

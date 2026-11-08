@@ -2849,6 +2849,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     `key_updates`. A peer that waits for the answer before it sends more data waits until colibri
     sends data.
 
+    **Amended on 2026-11-08: the pin moves to chapulin v0.5.0 (15c37ef4).** chapulin's decision
+    190 renames its Zig API and passes each large argument through a pointer. The C library does
+    not change. colibri calls each function by its new name, and its own names do not change.
+    Design §8 step 16 records each move.
+
 95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.

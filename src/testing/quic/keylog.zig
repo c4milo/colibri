@@ -2,7 +2,7 @@
 //! Their `tls` links chapulin's objects built `KEYLOG=on` (design §8 step 16b), which hand each
 //! traffic secret to `ch_keylog` inside the handshake step that derived it, so a capture of a run
 //! can be decrypted. The hook reads the session's context, which the endpoint sets to its log with
-//! `set_keylog_context`, through `chapulin.hookContext`.
+//! `set_keylog_context`, through `chapulin.hook_context`.
 const std = @import("std");
 const assert = std.debug.assert;
 const chapulin = @import("chapulin");
@@ -74,7 +74,7 @@ const hex_digits_per_octet: usize = 2;
 /// drops it.
 fn keylog_hook(io: ?*anyopaque, label: [*:0]const u8, client_random: [*]const u8, secret: [*]const u8, secret_len: usize) callconv(.c) void {
     // The hook's context is the session's provider state, where the endpoint set its log.
-    const state: *tls.quic.State = @ptrCast(@alignCast(chapulin.hookContext(io) orelse return));
+    const state: *tls.quic.State = @ptrCast(@alignCast(chapulin.hook_context(io) orelse return));
     const keylog: *Keylog = @ptrCast(@alignCast(state.keylog_context orelse return));
     // `keylog.h`: the secret is as long as the suite's hash, 32 octets, or 48 in an object that
     // holds TLS_AES_256_GCM_SHA384.

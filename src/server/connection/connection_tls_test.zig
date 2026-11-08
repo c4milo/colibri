@@ -232,7 +232,7 @@ test "RFC 9846 §6.1: a transport that closed ends the connection, and its secre
         try testing.expect(connection.should_close());
         try testing.expectEqual(null, (try connection.receive(&.{}, support.now_ns)).event);
         try testing.expectEqual(0, connection.send(&support.output, support.now_ns));
-        try testing.expectEqual(.closed, connection.tls_server.session.tcpState());
+        try testing.expectEqual(.closed, connection.tls_server.session.state());
         try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
     }
 }

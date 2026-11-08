@@ -144,7 +144,7 @@ pub const Key = struct {
     /// The key's algorithm, or null until `pem.key` fills it. A server refuses a key with none.
     scheme: ?SignatureScheme = null,
     /// The private key: a P-256 scalar, big-endian; chapulin's RSA key, its modulus, exponent and
-    /// CRT integers in chapulin's `ch_rsa_priv`, which holds machine words and so is aligned to
+    /// CRT integers in chapulin's `RsaKey`, which holds machine words and so is aligned to
     /// one; or an expanded ML-DSA-87 secret key.
     private_key: [constants.protocol.mldsa87_private_key_len]u8 align(@alignOf(usize)) = @splat(0),
     /// The public key: a P-256 point X||Y, an RSA modulus, big-endian, or an ML-DSA-87 public key.

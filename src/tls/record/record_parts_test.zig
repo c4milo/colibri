@@ -1,4 +1,4 @@
-//! The tests of `encrypt_parts` over chapulin's `writeParts` (decision 139): a client and a server
+//! The tests of `encrypt_parts` over chapulin's `write_parts` (decision 139): a client and a server
 //! of the library's TCP object run against each other in memory (`record_test_support.zig`).
 const std = @import("std");
 const support = @import("record_test_support.zig");

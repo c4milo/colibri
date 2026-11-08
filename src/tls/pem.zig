@@ -24,7 +24,7 @@ pub fn chain(file: []const u8, der: []u8, room: [][]const u8) Error![]const []co
     const fits = room[0..@min(room.len, constants.limits.certificate_chain_len_max)];
     // RFC 7468 §2, §5.1 and §5.2, and RFC 9846 §4.5.1: chapulin skips the text around the blocks,
     // and refuses a block of another label.
-    const read = chapulin.Chain.fromPem(file, der, fits) catch return error.Invalid;
+    const read = chapulin.Chain.from_pem(file, der, fits) catch return error.Invalid;
     assert(read.certs.len > 0 and read.certs.len <= fits.len);
     return read.certs;
 }
@@ -62,21 +62,21 @@ const has_mldsa87 = @hasDecl(chapulin.c, "ch_mldsa_key_from_pem");
 fn read_p256(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
     var read: chapulin.EcdsaP256Key = .{};
     defer read.wipe();
-    read.fromPem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    read.init_from_pem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
     @memcpy(into.private_key[0..read.private_key.len], &read.private_key);
     @memcpy(into.public_key[0..read.public_key.len], &read.public_key);
     into.scheme = .ecdsa_secp256r1_sha256;
     return true;
 }
 
-/// Reads an RSA key into `into`: chapulin's `ch_rsa_priv` into the private room, whose alignment
+/// Reads an RSA key into `into`: chapulin's `RsaKey` into the private room, whose alignment
 /// holds it, and the modulus into the public room.
 fn read_rsa(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
     var read: chapulin.RsaKey = .{};
     defer read.wipe();
-    read.fromPem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
-    const modulus = read.publicKey();
-    @memcpy(into.private_key[0..@sizeOf(chapulin.c.ch_rsa_priv)], std.mem.asBytes(&read.private_key));
+    read.init_from_pem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    const modulus = read.public_key();
+    @memcpy(into.private_key[0..@sizeOf(chapulin.RsaKey)], std.mem.asBytes(&read));
     @memcpy(into.public_key[0..modulus.len], modulus);
     into.scheme = .rsa_pss_rsae_sha256;
     return true;
@@ -86,7 +86,7 @@ fn read_rsa(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.K
 fn read_mldsa87(cpu: values.Cpu, file: []const u8, leaf: []const u8, into: *values.Key) bool {
     var read: chapulin.MlDsa87Key = .{};
     defer read.wipe();
-    read.fromPem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
+    read.init_from_pem(config.cpu_value(chapulin, cpu), file, leaf) catch return false;
     @memcpy(&into.private_key, &read.private_key);
     @memcpy(&into.public_key, &read.public_key);
     into.scheme = .mldsa87;
@@ -97,9 +97,9 @@ comptime {
     // `read_p256`, `read_rsa` and `read_mldsa87` copy chapulin's keys into the rooms of a `Key`.
     assert(@sizeOf(@FieldType(chapulin.EcdsaP256Key, "private_key")) == constants.protocol.p256_private_key_len);
     assert(@sizeOf(@FieldType(chapulin.EcdsaP256Key, "public_key")) == constants.protocol.p256_public_key_len);
-    assert(@sizeOf(chapulin.c.ch_rsa_priv) <= constants.protocol.mldsa87_private_key_len);
-    assert(@alignOf(chapulin.c.ch_rsa_priv) <= @alignOf(values.Key) and
-        @offsetOf(values.Key, "private_key") % @alignOf(chapulin.c.ch_rsa_priv) == 0);
+    assert(@sizeOf(chapulin.RsaKey) <= constants.protocol.mldsa87_private_key_len);
+    assert(@alignOf(chapulin.RsaKey) <= @alignOf(values.Key) and
+        @offsetOf(values.Key, "private_key") % @alignOf(chapulin.RsaKey) == 0);
     assert(@sizeOf(@FieldType(chapulin.c.ch_rsa_priv, "n")) <= constants.protocol.mldsa87_public_key_len);
     if (has_mldsa87) {
         assert(@sizeOf(@FieldType(chapulin.MlDsa87Key, "private_key")) == constants.protocol.mldsa87_private_key_len);
@@ -117,7 +117,7 @@ pub fn anchors(file: []const u8, der: []u8, room: []values.Anchor) Error![]const
     const fits = read_room[0..@min(room.len, read_room.len)];
     // RFC 7468 §5.1 and §5.2, and RFC 9846 §4.5.1.3: chapulin skips the text around the blocks,
     // and refuses a bundle with a block of another label.
-    const read = chapulin.Anchors.fromPem(config.limits_of(chapulin), file, der, fits) catch return error.Invalid;
+    const read = chapulin.Anchors.from_pem(config.limits_of(chapulin), file, der, fits) catch return error.Invalid;
     assert(read.anchors.len > 0 and read.anchors.len <= fits.len);
     for (read.anchors, room[0..read.anchors.len]) |anchor, *kept| kept.* = .{ .subject = anchor.name, .spki = anchor.spki };
     return room[0..read.anchors.len];

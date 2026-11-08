@@ -40,7 +40,7 @@ pub const Hash = struct {
     /// NSEC3's hash (RFC 5155 §5). The type must be one `digest_type` names.
     pub fn digest(digest_type: DigestType) Hash {
         assert(algorithm_file.available);
-        return .{ .state = chapulin.dnssec.Hash.digest(digest_type_file.chapulin_of(digest_type)) };
+        return .{ .state = chapulin.dnssec.Hash.init_digest(digest_type_file.chapulin_of(digest_type)) };
     }
 
     /// Adds `bytes` to what the hash has read.

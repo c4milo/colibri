@@ -6702,6 +6702,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **Check met, 2026-11-07,** on macOS 26 on arm64: `tools/ci.sh` passed on the tree of this
     commit. The bump adds no check, so it needs no mutation.
 
+  **chapulin 0.5.0, 2026-11-08.** The pin moves from `v0.4.1` (`22a70c13`) to `v0.5.0`
+  (`15c37ef4`), and amends decision 94's pin. chapulin's decision 190 gives its Zig API the names
+  and forms of TigerStyle. The C library does not change.
+  - Each call colibri makes has its snake_case name, such as `record_in`, `crypto_out` and
+    `alert_sent`. A tcp session's `end(output)` sends close_notify, `close()` ends the session,
+    and `state()` reports it.
+  - `chapulin.Client` and `chapulin.Server` are now `ClientOptions` and `ServerOptions`. Each
+    session's `init` takes them through a `*const` pointer.
+  - `tls.quic` writes its state into the options' `context` before `init`. It wrote
+    `hook.context` after `init` before. An assertion holds that `init` stored the state.
+  - `write_parts` takes `[]const []const u8`, at most `tcp.parts_max` (16) parts. colibri passes
+    two, a frame's header and its data (decision 139).
+  - chapulin reports an alert as `AlertDescription`, and colibri converts it to
+    `tls_provider.Alert` through its byte.
+  - The Retry token calls take `quic.RetryConnectionIds`, and an RSA identity takes
+    `*const RsaKey`. A ticket's `Fields` names `lifetime_seconds`, and `dnssec.Hash.init_digest`
+    starts a digest.
+  - colibri's own names do not change.
+  - Each options struct gains `context`, one pointer. `tls.quic.Client` grows by 8 octets to
+    101,616 and `tls.quic.Server` to 101,104. The default `server.Engine` grows by 144 octets and
+    a pool's fixed part by 24. docs/performance.md's table is printed again.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27

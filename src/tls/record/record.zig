@@ -96,7 +96,7 @@ pub const Client = struct {
         }
         // RFC 9846 §4.7.1: chapulin refuses a ticket past its ticket_lifetime or seven days old,
         // and any configuration it cannot run.
-        client.session.init(chosen) catch return error.Refused;
+        client.session.init(&chosen) catch return error.Refused;
     }
 
     /// Writes what the client owes into `output`, then passes what the caller read to chapulin and
@@ -111,7 +111,7 @@ pub const Client = struct {
         // it, and chapulin refuses the records until it is collected. RFC 9846 §6.2: nor does it
         // read before the output has room for the alert a refused flight owes the server, whole.
         if (!client.owed and input.len > 0 and output.len - written >= alert_record_len) {
-            consumed = client.session.recordIn(input) catch {
+            consumed = client.session.record_in(input) catch {
                 // The alert that says why goes out after what this call wrote. `alert` names it.
                 client.state.failure_written = written + client.failure_alert(output[written..]);
                 // RFC 9846 §6.2: a flight chapulin refuses ends the handshake.
@@ -120,7 +120,7 @@ pub const Client = struct {
             client.owed = true;
             written += try client.collect(output[written..]);
         }
-        client.state.completed = client.session.tcpState() == .connected;
+        client.state.completed = client.session.state() == .connected;
         return .{ .consumed = consumed, .written = written, .complete = client.state.completed };
     }
 
@@ -128,7 +128,7 @@ pub const Client = struct {
     /// None follows the server's own fatal alert (RFC 9846 §6.2).
     fn failure_alert(client: *Client, output: []u8) usize {
         assert(output.len >= alert_record_len);
-        const alert_len = client.session.recordOut(output) catch return 0;
+        const alert_len = client.session.record_out(output) catch return 0;
         assert(alert_len > 0 and alert_len <= alert_record_len);
         return alert_len;
     }
@@ -144,7 +144,7 @@ pub const Client = struct {
         // chapulin refuses a capacity of 0.
         if (!client.owed or output.len == 0) return 0;
         // RFC 9846 §6.2: a session that failed owes nothing more, and chapulin says so here.
-        const written = client.session.recordOut(output) catch return error.HandshakeFailed;
+        const written = client.session.record_out(output) catch return error.HandshakeFailed;
         assert(written <= output.len);
         // chapulin copies all it has staged or all that fits, so a short answer left none staged.
         if (written < output.len) client.owed = false;
@@ -159,21 +159,21 @@ pub const Client = struct {
     /// A program keeps it, offers it through `start` on a later connection, and wipes it when it
     /// drops it.
     pub fn take_ticket(client: *Client) ?values.Ticket {
-        var taken = client.session.takeTicket() orelse return null;
+        var taken = client.session.take_ticket() orelse return null;
         defer std.crypto.secureZero(u8, std.mem.asBytes(&taken));
         return ticket.value_of(chapulin, &taken);
     }
 
     /// Whether a ticket this client offered authenticated the handshake (RFC 9846 §2.2).
     pub fn resumed(client: *const Client) bool {
-        return client.session.pskSelected();
+        return client.session.psk_selected();
     }
 
     /// The alert a failure chose (RFC 9846 §6), or null: chapulin's `ch_alert_sent`, as the
     /// description it names (decision 158 ruling 11).
     pub fn alert(client: *const Client) ?tls_provider.Alert {
-        const description = client.session.alertSent() orelse return null;
-        return @enumFromInt(description);
+        const description = client.session.alert_sent() orelse return null;
+        return @enumFromInt(@intFromEnum(description));
     }
 
     /// Sends the fatal alert `description` names into `output`, at most `alert_record_len` octets, and
@@ -187,7 +187,7 @@ pub const Client = struct {
     /// Wipes every secret the session holds, the offered ticket's copy included, and ends it.
     /// A connected caller sends its close_notify through the provider first.
     pub fn close(client: *Client) void {
-        client.session.tcpClose();
+        client.session.close();
         std.crypto.secureZero(u8, std.mem.asBytes(&client.offered));
     }
 };
@@ -213,16 +213,16 @@ pub const Server = struct {
         chosen.clock = config_module.clock_at(chapulin, &server.instant);
         // RFC 9846 §9.2: chapulin refuses values it cannot serve from, such as a cookie key missing
         // for the cookie extension that section makes mandatory.
-        server.session.init(chosen, &server.server_name) catch return error.Refused;
+        server.session.init(&chosen, &server.server_name) catch return error.Refused;
     }
 
     /// Runs the handshake over what the caller read, and writes the server's flight into
     /// `output`, which must hold all of it.
     pub fn handshake(server: *Server, input: []u8, output: []u8) Error!Progress {
         assert(!server.state.completed);
-        const progress = server.session.recordIn(input, output) catch |failure| {
+        const progress = server.session.record_in(input, output) catch |failure| {
             // RFC 9846 §6.2: chapulin wrote the alert that says why after the flight's records.
-            server.state.failure_written = server.session.outputLen();
+            server.state.failure_written = server.session.output_len();
             assert(server.state.failure_written <= output.len);
             return switch (failure) {
                 // chapulin writes a flight record by record and fails the handshake on one that
@@ -231,7 +231,7 @@ pub const Server = struct {
                 else => error.HandshakeFailed,
             };
         };
-        server.state.completed = server.session.tcpState() == .connected;
+        server.state.completed = server.session.state() == .connected;
         return .{ .consumed = progress.consumed, .written = progress.written, .complete = server.state.completed };
     }
 
@@ -253,13 +253,13 @@ pub const Server = struct {
 
     /// Whether a ticket this server issued authenticated the handshake (RFC 9846 §2.2).
     pub fn resumed(server: *const Server) bool {
-        return server.session.pskSelected();
+        return server.session.psk_selected();
     }
 
     /// The alert a failure chose (RFC 9846 §6), or null: chapulin's `ch_alert_sent`.
     pub fn alert(server: *const Server) ?tls_provider.Alert {
-        const description = server.session.alertSent() orelse return null;
-        return @enumFromInt(description);
+        const description = server.session.alert_sent() orelse return null;
+        return @enumFromInt(@intFromEnum(description));
     }
 
     /// Sends the fatal alert `description` names into `output` and fails the session, as `Client.fail`
@@ -270,7 +270,7 @@ pub const Server = struct {
 
     /// Wipes every secret the session holds and ends it.
     pub fn close(server: *Server) void {
-        server.session.tcpClose();
+        server.session.close();
     }
 };
 

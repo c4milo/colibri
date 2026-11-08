@@ -80,7 +80,7 @@ pub fn Suite(comptime Held: type) type {
 
         fn keys_available(context: *const anyopaque, level: Level, direction: crypto.Direction) bool {
             const role = held_const(context);
-            return role.state.started and role.session.keysReady(level_of(level), @enumFromInt(@intFromEnum(direction)));
+            return role.state.started and role.session.keys_ready(level_of(level), @enumFromInt(@intFromEnum(direction)));
         }
 
         fn seal(context: *anyopaque, sealing: suite_module.Sealing, output: []u8) suite_module.SealError!usize {
@@ -95,7 +95,7 @@ pub fn Suite(comptime Held: type) type {
         /// key and nonce of `named` (RFC 9369 §3.3.3).
         fn retry_tag_valid(context: *const anyopaque, named: suite_module.Version, pseudo_packet: []const u8, tag: *const [crypto.constants.protocol.retry_integrity_tag_len]u8) bool {
             const role = held_const(context);
-            return role.state.started and role.session.retryOk(chapulin_version(named), pseudo_packet, tag);
+            return role.state.started and role.session.retry_ok(chapulin_version(named), pseudo_packet, tag);
         }
 
         fn update_keys(context: *anyopaque) suite_module.UpdateError!void {
@@ -103,18 +103,18 @@ pub fn Suite(comptime Held: type) type {
             // RFC 9001 §6.1: no update before the handshake completes.
             if (!role.state.started) return error.KeysUnavailable;
             // RFC 9001 §6.1: which chapulin refuses too, until then.
-            role.session.keyUpdate() catch return error.KeysUnavailable;
+            role.session.key_update() catch return error.KeysUnavailable;
         }
 
         fn key_phase(context: *const anyopaque) bool {
             const role = held_const(context);
-            return role.state.started and role.session.keyPhase() != 0;
+            return role.state.started and role.session.key_phase() != 0;
         }
 
         /// RFC 9001 §6.5.
         fn discard_previous_keys(context: *anyopaque) void {
             const role = held(context);
-            if (role.state.started) role.session.dropPreviousKeys();
+            if (role.state.started) role.session.drop_previous_keys();
         }
 
         /// RFC 9001 §4.9. chapulin refuses only a level above the application's, which `Level`
@@ -134,7 +134,7 @@ fn install(role: anytype, asked: crypto.Role, dcid: []const u8) suite_module.Ins
     // RFC 9001 §5.2: a session derives the keys of its own role, once it has started.
     if (asked != own or !role.state.started) return error.Unsupported;
     // RFC 9001 §5.2: chapulin refuses a connection ID it cannot derive from.
-    role.session.initialKeys(dcid) catch return error.Unsupported;
+    role.session.initial_keys(dcid) catch return error.Unsupported;
 }
 
 /// RFC 9369 §4.1, which chapulin refuses twice, after the server's first CRYPTO octet, or to the
@@ -148,8 +148,8 @@ fn switch_role(role: anytype, named: suite_module.Version) suite_module.SwitchEr
         if (!role.state.started) return error.Refused;
         // RFC 9369 §4.1: chapulin refuses a second switch, one after the server's first CRYPTO
         // octet, and one to the version already negotiated.
-        role.session.switchVersion(chapulin_version(named)) catch return error.Refused;
-        assert(role.session.negotiatedVersion() == chapulin_version(named));
+        role.session.switch_version(chapulin_version(named)) catch return error.Refused;
+        assert(role.session.negotiated_version() == chapulin_version(named));
     }
 }
 
@@ -163,15 +163,15 @@ fn protect(role: anytype, sealing: suite_module.Sealing, output: []u8) suite_mod
     const failed = role.session.state() == .failed;
     const named = chapulin_version(sealing.version);
     // RFC 9369 §4.1: colibri seals every packet in the session's negotiated version.
-    assert(role.session.negotiatedVersion() == named);
+    assert(role.session.negotiated_version() == named);
     const sealed = if (failed)
-        role.session.sealClose(level, named, sealing.packet_number, sealing.packet_number_len, sealing.header, sealing.payload, output)
+        role.session.seal_close(level, named, sealing.packet_number, sealing.packet_number_len, sealing.header, sealing.payload, output)
     else
         role.session.seal(level, named, sealing.packet_number, sealing.packet_number_len, sealing.header, sealing.payload, output);
     return sealed catch |failure| switch (failure) {
         error.Cap => error.NoSpaceLeft,
         // RFC 9001 §4.8: after a failure, a close chapulin does not seal at this level.
-        error.Invalid => if (failed or !role.session.keysReady(level, .write))
+        error.Invalid => if (failed or !role.session.keys_ready(level, .write))
             error.KeysUnavailable
         else
             // RFC 9001 §6.6: the one other refusal is the packet past the confidentiality limit,
@@ -219,7 +219,7 @@ fn retry_tag_write(context: *const anyopaque, named: suite_module.Version, pseud
     _ = context;
     // RFC 9369 §3.3.3: chapulin refuses only a version it derives no Retry key for, and a server
     // over it then sends no Retry.
-    chapulin.quic.retryTag(chapulin_version(named), pseudo_packet, tag) catch return error.Unsupported;
+    chapulin.quic.retry_tag(chapulin_version(named), pseudo_packet, tag) catch return error.Unsupported;
 }
 
 /// A session mints no token: a server writes its Retry with `Retry`, before the session exists.
@@ -276,12 +276,10 @@ fn seconds_of(now_ns: u64) u64 {
 /// too.
 fn retry_token_write(context: *anyopaque, named: suite_module.Version, address: []const u8, ids: *const suite_module.RetryConnectionIds, now_ns: u64, output: []u8) suite_module.TokenError!usize {
     const retry: *const Retry = @ptrCast(@alignCast(context));
-    var cids = std.mem.zeroes(c.ch_quic_retry_cids);
-    @memcpy(cids.original_dcid[0..ids.original_destination_len], ids.original_destination_slice());
-    cids.original_dcid_len = ids.original_destination_len;
-    @memcpy(cids.retry_scid[0..ids.retry_source_len], ids.retry_source_slice());
-    cids.retry_scid_len = ids.retry_source_len;
-    return chapulin.quic.tokenMint(retry.key, chapulin_version(named), address, &cids, seconds_of(now_ns), output) catch |failure| switch (failure) {
+    // RFC 9000 §17.2: a connection ID holds at most 20 bytes, and chapulin's IDs hold as many.
+    comptime assert(crypto.constants.protocol.connection_id_len_max <= c.CH_QUIC_DCID_MAX);
+    const cids = chapulin.quic.RetryConnectionIds.init(ids.original_destination_slice(), ids.retry_source_slice()) catch unreachable;
+    return chapulin.quic.token_mint(retry.key, chapulin_version(named), address, &cids, seconds_of(now_ns), output) catch |failure| switch (failure) {
         error.Cap => error.NoSpaceLeft,
         // RFC 9000 §8.1.4: an address longer than chapulin binds.
         error.Invalid => error.Unsupported,
@@ -290,7 +288,7 @@ fn retry_token_write(context: *anyopaque, named: suite_module.Version, address: 
 
 fn retry_token_check(context: *const anyopaque, named: suite_module.Version, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
     const retry: *const Retry = @ptrCast(@alignCast(context));
-    const found = chapulin.quic.tokenCheck(retry.key, chapulin_version(named), token, address, seconds_of(now_ns), retry.lifetime_seconds) catch return .invalid;
+    const found = chapulin.quic.token_check(retry.key, chapulin_version(named), token, address, seconds_of(now_ns), retry.lifetime_seconds) catch return .invalid;
     return switch (found) {
         .retry => |cids| .{ .retry = .of(cids.original_dcid[0..cids.original_dcid_len], cids.retry_scid[0..cids.retry_scid_len]) },
         // RFC 9000 §8.1.3: not a Retry token, which leaves the client's address unvalidated.

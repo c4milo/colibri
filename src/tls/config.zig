@@ -54,18 +54,18 @@ pub fn ClientConfig(comptime chapulin: type) type {
         anchors: [anchors_max]chapulin.TrustAnchor,
         suites: [constants.limits.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock and the ticket.
-        values: chapulin.Client,
+        values: chapulin.ClientOptions,
 
         pub fn init(config: *Config, client: values.Client) Error!void {
             // chapulin's `build.h`: the object and the declarations colibri reads were built from
             // one define list, which the package guarantees and this checks once per configuration.
-            assert(chapulin.buildMatches());
+            assert(chapulin.build_matches());
             const alpn = try protocols(chapulin, client.alpn);
             const trust = try config.trust_of(client.trust);
             config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq, .takes_tickets = client.takes_tickets };
             // Decided when the object is built, so an object that takes no description of the
             // CPU never names chapulin's `Cpu`, which exists in a host object alone.
-            if (comptime has_cpu(chapulin.Client)) config.values.cpu = cpu_of(chapulin, client.cpu);
+            if (comptime has_cpu(chapulin.ClientOptions)) config.values.cpu = cpu_of(chapulin, client.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, client.cipher_suites);
             } else if (client.cipher_suites.len > 0) {
@@ -75,7 +75,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
         }
 
         /// Whether the object offers more than one suite, and so takes a client's order.
-        const has_suite_order = @TypeOf(@as(chapulin.Client, undefined).cipher_suites) != void;
+        const has_suite_order = @TypeOf(@as(chapulin.ClientOptions, undefined).cipher_suites) != void;
 
         fn trust_of(config: *Config, trust: values.Trust) Error!chapulin.Trust {
             switch (trust) {
@@ -111,10 +111,10 @@ pub fn ServerConfig(comptime chapulin: type) type {
 
         suites: [constants.limits.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock.
-        values: chapulin.Server,
+        values: chapulin.ServerOptions,
 
         pub fn init(config: *Config, server: values.Server) ServerError!void {
-            assert(chapulin.buildMatches());
+            assert(chapulin.build_matches());
             config.values = .{
                 .cookie_key = server.cookie_key,
                 .ticket_key = server.ticket_key,
@@ -123,7 +123,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
             };
             // Decided when the object is built, so an object that takes no description of the
             // CPU never names chapulin's `Cpu`, which exists in a host object alone.
-            if (comptime has_cpu(chapulin.Server)) config.values.cpu = cpu_of(chapulin, server.cpu);
+            if (comptime has_cpu(chapulin.ServerOptions)) config.values.cpu = cpu_of(chapulin, server.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, server.cipher_suites);
             } else if (server.cipher_suites.len > 0) {
@@ -134,7 +134,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
         }
 
         /// Whether the object holds the AES-GCM suites beside ChaCha20, and so an order among them.
-        const has_suite_order = @TypeOf(@as(chapulin.Server, undefined).cipher_suites) != void;
+        const has_suite_order = @TypeOf(@as(chapulin.ServerOptions, undefined).cipher_suites) != void;
 
         /// chapulin's `ch_srv_check`: each provisioned key signs, and the signature verifies. It
         /// draws from `random`, for an RSA-PSS salt, and runs no I/O, so a program runs it once,
@@ -172,9 +172,9 @@ fn answer_none(clock_io: ?*anyopaque) callconv(.c) u64 {
     return 0;
 }
 
-/// Whether an object's `Values`, chapulin's `Client` or `Server`, take the caller's description of
-/// its CPU, which a host object alone does (chapulin's decision 89, decision 97 as amended for
-/// chapulin 0.2.0).
+/// Whether an object's `Values`, chapulin's `ClientOptions` or `ServerOptions`, take the caller's
+/// description of its CPU, which a host object alone does (chapulin's decision 89, decision 97 as
+/// amended for chapulin 0.2.0).
 fn has_cpu(comptime Values: type) bool {
     return @TypeOf(@as(Values, undefined).cpu) != void;
 }
@@ -200,8 +200,8 @@ fn cpu_of(comptime chapulin: type, cpu: values.Cpu) chapulin.Cpu {
 
 /// What chapulin's PEM key call takes for the CPU: `cpu_of`'s description in a host object, and
 /// nothing in an object that takes none.
-pub fn cpu_value(comptime chapulin: type, cpu: values.Cpu) if (has_cpu(chapulin.Server)) ?chapulin.Cpu else void {
-    if (comptime !has_cpu(chapulin.Server)) return {};
+pub fn cpu_value(comptime chapulin: type, cpu: values.Cpu) if (has_cpu(chapulin.ServerOptions)) ?chapulin.Cpu else void {
+    if (comptime !has_cpu(chapulin.ServerOptions)) return {};
     return cpu_of(chapulin, cpu);
 }
 
@@ -225,7 +225,7 @@ fn protocols(comptime chapulin: type, names: []const []const u8) Error![]const [
 
 /// Sets the slot of chapulin's server that `identity`'s scheme names (decision 147). chapulin
 /// signs with the key whose scheme the client offers, and colibri chooses none.
-fn identity_into(comptime chapulin: type, server: *chapulin.Server, identity: values.Identity) ServerError!void {
+fn identity_into(comptime chapulin: type, server: *chapulin.ServerOptions, identity: values.Identity) ServerError!void {
     const key = identity.key;
     const chain = try certificates(identity.chain);
     // RFC 9846 §4.5.2: the server signs its CertificateVerify with the key, so a key that names
@@ -245,21 +245,21 @@ fn identity_into(comptime chapulin: type, server: *chapulin.Server, identity: va
         .rsa_pss_rsae_sha256 => {
             // RFC 9846 §4.5.1.2, as for P-256 above.
             if (server.rsa_pss != null) return error.IdentityRepeated;
-            // `pem.key` wrote chapulin's `ch_rsa_priv` at the start of the private room, which is
+            // `pem.key` wrote chapulin's `RsaKey` at the start of the private room, which is
             // aligned and large enough for it in every object colibri builds.
-            comptime assert(@sizeOf(chapulin.c.ch_rsa_priv) <= @sizeOf(@FieldType(values.Key, "private_key")));
-            comptime assert(@alignOf(chapulin.c.ch_rsa_priv) <= @alignOf(values.Key) and
-                @offsetOf(values.Key, "private_key") % @alignOf(chapulin.c.ch_rsa_priv) == 0);
-            const private_key: *const chapulin.c.ch_rsa_priv = @ptrCast(&key.private_key);
+            comptime assert(@sizeOf(chapulin.RsaKey) <= @sizeOf(@FieldType(values.Key, "private_key")));
+            comptime assert(@alignOf(chapulin.RsaKey) <= @alignOf(values.Key) and
+                @offsetOf(values.Key, "private_key") % @alignOf(chapulin.RsaKey) == 0);
+            const private_key: *const chapulin.RsaKey = @ptrCast(&key.private_key);
             server.rsa_pss = .{
                 .chain = chain,
-                .public_key = key.public_key[0..private_key.n_len],
+                .public_key = key.public_key[0..private_key.public_key().len],
                 .private_key = private_key,
             };
         },
         .mldsa87 => {
             // An object without the slot holds `void` there, so its branch names no field.
-            if (comptime !has_mldsa87(chapulin.Server)) {
+            if (comptime !has_mldsa87(chapulin.ServerOptions)) {
                 // RFC 9846 §4.5.1.2: a server presents a key only for a scheme it can sign with.
                 return error.IdentityUnavailable;
             } else {

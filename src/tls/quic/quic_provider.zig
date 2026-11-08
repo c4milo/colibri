@@ -4,7 +4,7 @@
 //! decision 48 keeps them inside the object that derived them.
 //!
 //! The two roles hand out handshake octets differently. A chapulin client stages one message at a
-//! level and the caller pulls it with `cryptoOut`; a server pushes its flight through
+//! level and the caller pulls it with `crypto_out`; a server pushes its flight through
 //! `on_crypto_out` as it writes it, because one Certificate message is larger than a staging
 //! buffer. Both land in `State.outgoing`, one buffer per level, and `write_handshake` hands colibri
 //! what waits there. A client's message is pulled the moment chapulin stages it, because chapulin
@@ -94,7 +94,7 @@ pub fn Provider(comptime Held: type) type {
             if (!role.state.started) return null;
             // A body longer than the session keeps is reported as none, which colibri refuses
             // (RFC 9001 §8.2).
-            return role.session.peerTransportParams() catch null;
+            return role.session.peer_transport_params() catch null;
         }
 
         fn provide_handshake(context: *anyopaque, level: Level, data: []const u8) provider_module.ProvideError!void {
@@ -108,7 +108,7 @@ pub fn Provider(comptime Held: type) type {
         fn negotiated_alpn(context: *const anyopaque) ?[]const u8 {
             const role = held_const(context);
             if (!role.state.started) return null;
-            return role.session.alpnSelected();
+            return role.session.alpn_selected();
         }
 
         /// RFC 9001 §4.1.1: chapulin reports connected once it has sent its Finished and verified
@@ -136,15 +136,16 @@ fn start_session(role: anytype, body: []const u8) provider_module.TransportParam
     state.local_len = body.len;
     const local = state.local_parameters[0..body.len];
     state.started = true;
+    // chapulin's `init` stores the options' context in the hook. The context is this state, where a
+    // `KEYLOG=on` object's `ch_keylog` finds its log and a server's `choose_version` its chooser.
+    role.chosen.context = state;
     const started = if (@TypeOf(role.*).is_client)
-        role.session.init(role.chosen, local, &state.peer_parameters)
+        role.session.init(&role.chosen, local, &state.peer_parameters)
     else
-        role.session.init(role.chosen, local, &state.peer_parameters, &role.server_name);
+        role.session.init(&role.chosen, local, &state.peer_parameters, &role.server_name);
     // RFC 9001 §4.8: chapulin refused the values, which fails the handshake before it starts.
     started catch return error.TlsFailed;
-    // chapulin's `init` clears the hook. Its context is this state, where a `KEYLOG=on` object's
-    // `ch_keylog` finds its log and a server's `choose_version` its chooser.
-    role.session.hook.context = state;
+    assert(role.session.hook.context == @as(?*anyopaque, state));
     // RFC 9001 §4.1.3: a client's ClientHello is staged now.
     if (@TypeOf(role.*).is_client) pull_staged(role);
 }
@@ -170,7 +171,7 @@ fn provide(role: anytype, level: Level, data: []const u8) provider_module.Provid
 
 fn client_in(role: anytype, level: Level, data: []const u8) !void {
     defer pull_staged(role);
-    return role.session.cryptoIn(level_of(level), data);
+    return role.session.crypto_in(level_of(level), data);
 }
 
 fn server_in(role: anytype, level: Level, data: []const u8) !void {
@@ -180,7 +181,7 @@ fn server_in(role: anytype, level: Level, data: []const u8) !void {
     defer for (&state.outgoing_len, outgoing.written) |*len, written| {
         len.* += written;
     };
-    role.session.cryptoIn(level_of(level), data, &outgoing) catch |failure| {
+    role.session.crypto_in(level_of(level), data, &outgoing) catch |failure| {
         // chapulin fails a flight that does not fit the buffers it was given (`on_crypto_out`).
         if (failure == error.Io) state.overflowed = true;
         return failure;
@@ -194,7 +195,7 @@ fn pull_staged(role: anytype) void {
     for (&state.outgoing, &state.outgoing_len, 0..) |*storage, *len, level| {
         const room = storage[len.*..];
         // chapulin refuses a capacity of 0, and nothing is staged at a level that owes nothing.
-        const written = role.session.cryptoOut(@enumFromInt(level), room) catch |failure| {
+        const written = role.session.crypto_out(@enumFromInt(level), room) catch |failure| {
             if (failure == error.Cap) state.overflowed = true;
             continue;
         };
@@ -225,7 +226,7 @@ fn failure_alert(role: anytype) ?tls_provider.Alert {
     if (state.alert_taken or !state.started or role.session.state() != .failed) return null;
     const description = role.session.alert() orelse return null;
     state.alert_taken = true;
-    return @enumFromInt(description);
+    return @enumFromInt(@intFromEnum(description));
 }
 
 /// chapulin's exporter is a record-layer call, and its build refuses `EXPORTER=on` with

@@ -80,7 +80,7 @@ pub fn Provider(comptime Held: type) type {
         }
 
         fn writable_len(context: *const anyopaque, output_len: usize) usize {
-            return held_const(context).session.writableLen(output_len);
+            return held_const(context).session.writable_len(output_len);
         }
 
         fn encrypt_parts(context: *anyopaque, head: []const u8, data: []const u8, output: []u8) provider_module.SealError!usize {
@@ -147,7 +147,7 @@ fn hand_over(state: *State, output: []u8) provider_module.HandshakeWriteError!us
 /// the answer stays owed.
 fn seal(role: anytype, plaintext: []const u8, output: []u8) provider_module.SealError!provider_module.Sealed {
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
-    const fits = @min(plaintext.len, role.session.writableLen(output.len));
+    const fits = @min(plaintext.len, role.session.writable_len(output.len));
     // RFC 9846 §5.2: a record carries at least one octet of application data here.
     if (fits == 0) return error.NoSpaceLeft;
     // RFC 9846 §6.1: a session that closed or failed seals nothing more.
@@ -156,15 +156,14 @@ fn seal(role: anytype, plaintext: []const u8, output: []u8) provider_module.Seal
 }
 
 /// Seals `head` and then `data` as one run of plaintext, whole or not at all, with chapulin's
-/// `writeParts` (chapulin's decision 167, decision 139): `write`'s records for the two joined, and
+/// `write_parts` (chapulin's decision 167, decision 139): `write`'s records for the two joined, and
 /// no copy of them into one buffer.
 fn seal_parts(role: anytype, head: []const u8, data: []const u8, output: []u8) provider_module.SealError!usize {
     assert(head.len > 0);
     // RFC 9846 §5.2: what does not fit `output` is sealed whole by a later call.
-    if (head.len + data.len > role.session.writableLen(output.len)) return error.NoSpaceLeft;
-    const parts = [_]c.ch_part{ chapulin.part(head), chapulin.part(data) };
+    if (head.len + data.len > role.session.writable_len(output.len)) return error.NoSpaceLeft;
     // RFC 9846 §6.1: a session that closed or failed seals nothing more.
-    return role.session.writeParts(&parts, output) catch return error.TlsFailed;
+    return role.session.write_parts(&.{ head, data }, output) catch return error.TlsFailed;
 }
 
 /// Opens the record at the front of `input` and says what it held.
@@ -180,7 +179,7 @@ fn open(role: anytype, input: []const u8, plaintext: []u8) provider_module.OpenE
     assert(state.owed_len == 0);
     const read = role.session.read(input, plaintext, &state.owed) catch |failure| {
         // The alert a failed read raised is owed to the peer (RFC 9846 §6).
-        state.owed_len = role.session.replyLen();
+        state.owed_len = role.session.reply_len();
         // RFC 9846 §4.7.3 sets no limit on a run of KeyUpdates. chapulin's decision 138 fails the
         // KeyUpdate past `CH_KEY_UPDATE_RUN_MAX` with unexpected_message, and this error names it.
         if (failure == error.KeyUpdateLimit) return error.KeyUpdates;
@@ -204,7 +203,7 @@ fn open(role: anytype, input: []const u8, plaintext: []u8) provider_module.OpenE
 /// RFC 7301 §3.1: what the handshake selected, from the list the configuration offered.
 fn selected_protocol(role: anytype) ?[]const u8 {
     if (!role.state.completed) return null;
-    return role.session.alpnSelected();
+    return role.session.alpn_selected();
 }
 
 /// RFC 9846 §4.3.1 and Appendix B.4: the version and the suite the handshake selected. A client
@@ -232,24 +231,24 @@ fn next_alert(role: anytype) ?tls_provider.AlertReport {
         state.pending_alert = null;
         return report;
     }
-    if (role.session.tcpState() != .failed) return null;
+    if (role.session.state() != .failed) return null;
     if (!state.received_taken) {
         state.received_taken = true;
-        if (role.session.alertReceived()) |description| return .{ .description = @enumFromInt(description), .origin = .peer };
+        if (role.session.alert_received()) |description| return .{ .description = @enumFromInt(@intFromEnum(description)), .origin = .peer };
     }
     if (!state.sent_taken) {
         state.sent_taken = true;
-        if (role.session.alertSent()) |description| return .{ .description = @enumFromInt(description), .origin = .local };
+        if (role.session.alert_sent()) |description| return .{ .description = @enumFromInt(@intFromEnum(description)), .origin = .local };
     }
     return null;
 }
 
-/// RFC 9846 §6.1's close_notify, once. chapulin's `close` wipes the keys whether or not the alert
+/// RFC 9846 §6.1's close_notify, once. chapulin's `end` wipes the keys whether or not the alert
 /// fits, so an output too short for it is refused before chapulin is called.
 fn close_notify(role: anytype, output: []u8) provider_module.CloseError!usize {
     if (role.state.closed) return 0;
     if (output.len < chapulin.tcp.alert_record_len) return error.NoSpaceLeft;
-    const written = role.session.close(output) catch unreachable;
+    const written = role.session.end(output) catch unreachable;
     role.state.closed = true;
     return written;
 }
@@ -274,7 +273,7 @@ pub const FailError = error{
 /// is refused before chapulin is called, as `close_notify` refuses one.
 pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailError!usize {
     if (output.len < chapulin.tcp.alert_record_len) return error.NoSpaceLeft;
-    const written = role.session.fail(@intFromEnum(description), output) catch |failure| return switch (failure) {
+    const written = role.session.fail(@enumFromInt(@intFromEnum(description)), output) catch |failure| return switch (failure) {
         // RFC 9846 §6.2: chapulin takes the error alerts alone, and the session stays as it was.
         error.Invalid => error.NotErrorAlert,
         // RFC 9846 §6: no alert is sent on a session that is not connected.
@@ -291,7 +290,7 @@ pub fn fail(role: anytype, description: tls_provider.Alert, output: []u8) FailEr
 /// RFC 9846 §7.5's exporter, which the TCP object offers (`EXPORTER=on`).
 fn export_material(role: anytype, label: []const u8, context_value: ?[]const u8, output: []u8) provider_module.ExportError!void {
     // RFC 9846 §7.5: the exporter secret exists once the handshake completes.
-    if (role.session.tcpState() != .connected) return error.HandshakeIncomplete;
+    if (role.session.state() != .connected) return error.HandshakeIncomplete;
     // RFC 9846 §7.5: the exporter's output, which chapulin bounds at `CH_EXPORT_MAX` octets.
     if (output.len > c.CH_EXPORT_MAX) return error.OutputTooLong;
     if (output.len == 0) return;
@@ -299,7 +298,7 @@ fn export_material(role: anytype, label: []const u8, context_value: ?[]const u8,
     // RFC 9846 §7.5: a label chapulin cannot take as a C string has no exporter here.
     const terminated = label_string(label, &storage) orelse return error.Unsupported;
     // RFC 9846 §7.5: chapulin refuses what its exporter cannot derive.
-    role.session.exportKeyingMaterial(terminated, context_value orelse &.{}, output) catch return error.Unsupported;
+    role.session.export_keying_material(terminated, context_value orelse &.{}, output) catch return error.Unsupported;
 }
 
 /// chapulin takes an exporter label as a C string of at most `CH_EXPORT_LABEL_MAX` octets. A longer
