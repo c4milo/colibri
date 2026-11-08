@@ -80,7 +80,7 @@ const Connection = struct {
 /// The loop and the connections, in static storage: each pool is large, and a run holds up to
 /// the limit of them. The QUIC connection inside each pool is never written, so the system gives
 /// its pages no memory.
-var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
+var loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var loop: rotor.Loop align(@alignOf(rotor.Loop)) = undefined;
 var events: [loop_options.operations]rotor.Event align(@alignOf(rotor.Event)) = undefined;
 var connections: [constants.client_connections_max]Connection align(@alignOf(Connection)) = undefined;
@@ -114,7 +114,7 @@ var tls_anchors: client_tls.Anchors align(@alignOf(client_tls.Anchors)) = undefi
 fn run_connections(run: *const Run) !u32 {
     assert(run.connections_count > 0 and run.connections_count <= constants.client_connections_max);
     assert(run.plans_count > 0);
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
     slots_per_pool = run.tcp_connections;
     const live = connections[0..run.connections_count];
@@ -422,7 +422,7 @@ test "a socket the system never gave ends the pool's attempt, and the exchange w
 }
 
 test "a socket the pool asks for while its last one closes waits for that close" {
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
     const connection = try test_carrying();
     on_happened(connection, 0, .failed);
@@ -434,7 +434,7 @@ test "a socket the pool asks for while its last one closes waits for that close"
 }
 
 test "https://github.com/c4milo/colibri/issues/124: a failed connection names how its socket ended" {
-    try loop.init(&loop_memory, loop_options);
+    try loop.init(&loop_memory, &loop_options);
     defer loop.deinit();
     // Each ending submits the socket's close, which the loop finishes before it stops.
     defer {

@@ -352,7 +352,7 @@ test "decision 160: after the half-close the socket receives again, and the peer
     const worker = try fresh_worker();
     const port = try server_worker.bind_listeners(0, 1);
     defer rotor.sync.close_now(worker.listener);
-    try worker.loop.init(&worker.loop_memory, .{ .operations = worker.events.len });
+    try worker.loop.init(&worker.loop_memory, &.{ .operations = worker.events.len });
     defer end_loop(worker);
     // Each turn gets this one instant, so the bound of `half_close_ns` cannot pass in the test.
     const now_ns = constants.tick_ns;

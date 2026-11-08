@@ -55,7 +55,7 @@ const loop_options: rotor.Loop.Options = .{ .operations = operations_max };
 /// One loop's memory, at Rotor's alignment on its own. An array of byte arrays aligns only the
 /// first: a loop takes 1,456 octets on Linux, which is not a multiple of 64.
 const LoopMemory = struct {
-    bytes: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+    bytes: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment),
 };
 
 /// Both sides' loops and the registry they share. `Link` holds one, and its `init` and `deinit`
@@ -75,13 +75,16 @@ pub const Loops = struct {
             var options = loop_options;
             options.id = @intCast(index);
             options.registry = &loops.registry;
-            try loops.loops[index].init(&loops.loop_memory[index].bytes, options);
+            try loops.loops[index].init(&loops.loop_memory[index].bytes, &options);
         }
         for (std.enums.values(Side)) |side| try loops.tick(side, 0);
     }
 
+    /// Stops both loops, then closes the descriptors that wake them, which the registry keeps
+    /// until its `deinit` (Rotor's decision 4 as amended).
     pub fn deinit(loops: *Loops) void {
         for (&loops.loops) |*loop| loop.deinit();
+        loops.registry.deinit();
     }
 
     /// Posts the other side's loop a message saying `len` octets arrived for it, and ticks the

@@ -41,7 +41,7 @@ const Unanswered = struct {
     fillers: [fillers_max]rotor.Descriptor,
     filler_count: usize,
     loop: rotor.Loop,
-    loop_memory: [rotor.Loop.memory_bytes(filler_options)]u8 align(rotor.memory_alignment),
+    loop_memory: [rotor.Loop.memory_bytes(&filler_options)]u8 align(rotor.memory_alignment),
     events: [fillers_max]rotor.Event,
 
     /// Listens on 127.0.0.1 with a backlog of 1, and connects until a connect gets no event.
@@ -51,7 +51,7 @@ const Unanswered = struct {
         const loopback = try server_loop.address_of("127.0.0.1", 0);
         state.listener = try rotor.sync.listen(&loopback, .{ .backlog = 1, .reuse_port = false });
         state.address = try rotor.sync.local_address(state.listener);
-        try state.loop.init(&state.loop_memory, filler_options);
+        try state.loop.init(&state.loop_memory, &filler_options);
         for (0..fillers_max) |index| {
             const descriptor = try rotor.sync.open_socket(.ipv4);
             state.fillers[index] = descriptor;
@@ -81,7 +81,7 @@ fn start(counter: *support.Counter) !void {
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
     try test_client.init(.{ .host = "127.0.0.1", .port = unanswered.address.port, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds });
-    try test_client.loop.init(&test_client.loop_memory, .{ .operations = test_client.events.len });
+    try test_client.loop.init(&test_client.loop_memory, &.{ .operations = test_client.events.len });
     try client_loop.begin(test_client);
 }
 
@@ -213,7 +213,7 @@ test "design §8 step 42: init leaves no TCP socket live, so a run that fails at
     try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = fixture.now_seconds });
     defer test_client.deinit();
     // The run's first tick failed, so no turn reset the sockets before its end.
-    try test_client.loop.init(&test_client.loop_memory, .{ .operations = test_client.events.len });
+    try test_client.loop.init(&test_client.loop_memory, &.{ .operations = test_client.events.len });
     client_loop.end(test_client);
     // The end closed no descriptor the client does not hold.
     _ = try rotor.sync.local_address(descriptor);
@@ -288,7 +288,7 @@ test "design §8 step 42: a socket the system refuses leaves the pool's events f
     // The system refuses the socket, so no connect names the port.
     try test_client.init(.{ .host = "127.0.0.1", .port = 1, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds });
     defer test_client.deinit();
-    try test_client.loop.init(&test_client.loop_memory, .{ .operations = test_client.events.len });
+    try test_client.loop.init(&test_client.loop_memory, &.{ .operations = test_client.events.len });
     try client_loop.begin(test_client);
     defer client_loop.end(test_client);
     var handler: fixture.Handler = .{};

@@ -27,8 +27,6 @@ pub const receive_user_data: u64 = std.math.maxInt(u64) - 1;
 pub const send_user_data_first: u64 = receive_user_data - 1;
 pub const send_user_data_last: u64 = send_user_data_first - (constants.limits.udp_batches - 1);
 
-/// The group the socket receives into. Not 0, so a read naming the wrong group cannot pass.
-const group_id: u16 = 1;
 const group_options: rotor.datagram.GroupOptions = .{};
 pub const group_bytes = rotor.buffers.group_bytes(constants.limits.udp_receive_buffers, constants.limits.udp_receive_buffer_len);
 
@@ -48,6 +46,7 @@ pub const Received = struct {
 };
 
 pub const BindError = rotor.sync.SocketError || rotor.sync.ListenError;
+pub const StartError = rotor.Loop.ProvideError || error{BufferGroupsFull};
 
 pub const DatagramSocket = struct {
     /// Whether `descriptor` is open: `bind` opens it, and `close` closes it once.
@@ -55,6 +54,9 @@ pub const DatagramSocket = struct {
     descriptor: rotor.Descriptor,
     /// The multishot receive in flight.
     receiving: rotor.Handle,
+    /// The group the socket receives into, which `start` reserves on the loop (Rotor's decision
+    /// 29).
+    buffer_group: rotor.BufferGroup,
     /// The receive buffers, the batches and their destinations, and the room each datagram is
     /// written in.
     group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
@@ -76,10 +78,12 @@ pub const DatagramSocket = struct {
         socket.open = false;
     }
 
-    /// Gives the loop the receive buffers and starts the multishot receive.
-    pub fn start(socket: *DatagramSocket, loop: *rotor.Loop) rotor.Loop.ProvideError!void {
+    /// Reserves a buffer group on the loop, gives the loop the receive buffers and starts the
+    /// multishot receive. The group id stays reserved until the loop's `deinit`.
+    pub fn start(socket: *DatagramSocket, loop: *rotor.Loop) StartError!void {
         assert(socket.open);
-        try loop.provide_datagram_buffers(group_id, socket.group_memory(), constants.limits.udp_receive_buffers, constants.limits.udp_receive_buffer_len, group_options);
+        socket.buffer_group = try loop.reserve_buffer_group();
+        try loop.provide_datagram_buffers(socket.buffer_group, socket.group_memory(), constants.limits.udp_receive_buffers, constants.limits.udp_receive_buffer_len, group_options);
         socket.batches = .of(true);
         socket.start_receive(loop);
     }
@@ -97,7 +101,7 @@ pub const DatagramSocket = struct {
     fn start_receive(socket: *DatagramSocket, loop: *rotor.Loop) void {
         const receive: rotor.Operation = .{ .user_data = receive_user_data, .kind = .{ .receive_from = .{
             .socket = socket.descriptor,
-            .group = group_id,
+            .group = socket.buffer_group,
         } } };
         var handles: [1]rotor.Handle = undefined;
         const taken = loop.submit(&.{receive}, &handles);
@@ -115,8 +119,8 @@ pub const DatagramSocket = struct {
             return;
         }
         if (event.flags.buffer) {
-            take_delivery(loop.datagram(group_id, event), context, take, now_ns);
-            loop.give_back_buffer(group_id, event.flags.buffer_id);
+            take_delivery(loop.datagram(socket.buffer_group, event), context, take, now_ns);
+            loop.give_back_buffer(socket.buffer_group, event.flags.buffer_id);
         }
         if (!event.flags.more and receives) socket.start_receive(loop);
     }

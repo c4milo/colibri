@@ -14373,6 +14373,19 @@ library.
        pass a `rotor.BufferGroup` to each call that names a group. `examples/link.zig` calls
        `registry.deinit()` after its loops end. Each call site takes the nine renames of Rotor's
        `v0.10.0`.
+       - Done on 2026-11-08. `build.zig.zon` names Rotor's 933985882d693e4d8b876e1403618a3fc6d989ef,
+         and Rotor stays a package that is not lazy.
+       - Three renames applied in colibri's tree: `Operation.accept` with no flag, `Loop.init` and
+         `Loop.memory_bytes` with `*const Options`, and `Registry.deinit`. No call site named the
+         other six.
+       - `DatagramSocket.start` and the test-only `udp.Endpoint` reserve their group at each new
+         loop. So `RunError` gains `error.BufferGroupsFull`, which a loop that colibri owns never
+         returns.
+       - `zig build bench-memory` printed the table of `docs/performance.md` with no change: no
+         struct it sizes holds a Rotor type.
+       - On macOS arm64 (kqueue), each check returned 0: `zig fmt --check`, `zig build lint`,
+         `zig build test`, `zig build examples`, `tools/doc_snippets.sh` and
+         `tools/consumer_check.sh`.
     3. 44c `refactor(colibri)`: the completion records and the poller on the private loop.
        `user_data.zig` leaves. The poller returns a `rotor.WaitLimit`, and `wait_ns` leaves.
        - Tests: a tick returns 0 events; each record reaches its own socket; `in_flight` is 0

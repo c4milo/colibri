@@ -80,7 +80,7 @@ test "design §8 step 37: deinit after run closes no socket a second time" {
 /// Starts the loop of a server in cleartext, as `run` does before its first turn.
 fn begin_cleartext(counter: *support.Counter) !void {
     try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
-    try test_server.loop.init(&test_server.loop_memory, .{ .operations = test_server.events.len });
+    try test_server.loop.init(&test_server.loop_memory, &.{ .operations = test_server.events.len });
 }
 
 test "design §8 step 37: the end of a run closes an accepted socket whose close was never submitted" {
@@ -150,7 +150,7 @@ test "design §8 step 42: the end of a run closes a socket an accept delivered a
     rotor.sync.close_now(free);
     const operations = [_]rotor.Operation{
         rotor.Operation.send(test_user_data, peer, "GET"),
-        rotor.Operation.accept(server_loop.accept_user_data, test_server.listener, false),
+        rotor.Operation.accept(server_loop.accept_user_data, test_server.listener),
     };
     try testing.expectEqual(2, test_server.loop.submit(&operations, &.{}));
     try testing.expectEqual(1, try test_server.loop.tick(test_server.events[0..1], 0));

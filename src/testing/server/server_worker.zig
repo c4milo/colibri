@@ -48,7 +48,7 @@ const steps_per_turn_max: usize = constants.connections_per_worker_max * constan
 pub const Worker = struct {
     /// Which of `workers` this is, which picks its sockets' echoes.
     index: usize,
-    loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(@max(rotor.memory_alignment, constants.cache_line_bytes)),
+    loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(@max(rotor.memory_alignment, constants.cache_line_bytes)),
     loop: rotor.Loop,
     listener: rotor.Descriptor,
     accepting: bool,
@@ -144,7 +144,7 @@ pub fn start(index: usize) server.StartError!void {
 pub fn run(index: usize) !void {
     const worker = &workers[index];
     // Rotor's rule: the loop belongs to the thread that starts it.
-    try worker.loop.init(&worker.loop_memory, loop_options);
+    try worker.loop.init(&worker.loop_memory, &loop_options);
     defer worker.loop.deinit();
     defer rotor.sync.close_now(worker.listener);
     while (true) try turn(worker);
@@ -202,7 +202,7 @@ fn on_event(worker: *Worker, event: rotor.Event, now_ns: u64) void {
 /// new connections in the kernel's backlog until one frees.
 pub fn arm_accept(worker: *Worker) void {
     if (worker.accepting or free_socket(worker) == null) return;
-    const taken = worker.loop.submit(&.{rotor.Operation.accept(accept_user_data, worker.listener, false)}, &.{});
+    const taken = worker.loop.submit(&.{rotor.Operation.accept(accept_user_data, worker.listener)}, &.{});
     assert(taken == 1);
     worker.accepting = true;
 }

@@ -15,8 +15,8 @@
         // `colibri` module (decision 150). The library imports it, so it is not lazy: a project
         // that depends on colibri fetches it too.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor#5a5d7d72d8ac4469a48b2a30d77380ac9dd7b90e",
-            .hash = "rotor-0.9.0-YZkxRHY2FQCOGvEpDOWDofpk-UhPMwgUpaU3GyaBzhda",
+            .url = "git+https://github.com/c4milo/rotor#933985882d693e4d8b876e1403618a3fc6d989ef",
+            .hash = "rotor-0.10.0-YZkxRFCxJABaRNenAUK5EC84mD-ZR3zmBesT76zmXoqu",
         },
         // The QPACK vectors of qpackers/qifs, which tools/qpack_vectors.zig decodes (decisions 25
         // and 75). Test data, never linked into anything. Lazy, and requested only when colibri

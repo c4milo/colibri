@@ -146,7 +146,7 @@ fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
 /// leaves new connections in the kernel's backlog until one frees.
 fn arm_accept(state: anytype) void {
     if (state.accepting or state.shut_down or free_socket(state) == null) return;
-    const taken = state.loop.submit(&.{rotor.Operation.accept(accept_user_data, state.listener, false)}, &.{});
+    const taken = state.loop.submit(&.{rotor.Operation.accept(accept_user_data, state.listener)}, &.{});
     assert(taken == 1);
     state.accepting = true;
 }

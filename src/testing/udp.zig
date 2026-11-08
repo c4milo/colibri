@@ -27,10 +27,6 @@ pub const Ecn = rotor.datagram.Ecn;
 /// The loop's options. One multishot receive and the sends in flight.
 const loop_options: rotor.Loop.Options = .{ .operations = constants.udp_operations_max };
 
-/// The group every endpoint receives into. Not 0, so a read naming the wrong group cannot pass by
-/// naming the default.
-const group_id: u16 = 1;
-
 /// The reserve in front of each datagram: rotor's default, which holds the three control messages
 /// a QUIC stack asks for.
 const group_options: rotor.datagram.GroupOptions = .{};
@@ -48,7 +44,7 @@ pub const CoalescedMemory = MemoryOf(constants.udp_coalesced_buffer_bytes, true)
 
 fn MemoryOf(comptime buffer_bytes: u32, comptime coalesce: bool) type {
     return struct {
-        loop: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+        loop: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment),
         /// Larger than the group by its alignment, because a static declared that aligned is not
         /// always placed that aligned on macOS, and rotor's guide aligns forward inside the block.
         group: [group_bytes + rotor.buffers.group_alignment]u8 align(rotor.buffers.group_alignment),
@@ -69,15 +65,19 @@ pub const Endpoint = struct {
     loop: rotor.Loop,
     socket: rotor.Descriptor,
     receiving: rotor.Handle,
+    /// The group the endpoint receives into, which `open` reserves on its loop (Rotor's decision
+    /// 29).
+    buffer_group: rotor.BufferGroup,
 
     /// Starts the loop in `memory`, a `*Memory` or a `*CoalescedMemory`, binds a datagram socket
     /// to `bind_to` and starts receiving.
     pub fn open(endpoint: *Endpoint, memory: anytype, bind_to: Address) !void {
         const Placed = @TypeOf(memory.*);
-        try endpoint.loop.init(&memory.loop, loop_options);
+        try endpoint.loop.init(&memory.loop, &loop_options);
         errdefer endpoint.loop.deinit();
+        endpoint.buffer_group = try endpoint.loop.reserve_buffer_group();
         try endpoint.loop.provide_datagram_buffers(
-            group_id,
+            endpoint.buffer_group,
             memory.group_memory(),
             constants.udp_receive_buffers,
             Placed.receive_buffer_bytes,
@@ -93,7 +93,7 @@ pub const Endpoint = struct {
     fn start_receive(endpoint: *Endpoint) void {
         const receive: rotor.Operation = .{ .user_data = receive_user_data, .kind = .{ .receive_from = .{
             .socket = endpoint.socket,
-            .group = group_id,
+            .group = endpoint.buffer_group,
         } } };
         var handles: [1]rotor.Handle = undefined;
         const taken = endpoint.loop.submit(&.{receive}, &handles);
@@ -147,13 +147,13 @@ pub const Endpoint = struct {
     /// The peer and the octets of a received datagram.
     pub fn delivery(endpoint: *Endpoint, event: Event) rotor.Delivery {
         assert(event.user_data == receive_user_data);
-        return endpoint.loop.datagram(group_id, event);
+        return endpoint.loop.datagram(endpoint.buffer_group, event);
     }
 
     /// Returns a received datagram's buffer to the group, once its octets have been read.
     pub fn give_back(endpoint: *Endpoint, event: Event) void {
         assert(event.user_data == receive_user_data and event.flags.buffer);
-        endpoint.loop.give_back_buffer(group_id, event.flags.buffer_id);
+        endpoint.loop.give_back_buffer(endpoint.buffer_group, event.flags.buffer_id);
     }
 
     /// Ends the receive, waits for every operation's final event, closes the socket and the loop.

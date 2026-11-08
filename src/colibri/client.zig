@@ -84,7 +84,7 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         udp: datagram_socket.DatagramSocket,
         /// The loop, and each TCP slot's socket and what the client holds for it
         /// (`client_tcp.zig`).
-        loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+        loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment),
         loop: rotor.Loop,
         events: [loop_options.operations]rotor.Event,
         sockets: [tcp_connections]socket_module.Socket,

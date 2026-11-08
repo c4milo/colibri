@@ -28,7 +28,7 @@ pub fn run_loop(state: anytype, handler: anytype, comptime options: rotor.Loop.O
     assert(!state.ran);
     state.ran = true;
     defer state.udp.close();
-    try state.loop.init(&state.loop_memory, options);
+    try state.loop.init(&state.loop_memory, &options);
     defer end(state);
     try begin(state);
     const Run = struct { client: @TypeOf(state), handler: @TypeOf(handler) };

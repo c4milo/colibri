@@ -41,7 +41,7 @@ pub const ServerConfig = struct {
 pub const InitError = identity_module.LoadError || server_loop.BindError || rotor.sync.SocketError;
 
 pub const RunError = rotor.Loop.InitError || rotor.Loop.TickError || rotor.Loop.DrainError ||
-    rotor.Loop.ProvideError || server.StartError;
+    datagram_socket.StartError || server.StartError;
 
 /// A server of the default capacity.
 pub const Server = ServerOf(.{});
@@ -64,7 +64,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
             assert(tcp_connections < datagram_socket.send_user_data_last >> socket_module.kind_bits);
         }
 
-        loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+        loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment),
         config: ServerConfig,
         identity: identity_module.Storage,
         engine_config: server.Config,
@@ -155,7 +155,7 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         pub fn run(self: *Self, router: anytype, context: anytype) RunError!void {
             assert(self.listener_open);
             defer close_sockets(self);
-            try self.loop.init(&self.loop_memory, loop_options);
+            try self.loop.init(&self.loop_memory, &loop_options);
             defer server_loop.end(self);
             server_loop.reset(self);
             // The server issues no ticket unless the program gave a ticket key, so the instant in

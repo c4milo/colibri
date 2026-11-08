@@ -151,7 +151,7 @@ const Running = struct { server: *TestServer, router: *Router, context: *void };
 /// Starts the loop and the engine of `test_server` on the test's thread, as `run` starts them.
 /// The test then runs each turn itself, so it names the instant of each. Test-only.
 fn start_loop() !Running {
-    try test_server.loop.init(&test_server.loop_memory, .{ .operations = test_server.events.len });
+    try test_server.loop.init(&test_server.loop_memory, &.{ .operations = test_server.events.len });
     server_loop.reset(&test_server);
     try test_server.engine.init(&test_server.engine_config, test_server.config.random.?, .{ .ns = test_server.now_ns, .unix_seconds = 0 });
     return .{ .server = &test_server, .router = &router, .context = &context };
