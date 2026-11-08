@@ -12801,6 +12801,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         in 94% of them, and 11.7 records held a call.
       - The owner admitted the step on 2026-11-08: no input loses, and the gain grows with the
         requests a connection holds, when a server falls behind.
+    - **29d.20, a stream's last block before the index, dropped, 2026-11-08.** The judge's
+      profile of main f12bfa99 (run 42442344863) gave `stream_incoming.Storage.find` 2.5% of
+      h3-many's samples. Callgrind on a laptop, over 4,000 GETs on 16 connections, counted about
+      320 instructions a request in it, in about five calls a request.
+      - The change tried: each `Incoming` kept the block it last found or took, and a lookup
+        checked it before the index, as an amendment of decision 61. Six mutations were each
+        CAUGHT, and `tools/ci.sh` passed.
+      - Callgrind on the laptop counted 34,161 to 34,092 instructions a request. The judge, run
+        42519278238, `--h3 --base 130b9e69` at 10 rounds: h3-many 0.9977 and 1.0038, and h3-one
+        0.9982 and 1.0001, each within the noise.
+      - The owner dropped the step on 2026-11-08: the gain is too small to measure, so decision
+        61 stays as it is. Do not try the last block again without a new measure.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
