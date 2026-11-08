@@ -29,9 +29,9 @@ The architecture depends on every rule in this section.
 1. **colibri owns no I/O.** No socket, no file descriptor, no `poll`, no thread. Frames and heads
    are written into storage the caller owns and parsed out of bytes the caller has already read.
    Every function that would block instead returns a value naming the I/O it needs. Do not
-   make a syscall in this repository. Decision 150 makes one exception: the `colibri` module binds,
-   reads its certificate files and runs the loop on Rotor's own calls. Every other module stays
-   as this rule says.
+   make a syscall in this repository. Decision 150 makes one exception: the `.private` kind of the
+   `colibri` module binds and runs the loop on Rotor's own calls, in `src/colibri/rotor_host*.zig`
+   alone (decision 159). Every other module stays as this rule says.
 2. **chapulin is colibri's crypto, and colibri holds no key.** The library links chapulin as its
    TLS stack and its packet protection, pinned by commit and hash in `build.zig.zon` and compiled
    by colibri's build (decision 94, which amends decisions 8, 9, 10 and 48; design §8 step 16
@@ -299,8 +299,9 @@ tree. Design §11 holds the method and the numbers.
   calls `probe()` and depends on stdx itself to do it, and `tls` imports the module for its `Cpu`
   type alone and never probes. The package does not export it (decision 97 as amended).
   It has no allocator at all (decision 35). `server` imports stdx's `json` module too (decision
-  151), and `colibri` imports Rotor for its loop, which it drives through Rotor's own calls
-  (decision 150 as amended). Five more are ruled for the
+  151), and `colibri` imports Rotor for the loop of its `.private` kind, in
+  `src/colibri/rotor_host*.zig` alone. Rotor is lazy: a dependent fetches it only when it passes
+  `.rotor = true` (decisions 150 and 159). Five more are ruled for the
   tooling and the tests, and the library imports none of them except as above: pepegrillo, the
   tooling `tools/` builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and
   `examples/` run on (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
@@ -696,7 +697,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   because the library imports it; a bump is `zig fetch --save=stdx
   git+https://github.com/c4milo/stdx#<commit>`, to a commit whose CI passed.
   A Rotor bump is `zig fetch --save=rotor git+https://github.com/c4milo/rotor#<commit>`, and
-  `.lazy = true` must survive it too. After a pepegrillo bump with `zig
+  `.lazy = true` must survive it too (decision 159). After a pepegrillo bump with `zig
   fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm `.lazy = true`
   is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
   builds against a local pepegrillo instead of the pinned commit.
