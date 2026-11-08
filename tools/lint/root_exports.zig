@@ -68,7 +68,7 @@ const Declaration = struct {
     initializer: []const u8,
 };
 
-pub fn check(context: *report.Context, file: report.File) !void {
+pub fn check(context: *report.Context, file: *const report.File) !void {
     const module = module_of(file.path) orelse return;
     var listed = false;
     var line_number: usize = 0;
@@ -80,10 +80,10 @@ pub fn check(context: *report.Context, file: report.File) !void {
         if (!exports_file(file.source, declaration.initializer)) continue;
         if (allowed(module, declaration)) continue;
         try context.findings.add(
-            name,
             file.path,
             line_number,
             1,
+            name,
             "the root exports the file behind {s} whole; export the names a caller uses, each" ++
                 " under its file's namespace (decision 115)",
             .{declaration.name},
@@ -91,10 +91,10 @@ pub fn check(context: *report.Context, file: report.File) !void {
     }
     if (listed) return;
     try context.findings.add(
-        name,
         file.path,
         file_line,
         1,
+        name,
         "the root has no test that lists what it exports; call public_names.expect(@This(), ...)" ++
             " (decision 115)",
         .{},

@@ -15,7 +15,7 @@
 //! points this clone's core.hooksPath at .githooks; neither is part of `zig build test`, because
 //! commit shape is a property of the history, not of the code.
 //!
-//! `zig build guide` installs pepegrillo's performance method; build/guide.zig adds the step.
+//! `zig build guide` installs pepegrillo's guides: its performance method and its API guide.
 //!
 //! The library has two dependencies: chapulin, its TLS stack (decision 94), and stdx, its gzip and
 //! deflate decoders (decision 90). Adding another needs the owner (CLAUDE.md, Ask before). The
@@ -31,7 +31,6 @@ const generated = @import("build/generated.zig");
 const lint = @import("build/lint.zig");
 const vectors = @import("build/vectors.zig");
 const examples = @import("build/examples.zig");
-const guide = @import("build/guide.zig");
 const bench = @import("build/bench.zig");
 const router_check = @import("build/router_check.zig");
 const check_steps = @import("build/check_steps.zig");
@@ -82,7 +81,10 @@ pub fn build(b: *std.Build) void {
     if (b.pkg_hash.len != 0) return;
     const pepegrillo_dependency = b.lazyDependency("pepegrillo", .{}) orelse return;
     const pepegrillo = pepegrillo_dependency.module("pepegrillo");
-    guide.add(b, pepegrillo_dependency);
+    // `zig build guide`: pepegrillo's step installs its guides, at the commit build.zig.zon pins, to
+    // zig-out/docs/: the performance method to performance/ and the API guide to api.md.
+    const pepegrillo_build = b.lazyImport(@This(), "pepegrillo") orelse return;
+    pepegrillo_build.add_guide_step(b, pepegrillo_dependency);
     // Decision 58: rotor is the loop of `src/testing/`'s UDP endpoints, and decision 150 makes it
     // the library's loop too, so `modules.add` fetches it with the target and mode this build
     // resolved. rotor's build, like this one, offers ReleaseSafe as `-Drelease`.

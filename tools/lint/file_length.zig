@@ -24,7 +24,7 @@ pub const max_lines: u32 = 500;
 /// The configuration: `.zig` and `.sh` files under `src/`, `tools/`, `build/` and `bench/`.
 pub const config: file_length.Config = .{
     .scope = .{ .extensions = &.{ ".zig", ".sh" }, .include_directories = &.{ "src", "tools", "build", "bench" } },
-    .max_lines = max_lines,
+    .lines_max = max_lines,
     .message_suffix = "; split the file",
 };
 

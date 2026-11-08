@@ -75,7 +75,7 @@ fn expect_findings(text: []const u8, expected: []const []const u8) !void {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    var findings: commit.Findings = .{ .arena = arena, .max_findings = config.max_findings };
+    var findings: commit.Findings = .{ .arena = arena, .findings_max = config.findings_max };
     try commit.lint_message_text(arena, config, &findings, "message", text);
     try testing.expectEqual(expected.len, findings.items.items.len);
     for (findings.items.items, expected) |finding, wanted| {
@@ -120,7 +120,7 @@ test "every third-person form is refused" {
         const text = try std.fmt.bufPrint(&buffer, "feat: {s} the frame reader\n", .{form});
         const wanted = try std.fmt.bufPrint(
             &wanted_buffer,
-            "violation: subject-description: \"{s}\" is a third-person form, not imperative",
+            "error: subject-description: \"{s}\" is a third-person form, not imperative",
             .{form},
         );
         try expect_findings(text, &.{wanted});
@@ -171,7 +171,7 @@ test "the message of 6e04c77 breaks one rule: its body is 143 words" {
     // the limit so this line passes would be weakening a rule to pass a test, which CLAUDE.md
     // (Ask before) puts to the owner.
     try expect_findings(head_commit_message, &.{
-        "violation: body-size: the body has 143 words, over the limit of 100",
+        "error: body-size: the body has 143 words, over the limit of 100",
     });
     const subject_end = std.mem.indexOfScalar(u8, head_commit_message, '\n').?;
     try expect_findings(head_commit_message[0 .. subject_end + 1], &.{});

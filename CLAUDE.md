@@ -317,8 +317,9 @@ Everything below exists. Change this section when a step adds or renames a comma
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
-- Guide: `zig build guide` installs pepegrillo's `docs/performance/`, the performance method,
-  from the commit `build.zig.zon` pins to `zig-out/docs/performance/` (`build/guide.zig`).
+- Guide: `zig build guide` installs pepegrillo's guides from the commit `build.zig.zon` pins:
+  the performance method to `zig-out/docs/performance/` and the API guide to
+  `zig-out/docs/api.md`. pepegrillo's `add_guide_step` adds the step.
 - Lint: `zig build lint` — cognitive complexity over `src`, `tools`, `bench`, `build/` and
   `build.zig`, then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG, outside
   `src/testing`), testing-clock (no clock in `src/testing`, decision 63), unbounded-loop,

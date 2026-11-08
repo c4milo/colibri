@@ -55,7 +55,7 @@ const length_field = "len";
 /// rather than being read wrong.
 const names_max: usize = 128;
 
-pub fn check(context: *report.Context, file: report.File) !void {
+pub fn check(context: *report.Context, file: *const report.File) !void {
     if (!scope.applies(file.path)) return;
     const tree = file.tree orelse return;
     var visitor: Visitor = .{ .tree = tree, .findings = &context.findings, .path = file.path };
@@ -75,7 +75,7 @@ const Visitor = struct {
     pub fn child(self: *Visitor, node: Node.Index) void {
         self.depth += 1;
         defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
+        std.debug.assert(self.depth <= ast.tree_depth_max);
         self.visit(node) catch |failure| {
             self.failure = failure;
         };
@@ -175,10 +175,10 @@ const Visitor = struct {
         const found = reads.found orelse return;
         const location = ast.node_location(self.tree, node);
         try self.findings.add(
-            name,
             self.path,
             location.line,
             location.column,
+            name,
             "index reads {s}, which a Reader produced; take the octets through core.Reader," ++
                 " which checks the bound (invariant 3)",
             .{found},
@@ -240,7 +240,7 @@ const Reads = struct {
         if (self.found != null) return;
         self.depth += 1;
         defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
+        std.debug.assert(self.depth <= ast.tree_depth_max);
         const tree = self.visitor.tree;
         switch (tree.nodeTag(node)) {
             .identifier => {

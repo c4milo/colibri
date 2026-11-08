@@ -23,15 +23,25 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("usage: lean [write]\n", .{});
         std.process.exit(exit_usage);
     };
+    var output_buffer: [std.heap.page_size_min]u8 = undefined;
     var error_buffer: [std.heap.page_size_min]u8 = undefined;
+    var out = std.Io.File.stdout().writerStreaming(init.io, &output_buffer);
     var errors = std.Io.File.stderr().writerStreaming(init.io, &error_buffer);
     defer errors.interface.flush() catch {};
-    const built = try pepegrillo.lean.run(arena, init.io, init.environ_map, .{}, &errors.interface);
+    const context: pepegrillo.Context = .{
+        .arena = arena,
+        .io = init.io,
+        .environ = init.environ_map,
+        .out = &out.interface,
+        .errors = &errors.interface,
+    };
+    const built = try pepegrillo.lean.run(&context, .{}, &.{});
     if (built != 0) std.process.exit(built);
     const vectors = if (std.mem.eql(u8, mode, "--write"))
-        try pepegrillo.lean.run(arena, init.io, init.environ_map, .{ .lake_arguments = &.{ "exe", "vectors", "--write", vector_directory } }, &errors.interface)
+        try pepegrillo.lean.run(&context, .{ .lake_arguments = &.{ "exe", "vectors", "--write", vector_directory } }, &.{})
     else
-        try pepegrillo.lean.run(arena, init.io, init.environ_map, .{ .lake_arguments = &.{ "exe", "vectors", "--check", vector_directory } }, &errors.interface);
+        try pepegrillo.lean.run(&context, .{ .lake_arguments = &.{ "exe", "vectors", "--check", vector_directory } }, &.{});
+    out.interface.flush() catch {};
     errors.interface.flush() catch {};
     std.process.exit(vectors);
 }

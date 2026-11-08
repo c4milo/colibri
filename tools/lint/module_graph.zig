@@ -79,17 +79,17 @@ pub fn applies(path: []const u8) bool {
     return paths.ends_with_path(path, build_modules_path);
 }
 
-pub fn check(context: *report.Context, file: report.File) !void {
+pub fn check(context: *report.Context, file: *const report.File) !void {
     if (!applies(file.path)) return;
     const tree = file.tree orelse return;
     var path_buffer: [max_path_bytes]u8 = undefined;
     const check_path = try check_path_beside(&path_buffer, file.path);
-    const check_source = context.read_file(check_path) orelse {
+    const check_source = context.read_file(check_path) catch {
         return context.findings.add(
-            name,
             check_path,
             file_line,
             1,
+            name,
             "cannot read {s}; the check's {s} list is what proves the edge (invariant 26)",
             .{ check_path, check_list_name },
         );
@@ -97,7 +97,7 @@ pub fn check(context: *report.Context, file: report.File) !void {
     var check_tree = try Ast.parse(context.arena, check_source, .zig);
     defer check_tree.deinit(context.arena);
     if (check_tree.errors.len != 0) {
-        return context.findings.add(name, check_path, file_line, 1, "{s} does not parse", .{check_path});
+        return context.findings.add(check_path, file_line, 1, name, "{s} does not parse", .{check_path});
     }
     try compare(
         context.arena,
@@ -127,10 +127,10 @@ pub fn compare(
 
     const tool_imports = try collect_tool_imports(arena, tool.tree) orelse {
         return findings.add(
-            name,
             tool.path,
             file_line,
             1,
+            name,
             "{s} declares no {s} list; the check cannot state the graph it proves (invariant 26)",
             .{ tool.path, check_list_name },
         );
@@ -158,7 +158,7 @@ const ImportCollector = struct {
     pub fn child(self: *ImportCollector, node: Node.Index) void {
         self.depth += 1;
         defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
+        std.debug.assert(self.depth <= ast.tree_depth_max);
         self.visit(node) catch |failure| {
             self.failure = failure;
         };
@@ -169,7 +169,7 @@ const ImportCollector = struct {
         if (!ast.is_call(self.tree.nodeTag(node))) return;
         var call_buffer: [1]Node.Index = undefined;
         const call = self.tree.fullCall(&call_buffer, node).?;
-        var chain_buffer: [ast.max_chain_bytes]u8 = undefined;
+        var chain_buffer: [ast.chain_len_max]u8 = undefined;
         const chain = ast.chain_text(self.tree, call.ast.fn_expr, &chain_buffer) orelse return;
         if (!std.mem.eql(u8, ast.last_segment(chain), add_import_method)) return;
         const receiver = chain[0..chain.len -| (add_import_method.len + 1)];
@@ -252,10 +252,10 @@ fn report_unexpected(
     for (entries) |entry| {
         if (holds(wanted, entry.name)) continue;
         try findings.add(
-            name,
             path,
             entry.line,
             entry.column,
+            name,
             "{s} receives \"{s}\", which the graph does not give it (decision 5, invariant 26)",
             .{ module_name, entry.name },
         );
@@ -272,10 +272,10 @@ fn report_absent(
     for (wanted) |module| {
         if (holds_entry(entries, module)) continue;
         try findings.add(
-            name,
             path,
             file_line,
             1,
+            name,
             "{s} does not receive \"{s}\", which the graph gives it (design §3)",
             .{ module_name, module },
         );

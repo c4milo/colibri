@@ -66,7 +66,7 @@ const appendix_word = " Appendix ";
 /// The comment marker a citation must follow on its line.
 const comment_marker = "//";
 
-pub fn check(context: *report.Context, file: report.File) !void {
+pub fn check(context: *report.Context, file: *const report.File) !void {
     if (!scope.applies(file.path)) return;
     const tree = file.tree orelse return;
     const tags = tree.tokens.items(.tag);
@@ -77,10 +77,10 @@ pub fn check(context: *report.Context, file: report.File) !void {
         if (is_exempt(error_name) or in_test_block(tree, token)) continue;
         if (is_cited(tree, statement_start(tags, token), token)) continue;
         try context.findings.add(
-            name,
             file.path,
             lint.ast.token_location(tree, token).line,
             lint.ast.token_location(tree, token).column,
+            name,
             "error.{s} has no RFC section comment on its check; cite the RFC and the section" ++
                 " that require it (CLAUDE.md non-negotiable 9)",
             .{error_name},
@@ -154,7 +154,7 @@ fn is_cited(tree: *const Ast, first_token: Ast.TokenIndex, return_token: Ast.Tok
 /// True when the comment lines directly above `first_line`, with no other line between, hold a
 /// citation.
 fn is_run_above_cited(source: []const u8, first_line: usize) bool {
-    var lines: lint.text.LineIterator = .{ .source = source };
+    var lines: lint.LineIterator = .{ .source = source };
     var run_cited = false;
     while (lines.next()) |line| {
         if (line.number >= first_line) break;
