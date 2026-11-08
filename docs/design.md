@@ -12731,6 +12731,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         `std.mem.indexOfScalar` fell from about 1,530 to 380.
       - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
         input loses.
+    - **29d.18, the judge, 2026-11-07.** Run 42436889568, `--h3 --base e365df44` at 10 rounds:
+      h3-many 0.9377 and 0.9417, h3-bbr-many 0.9440 and 0.9479, h3-one 0.9847 and 0.9869, and
+      h3-bbr-one 0.9857 and 0.9866, each a win. h3-many fell from 30,667 to 28,758 instructions a
+      request in job 1. Each h2 input is within the noise in both jobs, and no input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
