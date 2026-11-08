@@ -274,27 +274,80 @@ test "design §8 step 37: deinit closes the listener and the UDP socket, and wip
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
 }
 
+/// The descriptors `ip_sockets_open` reads, from 0. The system gives each new descriptor the
+/// lowest free number, so the few sockets of a test stay below it.
+const descriptors_read = 1024;
+
+/// How many descriptors below `descriptors_read` are open IP sockets: getsockname(2) gives an
+/// address for each one. A count does not depend on the number a closed socket had, which the
+/// system gives to the next file. The test reads it while no other thread of the test runs.
+fn ip_sockets_open() u32 {
+    var count: u32 = 0;
+    for (0..descriptors_read) |descriptor| {
+        if (rotor.sync.local_address(@intCast(descriptor))) |_| count += 1 else |_| {}
+    }
+    return count;
+}
+
+/// A TCP listener and a UDP socket of the test on one port of 127.0.0.1.
+const HeldPort = struct { listener: rotor.Descriptor, datagram: rotor.Descriptor, port: u16 };
+
+/// The ports `hold_port` tries. Another program can hold the UDP port of each TCP port it gets.
+const hold_port_tries = 16;
+
+/// Opens a TCP listener on a port the system chooses, then a UDP socket on that port. The listener
+/// sets SO_REUSEPORT, as the server's does: the server binds the port too, and no other program
+/// can take it before.
+fn hold_port() !HeldPort {
+    // Port 0 asks the system for a port.
+    const any_port = try server_loop.address_of("127.0.0.1", 0);
+    for (0..hold_port_tries) |_| {
+        const listener = try rotor.sync.listen(&any_port, .{ .backlog = 1, .reuse_port = true });
+        errdefer rotor.sync.close_now(listener);
+        const port = (try rotor.sync.local_address(listener)).port;
+        if (try open_datagram_unless_held(port)) |datagram| {
+            return .{ .listener = listener, .datagram = datagram, .port = port };
+        }
+        rotor.sync.close_now(listener);
+    }
+    return error.AddressInUse;
+}
+
+/// A UDP socket on `port` of 127.0.0.1, or null when another socket holds the port.
+fn open_datagram_unless_held(port: u16) !?rotor.Descriptor {
+    const address = try server_loop.address_of("127.0.0.1", port);
+    return rotor.sync.open_datagram(address.family, &address, .{}) catch |failure| switch (failure) {
+        error.AddressInUse => null,
+        else => failure,
+    };
+}
+
 test "design §8 step 37: an init whose UDP open fails closes the listener and no other socket" {
     var counter: support.Counter = .{};
-    // A UDP socket of the test holds a port, so the server's UDP open on that port fails.
-    const address = rotor.Address.ipv4(.{ 127, 0, 0, 1 }, 0);
-    const holder = try rotor.sync.open_datagram(address.family, &address, .{});
-    const held = try rotor.sync.local_address(holder);
+    // The test holds a port for TCP and UDP. The server's TCP bind shares the port, and its UDP
+    // open on that port fails.
+    const held = try hold_port();
+    defer rotor.sync.close_now(held.listener);
+    defer rotor.sync.close_now(held.datagram);
     // The number of an earlier server's UDP socket, which the program now uses for another file.
-    test_server.udp.descriptor = holder;
+    test_server.udp.descriptor = held.datagram;
+    test_server.bound_port = 0;
+    const open_before = ip_sockets_open();
     try testing.expectError(error.AddressInUse, test_server.init(.{
         .port = held.port,
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
     }));
+    // The listener was bound, so the UDP open is the step that failed.
+    try testing.expectEqual(held.port, test_server.bound_port);
     try testing.expect(!test_server.listener_open and !test_server.udp.open);
-    // getsockname(2) on the closed listener fails with EBADF, which Rotor reports as unexpected.
-    try testing.expectError(error.Unexpected, rotor.sync.local_address(test_server.listener));
-    _ = try rotor.sync.local_address(holder);
+    // init closed the listener and the UDP socket it opened, and neither socket of the test.
+    try testing.expectEqual(open_before, ip_sockets_open());
+    _ = try rotor.sync.local_address(held.listener);
+    _ = try rotor.sync.local_address(held.datagram);
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
-    rotor.sync.close_now(holder);
 }
 
 test {
