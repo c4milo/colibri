@@ -458,6 +458,11 @@ test "decision 115: the connection's public functions are the calls a program ma
     });
 }
 
+test "decision 158 ruling 16: a connection's options name the server role by default" {
+    const role_field = std.meta.fieldInfo(Connection.Options, .role);
+    try std.testing.expectEqual(Role.server, role_field.defaultValue().?);
+}
+
 test {
     _ = @import("connection_test.zig");
     _ = @import("connection_crypto.zig");

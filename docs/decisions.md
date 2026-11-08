@@ -6839,11 +6839,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
            `server.constants.limits`, as ruling 1 of decision 137 says. The owner ruled this on
            2026-11-08. An earlier text put them in `policy`. That was an error in the question
            that the session asked, and not the owner's ruling.
-         - The review of 45o found one more difference, which stays open for the owner (design §8
-           step 45):
-           - `quic.Connection.Options` keeps `role`, `local_parameters`, `now_ns` and `identity`
-             with no default, and `quic.Connection.IdentityOptions` keeps
-             `local_initial_source` and `original_destination` with no default.
+         - `role` in `quic.Connection.Options` is `.server` by default too, as in h11, h2 and
+           h3. The owner ruled this on 2026-11-08.
+         - The rule has one exception. `local_parameters`, `now_ns` and `identity` in
+           `quic.Connection.Options`, and `local_initial_source` and `original_destination` in
+           `quic.Connection.IdentityOptions`, keep no default. An instant, the transport
+           parameters and the connection IDs come from the caller, and no value is right to
+           assume.
          - Five types in a public signature get a public name, as ruling 6 rules:
            `qpack.Encoder.Settings`, `h11.Connection.AttachError`, `h11.Connection.Received`,
            `h11.Connection.Closed` and `h2.Connection.Sent`.

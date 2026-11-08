@@ -13,9 +13,13 @@ const Role = crypto.Role;
 const Parameters = transport_parameters.Parameters;
 
 /// What a connection is built from. Everything here is the caller's decision, including the
-/// instant, which no file under `src/` may read.
+/// instant, which no file under `src/` may read. Each field has a default except
+/// `local_parameters`, `now_ns` and `identity`, which only the caller knows (decision 158 ruling
+/// 16).
 pub const Options = struct {
-    role: Role,
+    /// The end of the connection this side is. A server is the default, as in h11, h2 and h3
+    /// (decision 158 ruling 16).
+    role: Role = .server,
     /// The version the connection starts in (RFC 9368 §2): a client's choice, which its TLS session
     /// starts in too, or the version of the first flight a server accepted.
     version: crypto.suite.Version = .v1,
