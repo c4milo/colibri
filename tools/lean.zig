@@ -27,7 +27,6 @@ pub fn main(init: std.process.Init) !void {
     var error_buffer: [std.heap.page_size_min]u8 = undefined;
     var out = std.Io.File.stdout().writerStreaming(init.io, &output_buffer);
     var errors = std.Io.File.stderr().writerStreaming(init.io, &error_buffer);
-    defer errors.interface.flush() catch {};
     const context: pepegrillo.Context = .{
         .arena = arena,
         .io = init.io,
@@ -36,12 +35,18 @@ pub fn main(init: std.process.Init) !void {
         .errors = &errors.interface,
     };
     const built = try pepegrillo.lean.run(&context, .{}, &.{});
-    if (built != 0) std.process.exit(built);
+    if (built != 0) exit(&out.interface, &errors.interface, built);
     const vectors = if (std.mem.eql(u8, mode, "--write"))
         try pepegrillo.lean.run(&context, .{ .lake_arguments = &.{ "exe", "vectors", "--write", vector_directory } }, &.{})
     else
         try pepegrillo.lean.run(&context, .{ .lake_arguments = &.{ "exe", "vectors", "--check", vector_directory } }, &.{});
-    out.interface.flush() catch {};
-    errors.interface.flush() catch {};
-    std.process.exit(vectors);
+    exit(&out.interface, &errors.interface, vectors);
+}
+
+/// Writes what `out` and `errors` hold, then exits with `status`. `std.process.exit` runs no
+/// `defer`, so a line still in a buffer is lost without this.
+fn exit(out: *std.Io.Writer, errors: *std.Io.Writer, status: u8) noreturn {
+    out.flush() catch {};
+    errors.flush() catch {};
+    std.process.exit(status);
 }
