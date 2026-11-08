@@ -313,6 +313,13 @@ fn hold_port() !HeldPort {
     return error.AddressInUse;
 }
 
+/// Closes `descriptor` when it is still a socket with an address, so that a test whose code under
+/// test closed it fails on its own check and not on a second close.
+fn close_if_open(descriptor: rotor.Descriptor) void {
+    _ = rotor.sync.local_address(descriptor) catch return;
+    rotor.sync.close_now(descriptor);
+}
+
 /// A UDP socket on `port` of 127.0.0.1, or null when another socket holds the port.
 fn open_datagram_unless_held(port: u16) !?rotor.Descriptor {
     const address = try server_loop.address_of("127.0.0.1", port);
@@ -327,8 +334,10 @@ test "design §8 step 37: an init whose UDP open fails closes the listener and n
     // The test holds a port for TCP and UDP. The server's TCP bind shares the port, and its UDP
     // open on that port fails.
     const held = try hold_port();
-    defer rotor.sync.close_now(held.listener);
-    defer rotor.sync.close_now(held.datagram);
+    // init must not close either socket. When it does, the checks below fail, and these defers
+    // must not stop the test binary on the second close.
+    defer close_if_open(held.listener);
+    defer close_if_open(held.datagram);
     // The number of an earlier server's UDP socket, which the program now uses for another file.
     test_server.udp.descriptor = held.datagram;
     test_server.bound_port = 0;
