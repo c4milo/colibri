@@ -6825,6 +6825,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - The owner ruled two more names on the same day. The CONNECTION_CLOSE frame's one
            public path is `quic.ConnectionClose`, not `quic.Close` (ruling 8). The connection ID
            options are `quic.Connection.IdentityOptions`, as ruling 6 names them.
+     16. Amended by the owner on 2026-11-07, for four findings that the review of step 45 left
+         open (design §8 step 45):
+         - `client.Response.status` keeps the default `undefined`. A program then writes
+           `client.Response = .{}` and names no status. Ruling 5 still refuses a default of 0,
+           which is not a status. A program reads `result` to know whether a final status
+           arrived.
+         - Each field of an options struct has a default. `role` in `h11.Connection.Options`,
+           `h2.Connection.Options` and `h3.Connection.Options` is `.server` by default.
+           `server.RouterOptions.requests` is 32 by default, one for each connection of
+           `server.Engine(.{})`. `response_bytes` is 256 by default, as each example passes. The
+           two values are in `server.constants.policy`, because a program may choose others.
+         - Five types in a public signature get a public name, as ruling 6 rules:
+           `qpack.Encoder.Settings`, `h11.Connection.AttachError`, `h11.Connection.Received`,
+           `h11.Connection.Closed` and `h2.Connection.Sent`.
+         - `colibri.ServerConfig.endpoint` becomes `colibri.ServerConfig.engine`, as ruling 15
+           names the engine. Step 44 rebuilds `colibri.Server`, so the field changes there, in
+           44d.
 
      What the amended decisions now say:
      - Decisions 35 and 125: the comptime count of a server is `server.Engine(capacity)`, not
@@ -6840,6 +6857,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        `DecoderPoolOptions`.
      - Decisions 117 (ruling 6), 122, 127 and 150: the router is `server.Router`, and
        `colibri.Server` takes a router that `server.Router` made.
+     - Decision 150: the engine's configuration in `colibri.ServerConfig` is the field `engine`,
+       not `endpoint`, from step 44 (ruling 16).
      - Decisions 119 and 120: the engine and the pool copy what they keep of `Config`, and do
        not read the caller's `Config` while they run.
      - Decisions 124 and 126 (ruling 8): `server.Engine(capacity)` and

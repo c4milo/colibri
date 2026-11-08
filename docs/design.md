@@ -13820,6 +13820,8 @@ library.
     - Each Client and each Server on a shared loop holds one of the loop's 16 group ids until the
       loop's `deinit`. Past 16, `init` returns `error.BufferGroupsFull` (decision 156, third and
       fifth amendments).
+    - `ServerConfig.endpoint` becomes `ServerConfig.engine`, the name of the engine that it
+      configures (decision 158 ruling 16). 44d changes the field, its examples and docs/usage.md.
     - With `.private`, the configuration is `ClientConfig` or `ServerConfig`, with no `loop` and no
       `buffer_group`. colibri reserves its own group on its own loop.
     - `pool`, `random` and `unix_seconds` stay.
@@ -14306,8 +14308,9 @@ library.
         `init(pool, features)`. `Decoders.reset`, `ZstdDecoders.reset` and
         `BrotliDecoders.reset` leave the program's calls, and `storage()` stays.
       - `Headers` and `Trailers` add `Iterator`. `Event` adds `Piece`.
-      - `RequestId` becomes `enum(u64) { _ }`. `Response.status` takes `Status`, with no
-        default. `Request.never_indexed.headers` holds `[]const Header`.
+      - `RequestId` becomes `enum(u64) { _ }`. `Response.status` takes `Status`, with the
+        default `undefined` and no default of 0 (decision 158 rulings 5 and 16).
+        `Request.never_indexed.headers` holds `[]const Header`.
       - The root's list adds `Status`, `PieceEnd`, `ReceivePoolOptions` and
         `DecoderPoolOptions`, and removes `ConnectionPoolOf`, `DefaultReceivePool` and
         `DefaultDecoderPool`. The other names stay in their order.
@@ -14456,7 +14459,8 @@ library.
       `is_complete` put back, CAUGHT (the names test of `Provider`).
     - What the run found that the plan did not say:
       - The role of `h11.Connection.Options` and `h2.Connection.Options` has no default, as
-        in h3's `Options`, because each role reads and writes other messages.
+        in h3's `Options`, because each role reads and writes other messages. Decision 158
+        ruling 16 later gave each `role` the default `.server`.
       - `h11.Connection.Failure` holds `RequestTimeout` and `SendTimeout`, which the server's
         deadlines pass to `fail`.
       - `h2.frame` gained a names test, so that a name left out of the namespace fails a test.
@@ -14471,19 +14475,36 @@ library.
       - The comments and the private names of `src/testing/` say "engine" for the engine. The
         simulator keeps "endpoint", because its `endpoint` check names the command and its
         worlds.
-    - What the review left open, for the owner:
-      - `client.Response.status` has the default `undefined`. Ruling 5 refuses a default of 0.
-        With no default, each program that writes `client.Response = .{}` must name the field.
+    - What the review left open:
       - `colibri.Server` keeps `config` and `engine_config`. It fills `engine_config` from the
         identity, and after the bind, and the engine's `init` runs in `run`. Step 44 moves it.
-      - `colibri.ServerConfig.endpoint` keeps its name, which decision 150 gives the field.
-      - These options have no default, and no decision names the reason: `role` in
-        `h11.Connection.Options` and `h2.Connection.Options`, and `requests` and
-        `response_bytes` in `server.RouterOptions`.
-      - These types are in a public signature, and step 45 gives them no public name (ruling
-        6): `qpack`'s `Settings`, which `Encoder.on_settings` takes; h11's `AttachError`,
-        `Received` and `Closed`; and h2's `Sent`, which `write_request` returns.
       - The tests in `src/tls/quic/` call `QuicProvider`'s vtable, as the run found.
+    - The owner ruled four of the review's findings on 2026-11-07 (decision 158 ruling 16):
+      1. `client.Response.status` keeps the default `undefined`, so a program writes
+         `client.Response = .{}` and names no status. Ruling 5 still refuses a default of 0. This
+         changes no code.
+      2. Each field of an options struct has a default. 45o gives them:
+         - `role` is `.server` in `h11.Connection.Options`, `h2.Connection.Options` and
+           `h3.Connection.Options`.
+         - `server.RouterOptions.requests` is `router_requests_default`, 32: one request for
+           each of the 16 TCP and 16 QUIC connections of `server.Engine(.{})`.
+         - `server.RouterOptions.response_bytes` is `router_response_bytes_default`, 256, the
+           value that each example passes.
+         - The two values are in `src/server/constants_policy.zig`, because a program may choose
+           others (decision 137). A test pins each default.
+      3. Five types in a public signature get a public name (ruling 6). 45p adds each one to its
+         type and to the type's names list: `qpack.Encoder.Settings`, which
+         `Encoder.on_settings` takes; `h11.Connection.AttachError`, `Received` and `Closed`; and
+         `h2.Connection.Sent`, which `write_request` returns.
+      4. `colibri.ServerConfig.endpoint` becomes `engine`. Step 44 rebuilds `colibri.Server`, so
+         44d changes the field (step 44's entry, "The configuration").
+    - The commits of the rulings:
+      1. 45n `docs`: decision 158 ruling 16 and this entry.
+      2. 45o `refactor!`: the defaults of ruling 2.
+         - Mutations: each default changed, `role` to `.client` and each count by one. The test
+           of the default must fail.
+      3. 45p `feat!`: the five names of ruling 3.
+         - Mutation: each name removed from its type. The type's names test must fail.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
