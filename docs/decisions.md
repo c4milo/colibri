@@ -6594,6 +6594,27 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        Rotor's example gives a library.
      - The field on `Client` alone. A task in `Server` would then break its configuration.
 
+     Amended a seventh time, on 2026-11-08, from Rotor's tag. This amendment records facts and
+     makes no new colibri ruling:
+     1. Rotor's `v0.10.0` is the tag on 933985882d693e4d8b876e1403618a3fc6d989ef, and Rotor's CI
+        passed on it. It carries Rotor's decisions 26 to 30 and 32.
+     2. The tag carries the nine renames of Rotor's API audit, which amend Rotor's decision 1:
+        - `Operation.accept` takes no `multishot` flag, and `Operation.accept_multishot` is new.
+        - Each tag enum `Code` becomes `Tag`, and `Operation.code()` becomes `Operation.tag()`.
+          `rotor.Code` stays the failure code.
+        - `Registry.close_wakes` becomes `Registry.deinit`, and `Registry.loops()` becomes
+          `Registry.loop_count()`.
+        - The root exports `rotor.Offload` and `rotor.Statistics`. `Offload.memory_bytes` takes
+          the count of workers.
+        - `Loop.heartbeat()` returns a `rotor.Heartbeat` view that declares `watch` alone.
+        - A `Work` runs through `work.run(worker)`.
+        - `Loop.init` and `Loop.memory_bytes` take a `*const Options`.
+        - `Loop.AddPollerError` and `Loop.ScheduleError` are declarations of `Loop`.
+     3. Rotor's decision 30 sets two defaults: a group's shares are 100, and `task_charge_max` is
+        64. Rotor's decision 32 takes the request and the reply of a call by `*const`.
+     4. Fact 7 of the fifth amendment names `Registry.close_wakes`. The call is now
+        `Registry.deinit`, so `examples/link.zig` calls `registry.deinit()` after its loops end.
+
      Alternatives that lost:
      - Tags in `user_data`, with `LoopIds` and `Host`, in the first draft of this decision. Each
        library needs an agreed range of bits. A wrong tag takes another library's events with no

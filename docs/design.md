@@ -14109,10 +14109,12 @@ library.
 - **Step 44 — colibri on a shared Rotor loop, proposed 2026-11-06.** [Decision 156](decisions.md).
   `colibri.Client` and `colibri.Server` run on a `rotor.Loop` that the program may share with
   other libraries, such as a resolver. Only the program ticks a shared loop. It ships in
-  v0.16.0: the owner's ruling of 2026-11-08 cut v0.15.0 from main without it. Commit 44b waits for Rotor's tag: see "The Rotor bump" below. Decision 156 was
+  v0.16.0: the owner's ruling of 2026-11-08 cut v0.15.0 from main without it. Commit 44b pins
+  Rotor's tag: see "The Rotor bump" below. Decision 156 was
   amended on 2026-11-06 for Rotor's decisions 28 and 29, and again for the thread that calls
-  `shutdown`. Its fifth amendment, of 2026-11-07, records what Rotor's `v0.10.0` carries. This
-  entry follows each amendment.
+  `shutdown`. Its fifth amendment, of 2026-11-07, records what Rotor's `v0.10.0` carries. Its
+  seventh amendment, of 2026-11-08, records the tag and its renames. This entry follows each
+  amendment.
   - **The public names**, in decision 115's order:
     - The root: `client`, `server`, `constants`, `Server`, `ServerConfig`, `Identity`,
       `InitError`, `RunError`, `Client`, `ClientCapacity` and `ClientConfig`. `client` and
@@ -14335,6 +14337,9 @@ library.
       Rotor's build order is W3 (the fair tick order), decision 29, decision 30, then decision 32.
     - On 2026-11-07 Rotor had no such tag. Decision 28 was on Rotor's main, and decisions 29, 30
       and 32 were not built.
+    - Rotor's `v0.10.0` is the tag on 933985882d693e4d8b876e1403618a3fc6d989ef, and Rotor's CI
+      passed on it (decision 156, seventh amendment). It carries the nine renames of Rotor's API
+      audit. 44b changes each call site in `src/colibri/`, `src/testing/` and `examples/`.
     - The calls on main that change:
       - Each call that names a buffer group takes a `rotor.BufferGroup`, and a `u16` fails to
         compile. The calls are in `src/colibri/datagram_socket.zig` and `src/testing/udp.zig`.
@@ -14344,9 +14349,10 @@ library.
         `schedule_in` in 44d.
     - What the programs in colibri's tree add:
       - `examples/link.zig` makes a `rotor.Registry`. Since Rotor's cee1474 the registry keeps
-        each loop's wake descriptor until `Registry.close_wakes`. 44b makes `Loops.deinit` call
-        `registry.close_wakes()` after both loops end. No other program in colibri's tree makes a
-        registry: colibri's private loop, `src/testing/` and `tools/consumer/` make none.
+        each loop's wake descriptor until `Registry.deinit`, which `v0.10.0` renames from
+        `close_wakes`. 44b makes `Loops.deinit` call `registry.deinit()` after both loops end.
+        No other program in colibri's tree makes a registry: colibri's private loop,
+        `src/testing/` and `tools/consumer/` make none.
       - No program in colibri's tree declares `rotor_scheduling_groups`. A program declares it only
         to name a group by name (Rotor's decision 30, which marks the named groups "not ruled").
         colibri takes a `rotor.NamedSchedulingGroup` (the owner's rulings below), so
@@ -14365,7 +14371,8 @@ library.
     2. 44b `build(colibri)`: the Rotor bump and the memory table, with no change of behaviour.
        `src/colibri/` and `src/testing/` get each buffer group from `reserve_buffer_group`, and
        pass a `rotor.BufferGroup` to each call that names a group. `examples/link.zig` calls
-       `registry.close_wakes()` after its loops end.
+       `registry.deinit()` after its loops end. Each call site takes the nine renames of Rotor's
+       `v0.10.0`.
     3. 44c `refactor(colibri)`: the completion records and the poller on the private loop.
        `user_data.zig` leaves. The poller returns a `rotor.WaitLimit`, and `wait_ns` leaves.
        - Tests: a tick returns 0 events; each record reaches its own socket; `in_flight` is 0
