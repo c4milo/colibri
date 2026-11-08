@@ -61,6 +61,9 @@ fn MemoryOf(comptime buffer_bytes: u32, comptime coalesce: bool) type {
     };
 }
 
+/// The buffer groups an endpoint reserves on its own loop.
+const endpoint_buffer_groups = 1;
+
 pub const Endpoint = struct {
     loop: rotor.Loop,
     socket: rotor.Descriptor,
@@ -75,7 +78,10 @@ pub const Endpoint = struct {
         const Placed = @TypeOf(memory.*);
         try endpoint.loop.init(&memory.loop, &loop_options);
         errdefer endpoint.loop.deinit();
-        endpoint.buffer_group = try endpoint.loop.reserve_buffer_group();
+        // The loop was made above, and the endpoint reserves its one group, so no id is taken yet
+        // (decision 159).
+        comptime assert(endpoint_buffer_groups <= rotor.constants.buffer_groups_max);
+        endpoint.buffer_group = endpoint.loop.reserve_buffer_group() catch unreachable;
         try endpoint.loop.provide_datagram_buffers(
             endpoint.buffer_group,
             memory.group_memory(),

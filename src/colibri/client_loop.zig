@@ -1,91 +1,134 @@
-//! The loop of a `colibri.Client` (design §8 step 42), on Rotor's own calls (decision 150 ruling
-//! 6). One loop runs on the thread that calls `run` (ruling 7). Each turn:
+//! The driver of a `colibri.Client` (design §8 step 42, decision 159). It does no I/O, reads no
+//! clock and imports no Rotor: the host does each operation and calls `turn` and `complete`
+//! (`rotor_host.zig` for `.private`). Each turn:
 //! 1. passes a `shutdown` to the pool once;
-//! 2. ticks, and waits no longer than the pool's next deadline;
-//! 3. hands each event to the socket it names, fires the pool's deadlines, and reads the pool's
-//!    events;
-//! 4. steps each TCP socket an event named (`client_tcp.zig`);
-//! 5. submits what each socket needs next, and sends the datagrams the pool owes.
+//! 2. fires the pool's deadlines, and reads the pool's events;
+//! 3. steps each TCP socket a completion named (`client_tcp.zig`);
+//! 4. writes what each socket needs next, cancels each connect past its deadline, and writes the
+//!    datagrams the pool owes.
 //!
 //! The pool's events go to the program's handler: `on_finished` for each exchange that ends, and
 //! `on_connected`, when the handler declares it, for the connection that takes the exchanges.
+//!
+//! A client's `SocketId`s are its TCP sockets from 0, then its UDP socket. Its operation table
+//! holds each TCP socket's slots, then the UDP socket's.
 const std = @import("std");
 const assert = std.debug.assert;
-const rotor = @import("rotor");
 const client = @import("client");
-const constants = @import("constants.zig");
+const host = @import("host.zig");
+const operation_table = @import("operation_table.zig");
 const datagram_socket = @import("datagram_socket.zig");
+const socket_module = @import("socket.zig");
 const client_tcp = @import("client_tcp.zig");
 
-/// Runs the client `state` names on the calling thread until its pool reports `closed` and every
-/// socket has closed (`Client.run`). The UDP socket closes last, once the loop has had each
-/// operation's final event.
-pub fn run_loop(state: anytype, handler: anytype, comptime options: rotor.Loop.Options) !void {
+/// The slots of the operation table of a client with `tcp_connections` sockets, and a UDP socket
+/// when `quic` is set.
+pub fn slot_count(tcp_connections: usize, quic: bool) u32 {
+    return datagram_slot(tcp_connections) + if (quic) datagram_socket.slots else 0;
+}
+
+/// The first slot of the UDP socket, after every TCP socket's.
+pub fn datagram_slot(tcp_connections: usize) u32 {
+    return @intCast(tcp_connections * socket_module.slots_per_socket);
+}
+
+/// The id of the UDP socket, after every TCP socket's.
+pub fn datagram_id(tcp_connections: usize) host.SocketId {
+    return @enumFromInt(tcp_connections);
+}
+
+/// The size of the host's table of sockets.
+pub fn sockets_max(tcp_connections: usize) u16 {
+    return @intCast(tcp_connections + 1);
+}
+
+/// The operations a client holds in flight at most: for each TCP socket a receive, a send and a
+/// close, or its connect alone, and the UDP socket's receive and sends.
+pub fn operations_max(tcp_connections: usize, quic: bool) u32 {
+    return @intCast(tcp_connections * socket_module.operations_per_socket + if (quic) datagram_socket.operations else 0);
+}
+
+/// Runs the client `state` names on the calling thread until its pool reports `closed`, every
+/// socket has closed, and each operation had its final completion (`Client.run`). The UDP socket
+/// closes last.
+pub fn run_loop(state: anytype, handler: anytype) !void {
     const Handler = @typeInfo(@TypeOf(handler)).pointer.child;
     comptime assert(@hasDecl(Handler, "on_finished"));
     assert(state.config.random != null);
     // The pool reports `closed` once, so a second run would wait for it without end.
     assert(!state.ran);
     state.ran = true;
-    defer state.udp.close();
-    try state.loop.init(&state.loop_memory, &options);
-    defer end(state);
-    try begin(state);
+    defer state.host.close_open();
+    const now_ns = try state.host.begin();
+    defer state.host.end();
+    start(state, now_ns);
     const Run = struct { client: @TypeOf(state), handler: @TypeOf(handler) };
     var running: Run = .{ .client = state, .handler = handler };
-    while (!finished(state)) try turn(&running);
+    try state.host.run(&running, @This(), state);
 }
 
-/// Starts a run on the loop `init` prepared: the first tick, which waits for nothing, reads the
-/// clock, whose instant the run starts at.
-pub fn begin(state: anytype) !void {
-    assert(try state.loop.tick(&state.events, 0) == 0);
-    reset(state);
-    if (state.udp.open) try state.udp.start(&state.loop);
+/// Starts a run at `now_ns`, the instant `unix_seconds` counts from, with the UDP socket's receive
+/// owed.
+pub fn start(state: anytype, now_ns: u64) void {
+    reset(state, now_ns);
+    if (state.udp.served) state.udp.start(datagram_id(state.sockets.len), datagram_slot(state.sockets.len));
 }
 
-/// Ends a run, whether it finished or failed: it cancels what is in flight, waits for each final
-/// event, closes each TCP socket whose close was never submitted or did not run, and frees the loop
-/// (`socket.end_loop`).
-pub fn end(state: anytype) void {
-    @import("socket.zig").end_loop(&state.loop, &state.events, &state.sockets);
-    state.loop.deinit();
-}
-
-/// Empties what a run holds: no socket and no pending step. The caller has ticked the loop once,
-/// so its instant is the run's first.
-pub fn reset(state: anytype) void {
+/// Empties what a run holds: no socket, pending step or operation.
+pub fn reset(state: anytype, now_ns: u64) void {
     for (&state.sockets) |*socket| socket.live = false;
     state.connections = @splat(client_tcp.Connection.empty);
     state.pending = .initEmpty();
     state.touched = .initEmpty();
-    // A request made before `run` waits for the first drain, which this turn makes at once.
+    state.operations = .empty;
+    // A request made before `run` waits for the first drain, which the first turn makes at once.
     state.undrained = true;
     state.shut_down = false;
     state.closed = false;
-    state.started_ns = state.loop.now_ns();
+    state.started_ns = now_ns;
 }
 
 /// The seconds since 1970 at `now_ns`: the program's instant at the start of `run`, and the time
-/// the loop has run since. chapulin judges a chain's dates at it (RFC 5280 §4.1.2.5).
+/// the run has lasted since. chapulin judges a chain's dates at it (RFC 5280 §4.1.2.5).
 pub fn unix_seconds(state: anytype, now_ns: u64) u64 {
     return state.config.unix_seconds + (now_ns -| state.started_ns) / client.constants.nanoseconds_per_second;
 }
 
-/// One turn of the loop. See the header.
-pub fn turn(run: anytype) !void {
+/// One turn at `now_ns`. See the header.
+pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run.client;
+    var out: operation_table.Outbox = .{ .operations = operations };
     pass_shutdown(state);
-    const deadline_ns = state.pool.deadline_ns();
-    const count = try state.loop.tick(&state.events, wait_ns(state, deadline_ns, state.loop.now_ns()));
-    const now_ns = state.loop.now_ns();
-    for (state.events[0..count]) |event| on_event(run, event, now_ns);
-    const due = if (deadline_ns) |at_ns| at_ns <= now_ns else false;
+    const due = if (state.pool.deadline_ns()) |at_ns| at_ns <= now_ns else false;
     if (due) state.pool.on_instant(now_ns);
     drain(run, now_ns);
     client_tcp.serve(run, now_ns);
-    client_tcp.arm(state);
-    if (state.udp.open) state.udp.flush(&state.loop, &state.pool, now_ns);
+    client_tcp.arm(state, &out, now_ns);
+    client_tcp.cancel_late(state, &out, now_ns);
+    if (state.udp.served) state.udp.write(&out, &state.operations, !state.closed, &state.pool, now_ns);
+    return .{ .operations = out.len, .wait = wait(state, out.full) };
+}
+
+/// When the host calls `turn` next: at once while work is left, at the soonest of the pool's
+/// deadline and each connect's, or when a completion arrives.
+pub fn wait(state: anytype, full: bool) host.Wait {
+    if (full or state.undrained or state.pending.count() > 0) return .now;
+    const pool_ns = state.pool.deadline_ns();
+    const connect_ns = client_tcp.next_deadline(state);
+    if (pool_ns == null and connect_ns == null) return .none;
+    return .{ .at_ns = @min(pool_ns orelse std.math.maxInt(u64), connect_ns orelse std.math.maxInt(u64)) };
+}
+
+/// Takes one completion at `now_ns`. A completion with an id that the client does not hold is a
+/// halt (decision 159, rule 6).
+pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
+    const state = run.client;
+    const slot = state.operations.find(completion.id).?;
+    if (completion.final()) state.operations.finish(slot);
+    if (state.udp.served and state.udp.owns(slot)) return @import("client_udp.zig").complete(run, slot, completion, now_ns);
+    const index = slot / socket_module.slots_per_socket;
+    const kind: socket_module.Kind = @enumFromInt(slot % socket_module.slots_per_socket);
+    client_tcp.complete(run, index, kind, completion.result, now_ns);
 }
 
 /// Passes a `shutdown` to the pool once. A connection the shutdown ends owes its last octets, such
@@ -101,20 +144,6 @@ pub fn pass_shutdown(state: anytype) void {
     for (state.connections, 0..) |connection, slot| {
         if (connection.started) state.pending.set(slot);
     }
-}
-
-/// How long the tick after `now_ns` may wait: until `deadline_ns`, the pool's next deadline, and
-/// never longer than `stop_wait_ns_max`, so a `shutdown` from another thread takes effect. No time
-/// while work is left.
-fn wait_ns(state: anytype, deadline_ns: ?u64, now_ns: u64) u64 {
-    if (state.undrained or state.pending.count() > 0) return 0;
-    const at_ns = deadline_ns orelse return constants.limits.stop_wait_ns_max;
-    return @min(constants.limits.stop_wait_ns_max, at_ns -| now_ns);
-}
-
-fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
-    if (datagram_socket.owns(event.user_data)) return @import("client_udp.zig").on_event(run, event, now_ns);
-    client_tcp.on_event(run, event, now_ns);
 }
 
 /// Reads the pool's events until it reports none, and does what each asks. The reads are bounded
@@ -156,7 +185,7 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
         // `Client.request` takes no streamed exchange, so no exchange has pieces.
         .headers, .body, .body_taken => unreachable,
         .finished => |ended| run.handler.on_finished(state, ended),
-        // The run's end cancels the UDP socket's receive (`end`).
+        // The next turn cancels the UDP socket's receive.
         .closed => state.closed = true,
     }
 }
@@ -167,45 +196,28 @@ fn on_connected(run: anytype, connected: client.Connected) void {
     if (@hasDecl(Handler, "on_connected")) run.handler.on_connected(run.client, connected);
 }
 
-/// Whether the loop may end: the pool reported `closed`, and every TCP socket is free.
+/// Whether the run may end: the pool reported `closed`, every TCP socket is free, and each
+/// operation had its final completion (decision 159, rule 1).
 pub fn finished(state: anytype) bool {
     if (!state.closed) return false;
     for (&state.sockets) |*socket| {
         if (socket.live) return false;
     }
-    return true;
+    return state.operations.count == 0;
 }
 
 const testing = std.testing;
 
-/// The fields `unix_seconds` and `wait_ns` read, with nothing else of a client. Test-only.
+/// The fields `unix_seconds` reads, with nothing else of a client. Test-only.
 const Clock = struct {
     config: struct { unix_seconds: u64 },
     started_ns: u64,
 };
-const Waits = struct {
-    undrained: bool,
-    pending: std.bit_set.IntegerBitSet(1),
-};
 
-test "design §8 step 42: a chain is judged at the program's instant plus the loop's time since" {
+test "design §8 step 42: a chain is judged at the program's instant plus the run's time since" {
     const second_ns = client.constants.nanoseconds_per_second;
     const clock: Clock = .{ .config = .{ .unix_seconds = 1_000 }, .started_ns = 5 * second_ns };
     try testing.expectEqual(1_000, unix_seconds(&clock, 5 * second_ns));
-    // Two and a half seconds of the loop count as two whole seconds.
+    // Two and a half seconds of the run count as two whole seconds.
     try testing.expectEqual(1_002, unix_seconds(&clock, 7 * second_ns + second_ns / 2));
-}
-
-test "design §8 step 42: a tick waits for the pool's deadline, and for nothing while work is left" {
-    var waits: Waits = .{ .undrained = false, .pending = .initEmpty() };
-    const limit_ns = constants.limits.stop_wait_ns_max;
-    try testing.expectEqual(limit_ns, wait_ns(&waits, null, 0));
-    try testing.expectEqual(limit_ns / 2, wait_ns(&waits, 3 * limit_ns / 2, limit_ns));
-    try testing.expectEqual(limit_ns, wait_ns(&waits, 3 * limit_ns, 0));
-    // A socket an event named waits for its step, and so do the pool's events left unread.
-    waits.pending.set(0);
-    try testing.expectEqual(0, wait_ns(&waits, null, 0));
-    waits.pending = .initEmpty();
-    waits.undrained = true;
-    try testing.expectEqual(0, wait_ns(&waits, null, 0));
 }

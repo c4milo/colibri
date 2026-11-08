@@ -2,7 +2,6 @@
 //! thread of its own on 127.0.0.1, and the client runs on the test's thread, over h11 and h2, in
 //! cleartext and over TLS. Decision 150 ruling 7 lets these tests bind loopback.
 const std = @import("std");
-const rotor = @import("rotor");
 const client = @import("client");
 const testdata = @import("testdata");
 const support = @import("test_support.zig");
@@ -163,10 +162,12 @@ test "design §8 step 42: shutdown from another thread ends a run that has nothi
 
 test "design §8 step 42: a refused connect ends the exchange refused" {
     // A port the system gave a listener that is closed again, so no socket listens on it.
-    const address = rotor.Address.ipv4(.{ 127, 0, 0, 1 }, 0);
-    const listener = try rotor.sync.listen(&address, .{ .backlog = 1, .reuse_port = false });
-    const closed_port = (try rotor.sync.local_address(listener)).port;
-    rotor.sync.close_now(listener);
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", 0);
+    var listener = try address.listen(io, .{});
+    const closed_port = listener.socket.address.getPort();
+    listener.deinit(io);
     var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;

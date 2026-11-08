@@ -1,19 +1,21 @@
-//! A server that binds one port and runs `server.Engine` on Rotor's loop (decision 150): h11 and
-//! h2 over TCP, and h3 over QUIC on the UDP socket of the same port. A program places one, as it
-//! places an engine, and keeps it in place while it runs.
+//! A server that binds one port and runs `server.Engine` (decision 150): h11 and h2 over TCP, and
+//! h3 over QUIC on the UDP socket of the same port. A program places one, as it places an engine,
+//! and keeps it in place while it runs. Its driver (`server_loop.zig`) does no I/O, and colibri's
+//! own Rotor host (`rotor_host.zig`) binds and runs the loop (decision 159).
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
 const tls = @import("tls");
-const rotor = @import("rotor");
-const constants = @import("constants.zig");
 const identity_module = @import("identity.zig");
 const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_loop = @import("server_loop.zig");
 const server_udp = @import("server_udp.zig");
 const datagram_socket = @import("datagram_socket.zig");
-const entropy = @import("entropy.zig");
+const operation_table = @import("operation_table.zig");
+const errors = @import("errors.zig");
+const rotor_host = @import("rotor_host.zig");
+const entropy = @import("rotor_host_entropy.zig");
 
 const Identity = identity_module.Identity;
 
@@ -33,15 +35,14 @@ pub const ServerConfig = struct {
     /// operating system's entropy (decision 150 ruling 9).
     random: ?tls.Random = null,
     /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its `ecn`:
-    /// the server's loop reads each datagram's ECN codepoint and sets the one the engine names
+    /// the server's host reads each datagram's ECN codepoint and sets the one the engine names
     /// (decision 68).
     endpoint: server.Config = .{},
 };
 
-pub const InitError = identity_module.LoadError || server_loop.BindError || rotor.sync.SocketError;
+pub const InitError = identity_module.LoadError || errors.BindError;
 
-pub const RunError = rotor.Loop.InitError || rotor.Loop.TickError || rotor.Loop.DrainError ||
-    datagram_socket.StartError || server.StartError;
+pub const RunError = errors.RunError;
 
 /// A server of the default capacity.
 pub const Server = ServerOf(.{});
@@ -53,18 +54,14 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
 
         const tcp_connections = capacity.tcp_connections;
         const Bits = std.bit_set.IntegerBitSet(tcp_connections);
-        /// The operations the loop holds in flight: an accept, for each socket a receive, a send,
-        /// a close and the shutdown of a staged close (decision 160), and the UDP socket's receive
-        /// and sends.
-        const loop_options: rotor.Loop.Options = .{
-            .operations = tcp_connections * socket_module.operations_per_socket + 1 + datagram_socket.operations,
-        };
+        /// colibri's own Rotor host holds each operation of the driver, and the shutdown of each
+        /// socket's write side for a staged close, which the host contract has no operation for
+        /// (decision 160).
+        const Host = rotor_host.Host(server_loop.sockets_max(tcp_connections), server_loop.operations_max(tcp_connections) + tcp_connections, capacity.quic_connections > 0);
         comptime {
-            assert(tcp_connections > 0 and loop_options.operations <= rotor.constants.batch_max);
-            assert(tcp_connections < datagram_socket.send_user_data_last >> socket_module.kind_bits);
+            assert(tcp_connections > 0);
         }
 
-        loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment),
         config: ServerConfig,
         identity: identity_module.Storage,
         engine_config: server.Config,
@@ -73,43 +70,46 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         engine: server.Engine(capacity),
         entries: [tcp_connections]pump.Entry,
         entry_of: [tcp_connections]?u32,
-        /// The loop, its listener and its sockets (`server_loop.zig`).
-        loop: rotor.Loop,
-        events: [loop_options.operations]rotor.Event,
-        listener: rotor.Descriptor,
-        /// Whether `listener` is open: `init` opens it, and `run` or `deinit` closes it once.
-        listener_open: bool,
-        bound_port: u16,
-        accepting: bool,
+        /// The TCP sockets, the UDP socket and the operations in flight (`server_loop.zig`).
         sockets: [tcp_connections]socket_module.Socket,
-        /// The UDP socket, open when the server has an identity and QUIC slots (design §8 step
-        /// 37c). `run` or `deinit` closes it once.
+        /// The UDP socket, which the server has when it has an identity and QUIC slots (design
+        /// §8 step 37c).
         udp: datagram_socket.DatagramSocket,
-        /// The entries an event named since their last step, and the sockets a turn changed.
+        operations: operation_table.Table(server_loop.slot_count(tcp_connections)),
+        /// The one accept: whether it is in flight, whether its cancel was written, and the
+        /// socket it takes.
+        accepting: bool,
+        accept_canceled: bool,
+        accept_into: u32,
+        /// The entries a completion named since their last step, the sockets a turn changed, and
+        /// the sockets whose write side closes now (`server_loop.take_half_close`).
         pending: Bits,
         touched: Bits,
+        half_closes: Bits,
         /// Whether a read of the engine's events stopped at its bound.
         undrained: bool,
         /// The instant of the last call into the engine.
         now_ns: u64,
-        /// `shutdown` asked, the loop passed it to the engine, and the engine reported
+        /// `shutdown` asked, the turn passed it to the engine, and the engine reported
         /// `closed`.
         stopping: std.atomic.Value(bool),
         shut_down: bool,
         over: bool,
+        /// colibri's own Rotor host: the loop and the descriptors (`rotor_host.zig`).
+        host: Host,
 
         /// Reads the identity, keeps the configuration and binds the listener, so `port()` holds
         /// the port bound once `init` returns. The server runs on Rotor's own loop (decision 150
         /// ruling 10).
         pub fn init(self: *Self, config: ServerConfig) InitError!void {
             self.config = config;
-            self.listener_open = false;
-            self.udp.open = false;
-            // A run that fails before `reset` closes the sockets that are live (`socket.close_left`).
+            self.host.prepare();
+            self.udp.served = false;
+            // A run that fails before `start` holds no live socket.
             for (&self.sockets) |*socket| socket.live = false;
             if (self.config.random == null) self.config.random = entropy.random();
             self.engine_config = config.endpoint;
-            // Decision 68: the server's own loop reads each datagram's codepoint and sets the one
+            // Decision 68: the server's own host reads each datagram's codepoint and sets the one
             // the engine names, so the engine reads ECN whatever the program set.
             self.engine_config.ecn = true;
             assert(self.engine_config.tls == null);
@@ -119,10 +119,12 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
                 self.engine_config.tls = try identity_module.load(identity, &self.identity, config.cpu, self.config.random.?);
             }
             assert((self.engine_config.tls != null) == (config.identity != null));
-            try server_loop.bind(self);
-            self.listener_open = true;
-            errdefer close_sockets(self);
-            try server_udp.open_when_served(self, capacity.quic_connections > 0);
+            try self.host.listen(server_loop.listener_id(tcp_connections), config.host, config.port);
+            errdefer self.host.close_open();
+            if (server_udp.served(self, capacity.quic_connections > 0)) {
+                try self.host.bind_datagram(server_loop.datagram_id(tcp_connections), config.host, self.host.bound_port);
+                server_udp.opened(self, self.host.bound_port);
+            }
             self.stopping = .init(false);
         }
 
@@ -133,14 +135,14 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         pub fn deinit(self: *Self) void {
             // `init` sets the source on each path, before any step that can fail.
             assert(self.config.random != null);
-            close_sockets(self);
+            self.host.close_open();
             wipe_keys(self);
         }
 
         /// The port the server bound: the configured one, or the one the system chose for 0.
         pub fn port(self: *const Self) u16 {
-            assert(self.bound_port != 0);
-            return self.bound_port;
+            assert(self.host.bound_port != 0);
+            return self.host.bound_port;
         }
 
         /// Asks a running server to stop: it takes no new connection, ends each one it holds, and
@@ -153,18 +155,14 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         /// pool of `server.Router`'s, with `context` (decision 150). The loop runs here because a
         /// Rotor loop belongs to the thread that starts it.
         pub fn run(self: *Self, router: anytype, context: anytype) RunError!void {
-            assert(self.listener_open);
-            defer close_sockets(self);
-            try self.loop.init(&self.loop_memory, &loop_options);
-            defer server_loop.end(self);
-            server_loop.reset(self);
-            // The server issues no ticket unless the program gave a ticket key, so the instant in
-            // seconds it judges tickets at is chapulin's 0 for none.
-            try self.engine.init(&self.engine_config, self.config.random.?, .{ .ns = self.now_ns, .unix_seconds = 0 });
-            if (self.udp.open) try self.udp.start(&self.loop);
+            assert(self.host.open(server_loop.listener_id(tcp_connections)));
+            defer self.host.close_open();
+            const now_ns = try self.host.begin();
+            defer self.host.end();
+            try server_loop.start(self, now_ns);
             const Run = struct { server: *Self, router: @TypeOf(router), context: @TypeOf(context) };
             var running: Run = .{ .server = self, .router = router, .context = context };
-            while (!server_loop.finished(self)) try server_loop.turn(&running);
+            try self.host.run(&running, server_loop, self);
         }
     };
 }
@@ -175,34 +173,12 @@ fn wipe_keys(state: anytype) void {
     std.crypto.secureZero(u8, &state.identity.cookie_key);
 }
 
-/// Closes each socket of a server that is open, and records it as closed.
-fn close_sockets(state: anytype) void {
-    if (state.listener_open) rotor.sync.close_now(state.listener);
-    state.listener_open = false;
-    state.udp.close();
-}
-
 const testing = std.testing;
 const testdata = @import("testdata");
 const support = @import("test_support.zig");
 
 /// A server the tests place, outside any stack frame. Test-only.
 const test_server = &@import("server_test_support.zig").test_server;
-
-test "design §8 step 37c: an identity opens UDP on the listener's port, which Alt-Svc names" {
-    var counter: support.Counter = .{};
-    try test_server.init(.{
-        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
-        .cpu = support.cpu(),
-        .random = counter.random(),
-    });
-    defer test_server.deinit();
-    try testing.expect(test_server.udp.open);
-    const local = try rotor.sync.local_address(test_server.udp.descriptor);
-    try testing.expectEqual(test_server.port(), local.port);
-    // RFC 7838 §3: the TCP connections over TLS advertise h3 on the same port.
-    try testing.expectEqual(test_server.port(), test_server.engine_config.h3_alternative.?.port);
-}
 
 test "decision 150: init reads a PEM identity into the engine's TLS values" {
     var counter: support.Counter = .{};
@@ -235,7 +211,7 @@ test "decision 150: no identity serves cleartext" {
     try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
     try testing.expectEqual(null, test_server.engine_config.tls);
     // RFC 9001 §4: QUIC needs TLS, so a cleartext server opens no UDP socket.
-    try testing.expect(!test_server.udp.open);
+    try testing.expect(!test_server.udp.served);
     try testing.expectEqual(null, test_server.engine_config.h3_alternative);
     test_server.deinit();
 }
@@ -255,114 +231,11 @@ test "decision 150: an init that fails after it reads the key wipes the key and 
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
 }
 
-test "design §8 step 37: deinit closes the listener and the UDP socket, and wipes both keys" {
-    var counter: support.Counter = .{};
-    try test_server.init(.{
-        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
-        .cpu = support.cpu(),
-        .random = counter.random(),
-    });
-    try testing.expect(test_server.udp.open);
-    const listener = test_server.listener;
-    const udp_socket = test_server.udp.descriptor;
-    try testing.expect(!std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
-    try testing.expect(!std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
-    test_server.deinit();
-    // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.
-    try testing.expectError(error.Unexpected, rotor.sync.local_address(listener));
-    try testing.expectError(error.Unexpected, rotor.sync.local_address(udp_socket));
-    try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
-    try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
-}
-
-/// The descriptors `ip_sockets_open` reads, from 0. The system gives each new descriptor the
-/// lowest free number, so the few sockets of a test stay below it.
-const descriptors_read = 1024;
-
-/// How many descriptors below `descriptors_read` are open IP sockets: getsockname(2) gives an
-/// address for each one. A count does not depend on the number a closed socket had, which the
-/// system gives to the next file. The test reads it while no other thread of the test runs.
-fn ip_sockets_open() u32 {
-    var count: u32 = 0;
-    for (0..descriptors_read) |descriptor| {
-        if (rotor.sync.local_address(@intCast(descriptor))) |_| count += 1 else |_| {}
-    }
-    return count;
-}
-
-/// A TCP listener and a UDP socket of the test on one port of 127.0.0.1.
-const HeldPort = struct { listener: rotor.Descriptor, datagram: rotor.Descriptor, port: u16 };
-
-/// The ports `hold_port` tries. Another program can hold the UDP port of each TCP port it gets.
-const hold_port_tries = 16;
-
-/// Opens a TCP listener on a port the system chooses, then a UDP socket on that port. The listener
-/// sets SO_REUSEPORT, as the server's does: the server binds the port too, and no other program
-/// can take it before.
-fn hold_port() !HeldPort {
-    // Port 0 asks the system for a port.
-    const any_port = try server_loop.address_of("127.0.0.1", 0);
-    for (0..hold_port_tries) |_| {
-        const listener = try rotor.sync.listen(&any_port, .{ .backlog = 1, .reuse_port = true });
-        errdefer rotor.sync.close_now(listener);
-        const port = (try rotor.sync.local_address(listener)).port;
-        if (try open_datagram_unless_held(port)) |datagram| {
-            return .{ .listener = listener, .datagram = datagram, .port = port };
-        }
-        rotor.sync.close_now(listener);
-    }
-    return error.AddressInUse;
-}
-
-/// Closes `descriptor` when it is still a socket with an address, so that a test whose code under
-/// test closed it fails on its own check and not on a second close.
-fn close_if_open(descriptor: rotor.Descriptor) void {
-    _ = rotor.sync.local_address(descriptor) catch return;
-    rotor.sync.close_now(descriptor);
-}
-
-/// A UDP socket on `port` of 127.0.0.1, or null when another socket holds the port.
-fn open_datagram_unless_held(port: u16) !?rotor.Descriptor {
-    const address = try server_loop.address_of("127.0.0.1", port);
-    return rotor.sync.open_datagram(address.family, &address, .{}) catch |failure| switch (failure) {
-        error.AddressInUse => null,
-        else => failure,
-    };
-}
-
-test "design §8 step 37: an init whose UDP open fails closes the listener and no other socket" {
-    var counter: support.Counter = .{};
-    // The test holds a port for TCP and UDP. The server's TCP bind shares the port, and its UDP
-    // open on that port fails.
-    const held = try hold_port();
-    // init must not close either socket. When it does, the checks below fail, and these defers
-    // must not stop the test binary on the second close.
-    defer close_if_open(held.listener);
-    defer close_if_open(held.datagram);
-    // The number of an earlier server's UDP socket, which the program now uses for another file.
-    test_server.udp.descriptor = held.datagram;
-    test_server.bound_port = 0;
-    const open_before = ip_sockets_open();
-    try testing.expectError(error.AddressInUse, test_server.init(.{
-        .port = held.port,
-        .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
-        .cpu = support.cpu(),
-        .random = counter.random(),
-    }));
-    // The listener was bound, so the UDP open is the step that failed.
-    try testing.expectEqual(held.port, test_server.bound_port);
-    try testing.expect(!test_server.listener_open and !test_server.udp.open);
-    // init closed the listener and the UDP socket it opened, and neither socket of the test.
-    try testing.expectEqual(open_before, ip_sockets_open());
-    _ = try rotor.sync.local_address(held.listener);
-    _ = try rotor.sync.local_address(held.datagram);
-    try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
-    try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));
-}
-
 test {
     _ = @import("server_tcp_test.zig");
-    _ = @import("server_deinit_test.zig");
+    _ = @import("rotor_host_server_test.zig");
     _ = @import("server_udp_test.zig");
     _ = @import("server_stream_test.zig");
+    _ = @import("fake_host_test.zig");
+    _ = @import("server_half_close_test.zig");
 }

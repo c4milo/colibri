@@ -1,19 +1,21 @@
-//! A client that runs a `client.ConnectionPool` on Rotor's loop (decision 153 ruling 8, design §8
-//! step 42): h11 and h2 over TCP, and h3 over QUIC on a UDP socket. It is the counterpart of
-//! `colibri.Server`. It owns the TCP sockets, the UDP socket, the loop and its clock, and the pool.
-//! A program places one, hands it requests, and keeps it in place while it runs.
+//! A client that runs a `client.ConnectionPool` (decision 153 ruling 8, design §8 step 42): h11
+//! and h2 over TCP, and h3 over QUIC on a UDP socket. It is the counterpart of `colibri.Server`. It
+//! owns the TCP sockets, the UDP socket, and the pool. Its driver (`client_loop.zig`) does no I/O,
+//! and colibri's own Rotor host (`rotor_host.zig`) opens the sockets and runs the loop and its
+//! clock (decision 159). A program places one, hands it requests, and keeps it in place while it
+//! runs.
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
 const tls = @import("tls");
-const rotor = @import("rotor");
-const entropy = @import("entropy.zig");
-const server_loop = @import("server_loop.zig");
 const datagram_socket = @import("datagram_socket.zig");
 const socket_module = @import("socket.zig");
+const operation_table = @import("operation_table.zig");
 const client_tcp = @import("client_tcp.zig");
 const client_loop = @import("client_loop.zig");
 const server_module = @import("server.zig");
+const rotor_host = @import("rotor_host.zig");
+const entropy = @import("rotor_host_entropy.zig");
 
 /// Where a client connects and how its pool runs. The program keeps each slice the pool's
 /// configuration names alive while the client runs: the authority, the TLS anchors and pins, and
@@ -26,9 +28,8 @@ pub const ClientConfig = struct {
     port: u16 = 443,
     /// What the pool starts from: the authority, the protocols, the TLS value, the codings and the
     /// timeouts. `init` sets its `tcp_connections` and `requests` to the client's own counts, and
-    /// sets its `ecn`, because the client's loop reads and sets each datagram's ECN codepoint
-    /// (decision 68). `timeouts.connect_ns` bounds each TCP connect, to one day at most, the
-    /// longest deadline Rotor takes.
+    /// sets its `ecn`, because the client's host reads and sets each datagram's ECN codepoint
+    /// (decision 68). `timeouts.connect_ns` bounds each TCP connect.
     pool: client.Config,
     /// The source each TLS session and each QUIC connection draws from. Null draws from the
     /// operating system's entropy (decision 150 ruling 9).
@@ -62,13 +63,9 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         const ReceivePool = receive_pool_type(capacity.quic);
         const tcp_connections = capacity.tcp_connections;
         const Bits = std.bit_set.IntegerBitSet(tcp_connections);
-        /// The operations the loop holds in flight: for each TCP socket a receive, a send and a
-        /// close, or its connect alone, and the UDP socket's receive and sends.
-        const loop_options: rotor.Loop.Options = .{
-            .operations = tcp_connections * socket_module.operations_per_socket + udp_operations(capacity.quic),
-        };
+        const Host = rotor_host.Host(client_loop.sockets_max(tcp_connections), client_loop.operations_max(tcp_connections, capacity.quic), capacity.quic);
         comptime {
-            assert(capacity_valid(capacity, loop_options));
+            assert(capacity_valid(capacity));
         }
 
         config: ClientConfig,
@@ -80,52 +77,54 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         pool_memory: [pool_memory_len]u8 align(Pool.memory_alignment),
         /// The pool each QUIC connection holds the server's unread octets in (decision 61).
         receive_pool: ReceivePool,
-        /// The UDP socket, open when the pool offers QUIC. `run` or `deinit` closes it once.
+        /// The UDP socket, which the client has when the pool offers QUIC.
         udp: datagram_socket.DatagramSocket,
-        /// The loop, and each TCP slot's socket and what the client holds for it
-        /// (`client_tcp.zig`).
-        loop_memory: [rotor.Loop.memory_bytes(&loop_options)]u8 align(rotor.memory_alignment),
-        loop: rotor.Loop,
-        events: [loop_options.operations]rotor.Event,
+        /// Each TCP slot's socket and what the client holds for it (`client_tcp.zig`), and the
+        /// operations in flight.
         sockets: [tcp_connections]socket_module.Socket,
         connections: [tcp_connections]client_tcp.Connection,
-        /// The sockets an event named since their last step, and the sockets a turn changed.
+        operations: operation_table.Table(client_loop.slot_count(tcp_connections, capacity.quic)),
+        /// The sockets a completion named since their last step, and the sockets a turn changed.
         pending: Bits,
         touched: Bits,
         /// Whether a read of the pool's events stopped at its bound, or a call left events to
         /// read.
         undrained: bool,
-        /// The loop's instant when `run` started, which `unix_seconds` counts from.
+        /// The instant when `run` started, which `unix_seconds` counts from.
         started_ns: u64,
-        /// `shutdown` asked, the loop passed it to the pool, and the pool reported `closed`.
+        /// `shutdown` asked, the turn passed it to the pool, and the pool reported `closed`.
         stopping: std.atomic.Value(bool),
         shut_down: bool,
         closed: bool,
         /// `run` was called since `init`.
         ran: bool,
+        /// colibri's own Rotor host: the loop and the descriptors (`rotor_host.zig`).
+        host: Host,
 
         /// Keeps the configuration, prepares the pool, and opens the UDP socket when the pool
         /// offers QUIC: h3 allowed, a TLS value, and a client that holds QUIC (RFC 9114 §3.1).
         pub fn init(self: *Self, config: ClientConfig) !void {
             self.config = config;
-            self.udp.open = false;
+            self.host.prepare();
+            self.udp.served = false;
             self.ran = false;
-            // A run that fails before its first turn closes the sockets that are live
-            // (`socket.close_left`).
+            // A run that fails before its first turn holds no live socket.
             for (&self.sockets) |*socket| socket.live = false;
             if (self.config.random == null) self.config.random = entropy.random();
-            const address = try server_loop.address_of(config.host, 0);
-            self.addresses = .{datagram_socket.peer_address(address)};
+            self.addresses = .{try rotor_host.peer_of(config.host)};
             self.pool_config = config.pool;
             self.pool_config.tcp_connections = capacity.tcp_connections;
             self.pool_config.requests = capacity.requests;
-            // Decision 68: the client's loop reads each datagram's codepoint and sets the one the
+            // Decision 68: the client's host reads each datagram's codepoint and sets the one the
             // pool names, so the pool reads ECN whatever the program set. A pool that does not
             // read it halts on a datagram marked ECT(0), as a `colibri.Server` marks them.
             self.pool_config.ecn = true;
             const destination: client.Destination = .{ .addresses = &self.addresses, .port = config.port };
             try self.pool.init(&self.pool_memory, &self.pool_config, destination, self.receive_storage());
-            if (self.offers_quic()) try self.udp.bind(&unspecified(address.family));
+            if (self.offers_quic()) {
+                try self.host.bind_datagram_any(client_loop.datagram_id(tcp_connections), self.addresses[0]);
+                self.udp.served = true;
+            }
             self.stopping = .init(false);
             self.undrained = false;
         }
@@ -136,7 +135,7 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         pub fn deinit(self: *Self) void {
             // `init` sets the source on each path, before any step that can fail.
             assert(self.config.random != null);
-            self.udp.close();
+            self.host.close_open();
         }
 
         /// Hands the pool a request and the response it fills, and returns the exchange's id. The
@@ -148,7 +147,7 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
             // The client has no call that hands a piece or gives one back, so a streamed exchange
             // could never finish (design §8 step 42).
             assert(!message.streamed.request and !message.streamed.response);
-            // The pool takes no request after its own shutdown, which the loop passes it at its
+            // The pool takes no request after its own shutdown, which the driver passes it at its
             // next turn (`ConnectionPool.request`).
             if (self.stopping.load(.acquire)) return error.ShutDown;
             const id = try self.pool.request(message, response);
@@ -171,7 +170,7 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         /// belongs to the thread that starts it (decision 150 ruling 7). A program calls `run`
         /// once for each `init`.
         pub fn run(self: *Self, handler: anytype) server_module.RunError!void {
-            return client_loop.run_loop(self, handler, loop_options);
+            return client_loop.run_loop(self, handler);
         }
 
         /// The receive pool the pool's QUIC connections use, or null for a client with no QUIC.
@@ -192,27 +191,11 @@ fn receive_pool_type(quic: bool) type {
     return if (quic) client.ReceivePool(.{}) else void;
 }
 
-/// The operations the UDP socket holds in flight, or none for a client with no QUIC.
-fn udp_operations(quic: bool) u32 {
-    return if (quic) datagram_socket.operations else 0;
-}
-
-/// Whether each count of `capacity` is inside the pool's limits, and the loop holds every
-/// operation the client submits.
-fn capacity_valid(capacity: ClientCapacity, loop_options: rotor.Loop.Options) bool {
+/// Whether each count of `capacity` is inside the pool's limits. The host checks that its loop
+/// holds every operation the client has in flight.
+fn capacity_valid(capacity: ClientCapacity) bool {
     if (capacity.tcp_connections == 0 or capacity.tcp_connections > client.constants.limits.pool_tcp_connections_max) return false;
-    if (capacity.requests == 0 or capacity.requests > client.constants.limits.pool_requests_max) return false;
-    if (loop_options.operations > rotor.constants.batch_max) return false;
-    return capacity.tcp_connections < datagram_socket.send_user_data_last >> socket_module.kind_bits;
-}
-
-/// The address that binds a UDP socket of `family` on every interface, on a port the system
-/// chooses.
-fn unspecified(family: rotor.Address.Family) rotor.Address {
-    return switch (family) {
-        .ipv4 => rotor.Address.ipv4(@splat(0), 0),
-        .ipv6 => rotor.Address.ipv6(@splat(0), 0, 0),
-    };
+    return capacity.requests > 0 and capacity.requests <= client.constants.limits.pool_requests_max;
 }
 
 const testing = std.testing;
@@ -238,26 +221,12 @@ fn tls_pool(protocols: client.Protocols) client.Config {
     };
 }
 
-test "design §8 step 42: a client over TLS opens a UDP socket of the host's family" {
-    var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "::1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds });
-    defer test_client.deinit();
-    try testing.expect(test_client.udp.open);
-    const local = try rotor.sync.local_address(test_client.udp.descriptor);
-    try testing.expectEqual(rotor.Address.Family.ipv6, local.family);
-    try testing.expect(local.port != 0);
-    // The pool connects to the host, on the port the configuration names.
-    try testing.expectEqual(16, test_client.addresses[0].len);
-    try testing.expectEqual(1, test_client.addresses[0].octets[15]);
-    try testing.expectEqual(443, test_client.pool.values.port);
-}
-
 test "design §8 step 42: a cleartext client opens no UDP socket" {
     var counter: support.Counter = .{};
     try test_client.init(.{ .host = "127.0.0.1", .port = 8080, .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds });
     defer test_client.deinit();
     // RFC 9001 §4: QUIC needs TLS, so a cleartext pool offers TCP alone.
-    try testing.expect(!test_client.udp.open);
+    try testing.expect(!test_client.udp.served);
     try testing.expectEqual(4, test_client.addresses[0].len);
     try testing.expectEqual(127, test_client.addresses[0].octets[0]);
     try testing.expectEqual(8080, test_client.pool.values.port);
@@ -297,11 +266,11 @@ test "decision 124: a client with no QUIC refuses h3" {
     try testing.expectError(error.VersionUnavailable, tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds }));
     try tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{ .h3 = false }), .random = counter.random(), .unix_seconds = now_seconds });
     defer tcp_client.deinit();
-    try testing.expect(!tcp_client.udp.open);
+    try testing.expect(!tcp_client.udp.served);
 }
 
 test {
-    _ = @import("client_close_test.zig");
+    _ = @import("rotor_host_client_test.zig");
     _ = @import("client_tcp_test.zig");
     _ = @import("client_udp_test.zig");
 }
@@ -336,14 +305,4 @@ test "design §8 step 42: a turn passes a shutdown to the pool once, and steps e
     test_client.pending = .initEmpty();
     client_loop.pass_shutdown(test_client);
     try testing.expectEqual(0, test_client.pending.count());
-}
-
-test "design §8 step 42: deinit closes the UDP socket" {
-    var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds });
-    const udp_socket = test_client.udp.descriptor;
-    test_client.deinit();
-    // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.
-    try testing.expectError(error.Unexpected, rotor.sync.local_address(udp_socket));
-    try testing.expect(!test_client.udp.open);
 }

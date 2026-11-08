@@ -34,7 +34,7 @@ fn fetch_speaking(protocols: client.Protocols, udp: bool, count: u32, handler: *
         .unix_seconds = testdata.now_seconds,
     });
     defer test_client.deinit();
-    try testing.expect(test_client.udp.open);
+    try testing.expect(test_client.udp.served);
     try handler.request(count);
     test_client.shutdown();
     try fixture.run_within(handler, limit_ms);

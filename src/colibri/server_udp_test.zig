@@ -1,15 +1,14 @@
-//! The test of a `colibri.Server`'s UDP receive path (design §8 step 37): Rotor reports each
-//! datagram's ECN codepoint, and the server passes it to the engine. The engine must take a
-//! datagram marked ECT(0), as quic-go marks them, and must not halt the server (decision 68).
-//! Decision 150 ruling 7 lets this test bind loopback.
+//! The test of a `colibri.Server`'s UDP receive path (design §8 step 37): the host reports each
+//! datagram's ECN codepoint, and the driver passes it to the engine. The engine must take a
+//! datagram marked ECT(0), as quic-go marks them, and must not halt the server (decision 68). The
+//! test is the host: it completes the receive that the driver wrote, with bytes that it lends for
+//! the call alone (decision 159). Decision 150 ruling 7 lets this test bind loopback.
 const std = @import("std");
-const rotor = @import("rotor");
 const server = @import("server");
 const testdata = @import("testdata");
 const server_module = @import("server.zig");
-const server_udp = @import("server_udp.zig");
-const datagram_socket = @import("datagram_socket.zig");
-const pump = @import("server_pump.zig");
+const server_loop = @import("server_loop.zig");
+const host = @import("host.zig");
 const support = @import("test_support.zig");
 
 const testing = std.testing;
@@ -93,6 +92,9 @@ const client_initial = hex("c000000001088394c8f03e5157080000449e7b9aec34d1b1c98d
     "7e78bfe706ca4cf5e9c5453e9f7cfd2b8b4c8d169a44e55c88d4a9a7f9474241" ++
     "e221af44860018ab0856972e194cd934");
 
+/// The room a test's turn writes into: an accept and the receive, then the sends.
+const operations_len = 8;
+
 test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts its codepoint" {
     var counter: support.Counter = .{};
     router = .{};
@@ -102,39 +104,55 @@ test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts i
         .random = counter.random(),
     });
     defer test_server.deinit();
-    // Decision 68: the server's loop reads each codepoint, so its engine says so, whatever the
+    // Decision 68: the server's host reads each codepoint, so its engine says so, whatever the
     // program's configuration says.
     try testing.expect(test_server.engine_config.ecn);
-    try test_server.engine.init(&test_server.engine_config, test_server.config.random.?, .{ .ns = 0, .unix_seconds = 0 });
-    test_server.entry_of = @splat(null);
-    test_server.entries = @splat(.{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false });
-    test_server.pending = .initEmpty();
-    test_server.over = false;
-    var datagram = client_initial;
-    // RFC 9000 §13.4: Rotor read ECT(0) off the datagram's IP header.
-    const delivery: rotor.Delivery = .{ .bytes = &datagram, .from = .{
-        .peer = rotor.Address.ipv4(.{ 127, 0, 0, 1 }, 4433),
-        .local = undefined,
-        .segment_bytes = 0,
-        .ecn = .ect0,
-        .flags = .{ .ecn = true },
-    } };
+    try server_loop.start(&test_server, 0);
     var running: struct { server: *TestServer, router: *Router, context: *void } = .{
         .server = &test_server,
         .router = &router,
         .context = &context,
     };
-    datagram_socket.take_delivery(delivery, &running, server_udp.take, 1);
+    var operations: [operations_len]host.Operation = undefined;
+    const first = server_loop.turn(&running, 0, &operations);
+    const receive = receive_written(operations[0..first.operations]).?;
+    var datagram = client_initial;
+    // RFC 9000 §13.4: the host read ECT(0) off the datagram's IP header.
+    const loopback = [_]u8{ 127, 0, 0, 1 };
+    server_loop.complete(&running, &.{ .id = receive, .more = true, .result = .{ .datagram = .{
+        .bytes = &datagram,
+        .from = server.Address.of(&loopback, 4433),
+        .ecn = .ect_0,
+    } } }, 1);
+    // Decision 159: the host lends the bytes for `complete` alone, and may write over them next.
+    @memset(&datagram, 0);
     // RFC 9000 §13.4.1: the Initial space counts one ECT(0) packet. No program reads the count, so
     // the test reads the field of the engine's one QUIC connection.
     const transport = &test_server.engine.state.connections.connections[0].transport;
     try testing.expectEqual(1, transport.spaces[0].ecn.ect_0);
-    // The engine opened the Initial and owes the client an answer in its own Initial.
-    const sent = test_server.engine.send_datagram(&test_server.udp.datagram, 1).?;
+    // The engine opened the Initial, and the next turn sends the client its own Initial.
+    const second = server_loop.turn(&running, 1, &operations);
+    const sent = send_written(operations[0..second.operations]).?;
     try testing.expect(sent.bytes.len > 0);
     try testing.expectEqual(4433, sent.to.port);
     // RFC 9000 §13.4.2: an endpoint that reads ECN marks what it sends ECT(0) while it tests the
-    // path. The engine names ECT(0) here, and a test in `datagram_socket.zig` checks that the loop
-    // asks Rotor to set it.
+    // path. The driver names ECT(0) here, and a test in `rotor_host_udp.zig` checks that the
+    // host asks Rotor to set it.
     try testing.expectEqual(server.Ecn.ect_0, sent.ecn);
+}
+
+/// The id of the receive of datagrams among `written`, or null.
+fn receive_written(written: []const host.Operation) ?host.OperationId {
+    for (written) |operation| {
+        if (operation.kind == .receive_datagram) return operation.id;
+    }
+    return null;
+}
+
+/// The first send of datagrams among `written`, or null.
+fn send_written(written: []const host.Operation) ?@FieldType(host.Operation.Kind, "send_datagram") {
+    for (written) |operation| {
+        if (operation.kind == .send_datagram) return operation.kind.send_datagram;
+    }
+    return null;
 }

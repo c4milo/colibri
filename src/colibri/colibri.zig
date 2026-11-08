@@ -1,15 +1,26 @@
-//! colibri's networked server and client (decisions 150 and 153): the one module that binds
+//! colibri's networked server and client (decisions 150, 153 and 159): the one module that binds
 //! sockets and runs a loop, over the sans-I/O modules underneath it. A program writes
 //! `colibri.Server`, gives it a host, a port, an identity and a router, and calls `run`. It writes
 //! `colibri.Client`, gives it a host, a port and a pool's configuration, and hands it requests.
-//! Each runs on Rotor's own loop (rulings 6 and 10), one loop on the thread that calls `run`
-//! (ruling 7).
+//! Each object is a driver, which does no I/O, and a host, which does each operation the driver
+//! writes. Each runs on colibri's own Rotor host (`rotor_host.zig`), one loop on the thread that
+//! calls `run` (decision 150 ruling 7).
 pub const constants = @import("constants.zig");
 
 const files = struct {
     pub const client = @import("client.zig");
-    pub const entropy = @import("entropy.zig");
+    pub const client_loop = @import("client_loop.zig");
+    pub const client_tcp = @import("client_tcp.zig");
+    pub const client_udp = @import("client_udp.zig");
+    pub const errors = @import("errors.zig");
+    pub const host = @import("host.zig");
     pub const identity = @import("identity.zig");
+    pub const operation_table = @import("operation_table.zig");
+    pub const rotor_host = @import("rotor_host.zig");
+    pub const rotor_host_end = @import("rotor_host_end.zig");
+    pub const rotor_host_entropy = @import("rotor_host_entropy.zig");
+    pub const rotor_host_submit = @import("rotor_host_submit.zig");
+    pub const rotor_host_udp = @import("rotor_host_udp.zig");
     pub const server = @import("server.zig");
     pub const server_loop = @import("server_loop.zig");
     pub const server_pump = @import("server_pump.zig");

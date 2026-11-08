@@ -1,95 +1,91 @@
-//! The socket side of a `colibri.Server`, on Rotor's own loop (decision 150 ruling 6): it binds the
-//! listener, keeps one accept in flight while a socket is free, hands each event to the socket it
-//! names, and steps every socket an event named (`server_pump.zig`). Moved from the test-only
-//! server's `server_worker.zig` for design §8 step 37b. One loop runs on the thread that calls
-//! `run` (ruling 7).
+//! The driver of a `colibri.Server` (decision 159): it keeps one accept in flight while a socket
+//! is free, hands each completion to the socket it names, steps every socket a completion named
+//! (`server_pump.zig`), and writes the operations that each socket needs next. It does no I/O,
+//! reads no clock and imports no Rotor. The host does each operation and calls `turn` and
+//! `complete` (`rotor_host.zig` for `.private`). Moved from the test-only server's
+//! `server_worker.zig` for design §8 step 37b.
+//!
+//! A server's `SocketId`s are its TCP sockets from 0, then the listener, then the UDP socket. Its
+//! operation table holds each TCP socket's slots, the accept's, and the UDP socket's.
 const std = @import("std");
 const assert = std.debug.assert;
-const rotor = @import("rotor");
 const constants = @import("constants.zig");
+const host = @import("host.zig");
+const operation_table = @import("operation_table.zig");
 const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_udp = @import("server_udp.zig");
 const datagram_socket = @import("datagram_socket.zig");
 
-const Kind = socket_module.Kind;
-const kind_bits = socket_module.kind_bits;
-
-/// The user data of the one accept the server keeps in flight. `socket.end_loop` reads it too.
-pub const accept_user_data = socket_module.accept_user_data;
-
-pub const BindError = rotor.sync.ListenError || rotor.sync.AddressError || error{
-    /// `host` is not an IPv4 or IPv6 literal.
-    HostInvalid,
-};
-
-/// The Rotor address of `host` and `port`.
-pub fn address_of(host: []const u8, port: u16) error{HostInvalid}!rotor.Address {
-    const parsed = std.Io.net.IpAddress.parse(host, port) catch return error.HostInvalid;
-    return switch (parsed) {
-        .ip4 => |ip4| rotor.Address.ipv4(ip4.bytes, ip4.port),
-        .ip6 => |ip6| rotor.Address.ipv6(ip6.bytes, ip6.port, 0),
-    };
+/// The slots of the operation table of a server with `tcp_connections` sockets.
+pub fn slot_count(tcp_connections: usize) u32 {
+    return accept_slot(tcp_connections) + 1 + datagram_socket.slots;
 }
 
-/// Binds the listener on the configured host and port, and keeps the port the system chose for
-/// port 0. SO_REUSEPORT lets a program run more servers on one port (ruling 7).
-pub fn bind(state: anytype) BindError!void {
-    const address = try address_of(state.config.host, state.config.port);
-    state.listener = try rotor.sync.listen(&address, .{ .backlog = constants.limits.listen_backlog, .reuse_port = true });
-    errdefer rotor.sync.close_now(state.listener);
-    const local = try rotor.sync.local_address(state.listener);
-    assert(local.port != 0);
-    state.bound_port = local.port;
+/// The slot of the one accept, after every socket's.
+pub fn accept_slot(tcp_connections: usize) u32 {
+    return @intCast(tcp_connections * socket_module.slots_per_socket);
 }
 
-/// Empties what a run holds: no socket, entry or pending step, and the loop's instant as the last.
-pub fn reset(state: anytype) void {
+/// The id of the listener, after every TCP socket's.
+pub fn listener_id(tcp_connections: usize) host.SocketId {
+    return @enumFromInt(tcp_connections);
+}
+
+/// The id of the UDP socket, after the listener's.
+pub fn datagram_id(tcp_connections: usize) host.SocketId {
+    return @enumFromInt(tcp_connections + 1);
+}
+
+/// The size of the host's table of sockets: the TCP sockets, then the listener and the UDP
+/// socket.
+pub fn sockets_max(tcp_connections: usize) u16 {
+    return @intFromEnum(datagram_id(tcp_connections)) + 1;
+}
+
+/// The operations a server holds in flight at most: an accept, for each socket a receive, a send
+/// and a close, and the UDP socket's receive and sends.
+pub fn operations_max(tcp_connections: usize) u32 {
+    return @intCast(tcp_connections * socket_module.operations_per_socket + 1 + datagram_socket.operations);
+}
+
+/// Starts a run at `now_ns`: no socket, entry or pending step, the engine started, and the UDP
+/// socket's receive owed.
+pub fn start(state: anytype, now_ns: u64) !void {
+    reset(state, now_ns);
+    // The server issues no ticket unless the program gave a ticket key, so the instant in seconds
+    // it judges tickets at is chapulin's 0 for none.
+    try state.engine.init(&state.engine_config, state.config.random.?, .{ .ns = now_ns, .unix_seconds = 0 });
+    const tcp_connections = state.sockets.len;
+    if (state.udp.served) state.udp.start(datagram_id(tcp_connections), accept_slot(tcp_connections) + 1);
+}
+
+/// Empties what a run holds: no socket, entry, pending step or operation, and `now_ns` as the last
+/// instant.
+pub fn reset(state: anytype, now_ns: u64) void {
     for (&state.sockets) |*socket| socket.live = false;
     for (&state.entries) |*entry| entry.* = .{ .handle = pump.no_connection, .attached = false, .closing = false, .send_owed = false };
     state.entry_of = @splat(null);
     state.pending = .initEmpty();
     state.touched = .initEmpty();
+    state.half_closes = .initEmpty();
+    state.operations = .empty;
     state.accepting = false;
+    state.accept_canceled = false;
     state.undrained = false;
     state.shut_down = false;
     state.over = false;
-    state.now_ns = state.loop.now_ns();
+    state.now_ns = now_ns;
 }
 
-/// Ends a run, whether it finished or failed: it cancels what is in flight, waits for each final
-/// event, closes each socket whose close was never submitted or did not run, and frees the loop
-/// (`socket.end_loop`). A run that failed would otherwise leave each accepted socket open.
-pub fn end(state: anytype) void {
-    socket_module.end_loop(&state.loop, &state.events, &state.sockets);
-    state.loop.deinit();
-}
-
-/// One turn of the loop: what `prepare` does, one tick, and what `handle` does with the tick's
-/// events at the loop's instant.
-pub fn turn(run: anytype) !void {
+/// One turn at `now_ns`, in decision 159's order: a `shutdown` passed to the engine, the engine's
+/// deadlines and events, a step of each socket a completion named, and then the operations each
+/// one needs, which it writes into `operations`.
+pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run.server;
-    const deadline_ns = prepare(state);
-    const count = try state.loop.tick(&state.events, wait_ns(state, deadline_ns, state.loop.now_ns()));
-    handle(run, state.events[0..count], deadline_ns, state.loop.now_ns());
-}
-
-/// What a turn does before its tick: it passes a `shutdown` to the engine, and keeps an accept in
-/// flight while a socket is free. Returns the engine's soonest deadline.
-pub fn prepare(state: anytype) ?u64 {
-    if (state.stopping.load(.acquire) and !state.shut_down) shut_down(state);
-    arm_accept(state);
-    return state.engine.deadline_ns();
-}
-
-/// What a turn does with its tick's events at `now_ns`. It reads no clock. Each event goes to its
-/// socket, the engine gets the instant when `deadline_ns`, read before the tick, has passed, and
-/// each socket that the turn changed gets the operations it needs next. A test passes its own
-/// instant, so no clock decides when a deadline passes.
-pub fn handle(run: anytype, events: []const rotor.Event, deadline_ns: ?u64, now_ns: u64) void {
-    const state = run.server;
-    for (events) |event| on_event(run, event, now_ns);
-    const due = if (deadline_ns) |at_ns| at_ns <= now_ns else false;
+    var out: operation_table.Outbox = .{ .operations = operations };
+    if (state.stopping.load(.acquire) and !state.shut_down) shut_down(state, now_ns);
+    const due = if (state.engine.deadline_ns()) |at_ns| at_ns <= now_ns else false;
     // With no deadline due the engine has nothing to fire, so the call is skipped.
     if (due or state.undrained) {
         state.now_ns = now_ns;
@@ -97,43 +93,47 @@ pub fn handle(run: anytype, events: []const rotor.Event, deadline_ns: ?u64, now_
         pump.drain(run);
     }
     serve(run, now_ns);
-    arm(state);
-    if (state.udp.open) state.udp.flush(&state.loop, &state.engine, now_ns);
+    write_accept(state, &out);
+    arm(state, &out);
+    if (state.udp.served) state.udp.write(&out, &state.operations, !state.shut_down, &state.engine, now_ns);
+    return .{ .operations = out.len, .wait = wait(state, out.full) };
+}
+
+/// When the host calls `turn` next: at once while work is left, at the engine's next deadline, or
+/// when a completion arrives. An idle server never makes the host spin.
+pub fn wait(state: anytype, full: bool) host.Wait {
+    if (full or state.undrained or state.pending.count() > 0) return .now;
+    const at_ns = state.engine.deadline_ns() orelse return .none;
+    return .{ .at_ns = at_ns };
 }
 
 /// Stops taking connections, and asks the engine to end each one it holds: its `closed` follows
-/// once every connection has ended, and `run` then returns.
-fn shut_down(state: anytype) void {
+/// once every connection has ended, and the run then ends.
+fn shut_down(state: anytype, now_ns: u64) void {
     state.shut_down = true;
-    if (state.udp.open) state.udp.stop(&state.loop);
-    state.engine.shutdown(state.loop.now_ns());
+    state.engine.shutdown(now_ns);
     // The engine reports what the shutdown ends, and `closed` once it holds no connection. With
     // no socket to step, only a drain reads them, so this turn drains.
     state.undrained = true;
 }
 
-/// How long the tick after `now_ns` may wait: until `deadline_ns`, the soonest deadline of a
-/// connection, and never longer than Rotor's longest wait. No time while work is left, and a
-/// bounded wait while `shutdown` is asked from another thread.
-fn wait_ns(state: anytype, deadline_ns: ?u64, now_ns: u64) u64 {
-    if (state.undrained or state.pending.count() > 0) return 0;
-    const at_ns = deadline_ns orelse return constants.limits.stop_wait_ns_max;
-    return @min(constants.limits.stop_wait_ns_max, at_ns -| now_ns);
-}
-
-fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
+/// Takes one completion at `now_ns`. A completion with an id that the server does not hold is a
+/// halt (decision 159, rule 6).
+pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
     const state = run.server;
-    if (event.user_data == accept_user_data) return on_accept(run, event, now_ns);
-    if (datagram_socket.owns(event.user_data)) return server_udp.on_event(run, event, now_ns);
-    const index: usize = @intCast(event.user_data >> kind_bits);
-    const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data)));
+    const slot = state.operations.find(completion.id).?;
+    if (completion.final()) state.operations.finish(slot);
+    const tcp_connections = state.sockets.len;
+    if (slot == accept_slot(tcp_connections)) return on_accept(run, completion.result, now_ns);
+    if (state.udp.served and state.udp.owns(slot)) return server_udp.complete(run, slot, completion, now_ns);
+    const index = slot / socket_module.slots_per_socket;
+    const kind: socket_module.Kind = @enumFromInt(slot % socket_module.slots_per_socket);
     const socket = &state.sockets[index];
     assert(socket.live);
     switch (kind) {
-        .receive => socket.on_received(event),
-        .send => socket.on_sent(event),
+        .receive => socket.on_received(completion.result),
+        .send => socket.on_sent(completion.result),
         .close => socket.closed = true,
-        .shutdown => socket.on_shut_down(event),
         // A server's sockets come from its listener, so it connects none.
         .connect => unreachable,
     }
@@ -142,27 +142,39 @@ fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
     state.pending.set(index);
 }
 
-/// Keeps one accept in flight while a socket is free and the server runs. Every socket taken
-/// leaves new connections in the kernel's backlog until one frees.
-fn arm_accept(state: anytype) void {
-    if (state.accepting or state.shut_down or free_socket(state) == null) return;
-    const taken = state.loop.submit(&.{rotor.Operation.accept(accept_user_data, state.listener)}, &.{});
-    assert(taken == 1);
+/// Keeps one accept in flight while a socket is free and the server runs, and cancels it once the
+/// server shuts down. Every socket taken leaves new connections in the kernel's backlog until one
+/// frees.
+fn write_accept(state: anytype, out: *operation_table.Outbox) void {
+    const slot = accept_slot(state.sockets.len);
+    if (state.accepting) {
+        if (!state.shut_down or state.accept_canceled or !out.room()) return;
+        const target = state.operations.id(slot);
+        out.put(.{ .id = target, .kind = .{ .cancel = .{ .target = target } } });
+        state.accept_canceled = true;
+        return;
+    }
+    if (state.shut_down) return;
+    const into = free_socket(state) orelse return;
+    if (!out.room()) return;
+    out.put(.{ .id = state.operations.issue(slot), .kind = .{ .accept = .{
+        .listener = listener_id(state.sockets.len),
+        .into = @enumFromInt(into),
+    } } });
     state.accepting = true;
+    state.accept_into = @intCast(into);
 }
 
-/// Takes the socket an accept delivered into a free entry, and starts its connection.
-fn on_accept(run: anytype, event: rotor.Event, now_ns: u64) void {
+/// Takes the socket an accept delivered into the free entry it named, and starts its connection.
+fn on_accept(run: anytype, result: host.Completion.Result, now_ns: u64) void {
     const state = run.server;
     state.accepting = false;
-    const descriptor: rotor.Descriptor = @intCast(event.outcome() catch return);
-    // `arm_accept` waits for a free socket.
-    const index = free_socket(state).?;
+    if (result != .accepted) return;
+    const index: usize = state.accept_into;
     const socket = &state.sockets[index];
-    socket.open(descriptor);
-    // TCP_NODELAY: a small response leaves at once (design §8 step 13f). A socket that refuses the
-    // option is served as it is.
-    rotor.sync.set_no_delay(descriptor, true) catch {};
+    // `write_accept` named a free socket, and only an accept takes one.
+    assert(!socket.live);
+    socket.open();
     // A server that is shutting down takes no connection.
     if (state.shut_down or !pump.accept(run, index, state.engine_config.tls != null, now_ns)) socket.failed = true;
     state.pending.set(index);
@@ -186,7 +198,7 @@ fn serve(run: anytype, now_ns: u64) void {
 }
 
 /// Steps the socket at `index`: its unread octets go in, and what its connection owes is appended
-/// to its output. A socket Rotor has finished with, whose connection has ended, frees its entry.
+/// to its output. A socket the host has finished with, whose connection has ended, frees its entry.
 fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     const state = run.server;
     const socket = &state.sockets[index];
@@ -209,20 +221,55 @@ fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     if (state.entries[index].half_closing) socket.half_closing = true;
 }
 
-/// Submits what each socket this turn changed needs next.
-fn arm(state: anytype) void {
+/// Writes what each socket this turn changed needs next. A socket whose operation found no room
+/// stays changed for the next turn. A socket whose write side closes now is marked for
+/// `take_half_close`.
+fn arm(state: anytype, out: *operation_table.Outbox) void {
+    var left: @TypeOf(state.touched) = .initEmpty();
     for (0..state.sockets.len) |_| {
-        const index = state.touched.toggleFirstSet() orelse return;
+        const index = state.touched.toggleFirstSet() orelse break;
         const socket = &state.sockets[index];
-        if (socket.live) socket.arm(&state.loop, index);
+        if (!socket.live) continue;
+        if (!socket.arm(out, &state.operations, index)) left.set(index);
+        if (socket.half_close_due()) state.half_closes.set(index);
     }
+    state.touched.setUnion(left);
 }
 
-/// Whether the loop may end: the engine reported `closed`, and every socket is free.
+/// The next socket whose write side closes now, which this call marks in flight (RFC 9112 §9.6,
+/// decision 160). The host contract has no operation for a half-close, so colibri's own Rotor
+/// host asks for each one after a turn (`rotor_host.zig`), and calls `half_closed` at its end.
+pub fn take_half_close(run: anytype) ?host.SocketId {
+    const state = run.server;
+    for (0..state.sockets.len) |_| {
+        const index = state.half_closes.toggleFirstSet() orelse return null;
+        const socket = &state.sockets[index];
+        if (!socket.live or !socket.half_close_due()) continue;
+        socket.shutdown_submitted = true;
+        socket.shutting_down = true;
+        return @enumFromInt(index);
+    }
+    return null;
+}
+
+/// Takes the end of the shutdown of the write side of `socket_id` at `now_ns`. One that failed
+/// ends the connection, as a failed send does.
+pub fn half_closed(run: anytype, socket_id: host.SocketId, shut: bool, now_ns: u64) void {
+    const state = run.server;
+    const index = @intFromEnum(socket_id);
+    const socket = &state.sockets[index];
+    assert(socket.live);
+    socket.on_shut_down(shut);
+    if (socket.failed) pump.peer_closed(run, index, now_ns);
+    state.pending.set(index);
+}
+
+/// Whether the run may end: the engine reported `closed`, every socket is free, and each operation
+/// had its final completion (decision 159, rule 1).
 pub fn finished(state: anytype) bool {
     if (!state.over) return false;
     for (&state.sockets) |*socket| {
         if (socket.live) return false;
     }
-    return true;
+    return state.operations.count == 0;
 }

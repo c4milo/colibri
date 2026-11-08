@@ -14316,6 +14316,63 @@ library.
        - Bench: `bench/run.sh --base` for `h2-many` and `h3-many` on the judge. Record the
          instructions and the system calls for each request. The design estimates 20 to 40
          more instructions for each operation, under 1% of `h2-many`.
+       - Done on 2026-11-08, with no change that a program sees.
+         - The drivers are `server_loop.zig` and `client_loop.zig`. Each `turn` writes the
+           operations into the host's storage, and each `complete` takes one completion.
+           `host.zig` holds decision 159's seven types, and `operation_table.zig` holds the ids and
+           their generation byte. The root exports none of them before 44d.
+         - The host is `rotor_host.zig`, `rotor_host_submit.zig`, `rotor_host_udp.zig`,
+           `rotor_host_end.zig` and `rotor_host_entropy.zig`, which was `entropy.zig`. These files
+           and the two test files `rotor_host_server_test.zig` and `rotor_host_client_test.zig`
+           are the only files of `colibri` that import Rotor.
+         - The low 32 bits of each `user_data` are the `OperationId`. The high 32 bits are the
+           host's own tag: the kind, the `SocketId` and the `Outbound` record of a send.
+         - `InitError` is `LoadError` and colibri's `BindError`. `RunError` is
+           `server.StartError` and `Unsupported`, `PermissionDenied`, `SystemResources` and
+           `Unexpected`. `BufferGroupsFull`, `StillInFlight` and `TasksStillQueued` left it.
+           `PollersFull` was in no set on this branch. The test-only `udp.Endpoint` reserves its
+           group with `catch unreachable`.
+         - Three mechanisms changed. The driver cancels a connect at its deadline, so Rotor
+           gets no deadline. A run ends after each operation's final completion: the server
+           cancels its accept and its receive of datagrams at shutdown, and the client cancels its
+           receive once the pool closed. A connect whose socket the system refuses completes in
+           the same pass, and its close completes with no descriptor.
+         - Three points of decision 159's text differ from the code, for the owner to rule:
+           - `Completion.datagram.bytes` is `[]u8`, because QUIC unprotects in place (RFC 9001
+             §5).
+           - A `cancel` has the id of its target, and gets no completion of its own.
+           - `complete` still routes the events that the engine or the pool reports while it
+             takes a datagram, as before. 44d must decide where those events wait.
+         - Decision 160's staged close came to main while step 44 waited. The replay of
+           2026-11-10 keeps it on `.private`. The host contract has no operation for a half-close
+           yet, so colibri's own Rotor host does it:
+           - After each turn, it takes each socket whose write side closes from
+             `server_loop.take_half_close`, and submits Rotor's `shutdown` of the send side.
+           - It gives the end of each shutdown to `server_loop.half_closed`.
+           - It holds one more operation for each TCP socket.
+
+           A hosted server, which 44d adds, does no half-close. Its connection closes in one step
+           at the bound of `half_close_ns`, or when the peer closes.
+         - Mutations of that half-close, each against `zig build test-colibri`, all CAUGHT: no
+           shutdown taken; its end not given to the socket; the pump drops `half_close`; no
+           receive after the half-close; the end of a run reads the shutdown's tag as an
+           operation's; `finished` ignores a shutdown in flight; a shutdown due before the send
+           ends; no step after the shutdown's end; a due socket not marked; one shutdown taken
+           twice.
+         - On macOS arm64 (kqueue), each check returned 0: `zig fmt --check`, `zig build lint`,
+           `zig build test`, `zig build examples`, `tools/doc_snippets.sh` and
+           `tools/consumer_check.sh`. `zig build test-colibri -Dtarget=aarch64-linux-gnu`
+           compiled.
+         - Mutations, each against `zig build test-colibri`:
+           - No final completion counted: CAUGHT by the test of `operation_table.zig`. The
+             run of the loopback tests also does not return.
+           - A completion with a stale generation accepted: CAUGHT by the same test.
+           - `turn` returns `.now` when idle: CAUGHT by the fake host's deadline test.
+           - `.at_ns` one deadline late: CAUGHT by the fake host's deadline tests of the server
+             and of the client.
+           - A datagram fed after `complete` returns: CAUGHT by `server_udp_test.zig` and four
+             h3 tests of the client.
+         - The bench on the judge is not run yet.
     4. 44d `feat(colibri)!`: `Client` and `Server` as type functions of a capacity and a kind;
        `ClientOf` and `ServerOf` gone; the handler and the router at `init`; `.hosted` with
        `turn`, `complete`, `stopped`, `operations_max` and `sockets_max`; `engine` in place of

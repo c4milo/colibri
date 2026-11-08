@@ -1,7 +1,8 @@
-//! The source a `colibri.Server` draws from when its program passes none (decision 150 ruling 9):
-//! the operating system's entropy, with no state kept here, so one source serves every session.
-//! Linux gives it through the `getrandom` system call, which needs no libc. macOS gives it through
-//! `getentropy`, in the libSystem every macOS program links.
+//! The source a `.private` server or client draws from when its program passes none (decision
+//! 150 ruling 9, which decision 159 keeps for `.private` alone): the operating system's entropy,
+//! with no state kept here, so one source serves every session. Linux gives it through the
+//! `getrandom` system call, which needs no libc. macOS gives it through `getentropy`, in the
+//! libSystem every macOS program links. It is a file of colibri's own Rotor host.
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;

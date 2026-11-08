@@ -1,13 +1,13 @@
 //! The UDP socket of a `colibri.Client` (design §8 step 42): h3 over QUIC, on `datagram_socket.zig`'s
 //! socket, which a `colibri.Server` shares. Every QUIC connection of the pool sends from the one
-//! socket, which `init` opened on a port the system chose. This file starts the QUIC connection the
-//! pool asks for, and passes each datagram the socket reads to the pool.
+//! socket, which the host opened on a port the system chose. This file starts the QUIC connection
+//! the pool asks for, and passes each datagram the host read to the pool.
 const std = @import("std");
 const assert = std.debug.assert;
-const rotor = @import("rotor");
 const client = @import("client");
 const constants = @import("constants.zig");
 const datagram_socket = @import("datagram_socket.zig");
+const host = @import("host.zig");
 const client_loop = @import("client_loop.zig");
 
 comptime {
@@ -25,16 +25,15 @@ pub fn start(state: anytype, now_ns: u64) void {
     if (comptime @TypeOf(state.receive_pool) == void) {
         unreachable;
     } else {
-        assert(state.udp.open);
+        assert(state.udp.served);
         state.pool.start_quic(state.config.random.?, client_loop.unix_seconds(state, now_ns), now_ns, null) catch {};
     }
 }
 
-/// Hands an event of the UDP socket to it. The receive goes on until the run's end cancels it: a
+/// Hands a completion of the UDP socket to it. The receive goes on until the pool closes, and a
 /// pool that has closed drops each datagram it is given.
-pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
-    const state = run.client;
-    state.udp.on_event(&state.loop, event, true, run, take, now_ns);
+pub fn complete(run: anytype, slot: u32, completion: *const host.Completion, now_ns: u64) void {
+    run.client.udp.complete(slot, completion, run, take, now_ns);
 }
 
 /// Passes a datagram to the pool, then does what each event it reports asks, until it reports none.

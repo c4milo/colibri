@@ -1,0 +1,95 @@
+//! The contract between the driver of a `colibri.Server` or a `colibri.Client` and its host
+//! (decision 159). The driver holds the sockets' octets, the engine or the pool, and the
+//! program's handler. It does no I/O, reads no clock and imports no Rotor. Each turn it writes
+//! the operations that it needs into storage that the host owns, and the host gives back one
+//! completion for each. The host calls the driver again at the instant that `Wait` names.
+//!
+//! The driver never calls the host, so it holds no function pointer of the host. `.private`
+//! runs the driver on colibri's own Rotor adapter (`rotor_host.zig`), and the root exports none
+//! of these names until design §8 step 44d.
+const server = @import("server");
+
+/// A socket in colibri's table. The host maps it to its own handle.
+pub const SocketId = enum(u16) { _ };
+
+/// Names one operation in flight. It uses the low 32 bits of a host's tag alone. The high byte
+/// is a generation, so a completion with an id that colibri does not hold is a halt
+/// (`operation_table.zig`).
+pub const OperationId = enum(u32) { _ };
+
+pub const Operation = struct {
+    id: OperationId,
+    kind: Kind,
+
+    pub const Kind = union(enum) {
+        /// Open a TCP socket of the address's family, set TCP_NODELAY, and connect it.
+        connect: struct { socket: SocketId, address: server.Address },
+        /// Take one connection from `listener` into `into`, and set TCP_NODELAY.
+        accept: struct { listener: SocketId, into: SocketId },
+        /// Read into colibri's buffer. A read of 0 bytes means that the peer closed its side.
+        receive: struct { socket: SocketId, buffer: []u8 },
+        send: struct { socket: SocketId, bytes: []const u8 },
+        /// Datagrams into the host's own memory. The host may complete it many times.
+        receive_datagram: struct { socket: SocketId },
+        /// `segment_bytes` of 0 is one datagram. Otherwise each segment is one datagram, which
+        /// the host may send in one call (UDP_SEGMENT, design §8 step 13f.6).
+        send_datagram: struct {
+            socket: SocketId,
+            bytes: []const u8,
+            to: server.Address,
+            ecn: server.Ecn,
+            segment_bytes: u16,
+        },
+        close: struct { socket: SocketId },
+        /// Asks for the final completion of `target` to come early. A cancel has the id of its
+        /// target and gets no completion of its own. A target that already ended names nothing,
+        /// and the host does nothing.
+        cancel: struct { target: OperationId },
+    };
+};
+
+pub const Completion = struct {
+    id: OperationId,
+    /// True while a `receive_datagram` stays in flight. The last completion has false.
+    more: bool = false,
+    result: Result,
+
+    pub const Result = union(enum) {
+        connected,
+        accepted,
+        received: u32,
+        sent: u32,
+        /// The host's bytes, which the host lends for the call alone. colibri keeps no pointer
+        /// to them, and QUIC unprotects them in place (RFC 9001 §5), so they are writable.
+        datagram: struct {
+            bytes: []u8,
+            from: server.Address,
+            ecn: server.Ecn = .not_ect,
+        },
+        datagram_sent: u32,
+        closed,
+        canceled,
+        failed: Failure,
+    };
+
+    /// Whether no other completion of the operation follows.
+    pub fn final(completion: *const Completion) bool {
+        return !completion.more;
+    }
+};
+
+/// colibri's words for an I/O failure. The host maps its own errors onto them.
+pub const Failure = enum {
+    refused,
+    reset,
+    unreachable_address,
+    family_unsupported,
+    closed,
+    other,
+};
+
+/// When the host calls `turn` next: at once, at an instant, or when a completion arrives.
+pub const Wait = union(enum) { now, at_ns: u64, none };
+
+/// What `turn` wrote and when the host calls it next.
+pub const Turn = struct { operations: u32, wait: Wait };
