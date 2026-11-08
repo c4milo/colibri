@@ -12712,6 +12712,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       each a win in job 2 and within the noise in job 1. No input loses. The owner admitted the
       step on 2026-11-06: each h3 input moves the right way, and the gain grows with the number
       of connections.
+    - **29d.18, the length of a varint by compares, 2026-11-07.** The judge's profile of main
+      779f7df0 (run 42327497518) gave `wire.varint`'s length functions about 1.2% of h3-many's
+      samples. Callgrind on a laptop, on main e365df44, over 4,000 GETs on 16 connections,
+      counted about 2,610 instructions a request in `encoded_len_minimal`, `encode_with_len` and
+      the `std.mem.indexOfScalar` that `is_length` calls. `encoded_len_minimal` called
+      `value_max` for each length, and each call asserted `is_length`, a search of
+      `varint_lens`.
+      - The change: `value_maxes` holds the largest value of each length, computed at build
+        time. `encoded_len_minimal` unrolls into three compares with those constants.
+        `is_length` tests for a power of two up to `varint_len_max`, in place of the search. The
+        assertions stay. No public name changes, and no octet on the wire changes.
+      - The checks: the test of `is_length` runs over every octet value, in place of 0 to 9.
+        Six mutations, by `zig build test-wire`, each CAUGHT: `is_length` admits 0; it admits a
+        power of two past 8; it admits any length up to 8; each maximum is one less; a value at
+        a maximum takes the next length; the maximums are those of the next length.
+      - Callgrind on the laptop counted 36,801 to 34,723 instructions a request, and
+        `std.mem.indexOfScalar` fell from about 1,530 to 380.
+      - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
+        input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's

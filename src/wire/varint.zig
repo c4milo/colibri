@@ -38,11 +38,19 @@ pub fn decode(reader: *Reader) core.reader.Error!Decoded {
     return .{ .value = value, .encoded_len = encoded_len };
 }
 
-/// The fewest octets that carry `value`.
+/// The largest value of each length of `varint_lens`, computed once at build time.
+const value_maxes = maxes: {
+    var maxes: [constants.protocol.varint_lens.len]u64 = undefined;
+    for (constants.protocol.varint_lens, &maxes) |len, *max| max.* = value_max(len);
+    break :maxes maxes;
+};
+
+/// The fewest octets that carry `value`. The loop unrolls into three compares with constants
+/// (design §8 step 29d.18).
 pub fn encoded_len_minimal(value: u64) u8 {
     assert(value <= constants.protocol.varint_value_max);
-    for (constants.protocol.varint_lens) |len| {
-        if (value <= value_max(len)) return len;
+    inline for (constants.protocol.varint_lens, value_maxes) |len, max| {
+        if (value <= max) return len;
     }
     unreachable;
 }
@@ -54,9 +62,11 @@ fn value_max(encoded_len: u8) u64 {
     return (@as(u64, 1) << @intCast(value_bits)) - 1;
 }
 
-/// True for one of the four lengths RFC 9000 §16 defines.
+/// True for one of the four lengths RFC 9000 §16 defines: a power of two up to `varint_len_max`.
+/// Two bit operations and a compare, in place of a search of `varint_lens` (design §8 step 29d.18).
 fn is_length(encoded_len: u8) bool {
-    return std.mem.indexOfScalar(u8, &constants.protocol.varint_lens, encoded_len) != null;
+    const power_of_two = encoded_len != 0 and encoded_len & (encoded_len - 1) == 0;
+    return power_of_two and encoded_len <= constants.protocol.varint_len_max;
 }
 
 /// Encodes `value` in the fewest octets.
@@ -84,7 +94,8 @@ pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.writer
 const testing = std.testing;
 
 test "the lengths are exactly the four RFC 9000 §16 defines" {
-    for (0..constants.protocol.varint_len_max + 2) |len| {
+    // Every octet value, so a power of two past `varint_len_max`, such as 16, is refused too.
+    for (0..std.math.maxInt(u8) + 1) |len| {
         const defined = len == 1 or len == 2 or len == 4 or len == 8;
         try testing.expectEqual(defined, is_length(@intCast(len)));
     }
