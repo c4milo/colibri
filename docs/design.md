@@ -14479,11 +14479,7 @@ library.
       - `colibri.Server` keeps `config` and `engine_config`. It fills `engine_config` from the
         identity, and after the bind, and the engine's `init` runs in `run`. Step 44 moves it.
       - The tests in `src/tls/quic/` call `QuicProvider`'s vtable, as the run found.
-      - The review of 45o found two differences from the rulings:
-        - Decision 137 ruling 1 puts a value that sizes memory in `limits`. The owner put
-          `router_requests_default` and `router_response_bytes_default` in `policy`, and the
-          two values size the router's memory. The header of `constants_policy.zig` says that
-          its values size nothing.
+      - The review of 45o found one more difference from the rulings:
         - Ruling 16 gives each field of an options struct a default. `quic.Connection.Options`
           keeps `role`, `local_parameters`, `now_ns` and `identity` with no default, and
           `quic.Connection.IdentityOptions` keeps `local_initial_source` and
@@ -14500,8 +14496,9 @@ library.
            each of the 16 TCP and 16 QUIC connections of `server.Engine(.{})`.
          - `server.RouterOptions.response_bytes` is `router_response_bytes_default`, 256, the
            value that each example passes.
-         - The two values are in `src/server/constants_policy.zig`, as the owner ruled. A test
-           pins each default.
+         - The two values size the router's memory, so they are in
+           `src/server/constants_limits.zig`, as decision 137 ruling 1 says. The owner ruled this
+           on 2026-11-08. A test pins each default, and the test of the limits pins each value.
       3. Five types in a public signature get a public name (ruling 6). 45p adds each one to its
          type and to the type's names list: `qpack.Encoder.Settings`, which
          `Encoder.on_settings` takes; `h11.Connection.AttachError`, `Received` and `Closed`; and
@@ -14515,6 +14512,9 @@ library.
            of the default must fail.
       3. 45p `feat!`: the five names of ruling 3.
          - Mutation: each name removed from its type. The type's names test must fail.
+      4. 45q `refactor!`: the two router values move to `constants_limits.zig`.
+         - Mutations: `router_requests_default` 33, CAUGHT; `router_response_bytes_default` 257,
+           CAUGHT. The router's test and the test of the limits fail.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

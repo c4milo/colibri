@@ -6834,12 +6834,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - Each field of an options struct has a default. `role` in `h11.Connection.Options`,
            `h2.Connection.Options` and `h3.Connection.Options` is `.server` by default.
            `server.RouterOptions.requests` is 32 by default, one for each connection of
-           `server.Engine(.{})`. `response_bytes` is 256 by default, as each example passes. The
-           owner put the two values in `server.constants.policy`.
-         - The review of 45o found two differences, which stay open for the owner (design §8
+           `server.Engine(.{})`. `response_bytes` is 256 by default, as each example passes.
+         - The two router values size the router's memory, so they are in
+           `server.constants.limits`, as ruling 1 of decision 137 says. The owner ruled this on
+           2026-11-08. An earlier text put them in `policy`. That was an error in the question
+           that the session asked, and not the owner's ruling.
+         - The review of 45o found one more difference, which stays open for the owner (design §8
            step 45):
-           - Ruling 1 of decision 137 puts a value that sizes memory in `limits`, and the two
-             router values size the router's memory.
            - `quic.Connection.Options` keeps `role`, `local_parameters`, `now_ns` and `identity`
              with no default, and `quic.Connection.IdentityOptions` keeps
              `local_initial_source` and `original_destination` with no default.
