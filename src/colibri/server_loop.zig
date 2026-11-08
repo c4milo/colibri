@@ -17,9 +17,12 @@ const pump = @import("server_pump.zig");
 const server_udp = @import("server_udp.zig");
 const datagram_socket = @import("datagram_socket.zig");
 
+/// A server's one UDP socket (`datagram_socket.zig`).
+pub const Datagrams = datagram_socket.DatagramSockets(1);
+
 /// The slots of the operation table of a server with `tcp_connections` sockets.
 pub fn slot_count(tcp_connections: usize) u32 {
-    return accept_slot(tcp_connections) + 1 + datagram_socket.slots;
+    return accept_slot(tcp_connections) + 1 + Datagrams.slots;
 }
 
 /// The slot of the one accept, after every socket's.
@@ -46,7 +49,7 @@ pub fn sockets_max(tcp_connections: usize) u16 {
 /// The operations a server holds in flight at most: an accept, for each socket a receive, a send
 /// and a close, and the UDP socket's receive and sends.
 pub fn operations_max(tcp_connections: usize) u32 {
-    return @intCast(tcp_connections * socket_module.operations_per_socket + 1 + datagram_socket.operations);
+    return @intCast(tcp_connections * socket_module.operations_per_socket + 1 + Datagrams.operations);
 }
 
 /// Starts a run at `now_ns`: no socket, entry or pending step, the engine started, and the UDP
@@ -57,7 +60,7 @@ pub fn start(state: anytype, now_ns: u64) !void {
     // it judges tickets at is chapulin's 0 for none.
     try state.engine.init(&state.engine_config, state.random, .{ .ns = now_ns, .unix_seconds = 0 });
     const tcp_connections = state.sockets.len;
-    if (state.udp.served) state.udp.start(datagram_id(tcp_connections), accept_slot(tcp_connections) + 1, state.datagram_segments);
+    if (state.udp.served) state.udp.start(accept_slot(tcp_connections) + 1, state.datagram_segments);
 }
 
 /// Empties what a run holds: no socket, entry, pending step or operation, and `now_ns` as the last

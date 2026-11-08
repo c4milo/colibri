@@ -12,7 +12,6 @@ const socket_module = @import("socket.zig");
 const pump = @import("server_pump.zig");
 const server_loop = @import("server_loop.zig");
 const server_udp = @import("server_udp.zig");
-const datagram_socket = @import("datagram_socket.zig");
 const operation_table = @import("operation_table.zig");
 const errors = @import("errors.zig");
 const host = @import("host.zig");
@@ -87,7 +86,7 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         sockets: [tcp_connections]socket_module.Socket,
         /// The UDP socket, which the server has when it has an identity and QUIC slots (design
         /// §8 step 37c), and a hosted server when its host opened it.
-        udp: datagram_socket.DatagramSocket,
+        udp: server_loop.Datagrams,
         operations: operation_table.Table(server_loop.slot_count(tcp_connections)),
         /// Whether the server accepts on its listener, and whether its host sends segments.
         listening: bool,
@@ -125,7 +124,7 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         /// colibri keeps no pointer to `config` after `init` (decision 158 ruling 2).
         pub fn init(self: *Self, config: *const Kinded.Config, router: anytype, context: anytype) Kinded.InitError!void {
             self.router = .of(router, context);
-            self.udp.served = false;
+            self.udp.close_all();
             // A run that fails before `start` holds no live socket.
             for (&self.sockets) |*socket| socket.live = false;
             self.engine_config = config.engine;

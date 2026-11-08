@@ -24,10 +24,10 @@ const client_tcp = @import("client_tcp.zig");
 /// The slots of the operation table of a client with `tcp_connections` sockets, and a UDP socket
 /// when `quic` is set.
 pub fn slot_count(tcp_connections: usize, quic: bool) u32 {
-    return datagram_slot(tcp_connections) + if (quic) datagram_socket.slots else 0;
+    return datagram_slot(tcp_connections) + if (quic) Datagrams.slots else 0;
 }
 
-/// The first slot of the UDP socket, after every TCP socket's.
+/// The first slot of the UDP sockets, after every TCP socket's.
 pub fn datagram_slot(tcp_connections: usize) u32 {
     return @intCast(tcp_connections * socket_module.slots_per_socket);
 }
@@ -40,6 +40,10 @@ pub fn datagram_id(tcp_connections: usize, family: Family) host.SocketId {
 
 /// The two families of a UDP socket.
 pub const Family = enum(u1) { ipv4, ipv6 };
+
+/// A client's UDP socket of each family, IPv4's at index 0 and IPv6's at index 1
+/// (`datagram_socket.zig`).
+pub const Datagrams = datagram_socket.DatagramSockets(@typeInfo(Family).@"enum".fields.len);
 
 /// The octets of an IPv4 address (RFC 791 §3.1).
 const ipv4_len = @sizeOf(u32);
@@ -57,7 +61,7 @@ pub fn sockets_max(tcp_connections: usize) u16 {
 /// The operations a client holds in flight at most: for each TCP socket a receive, a send and a
 /// close, or its connect alone, and the UDP socket's receive and sends.
 pub fn operations_max(tcp_connections: usize, quic: bool) u32 {
-    return @intCast(tcp_connections * socket_module.operations_per_socket + if (quic) datagram_socket.operations else 0);
+    return @intCast(tcp_connections * socket_module.operations_per_socket + if (quic) Datagrams.operations else 0);
 }
 
 /// Runs the client `state` names on the calling thread until its pool reports `closed`, every
@@ -74,13 +78,13 @@ pub fn run_loop(state: anytype) !void {
     try state.host.run(state, @This(), state);
 }
 
-/// Starts a run at `now_ns`, the instant `unix_seconds` counts from, with the UDP socket's receive
-/// owed.
+/// Starts a run at `now_ns`, the instant `unix_seconds` counts from, with the receive of each UDP
+/// socket owed.
 pub fn start(state: anytype, now_ns: u64) void {
     assert(!state.started);
     reset(state, now_ns);
     state.started = true;
-    if (state.udp.served) state.udp.start(state.udp.socket, datagram_slot(state.sockets.len), state.datagram_segments);
+    if (state.udp.served) state.udp.start(datagram_slot(state.sockets.len), state.datagram_segments);
 }
 
 /// Empties what a run holds: no socket, pending step or operation.

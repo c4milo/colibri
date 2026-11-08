@@ -92,15 +92,18 @@ const InFlight = struct {
 };
 
 /// Stops `object` as a host does: it calls `shutdown`, then turns and ends each operation in
-/// flight until `stopped()` holds. `held` holds the operations already in flight.
-fn stop(object: anytype, held: *InFlight, now_ns: u64) !void {
+/// flight until `stopped()` holds. Its clock moves to each instant that a turn names, so a QUIC
+/// connection's close can end (RFC 9000 §10.2). `held` holds the operations already in flight.
+fn stop(object: anytype, held: *InFlight, start_ns: u64) !void {
     object.shutdown();
     var operations: [operations_len]host.Operation = undefined;
+    var now_ns = start_ns;
     for (0..turns_max) |_| {
         const turned = object.turn(now_ns, &operations);
         held.add(operations[0..turned.operations]);
         held.end_all(object, now_ns);
         if (object.stopped()) return;
+        if (turned.wait == .at_ns) now_ns = @max(now_ns, turned.wait.at_ns);
     }
     return error.NotStopped;
 }
@@ -268,6 +271,37 @@ test "decision 159: a family with a UDP socket receives on it" {
     try testing.expect(!test_client.pool_config.ecn);
     var held: InFlight = .{};
     held.add(operations[0..turned.operations]);
+    try stop(&test_client, &held, 0);
+    test_client.deinit();
+}
+
+/// The operations of `kind` among `written` on `socket`.
+fn count_on(written: []const host.Operation, comptime kind: std.meta.Tag(host.Operation.Kind), socket: host.SocketId) u32 {
+    var count: u32 = 0;
+    for (written) |operation| {
+        if (operation.kind == kind and @field(operation.kind, @tagName(kind)).socket == socket) count += 1;
+    }
+    return count;
+}
+
+test "decision 156 ruling 13: a client receives on each family's socket and sends from its peer's" {
+    var counter: support.Counter = .{};
+    var handler: HostedHandler = .{};
+    const pool = fixture.pool_config(.{ .prefer = .quic }, true);
+    try test_client.init(&.{ .host = "::1", .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{}, .ipv6 = .{} } }, &handler);
+    try handler.request();
+    var operations: [operations_len]host.Operation = undefined;
+    const turned = test_client.turn(0, &operations);
+    const written = operations[0..turned.operations];
+    try testing.expectEqual(1, count_on(written, .receive_datagram, TestClient.datagram_ipv4));
+    try testing.expectEqual(1, count_on(written, .receive_datagram, TestClient.datagram_ipv6));
+    // RFC 9000 §17.2.2: the first Initial goes to the destination, which is IPv6.
+    const send = (find(written, .send_datagram) orelse return error.OperationMissing).kind.send_datagram;
+    try testing.expectEqual(TestClient.datagram_ipv6, send.socket);
+    try testing.expectEqual(16, send.to.len);
+    try testing.expectEqual(0, count_on(written, .send_datagram, TestClient.datagram_ipv4));
+    var held: InFlight = .{};
+    held.add(written);
     try stop(&test_client, &held, 0);
     test_client.deinit();
 }

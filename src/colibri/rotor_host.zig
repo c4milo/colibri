@@ -10,12 +10,12 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
-const server = @import("server");
 const constants = @import("constants.zig");
 const host = @import("host.zig");
 const errors = @import("errors.zig");
 const udp = @import("rotor_host_udp.zig");
 const submit_module = @import("rotor_host_submit.zig");
+const Family = @import("client_loop.zig").Family;
 
 pub const Kind = std.meta.Tag(host.Operation.Kind);
 
@@ -163,10 +163,10 @@ fn host_bind_datagram(self: anytype, socket: host.SocketId, text: []const u8, po
     try open_datagram(self, socket, &address);
 }
 
-/// Opens the UDP socket `socket` on every interface of `peer`'s family, on a port the system
-/// chooses: a client's.
-fn host_bind_datagram_any(self: anytype, socket: host.SocketId, peer: server.Address) errors.BindError!void {
-    const address = switch (udp.rotor_address(peer).family) {
+/// Opens the UDP socket `socket` on every interface of `family`, on a port the system chooses:
+/// a client's.
+fn host_bind_datagram_any(self: anytype, socket: host.SocketId, family: Family) errors.BindError!void {
+    const address = switch (family) {
         .ipv4 => rotor.Address.ipv4(@splat(0), 0),
         .ipv6 => rotor.Address.ipv6(@splat(0), 0, 0),
     };

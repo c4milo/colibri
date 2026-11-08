@@ -22,8 +22,9 @@ pub const private = struct {
     pub const RunError = errors.LoopError;
     pub const Host = rotor_host.Host;
 
-    /// Starts the pool, and opens the UDP socket of the destination's family when the pool
-    /// offers QUIC.
+    /// Starts the pool, and opens a UDP socket of each family when the pool offers QUIC
+    /// (decision 156 ruling 13). The bind of the destination's family must succeed. A family that
+    /// the system refuses for another one stays closed.
     pub fn init(state: anytype, config: *const Config, family: Family) InitError!void {
         state.host.prepare();
         state.random = config.random orelse entropy.random();
@@ -34,10 +35,16 @@ pub const private = struct {
         state.datagram_segments = true;
         try start_pool(state, config.port);
         if (!state.pool.offered.quic) return;
+        try bind(state, family);
+        const other: Family = if (family == .ipv4) .ipv6 else .ipv4;
+        bind(state, other) catch {};
+    }
+
+    /// Opens the UDP socket of `family` on every interface, on a port the system chooses.
+    fn bind(state: anytype, family: Family) errors.BindError!void {
         const id = client_loop.datagram_id(state.sockets.len, family);
-        try state.host.bind_datagram_any(id, state.addresses[0]);
-        state.udp.served = true;
-        state.udp.socket = id;
+        try state.host.bind_datagram_any(id, family);
+        state.udp.open(@intFromEnum(family), id);
     }
 
     /// Closes the UDP socket when `run` did not close it.
@@ -76,8 +83,9 @@ pub const hosted = struct {
         return void;
     }
 
-    /// Takes the UDP socket of the destination's family. With no such socket the pool offers no
-    /// QUIC, and opens TCP (decision 156 ruling 13).
+    /// Takes the UDP socket of each family that the host opened. With no socket of the
+    /// destination's family the pool offers no QUIC, and opens TCP (decision 156 ruling 13). The
+    /// pool's ECN and the segments follow the `Features` of the destination's family.
     pub fn init(state: anytype, config: *const Config, family: Family) InitError!void {
         state.random = config.random;
         const features = switch (family) {
@@ -92,8 +100,8 @@ pub const hosted = struct {
         try start_pool(state, config.port);
         if (!state.pool.offered.quic) return;
         assert(features != null);
-        state.udp.served = true;
-        state.udp.socket = client_loop.datagram_id(state.sockets.len, family);
+        if (config.datagram.ipv4 != null) state.udp.open(@intFromEnum(Family.ipv4), client_loop.datagram_id(state.sockets.len, .ipv4));
+        if (config.datagram.ipv6 != null) state.udp.open(@intFromEnum(Family.ipv6), client_loop.datagram_id(state.sockets.len, .ipv6));
     }
 
     /// A host calls `deinit` once `stopped()` holds (decision 159, rule 2). Before it, an

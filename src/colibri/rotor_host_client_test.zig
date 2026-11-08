@@ -301,7 +301,7 @@ test "design §8 step 42: a socket the system refuses ends the exchange refused"
 /// A pool configuration over TLS that trusts the test identity's root for `localhost`. Test-only.
 const anchors = [_]tls.Anchor{.{ .subject = testdata.root_name, .spki = testdata.root_spki }};
 
-test "design §8 step 42: a client over TLS opens a UDP socket of the host's family" {
+test "decision 156 ruling 13: a client over TLS opens a UDP socket of each family" {
     var counter: support.Counter = .{};
     const pool: client.Config = .{
         .authority = "localhost",
@@ -313,6 +313,11 @@ test "design §8 step 42: a client over TLS opens a UDP socket of the host's fam
     const local = try rotor.sync.local_address(udp_socket);
     try testing.expectEqual(rotor.Address.Family.ipv6, local.family);
     try testing.expect(local.port != 0);
+    // The socket of the other family is open too, so a destination of IPv4 needs no new bind.
+    try testing.expect(test_client.host.open(client_loop.datagram_id(1, .ipv4)));
+    try testing.expect(test_client.udp.receivers[0].open and test_client.udp.receivers[1].open);
+    const other_socket = test_client.host.descriptor_of(client_loop.datagram_id(1, .ipv4));
+    try testing.expectEqual(rotor.Address.Family.ipv4, (try rotor.sync.local_address(other_socket)).family);
     // The pool connects to the host, on the port the configuration names.
     try testing.expectEqual(16, test_client.addresses[0].len);
     try testing.expectEqual(1, test_client.addresses[0].octets[15]);
@@ -322,4 +327,5 @@ test "design §8 step 42: a client over TLS opens a UDP socket of the host's fam
     test_client.deinit();
     try testing.expectError(error.Unexpected, rotor.sync.local_address(udp_socket));
     try testing.expect(!test_client.host.open(client_loop.datagram_id(1, .ipv6)));
+    try testing.expect(!test_client.host.open(client_loop.datagram_id(1, .ipv4)));
 }

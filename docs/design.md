@@ -14433,6 +14433,20 @@ library.
     6. 44f `feat(colibri)`: one UDP socket for each family. On `.hosted`, each family is a field
        of the configuration.
        - Mutations: a send's socket not chosen by family; the second receive not written.
+       - Done on 2026-11-08.
+         - `datagram_socket.zig` holds `DatagramSockets(count)`: one UDP socket for a server, and
+           one for each family for a client. The sockets of one object share one set of batches,
+           so the client's memory grows by one receive alone. A send leaves from the socket of
+           its peer's family.
+         - A client's operation table holds one more slot, for the second receive, so its
+           `operations_max` grows by 1. A server's stays as it was.
+         - `.private` binds both families on Rotor's one buffer group (decision 156 ruling 13).
+           The bind of the destination's family must succeed, as before. A bind of the other
+           family that the system refuses leaves that socket closed.
+         - `.hosted` takes each family whose `Features` the configuration names. The pool's ECN
+           and the segments follow the destination's family. 44g decides what a destination of a
+           family with no socket does.
+         - Checks and mutations: see the commit body of 44f.
     7. 44g `feat(colibri)!`: `destination` and `set_destination`.
     8. 44h `feat(colibri)`: `fetch` and `cancel`. Its tests on a shared loop become tests on the
        fake host.

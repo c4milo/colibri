@@ -197,9 +197,9 @@ and h3 needs `.prefer = .quic`.
 ## colibri.Client
 
 `colibri.Client` does the I/O of a client for you ([decision 153](decisions.md) ruling 8). It owns
-the TCP sockets, the UDP socket for h3, Rotor's loop and its clock, and a `client.ConnectionPool`.
-Your program gives it a configuration and a handler, hands it requests, and calls `run`. The code
-in this section is from [`examples/colibri_server.zig`](../examples/colibri_server.zig).
+the TCP sockets, a UDP socket of each family for h3, Rotor's loop and its clock, and a
+`client.ConnectionPool`. It sends from the socket of its destination's family. Your program gives
+it a configuration and a handler, hands it requests, and calls `run`. The code in this section is from [`examples/colibri_server.zig`](../examples/colibri_server.zig).
 
 `colibri.Client(capacity, kind)` is a type function, as `colibri.Server` is. `capacity` is a
 `colibri.ClientCapacity`: whether the client holds a QUIC connection, its TCP connections, and its

@@ -119,7 +119,7 @@ that does I/O. Every other module stays sans-I/O, for a program that brings its 
 ### A client that runs its own loop
 
 `colibri.Client` does a client's I/O for you ([decision 153](docs/decisions.md) ruling 8). It owns
-the TCP sockets, the UDP socket for h3 and Rotor's loop, and runs `client`'s pool. Your program
+the TCP sockets, a UDP socket of each family for h3 and Rotor's loop, and runs `client`'s pool. Your program
 hands it requests, and `run` gives each finished exchange to the handler that `init` took. These
 lines are from
 [`examples/colibri_server.zig`](examples/colibri_server.zig):

@@ -20,7 +20,7 @@ pub fn served(quic_slots: bool, identity: bool) bool {
 /// alternative.
 pub fn opened(state: anytype, port: u16) void {
     assert(!state.udp.served);
-    state.udp.served = true;
+    state.udp.open(0, @TypeOf(state.*).datagram);
     if (state.engine_config.h3_alternative == null) state.engine_config.h3_alternative = .{ .port = port };
 }
 

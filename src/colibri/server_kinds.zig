@@ -94,7 +94,7 @@ pub const hosted = struct {
         state.datagram_segments = if (features) |held| held.segments else false;
         errdefer server_module.wipe_keys(state);
         try load(state, config.identity, config.cpu);
-        state.udp.served = server_udp.served(quic_slots and features != null, config.identity != null);
+        if (server_udp.served(quic_slots and features != null, config.identity != null)) state.udp.open(0, @TypeOf(state.*).datagram);
         try server_loop.start(state, 0);
     }
 

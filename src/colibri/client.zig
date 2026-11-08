@@ -9,7 +9,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
 const tls = @import("tls");
-const datagram_socket = @import("datagram_socket.zig");
 const socket_module = @import("socket.zig");
 const operation_table = @import("operation_table.zig");
 const client_tcp = @import("client_tcp.zig");
@@ -97,9 +96,9 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         pool_memory: [pool_memory_len]u8 align(Pool.memory_alignment),
         /// The pool each QUIC connection holds the server's unread octets in (decision 61).
         receive_pool: ReceivePool,
-        /// The UDP socket of the destination's family, which the client has when the pool offers
-        /// QUIC, and whether its host sends segments.
-        udp: datagram_socket.DatagramSocket,
+        /// The UDP socket of each family that the host opened, which the client has when the pool
+        /// offers QUIC, and whether its host sends segments (decision 156 ruling 13).
+        udp: client_loop.Datagrams,
         datagram_segments: bool,
         /// Each TCP slot's socket and what the client holds for it (`client_tcp.zig`), and the
         /// operations in flight.
@@ -139,7 +138,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// colibri keeps no pointer to `config` after `init` (decision 158 ruling 2).
         pub fn init(self: *Self, config: *const Kinded.Config, handler: anytype) InitError!void {
             self.handler = .of(handler);
-            self.udp.served = false;
+            self.udp.close_all();
             self.ran = false;
             self.in_turn = false;
             self.started = false;
