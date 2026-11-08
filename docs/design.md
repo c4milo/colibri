@@ -12791,6 +12791,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         docs/performance.md.
       - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
         input loses.
+    - **29d.19, the judge, 2026-11-08.** Run 42451184832, `--h3 --base 7de688e3` at 10 rounds:
+      h3-many 0.9981 and 0.9913, within the noise in both jobs, and 28,631 to 28,576
+      instructions a request in job 1. Every other input is within the noise, and no input
+      loses. A probe that counted the held records at each `observe` call explains the gap:
+      - without valgrind, over 20,000 GETs, 2.0 calls a request, a walk in 44% of them, and 3.0
+        records held a call;
+      - under valgrind, over 4,000 GETs, a server that falls behind: 2.5 calls a request, a walk
+        in 94% of them, and 11.7 records held a call.
+      - The owner admitted the step on 2026-11-08: no input loses, and the gain grows with the
+        requests a connection holds, when a server falls behind.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
