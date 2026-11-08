@@ -11,6 +11,12 @@ fn expect_findings(path: []const u8, source: [:0]const u8, expected: []const []c
     defer arena_state.deinit();
     const findings = try harness.run(arena_state.allocator(), rfc_citation, path, source);
     try harness.expect_messages(findings, expected);
+    // `findings.add` takes the path and the rule as two `[]const u8`, so only these lines see a
+    // call that swaps them.
+    for (findings) |finding| {
+        try testing.expectEqualStrings(path, finding.path);
+        try testing.expectEqualStrings(rfc_citation.name, finding.rule);
+    }
 }
 
 fn message(comptime error_name: []const u8) []const u8 {

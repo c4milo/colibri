@@ -348,6 +348,9 @@ fn compare_sources(
         .{ .path = graph_check_path, .tree = &check_tree },
     );
     findings.sort();
+    // `findings.add` takes the path and the rule as two `[]const u8`, so only this loop sees a
+    // call that swaps them.
+    for (findings.items.items) |finding| try testing.expectEqualStrings(name, finding.rule);
     return findings.items.items;
 }
 
@@ -428,6 +431,7 @@ test "module-graph flags a check with no quic_imports list at all" {
         "tools/graph_check.zig declares no quic_imports list;" ++
             " the check cannot state the graph it proves (invariant 26)",
     });
+    try testing.expectEqualStrings(graph_check_path, findings[0].path);
 }
 
 test "module-graph reads the addImport calls of quic and of no other module" {
