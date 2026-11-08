@@ -24,10 +24,10 @@ const router_wrap = @import("router_wrap.zig");
 /// The sizes of a router's pool.
 pub const Options = struct {
     /// The requests the router answers at once. One more gets 503.
-    requests: u32,
+    requests: u32 = constants.policy.router_requests_default,
     /// Octets of each entry's response memory: the copies of its headers and trailers, and the
     /// bytes its body's writer writes.
-    response_bytes: usize,
+    response_bytes: usize = constants.policy.router_response_bytes_default,
     /// Octets of each entry's request body memory: the bytes an `on_body` left unread, and every byte
     /// of a `.whole_body` route.
     body_bytes: usize = 0,

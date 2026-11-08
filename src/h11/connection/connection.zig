@@ -132,9 +132,9 @@ pub const Connection = struct {
     /// What a connection is built from, as h2's and h3's `Options` hold it (decision 158 ruling
     /// 10). Every value is the caller's.
     pub const Options = struct {
-        /// The end of the connection this side is. It has no default, because each role reads
-        /// and writes other messages (RFC 9112 §3, §4).
-        role: Role,
+        /// The end of the connection this side is: each role reads and writes other messages
+        /// (RFC 9112 §3, §4). A server is the default (decision 158 ruling 16).
+        role: Role = .server,
         /// A client connection opened to retry requests an earlier one left unanswered: it sends
         /// one request and waits for its response before pipelining (RFC 9112 §9.3.2).
         retrying: bool = false,
@@ -438,4 +438,9 @@ test "decision 115: the connection's public functions are the calls a caller out
         "receive",     "write_request", "write_response", "write_body",   "count_body",       "write_chunk_head",
         "write_end",   "has_pending",   "write_pending",  "should_close", "transport_closed", "fail",
     });
+}
+
+test "decision 158 ruling 16: a connection's options name the server role by default" {
+    const options: Connection.Options = .{};
+    try std.testing.expectEqual(Role.server, options.role);
 }

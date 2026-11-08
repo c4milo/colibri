@@ -118,6 +118,13 @@ test "decision 158: a router's type exports Route, Match, match, memory_bytes an
     try @import("core").public_names.expect(Sample, &.{ "Route", "Match", "match", "memory_bytes", "handle" });
 }
 
+test "decision 158 ruling 16: a router's options default to 32 requests of 256 response octets" {
+    const options: router_pool.Options = .{};
+    try std.testing.expectEqual(32, options.requests);
+    try std.testing.expectEqual(256, options.response_bytes);
+    try std.testing.expectEqual(0, options.body_bytes);
+}
+
 test {
     _ = @import("router_handle_test.zig");
     _ = @import("router_struct_test.zig");

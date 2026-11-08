@@ -51,7 +51,7 @@ const routes = .{
 };
 
 /// One request at a time, with room for the POST's content.
-const Router = server.Router(void, routes, .{ .requests = 1, .response_bytes = 256, .body_bytes = note.len });
+const Router = server.Router(void, routes, .{ .requests = 1, .body_bytes = note.len });
 
 /// One TCP connection at a time, and no QUIC connection: this server has no UDP socket.
 const Engine = server.Engine(.{ .tcp_connections = 1, .quic_connections = 0 });

@@ -84,7 +84,16 @@ pub const peer_resets_max: u32 = h2.constants.policy.peer_reset_rate_max;
 /// stream the client broke. One more ends the connection (RFC 9113 §10.5, decision 110).
 pub const resets_sent_max: u32 = h2.constants.policy.rst_stream_rate_max;
 
+/// The requests a router answers at once unless the program names another count in
+/// `RouterOptions.requests`: one for each connection of `Engine(.{})` (decision 158 ruling 16).
+pub const router_requests_default: u32 = constants.limits.tcp_connections_default + constants.limits.quic_connections_default;
+
+/// The octets of each request's response memory unless the program names another count in
+/// `RouterOptions.response_bytes`: the value each example passes (decision 158 ruling 16).
+pub const router_response_bytes_default: usize = 256;
+
 comptime {
+    assert(router_requests_default > 0 and router_response_bytes_default > 0);
     assert(data_frame_len_min <= h2.constants.protocol.max_frame_size_initial and close_linger_ns > 0);
     // The largest DATA frame a peer may send colibri is a record's plaintext too.
     assert(body_unit_len == h2.constants.protocol.max_frame_size_initial and honest_rate_factor > 1);

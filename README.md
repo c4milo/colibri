@@ -173,7 +173,7 @@ The program owns the router's memory. `server.RouterOptions` sizes it for the re
 holds at once, and the program places it once:
 
 ```zig
-const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 

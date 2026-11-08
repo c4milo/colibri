@@ -201,9 +201,10 @@ pub const Connection = struct {
     /// What a connection is built from, as h11's and h3's `Options` hold it (decision 158 ruling
     /// 10). Every value is the caller's.
     pub const Options = struct {
-        /// The end of the connection this side is. It has no default, because the two roles
-        /// differ in preface, stream parity and settings (RFC 9113 §3.4, §5.1.1, §6.5.2).
-        role: Role,
+        /// The end of the connection this side is: the two roles differ in preface, stream
+        /// parity and settings (RFC 9113 §3.4, §5.1.1, §6.5.2). A server is the default
+        /// (decision 158 ruling 16).
+        role: Role = .server,
     };
 
     /// Makes a connection for an endpoint in `options.role`, with nothing read and nothing
@@ -466,6 +467,11 @@ test "decision 115: the connection's public functions are the calls a caller out
         "has_pending",        "owes_window_update", "has_failed",        "field_section", "fail",           "settings_deadline_ns",
         "preface_done",
     });
+}
+
+test "decision 158 ruling 16: a connection's options name the server role by default" {
+    const options: Connection.Options = .{};
+    try std.testing.expectEqual(Role.server, options.role);
 }
 
 test {

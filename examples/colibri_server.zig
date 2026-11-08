@@ -54,7 +54,7 @@ const routes = .{
 };
 
 /// The router's pool: an entry for each request at once, with room for its response.
-const Router = server.Router(App, routes, .{ .requests = connections, .response_bytes = 256, .body_bytes = 0 });
+const Router = server.Router(App, routes, .{ .requests = connections });
 var router: Router align(@alignOf(Router)) = .{};
 
 /// A server that holds four TCP connections and four QUIC connections. `colibri.Server` is the

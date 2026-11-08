@@ -152,7 +152,7 @@ const routes = .{
 
 /// The router's pool: an entry for each request at once, with room for its response and for the
 /// POST's content. The program places it once and does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len });
 var router: Router align(@alignOf(Router)) = .{};
 
 /// Sockets the engine said to close, connections that are over, those that ended at their idle

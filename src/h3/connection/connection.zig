@@ -131,7 +131,9 @@ pub const Connection = struct {
 
     /// What a connection is built from. Every value is the caller's.
     pub const Options = struct {
-        role: Role,
+        /// The end of the connection this side is. A server is the default (decision 158 ruling
+        /// 16).
+        role: Role = .server,
         /// The settings colibri's QPACK decoder advertises (RFC 9204 §5), both zero by default,
         /// which keeps the peer's encoder to the static table.
         qpack: qpack.Decoder.Settings = .{},
@@ -362,6 +364,11 @@ test "decision 115: the connection's public functions are the calls a caller out
         "release_data",  "cancel",              "oldest_head_wait", "delay_head_waits",  "stop_reading",
         "shutdown",      "goaway_acknowledged", "fail",             "no_error_code",
     });
+}
+
+test "decision 158 ruling 16: a connection's options name the server role by default" {
+    const options: Connection.Options = .{};
+    try std.testing.expectEqual(Role.server, options.role);
 }
 
 test {

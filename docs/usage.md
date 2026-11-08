@@ -677,7 +677,9 @@ A program declares its routes in a route table at compile time, and the router c
 request's route ([decisions 122 and 127](decisions.md)). `server.Router` builds the route table from the
 program's context type and a struct of two fields: `error_handler` and `routes`. Each route holds
 a method, a pattern and a function, and options may follow. `server.Router` takes a
-`server.RouterOptions` too, and returns the type of the router the program places:
+`server.RouterOptions` too, and returns the type of the router the program places. Each field of
+`server.RouterOptions` has a default: 32 requests at once, 256 octets of response memory for each,
+and no request body memory (decision 158 ruling 16):
 
 ```zig
 const routes = .{
@@ -692,7 +694,7 @@ const routes = .{
 
 /// The router's pool: an entry for each request at once, with room for its response and for the
 /// POST's content. The program places it once and does not move it.
-const Router = server.Router(App, routes, .{ .requests = requests_max, .response_bytes = 256, .body_bytes = note.len });
+const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len });
 var router: Router align(@alignOf(Router)) = .{};
 ```
 
