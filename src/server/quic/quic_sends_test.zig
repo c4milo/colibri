@@ -7,6 +7,7 @@ const http = @import("http");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
 const quic_deadline = @import("quic_deadline.zig");
+const quic_sends = @import("quic_sends.zig");
 const internal = @import("quic_connection_internal.zig");
 const Timeout = @import("../deadline.zig").Timeout;
 
@@ -300,4 +301,41 @@ test "decision 110: octets acknowledged after a window's end do not count in it"
     support.client_mute = false;
     try support.pump(1);
     try testing.expectEqual(Timeout.send_rate, connection.clock.timed_out.?);
+}
+
+/// Whether the walks of `quic_sends.zig` visit the entry of `fetch`'s response.
+fn marked(fetch: *const support.Fetch) bool {
+    return connection.sends.may_meter.isSet(connection.requests.index_of(connection.requests.of(fetch.id).?));
+}
+
+test "design §8 step 29d.19: a response its stream's credit holds is walked until the credit covers it" {
+    try connected(window_small, support.window_default);
+    support.client_reads = false;
+    const fetch = try answered_get();
+    try support.pump(support.rounds_default);
+    try testing.expect(entry_of(fetch).bound and entry_of(fetch).meter.running());
+    try testing.expect(marked(fetch));
+    // The client reads all of it, so the response holds nothing its credit does not cover.
+    // Each read grows the credit by the client's small window, so it takes many rounds. The
+    // record stays held while the last octets it sends wait for their acknowledgment.
+    support.client_reads = true;
+    for (0..support.rounds_paced * content.len / window_small) |_| {
+        try support.pump(1);
+        if (!entry_of(fetch).bound) break;
+    } else return error.TestExpectedCredit;
+    try testing.expect(!entry_of(fetch).meter.running());
+    try testing.expect(!marked(fetch));
+}
+
+test "design §8 step 29d.19: a response its stream's credit covers is never walked" {
+    try connected(support.window_default, support.window_default);
+    support.client_reads = false;
+    const fetch = try answered_get();
+    try support.pump(rounds_few);
+    try testing.expect(entry_of(fetch).busy and !entry_of(fetch).bound);
+    // A look alone, with no walk after it, leaves the entry of a response that is not bound
+    // unmarked.
+    const record = connection.requests.of(fetch.id).?;
+    quic_sends.look(connection, record, connection.transport.streams.pool.at(record.stream_slot.?));
+    try testing.expect(!marked(fetch));
 }

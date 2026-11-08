@@ -54,6 +54,9 @@ pub const Sends = struct {
     metered: bool,
     /// One entry for each request record, at the record's index.
     entries: [constants.limits.quic_requests_max]Sending,
+    /// The entries whose meter may run: each one `look` found bound since the walk last found its
+    /// meter stopped. Only these are walked (design §8 step 29d.19).
+    may_meter: Entries,
 
     pub fn init(sends: *Sends) void {
         sends.meter = .{};
@@ -61,22 +64,30 @@ pub const Sends = struct {
         sends.bound = 0;
         sends.metered = false;
         sends.entries = @splat(.{});
+        sends.may_meter = .initEmpty();
     }
 
-    fn set(sends: *Sends, entry: *Sending, busy: bool, bound: bool) void {
+    fn set(sends: *Sends, index: usize, busy: bool, bound: bool) void {
+        const entry = &sends.entries[index];
         sends.busy = sends.busy - @intFromBool(entry.busy) + @intFromBool(busy);
         sends.bound = sends.bound - @intFromBool(entry.bound) + @intFromBool(bound);
         entry.busy = busy;
         entry.bound = bound;
+        // A meter runs only for an entry that is bound, so an entry not marked has its meter
+        // stopped.
+        if (bound) sends.may_meter.set(index);
     }
 };
+
+const Entries = std.StaticBitSet(constants.limits.quic_requests_max);
 
 /// Notes where `record`'s response stands on `stream`: the octets the peer acknowledged since the
 /// last look, which arrived at the instant `fire` last moved the meters to, and whether the
 /// response waits on the peer or on its stream's credit.
 pub fn look(connection: *QuicConnection, record: *const Request, stream: *const quic.Stream) void {
     const sends = &connection.sends;
-    const entry = &sends.entries[connection.requests.index_of(record)];
+    const index = connection.requests.index_of(record);
+    const entry = &sends.entries[index];
     const outgoing = &stream.outgoing;
     assert(outgoing.acknowledged_len >= entry.acknowledged_len);
     const newly = outgoing.acknowledged_len - entry.acknowledged_len;
@@ -87,7 +98,7 @@ pub fn look(connection: *QuicConnection, record: *const Request, stream: *const 
         .ready, .send, .data_sent => {},
         // RFC 9000 §3.1: the peer acknowledged every octet, or the stream was reset, and either
         // way the response holds nothing for the peer to take.
-        .data_recvd, .reset_sent, .reset_recvd => return sends.set(entry, false, false),
+        .data_recvd, .reset_sent, .reset_recvd => return sends.set(index, false, false),
     }
     // RFC 9000 §4.1: the stream's limit is the highest offset the peer takes on it.
     const limit = stream.send_flow.limit;
@@ -95,16 +106,19 @@ pub fn look(connection: *QuicConnection, record: *const Request, stream: *const 
     assert(outgoing.acknowledged_len <= allowed);
     // RFC 9000 §4.5: a FIN spends no credit, so it leaves once every octet before it may.
     const fin_waits = outgoing.finished and !outgoing.fin_acknowledged and outgoing.supplied_end <= limit;
-    sends.set(entry, outgoing.acknowledged_len < allowed or fin_waits, outgoing.supplied_end > limit);
+    sends.set(index, outgoing.acknowledged_len < allowed or fin_waits, outgoing.supplied_end > limit);
 }
 
 /// `record`'s stream closed, so its entry holds nothing for the request that takes the record
 /// next.
 pub fn forget(connection: *QuicConnection, record: *const Request) void {
     const sends = &connection.sends;
-    const entry = &sends.entries[connection.requests.index_of(record)];
-    sends.set(entry, false, false);
-    entry.* = .{};
+    const index = connection.requests.index_of(record);
+    // A stream closes only after a `look` found its response holding nothing, and the walk that
+    // followed stopped the meter and cleared the mark (design §8 step 29d.19).
+    assert(!sends.may_meter.isSet(index));
+    sends.set(index, false, false);
+    sends.entries[index] = .{};
 }
 
 /// Starts or stops each meter at `now_ns`, as `look` last found the responses.
@@ -115,16 +129,21 @@ pub fn observe(connection: *QuicConnection, now_ns: u64) void {
     // Nothing runs and nothing would: the common case, a connection whose peer keeps up.
     if (!wanted and !sends.metered) return;
     connection_sends.start_or_stop(&sends.meter, sends.busy > 0, now_ns, limits);
-    // Only a record in use has an entry that may run: `forget` empties each entry whose record
-    // is freed (design §8 step 29d.5).
-    var held = connection.requests.held.iterator(.{});
+    // Design §8 step 29d.19: only a marked entry may have a meter that runs. The walk reads a copy,
+    // because it clears the mark of each entry whose meter stopped. `look` marks a bound entry
+    // again before the next walk.
+    const marked = sends.may_meter;
+    var walk = marked.iterator(.{});
     // Bounded by the records.
-    while (held.next()) |index| {
+    while (walk.next()) |index| {
+        // `forget` clears the mark of each entry whose record is freed (design §8 step 29d.5).
+        assert(connection.requests.held.isSet(index));
         const entry = &sends.entries[index];
         // The connection's meter judges a peer that takes slowly, so a stream's own waits while
         // any other response is busy.
         const others_busy = sends.busy - @intFromBool(entry.busy);
         connection_sends.start_or_stop(&entry.meter, entry.bound and others_busy == 0, now_ns, limits);
+        if (!entry.meter.running()) sends.may_meter.unset(index);
     }
     sends.metered = wanted;
 }
@@ -137,9 +156,9 @@ pub fn soonest(connection: *const QuicConnection, current: ?u64) ?u64 {
     const window_ns = connection.timeouts.rate_window_ns;
     var at = current;
     if (sends.meter.check_ns(quota, window_ns)) |check_ns| at = @min(at orelse check_ns, check_ns);
-    var held = connection.requests.held.iterator(.{});
-    // Bounded by the records. Only a record in use has an entry that may run.
-    while (held.next()) |index| {
+    var walk = sends.may_meter.iterator(.{});
+    // Bounded by the records. Only a marked entry may have a meter that runs.
+    while (walk.next()) |index| {
         const check_ns = sends.entries[index].meter.check_ns(quota, window_ns) orelse continue;
         at = @min(at orelse check_ns, check_ns);
     }
@@ -154,9 +173,11 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) ?Timeout {
     const quota = connection.timeouts.send_quota() orelse return null;
     const window_ns = connection.timeouts.rate_window_ns;
     if (sends.meter.short(now_ns, quota, window_ns)) return .send_rate;
-    var held = connection.requests.held.iterator(.{});
-    // Bounded by the records. Only a record in use has an entry that may run.
-    while (held.next()) |index| {
+    // The walk reads a copy, because a stream it cancels forgets its entry.
+    const marked = sends.may_meter;
+    var walk = marked.iterator(.{});
+    // Bounded by the records. Only a marked entry may have a meter that runs.
+    while (walk.next()) |index| {
         if (!sends.entries[index].meter.short(now_ns, quota, window_ns)) continue;
         cancel_stream(connection, index);
     }

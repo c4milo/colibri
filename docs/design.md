@@ -12764,6 +12764,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       h3-many 0.9377 and 0.9417, h3-bbr-many 0.9440 and 0.9479, h3-one 0.9847 and 0.9869, and
       h3-bbr-one 0.9857 and 0.9866, each a win. h3-many fell from 30,667 to 28,758 instructions a
       request in job 1. Each h2 input is within the noise in both jobs, and no input loses.
+    - **29d.19, a walk over the responses whose meter may run, 2026-11-07.** The judge's profile
+      of main f12bfa99 (run 42442344863) gave `quic_deadline.observe_credit` 1.7% of h3-many's
+      samples and 3.4% of h3-one's. Callgrind on a laptop, over 4,000 GETs on 16 connections,
+      counted about 1,660 instructions a request in `quic_deadline.observe` and what it calls,
+      about 2.5 calls a request. `quic_sends.observe` walked every held request record to start
+      or stop its meter, about 380 of them, with the iterator. A response's own meter runs only
+      while its stream's credit does not cover it, which is rare.
+      - The change, the owner's choice of 2026-11-07: `quic_sends.Sends` keeps `may_meter`, a
+        bit for each entry. `look` sets the bit of each entry it finds bound. The walks of
+        `observe`, `soonest` and `fire` visit the set bits alone, and `observe` clears the bit of
+        each entry whose meter it stopped. `forget` asserts that the bit is clear: a stream
+        closes only after a `look` found its response holding nothing. No public name changes,
+        and no deadline changes.
+      - The checks: a test requires a response its stream's credit holds to be marked, and its
+        mark to be clear once the credit covers it, while its record is held. A second requires
+        a `look` to leave a response that is not bound unmarked. Seven mutations, by `zig build
+        test-server`, each CAUGHT: a bound entry never marked; every entry marked; a walk that
+        clears no mark; a walk that clears the mark of a meter that runs; `soonest`, `fire` and
+        `observe` each walking no entry. The first run left four NOT CAUGHT. Two were
+        equivalent, and the clear and the assertion in `forget` now remove them; the tests above
+        catch the other two.
+      - Callgrind on the laptop counted 34,723 to 34,205 instructions a request, and the lines
+        of the send walk and its iterator fell from about 622 to 135.
+      - Each QUIC connection grows by 16 octets, the 100 bits, and `server.Engine(.{})` by 256, in
+        docs/performance.md.
+      - The judge's `--h3 --base` main, at 10 rounds. The step lands when h3-many wins and no
+        input loses.
 
 - **Step 30 — constants by who sets them.** [Decision 137](decisions.md) sorts each library
   module's constants into `protocol`, `limits`, `policy` and one file for each algorithm's
