@@ -120,4 +120,7 @@ test "decision 152: a request with trailers goes chunked, and a trailer buffer a
     const te = [_]event.Header{.{ .name = "TE", .value = "trailers" }};
     const names_its_own: Request = .{ .method = "GET", .path = "/", .headers = &te };
     try testing.expect(!adds_te(&names_its_own, &reads_trailers));
+    // A never-indexed TE is the program's own TE too (decision 158 ruling 9).
+    const never_indexed: Request = .{ .method = "GET", .path = "/", .never_indexed = .{ .headers = &te } };
+    try testing.expect(!adds_te(&never_indexed, &reads_trailers));
 }

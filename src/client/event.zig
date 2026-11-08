@@ -146,7 +146,8 @@ pub const NeverIndexed = struct {
     /// The path, which carries the query, as a DoH GET's does (RFC 8484 §4.1).
     path: bool = false,
     /// The headers that go out never-indexed, after `Request.headers`, as std's
-    /// `privileged_headers` do (decision 158 ruling 9). Empty for none.
+    /// `privileged_headers` do (decision 158 ruling 9). Empty for none. A name in both lists goes
+    /// out in `Request.headers` first, which sets the order of its values (RFC 9110 §5.3).
     headers: []const Header = &.{},
 };
 

@@ -92,6 +92,22 @@ test "decision 101: a request naming Accept-Encoding goes as written, and its co
     try testing.expectEqual(decoders_all, support.pool.storage().free_count());
 }
 
+test "decision 158 ruling 9: a never-indexed Accept-Encoding goes out over h11, and the client adds none" {
+    try support.start_coding(.h11);
+    const own = [_]Header{.{ .name = "accept-encoding", .value = "identity" }};
+    var exchange: Exchange = .{
+        .request = .{ .method = "GET", .path = "/", .never_indexed = .{ .headers = &own } },
+        .response = .{ .body = &body },
+    };
+    _ = try connection.request(&exchange.request, &exchange.response);
+    support.client_send();
+    // h11 compresses nothing, so the never-indexed line goes out as any other.
+    try testing.expect(sent("accept-encoding: identity\r\n"));
+    // Decision 101: a request that names Accept-Encoding takes no decoder and gets no offer.
+    try testing.expect(!sent("Accept-Encoding"));
+    try testing.expectEqual(decoders_all, support.pool.storage().free_count());
+}
+
 test "decision 101: a coding not offered, content coded twice and a 206 go on as they arrived" {
     const cases = [_]struct { status: u16, coding: []const u8 }{
         .{ .status = ok, .coding = "br" },

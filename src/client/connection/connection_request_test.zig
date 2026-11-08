@@ -33,6 +33,16 @@ test "RFC 9113 §8.2.2: a request naming a field the client writes, or a connect
     _ = try connection.request(&exchange.request, &exchange.response);
 }
 
+test "RFC 9113 §8.2.2: a never-indexed header naming a field the client writes is refused" {
+    try support.start_cleartext(.h2);
+    const names = [_][]const u8{ "Host", "content-length", "Connection", "Keep-Alive", "Proxy-Connection", "Transfer-Encoding", "Upgrade" };
+    for (names) |name| {
+        const fields = [_]Header{.{ .name = name, .value = "x" }};
+        var exchange: Exchange = .{ .request = .{ .method = "GET", .path = "/", .never_indexed = .{ .headers = &fields } } };
+        try testing.expectError(error.FieldReserved, connection.request(&exchange.request, &exchange.response));
+    }
+}
+
 test "RFC 9110 §6.5.1: a trailer field that frames or routes the message is refused" {
     try support.start_cleartext(.h11);
     // Each name is lowercase, so only the rule that names it refuses it.
