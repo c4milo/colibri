@@ -109,8 +109,8 @@ fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.R
 }
 
 /// The server the tests run: with QUIC slots, so an identity opens its UDP socket, or with none.
-pub const TestServer = server_module.ServerOf(.{ .tcp_connections = connections, .quic_connections = connections });
-pub const TcpServer = server_module.ServerOf(.{ .tcp_connections = connections, .quic_connections = 0 });
+pub const TestServer = server_module.Server(.{ .tcp_connections = connections, .quic_connections = connections }, .private);
+pub const TcpServer = server_module.Server(.{ .tcp_connections = connections, .quic_connections = 0 }, .private);
 
 /// The servers, their router and the thread that runs one, which the tests place outside any
 /// stack frame. `udp_served` says which server runs.
@@ -122,14 +122,15 @@ var context: void = {};
 var server_thread: std.Thread align(@alignOf(std.Thread)) = undefined;
 
 /// The client the tests run: QUIC, one TCP connection, and `requests_max` requests.
-pub const TestClient = client_module.ClientOf(.{ .tcp_connections = 1, .requests = requests_max });
+pub const TestClient = client_module.Client(.{ .tcp_connections = 1, .requests = requests_max }, .private);
 pub var test_client: TestClient align(@alignOf(TestClient)) = undefined;
 
 /// The clients `client.zig`'s tests place: one of the default capacity, and one with no QUIC.
 /// Neither is `threadlocal`: glibc places the static TLS of each new thread on that thread's
 /// stack, and these tests spawn threads (`server_test_support.zig`).
-pub const TcpClient = client_module.ClientOf(.{ .quic = false });
-pub var default_client: client_module.Client align(@alignOf(client_module.Client)) = undefined;
+pub const TcpClient = client_module.Client(.{ .quic = false }, .private);
+pub const DefaultClient = client_module.Client(.{}, .private);
+pub var default_client: DefaultClient align(@alignOf(DefaultClient)) = undefined;
 pub var tcp_client: TcpClient align(@alignOf(TcpClient)) = undefined;
 
 /// Starts a server on 127.0.0.1 port 0 on a thread of its own: over TLS with the test identity
@@ -140,7 +141,7 @@ pub fn start_server(identity: bool, udp: bool) !void {
     if (identity) config.identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     router = .{};
     udp_served = udp;
-    if (udp) try test_server.init(config) else try tcp_server.init(config);
+    if (udp) try test_server.init(&config, &router, &context) else try tcp_server.init(&config, &router, &context);
     server_thread = try std.Thread.spawn(.{}, serve, .{});
 }
 
@@ -157,7 +158,7 @@ pub fn stop_server() void {
 }
 
 fn serve() void {
-    const result = if (udp_served) test_server.run(&router, &context) else tcp_server.run(&router, &context);
+    const result = if (udp_served) test_server.run() else tcp_server.run();
     result catch |failure| std.debug.panic("run failed: {t}", .{failure});
 }
 
@@ -273,15 +274,15 @@ pub const Watchdog = struct {
     }
 };
 
-/// Runs the client with `handler` on this thread, under a watchdog.
-pub fn run(handler: *Handler) !void {
-    return run_within(handler, watchdog_ms);
+/// Runs the client with the handler of its `init` on this thread, under a watchdog.
+pub fn run() !void {
+    return run_within(watchdog_ms);
 }
 
 /// Runs the client as `run` does, under a watchdog of `limit_ms`.
-pub fn run_within(handler: *Handler, limit_ms: u64) !void {
+pub fn run_within(limit_ms: u64) !void {
     var watchdog: Watchdog = .{ .limit_ms = limit_ms };
     try watchdog.start();
     defer watchdog.stop();
-    try test_client.run(handler);
+    try test_client.run();
 }

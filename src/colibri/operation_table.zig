@@ -48,6 +48,13 @@ pub fn Table(comptime slot_count: u32) type {
             return slot;
         }
 
+        /// The slot of the operation `operation` names. A host that completes an operation that
+        /// the driver does not hold broke decision 159's rule 6, so the driver halts.
+        pub fn held(table: *const Self, operation: OperationId) u32 {
+            return table.find(operation) orelse
+                std.debug.panic("colibri: a completion names operation 0x{x:0>8}, which is not in flight (decision 159, rule 6)", .{@intFromEnum(operation)});
+        }
+
         /// Frees `slot` after its operation's final completion.
         pub fn finish(table: *Self, slot: u32) void {
             assert(table.in_flight.isSet(slot));

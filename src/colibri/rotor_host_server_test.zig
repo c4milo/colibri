@@ -37,7 +37,7 @@ fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.R
 }
 
 /// A server with one TCP connection and one QUIC connection, so `init` opens the UDP socket.
-const TestServer = server_module.ServerOf(.{ .tcp_connections = 1, .quic_connections = 1 });
+const TestServer = server_module.Server(.{ .tcp_connections = 1, .quic_connections = 1 }, .private);
 const listener_id = server_loop.listener_id(1);
 const datagram_id = server_loop.datagram_id(1);
 const socket_id: @import("host.zig").SocketId = @enumFromInt(0);
@@ -48,15 +48,15 @@ var router: Router align(@alignOf(Router)) = .{};
 var context: void = {};
 
 fn serve() void {
-    test_server.run(&router, &context) catch |failure| std.debug.panic("run failed: {t}", .{failure});
+    test_server.run() catch |failure| std.debug.panic("run failed: {t}", .{failure});
 }
 
 fn init_with_identity(counter: *support.Counter) !void {
-    try test_server.init(.{
+    try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
-    });
+    }, &router, &context);
 }
 
 test "design §8 step 37c: an identity opens UDP on the listener's port, which Alt-Svc names" {
@@ -112,7 +112,7 @@ test "design §8 step 37: deinit after run closes no socket a second time" {
 
 /// Starts the loop of a server in cleartext, as `run` does before its first turn.
 fn begin_cleartext(counter: *support.Counter) !void {
-    try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &router, &context);
     _ = try test_server.host.begin();
 }
 
@@ -299,12 +299,12 @@ test "design §8 step 37: an init whose UDP open fails closes the listener and n
     test_server.host.descriptors[@intFromEnum(datagram_id)] = held.datagram;
     test_server.host.bound_port = 0;
     const open_before = ip_sockets_open();
-    try testing.expectError(error.AddressInUse, test_server.init(.{
+    try testing.expectError(error.AddressInUse, test_server.init(&.{
         .port = held.port,
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
-    }));
+    }, &router, &context));
     // The listener was bound, so the UDP open is the step that failed.
     try testing.expectEqual(held.port, test_server.host.bound_port);
     try testing.expect(!test_server.host.open(listener_id) and !test_server.host.open(datagram_id));

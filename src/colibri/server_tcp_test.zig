@@ -43,7 +43,7 @@ fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.R
     response.status = internal_server_error;
 }
 
-const TestServer = server_module.ServerOf(.{ .tcp_connections = connections, .quic_connections = 0 });
+const TestServer = server_module.Server(.{ .tcp_connections = connections, .quic_connections = 0 }, .private);
 
 /// The server and its router, which the tests place outside any stack frame. Test-only.
 var test_server: TestServer align(@alignOf(TestServer)) = undefined;
@@ -51,7 +51,7 @@ var router: Router align(@alignOf(Router)) = .{};
 var context: void = {};
 
 fn serve() void {
-    test_server.run(&router, &context) catch |failure| std.debug.panic("run failed: {t}", .{failure});
+    test_server.run() catch |failure| std.debug.panic("run failed: {t}", .{failure});
 }
 
 /// Sends `request` over a new connection to the server, and returns what the server sent until it
@@ -73,7 +73,7 @@ fn fetch(io: std.Io, request: []const u8, response: []u8) ![]const u8 {
 test "decision 150: a server on port 0 answers an h11 request through its router, and shuts down" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &router, &context);
     try testing.expect(test_server.port() != 0);
     const thread = try std.Thread.spawn(.{}, serve, .{});
     var threaded: std.Io.Threaded = .init_single_threaded;
@@ -126,7 +126,7 @@ fn fetch_tls(io: std.Io, request: []const u8, response: []u8) ![]const u8 {
 test "decision 150: a server with an identity answers an h11 request over TLS" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu(), .random = counter.random() });
+    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu(), .random = counter.random() }, &router, &context);
     defer test_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});
     defer thread.join();
@@ -145,9 +145,6 @@ test "decision 150: a server with an identity answers an h11 request over TLS" {
 const pass_wait_ns: u64 = 10_000_000;
 const passes_max: usize = 1000;
 
-/// What a test that runs the server's loop itself passes each pass, as `run` holds it.
-const Running = struct { server: *TestServer, router: *Router, context: *void };
-
 /// Starts the host's loop and the engine of `test_server` on the test's thread, as `run` starts
 /// them, and returns the loop's first instant. The test then runs each pass itself, so it names
 /// the instant of each. Test-only.
@@ -159,9 +156,9 @@ fn start_loop() !u64 {
 
 /// One pass of the server's loop at `now_ns`, an instant that the test names. Returns the octets
 /// that the receives of the first socket read in the pass. Test-only.
-fn pass_at(running: *Running, now_ns: u64) !usize {
+fn pass_at(now_ns: u64) !usize {
     const host = &test_server.host;
-    _ = host.submit_turn(running, server_loop, now_ns);
+    _ = host.submit_turn(&test_server, server_loop, now_ns);
     const count = try host.loop.tick(&host.events, pass_wait_ns);
     var read: usize = 0;
     for (host.events[0..count]) |event| {
@@ -169,7 +166,7 @@ fn pass_at(running: *Running, now_ns: u64) !usize {
         const tagged = rotor_host.tag_of(event);
         if (tagged.kind == .receive and @intFromEnum(tagged.socket) == 0) read += event.outcome() catch 0;
     }
-    host.deliver_events(running, server_loop, host.events[0..count], now_ns);
+    host.deliver_events(&test_server, server_loop, host.events[0..count], now_ns);
     return read;
 }
 
@@ -179,10 +176,10 @@ const Wait = enum { shut_down, read, ended, freed };
 
 /// Runs passes of the loop at `now_ns` until `wait` holds, and fails after `passes_max` passes.
 /// Test-only.
-fn pass_until(running: *Running, wait: Wait, now_ns: u64) !void {
+fn pass_until(wait: Wait, now_ns: u64) !void {
     const socket = &test_server.sockets[0];
     for (0..passes_max) |_| {
-        const read = try pass_at(running, now_ns);
+        const read = try pass_at(now_ns);
         const reached = switch (wait) {
             .shut_down => socket.live and socket.shutdown_submitted and !socket.shutting_down,
             .read => read > 0,
@@ -197,9 +194,8 @@ fn pass_until(running: *Running, wait: Wait, now_ns: u64) !void {
 test "decision 160: after the half-close the socket receives again, and the peer's close ends the connection" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &router, &context);
     defer test_server.deinit();
-    var running: Running = .{ .server = &test_server, .router = &router, .context = &context };
     // Each pass gets this one instant, so the bound of `half_close_ns` cannot pass in the test.
     const now_ns = try start_loop();
     defer test_server.host.end();
@@ -214,7 +210,7 @@ test "decision 160: after the half-close the socket receives again, and the peer
     // RFC 9112 §9.3: 1 MiB is past `discard_len_max`, so the server closes in stages.
     try writer.interface.writeAll("POST /greeting HTTP/1.1\r\nHost: a\r\nContent-Length: 1048576\r\n\r\nabc");
     try writer.interface.flush();
-    try pass_until(&running, .shut_down, now_ns);
+    try pass_until(.shut_down, now_ns);
     const socket = &test_server.sockets[0];
     try testing.expect(socket.half_closing and !socket.closing and !socket.failed);
     // RFC 9112 §9.6: the bound runs from the `half_close`, at the one instant of this test.
@@ -232,16 +228,16 @@ test "decision 160: after the half-close the socket receives again, and the peer
     // RFC 9112 §9.6: the client writes on, and the socket reads the octets and then receives again.
     try writer.interface.writeAll("more of the body");
     try writer.interface.flush();
-    try pass_until(&running, .read, now_ns);
+    try pass_until(.read, now_ns);
     // The turn of the next pass steps the socket: the engine discards the octets, and the socket
     // receives again.
-    _ = test_server.host.submit_turn(&running, server_loop, now_ns);
+    _ = test_server.host.submit_turn(&test_server, server_loop, now_ns);
     try testing.expect(socket.receiving and socket.unread().len == 0);
     // The peer closes first. The receive reads its close, and the connection ends with no `close`
     // from the engine, at the instant of the `half_close`.
     stream.close(io);
     client_open = false;
-    try pass_until(&running, .ended, now_ns);
+    try pass_until(.ended, now_ns);
     try testing.expect(socket.failed and !test_server.entries[0].closing);
-    try pass_until(&running, .freed, now_ns);
+    try pass_until(.freed, now_ns);
 }

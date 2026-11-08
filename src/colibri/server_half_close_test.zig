@@ -34,23 +34,17 @@ fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.R
     response.status = internal_server_error;
 }
 
-/// A server in cleartext with one TCP socket and no QUIC, which the test places outside any stack
-/// frame. Test-only.
-const TestServer = server_module.ServerOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+/// A hosted server in cleartext with one TCP socket and no QUIC, which the test places outside
+/// any stack frame. Test-only.
+const TestServer = server_module.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .hosted);
 var test_server: TestServer align(@alignOf(TestServer)) = undefined;
 var router: Router align(@alignOf(Router)) = .{};
 var context: void = {};
-const ServerRun = struct { server: *TestServer, router: *Router, context: *void };
 
-/// Starts the server's driver at instant 0, with no host socket: the test is its host.
-fn start_server(counter: *support.Counter) !ServerRun {
+/// Starts the hosted server: its host opened the listener alone.
+fn start_server(counter: *support.Counter) !void {
     router = .{};
-    test_server.config = .{ .cpu = support.cpu(), .random = counter.random() };
-    test_server.engine_config = .{};
-    test_server.udp.served = false;
-    test_server.stopping = .init(false);
-    try server_loop.start(&test_server, 0);
-    return .{ .server = &test_server, .router = &router, .context = &context };
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &router, &context);
 }
 
 /// The one operation of `kind` among `written`, or null.
@@ -63,55 +57,55 @@ fn find(written: []const host.Operation, comptime kind: std.meta.Tag(host.Operat
 
 /// Accepts one connection, gives it a request whose body is past `discard_len_max`, and takes the
 /// whole response, so the connection closes in stages (RFC 9112 §9.6).
-fn send_response(running: *ServerRun, operations: []host.Operation) !void {
-    const first = server_loop.turn(running, 0, operations);
+fn send_response(operations: []host.Operation) !void {
+    const first = test_server.turn(0, operations);
     const accept = find(operations[0..first.operations], .accept).?;
-    server_loop.complete(running, &.{ .id = accept.id, .result = .accepted }, 0);
-    const second = server_loop.turn(running, 0, operations);
+    test_server.complete(&.{ .id = accept.id, .result = .accepted }, 0);
+    const second = test_server.turn(0, operations);
     const receive = find(operations[0..second.operations], .receive).?;
     const head = "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 1048576\r\n\r\nabc";
     @memcpy(receive.kind.receive.buffer[0..head.len], head);
-    server_loop.complete(running, &.{ .id = receive.id, .result = .{ .received = head.len } }, 0);
-    const third = server_loop.turn(running, 0, operations);
+    test_server.complete(&.{ .id = receive.id, .result = .{ .received = head.len } }, 0);
+    const third = test_server.turn(0, operations);
     const send = find(operations[0..third.operations], .send).?;
     const sent: u32 = @intCast(send.kind.send.bytes.len);
-    server_loop.complete(running, &.{ .id = send.id, .result = .{ .sent = sent } }, 0);
-    _ = server_loop.turn(running, 0, operations);
+    test_server.complete(&.{ .id = send.id, .result = .{ .sent = sent } }, 0);
+    _ = test_server.turn(0, operations);
 }
 
 test "decision 160: the write side closes once the response is out, and a failed shutdown closes" {
     var counter: support.Counter = .{};
-    var running = try start_server(&counter);
+    try start_server(&counter);
     var operations: [operations_len]host.Operation = undefined;
-    try send_response(&running, &operations);
-    const socket = server_loop.take_half_close(&running).?;
+    try send_response(&operations);
+    const socket = server_loop.take_half_close(&test_server).?;
     try testing.expectEqual(0, @intFromEnum(socket));
     // One shutdown for each socket, and the socket's receive goes on.
-    try testing.expectEqual(null, server_loop.take_half_close(&running));
+    try testing.expectEqual(null, server_loop.take_half_close(&test_server));
     try testing.expect(test_server.sockets[0].receiving);
-    server_loop.half_closed(&running, socket, false, 0);
+    server_loop.half_closed(&test_server, socket, false, 0);
     // The shutdown failed, so the next turn closes the socket.
-    const turned = server_loop.turn(&running, 0, &operations);
+    const turned = test_server.turn(0, &operations);
     const close = find(operations[0..turned.operations], .close).?;
     try testing.expectEqual(socket, close.kind.close.socket);
 }
 
 test "decision 160: a socket whose close completes before its shutdown is free once the shutdown ends" {
     var counter: support.Counter = .{};
-    var running = try start_server(&counter);
+    try start_server(&counter);
     var operations: [operations_len]host.Operation = undefined;
-    try send_response(&running, &operations);
-    const socket = server_loop.take_half_close(&running).?;
+    try send_response(&operations);
+    const socket = server_loop.take_half_close(&test_server).?;
     // The peer resets the connection while the shutdown is in flight, so the socket closes.
     const receive_id = test_server.operations.id(socket_module.slot_of(0, .receive));
-    server_loop.complete(&running, &.{ .id = receive_id, .result = .{ .failed = .reset } }, 0);
-    var turned = server_loop.turn(&running, 0, &operations);
+    test_server.complete(&.{ .id = receive_id, .result = .{ .failed = .reset } }, 0);
+    var turned = test_server.turn(0, &operations);
     const close = find(operations[0..turned.operations], .close).?;
     // Decision 159, rule 2: the close may complete before the shutdown that it ended.
-    server_loop.complete(&running, &.{ .id = close.id, .result = .closed }, 0);
-    turned = server_loop.turn(&running, 0, &operations);
+    test_server.complete(&.{ .id = close.id, .result = .closed }, 0);
+    turned = test_server.turn(0, &operations);
     try testing.expect(test_server.sockets[0].live);
-    server_loop.half_closed(&running, socket, true, 0);
-    turned = server_loop.turn(&running, 0, &operations);
+    server_loop.half_closed(&test_server, socket, true, 0);
+    turned = test_server.turn(0, &operations);
     try testing.expect(!test_server.sockets[0].live);
 }

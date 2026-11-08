@@ -124,7 +124,7 @@ pub fn owed(state: anytype, handle: client.ConnectionHandle) void {
 
 /// Hands a completion to the socket of `slot`.
 pub fn complete(run: anytype, slot: usize, kind: socket_module.Kind, result: host.Completion.Result, now_ns: u64) void {
-    const state = run.client;
+    const state = run;
     const socket = &state.sockets[slot];
     assert(socket.live);
     switch (kind) {
@@ -156,7 +156,7 @@ fn on_connected(state: anytype, slot: usize, result: host.Completion.Result, now
         state.pool.transport_closed(connection.handle);
         return;
     }
-    state.pool.start_tcp(connection.handle, state.config.random.?, client_loop.unix_seconds(state, now_ns), null) catch {
+    state.pool.start_tcp(connection.handle, state.random, client_loop.unix_seconds(state, now_ns), null) catch {
         socket.failed = true;
         return;
     };
@@ -165,7 +165,7 @@ fn on_connected(state: anytype, slot: usize, result: host.Completion.Result, now
 
 /// Steps every socket a completion named, until none is named.
 pub fn serve(run: anytype, now_ns: u64) void {
-    const state = run.client;
+    const state = run;
     for (0..state.sockets.len * constants.limits.events_per_step_max) |_| {
         const slot = state.pending.toggleFirstSet() orelse return;
         serve_slot(run, slot, now_ns);
@@ -176,7 +176,7 @@ pub fn serve(run: anytype, now_ns: u64) void {
 /// that waited for it starts. A connect the close cancelled still owes its final completion
 /// (decision 159, rule 2).
 fn serve_slot(run: anytype, slot: usize, now_ns: u64) void {
-    const state = run.client;
+    const state = run;
     const socket = &state.sockets[slot];
     const connection = &state.connections[slot];
     if (!socket.live) return;
@@ -194,7 +194,7 @@ fn serve_slot(run: anytype, slot: usize, now_ns: u64) void {
 /// Passes the socket's unread octets to the pool and writes what its connection owes into the
 /// socket's room, until neither moves.
 fn step(run: anytype, slot: usize, now_ns: u64) void {
-    const state = run.client;
+    const state = run;
     const socket = &state.sockets[slot];
     const connection = &state.connections[slot];
     // Bounded: a pass in which nothing moves ends the loop.

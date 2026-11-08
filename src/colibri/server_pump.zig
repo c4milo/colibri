@@ -15,8 +15,8 @@
 //! The router writes each response as it takes the request's events, so the responses to the
 //! requests one read carried leave in one `send_stream` (decision 119 as amended).
 //!
-//! Each function takes `run`, which holds the server, the router and the program's context: the
-//! router's type and the context's type are the program's, so `run` is generic.
+//! Each function takes `run`, the server, which holds the program's router and context behind
+//! `erased.zig`'s `Router`.
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
@@ -53,7 +53,7 @@ pub const no_connection: server.ConnectionHandle = .{ .slot = 0, .generation = 0
 /// Starts the connection of a socket the listener accepted at `now_ns`, in the free entry
 /// `index`. False when the engine starts none: the caller closes the socket.
 pub fn accept(run: anytype, index: usize, tls: bool, now_ns: u64) bool {
-    const state = run.server;
+    const state = run;
     const entry = &state.entries[index];
     assert(!entry.attached);
     state.now_ns = now_ns;
@@ -68,7 +68,7 @@ pub fn accept(run: anytype, index: usize, tls: bool, now_ns: u64) bool {
 /// Serves the socket of entry `index` at `now_ns`: consumes what it can of `input`, and writes what
 /// it can into `output`. See the header.
 pub fn step(run: anytype, index: usize, input: []u8, output: []u8, now_ns: u64) Step {
-    const state = run.server;
+    const state = run;
     const entry = &state.entries[index];
     state.now_ns = now_ns;
     var consumed: usize = 0;
@@ -90,7 +90,7 @@ pub fn step(run: anytype, index: usize, input: []u8, output: []u8, now_ns: u64) 
 /// The socket of entry `index` closed before the engine asked: its peer closed it, or a read or
 /// a send failed. The engine ends the connection, and its slot frees.
 pub fn peer_closed(run: anytype, index: usize, now_ns: u64) void {
-    const state = run.server;
+    const state = run;
     state.now_ns = now_ns;
     state.engine.transport_closed(state.entries[index].handle);
     drain(run);
@@ -101,7 +101,7 @@ const Read = struct { consumed: usize, moved: bool };
 /// Passes `input` to the entry's connection until the engine consumes nothing and reports
 /// nothing, routing each event. A connection the engine closed or ended reads nothing.
 fn read(run: anytype, entry: *Entry, input: []u8) Read {
-    const state = run.server;
+    const state = run;
     var taken: Read = .{ .consumed = 0, .moved = false };
     for (0..constants.limits.events_per_step_max) |_| {
         if (entry.closing or !entry.attached) break;
@@ -126,7 +126,7 @@ fn send(state: anytype, entry: *Entry, room: []u8) usize {
 
 /// Reads the engine's events until it reports none, routing each.
 pub fn drain(run: anytype) void {
-    const state = run.server;
+    const state = run;
     for (0..constants.limits.events_per_step_max) |_| {
         const reported = state.engine.receive(.none, state.now_ns).event orelse {
             state.undrained = false;
@@ -143,11 +143,11 @@ pub fn drain(run: anytype) void {
 /// loop's flush.
 pub fn route(run: anytype, reported: server.Event) void {
     if (request_connection(reported)) |handle| {
-        if (is_tcp(run.server, handle)) _ = named(run.server, handle);
+        if (is_tcp(run, handle)) _ = named(run, handle);
     }
-    switch (run.router.handle(run.context, &run.server.engine, reported)) {
+    switch (run.router.handle(&run.engine, reported)) {
         .taken => {},
-        .event => |other| on_connection_event(run.server, other),
+        .event => |other| on_connection_event(run, other),
     }
 }
 

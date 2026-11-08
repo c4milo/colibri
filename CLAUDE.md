@@ -347,6 +347,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   refusal of `server.Router`, and requires each compile to fail with the message of that refusal
   (`build/router_check.zig`, decision 122). The case `accepted` must compile. `zig build test` runs
   it.
+- colibri's kinds: `zig build colibri-loop-check` builds `src/colibri/loop_check_test.zig` once
+  for each case (`build/colibri_loop_check.zig`, design §8 step 44d). A `.hosted` server and client
+  must compile and run with no socket. `run` and `port` on `.hosted`, and `turn` and `complete` on
+  `.private`, must fail to compile with colibri's message. Two programs must halt with SIGABRT and
+  colibri's message: a stray completion, and `deinit` of a `.hosted` object before `stopped()`
+  (decision 159, rules 6 and 2). `zig build test` runs it.
 - Route cross-check: `zig build router-hidden-check` runs two test binaries apart from `zig build
   test-server` (`build/router_check.zig`, the owner's rulings of 2026-10-14). `router-hidden`, from
   `src/server/router_hidden_check.zig`, runs `src/server/router/router_hidden_test.zig`, which

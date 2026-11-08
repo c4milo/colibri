@@ -49,14 +49,14 @@ pub const DatagramSocket = struct {
     datagram: [constants.limits.udp_datagram_len_max]u8,
 
     /// Starts a run: nothing in flight, and every batch free. The first `write` starts the
-    /// receive.
-    pub fn start(socket: *DatagramSocket, id: host.SocketId, first_slot: u32) void {
+    /// receive. With `segments` the host sends a batch of equal segments in one call.
+    pub fn start(socket: *DatagramSocket, id: host.SocketId, first_slot: u32, segments: bool) void {
         assert(socket.served);
         socket.socket = id;
         socket.first_slot = first_slot;
         socket.receiving = false;
         socket.receive_canceled = false;
-        socket.batches = .of(true);
+        socket.batches = .of(segments);
     }
 
     /// Whether `slot` is one of the socket's slots.
@@ -164,7 +164,7 @@ test "decision 159: the receive is written once, and cancelled once receives sto
     var out: operation_table.Outbox = .{ .operations = &written };
     var sender: TestSender = .{ .count = 0, .len = test_datagram_len };
     test_socket.served = true;
-    test_socket.start(@enumFromInt(3), 0);
+    test_socket.start(@enumFromInt(3), 0, true);
     test_socket.write(&out, &table, true, &sender, 0);
     try testing.expectEqual(1, out.len);
     try testing.expectEqual(3, @intFromEnum(written[0].kind.receive_datagram.socket));
@@ -183,7 +183,7 @@ test "decision 159: the engine's datagrams leave in one send for each batch, wit
     var out: operation_table.Outbox = .{ .operations = &written };
     var sender: TestSender = .{ .count = 2, .len = test_datagram_len };
     test_socket.served = true;
-    test_socket.start(@enumFromInt(0), 0);
+    test_socket.start(@enumFromInt(0), 0, true);
     test_socket.write(&out, &table, false, &sender, 0);
     const sends: u32 = if (batch_module.segmented) 1 else 2;
     try testing.expectEqual(sends, out.len);

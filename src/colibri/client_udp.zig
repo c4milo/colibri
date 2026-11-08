@@ -26,14 +26,14 @@ pub fn start(state: anytype, now_ns: u64) void {
         unreachable;
     } else {
         assert(state.udp.served);
-        state.pool.start_quic(state.config.random.?, client_loop.unix_seconds(state, now_ns), now_ns, null) catch {};
+        state.pool.start_quic(state.random, client_loop.unix_seconds(state, now_ns), now_ns, null) catch {};
     }
 }
 
 /// Hands a completion of the UDP socket to it. The receive goes on until the pool closes, and a
 /// pool that has closed drops each datagram it is given.
 pub fn complete(run: anytype, slot: u32, completion: *const host.Completion, now_ns: u64) void {
-    run.client.udp.complete(slot, completion, run, take, now_ns);
+    run.udp.complete(slot, completion, run, take, now_ns);
 }
 
 /// Passes a datagram to the pool, then does what each event it reports asks, until it reports none.
@@ -42,7 +42,7 @@ pub fn complete(run: anytype, slot: u32, completion: *const host.Completion, now
 fn take(run: anytype, received: datagram_socket.Received, now_ns: u64) void {
     var input: client.Input = .{ .datagram = .{ .bytes = received.bytes, .ecn = received.ecn, .from = received.from } };
     for (0..constants.limits.events_per_step_max) |_| {
-        const result = run.client.pool.receive(input, now_ns);
+        const result = run.pool.receive(input, now_ns);
         if (result.consumed > 0) input = .none;
         client_loop.handle(run, result.event orelse return, now_ns);
     }

@@ -127,30 +127,35 @@ protocol modules keep the RFCs' words. This table says which word means what:
 `colibri.Server` does the I/O of a server for you ([decision 150](decisions.md)). It binds the TCP
 socket and the UDP socket of one port, reads the server's identity, and runs `server.Engine` on
 [Rotor](https://github.com/c4milo/rotor)'s loop. Your program gives it a configuration and a router
-of `server.Router`, and calls `run`. The code in this section is from
+of `server.Router` at `init`, and calls `run`. The code in this section is from
 [`examples/colibri_server.zig`](../examples/colibri_server.zig).
 
-A program places the server once, outside any stack frame, as it places an engine.
-`colibri.Server` holds the default capacity, and `colibri.ServerOf` takes a `server.Capacity`:
+`colibri.Server(capacity, kind)` is a type function, as Zig's `std.ArrayList(T)` is
+([decision 156](decisions.md) ruling 1). `capacity` is a `server.Capacity`. `kind` is `.private`,
+which runs on colibri's own Rotor loop, or `.hosted`, which runs on your program's loop
+([decision 159](decisions.md)). This section shows `.private`. A program places the server once,
+outside any stack frame, as it places an engine:
 
 ```zig
 const connections = 4;
-const Server = colibri.ServerOf(.{ .tcp_connections = connections, .quic_connections = connections });
+const Server = colibri.Server(.{ .tcp_connections = connections, .quic_connections = connections }, .private);
 var http_server: Server align(@alignOf(Server)) = undefined;
 ```
 
-`init` binds the port and reads the identity. Port 0 asks the system for a port, and `port()`
-returns the port bound. `run` serves on the thread that calls it, one Rotor loop on that thread,
-until another thread calls `shutdown`. `run` then ends each connection and returns:
+`init` takes a pointer to the configuration, the router, and the context that each route's function
+takes. It binds the port and reads the identity, and keeps no pointer to the configuration. Port 0
+asks the system for a port, and `port()` returns the port bound. `run` serves on the thread that
+calls it, one Rotor loop on that thread, until another thread calls `shutdown`. `run` then ends
+each connection and returns:
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-try http_server.init(.{
+try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
-});
+}, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
@@ -159,7 +164,7 @@ defer http_server.shutdown();
 
 ```zig
 fn serve() void {
-    http_server.run(&router, &app) catch |failure| std.debug.panic("run failed: {t}", .{failure});
+    http_server.run() catch |failure| std.debug.panic("run failed: {t}", .{failure});
 }
 ```
 
@@ -179,9 +184,9 @@ another file of your program.
   With one, ALPN picks h2 or h11, and h3 runs on the UDP socket of the same port.
 - `cpu`: your program's CPU probe and its thread's timing, as for every TLS configuration.
 - `random`: the source each TLS session draws from. Null draws from the system's entropy.
-- `endpoint`: the `server.Config` the engine starts from. `colibri` fills its `tls`, and sets
-  its `ecn`, because the server's loop reads and sets each datagram's ECN codepoint
-  ([decision 68](decisions.md)).
+- `engine`: the `server.Config` the engine starts from ([decision 158](decisions.md) ruling 16).
+  `colibri` fills its `tls`, and sets its `ecn`, because the server's loop reads and sets each
+  datagram's ECN codepoint ([decision 68](decisions.md)).
 
 A program that wants more cores starts more servers on one port: each one binds with
 SO_REUSEPORT. `std.Io` plays no part: the server runs on Rotor's own calls, which keep UDP_GRO,
@@ -193,33 +198,37 @@ and h3 needs `.prefer = .quic`.
 
 `colibri.Client` does the I/O of a client for you ([decision 153](decisions.md) ruling 8). It owns
 the TCP sockets, the UDP socket for h3, Rotor's loop and its clock, and a `client.ConnectionPool`.
-Your program gives it a configuration, hands it requests, and calls `run`. The code in this section
-is from [`examples/colibri_server.zig`](../examples/colibri_server.zig).
+Your program gives it a configuration and a handler, hands it requests, and calls `run`. The code
+in this section is from [`examples/colibri_server.zig`](../examples/colibri_server.zig).
 
-A program places the client once, outside any stack frame. `colibri.Client` holds one TCP
-connection, one QUIC connection, and `client.constants.limits.requests_max` requests at once:
+`colibri.Client(capacity, kind)` is a type function, as `colibri.Server` is. `capacity` is a
+`colibri.ClientCapacity`: whether the client holds a QUIC connection, its TCP connections, and its
+requests at once. `.{}` holds one TCP connection, one QUIC connection, and
+`client.constants.limits.requests_max` requests. A program places the client once, outside any
+stack frame:
 
 ```zig
-var http_client: colibri.Client align(@alignOf(colibri.Client)) = undefined;
+const Client = colibri.Client(.{}, .private);
+var http_client: Client align(@alignOf(Client)) = undefined;
 ```
 
-`colibri.ClientOf` makes a client of another size from a `colibri.ClientCapacity`: whether it
-holds a QUIC connection, its TCP connections, and its requests at once. `colibri.Client` is
-`ClientOf` of the default capacity. These lines are from
-[`tools/consumer/main.zig`](../tools/consumer/main.zig), a client with no QUIC:
+These lines are from [`tools/consumer/main.zig`](../tools/consumer/main.zig), a client with no
+QUIC:
 
 ```zig
 const client_capacity: colibri.ClientCapacity = .{ .quic = false, .tcp_connections = 1, .requests = 4 };
-const BoundClient = colibri.ClientOf(client_capacity);
+const BoundClient = colibri.Client(client_capacity, .private);
 var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
 ```
 
-`init` takes the server's address and port, and the pool's configuration. It opens the UDP socket
-when the pool offers QUIC: h3 allowed, and a TLS value. `request` takes a `client.Request` and the
-`client.Response` it fills, which your program keeps in place until the exchange's `finished`:
+`init` takes a pointer to the configuration and the handler: the server's address and port, the
+pool's configuration, and a pointer to your program's struct. It opens the UDP socket when the
+pool offers QUIC: h3 allowed, and a TLS value. A client with no handler, which passes null, drops
+each event. `request` takes a `client.Request` and the `client.Response` it fills, which your
+program keeps in place until the exchange's `finished`:
 
 ```zig
-try http_client.init(.{
+try http_client.init(&.{
     .host = "127.0.0.1",
     .port = http_server.port(),
     .pool = .{
@@ -228,15 +237,15 @@ try http_client.init(.{
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
     },
     .unix_seconds = now_seconds,
-});
+}, &fetched);
 defer http_client.deinit();
 ```
 
-`run` runs one Rotor loop on the thread that calls it. It gives each event to a handler, a pointer
-to your program's struct. The struct declares `on_finished`, and may declare `on_connected`:
+`run` runs one Rotor loop on the thread that calls it, and gives each event to the handler. The
+struct declares `on_finished`, and may declare `on_connected`:
 
 ```zig
-pub fn on_finished(self: *Fetch, _: *colibri.Client, _: client.Finished) void {
+pub fn on_finished(self: *Fetch, _: *Client, _: client.Finished) void {
     self.finished += 1;
 }
 ```
@@ -247,7 +256,7 @@ before `run` makes `run` return when the requests already made have finished:
 
 ```zig
 http_client.shutdown();
-try http_client.run(&fetched);
+try http_client.run();
 ```
 
 `shutdown` is the one call another thread may make. `request` comes before `run` or from a
@@ -272,7 +281,13 @@ the UDP socket when `run` did not close it.
 
 The pool's `timeouts.connect_ns` bounds each TCP connect, 10 s by default. A connect that does
 not complete in that time ends its attempt as a refused connect does, and null turns the limit
-off. A limit longer than one day becomes one day, the longest deadline Rotor takes.
+off. colibri cancels the connect at its deadline itself, so the largest value holds a connect
+until the pool closes it.
+
+A `.hosted` client or server has the same calls, without `run`, `port` and the bind. Your
+program's host opens the sockets before `init`, and calls `turn` and `complete` with the seven
+types from `colibri.SocketId` to `colibri.Turn` ([decision 159](decisions.md)). Design §8 step
+44l adds the section that shows a host.
 
 ## The server
 

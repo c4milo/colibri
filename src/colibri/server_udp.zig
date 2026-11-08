@@ -11,8 +11,8 @@ const host = @import("host.zig");
 
 /// Whether the server serves h3: `quic_slots` and an identity. RFC 9114 §3.1: h3 runs over QUIC,
 /// which needs TLS (RFC 9001 §4).
-pub fn served(state: anytype, quic_slots: bool) bool {
-    return quic_slots and state.config.identity != null;
+pub fn served(quic_slots: bool, identity: bool) bool {
+    return quic_slots and identity;
 }
 
 /// Records that the host opened the UDP socket on the listener's port. A TCP connection over TLS
@@ -26,12 +26,12 @@ pub fn opened(state: anytype, port: u16) void {
 
 /// Hands a completion of the UDP socket to it.
 pub fn complete(run: anytype, slot: u32, completion: *const host.Completion, now_ns: u64) void {
-    run.server.udp.complete(slot, completion, run, take, now_ns);
+    run.udp.complete(slot, completion, run, take, now_ns);
 }
 
 /// Passes a datagram to the engine, then routes every event it reports until it reports none.
 pub fn take(run: anytype, received: datagram_socket.Received, now_ns: u64) void {
-    const state = run.server;
+    const state = run;
     state.now_ns = now_ns;
     var rest: server.Input = .{ .datagram = .{ .bytes = received.bytes, .ecn = received.ecn, .from = received.from } };
     for (0..constants.limits.events_per_step_max) |_| {

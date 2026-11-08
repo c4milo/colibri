@@ -35,7 +35,7 @@ fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.R
 }
 
 /// A server with one TCP connection and one QUIC connection, so `init` opens the UDP socket.
-const TestServer = server_module.ServerOf(.{ .tcp_connections = 1, .quic_connections = 1 });
+const TestServer = server_module.Server(.{ .tcp_connections = 1, .quic_connections = 1 }, .private);
 
 /// The server and its router, which the test places outside any stack frame. Test-only.
 var test_server: TestServer align(@alignOf(TestServer)) = undefined;
@@ -98,28 +98,23 @@ const operations_len = 8;
 test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts its codepoint" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(.{
+    try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
-    });
+    }, &router, &context);
     defer test_server.deinit();
     // Decision 68: the server's host reads each codepoint, so its engine says so, whatever the
     // program's configuration says.
     try testing.expect(test_server.engine_config.ecn);
     try server_loop.start(&test_server, 0);
-    var running: struct { server: *TestServer, router: *Router, context: *void } = .{
-        .server = &test_server,
-        .router = &router,
-        .context = &context,
-    };
     var operations: [operations_len]host.Operation = undefined;
-    const first = server_loop.turn(&running, 0, &operations);
+    const first = server_loop.turn(&test_server, 0, &operations);
     const receive = receive_written(operations[0..first.operations]).?;
     var datagram = client_initial;
     // RFC 9000 §13.4: the host read ECT(0) off the datagram's IP header.
     const loopback = [_]u8{ 127, 0, 0, 1 };
-    server_loop.complete(&running, &.{ .id = receive, .more = true, .result = .{ .datagram = .{
+    server_loop.complete(&test_server, &.{ .id = receive, .more = true, .result = .{ .datagram = .{
         .bytes = &datagram,
         .from = server.Address.of(&loopback, 4433),
         .ecn = .ect_0,
@@ -131,7 +126,7 @@ test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts i
     const transport = &test_server.engine.state.connections.connections[0].transport;
     try testing.expectEqual(1, transport.spaces[0].ecn.ect_0);
     // The engine opened the Initial, and the next turn sends the client its own Initial.
-    const second = server_loop.turn(&running, 1, &operations);
+    const second = server_loop.turn(&test_server, 1, &operations);
     const sent = send_written(operations[0..second.operations]).?;
     try testing.expect(sent.bytes.len > 0);
     try testing.expectEqual(4433, sent.to.port);

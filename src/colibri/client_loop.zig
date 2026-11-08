@@ -10,8 +10,8 @@
 //! The pool's events go to the program's handler: `on_finished` for each exchange that ends, and
 //! `on_connected`, when the handler declares it, for the connection that takes the exchanges.
 //!
-//! A client's `SocketId`s are its TCP sockets from 0, then its UDP socket. Its operation table
-//! holds each TCP socket's slots, then the UDP socket's.
+//! A client's `SocketId`s are its TCP sockets from 0, then its UDP socket of each family. Its
+//! operation table holds each TCP socket's slots, then the UDP socket's.
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
@@ -32,14 +32,26 @@ pub fn datagram_slot(tcp_connections: usize) u32 {
     return @intCast(tcp_connections * socket_module.slots_per_socket);
 }
 
-/// The id of the UDP socket, after every TCP socket's.
-pub fn datagram_id(tcp_connections: usize) host.SocketId {
-    return @enumFromInt(tcp_connections);
+/// The id of the UDP socket of `family`: IPv4's after every TCP socket's, then IPv6's. The client
+/// sends from the one of its destination's family (decision 156 ruling 13).
+pub fn datagram_id(tcp_connections: usize, family: Family) host.SocketId {
+    return @enumFromInt(tcp_connections + @intFromEnum(family));
 }
 
-/// The size of the host's table of sockets.
+/// The two families of a UDP socket.
+pub const Family = enum(u1) { ipv4, ipv6 };
+
+/// The octets of an IPv4 address (RFC 791 §3.1).
+const ipv4_len = @sizeOf(u32);
+
+/// The family of `address`: 4 octets are IPv4, and 16 are IPv6.
+pub fn family_of(address: client.Address) Family {
+    return if (address.len == ipv4_len) .ipv4 else .ipv6;
+}
+
+/// The size of the host's table of sockets: the TCP sockets, and a UDP socket for each family.
 pub fn sockets_max(tcp_connections: usize) u16 {
-    return @intCast(tcp_connections + 1);
+    return @intCast(tcp_connections + @typeInfo(Family).@"enum".fields.len);
 }
 
 /// The operations a client holds in flight at most: for each TCP socket a receive, a send and a
@@ -51,10 +63,7 @@ pub fn operations_max(tcp_connections: usize, quic: bool) u32 {
 /// Runs the client `state` names on the calling thread until its pool reports `closed`, every
 /// socket has closed, and each operation had its final completion (`Client.run`). The UDP socket
 /// closes last.
-pub fn run_loop(state: anytype, handler: anytype) !void {
-    const Handler = @typeInfo(@TypeOf(handler)).pointer.child;
-    comptime assert(@hasDecl(Handler, "on_finished"));
-    assert(state.config.random != null);
+pub fn run_loop(state: anytype) !void {
     // The pool reports `closed` once, so a second run would wait for it without end.
     assert(!state.ran);
     state.ran = true;
@@ -62,16 +71,16 @@ pub fn run_loop(state: anytype, handler: anytype) !void {
     const now_ns = try state.host.begin();
     defer state.host.end();
     start(state, now_ns);
-    const Run = struct { client: @TypeOf(state), handler: @TypeOf(handler) };
-    var running: Run = .{ .client = state, .handler = handler };
-    try state.host.run(&running, @This(), state);
+    try state.host.run(state, @This(), state);
 }
 
 /// Starts a run at `now_ns`, the instant `unix_seconds` counts from, with the UDP socket's receive
 /// owed.
 pub fn start(state: anytype, now_ns: u64) void {
+    assert(!state.started);
     reset(state, now_ns);
-    if (state.udp.served) state.udp.start(datagram_id(state.sockets.len), datagram_slot(state.sockets.len));
+    state.started = true;
+    if (state.udp.served) state.udp.start(state.udp.socket, datagram_slot(state.sockets.len), state.datagram_segments);
 }
 
 /// Empties what a run holds: no socket, pending step or operation.
@@ -91,12 +100,14 @@ pub fn reset(state: anytype, now_ns: u64) void {
 /// The seconds since 1970 at `now_ns`: the program's instant at the start of `run`, and the time
 /// the run has lasted since. chapulin judges a chain's dates at it (RFC 5280 §4.1.2.5).
 pub fn unix_seconds(state: anytype, now_ns: u64) u64 {
-    return state.config.unix_seconds + (now_ns -| state.started_ns) / client.constants.nanoseconds_per_second;
+    return state.unix_seconds + (now_ns -| state.started_ns) / client.constants.nanoseconds_per_second;
 }
 
-/// One turn at `now_ns`. See the header.
+/// One turn at `now_ns`. See the header. A hosted client's first turn is the instant that
+/// `unix_seconds` counts from, because its `init` takes no instant.
 pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
-    const state = run.client;
+    const state = run;
+    if (!state.started) start(state, now_ns);
     var out: operation_table.Outbox = .{ .operations = operations };
     pass_shutdown(state);
     const due = if (state.pool.deadline_ns()) |at_ns| at_ns <= now_ns else false;
@@ -122,8 +133,8 @@ pub fn wait(state: anytype, full: bool) host.Wait {
 /// Takes one completion at `now_ns`. A completion with an id that the client does not hold is a
 /// halt (decision 159, rule 6).
 pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
-    const state = run.client;
-    const slot = state.operations.find(completion.id).?;
+    const state = run;
+    const slot = state.operations.held(completion.id);
     if (completion.final()) state.operations.finish(slot);
     if (state.udp.served and state.udp.owns(slot)) return @import("client_udp.zig").complete(run, slot, completion, now_ns);
     const index = slot / socket_module.slots_per_socket;
@@ -151,7 +162,7 @@ pub fn pass_shutdown(state: anytype) void {
 /// event. A handler that calls `request` starts a new count, so a drain that reaches the bound
 /// leaves the rest for the next turn, which then waits for nothing.
 pub fn drain(run: anytype, now_ns: u64) void {
-    const state = run.client;
+    const state = run;
     const Pool = @TypeOf(state.pool);
     const reads_max = Pool.receive_events_without_input_max(state.pool.counts) + 1;
     for (0..reads_max) |_| {
@@ -168,7 +179,7 @@ pub fn drain(run: anytype, now_ns: u64) void {
 
 /// Does what one of the pool's events asks.
 pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
-    const state = run.client;
+    const state = run;
     switch (reported) {
         .open => |asked| switch (asked.transport) {
             .tcp => client_tcp.open(state, asked),
@@ -176,7 +187,7 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
         },
         .send => |connection| client_tcp.owed(state, connection),
         .close => |connection| client_tcp.close(state, connection),
-        .connected => |connected| on_connected(run, connected),
+        .connected => |connected| state.handler.on_connected(state, connected),
         // The client offers no ticket, so it keeps none it is given.
         .ticket => |connection| if (state.pool.take_ticket(connection)) |ticket| {
             var held = ticket;
@@ -184,16 +195,10 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
         },
         // `Client.request` takes no streamed exchange, so no exchange has pieces.
         .headers, .body, .body_taken => unreachable,
-        .finished => |ended| run.handler.on_finished(state, ended),
+        .finished => |ended| state.handler.on_finished(state, ended),
         // The next turn cancels the UDP socket's receive.
         .closed => state.closed = true,
     }
-}
-
-/// Hands `on_connected` the connection that takes the exchanges, when the handler declares it.
-fn on_connected(run: anytype, connected: client.Connected) void {
-    const Handler = @typeInfo(@TypeOf(run.handler)).pointer.child;
-    if (@hasDecl(Handler, "on_connected")) run.handler.on_connected(run.client, connected);
 }
 
 /// Whether the run may end: the pool reported `closed`, every TCP socket is free, and each
@@ -210,13 +215,13 @@ const testing = std.testing;
 
 /// The fields `unix_seconds` reads, with nothing else of a client. Test-only.
 const Clock = struct {
-    config: struct { unix_seconds: u64 },
+    unix_seconds: u64,
     started_ns: u64,
 };
 
 test "design §8 step 42: a chain is judged at the program's instant plus the run's time since" {
     const second_ns = client.constants.nanoseconds_per_second;
-    const clock: Clock = .{ .config = .{ .unix_seconds = 1_000 }, .started_ns = 5 * second_ns };
+    const clock: Clock = .{ .unix_seconds = 1_000, .started_ns = 5 * second_ns };
     try testing.expectEqual(1_000, unix_seconds(&clock, 5 * second_ns));
     // Two and a half seconds of the run count as two whole seconds.
     try testing.expectEqual(1_002, unix_seconds(&clock, 7 * second_ns + second_ns / 2));

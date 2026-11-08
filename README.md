@@ -94,18 +94,18 @@ version.
 
 `colibri.Server` does a server's I/O for you ([decision 150](docs/decisions.md)). It binds one
 port, reads the certificate chain and the key from PEM text your program holds, and runs a router of
-`server.Router` on [Rotor](https://github.com/c4milo/rotor)'s loop: h11 and h2 over TCP, and h3
-over UDP on the same port. These lines are from
+`server.Router`, which `init` takes, on [Rotor](https://github.com/c4milo/rotor)'s loop: h11 and h2
+over TCP, and h3 over UDP on the same port. These lines are from
 [`examples/colibri_server.zig`](examples/colibri_server.zig):
 
 ```zig
 const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-try http_server.init(.{
+try http_server.init(&.{
     .host = "127.0.0.1",
     .port = 0,
     .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
     .cpu = cpu,
-});
+}, &router, &app);
 defer http_server.deinit();
 const thread = try std.Thread.spawn(.{}, serve, .{});
 defer thread.join();
@@ -120,12 +120,13 @@ that does I/O. Every other module stays sans-I/O, for a program that brings its 
 
 `colibri.Client` does a client's I/O for you ([decision 153](docs/decisions.md) ruling 8). It owns
 the TCP sockets, the UDP socket for h3 and Rotor's loop, and runs `client`'s pool. Your program
-hands it requests, and `run` gives each finished exchange to your handler. These lines are from
+hands it requests, and `run` gives each finished exchange to the handler that `init` took. These
+lines are from
 [`examples/colibri_server.zig`](examples/colibri_server.zig):
 
 ```zig
 http_client.shutdown();
-try http_client.run(&fetched);
+try http_client.run();
 ```
 
 The pool opens TCP first by default, and h3 over QUIC only once TCP fails. With

@@ -2,17 +2,21 @@
 //! `colibri.Client`. `colibri` is the one module of colibri that binds sockets and runs a loop
 //! (decisions 150 and 153).
 //!
-//! The server gets a host, a port, its identity and its CPU, and `init` binds. Port 0 asks the
-//! system for a port, which `port()` returns. `run` serves on the thread that calls it, through
-//! Rotor's loop, until another thread calls `shutdown`. With an identity the server speaks h11 and
-//! h2 over TLS, as ALPN selects, and h3 on the UDP socket of the same port.
+//! Each is `.private`: it runs on colibri's own Rotor loop (decision 159).
 //!
-//! The client gets the server's address, its port and a pool's configuration. The program hands it
-//! requests, calls `shutdown`, and calls `run`, which returns once each exchange has finished.
+//! The server gets a host, a port, its identity, its CPU and the router, and `init` binds. Port 0
+//! asks the system for a port, which `port()` returns. `run` serves on the thread that calls it,
+//! through Rotor's loop, until another thread calls `shutdown`. With an identity the server speaks
+//! h11 and h2 over TLS, as ALPN selects, and h3 on the UDP socket of the same port.
+//!
+//! The client gets the server's address, its port, a pool's configuration and the program's
+//! handler. The program hands it requests, calls `shutdown`, and calls `run`, which returns once
+//! each exchange has finished.
 //!
 //! The run goes in this order:
-//! 1. The program places the server and calls `init` on 127.0.0.1, port 0, with the test identity.
-//! 2. A thread of its own calls `run` with the router of a route table.
+//! 1. The program places the server and calls `init` on 127.0.0.1, port 0, with the test identity
+//!    and the router of a route table.
+//! 2. A thread of its own calls `run`.
 //! 3. A `colibri.Client` sends two GETs over h11, then over h2, then over h3, and the program
 //!    checks each response octet for octet.
 //! 4. The program calls `shutdown`, and the server's `run` returns once each connection has
@@ -57,16 +61,16 @@ const routes = .{
 const Router = server.Router(App, routes, .{ .requests = connections });
 var router: Router align(@alignOf(Router)) = .{};
 
-/// A server that holds four TCP connections and four QUIC connections. `colibri.Server` is the
-/// default capacity. The program places the server once, outside any stack frame, and does not
-/// move it.
+/// A server that holds four TCP connections and four QUIC connections, on colibri's own loop. The
+/// program places the server once, outside any stack frame, and does not move it.
 const connections = 4;
-const Server = colibri.ServerOf(.{ .tcp_connections = connections, .quic_connections = connections });
+const Server = colibri.Server(.{ .tcp_connections = connections, .quic_connections = connections }, .private);
 var http_server: Server align(@alignOf(Server)) = undefined;
 
-/// The client, placed the same way. `colibri.Client` holds one TCP connection, one QUIC
+/// The client, placed the same way. The default capacity holds one TCP connection, one QUIC
 /// connection, and `client.constants.limits.requests_max` requests at once.
-var http_client: colibri.Client align(@alignOf(colibri.Client)) = undefined;
+const Client = colibri.Client(.{}, .private);
+var http_client: Client align(@alignOf(Client)) = undefined;
 
 /// The origin the client names, and the root it trusts for it.
 const origin = "localhost";
@@ -87,12 +91,12 @@ pub fn main() !void {
     // A program probes its CPU once and passes it to every TLS configuration. With no `random`,
     // the server and the client draw from the system's entropy.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    try http_server.init(.{
+    try http_server.init(&.{
         .host = "127.0.0.1",
         .port = 0,
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
         .cpu = cpu,
-    });
+    }, &router, &app);
     defer http_server.deinit();
     const thread = try std.Thread.spawn(.{}, serve, .{});
     defer thread.join();
@@ -109,7 +113,7 @@ pub fn main() !void {
 
 /// Runs the server until `shutdown`, on the thread that calls it.
 fn serve() void {
-    http_server.run(&router, &app) catch |failure| std.debug.panic("run failed: {t}", .{failure});
+    http_server.run() catch |failure| std.debug.panic("run failed: {t}", .{failure});
 }
 
 /// What the program keeps for its two exchanges, and what its handler records. The client writes
@@ -125,12 +129,12 @@ const Fetch = struct {
     protocol: ?client.Protocol = null,
 
     /// `run` calls it on the loop's thread for each exchange that ended.
-    pub fn on_finished(self: *Fetch, _: *colibri.Client, _: client.Finished) void {
+    pub fn on_finished(self: *Fetch, _: *Client, _: client.Finished) void {
         self.finished += 1;
     }
 
     /// `run` calls it for the connection that takes the exchanges, since the handler declares it.
-    pub fn on_connected(self: *Fetch, _: *colibri.Client, connected: client.Connected) void {
+    pub fn on_connected(self: *Fetch, _: *Client, connected: client.Connected) void {
         self.protocol = connected.protocol;
     }
 };
@@ -139,7 +143,7 @@ var fetched: Fetch align(@alignOf(Fetch)) = .{};
 /// Sends the two GETs through a client that speaks `protocols`, over TLS to the server, and checks
 /// that `expected` carried them and that each response arrived octet for octet.
 fn fetch(cpu: tls.Cpu, protocols: client.Protocols, expected: client.Protocol) !void {
-    try http_client.init(.{
+    try http_client.init(&.{
         .host = "127.0.0.1",
         .port = http_server.port(),
         .pool = .{
@@ -148,7 +152,7 @@ fn fetch(cpu: tls.Cpu, protocols: client.Protocols, expected: client.Protocol) !
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
         },
         .unix_seconds = now_seconds,
-    });
+    }, &fetched);
     defer http_client.deinit();
     fetched = .{};
     for (&fetched.requests, &fetched.responses, &fetched.bodies) |*request, *response, *body| {
@@ -157,7 +161,7 @@ fn fetch(cpu: tls.Cpu, protocols: client.Protocols, expected: client.Protocol) !
     }
     // `run` returns once both exchanges have finished and each connection has closed.
     http_client.shutdown();
-    try http_client.run(&fetched);
+    try http_client.run();
     if (fetched.finished != 2 or fetched.protocol != expected) return error.FetchWrong;
     try expect_response(greeting, &fetched.responses[0]);
     try expect_response(named_greeting, &fetched.responses[1]);

@@ -39,13 +39,23 @@ var get_response: client_module.Response align(@alignOf(client_module.Response))
 // not read, so the server's octets go into a buffer of their own.
 var wire: [4096]u8 = undefined;
 var server_output: [4096]u8 = undefined;
-// A `colibri.Server` of one TCP connection, which binds a port the system chooses.
-const BoundServer = colibri.ServerOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+// A `colibri.Server` of one TCP connection on colibri's own loop, which binds a port the system
+// chooses, and the router that `init` takes.
+const BoundServer = colibri.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .private);
 var bound_server: BoundServer align(@alignOf(BoundServer)) = undefined;
+const bound_routes = .{
+    .error_handler = on_route_error,
+    .routes = .{
+        .{ .get, "/", on_root },
+    },
+};
+const BoundRouter = server_module.Router(void, bound_routes, .{ .requests = 1 });
+var router: BoundRouter align(@alignOf(BoundRouter)) = .{};
+var router_context: void = {};
 // A `colibri.Client` of one TCP connection, four requests and no QUIC, which the program places
-// the same way. `colibri.Client` is `ClientOf` of the default capacity.
+// the same way.
 const client_capacity: colibri.ClientCapacity = .{ .quic = false, .tcp_connections = 1, .requests = 4 };
-const BoundClient = colibri.ClientOf(client_capacity);
+const BoundClient = colibri.Client(client_capacity, .private);
 var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
 
 /// Rounds of moving octets between the client and the server before the exchange must have ended.
@@ -145,21 +155,33 @@ pub fn main() !void {
     // system chose. The program does not call `run`, so it serves nothing, and `deinit` closes
     // the socket.
     const config: colibri.ServerConfig = .{ .host = "127.0.0.1", .port = 0, .cpu = .{ .probe = platform.probe(), .timing = .not_stated } };
-    try bound_server.init(config);
+    try bound_server.init(&config, &router, &router_context);
     defer bound_server.deinit();
     if (bound_server.port() == 0) return error.BindWrong;
     // `colibri.Client` (decision 153 ruling 8): `init` prepares the pool for the server's port, in
     // cleartext and with no h3, which a client with no QUIC refuses. The program passes its own
-    // instant, because the client reads no clock. It does not call `run`, so it fetches nothing.
+    // instant, because the client reads no clock, and no handler. It does not call `run`, so it
+    // fetches nothing.
     const bound_client_config: colibri.ClientConfig = .{
         .host = "127.0.0.1",
         .port = bound_server.port(),
         .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } },
         .unix_seconds = now_seconds,
     };
-    try bound_client.init(bound_client_config);
+    try bound_client.init(&bound_client_config, null);
     defer bound_client.deinit();
     std.debug.print("consumer: h11, h2, tls, gzip, server, client and colibri link and run as a dependency\n", .{});
+}
+
+/// Answers a GET of `/` with an empty 200. The program never runs the server, so no request
+/// arrives.
+fn on_root(_: *void, _: *const server_module.Request, _: void, _: void, response: *server_module.ResponseWriter) !void {
+    try response.end();
+}
+
+/// Answers 500 when a route's function fails (RFC 9110 §15.6.1).
+fn on_route_error(_: *void, _: *const server_module.Request, _: anyerror, response: *server_module.ResponseWriter) void {
+    response.status = .internal_server_error;
 }
 
 /// tls converts the client's values once, and a session's first call writes its ClientHello. The

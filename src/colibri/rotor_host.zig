@@ -83,12 +83,6 @@ pub fn address_of(text: []const u8, port: u16) error{HostInvalid}!rotor.Address 
     };
 }
 
-/// The peer `text` names, an IPv4 or IPv6 literal, as colibri names a peer's address. The client
-/// looks up no name.
-pub fn peer_of(text: []const u8) error{HostInvalid}!server.Address {
-    return udp.peer_address(try address_of(text, 0));
-}
-
 /// The host of an object with `sockets_max` sockets and `operations_max` operations in flight, and
 /// a UDP socket when `datagrams` is set. Its calls are the free functions of this file and of
 /// `rotor_host_submit.zig`.
@@ -225,7 +219,7 @@ fn host_close_ended(self: anytype, socket: host.SocketId, failure: rotor.Error) 
 
 /// Makes the loop on the thread that runs it, gives it the receive buffers, and returns its first
 /// instant: the first tick waits for nothing and reads the clock.
-fn host_begin(self: anytype) errors.RunError!u64 {
+fn host_begin(self: anytype) errors.LoopError!u64 {
     const Self = @TypeOf(self.*);
     try self.loop.init(&self.loop_memory, &Self.loop_options);
     errdefer self.end();
@@ -236,13 +230,13 @@ fn host_begin(self: anytype) errors.RunError!u64 {
 
 /// Runs the driver until `driver.finished(state)`. `run_context` holds the object and the
 /// program's handler or router.
-fn host_run(self: anytype, run_context: anytype, comptime driver: type, state: anytype) errors.RunError!void {
+fn host_run(self: anytype, run_context: anytype, comptime driver: type, state: anytype) errors.LoopError!void {
     while (!driver.finished(state)) try self.pass(run_context, driver);
 }
 
 /// One pass of the loop, in decision 159's order: a turn, a submit of each operation it wrote, a
 /// tick that waits as the turn asked, and a completion for each event.
-fn host_pass(self: anytype, run_context: anytype, comptime driver: type) errors.RunError!void {
+fn host_pass(self: anytype, run_context: anytype, comptime driver: type) errors.LoopError!void {
     const wait_ns = self.submit_turn(run_context, driver, self.loop.now_ns());
     const count = try self.loop.tick(&self.events, wait_ns);
     self.deliver_events(run_context, driver, self.events[0..count], self.loop.now_ns());

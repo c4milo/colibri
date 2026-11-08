@@ -33,6 +33,7 @@ const vectors = @import("build/vectors.zig");
 const examples = @import("build/examples.zig");
 const bench = @import("build/bench.zig");
 const router_check = @import("build/router_check.zig");
+const colibri_loop_check = @import("build/colibri_loop_check.zig");
 const check_steps = @import("build/check_steps.zig");
 const fuzz = @import("build/fuzz.zig");
 
@@ -194,6 +195,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(router_check.add(b, graph, target, optimize));
     test_step.dependOn(router_check.add_hidden(b, graph.server));
+    test_step.dependOn(colibri_loop_check.add(b, graph, target, optimize));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
     // Design §8 step 13: the benchmarks, whose memory table `zig build test` checks.

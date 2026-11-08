@@ -5,9 +5,31 @@
 //! completion for each. The host calls the driver again at the instant that `Wait` names.
 //!
 //! The driver never calls the host, so it holds no function pointer of the host. `.private`
-//! runs the driver on colibri's own Rotor adapter (`rotor_host.zig`), and the root exports none
-//! of these names until design §8 step 44d.
+//! runs the driver on colibri's own Rotor adapter (`rotor_host.zig`). With `.hosted` the program
+//! is the host. The root exports the seven types of the contract, from `SocketId` to `Turn`, and
+//! neither `ObjectKind` nor `Features`, which a program writes as literals.
 const server = @import("server");
+
+/// Who runs the loop of a `colibri.Server` or a `colibri.Client`: colibri, on its own Rotor loop,
+/// or the program. It is the second comptime argument of each, with no public name (decision 156
+/// ruling 1 as amended by decision 159).
+pub const ObjectKind = enum { private, hosted };
+
+/// Stops the compile with `message` unless `kind` is `wanted`: the call of a function that the
+/// kind does not have (decision 156 ruling 4 as amended by decision 159).
+pub fn require(comptime kind: ObjectKind, comptime wanted: ObjectKind, comptime message: []const u8) void {
+    if (kind != wanted) @compileError(message);
+}
+
+/// What a host does on one UDP socket that it opened before `init` (decision 159).
+pub const Features = struct {
+    /// The host sends a batch of equal segments in one call (UDP_SEGMENT).
+    segments: bool = false,
+    /// The host reads and sets each datagram's ECN codepoint. When false, colibri sets the pool's
+    /// or the engine's `ecn` to false, so a host that cannot read the codepoint never halts on
+    /// ECT(0) (decision 68 as amended by decision 159).
+    ecn: bool = false,
+};
 
 /// A socket in colibri's table. The host maps it to its own handle.
 pub const SocketId = enum(u16) { _ };

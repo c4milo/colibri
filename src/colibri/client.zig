@@ -1,9 +1,10 @@
 //! A client that runs a `client.ConnectionPool` (decision 153 ruling 8, design §8 step 42): h11
 //! and h2 over TCP, and h3 over QUIC on a UDP socket. It is the counterpart of `colibri.Server`. It
-//! owns the TCP sockets, the UDP socket, and the pool. Its driver (`client_loop.zig`) does no I/O,
-//! and colibri's own Rotor host (`rotor_host.zig`) opens the sockets and runs the loop and its
-//! clock (decision 159). A program places one, hands it requests, and keeps it in place while it
-//! runs.
+//! owns the TCP sockets, the UDP socket, and the pool. Its driver (`client_loop.zig`) does no I/O
+//! (decision 159). With `.private`, colibri's own Rotor host (`rotor_host.zig`) opens the sockets
+//! and runs the loop and its clock. With `.hosted`, the program's host opened the UDP sockets
+//! before `init`, and calls `turn` and `complete`. A program places one, hands it requests, and
+//! keeps it in place while it runs.
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
@@ -13,13 +14,14 @@ const socket_module = @import("socket.zig");
 const operation_table = @import("operation_table.zig");
 const client_tcp = @import("client_tcp.zig");
 const client_loop = @import("client_loop.zig");
-const server_module = @import("server.zig");
-const rotor_host = @import("rotor_host.zig");
-const entropy = @import("rotor_host_entropy.zig");
+const errors = @import("errors.zig");
+const host = @import("host.zig");
+const erased = @import("erased.zig");
+const kinds = @import("client_kinds.zig");
 
-/// Where a client connects and how its pool runs. The program keeps each slice the pool's
-/// configuration names alive while the client runs: the authority, the TLS anchors and pins, and
-/// the decoder pools.
+/// Where a `.private` client connects and how its pool runs. The program keeps each slice the
+/// pool's configuration names alive while the client runs: the authority, the TLS anchors and
+/// pins, and the decoder pools.
 pub const ClientConfig = struct {
     /// The server's address: an IPv4 or IPv6 literal. The client looks up no name.
     host: []const u8,
@@ -42,19 +44,18 @@ pub const ClientConfig = struct {
 };
 
 /// What a client holds, fixed at build time: whether it holds a QUIC connection, the TCP
-/// connections, and the requests at once. `Client` holds the defaults, and `ClientOf` takes
-/// another capacity.
+/// connections, and the requests at once.
 pub const ClientCapacity = struct {
     quic: bool = true,
     tcp_connections: u16 = 1,
     requests: u16 = client.constants.limits.requests_max,
 };
 
-/// A client of the default capacity: QUIC, one TCP connection, and `requests_max` requests.
-pub const Client = ClientOf(.{});
-
-/// A client whose pool holds `capacity`'s connections and requests.
-pub fn ClientOf(comptime capacity: ClientCapacity) type {
+/// A client whose pool holds `capacity`'s connections and requests, on colibri's own loop
+/// (`.private`) or on the program's (`.hosted`). Each kind has the same calls. A call that the
+/// kind does not have is a compile error with colibri's message (decision 156 ruling 4 as
+/// amended).
+pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind) type {
     return struct {
         const Self = @This();
 
@@ -63,12 +64,31 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         const ReceivePool = receive_pool_type(capacity.quic);
         const tcp_connections = capacity.tcp_connections;
         const Bits = std.bit_set.IntegerBitSet(tcp_connections);
-        const Host = rotor_host.Host(client_loop.sockets_max(tcp_connections), client_loop.operations_max(tcp_connections, capacity.quic), capacity.quic);
+        /// What each kind does: `client_kinds.zig`.
+        const Kinded = @field(kinds, @tagName(kind));
+        const Host = Kinded.Host(sockets_max, operations_max, capacity.quic);
         comptime {
             assert(capacity_valid(capacity));
         }
 
-        config: ClientConfig,
+        /// What `init` returns: on `.private` the pool's refusals and the UDP socket's open, and on
+        /// `.hosted` the pool's refusals and a `host` that is no IP literal (decision 159).
+        pub const InitError = Kinded.InitError;
+        /// What `run` returns on `.private`: the loop failed. A hosted client has no run, so the
+        /// set is empty.
+        pub const RunError = Kinded.RunError;
+        /// The most operations in flight, which a host sizes its table of operations by.
+        pub const operations_max: u32 = client_loop.operations_max(tcp_connections, capacity.quic);
+        /// The size of the host's table of sockets.
+        pub const sockets_max: u16 = client_loop.sockets_max(tcp_connections);
+        /// The UDP socket of each family, which a hosted client's host opened before `init`.
+        pub const datagram_ipv4: host.SocketId = client_loop.datagram_id(tcp_connections, .ipv4);
+        pub const datagram_ipv6: host.SocketId = client_loop.datagram_id(tcp_connections, .ipv6);
+
+        random: tls.Random,
+        unix_seconds: u64,
+        /// The program's handler (`erased.zig`).
+        handler: erased.Handler(Self),
         /// The pool, the configuration and the address it borrows, and its memory. The pool stays
         /// in place after `init`: its TLS configurations point into it.
         pool: Pool,
@@ -77,8 +97,10 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         pool_memory: [pool_memory_len]u8 align(Pool.memory_alignment),
         /// The pool each QUIC connection holds the server's unread octets in (decision 61).
         receive_pool: ReceivePool,
-        /// The UDP socket, which the client has when the pool offers QUIC.
+        /// The UDP socket of the destination's family, which the client has when the pool offers
+        /// QUIC, and whether its host sends segments.
         udp: datagram_socket.DatagramSocket,
+        datagram_segments: bool,
         /// Each TCP slot's socket and what the client holds for it (`client_tcp.zig`), and the
         /// operations in flight.
         sockets: [tcp_connections]socket_module.Socket,
@@ -90,59 +112,60 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
         /// Whether a read of the pool's events stopped at its bound, or a call left events to
         /// read.
         undrained: bool,
-        /// The instant when `run` started, which `unix_seconds` counts from.
+        /// The instant of the run's first turn, which `unix_seconds` counts from, and whether it
+        /// came.
         started_ns: u64,
+        started: bool,
         /// `shutdown` asked, the turn passed it to the pool, and the pool reported `closed`.
         stopping: std.atomic.Value(bool),
         shut_down: bool,
         closed: bool,
         /// `run` was called since `init`.
         ran: bool,
-        /// colibri's own Rotor host: the loop and the descriptors (`rotor_host.zig`).
+        /// colibri's own Rotor host of `.private`: the loop and the descriptors
+        /// (`rotor_host.zig`).
         host: Host,
 
-        /// Keeps the configuration, prepares the pool, and opens the UDP socket when the pool
-        /// offers QUIC: h3 allowed, a TLS value, and a client that holds QUIC (RFC 9114 §3.1).
-        pub fn init(self: *Self, config: ClientConfig) !void {
-            self.config = config;
-            self.host.prepare();
+        /// Keeps the handler, prepares the pool, and takes the UDP socket of the destination's
+        /// family when the pool offers QUIC: h3 allowed, a TLS value, and a client that holds QUIC
+        /// (RFC 9114 §3.1). `handler` points at the program's struct, or is null for a client
+        /// that only fetches. The struct declares `on_finished(handler, *Client,
+        /// client.Finished)` and may declare `on_connected(handler, *Client, client.Connected)`.
+        /// Each runs inside a turn, on the object's thread, and may call `request` and `shutdown`.
+        /// - `.private` opens the UDP socket.
+        /// - `.hosted` does no I/O. Its host opened the UDP sockets.
+        /// colibri keeps no pointer to `config` after `init` (decision 158 ruling 2).
+        pub fn init(self: *Self, config: *const Kinded.Config, handler: anytype) InitError!void {
+            self.handler = .of(handler);
             self.udp.served = false;
             self.ran = false;
+            self.started = false;
             // A run that fails before its first turn holds no live socket.
             for (&self.sockets) |*socket| socket.live = false;
-            if (self.config.random == null) self.config.random = entropy.random();
-            self.addresses = .{try rotor_host.peer_of(config.host)};
+            self.unix_seconds = config.unix_seconds;
+            self.addresses = .{try peer_of(config.host)};
             self.pool_config = config.pool;
             self.pool_config.tcp_connections = capacity.tcp_connections;
             self.pool_config.requests = capacity.requests;
-            // Decision 68: the client's host reads each datagram's codepoint and sets the one the
-            // pool names, so the pool reads ECN whatever the program set. A pool that does not
-            // read it halts on a datagram marked ECT(0), as a `colibri.Server` marks them.
-            self.pool_config.ecn = true;
-            const destination: client.Destination = .{ .addresses = &self.addresses, .port = config.port };
-            try self.pool.init(&self.pool_memory, &self.pool_config, destination, self.receive_storage());
-            if (self.offers_quic()) {
-                try self.host.bind_datagram_any(client_loop.datagram_id(tcp_connections), self.addresses[0]);
-                self.udp.served = true;
-            }
             self.stopping = .init(false);
             self.undrained = false;
+            return Kinded.init(self, config, client_loop.family_of(self.addresses[0]));
         }
 
-        /// Closes the UDP socket when `run` did not close it. The program calls it once after
-        /// `init` returns, and after `run` returns when it calls `run`. The client keeps no ticket
-        /// and no private key, so it wipes nothing. The next `run` comes after the next `init`.
+        /// Closes the UDP socket of `.private` when `run` did not close it. The program calls it
+        /// once after `init` returns, and after `run` returns when it calls `run`. A hosted
+        /// client's host calls it once `stopped()` holds (decision 159, rule 2). The client keeps
+        /// no ticket and no private key, so it wipes nothing.
         pub fn deinit(self: *Self) void {
-            // `init` sets the source on each path, before any step that can fail.
-            assert(self.config.random != null);
-            self.host.close_open();
+            Kinded.deinit(self);
         }
 
         /// Hands the pool a request and the response it fills, and returns the exchange's id. The
         /// program keeps both in place, and each slice they name, until the exchange's `finished`
-        /// event (decision 124). It calls `request` before `run`, or from a handler `run` calls,
-        /// on the loop's thread. After `shutdown`, from any thread, it returns `ShutDown`. The
-        /// request and its response have whole bodies: `message.streamed` asks for nothing.
+        /// event (decision 124). It calls `request` on the object's thread: before `run` or from a
+        /// handler on `.private`, and between turns or from a handler on `.hosted`. After
+        /// `shutdown` it returns `ShutDown`. The request and its response have whole bodies:
+        /// `message.streamed` asks for nothing.
         pub fn request(self: *Self, message: *const client.Request, response: *client.Response) (client.RequestError || error{ShutDown})!client.RequestId {
             // The client has no call that hands a piece or gives one back, so a streamed exchange
             // could never finish (design §8 step 42).
@@ -156,33 +179,54 @@ pub fn ClientOf(comptime capacity: ClientCapacity) type {
             return id;
         }
 
-        /// Asks the client to stop: `request` returns `ShutDown` from now on, and `run` returns
-        /// once each exchange has finished and each connection has closed. Any thread may call it.
+        /// Runs the pool on the thread that calls it until `shutdown`, and returns once each
+        /// exchange has finished and each connection has closed. The handler that `init` took
+        /// runs on this thread. The loop runs here because a Rotor loop belongs to the thread
+        /// that starts it (decision 150 ruling 7). A program calls `run` once for each `init`.
+        pub fn run(self: *Self) RunError!void {
+            comptime host.require(kind, .private, "colibri: a .hosted object has no run(); its host calls turn() and complete() (decision 159)");
+            return client_loop.run_loop(self);
+        }
+
+        /// Does the work of one turn at `now_ns`, and writes up to `operations.len` operations,
+        /// which the host does (decision 159). The handler runs inside it. The host calls it again
+        /// at the instant that the returned `Wait` names, after a completion, and after a
+        /// program's call.
+        pub fn turn(self: *Self, now_ns: u64, operations: []host.Operation) host.Turn {
+            comptime host.require(kind, .hosted, "colibri: a .private object has no turn(); run() calls it on colibri's own loop (decision 159)");
+            return client_loop.turn(self, now_ns, operations);
+        }
+
+        /// Records one completion at `now_ns`. It feeds a datagram to the pool at once, because
+        /// the host lends the bytes for the call alone. A completion of an operation that the
+        /// client does not hold is a halt (decision 159, rule 6).
+        pub fn complete(self: *Self, completion: *const host.Completion, now_ns: u64) void {
+            comptime host.require(kind, .hosted, "colibri: a .private object has no complete(); run() calls it on colibri's own loop (decision 159)");
+            client_loop.complete(self, completion, now_ns);
+        }
+
+        /// Asks the client to stop: `request` returns `ShutDown` from now on, and `stopped()` holds
+        /// and `run` returns once each exchange has finished and each connection has closed. On
+        /// `.private` any thread may call it. A hosted client's host calls `turn` after it.
         pub fn shutdown(self: *Self) void {
             self.stopping.store(true, .release);
         }
 
-        /// Runs the pool on the thread that calls it until `shutdown`, and returns once each
-        /// exchange has finished and each connection has closed. `handler` points at the
-        /// program's struct, which declares `on_finished(handler, *Client, client.Finished)` and
-        /// may declare `on_connected(handler, *Client, client.Connected)`. Each runs on this
-        /// thread, and may call `request` and `shutdown`. The loop runs here because a Rotor loop
-        /// belongs to the thread that starts it (decision 150 ruling 7). A program calls `run`
-        /// once for each `init`.
-        pub fn run(self: *Self, handler: anytype) server_module.RunError!void {
-            return client_loop.run_loop(self, handler);
+        /// Whether the client stopped: the pool closed after `shutdown`, each TCP socket is free,
+        /// and each operation had its final completion (decision 159, rule 1).
+        pub fn stopped(self: *const Self) bool {
+            return client_loop.finished(self);
         }
+    };
+}
 
-        /// The receive pool the pool's QUIC connections use, or null for a client with no QUIC.
-        fn receive_storage(self: *Self) ?client.ReceiveStorage {
-            return if (capacity.quic) self.receive_pool.storage() else null;
-        }
-
-        /// Whether the pool offers QUIC, which the pool decided from the configuration. A pool with
-        /// no QUIC offers none.
-        fn offers_quic(self: *const Self) bool {
-            return self.pool.offered.quic;
-        }
+/// The peer `text` names, an IPv4 or IPv6 literal, as colibri names a peer's address. The client
+/// looks up no name, and the parse does no I/O.
+fn peer_of(text: []const u8) error{HostInvalid}!client.Address {
+    const parsed = std.Io.net.IpAddress.parse(text, 0) catch return error.HostInvalid;
+    return switch (parsed) {
+        .ip4 => |ip4| .of(&ip4.bytes, 0),
+        .ip6 => |ip6| .of(&ip6.bytes, 0),
     };
 }
 
@@ -223,7 +267,7 @@ fn tls_pool(protocols: client.Protocols) client.Config {
 
 test "design §8 step 42: a cleartext client opens no UDP socket" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .port = 8080, .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds });
+    try test_client.init(&.{ .host = "127.0.0.1", .port = 8080, .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     // RFC 9001 §4: QUIC needs TLS, so a cleartext pool offers TCP alone.
     try testing.expect(!test_client.udp.served);
@@ -236,7 +280,7 @@ test "design §8 step 42: init takes the counts of the client's capacity" {
     var counter: support.Counter = .{};
     var config: client.Config = .{ .authority = "localhost", .tcp_connections = 3, .requests = 2 };
     config.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .pool = config, .random = counter.random(), .unix_seconds = now_seconds });
+    try test_client.init(&.{ .host = "127.0.0.1", .pool = config, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     try testing.expectEqual(1, test_client.pool.counts.tcp_connections);
     try testing.expectEqual(client.constants.limits.requests_max, test_client.pool.counts.requests);
@@ -245,26 +289,26 @@ test "design §8 step 42: init takes the counts of the client's capacity" {
 }
 
 test "decision 150 ruling 9: a client given no source draws from the system" {
-    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .unix_seconds = now_seconds });
+    try test_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     var first: [32]u8 = undefined;
     var second: [32]u8 = undefined;
-    test_client.config.random.?.bytes(&first);
-    test_client.config.random.?.bytes(&second);
+    test_client.random.bytes(&first);
+    test_client.random.bytes(&second);
     // Two draws of thirty-two octets from the system differ.
     try testing.expect(!std.mem.eql(u8, &first, &second));
 }
 
 test "design §8 step 42: a host that is no IP literal is refused" {
     var counter: support.Counter = .{};
-    try testing.expectError(error.HostInvalid, test_client.init(.{ .host = "localhost", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }));
+    try testing.expectError(error.HostInvalid, test_client.init(&.{ .host = "localhost", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null));
 }
 
 test "decision 124: a client with no QUIC refuses h3" {
     var counter: support.Counter = .{};
     // RFC 9114 §3.1: h3 runs over QUIC alone.
-    try testing.expectError(error.VersionUnavailable, tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds }));
-    try tcp_client.init(.{ .host = "127.0.0.1", .pool = tls_pool(.{ .h3 = false }), .random = counter.random(), .unix_seconds = now_seconds });
+    try testing.expectError(error.VersionUnavailable, tcp_client.init(&.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds }, null));
+    try tcp_client.init(&.{ .host = "127.0.0.1", .pool = tls_pool(.{ .h3 = false }), .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer tcp_client.deinit();
     try testing.expect(!tcp_client.udp.served);
 }
@@ -277,7 +321,7 @@ test {
 
 test "design §8 step 42: a request leaves the pool's events for the next turn to read at once" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds });
+    try test_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     try testing.expect(!test_client.undrained);
     const request: client.Request = .{ .method = "GET", .path = "/" };
@@ -289,7 +333,7 @@ test "design §8 step 42: a request leaves the pool's events for the next turn t
 
 test "design §8 step 42: a turn passes a shutdown to the pool once, and steps each running socket" {
     var counter: support.Counter = .{};
-    try test_client.init(.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds });
+    try test_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     test_client.connections = @splat(.empty);
     test_client.connections[0].started = true;

@@ -19,18 +19,18 @@ fn fetch_stream(protocols: client.Protocols, secure: bool, udp: bool, handler: *
     defer fixture.stop_server();
     var pool = fixture.pool_config(protocols, secure);
     pool.protocols.h3 = udp;
-    try test_client.init(.{
+    try test_client.init(&.{
         .host = "127.0.0.1",
         .port = fixture.port(),
         .pool = pool,
         .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
-    });
+    }, handler);
     defer test_client.deinit();
     handler.path = "/stream";
     try handler.request(1);
     test_client.shutdown();
-    try fixture.run(handler);
+    try fixture.run();
 }
 
 test "design §8 step 46: a route streams sixteen times response_bytes over h11" {

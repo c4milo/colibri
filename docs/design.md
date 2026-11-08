@@ -14385,6 +14385,37 @@ library.
          socket falls back to TCP.
        - Test of the names: the root's list holds the seven new names, and no `ClientOf`,
          `ServerOf` or `ServerCapacity`.
+       - Done on 2026-11-08.
+         - `Server(capacity, kind)` and `Client(capacity, kind)` replace `ServerOf` and
+           `ClientOf`. The kind is `host.ObjectKind`, which the root does not export.
+           `server_kinds.zig` and `client_kinds.zig` hold what each kind does at `init` and
+           `deinit`, so each type function stays at complexity 15 or less.
+         - `init` takes `*const` configuration and the router and context, or the handler.
+           `erased.zig` keeps each one as an `*anyopaque` and a function that comptime makes.
+           `run` takes no argument.
+         - The root adds the seven names. `Server` lists `operations_max`, `sockets_max`,
+           `listener`, `datagram` and its eight calls. `Client` lists `InitError`, `RunError`,
+           `operations_max`, `sockets_max`, `datagram_ipv4`, `datagram_ipv6` and its eight calls.
+         - The client's socket table has one UDP socket id for each family. The client uses the
+           one of its destination's family. 44f adds the second `DatagramSocket`.
+         - A stray completion and `deinit` of `.hosted` before `stopped()` halt with colibri's
+           message. `zig build colibri-loop-check` runs each halt as a program, because a test
+           binary does not live through its own halt. It also proves the seven compile errors
+           and runs a hosted server and client with no socket.
+         - Points for the owner to rule:
+           - A hosted `init` takes no instant. The hosted engine starts at instant 0, which
+             bases only the seconds of tickets that a `colibri.Server` never issues. A hosted
+             client counts `unix_seconds` from its first `turn`.
+           - A hosted server keeps `identity`, so its `init` also returns
+             `error.IdentityInvalid`. A hosted client keeps `host` until 44g, so its `init` also
+             returns `error.HostInvalid`.
+           - `cpu`, `host`, `pool` and `unix_seconds` keep no default, as in the `.private`
+             configurations.
+           - A hosted server cannot know its port, so the program names the h3 alternative in
+             `engine.h3_alternative`.
+           - `Client.RunError` of `.hosted` is the empty set, so both kinds list one name.
+           - The private loop is still made in `run`, on the thread that runs it.
+         - Checks and mutations: see the commit body of 44d.
     5. 44e `feat(colibri)`: the `in_turn` flag, which now also guards `turn` and `complete`.
        - Test: a `fetch` from `on_finished` on `.private`, and a `turn` from the handler on
          `.hosted`, halt under the halt harness.

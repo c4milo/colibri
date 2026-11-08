@@ -1,7 +1,8 @@
-//! A server that binds one port and runs `server.Engine` (decision 150): h11 and h2 over TCP, and
-//! h3 over QUIC on the UDP socket of the same port. A program places one, as it places an engine,
-//! and keeps it in place while it runs. Its driver (`server_loop.zig`) does no I/O, and colibri's
-//! own Rotor host (`rotor_host.zig`) binds and runs the loop (decision 159).
+//! A server that runs `server.Engine` (decision 150): h11 and h2 over TCP, and h3 over QUIC on a
+//! UDP socket. A program places one, as it places an engine, and keeps it in place while it runs.
+//! Its driver (`server_loop.zig`) does no I/O (decision 159). With `.private`, colibri's own Rotor
+//! host (`rotor_host.zig`) binds one port for TCP and UDP and runs the loop. With `.hosted`, the
+//! program's host opened the sockets before `init`, and calls `turn` and `complete`.
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
@@ -14,13 +15,14 @@ const server_udp = @import("server_udp.zig");
 const datagram_socket = @import("datagram_socket.zig");
 const operation_table = @import("operation_table.zig");
 const errors = @import("errors.zig");
-const rotor_host = @import("rotor_host.zig");
-const entropy = @import("rotor_host_entropy.zig");
+const host = @import("host.zig");
+const erased = @import("erased.zig");
+const kinds = @import("server_kinds.zig");
 
 const Identity = identity_module.Identity;
 
-/// What a server binds and how it answers. The program keeps the PEM text of `identity` alive
-/// until `init` returns.
+/// What a `.private` server binds and how it answers. The program keeps the PEM text of `identity`
+/// alive until `init` returns.
 pub const ServerConfig = struct {
     /// The address bound: an IPv4 or IPv6 literal.
     host: []const u8 = "127.0.0.1",
@@ -36,46 +38,60 @@ pub const ServerConfig = struct {
     random: ?tls.Random = null,
     /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its `ecn`:
     /// the server's host reads each datagram's ECN codepoint and sets the one the engine names
-    /// (decision 68).
-    endpoint: server.Config = .{},
+    /// (decision 68). Decision 158 ruling 16 names the field after the engine.
+    engine: server.Config = .{},
 };
 
 pub const InitError = identity_module.LoadError || errors.BindError;
 
 pub const RunError = errors.RunError;
 
-/// A server of the default capacity.
-pub const Server = ServerOf(.{});
-
-/// A server whose engine holds `capacity`'s connections.
-pub fn ServerOf(comptime capacity: server.Capacity) type {
+/// A server whose engine holds `capacity`'s connections, on colibri's own loop (`.private`) or on
+/// the program's (`.hosted`). Each kind has the same calls. A call that the kind does not have is
+/// a compile error with colibri's message (decision 156 ruling 4 as amended).
+pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind) type {
     return struct {
         const Self = @This();
 
         const tcp_connections = capacity.tcp_connections;
         const Bits = std.bit_set.IntegerBitSet(tcp_connections);
-        /// colibri's own Rotor host holds each operation of the driver, and the shutdown of each
-        /// socket's write side for a staged close, which the host contract has no operation for
-        /// (decision 160).
-        const Host = rotor_host.Host(server_loop.sockets_max(tcp_connections), server_loop.operations_max(tcp_connections) + tcp_connections, capacity.quic_connections > 0);
+        const Engine = server.Engine(capacity);
+        /// What each kind does: `server_kinds.zig`.
+        const Kinded = @field(kinds, @tagName(kind));
+        /// colibri's own Rotor host of `.private` holds each operation of the driver, and the
+        /// shutdown of each socket's write side for a staged close, which the host contract has no
+        /// operation for (decision 160).
+        const Host = Kinded.Host(sockets_max, operations_max + tcp_connections, capacity.quic_connections > 0);
         comptime {
             assert(tcp_connections > 0);
         }
 
-        config: ServerConfig,
+        /// The most operations in flight, which a host sizes its table of operations by.
+        pub const operations_max: u32 = server_loop.operations_max(tcp_connections);
+        /// The size of the host's table of sockets.
+        pub const sockets_max: u16 = server_loop.sockets_max(tcp_connections);
+        /// The TCP listener and the UDP socket that a hosted server's host opened before `init`.
+        pub const listener: host.SocketId = server_loop.listener_id(tcp_connections);
+        pub const datagram: host.SocketId = server_loop.datagram_id(tcp_connections);
+
+        random: tls.Random,
         identity: identity_module.Storage,
         engine_config: server.Config,
-        /// The engine, and the server's entry for each socket's connection
-        /// (`server_pump.zig`).
-        engine: server.Engine(capacity),
+        /// The engine, the program's router, and the server's entry for each socket's
+        /// connection (`server_pump.zig`).
+        engine: Engine,
+        router: erased.Router(Engine),
         entries: [tcp_connections]pump.Entry,
         entry_of: [tcp_connections]?u32,
         /// The TCP sockets, the UDP socket and the operations in flight (`server_loop.zig`).
         sockets: [tcp_connections]socket_module.Socket,
         /// The UDP socket, which the server has when it has an identity and QUIC slots (design
-        /// §8 step 37c).
+        /// §8 step 37c), and a hosted server when its host opened it.
         udp: datagram_socket.DatagramSocket,
         operations: operation_table.Table(server_loop.slot_count(tcp_connections)),
+        /// Whether the server accepts on its listener, and whether its host sends segments.
+        listening: bool,
+        datagram_segments: bool,
         /// The one accept: whether it is in flight, whether its cancel was written, and the
         /// socket it takes.
         accepting: bool,
@@ -95,80 +111,90 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
         stopping: std.atomic.Value(bool),
         shut_down: bool,
         over: bool,
-        /// colibri's own Rotor host: the loop and the descriptors (`rotor_host.zig`).
+        /// colibri's own Rotor host of `.private`: the loop and the descriptors
+        /// (`rotor_host.zig`).
         host: Host,
 
-        /// Reads the identity, keeps the configuration and binds the listener, so `port()` holds
-        /// the port bound once `init` returns. The server runs on Rotor's own loop (decision 150
-        /// ruling 10).
-        pub fn init(self: *Self, config: ServerConfig) InitError!void {
-            self.config = config;
-            self.host.prepare();
+        /// Keeps the router, a pointer to the program's `server.Router`, and `context`, which
+        /// each route's function takes, and reads the identity.
+        /// - `.private` binds the listener and the UDP socket, so `port()` holds the port bound
+        ///   once `init` returns. The server runs on Rotor's own loop (decision 150 ruling 10).
+        /// - `.hosted` starts the engine, and does no I/O. Its host opened the sockets.
+        /// colibri keeps no pointer to `config` after `init` (decision 158 ruling 2).
+        pub fn init(self: *Self, config: *const Kinded.Config, router: anytype, context: anytype) Kinded.InitError!void {
+            self.router = .of(router, context);
             self.udp.served = false;
             // A run that fails before `start` holds no live socket.
             for (&self.sockets) |*socket| socket.live = false;
-            if (self.config.random == null) self.config.random = entropy.random();
-            self.engine_config = config.endpoint;
-            // Decision 68: the server's own host reads each datagram's codepoint and sets the one
-            // the engine names, so the engine reads ECN whatever the program set.
-            self.engine_config.ecn = true;
+            self.engine_config = config.engine;
             assert(self.engine_config.tls == null);
-            // A server that `init` does not return keeps no private key and no cookie key.
-            errdefer wipe_keys(self);
-            if (config.identity) |identity| {
-                self.engine_config.tls = try identity_module.load(identity, &self.identity, config.cpu, self.config.random.?);
-            }
-            assert((self.engine_config.tls != null) == (config.identity != null));
-            try self.host.listen(server_loop.listener_id(tcp_connections), config.host, config.port);
-            errdefer self.host.close_open();
-            if (server_udp.served(self, capacity.quic_connections > 0)) {
-                try self.host.bind_datagram(server_loop.datagram_id(tcp_connections), config.host, self.host.bound_port);
-                server_udp.opened(self, self.host.bound_port);
-            }
             self.stopping = .init(false);
+            return Kinded.init(self, config, capacity.quic_connections > 0);
         }
 
-        /// Closes the listener and the UDP socket, and wipes the private key and the cookie key.
-        /// The program calls it after `init` returns, and after `run` returns when it calls `run`.
-        /// It does not close a socket that `run` closed: the system can give that number to
-        /// another file of the program.
+        /// Closes the listener and the UDP socket of `.private`, and wipes the private key and the
+        /// cookie key. The program calls it after `init` returns, and after `run` returns when it
+        /// calls `run`. It does not close a socket that `run` closed: the system can give that
+        /// number to another file of the program. A hosted server's host calls it once
+        /// `stopped()` holds (decision 159, rule 2).
         pub fn deinit(self: *Self) void {
-            // `init` sets the source on each path, before any step that can fail.
-            assert(self.config.random != null);
-            self.host.close_open();
+            Kinded.deinit(self);
             wipe_keys(self);
         }
 
         /// The port the server bound: the configured one, or the one the system chose for 0.
         pub fn port(self: *const Self) u16 {
+            comptime host.require(kind, .private, "colibri: a .hosted Server has no port(); its host bound the sockets (decision 159)");
             assert(self.host.bound_port != 0);
             return self.host.bound_port;
         }
 
-        /// Asks a running server to stop: it takes no new connection, ends each one it holds, and
-        /// `run` returns. Any thread may call it.
-        pub fn shutdown(self: *Self) void {
-            self.stopping.store(true, .release);
-        }
-
-        /// Serves on the thread that calls it until `shutdown`: each request goes to `router`, a
-        /// pool of `server.Router`'s, with `context` (decision 150). The loop runs here because a
-        /// Rotor loop belongs to the thread that starts it.
-        pub fn run(self: *Self, router: anytype, context: anytype) RunError!void {
-            assert(self.host.open(server_loop.listener_id(tcp_connections)));
+        /// Serves on the thread that calls it until `shutdown`: each request goes to the router
+        /// that `init` took (decision 150). The loop runs here because a Rotor loop belongs to the
+        /// thread that starts it.
+        pub fn run(self: *Self) RunError!void {
+            comptime host.require(kind, .private, "colibri: a .hosted object has no run(); its host calls turn() and complete() (decision 159)");
+            assert(self.host.open(listener));
             defer self.host.close_open();
             const now_ns = try self.host.begin();
             defer self.host.end();
             try server_loop.start(self, now_ns);
-            const Run = struct { server: *Self, router: @TypeOf(router), context: @TypeOf(context) };
-            var running: Run = .{ .server = self, .router = router, .context = context };
-            try self.host.run(&running, server_loop, self);
+            try self.host.run(self, server_loop, self);
+        }
+
+        /// Does the work of one turn at `now_ns`, and writes up to `operations.len` operations,
+        /// which the host does (decision 159). The host calls it again at the instant that the
+        /// returned `Wait` names, after a completion, and after a program's call.
+        pub fn turn(self: *Self, now_ns: u64, operations: []host.Operation) host.Turn {
+            comptime host.require(kind, .hosted, "colibri: a .private object has no turn(); run() calls it on colibri's own loop (decision 159)");
+            return server_loop.turn(self, now_ns, operations);
+        }
+
+        /// Records one completion at `now_ns`. It feeds a datagram to the engine at once, because
+        /// the host lends the bytes for the call alone. A completion of an operation that the
+        /// server does not hold is a halt (decision 159, rule 6).
+        pub fn complete(self: *Self, completion: *const host.Completion, now_ns: u64) void {
+            comptime host.require(kind, .hosted, "colibri: a .private object has no complete(); run() calls it on colibri's own loop (decision 159)");
+            server_loop.complete(self, completion, now_ns);
+        }
+
+        /// Asks the server to stop: it takes no new connection, ends each one it holds, and
+        /// `stopped()` then holds, and `run` returns. On `.private` any thread may call it. A
+        /// hosted server's host calls `turn` after it.
+        pub fn shutdown(self: *Self) void {
+            self.stopping.store(true, .release);
+        }
+
+        /// Whether the server stopped: the engine ended each connection after `shutdown`, each
+        /// socket is free, and each operation had its final completion (decision 159, rule 1).
+        pub fn stopped(self: *const Self) bool {
+            return server_loop.finished(self);
         }
     };
 }
 
 /// Writes zero over a server's private key and its cookie key.
-fn wipe_keys(state: anytype) void {
+pub fn wipe_keys(state: anytype) void {
     state.identity.key.wipe();
     std.crypto.secureZero(u8, &state.identity.cookie_key);
 }
@@ -177,16 +203,17 @@ const testing = std.testing;
 const testdata = @import("testdata");
 const support = @import("test_support.zig");
 
-/// A server the tests place, outside any stack frame. Test-only.
-const test_server = &@import("server_test_support.zig").test_server;
+/// A server the tests place, outside any stack frame, and its router. Test-only.
+const fixture = @import("server_test_support.zig");
+const test_server = &fixture.test_server;
 
 test "decision 150: init reads a PEM identity into the engine's TLS values" {
     var counter: support.Counter = .{};
-    try test_server.init(.{
+    try test_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counter.random(),
-    });
+    }, &fixture.router, &fixture.context);
     const values = test_server.engine_config.tls.?;
     try testing.expectEqual(1, values.identities.len);
     try testing.expectEqual(.ecdsa_secp256r1_sha256, values.identities[0].key.scheme);
@@ -198,8 +225,7 @@ test "decision 150: init reads a PEM identity into the engine's TLS values" {
 }
 
 test "decision 150 ruling 9: a server given no source draws from the system" {
-    try test_server.init(.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu() });
-    try testing.expect(test_server.config.random != null);
+    try test_server.init(&.{ .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem }, .cpu = support.cpu() }, &fixture.router, &fixture.context);
     const values = test_server.engine_config.tls.?;
     // Thirty-two octets from the system are not the counter's 0, 1, 2, ...
     try testing.expect(!(values.cookie_key[0] == 0 and values.cookie_key[1] == 1 and values.cookie_key[2] == 2));
@@ -208,7 +234,7 @@ test "decision 150 ruling 9: a server given no source draws from the system" {
 
 test "decision 150: no identity serves cleartext" {
     var counter: support.Counter = .{};
-    try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &fixture.router, &fixture.context);
     try testing.expectEqual(null, test_server.engine_config.tls);
     // RFC 9001 §4: QUIC needs TLS, so a cleartext server opens no UDP socket.
     try testing.expect(!test_server.udp.served);
@@ -218,14 +244,14 @@ test "decision 150: no identity serves cleartext" {
 
 test "decision 150: a host that is no IP literal is refused" {
     var counter: support.Counter = .{};
-    try testing.expectError(error.HostInvalid, test_server.init(.{ .host = "localhost", .cpu = support.cpu(), .random = counter.random() }));
+    try testing.expectError(error.HostInvalid, test_server.init(&.{ .host = "localhost", .cpu = support.cpu(), .random = counter.random() }, &fixture.router, &fixture.context));
 }
 
 test "decision 150: an init that fails after it reads the key wipes the key and the cookie key" {
     var counter: support.Counter = .{};
     const identity: Identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem };
     // The bind refuses the host after `load` has read the key and drawn the cookie key.
-    try testing.expectError(error.HostInvalid, test_server.init(.{ .host = "localhost", .identity = identity, .cpu = support.cpu(), .random = counter.random() }));
+    try testing.expectError(error.HostInvalid, test_server.init(&.{ .host = "localhost", .identity = identity, .cpu = support.cpu(), .random = counter.random() }, &fixture.router, &fixture.context));
     try testing.expect(counter.next != 0);
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.key.private_key, 0));
     try testing.expect(std.mem.allEqual(u8, &test_server.identity.cookie_key, 0));

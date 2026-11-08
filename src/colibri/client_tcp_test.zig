@@ -10,17 +10,18 @@ const fixture = @import("client_test_support.zig");
 const testing = std.testing;
 const test_client = &fixture.test_client;
 
-/// Starts the client on the server's port with `protocols`, over TLS when `secure` is set.
-fn start_client(protocols: client.Protocols, secure: bool, counter: *support.Counter) !void {
+/// Starts the client on the server's port with `protocols`, over TLS when `secure` is set, with
+/// `handler`.
+fn start_client(protocols: client.Protocols, secure: bool, counter: *support.Counter, handler: anytype) !void {
     var pool = fixture.pool_config(protocols, secure);
     pool.protocols.h3 = false;
-    try test_client.init(.{
+    try test_client.init(&.{
         .host = "127.0.0.1",
         .port = fixture.port(),
         .pool = pool,
         .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
-    });
+    }, handler);
 }
 
 /// Fetches `count` greetings over a client of `protocols`, with `shutdown` before `run`, and
@@ -29,11 +30,11 @@ fn fetch(protocols: client.Protocols, secure: bool, count: u32, handler: *fixtur
     var counter: support.Counter = .{};
     try fixture.start_server(secure, false);
     defer fixture.stop_server();
-    try start_client(protocols, secure, &counter);
+    try start_client(protocols, secure, &counter, handler);
     defer test_client.deinit();
     try handler.request(count);
     test_client.shutdown();
-    try fixture.run(handler);
+    try fixture.run();
 }
 
 test "design §8 step 42: a client fetches over h11 in cleartext" {
@@ -76,11 +77,11 @@ test "design §8 step 42: a handler makes a request from on_finished, and shuts 
     var counter: support.Counter = .{};
     try fixture.start_server(false, false);
     defer fixture.stop_server();
-    try start_client(.{ .h11 = false }, false, &counter);
-    defer test_client.deinit();
     var handler: fixture.Handler = .{ .more = 2, .stop_after = 3 };
+    try start_client(.{ .h11 = false }, false, &counter, &handler);
+    defer test_client.deinit();
     try handler.request(1);
-    try fixture.run(&handler);
+    try fixture.run();
     try testing.expectEqual(3, handler.requested);
     try testing.expect(handler.greeted());
 }
@@ -89,15 +90,15 @@ test "design §8 step 42: a slot's next connection opens once its last socket ha
     var counter: support.Counter = .{};
     try fixture.start_server(false, false);
     defer fixture.stop_server();
-    try start_client(.{ .h2 = false }, false, &counter);
-    defer test_client.deinit();
     // RFC 9112 §9.6: the server closes each connection after its response, so each request of the
     // one TCP slot opens a connection of its own.
     // The handler makes each request once the one before has ended, so none is written on a
     // connection the server closes, and shuts the client down after the third.
     var handler: fixture.Handler = .{ .path = "/goodbye", .more = 2, .stop_after = 3 };
+    try start_client(.{ .h2 = false }, false, &counter, &handler);
+    defer test_client.deinit();
     try handler.request(1);
-    try fixture.run(&handler);
+    try fixture.run();
     try testing.expect(handler.greeted());
     try testing.expectEqual(3, handler.connections);
 }
@@ -123,14 +124,14 @@ test "design §8 step 42: a request after shutdown is refused, before and after 
     var counter: support.Counter = .{};
     try fixture.start_server(false, false);
     defer fixture.stop_server();
-    try start_client(.{ .h11 = false }, false, &counter);
-    defer test_client.deinit();
     var handler: StopHandler = .{};
+    try start_client(.{ .h11 = false }, false, &counter, &handler);
+    defer test_client.deinit();
     try handler.recorded.request(2);
     var watchdog: fixture.Watchdog = .{};
     try watchdog.start();
     defer watchdog.stop();
-    try test_client.run(&handler);
+    try test_client.run();
     try testing.expect(handler.recorded.greeted());
     try testing.expectEqual(2, handler.recorded.finished);
     try testing.expectEqual(2, handler.refused);
@@ -149,13 +150,13 @@ test "design §8 step 42: shutdown from another thread ends a run that has nothi
     var counter: support.Counter = .{};
     try fixture.start_server(false, false);
     defer fixture.stop_server();
-    try start_client(.{}, false, &counter);
-    defer test_client.deinit();
     var handler: fixture.Handler = .{};
+    try start_client(.{}, false, &counter, &handler);
+    defer test_client.deinit();
     var started: std.atomic.Value(bool) = .init(false);
     const thread = try std.Thread.spawn(.{}, shutdown_later, .{&started});
     started.store(true, .release);
-    try fixture.run(&handler);
+    try fixture.run();
     thread.join();
     try testing.expectEqual(0, handler.finished);
 }
@@ -171,12 +172,12 @@ test "design §8 step 42: a refused connect ends the exchange refused" {
     var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .port = closed_port, .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds });
-    defer test_client.deinit();
     var handler: fixture.Handler = .{};
+    try test_client.init(&.{ .host = "127.0.0.1", .port = closed_port, .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
-    try fixture.run(&handler);
+    try fixture.run();
     try testing.expectEqual(1, handler.finished);
     // The connection ended before the request was written, so the server processed none of it.
     try testing.expectEqual(client.Result.refused, handler.exchanges[0].response.result);
@@ -189,19 +190,19 @@ test "design §8 step 42: a chain judged after its notAfter ends the exchange re
     defer fixture.stop_server();
     var pool = fixture.pool_config(.{}, true);
     pool.protocols.h3 = false;
+    var handler: fixture.Handler = .{};
     // RFC 5280 §4.1.2.5: a certificate is valid from notBefore through notAfter, and not after.
-    try test_client.init(.{
+    try test_client.init(&.{
         .host = "127.0.0.1",
         .port = fixture.port(),
         .pool = pool,
         .random = counter.random(),
         .unix_seconds = testdata.not_after_seconds + 1,
-    });
+    }, &handler);
     defer test_client.deinit();
-    var handler: fixture.Handler = .{};
     try handler.request(1);
     test_client.shutdown();
-    try fixture.run(&handler);
+    try fixture.run();
     // RFC 9846 §6.2: the handshake fails, so the request was never written.
     try testing.expectEqual(client.Result.refused, handler.exchanges[0].response.result);
     try testing.expectEqual(null, handler.connected);
@@ -214,12 +215,12 @@ fn fetch_at(unix_seconds: u64) !client.Result {
     defer fixture.stop_server();
     var pool = fixture.pool_config(.{}, true);
     pool.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .port = fixture.port(), .pool = pool, .random = counter.random(), .unix_seconds = unix_seconds });
-    defer test_client.deinit();
     var handler: fixture.Handler = .{};
+    try test_client.init(&.{ .host = "127.0.0.1", .port = fixture.port(), .pool = pool, .random = counter.random(), .unix_seconds = unix_seconds }, &handler);
+    defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
-    try fixture.run(&handler);
+    try fixture.run();
     return handler.exchanges[0].response.result;
 }
 
@@ -269,12 +270,12 @@ fn fetch_raw(action: PeerAction, method: []const u8, handler: *fixture.Handler) 
     var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds });
+    try test_client.init(&.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, handler);
     defer test_client.deinit();
     handler.method = method;
     try handler.request(1);
     test_client.shutdown();
-    try fixture.run(handler);
+    try fixture.run();
 }
 
 test "design §8 step 42: a peer that closes with no answer ends the exchange closed" {
@@ -368,9 +369,9 @@ test "design §8 step 42: a run returns only once the socket has sent the h2 GOA
     var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h11 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds });
-    defer test_client.deinit();
     var handler: fixture.Handler = .{};
+    try test_client.init(&.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
     // The pool reports `closed` once it has written the GOAWAY (RFC 9113 §6.8) into the socket.
@@ -379,7 +380,7 @@ test "design §8 step 42: a run returns only once the socket has sent the h2 GOA
     var watchdog: fixture.Watchdog = .{};
     try watchdog.start();
     defer watchdog.stop();
-    try test_client.run(&handler);
+    try test_client.run();
     thread.join();
     try testing.expectEqual(client.Result.response, handler.exchanges[0].response.result);
     try testing.expect(read_goaway);

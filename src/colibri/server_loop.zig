@@ -55,9 +55,9 @@ pub fn start(state: anytype, now_ns: u64) !void {
     reset(state, now_ns);
     // The server issues no ticket unless the program gave a ticket key, so the instant in seconds
     // it judges tickets at is chapulin's 0 for none.
-    try state.engine.init(&state.engine_config, state.config.random.?, .{ .ns = now_ns, .unix_seconds = 0 });
+    try state.engine.init(&state.engine_config, state.random, .{ .ns = now_ns, .unix_seconds = 0 });
     const tcp_connections = state.sockets.len;
-    if (state.udp.served) state.udp.start(datagram_id(tcp_connections), accept_slot(tcp_connections) + 1);
+    if (state.udp.served) state.udp.start(datagram_id(tcp_connections), accept_slot(tcp_connections) + 1, state.datagram_segments);
 }
 
 /// Empties what a run holds: no socket, entry, pending step or operation, and `now_ns` as the last
@@ -82,7 +82,7 @@ pub fn reset(state: anytype, now_ns: u64) void {
 /// deadlines and events, a step of each socket a completion named, and then the operations each
 /// one needs, which it writes into `operations`.
 pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
-    const state = run.server;
+    const state = run;
     var out: operation_table.Outbox = .{ .operations = operations };
     if (state.stopping.load(.acquire) and !state.shut_down) shut_down(state, now_ns);
     const due = if (state.engine.deadline_ns()) |at_ns| at_ns <= now_ns else false;
@@ -120,8 +120,8 @@ fn shut_down(state: anytype, now_ns: u64) void {
 /// Takes one completion at `now_ns`. A completion with an id that the server does not hold is a
 /// halt (decision 159, rule 6).
 pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
-    const state = run.server;
-    const slot = state.operations.find(completion.id).?;
+    const state = run;
+    const slot = state.operations.held(completion.id);
     if (completion.final()) state.operations.finish(slot);
     const tcp_connections = state.sockets.len;
     if (slot == accept_slot(tcp_connections)) return on_accept(run, completion.result, now_ns);
@@ -154,7 +154,8 @@ fn write_accept(state: anytype, out: *operation_table.Outbox) void {
         state.accept_canceled = true;
         return;
     }
-    if (state.shut_down) return;
+    // A hosted server whose host opened no listener serves h3 alone.
+    if (state.shut_down or !state.listening) return;
     const into = free_socket(state) orelse return;
     if (!out.room()) return;
     out.put(.{ .id = state.operations.issue(slot), .kind = .{ .accept = .{
@@ -167,7 +168,7 @@ fn write_accept(state: anytype, out: *operation_table.Outbox) void {
 
 /// Takes the socket an accept delivered into the free entry it named, and starts its connection.
 fn on_accept(run: anytype, result: host.Completion.Result, now_ns: u64) void {
-    const state = run.server;
+    const state = run;
     state.accepting = false;
     if (result != .accepted) return;
     const index: usize = state.accept_into;
@@ -190,7 +191,7 @@ fn free_socket(state: anytype) ?usize {
 
 /// Steps every entry a socket or the engine named, until none is named.
 fn serve(run: anytype, now_ns: u64) void {
-    const state = run.server;
+    const state = run;
     for (0..state.sockets.len * constants.limits.events_per_step_max) |_| {
         const index = state.pending.toggleFirstSet() orelse return;
         serve_entry(run, index, now_ns);
@@ -200,7 +201,7 @@ fn serve(run: anytype, now_ns: u64) void {
 /// Steps the socket at `index`: its unread octets go in, and what its connection owes is appended
 /// to its output. A socket the host has finished with, whose connection has ended, frees its entry.
 fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
-    const state = run.server;
+    const state = run;
     const socket = &state.sockets[index];
     if (!socket.live) return;
     if (socket.finished() and !state.entries[index].attached) {
@@ -240,7 +241,7 @@ fn arm(state: anytype, out: *operation_table.Outbox) void {
 /// decision 160). The host contract has no operation for a half-close, so colibri's own Rotor
 /// host asks for each one after a turn (`rotor_host.zig`), and calls `half_closed` at its end.
 pub fn take_half_close(run: anytype) ?host.SocketId {
-    const state = run.server;
+    const state = run;
     for (0..state.sockets.len) |_| {
         const index = state.half_closes.toggleFirstSet() orelse return null;
         const socket = &state.sockets[index];
@@ -255,7 +256,7 @@ pub fn take_half_close(run: anytype) ?host.SocketId {
 /// Takes the end of the shutdown of the write side of `socket_id` at `now_ns`. One that failed
 /// ends the connection, as a failed send does.
 pub fn half_closed(run: anytype, socket_id: host.SocketId, shut: bool, now_ns: u64) void {
-    const state = run.server;
+    const state = run;
     const index = @intFromEnum(socket_id);
     const socket = &state.sockets[index];
     assert(socket.live);
