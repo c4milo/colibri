@@ -39,6 +39,8 @@ test "decision 115: the root exports the names code outside the module uses" {
         "quic",    "constants", "Connection", "frame",
         "message",
     });
+    try core.public_names.expect(frame, &.{"write_header"});
+    try core.public_names.expect(message, &.{ "Request", "Response" });
 }
 
 test {
