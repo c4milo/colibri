@@ -296,3 +296,25 @@ test "decision 127: more runs than response_pieces_max wait refused" {
     for (0..constants.limits.response_pieces_max) |_| try response.write_kept("a");
     try testing.expectError(error.Full, response.write_kept("a"));
 }
+
+test "design §8 step 46: trailers with no room send the body first, and go once it is released" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    try writer.writeAll("a" ** 100);
+    try writer.flush();
+    try writer.writeAll("b" ** 150);
+    const lines: []const http.Field = &.{.{ .name = "x-trailer", .value = "v" ** 20 }};
+    try testing.expectError(error.NoSpaceLeft, response.trailers(lines));
+    // The run cut before the trailers went to the engine, and the writer waits for its release.
+    var out: [memory_len]u8 = undefined;
+    const sent, _ = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("a" ** 100 ++ "b" ** 150, sent);
+    try testing.expectEqual(1, fixture.recorder.release_waits);
+    fixture.recorder.held = 0;
+    try testing.expect(try internal.resume_writes(response) == false);
+    try response.trailers(lines);
+    const last = fixture.recorder.calls[fixture.recorder.count - 1];
+    try testing.expectEqualStrings("v" ** 20, last.trailers[0].value);
+    try testing.expect(internal.complete(response));
+}

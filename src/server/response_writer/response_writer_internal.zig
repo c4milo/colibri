@@ -190,7 +190,7 @@ pub fn copy_trailers(response: *ResponseWriter, headers: []const http.Field) Err
     if (response.header_count + headers.len > constants.limits.response_headers_max) return error.SectionTooLarge;
     assert(response.writer.end == 0);
     const total = lines_len(headers);
-    if (response.writer.buffer.len < total and !ring.refill(response, total)) return error.NoSpaceLeft;
+    if (response.writer.buffer.len < total) try make_room(response, total);
     var first = @intFromPtr(response.writer.buffer.ptr) - @intFromPtr(response.memory.ptr);
     for (headers, 0..) |line, index| {
         const copied = try copy_line(response, first, line.name, line.value);
@@ -199,6 +199,13 @@ pub fn copy_trailers(response: *ResponseWriter, headers: []const http.Field) Err
     }
     response.trailer_count = @intCast(headers.len);
     response.writer.buffer = response.writer.buffer[total..];
+}
+
+/// The slow path of `copy_trailers`: it sends the run `trailers` cut, so the engine owes a
+/// `writable` or releases it, then takes back the released memory.
+fn make_room(response: *ResponseWriter, need: usize) Error!void {
+    try push(response);
+    if (!ring.refill(response, need)) return error.NoSpaceLeft;
 }
 
 /// Octets of the names and values of `headers`.
