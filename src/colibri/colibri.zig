@@ -67,8 +67,9 @@ test "decision 115: the root exports the names design §8 steps 37, 42 and 44 li
     const server_names = &.{ "operations_max", "sockets_max", "listener", "datagram", "init", "deinit", "port", "run", "turn", "complete", "shutdown", "stopped" };
     try public_names.expect(Server(.{}, .private), server_names);
     try public_names.expect(Server(.{}, .hosted), server_names);
-    // Step 44f adds the second UDP socket, and 44g, 44h and 44i the rest of decision 159's list.
-    const client_names = &.{ "InitError", "RunError", "operations_max", "sockets_max", "datagram_ipv4", "datagram_ipv6", "init", "deinit", "request", "run", "turn", "complete", "shutdown", "stopped" };
+    // Step 44f adds the second UDP socket, 44g `set_destination`, and 44h and 44i the rest of
+    // decision 159's list.
+    const client_names = &.{ "InitError", "RunError", "operations_max", "sockets_max", "datagram_ipv4", "datagram_ipv6", "init", "deinit", "request", "set_destination", "run", "turn", "complete", "shutdown", "stopped" };
     try public_names.expect(Client(.{}, .private), client_names);
     try public_names.expect(Client(.{}, .hosted), client_names);
 }

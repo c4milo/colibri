@@ -20,8 +20,7 @@ fn fetch_stream(protocols: client.Protocols, secure: bool, udp: bool, handler: *
     var pool = fixture.pool_config(protocols, secure);
     pool.protocols.h3 = udp;
     try test_client.init(&.{
-        .host = "127.0.0.1",
-        .port = fixture.port(),
+        .destination = fixture.loopback(fixture.port()),
         .pool = pool,
         .random = counter.random(),
         .unix_seconds = testdata.now_seconds,

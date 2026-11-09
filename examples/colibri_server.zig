@@ -9,8 +9,8 @@
 //! through Rotor's loop, until another thread calls `shutdown`. With an identity the server speaks
 //! h11 and h2 over TLS, as ALPN selects, and h3 on the UDP socket of the same port.
 //!
-//! The client gets the server's address, its port, a pool's configuration and the program's
-//! handler. The program hands it requests, calls `shutdown`, and calls `run`, which returns once
+//! The client gets the server's destination, its addresses and its port, a pool's configuration
+//! and the program's handler. The program hands it requests, calls `shutdown`, and calls `run`, which returns once
 //! each exchange has finished.
 //!
 //! The run goes in this order:
@@ -71,6 +71,11 @@ var http_server: Server align(@alignOf(Server)) = undefined;
 /// connection, and `client.constants.limits.requests_max` requests at once.
 const Client = colibri.Client(.{}, .private);
 var http_client: Client align(@alignOf(Client)) = undefined;
+
+/// The server's address, which a program gets from its resolver: 127.0.0.1, with port 0 as a
+/// destination names its addresses. colibri looks up no name (decision 100).
+const loopback = [_]u8{ 127, 0, 0, 1 };
+const server_addresses = [_]client.Address{.of(&loopback, 0)};
 
 /// The origin the client names, and the root it trusts for it.
 const origin = "localhost";
@@ -144,8 +149,7 @@ var fetched: Fetch align(@alignOf(Fetch)) = .{};
 /// that `expected` carried them and that each response arrived octet for octet.
 fn fetch(cpu: tls.Cpu, protocols: client.Protocols, expected: client.Protocol) !void {
     try http_client.init(&.{
-        .host = "127.0.0.1",
-        .port = http_server.port(),
+        .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
         .pool = .{
             .authority = origin,
             .protocols = protocols,

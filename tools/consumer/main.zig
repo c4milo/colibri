@@ -163,8 +163,7 @@ pub fn main() !void {
     // instant, because the client reads no clock, and no handler. It does not call `run`, so it
     // fetches nothing.
     const bound_client_config: colibri.ClientConfig = .{
-        .host = "127.0.0.1",
-        .port = bound_server.port(),
+        .destination = .{ .addresses = &server_addresses, .port = bound_server.port() },
         .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } },
         .unix_seconds = now_seconds,
     };

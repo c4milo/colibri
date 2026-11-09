@@ -5,10 +5,15 @@
 const client = @import("client");
 const server = @import("server");
 
-/// A bind of the listener or an open of a UDP socket failed.
-pub const BindError = error{
+/// A bind of the listener or an open of a UDP socket failed: the system's refusals, and a
+/// server's `host` that is no IP literal.
+pub const BindError = DatagramBindError || error{
     /// `host` is not an IPv4 or IPv6 literal.
     HostInvalid,
+};
+
+/// An open of a UDP socket on every interface failed: a client's, which parses no text.
+pub const DatagramBindError = error{
     /// The system carries no stack for the address's family.
     AddressFamilyUnsupported,
     /// The process or the system may open no more descriptors.
@@ -36,4 +41,5 @@ pub const LoopError = error{
 pub const RunError = server.StartError || LoopError;
 
 /// A client's `init` failed: the pool refused its configuration, or the UDP socket did not open.
-pub const ClientInitError = client.StartError || BindError;
+/// The destination is a list of addresses, so no text is parsed (design §8 step 44g).
+pub const ClientInitError = client.StartError || DatagramBindError;

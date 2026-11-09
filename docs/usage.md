@@ -221,7 +221,7 @@ const BoundClient = colibri.Client(client_capacity, .private);
 var bound_client: BoundClient align(@alignOf(BoundClient)) = undefined;
 ```
 
-`init` takes a pointer to the configuration and the handler: the server's address and port, the
+`init` takes a pointer to the configuration and the handler: the server's destination, the
 pool's configuration, and a pointer to your program's struct. It opens the UDP socket when the
 pool offers QUIC: h3 allowed, and a TLS value. A client with no handler, which passes null, drops
 each event. `request` takes a `client.Request` and the `client.Response` it fills, which your
@@ -229,8 +229,7 @@ program keeps in place until the exchange's `finished`:
 
 ```zig
 try http_client.init(&.{
-    .host = "127.0.0.1",
-    .port = http_server.port(),
+    .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
     .pool = .{
         .authority = origin,
         .protocols = protocols,
@@ -260,14 +259,18 @@ try http_client.run();
 ```
 
 `shutdown` is the one call another thread may make. `request` comes before `run` or from a
-handler. After `shutdown`, `request` returns `error.ShutDown`, so a handler that makes a request
+handler. `set_destination` gives the pool new addresses, for example from a later DNS answer, on
+the same thread. Each connection that opens after it goes to the new addresses, and each open
+connection keeps its exchanges ([decision 125](decisions.md)). An open of QUIC to a family with no
+UDP socket ends, and the pool opens TCP ([decision 156](decisions.md) ruling 13). After `shutdown`, `request` returns `error.ShutDown`, so a handler that makes a request
 learns that the client takes no more. A program calls `run` once for each `init`. `deinit` closes
 the UDP socket when `run` did not close it.
 
 `colibri.ClientConfig` holds these fields:
 
-- `host` and `port`: the server's IPv4 or IPv6 literal, and its port, 443 by default. The client
-  looks up no name.
+- `destination`: a `client.Destination`, with the server's addresses, each with port 0, and the
+  origin's port. The client looks up no name ([decision 100](decisions.md)). Your program keeps
+  `addresses` alive until the next `set_destination` or `deinit`.
 - `pool`: the `client.Config` the pool starts from. `init` sets its `tcp_connections` and
   `requests` to the client's own counts. Its `protocols.prefer` says which transport the client
   opens first, `.tcp` by default or `.quic`, and the client keeps it as the program set it. It also sets its `ecn`, because the client's loop reads

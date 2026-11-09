@@ -27,8 +27,7 @@ fn fetch_speaking(protocols: client.Protocols, udp: bool, count: u32, handler: *
     const pool = fixture.pool_config(protocols, true);
     try testing.expect(!pool.ecn);
     try test_client.init(&.{
-        .host = "127.0.0.1",
-        .port = fixture.port(),
+        .destination = fixture.loopback(fixture.port()),
         .pool = pool,
         .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
@@ -67,7 +66,7 @@ test "design §8 step 42: twenty exchanges, one after another, go over one QUIC 
     try fixture.start_server(true, true);
     defer fixture.stop_server();
     var handler: fixture.Handler = .{ .more = sequential_exchanges - 1, .stop_after = sequential_exchanges };
-    try test_client.init(&.{ .host = "127.0.0.1", .port = fixture.port(), .pool = fixture.pool_config(.{ .prefer = .quic }, true), .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.port()), .pool = fixture.pool_config(.{ .prefer = .quic }, true), .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
     defer test_client.deinit();
     // More datagrams go each way than the UDP socket has batches, so each batch is sent again
     // once its send has ended.

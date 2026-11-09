@@ -22,11 +22,11 @@ const kinds = @import("client_kinds.zig");
 /// pool's configuration names alive while the client runs: the authority, the TLS anchors and
 /// pins, and the decoder pools.
 pub const ClientConfig = struct {
-    /// The server's address: an IPv4 or IPv6 literal. The client looks up no name.
-    host: []const u8,
-    /// The server's port for TCP and UDP: 443 for "https" unless the URI names another (RFC 9110
-    /// §4.2.2).
-    port: u16 = 443,
+    /// The server's addresses, each with port 0, in the order the program wants them tried, and
+    /// the origin's port: 443 for "https" unless the URI names another (RFC 9110 §4.2.2). The
+    /// client looks up no name (decision 100). The program keeps `addresses` alive until the next
+    /// `set_destination` or `deinit` (decision 156 ruling 11).
+    destination: client.Destination,
     /// What the pool starts from: the authority, the protocols, the TLS value, the codings and the
     /// timeouts. `init` sets its `tcp_connections` and `requests` to the client's own counts, and
     /// sets its `ecn`, because the client's host reads and sets each datagram's ECN codepoint
@@ -71,7 +71,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         }
 
         /// What `init` returns: on `.private` the pool's refusals and the UDP socket's open, and on
-        /// `.hosted` the pool's refusals and a `host` that is no IP literal (decision 159).
+        /// `.hosted` the pool's refusals alone (decision 159).
         pub const InitError = Kinded.InitError;
         /// What `run` returns on `.private`: the loop failed. A hosted client has no run, so the
         /// set is empty.
@@ -88,11 +88,10 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         unix_seconds: u64,
         /// The program's handler (`erased.zig`).
         handler: erased.Handler(Self),
-        /// The pool, the configuration and the address it borrows, and its memory. The pool stays
-        /// in place after `init`: its TLS configurations point into it.
+        /// The pool, its configuration and its memory. The pool stays in place after `init`: its
+        /// TLS configurations point into it.
         pool: Pool,
         pool_config: client.Config,
-        addresses: [1]client.Address,
         pool_memory: [pool_memory_len]u8 align(Pool.memory_alignment),
         /// The pool each QUIC connection holds the server's unread octets in (decision 61).
         receive_pool: ReceivePool,
@@ -127,9 +126,9 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// (`rotor_host.zig`).
         host: Host,
 
-        /// Keeps the handler, prepares the pool, and takes the UDP socket of the destination's
-        /// family when the pool offers QUIC: h3 allowed, a TLS value, and a client that holds QUIC
-        /// (RFC 9114 §3.1). `handler` points at the program's struct, or is null for a client
+        /// Keeps the handler, prepares the pool for the destination, and takes the UDP socket of
+        /// each family when the pool offers QUIC: h3 allowed, a TLS value, and a client that holds
+        /// QUIC (RFC 9114 §3.1). `handler` points at the program's struct, or is null for a client
         /// that only fetches. The struct declares `on_finished(handler, *Client,
         /// client.Finished)` and may declare `on_connected(handler, *Client, client.Connected)`.
         /// Each runs inside a turn, on the object's thread, and may call `request` and `shutdown`.
@@ -145,13 +144,12 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
             // A run that fails before its first turn holds no live socket.
             for (&self.sockets) |*socket| socket.live = false;
             self.unix_seconds = config.unix_seconds;
-            self.addresses = .{try peer_of(config.host)};
             self.pool_config = config.pool;
             self.pool_config.tcp_connections = capacity.tcp_connections;
             self.pool_config.requests = capacity.requests;
             self.stopping = .init(false);
             self.undrained = false;
-            return Kinded.init(self, config, client_loop.family_of(self.addresses[0]));
+            return Kinded.init(self, config);
         }
 
         /// Closes the UDP socket of `.private` when `run` did not close it. The program calls it
@@ -179,6 +177,19 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
             // The pool reports the open or the send the request needs at the next read.
             self.undrained = true;
             return id;
+        }
+
+        /// Gives the pool new addresses, for example from a later DNS answer, while exchanges run
+        /// (decision 156 ruling 11). Each connection that opens after the call goes to
+        /// `destination.addresses`, from the first, and each open connection keeps its exchanges
+        /// (decision 125). The port stays the origin's (RFC 9110 §4.3.1). The program keeps the
+        /// addresses alive until the next `set_destination` or `deinit`. It calls
+        /// `set_destination` on the object's thread, as it calls `request`. An open of QUIC to a
+        /// family with no UDP socket ends, and the pool opens TCP (decision 156 ruling 13).
+        pub fn set_destination(self: *Self, destination: client.Destination) void {
+            // The pool reports no event for the call, and each turn reads the pool's events
+            // first, so `undrained` stays as it is.
+            self.pool.set_destination(destination);
         }
 
         /// Runs the pool on the thread that calls it until `shutdown`, and returns once each
@@ -223,16 +234,6 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
     };
 }
 
-/// The peer `text` names, an IPv4 or IPv6 literal, as colibri names a peer's address. The client
-/// looks up no name, and the parse does no I/O.
-fn peer_of(text: []const u8) error{HostInvalid}!client.Address {
-    const parsed = std.Io.net.IpAddress.parse(text, 0) catch return error.HostInvalid;
-    return switch (parsed) {
-        .ip4 => |ip4| .of(&ip4.bytes, 0),
-        .ip6 => |ip6| .of(&ip6.bytes, 0),
-    };
-}
-
 /// The type of the receive pool a client holds: the default one with QUIC, and none without.
 fn receive_pool_type(quic: bool) type {
     return if (quic) client.ReceivePool(.{}) else void;
@@ -270,12 +271,12 @@ fn tls_pool(protocols: client.Protocols) client.Config {
 
 test "design §8 step 42: a cleartext client opens no UDP socket" {
     var counter: support.Counter = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .port = 8080, .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(8080), .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     // RFC 9001 §4: QUIC needs TLS, so a cleartext pool offers TCP alone.
     try testing.expect(!test_client.udp.served);
-    try testing.expectEqual(4, test_client.addresses[0].len);
-    try testing.expectEqual(127, test_client.addresses[0].octets[0]);
+    try testing.expectEqual(4, test_client.pool.values.addresses[0].len);
+    try testing.expectEqual(127, test_client.pool.values.addresses[0].octets[0]);
     try testing.expectEqual(8080, test_client.pool.values.port);
 }
 
@@ -283,7 +284,7 @@ test "design §8 step 42: init takes the counts of the client's capacity" {
     var counter: support.Counter = .{};
     var config: client.Config = .{ .authority = "localhost", .tcp_connections = 3, .requests = 2 };
     config.protocols.h3 = false;
-    try test_client.init(&.{ .host = "127.0.0.1", .pool = config, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = config, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     try testing.expectEqual(1, test_client.pool.counts.tcp_connections);
     try testing.expectEqual(client.constants.limits.requests_max, test_client.pool.counts.requests);
@@ -292,7 +293,7 @@ test "design §8 step 42: init takes the counts of the client's capacity" {
 }
 
 test "decision 150 ruling 9: a client given no source draws from the system" {
-    try test_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .authority = "localhost" }, .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     var first: [32]u8 = undefined;
     var second: [32]u8 = undefined;
@@ -302,16 +303,11 @@ test "decision 150 ruling 9: a client given no source draws from the system" {
     try testing.expect(!std.mem.eql(u8, &first, &second));
 }
 
-test "design §8 step 42: a host that is no IP literal is refused" {
-    var counter: support.Counter = .{};
-    try testing.expectError(error.HostInvalid, test_client.init(&.{ .host = "localhost", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null));
-}
-
 test "decision 124: a client with no QUIC refuses h3" {
     var counter: support.Counter = .{};
     // RFC 9114 §3.1: h3 runs over QUIC alone.
-    try testing.expectError(error.VersionUnavailable, tcp_client.init(&.{ .host = "127.0.0.1", .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds }, null));
-    try tcp_client.init(&.{ .host = "127.0.0.1", .pool = tls_pool(.{ .h3 = false }), .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try testing.expectError(error.VersionUnavailable, tcp_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = tls_pool(.{}), .random = counter.random(), .unix_seconds = now_seconds }, null));
+    try tcp_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = tls_pool(.{ .h3 = false }), .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer tcp_client.deinit();
     try testing.expect(!tcp_client.udp.served);
 }
@@ -324,7 +320,7 @@ test {
 
 test "design §8 step 42: a request leaves the pool's events for the next turn to read at once" {
     var counter: support.Counter = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     try testing.expect(!test_client.undrained);
     const request: client.Request = .{ .method = "GET", .path = "/" };
@@ -336,7 +332,7 @@ test "design §8 step 42: a request leaves the pool's events for the next turn t
 
 test "design §8 step 42: a turn passes a shutdown to the pool once, and steps each running socket" {
     var counter: support.Counter = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = .{ .authority = "localhost" }, .random = counter.random(), .unix_seconds = now_seconds }, null);
     defer test_client.deinit();
     test_client.connections = @splat(.empty);
     test_client.connections[0].started = true;

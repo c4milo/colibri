@@ -14448,6 +14448,28 @@ library.
            family with no socket does.
          - Checks and mutations: see the commit body of 44f.
     7. 44g `feat(colibri)!`: `destination` and `set_destination`.
+       - Done on 2026-11-08.
+         - `ClientConfig.destination`, a `client.Destination`, replaces `host` and `port`, on both
+           kinds. `HostInvalid` leaves each client's `InitError`, so a hosted client's `init`
+           returns `client.StartError` alone. The server's `BindError` keeps it.
+         - `set_destination` passes the new addresses to the pool. It does not set `undrained`:
+           the pool reports no event for the call, and each turn reads the pool's events first.
+         - An open of QUIC to a family with no UDP socket ends through `transport_closed`, and the
+           pool opens TCP (decision 156 ruling 13). This settles the point that 44f left open.
+         - A hosted client offers h3 when the host opened a UDP socket of either family. The
+           pool's ECN and the segments hold only when each socket that the host opened has them,
+           because `set_destination` can change the family.
+         - `.private` binds both families. The bind of the first address's family must succeed.
+         - Tests on the fake host: a connection that opens after `set_destination` goes to the
+           new address; an open connection keeps its exchange; after `set_destination` to a family
+           with no socket, the TCP connect is the one operation of a turn with room for one.
+         - Mutations, each against `zig build test-colibri`:
+           - The old address list read after the call: CAUGHT by two fake-host tests.
+           - The open of QUIC to a family with no socket not ended: CAUGHT by the test of a turn
+             with room for one. A second test halts on the assertion in `datagram_socket.zig`.
+           - The `Features` of the first family alone: CAUGHT by a fake-host test.
+           - `undrained` not set: NOT CAUGHT, and no test can catch it, because each turn reads
+             the pool's events first. So the call does not set it.
     8. 44h `feat(colibri)`: `fetch` and `cancel`. Its tests on a shared loop become tests on the
        fake host.
     9. 44i `feat(colibri)!`: the root re-exports `client` and `server`, and the tests of the

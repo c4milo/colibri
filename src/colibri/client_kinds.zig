@@ -1,6 +1,6 @@
 //! What each kind of `colibri.Client` does at `init` and at `deinit` (decision 159). `private`
-//! opens its UDP socket through colibri's own Rotor host. `hosted` takes the UDP socket that the
-//! program's host opened for the destination's family. `client.zig` picks one by the kind's name,
+//! opens a UDP socket of each family through colibri's own Rotor host. `hosted` takes each UDP
+//! socket that the program's host opened. `client.zig` picks one by the kind's name,
 //! so the type function holds no branch for the kind.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -23,9 +23,10 @@ pub const private = struct {
     pub const Host = rotor_host.Host;
 
     /// Starts the pool, and opens a UDP socket of each family when the pool offers QUIC
-    /// (decision 156 ruling 13). The bind of the destination's family must succeed. A family that
-    /// the system refuses for another one stays closed.
-    pub fn init(state: anytype, config: *const Config, family: Family) InitError!void {
+    /// (decision 156 ruling 13). The bind of the first address's family must succeed. A family
+    /// that the system refuses for the other one stays closed, and an open of QUIC to it ends
+    /// (`client_loop.zig`).
+    pub fn init(state: anytype, config: *const Config) InitError!void {
         state.host.prepare();
         state.random = config.random orelse entropy.random();
         // Decision 68: the client's host reads each datagram's codepoint and sets the one the
@@ -33,15 +34,16 @@ pub const private = struct {
         // it halts on a datagram marked ECT(0), as a `colibri.Server` marks them.
         state.pool_config.ecn = true;
         state.datagram_segments = true;
-        try start_pool(state, config.port);
+        try start_pool(state, config.destination);
         if (!state.pool.offered.quic) return;
+        const family = client_loop.family_of(config.destination.addresses[0]);
         try bind(state, family);
         const other: Family = if (family == .ipv4) .ipv6 else .ipv4;
         bind(state, other) catch {};
     }
 
     /// Opens the UDP socket of `family` on every interface, on a port the system chooses.
-    fn bind(state: anytype, family: Family) errors.BindError!void {
+    fn bind(state: anytype, family: Family) errors.DatagramBindError!void {
         const id = client_loop.datagram_id(state.sockets.len, family);
         try state.host.bind_datagram_any(id, family);
         state.udp.open(@intFromEnum(family), id);
@@ -59,9 +61,10 @@ pub const hosted = struct {
     /// sockets that the host opened before `init`. A program writes it as a literal, so it has no
     /// public name (decision 156 ruling 2).
     pub const Config = struct {
-        host: []const u8,
-        port: u16 = 443,
-        /// The pool's configuration. `init` sets its `ecn` from the UDP socket's `Features`.
+        /// The server's addresses and the origin's port, as `ClientConfig.destination` holds
+        /// them.
+        destination: client.Destination,
+        /// The pool's configuration. `init` sets its `ecn` from the UDP sockets' `Features`.
         pool: client.Config,
         /// The program's source. A hosted client has no default (decision 150 ruling 9 as
         /// amended).
@@ -73,8 +76,8 @@ pub const hosted = struct {
         datagram: struct { ipv4: ?host.Features = null, ipv6: ?host.Features = null } = .{},
     };
 
-    /// The pool's refusals, and a `host` that is no IP literal. A hosted client binds nothing.
-    pub const InitError = client.StartError || error{HostInvalid};
+    /// The pool's refusals. A hosted client binds nothing and parses no text.
+    pub const InitError = client.StartError;
     /// A hosted client has no run, so the set is empty.
     pub const RunError = error{};
 
@@ -83,23 +86,22 @@ pub const hosted = struct {
         return void;
     }
 
-    /// Takes the UDP socket of each family that the host opened. With no socket of the
-    /// destination's family the pool offers no QUIC, and opens TCP (decision 156 ruling 13). The
-    /// pool's ECN and the segments follow the `Features` of the destination's family.
-    pub fn init(state: anytype, config: *const Config, family: Family) InitError!void {
+    /// Takes the UDP socket of each family that the host opened. With no socket at all the pool
+    /// offers no QUIC. An open of QUIC to a family with no socket ends, and the pool opens TCP
+    /// (decision 156 ruling 13, `client_loop.zig`). A destination can change family at
+    /// `set_destination`, so the pool's ECN and the segments hold only when each socket has them.
+    pub fn init(state: anytype, config: *const Config) InitError!void {
         state.random = config.random;
-        const features = switch (family) {
-            .ipv4 => config.datagram.ipv4,
-            .ipv6 => config.datagram.ipv6,
-        };
-        if (features == null) state.pool_config.protocols.h3 = false;
+        const opened = config.datagram.ipv4 != null or config.datagram.ipv6 != null;
+        if (!opened) state.pool_config.protocols.h3 = false;
+        const features = shared_features(config.datagram.ipv4, config.datagram.ipv6);
         // Decision 159: a host that cannot read the codepoint leaves the pool's ECN off, so it
         // never halts on ECT(0) (decision 68 as amended).
-        state.pool_config.ecn = if (features) |held| held.ecn else false;
-        state.datagram_segments = if (features) |held| held.segments else false;
-        try start_pool(state, config.port);
+        state.pool_config.ecn = features.ecn;
+        state.datagram_segments = features.segments;
+        try start_pool(state, config.destination);
         if (!state.pool.offered.quic) return;
-        assert(features != null);
+        assert(opened);
         if (config.datagram.ipv4 != null) state.udp.open(@intFromEnum(Family.ipv4), client_loop.datagram_id(state.sockets.len, .ipv4));
         if (config.datagram.ipv6 != null) state.udp.open(@intFromEnum(Family.ipv6), client_loop.datagram_id(state.sockets.len, .ipv6));
     }
@@ -111,10 +113,18 @@ pub const hosted = struct {
     }
 };
 
-/// Starts the pool on the destination's address and `port`, with the receive pool its QUIC
-/// connections use, or none for a client with no QUIC.
-fn start_pool(state: anytype, port: u16) client.StartError!void {
-    const destination: client.Destination = .{ .addresses = &state.addresses, .port = port };
+/// What a host does on each UDP socket that it opened: a feature holds only when it holds on each
+/// one. With no socket, none holds.
+fn shared_features(ipv4: ?host.Features, ipv6: ?host.Features) host.Features {
+    if (ipv4 == null and ipv6 == null) return .{};
+    const first = ipv4 orelse ipv6.?;
+    const second = ipv6 orelse first;
+    return .{ .segments = first.segments and second.segments, .ecn = first.ecn and second.ecn };
+}
+
+/// Starts the pool on `destination`, with the receive pool its QUIC connections use, or none for a
+/// client with no QUIC.
+fn start_pool(state: anytype, destination: client.Destination) client.StartError!void {
     const storage: ?client.ReceiveStorage = if (@TypeOf(state.receive_pool) == void) null else state.receive_pool.storage();
     try state.pool.init(&state.pool_memory, &state.pool_config, destination, storage);
 }

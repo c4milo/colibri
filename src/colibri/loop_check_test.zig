@@ -139,6 +139,17 @@ const request_head = "GET / HTTP/1.1\r\nhost: localhost\r\n\r\n";
 const unserved_port: u16 = 1;
 const connect_ns: u64 = 100_000_000;
 
+/// 127.0.0.1 with port 0, as a destination names its addresses (RFC 791 §3.2), and the port of
+/// "https" (RFC 9110 §4.2.2).
+const loopback_word: u32 = 0x7f00_0001;
+const loopback_addresses = [_]client.Address{.of(&@as([@sizeOf(u32)]u8, @bitCast(std.mem.nativeToBig(u32, loopback_word))), 0)};
+const https_port: u16 = 443;
+
+/// A destination of 127.0.0.1 on `port`.
+fn loopback(port: u16) client.Destination {
+    return .{ .addresses = &loopback_addresses, .port = port };
+}
+
 /// The first operation of `kind` among the first `count` that a turn wrote.
 fn written(count: u32, comptime kind: std.meta.Tag(colibri.Operation.Kind)) !colibri.Operation {
     for (operations[0..count]) |operation| {
@@ -162,7 +173,7 @@ const cases = struct {
         hosted_server.complete(&.{ .id = accept.id, .result = .canceled }, 0);
         if (!hosted_server.stopped()) return error.NotStopped;
         hosted_server.deinit();
-        try hosted_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null);
         hosted_client.shutdown();
         _ = hosted_client.turn(0, &operations);
         if (!hosted_client.stopped()) return error.NotStopped;
@@ -199,7 +210,7 @@ const cases = struct {
 
     /// A completion of an operation that the client never wrote: a halt (decision 159, rule 6).
     pub fn halt_stray_completion() !void {
-        try hosted_client.init(&.{ .host = "127.0.0.1", .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null);
         _ = hosted_client.turn(0, &operations);
         hosted_client.complete(&.{ .id = stray_id, .result = .closed }, 0);
     }
@@ -226,7 +237,7 @@ const halts = struct {
 
     /// Ends one exchange refused, so `handler`'s `on_finished` runs inside the last turn.
     fn refuse_inside_handler(handler: anytype) !void {
-        try hosted_client.init(&.{ .host = "127.0.0.1", .port = unserved_port, .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, handler);
+        try hosted_client.init(&.{ .destination = loopback(unserved_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, handler);
         _ = try hosted_client.request(&get, &answer_of_get);
         const first = hosted_client.turn(0, &operations);
         const connect = try written(first.operations, .connect);
@@ -258,7 +269,7 @@ const halts = struct {
     /// Sends one GET of `/` to `port` on loopback from a `.private` client. The server halts
     /// before it answers.
     fn get_from(port: u16) void {
-        private_client.init(&.{ .host = "127.0.0.1", .port = port, .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null) catch return;
+        private_client.init(&.{ .destination = loopback(port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null) catch return;
         _ = private_client.request(&get, &answer_of_get) catch return;
         private_client.run() catch return;
     }
@@ -281,7 +292,7 @@ const halts = struct {
     pub fn halt_client_run_in_handler() !void {
         var pool: client.Config = .{ .authority = "localhost", .protocols = .{ .h3 = false } };
         pool.timeouts.connect_ns = connect_ns;
-        try private_client.init(&.{ .host = "127.0.0.1", .port = unserved_port, .pool = pool, .random = zero_source, .unix_seconds = 0 }, &run_in_handler);
+        try private_client.init(&.{ .destination = loopback(unserved_port), .pool = pool, .random = zero_source, .unix_seconds = 0 }, &run_in_handler);
         _ = try private_client.request(&get, &answer_of_get);
         try private_client.run();
     }

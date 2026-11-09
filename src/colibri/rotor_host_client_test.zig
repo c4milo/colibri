@@ -80,7 +80,7 @@ threadlocal var unanswered: Unanswered align(@alignOf(Unanswered)) = undefined;
 fn start_on(port: u16, counter: *support.Counter, handler: *fixture.Handler) !void {
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(&.{ .host = "127.0.0.1", .port = port, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, handler);
+    try test_client.init(&.{ .destination = fixture.loopback(port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, handler);
     client_loop.start(test_client, try test_client.host.begin());
 }
 
@@ -238,7 +238,7 @@ test "decision 153 ruling 9: a connect past its deadline ends the exchange refus
     pool.protocols.h3 = false;
     pool.timeouts.connect_ns = connect_deadline_ns;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .port = unanswered.address.port, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(unanswered.address.port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
@@ -307,7 +307,7 @@ test "decision 156 ruling 13: a client over TLS opens a UDP socket of each famil
         .authority = "localhost",
         .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } }, .cpu = support.cpu() },
     };
-    try test_client.init(&.{ .host = "::1", .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, null);
+    try test_client.init(&.{ .destination = fixture.loopback_ipv6_on(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, null);
     try testing.expect(test_client.udp.served);
     const udp_socket = test_client.host.descriptor_of(client_loop.datagram_id(1, .ipv6));
     const local = try rotor.sync.local_address(udp_socket);
@@ -319,8 +319,8 @@ test "decision 156 ruling 13: a client over TLS opens a UDP socket of each famil
     const other_socket = test_client.host.descriptor_of(client_loop.datagram_id(1, .ipv4));
     try testing.expectEqual(rotor.Address.Family.ipv4, (try rotor.sync.local_address(other_socket)).family);
     // The pool connects to the host, on the port the configuration names.
-    try testing.expectEqual(16, test_client.addresses[0].len);
-    try testing.expectEqual(1, test_client.addresses[0].octets[15]);
+    try testing.expectEqual(16, test_client.pool.values.addresses[0].len);
+    try testing.expectEqual(1, test_client.pool.values.addresses[0].octets[15]);
     try testing.expectEqual(443, test_client.pool.values.port);
     // `deinit` closes the UDP socket. getsockname(2) on a closed descriptor fails with EBADF, which
     // Rotor reports as unexpected.

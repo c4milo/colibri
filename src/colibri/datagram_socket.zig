@@ -91,6 +91,12 @@ pub fn DatagramSockets(comptime count: u32) type {
             sockets.batches = .of(segments);
         }
 
+        /// Whether a socket is open that sends to `to`: the server's one, or the client's socket
+        /// of `to`'s family.
+        pub fn sends_to(sockets: *const Self, to: *const PeerAddress) bool {
+            return sockets.served and sockets.receivers[family_index(count, to)].open;
+        }
+
         /// Whether `slot` is one of the sockets' slots.
         pub fn owns(sockets: *const Self, slot: u32) bool {
             return slot >= sockets.first_slot and slot < sockets.first_slot + slots;
@@ -150,8 +156,8 @@ fn write_all(sockets: anytype, comptime count: u32, out: *operation_table.Outbox
         // A batch with no room stays open, and the next turn writes it.
         if (!out.room()) return;
         const receiver = &sockets.receivers[family_index(count, &batch.to)];
-        // The pool sends to its destination alone, and `init` turns h3 off for a family
-        // with no socket.
+        // The pool sends to the address of its QUIC connection alone, and the client ends an
+        // open of QUIC to a family with no socket (`client_loop.zig`).
         assert(receiver.open);
         const id = table.issue(sockets.first_slot + count + @as(u32, @intCast(index)));
         out.put(.{ .id = id, .kind = .{ .send_datagram = .{

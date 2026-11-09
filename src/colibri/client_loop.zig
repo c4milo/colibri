@@ -191,7 +191,7 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
     switch (reported) {
         .open => |asked| switch (asked.transport) {
             .tcp => client_tcp.open(state, asked),
-            .quic => @import("client_udp.zig").start(state, now_ns),
+            .quic => open_quic(run, asked, now_ns),
         },
         .send => |connection| client_tcp.owed(state, connection),
         .close => |connection| client_tcp.close(state, connection),
@@ -207,6 +207,16 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
         // The next turn cancels the UDP socket's receive.
         .closed => state.closed = true,
     }
+}
+
+/// Starts the QUIC connection that `asked` opens, from the UDP socket of its address's family.
+/// With no socket of that family, the attempt ends as a refused open does, and the pool opens TCP
+/// (decision 156 ruling 13). A destination can name a family with no socket after
+/// `set_destination`, or when the host did not open one.
+fn open_quic(run: anytype, asked: client.Open, now_ns: u64) void {
+    const state = run;
+    if (!state.udp.sends_to(&asked.to)) return state.pool.transport_closed(asked.connection);
+    @import("client_udp.zig").start(state, now_ns);
 }
 
 /// Whether the run may end: the pool reported `closed`, every TCP socket is free, and each

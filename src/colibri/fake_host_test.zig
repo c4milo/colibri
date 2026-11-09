@@ -1,5 +1,5 @@
 //! The tests of `.hosted` `colibri.Server` and `colibri.Client` objects on a fake host (decision
-//! 159, design §8 steps 44c and 44d). The test is the host: it reads the operations that each
+//! 159, design §8 steps 44c, 44d and 44g). The test is the host: it reads the operations that each
 //! `turn` writes, completes the ones it chooses through `complete`, and moves its own clock. It
 //! waits at most 1 s at a time, so a turn that names a late instant, or that asks for no wait
 //! while it has no work, shows in the instants it is called at. The tests open no socket.
@@ -213,7 +213,7 @@ const empty_response = "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n";
 test "decision 159: a request that on_finished makes leaves in the same turn" {
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{ .more = 1 };
-    try test_client.init(&.{ .host = "127.0.0.1", .port = 1, .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
@@ -244,14 +244,18 @@ test "decision 156 ruling 13: a family with no UDP socket falls back to TCP" {
     var handler: HostedHandler = .{};
     // The host opened a UDP socket of IPv6 alone, and the destination is IPv4.
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .host = "127.0.0.1", .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv6 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv6 = .{} } }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_client.turn(0, &operations);
-    // RFC 9114 §3.1: h3 needs QUIC, which needs a UDP socket, so the pool connects over TCP.
+    // RFC 9114 §3.1: h3 needs QUIC, which needs a UDP socket of the address's family, so the
+    // open of QUIC ends and the pool connects over TCP.
     const connect = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
     try testing.expectEqual(4, connect.kind.connect.address.len);
-    try testing.expectEqual(null, find(operations[0..turned.operations], .receive_datagram));
+    try testing.expectEqual(null, find(operations[0..turned.operations], .send_datagram));
+    // The socket of IPv6 receives, for a later destination of IPv6.
+    try testing.expectEqual(0, count_on(operations[0..turned.operations], .receive_datagram, TestClient.datagram_ipv4));
+    try testing.expectEqual(1, count_on(operations[0..turned.operations], .receive_datagram, TestClient.datagram_ipv6));
     var held: InFlight = .{};
     held.add(operations[0..turned.operations]);
     try stop(&test_client, &held, 0);
@@ -262,7 +266,7 @@ test "decision 159: a family with a UDP socket receives on it" {
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .host = "127.0.0.1", .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{} } }, &handler);
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_client.turn(0, &operations);
     const receive = (find(operations[0..turned.operations], .receive_datagram) orelse return error.OperationMissing);
@@ -288,7 +292,7 @@ test "decision 156 ruling 13: a client receives on each family's socket and send
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .host = "::1", .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{}, .ipv6 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback_ipv6_on(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{}, .ipv6 = .{} } }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_client.turn(0, &operations);
@@ -315,7 +319,7 @@ test "decision 153 ruling 9: a connect is cancelled at its deadline under a host
     var pool = h11_pool();
     pool.timeouts.connect_ns = client_connect_ns;
     var handler: HostedHandler = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .port = 1, .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
@@ -338,5 +342,97 @@ test "decision 153 ruling 9: a connect is cancelled at its deadline under a host
     var held: InFlight = .{};
     held.add(operations[0..turned.operations]);
     try stop(&test_client, &held, now_ns);
+    test_client.deinit();
+}
+
+test "decision 156 ruling 11: a connection that opens after set_destination goes to a new address" {
+    var counter: support.Counter = .{};
+    var handler: HostedHandler = .{};
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try handler.request();
+    var operations: [operations_len]host.Operation = undefined;
+    var turned = test_client.turn(0, &operations);
+    const first = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
+    try testing.expectEqual(4, first.kind.connect.address.len);
+    // The connect is refused, so the exchange ends refused (RFC 9110 §9.2.2: none of it left).
+    test_client.complete(&.{ .id = first.id, .result = .{ .failed = .refused } }, 0);
+    turned = test_client.turn(0, &operations);
+    try testing.expectEqual(1, handler.finished);
+    const close = (find(operations[0..turned.operations], .close) orelse return error.OperationMissing);
+    test_client.complete(&.{ .id = close.id, .result = .closed }, 0);
+    test_client.set_destination(fixture.loopback_ipv6_on(1));
+    try handler.request();
+    turned = test_client.turn(0, &operations);
+    const second = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
+    try testing.expectEqual(16, second.kind.connect.address.len);
+    try testing.expectEqual(1, second.kind.connect.address.port);
+    var held: InFlight = .{};
+    held.add(operations[0..turned.operations]);
+    try stop(&test_client, &held, 0);
+    test_client.deinit();
+}
+
+test "decision 125: an open connection keeps its exchange after set_destination" {
+    var counter: support.Counter = .{};
+    var handler: HostedHandler = .{};
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try handler.request();
+    var operations: [operations_len]host.Operation = undefined;
+    var turned = test_client.turn(0, &operations);
+    const connect = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
+    test_client.complete(&.{ .id = connect.id, .result = .connected }, 0);
+    turned = test_client.turn(0, &operations);
+    const send = (find(operations[0..turned.operations], .send) orelse return error.OperationMissing);
+    const receive = (find(operations[0..turned.operations], .receive) orelse return error.OperationMissing);
+    test_client.set_destination(fixture.loopback_ipv6_on(1));
+    test_client.complete(&.{ .id = send.id, .result = .{ .sent = @intCast(send.kind.send.bytes.len) } }, 0);
+    @memcpy(receive.kind.receive.buffer[0..empty_response.len], empty_response);
+    test_client.complete(&.{ .id = receive.id, .result = .{ .received = empty_response.len } }, 0);
+    turned = test_client.turn(0, &operations);
+    // The exchange ended on the connection to 127.0.0.1, and no connect was written for ::1.
+    try testing.expectEqual(1, handler.finished);
+    try testing.expectEqual(client.Result.response, handler.exchanges[0].response.result);
+    try testing.expectEqual(null, find(operations[0..turned.operations], .connect));
+    var held: InFlight = .{};
+    held.add(operations[0..turned.operations]);
+    try stop(&test_client, &held, 0);
+    test_client.deinit();
+}
+
+test "decision 156 ruling 13: after set_destination to a family with no UDP socket, TCP opens at once" {
+    var counter: support.Counter = .{};
+    var handler: HostedHandler = .{};
+    const pool = fixture.pool_config(.{ .prefer = .quic }, true);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{} } }, &handler);
+    test_client.set_destination(fixture.loopback_ipv6_on(fixture.https_port));
+    try handler.request();
+    // A turn with room for one operation: the open of QUIC to ::1 ended before the TCP connect
+    // was written, so the connect is the one operation.
+    var operations: [1]host.Operation = undefined;
+    const turned = test_client.turn(0, &operations);
+    try testing.expectEqual(1, turned.operations);
+    const connect = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
+    try testing.expectEqual(16, connect.kind.connect.address.len);
+    try testing.expectEqual(host.Wait.now, turned.wait);
+    var held: InFlight = .{};
+    held.add(operations[0..turned.operations]);
+    try stop(&test_client, &held, 0);
+    test_client.deinit();
+}
+
+test "decision 159: the pool's ECN and the segments hold only when each UDP socket has them" {
+    var counter: support.Counter = .{};
+    const pool = fixture.pool_config(.{ .prefer = .quic }, true);
+    const able: host.Features = .{ .ecn = true, .segments = true };
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = able, .ipv6 = .{} } }, null);
+    // A later destination of IPv6 sends from a socket that reads no codepoint (decision 68 as
+    // amended by decision 159).
+    try testing.expect(!test_client.pool_config.ecn and !test_client.datagram_segments);
+    var held: InFlight = .{};
+    try stop(&test_client, &held, 0);
+    test_client.deinit();
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = able, .ipv6 = able } }, null);
+    try testing.expect(test_client.pool_config.ecn and test_client.datagram_segments);
+    try stop(&test_client, &held, 0);
     test_client.deinit();
 }

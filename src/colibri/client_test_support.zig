@@ -14,6 +14,24 @@ const support = @import("test_support.zig");
 pub const greeting = "hello from colibri";
 /// The instant the tests pass as `unix_seconds`, inside the test identity's dates.
 pub const now_seconds = testdata.now_seconds;
+/// 127.0.0.1 (RFC 791 §3.2) and ::1 (RFC 4291 §2.5.3), each with port 0 as a destination names
+/// its addresses, and the port of "https" (RFC 9110 §4.2.2).
+const loopback_ipv4_word: u32 = 0x7f00_0001;
+const loopback_ipv6_word: u128 = 1;
+pub const loopback_ipv4 = [_]client.Address{.of(&@as([@sizeOf(u32)]u8, @bitCast(std.mem.nativeToBig(u32, loopback_ipv4_word))), 0)};
+pub const loopback_ipv6 = [_]client.Address{.of(&@as([@sizeOf(u128)]u8, @bitCast(std.mem.nativeToBig(u128, loopback_ipv6_word))), 0)};
+pub const https_port: u16 = 443;
+
+/// A destination of 127.0.0.1 on `port_number`.
+pub fn loopback(port_number: u16) client.Destination {
+    return .{ .addresses = &loopback_ipv4, .port = port_number };
+}
+
+/// A destination of ::1 on `port_number`.
+pub fn loopback_ipv6_on(port_number: u16) client.Destination {
+    return .{ .addresses = &loopback_ipv6, .port = port_number };
+}
+
 /// The requests a test makes at most, and the room of each response's body: the stream of
 /// `/stream`, `stream_turns` times the router's room for each response (design §8 step 46).
 pub const requests_max = 4;

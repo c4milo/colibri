@@ -16,8 +16,7 @@ fn start_client(protocols: client.Protocols, secure: bool, counter: *support.Cou
     var pool = fixture.pool_config(protocols, secure);
     pool.protocols.h3 = false;
     try test_client.init(&.{
-        .host = "127.0.0.1",
-        .port = fixture.port(),
+        .destination = fixture.loopback(fixture.port()),
         .pool = pool,
         .random = counter.random(),
         .unix_seconds = testdata.now_seconds,
@@ -173,7 +172,7 @@ test "design §8 step 42: a refused connect ends the exchange refused" {
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .port = closed_port, .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(closed_port), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
@@ -193,8 +192,7 @@ test "design §8 step 42: a chain judged after its notAfter ends the exchange re
     var handler: fixture.Handler = .{};
     // RFC 5280 §4.1.2.5: a certificate is valid from notBefore through notAfter, and not after.
     try test_client.init(&.{
-        .host = "127.0.0.1",
-        .port = fixture.port(),
+        .destination = fixture.loopback(fixture.port()),
         .pool = pool,
         .random = counter.random(),
         .unix_seconds = testdata.not_after_seconds + 1,
@@ -216,7 +214,7 @@ fn fetch_at(unix_seconds: u64) !client.Result {
     var pool = fixture.pool_config(.{}, true);
     pool.protocols.h3 = false;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .port = fixture.port(), .pool = pool, .random = counter.random(), .unix_seconds = unix_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.port()), .pool = pool, .random = counter.random(), .unix_seconds = unix_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
@@ -270,7 +268,7 @@ fn fetch_raw(action: PeerAction, method: []const u8, handler: *fixture.Handler) 
     var counter: support.Counter = .{};
     var pool = fixture.pool_config(.{ .h2 = false }, false);
     pool.protocols.h3 = false;
-    try test_client.init(&.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, handler);
+    try test_client.init(&.{ .destination = fixture.loopback(listener.socket.address.getPort()), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, handler);
     defer test_client.deinit();
     handler.method = method;
     try handler.request(1);
@@ -370,7 +368,7 @@ test "design §8 step 42: a run returns only once the socket has sent the h2 GOA
     var pool = fixture.pool_config(.{ .h11 = false }, false);
     pool.protocols.h3 = false;
     var handler: fixture.Handler = .{};
-    try test_client.init(&.{ .host = "127.0.0.1", .port = listener.socket.address.getPort(), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(listener.socket.address.getPort()), .pool = pool, .random = counter.random(), .unix_seconds = testdata.now_seconds }, &handler);
     defer test_client.deinit();
     try handler.request(1);
     test_client.shutdown();
