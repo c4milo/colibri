@@ -11888,7 +11888,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `write_kept(bytes)` sends bytes the program keeps valid until the request's `finished`, with no
     copy, such as a file the program mapped (the owner's ruling of 2026-10-25). Over h3 the bytes
     of `body()` stay in the entry until `finished` (decision 103), so `body()` serves a response of
-    `response_bytes` at most, and `write_kept` serves a larger one.
+    `response_bytes` at most, and `write_kept` serves a larger one. Amended on 2026-11-09 by step
+    46 (decisions 103 and 127 as amended that day): the writer writes again into memory whose bytes
+    the engine released, so `response_bytes` bounds the bytes in flight, not the response.
   - **Errors.** The table must name `error_handler`, which the router calls with the context, the
     request, the error and the response writer. Before the head goes out it chooses the status.
     After the head, the router ends or cancels the response itself.
@@ -14747,6 +14749,48 @@ library.
       5. 45r `refactor(quic)!`: `role` is `.server` in `quic.Connection.Options`. The call sites
          keep their `role`, as the h11, h2 and h3 sites do.
          - Mutation: `role` `.client` by default, CAUGHT. The test of the default fails.
+- **Step 46 — long server streams through the router, proposed 2026-11-09.** [Decision
+  103](decisions.md) and [decision 127](decisions.md) as amended on 2026-11-09. connect-zig
+  reported two limits of a long server stream on `server.Engine` and `server.Router`. The step
+  ships in v0.15.2, and it is built apart from step 44. It adds no public name and removes none,
+  and the names tests of each type and root stay as they are.
+  - **The ring of the body's writer** (decision 103 as amended, decision 127 amendment 1).
+    - The runs of an h3 response count the caller's octets they hold, in `caller_len`. The
+      engine's state reads them in `held_len`: none over TCP, none for a coded h3 response, and
+      `caller_len` for an uncoded one. `Engine` has no call for it, and the response writer's sink reads the state.
+    - A request's wait gains `release`. The writer arms it when the engine took every run and holds
+      some, and the engine reports `writable` once it holds fewer octets.
+    - The writer counts the octets the engine took and the runs it released. A write that does not
+      fit its region takes back the released runs, and moves to the larger free region: after the
+      newest run, or from the start of the body's memory up to the oldest run held. These are the
+      slow path, in `response_writer_ring.zig`. A write that fits costs what it costs now.
+    - One write goes into the memory whole, or fails and writes nothing. The router calls
+      `on_writable` only when the writer has room.
+    - Cost: 18 octets of fields for each router entry and 8 for each h3 request record. No copy
+      and no count on the per-frame path.
+  - **`on_writable` while the request body is open** (decision 127 amendment 2). The router calls
+    a struct route's `on_writable` at each `writable` while the body is open, except for a
+    `.whole_body` route. A call that writes nothing while the body is open does not count toward
+    the cancel of decision 127, and no cancel comes while the body is open.
+  - **Decision 110 stays** (decision 127 amendment 3). The request body deadlines stay the engine's,
+    for each connection, and not for each route.
+  - **The commits.**
+    1. 46a `docs`: the amendments and this entry.
+    2. 46b `feat(server)`: the ring.
+       - Checks: a writer test where the engine holds runs; a struct route that writes sixteen
+         times `response_bytes` over an engine that copies and over one that holds runs until late
+         acknowledgments; the same route over h3 through the engine, with each side's datagrams
+         lost; and `colibri.Server` with `colibri.Client` over h11, h2 and h3, each octet in order.
+       - Mutations: reclaim frees one octet too many; reclaim ignores the octets h3 holds; drain
+         splits a write; the router calls `on_writable` with no room. Each must be CAUGHT.
+    3. 46c `feat(server)`: `on_writable` while the request body is open.
+       - Checks: a route's `on_writable` runs and writes before the body ends; a call that writes
+         nothing while the body is open does not cancel, and the route is cancelled after the body
+         ends; a `.whole_body` route's `on_writable` does not run before its `on_body`.
+       - Mutations: the old check of the body back; no return on a call that wrote nothing; the
+         cancel left out after the body ends too; the `.whole_body` check left out. Each must be
+         CAUGHT.
+
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the

@@ -3436,6 +3436,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: a caller keeps each response body until its request is done, and the `done` event joins
      the server's events for every version.
 
+     **Amended by the owner on 2026-11-09, for design §8 step 46 and v0.15.2.** connect-zig reported
+     that `server.ResponseWriter.body()` stops at `response_bytes` on every version. The router's
+     response writer now writes again into its body's memory once the engine has released the bytes
+     there:
+     - h11 and h2 release them at once, because the connection copies them inside `write_body`.
+     - A coded h3 response releases them at once, because its encoder copies them into its ring.
+     - An uncoded h3 response releases them when the peer has acknowledged them (RFC 9000 §3.1).
+
+     So the memory that `body()` writes is a ring, and `response_bytes` bounds the bytes in flight,
+     not the length of the response. The amendment adds no public name. It differs from the first
+     alternative refused above in two ways:
+     - That alternative added a copy for each octet and a cap on the octets in flight to the
+       server. `body()` already makes that copy, into the entry's memory, and that memory already
+       caps it. A program sets the cap with `response_bytes`.
+     - The engine's contract does not change. `write_body` copies nothing, and the bytes of
+       `write_kept` stay the program's until the request's `finished`.
+
+     Cost: over h3, a stream that `body()` writes sends at most about `response_bytes` in each round
+     trip, so a program that streams sets a larger `response_bytes`.
+
 104. **An h2 connection model, and a trace check of colibri's h2 against it.** Ruled by the owner
      on 2026-09-27, for [#75](https://github.com/c4milo/colibri/issues/75), after c32cabe found that
      h2's `write_data` let a server send DATA before its response's head (RFC 9113 §8.1). It comes
@@ -5304,6 +5324,33 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      The API list of each step comes to the owner before its code (decision 115). Every change is
      breaking, and 0.9.0's notes list each one.
+
+     **Amended by the owner on 2026-11-09, for design §8 step 46 and v0.15.2,** after connect-zig
+     reported two limits of long server streams through the router. Neither part adds a public
+     name.
+     1. Ruling 2's body writer is a ring over the entry's memory (decision 103 as amended on this
+        day). The writer writes again into memory whose bytes the engine released.
+        - One write through `body()` goes into the memory whole, or fails with
+          `error.WriteFailed` and writes nothing.
+        - A write that fails while the engine holds the bytes waits. The router calls
+          `on_writable` again once the engine has released room, and only when the writer has
+          room.
+        - Beat: a field `released_len` on the `writable` event, with `Engine.wait_release` and
+          `ResponseWriter.released_len`. It added three public names and a count on each write
+          over TCP, and each program had to build its own ring over `write_kept`.
+     2. Ruling 2's `on_writable` also runs while the request body is open.
+        - A call that writes nothing while the body is open does not count toward the cancel of a
+          route that holds its request. The next body bytes or the next `writable` call the route
+          again.
+        - Once the body has ended, the cancel applies as before.
+        - A `.whole_body` route keeps the old rule: its `on_writable` runs only after its
+          `on_body`.
+        - Beat: a route option such as `.duplex`. It added a public name and a second path in the
+          router.
+     3. Decision 110's request body deadlines stay as they are: the engine's `Timeouts`, which a
+        program may replace for one connection with `set_timeouts`. They do not change for one
+        route. A route that waits for a quiet client in a bidirectional exchange needs a program
+        that sets them to null for its connection.
 
 128. **A route table's walk backs up for a method, as it backs up for a path.** Ruled by the
      owner on 2026-10-28, who chose it from three ways and then ruled on this text. Amends
