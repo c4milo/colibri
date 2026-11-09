@@ -15044,6 +15044,30 @@ library.
          status 0: `zig fmt --check`, `zig build lint`, `zig build test`, `zig build examples`,
          `tools/doc_snippets.sh`, `tools/consumer_check.sh` and `zig build bench-memory`. No
          size of the memory table changed.
+- **Step 47 — the h11 server reads the rest of a body, or closes in stages, ruled
+  2026-11-09.** [Decision 160](decisions.md), for v0.16.0. RFC 9112 §9.3 and §9.6.
+  - **The public names,** each listed in decision 115's form:
+    - `h11.Connection.Options.discard_len_max`, a field with the default 0. A program that drives
+      h11 itself keeps its behaviour, and the server passes its limit.
+    - `server.Event.half_close`, a field of the union. A program needs it to close the write side
+      of a socket (RFC 9112 §9.6).
+      - The field breaks a program whose `switch` names every field of `server.Event` and has no
+        `else`. That program does not compile until its `switch` names `half_close`.
+      - The owner ruled on 2026-11-10 that the step ships in v0.16.0 for that reason, and not in
+        v0.15.2.
+    - `server.constants.limits.discard_len_max`, 262,144 octets, and
+      `server.constants.limits.half_close_ns`, 1 s, each pinned by the test of the limits.
+  - **The commits.**
+    1. `docs`: decision 160 and this entry.
+    2. `fix(h11)`: the `discard` phase, and the server's limit and deadlines on it.
+    3. `fix(server)`: the staged close and `half_close`.
+    4. `fix(server)`: the half-close and the read in the `colibri` module and `src/testing`.
+  - **The checks.** A 405 to a POST with a 10 KiB body keeps the connection, which serves a
+    second request, with a Content-Length and chunked. A body past the bound gets the staged
+    close, and the client reads the whole 405 before the close. A client that never closes is
+    closed 1 s after the half-close, at a simulated instant. A peer that drips the body is cut by
+    decision 110's body deadline. `tools/h11_server_interop.sh` runs curl against the router's
+    405, with a body under the bound and one past it.
 
 ## 9. Test-only entry points
 

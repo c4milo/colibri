@@ -7030,3 +7030,45 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - `server.Endpoint` kept as the name of the type function. The owner chose `server.Engine`.
      - `quic.Close` as the path of the CONNECTION_CLOSE frame. The name does not say which close
        it is, and RFC 9000 §19.19 names the frame CONNECTION_CLOSE.
+
+160. **The h11 server reads the rest of a body that its response did not wait for, or closes in
+     stages.** Ruled by the owner on 2026-11-09, for v0.16.0 (design §8 step 47). connectrpc's
+     conformance case `unexpected-verb` over h11 sent a POST with content, and the router answered
+     405 at the head. The server closed with the body unread, and the client read a reset in place
+     of the 405. RFC 9112 §9.6 names the cause: a reset "might erase the client's unacknowledged
+     input buffers". RFC 9112 §9.3 has a server read the whole request body or close after its
+     response. This decision amends decisions 92 and 119.
+     1. A final h11 response that completes before its request's body is read whole starts the
+        `discard` phase of `h11.Connection`. The connection reads the rest of the body, reports
+        none of it, and then reads the next request. It does so when the rest has a known length
+        of at most `server.constants.limits.discard_len_max`, 262,144 octets (256 KiB), or is
+        chunked and ends within that many octets.
+     2. Past that bound, for a request with the close option, or when the bound is 0, the
+        connection closes in stages (RFC 9112 §9.6):
+        - The engine reports `half_close` once the response is out. The program closes only the
+          write side of the socket, and passes on what the socket reads. The engine discards it.
+        - The engine reports `close` when `server.constants.limits.half_close_ns`, 1 s, has
+          passed since the `half_close`. A program whose peer closes first calls
+          `transport_closed`, as before.
+     3. Decision 110's deadlines hold while the body is discarded. The body's octets count for its
+        rate, and its deadlines end with it. A peer that drips the body is cut at the body's
+        deadline, with no 408 after the response. The 1 s bound is a deadline that `deadline_ns`
+        names, and colibri reads no clock.
+     4. Two names are new:
+        - `h11.Connection.Options.discard_len_max`, 0 by default, which keeps h11's behaviour for
+          a program that drives h11 itself. The server passes its limit.
+        - `server.Event.half_close`, the one new call that a program makes: it closes the write
+          side of a socket. The `colibri` module and `src/testing`'s endpoints submit Rotor's
+          `shutdown` operation for it.
+        - The new field breaks a program whose `switch` names every field of `server.Event` and
+          has no `else`. The owner ruled on 2026-11-10 that this work ships in v0.16.0 for that
+          reason, and not in v0.15.2.
+
+     Alternatives that lost:
+     - Close at once, as before. The client can read a reset in place of the response.
+     - Read the whole body, with no bound. A peer with a large Content-Length holds the connection
+       for as long as it sends.
+     - A staged close with no event: the engine waits with the socket open, and then reports
+       `close`. Without the half-close the client does not see the end of the response, and RFC
+       9112 §9.6 starts with the half-close.
+     - A bound in `server.Limits` or `server.Timeouts`. The owner ruled two named limits.
