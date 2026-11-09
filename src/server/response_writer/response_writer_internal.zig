@@ -95,6 +95,29 @@ pub fn waiting(response: *const ResponseWriter) bool {
     return response.piece_sent < response.piece_count or (response.ended and !response.complete) or response.release_waited;
 }
 
+/// Where the writer stands: what moves when a program writes a byte, a run or the end (design §8
+/// step 46). Two marks that are equal say that a call wrote nothing.
+pub const Mark = struct {
+    position: usize,
+    pieces: u8,
+    taken_len: u64,
+    ended: bool,
+
+    pub fn eql(left: Mark, right: Mark) bool {
+        return left.position == right.position and left.pieces == right.pieces and
+            left.taken_len == right.taken_len and left.ended == right.ended;
+    }
+};
+
+pub fn mark(response: *const ResponseWriter) Mark {
+    return .{
+        .position = @intFromPtr(response.writer.buffer.ptr) + response.writer.end,
+        .pieces = response.piece_count,
+        .taken_len = response.taken_len,
+        .ended = response.ended or response.end_asked != .none,
+    };
+}
+
 /// Whether a call of `on_writable` finds room in the body's writer (design §8 step 46). A full
 /// region sends what it holds and takes back the memory the engine released. When none is free,
 /// the writer waits for the engine's `writable`.

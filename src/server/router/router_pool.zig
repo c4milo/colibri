@@ -8,7 +8,8 @@
 //!
 //! The router ends a response the program left open: a function's at its return, and a struct
 //! route's once the request body ended and `on_body` ran with its last byte, unless the route has
-//! `on_writable`. A route with `on_writable` ends its response itself.
+//! `on_writable`. A route with `on_writable` ends its response itself. Its `on_writable` runs
+//! while the request body is open too, except for a `.whole_body` route (decision 127 as amended).
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -221,11 +222,15 @@ fn body_ended(comptime P: type, entry: *P.Entry, context: *P.Context, engine: an
 
 fn on_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype) void {
     const whole = writer_internal.resume_writes(&entry.response) catch return engine.cancel(entry.response.id);
-    if (whole or entry.response.ended or !entry.body.delivered) return;
+    if (whole or entry.response.ended) return;
     switch (entry.route) {
         inline else => |tag| {
             const handler = P.table.routes[@intFromEnum(tag)][router_call.handler_part];
-            if (comptime router_call.has(handler, "on_writable")) run_writable(P, entry, context, engine, handler);
+            if (comptime !router_call.has(handler, "on_writable")) return;
+            // Decision 127 as amended: a `.whole_body` route's `on_writable` runs after its `on_body`.
+            const whole_body = comptime route_options(P.table.routes[@intFromEnum(tag)]).whole_body;
+            if (whole_body and !entry.body.delivered) return;
+            run_writable(P, entry, context, engine, handler);
         },
     }
 }
@@ -238,11 +243,20 @@ fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: 
         // A writer with no room waits for the engine to release bytes, which `waiting` says.
         const room = writer_internal.has_room(&entry.response) catch return engine.cancel(entry.response.id);
         if (!room) break;
+        const before = writer_internal.mark(&entry.response);
         const outcome = router_call.call_writable(handler, context, state_of(P, handler, entry), &entry.response);
         if (!after(P, entry, context, engine, null, outcome)) return;
+        // Decision 127 as amended: while the request body is open, a call that wrote nothing waits
+        // for the next body bytes or the next `writable`.
+        if (!entry.body.delivered and writer_internal.mark(&entry.response).eql(before)) return;
     }
-    // Decision 127: a route that neither ends its response nor fills the engine holds
-    // the request, so the router cancels it.
+    cancel_held(P, entry, engine);
+}
+
+/// Decision 127: a route that neither ends its response nor fills the engine holds the request,
+/// so the router cancels it, once its request body ended.
+fn cancel_held(comptime P: type, entry: *P.Entry, engine: anytype) void {
+    if (!entry.body.delivered) return;
     if (!entry.response.ended and !writer_internal.waiting(&entry.response)) engine.cancel(entry.response.id);
 }
 

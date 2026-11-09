@@ -763,7 +763,13 @@ const Echo = struct {
 A request body larger than `body_bytes` gets 413. The router ends the response once `on_body` ran
 with the last byte, unless the route has `on_writable`. `on_writable` writes a response over many
 calls: the router calls it while the response is open, the engine took all it was given, and the
-writer has room. The route ends the response itself. `on_finished` runs at the request's `finished` event, with its
+writer has room. The route ends the response itself. The router calls `on_writable` while the
+request body is still open too, so a route can answer while the client still sends (decision 127
+as amended on 2026-11-09). A call that writes nothing while the body is open waits for the next
+body bytes or the next `writable`. Once the body has ended, a route that neither ends its response
+nor fills the engine is cancelled. A `.whole_body` route's `on_writable` runs only after its
+`on_body`. Decision 110's request body deadlines apply to such a route too, so a route that waits
+for a quiet client needs a program that sets them for its connection with `set_timeouts`. `on_finished` runs at the request's `finished` event, with its
 result.
 
 The route table must name `error_handler`, which chooses the status after a route's function returns an

@@ -22,6 +22,9 @@ const App = struct {
     fail_body: bool = false,
     /// Reads that found the body's end.
     ends: usize = 0,
+    /// Calls of `on_writable`, and whether each writes one byte.
+    writables: usize = 0,
+    write_on_writable: bool = false,
 };
 
 /// Echoes each line of the body, one call of `body` at a time.
@@ -82,6 +85,41 @@ const Counter = struct {
     }
 };
 
+/// Echoes each body byte from `on_body`, and counts its calls of `on_writable`, which write one byte
+/// when the test asks and nothing otherwise: a route that answers while the client still sends.
+const Duplex = struct {
+    pub fn on_request(_: *App, _: *void, _: *const event.Request, _: void, _: void, _: *ResponseWriter) !void {}
+
+    pub fn on_body(app: *App, _: *void, reader: *std.Io.Reader, response: *ResponseWriter) !void {
+        app.bodies += 1;
+        const bytes = reader.buffered();
+        reader.toss(bytes.len);
+        try response.body().writeAll(bytes);
+        try response.body().flush();
+    }
+
+    pub fn on_writable(app: *App, _: *void, response: *ResponseWriter) !void {
+        app.writables += 1;
+        if (app.write_on_writable) try response.write_kept("w");
+    }
+};
+
+/// Writes at the head, and counts its calls of `on_writable`, with `.whole_body`.
+const WholeWritable = struct {
+    pub fn on_request(_: *App, _: *void, _: *const event.Request, _: void, _: void, response: *ResponseWriter) !void {
+        try response.body().writeAll("head");
+        try response.body().flush();
+    }
+
+    pub fn on_body(app: *App, _: *void, _: *std.Io.Reader, _: *ResponseWriter) !void {
+        app.bodies += 1;
+    }
+
+    pub fn on_writable(app: *App, _: *void, _: *ResponseWriter) !void {
+        app.writables += 1;
+    }
+};
+
 /// Requires the query pair `id`, and counts its calls of `on_body`.
 const Needs = struct {
     pub fn on_request(_: *App, _: *void, _: *const event.Request, _: void, _: struct { id: []const u8 }, _: *ResponseWriter) !void {}
@@ -102,6 +140,8 @@ const routes = .{
         .{ .post, "/whole", Whole, .{ .whole_body = true } },
         .{ .get, "/count", Counter },
         .{ .post, "/needs", Needs },
+        .{ .post, "/duplex", Duplex },
+        .{ .post, "/whole-writable", WholeWritable, .{ .whole_body = true } },
     },
 };
 
@@ -214,4 +254,50 @@ test "RFC 9110 §15.5.1: a struct route whose query lacks a required pair gets 4
     fixture.head("POST", "/needs", true);
     try testing.expectEqual(400, @intFromEnum(fixture.recorder.heads[0].status));
     try testing.expectEqual(0, fixture.app.bodies);
+}
+
+/// Reports the `writable` the recorder owes once it takes every byte again.
+fn writable_after_room(fixture: *Fixture) void {
+    fixture.recorder.room = std.math.maxInt(usize);
+    fixture.handle(.{ .writable = .{ .id = @bitCast(@as(u128, 1)), .user_data = fixture.recorder.user_data } });
+}
+
+test "decision 127 as amended: on_writable runs while the request body is open" {
+    var fixture: Fixture = .{};
+    fixture.head("POST", "/duplex", false);
+    // The engine takes two of the four bytes, and the rest waits for `writable`.
+    fixture.recorder.room = 2;
+    fixture.body("abcd", false);
+    try testing.expectEqual(0, fixture.app.writables);
+    writable_after_room(&fixture);
+    try testing.expectEqualStrings("abcd", fixture.recorder.body_bytes());
+    // The call wrote nothing while the body is open: no second call, and no cancel.
+    try testing.expectEqual(1, fixture.app.writables);
+    try testing.expectEqual(0, fixture.recorder.cancelled);
+    // Once the body ended, a route that neither ends its response nor fills the engine holds
+    // the request, and the router cancels it.
+    fixture.body("", true);
+    try testing.expectEqual(1, fixture.recorder.cancelled);
+}
+
+test "decision 127 as amended: calls that write while the body is open do not cancel" {
+    var fixture: Fixture = .{};
+    fixture.head("POST", "/duplex", false);
+    fixture.recorder.room = 2;
+    fixture.body("abcd", false);
+    fixture.app.write_on_writable = true;
+    writable_after_room(&fixture);
+    // Each call wrote a byte that the engine took, so the router calls the route as often as one
+    // event allows, and waits for the next event with the body open.
+    try testing.expect(fixture.app.writables > 1);
+    try testing.expectEqual(0, fixture.recorder.cancelled);
+}
+
+test "decision 127 as amended: a .whole_body route's on_writable waits for its on_body" {
+    var fixture: Fixture = .{};
+    fixture.recorder.room = 2;
+    fixture.head("POST", "/whole-writable", false);
+    writable_after_room(&fixture);
+    try testing.expectEqualStrings("head", fixture.recorder.body_bytes());
+    try testing.expectEqual(0, fixture.app.writables);
 }
