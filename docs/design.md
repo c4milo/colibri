@@ -14790,6 +14790,17 @@ library.
        - Mutations: the old check of the body back; no return on a call that wrote nothing; the
          cancel left out after the body ends too; the `.whole_body` check left out. Each must be
          CAUGHT.
+    4. 46d `test(server)`: a struct route that answers each request octet before the body ends,
+       on the engine.
+       - Checks: over h11 the reply to each octet is longer than the connection's output, over h2
+         it is longer than ten windows of the stream, and over h3 it is eight times the route's response
+         memory. Each reply arrives before the client sends the next octet, calls that write
+         nothing while the body is open cancel nothing, and the response ends after the body. Over
+         h2 a `.whole_body` route's `on_writable` does not run before the body ends.
+       - Mutations, against `zig build test-server`: the old check of the body back, CAUGHT by the
+         h11, h2 and h3 tests; a call that wrote nothing while the body is open goes on to the
+         cancel, CAUGHT by the h11, h2 and h3 tests; the cancel while the body is open, CAUGHT by
+         the struct test of 46c only; the `.whole_body` check left out, CAUGHT by the h2 test.
 
 ## 9. Test-only entry points
 

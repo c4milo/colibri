@@ -60,6 +60,9 @@ pub var closed: [tcp_slots]bool = @splat(false);
 pub var flushing: bool = true;
 /// Whether the TLS client opened an alert, such as the connection's close_notify.
 pub var client_saw_alert: bool = false;
+/// A program that takes each request's event after the fixture keeps it, as a router does
+/// (design §8 step 46), or none. `start` clears it.
+pub var program: ?*const fn (Event) void = null;
 /// Where a test's octets wait for the engine, which may open records in place.
 var input: [support.input_len]u8 = undefined;
 
@@ -87,6 +90,7 @@ pub fn start(with: ?tls.Server, versions: protocols_module.Protocols) !void {
     closed = @splat(false);
     flushing = true;
     client_saw_alert = false;
+    program = null;
     instant_ns = now_ns;
     try engine.init(&config, support.stream.random(), .{ .ns = now_ns, .unix_seconds = support.now_seconds });
 }
@@ -162,6 +166,10 @@ fn note(reported: Event) void {
         },
         .ended => |over| entry.* = .{ .kind = kind_of(reported), .connection = over.connection, .failed = over.failed },
         .closed => {},
+    }
+    switch (reported) {
+        .request, .body, .trailers, .finished, .writable => if (program) |take| take(reported),
+        .send, .close, .ended, .closed => {},
     }
 }
 

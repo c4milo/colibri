@@ -132,5 +132,7 @@ test {
     _ = @import("router_wrap_test.zig");
     _ = @import("router_stream_test.zig");
     _ = @import("router_stream_h3_test.zig");
+    _ = @import("router_duplex_test.zig");
+    _ = @import("router_duplex_h3_test.zig");
     _ = @import("router_path.zig");
 }
