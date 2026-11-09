@@ -119,6 +119,7 @@ fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
         .receive => socket.on_received(event),
         .send => socket.on_sent(event),
         .close => socket.closed = true,
+        .shutdown => socket.on_shut_down(event),
         // A server's sockets come from its listener, so it connects none.
         .connect => unreachable,
     }
@@ -190,6 +191,8 @@ fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
     }
     // The engine closed the connection: the socket closes once its octets are out.
     if (state.entries[index].closing) socket.closing = true;
+    // The engine closes in stages: the socket's write side closes once its octets are out.
+    if (state.entries[index].half_closing) socket.half_closing = true;
 }
 
 /// Submits what each socket this turn changed needs next.

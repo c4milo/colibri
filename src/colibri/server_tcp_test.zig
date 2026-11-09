@@ -134,3 +134,38 @@ test "decision 150: a server with an identity answers an h11 request over TLS" {
     try testing.expect(std.mem.startsWith(u8, answer, "HTTP/1.1 200"));
     try testing.expect(std.mem.endsWith(u8, answer, greeting));
 }
+
+/// How long the test client waits for the end of the server's data after its answer: the server's
+/// half-close sends it at once, and its full close comes `half_close_ns`, 1 s, later.
+const half_close_wait_us: i32 = 500_000;
+const microseconds_per_second: i32 = 1_000_000;
+
+test "decision 160: a POST past the bound reads its 501 whole, then the half-close ends the data" {
+    var counter: support.Counter = .{};
+    router = .{};
+    try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
+    defer test_server.deinit();
+    const thread = try std.Thread.spawn(.{}, serve, .{});
+    defer thread.join();
+    defer test_server.shutdown();
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", test_server.port());
+    const stream = try address.connect(io, .{ .mode = .stream });
+    defer stream.close(io);
+    // A read that waits longer than the half-close needs fails, so a full close at 1 s fails it.
+    const wait: std.posix.timeval = .{ .sec = @divTrunc(half_close_wait_us, microseconds_per_second), .usec = half_close_wait_us };
+    try std.posix.setsockopt(stream.socket.handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&wait));
+    var write_buffer: [client_buffer_len]u8 = undefined;
+    var writer = stream.writer(io, &write_buffer);
+    // RFC 9112 §9.3: 1 MiB is past `discard_len_max`, so the server closes in stages.
+    try writer.interface.writeAll("POST /greeting HTTP/1.1\r\nHost: a\r\nContent-Length: 1048576\r\n\r\nabc");
+    try writer.interface.flush();
+    var read_buffer: [client_buffer_len]u8 = undefined;
+    var reader = stream.reader(io, &read_buffer);
+    var response: [response_len]u8 = undefined;
+    const len = try reader.interface.readSliceShort(&response);
+    // RFC 9110 §15.6.2: no route names POST, so the router answers 501 at the head.
+    try testing.expect(std.mem.startsWith(u8, response[0..len], "HTTP/1.1 501"));
+    try testing.expect(std.mem.endsWith(u8, response[0..len], "\r\n\r\n"));
+}

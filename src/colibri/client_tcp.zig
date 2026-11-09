@@ -135,6 +135,8 @@ pub fn on_event(run: anytype, event: rotor.Event, now_ns: u64) void {
         .receive => socket.on_received(event),
         .send => socket.on_sent(event),
         .close => socket.closed = true,
+        // A client closes in one step, so it shuts no write side down.
+        .shutdown => unreachable,
     }
     // The peer closed first, or a call failed: the pool ends the connection. The pool changes
     // nothing for a handle it already ended, so each later event of the socket may call again.

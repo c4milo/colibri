@@ -21,12 +21,12 @@ const constants = @import("constants.zig");
 
 /// What an operation a socket has in flight does. It rides in the operation's user data, below
 /// the socket's index. A client's socket connects (design §8 step 42), and a server's comes from
-/// its listener.
-pub const Kind = enum(u8) { receive, send, close, connect };
+/// its listener. A server's socket shuts its write side down for a staged close (decision 160).
+pub const Kind = enum(u8) { receive, send, close, shutdown, connect };
 pub const kind_bits = @bitSizeOf(Kind);
 
-/// The operations a loop holds in flight for each socket: a receive, a send and a close. A
-/// connect is in flight before the socket receives or sends, alone or with the close that cancels
+/// The operations a loop holds in flight for each socket: a receive, a send, a close and a
+/// shutdown. A connect is in flight before the socket receives or sends, alone or with the close that cancels
 /// it, so it takes no more room.
 pub const operations_per_socket: u32 = @typeInfo(Kind).@"enum".fields.len - 1;
 
@@ -74,6 +74,12 @@ pub const Socket = struct {
     live: bool,
     /// Whether the engine closed the connection, so the octets left are the last the peer gets.
     closing: bool,
+    /// Whether the engine asked for a half-close: once the octets left are out, the socket's
+    /// write side closes and its receives go on (RFC 9112 §9.6, decision 160).
+    half_closing: bool,
+    /// Whether the shutdown of the write side was submitted, and whether it is in flight.
+    shutdown_submitted: bool,
+    shutting_down: bool,
     /// Whether the socket closes now, with nothing more sent: the peer left or a call failed.
     failed: bool,
 
@@ -90,6 +96,9 @@ pub const Socket = struct {
         socket.close_submitted = false;
         socket.closed = false;
         socket.closing = false;
+        socket.half_closing = false;
+        socket.shutdown_submitted = false;
+        socket.shutting_down = false;
         socket.failed = false;
         socket.live = true;
     }
@@ -148,10 +157,18 @@ pub const Socket = struct {
         }
     }
 
+    /// Takes the end of the shutdown of the write side. One that failed leaves the socket `failed`.
+    pub fn on_shut_down(socket: *Socket, event: rotor.Event) void {
+        socket.shutting_down = false;
+        _ = event.outcome() catch {
+            socket.failed = true;
+        };
+    }
+
     /// Whether Rotor has closed the socket and delivered the final event of each operation (its
     /// rule 1), so the entry can hold another socket.
     pub fn finished(socket: *const Socket) bool {
-        return socket.closed and !socket.receiving and !socket.sending;
+        return socket.closed and !socket.receiving and !socket.sending and !socket.shutting_down;
     }
 
     /// Whether the socket carries octets no more: it failed, or its close is on its way.
@@ -190,6 +207,8 @@ pub const Socket = struct {
         const drained = socket.output_sent == socket.output_len;
         if (socket.failed or (socket.closing and drained)) return socket.submit(loop, index, .close);
         if (!socket.sending and !drained) socket.submit(loop, index, .send);
+        // RFC 9112 §9.6: the write side closes once the response is out, and the receives go on.
+        if (socket.half_closing and drained and !socket.sending and !socket.shutdown_submitted) socket.submit(loop, index, .shutdown);
         const free = input_capacity - socket.input_len;
         if (!socket.receiving and !socket.closing and free > 0) socket.submit(loop, index, .receive);
     }
@@ -211,6 +230,11 @@ pub const Socket = struct {
             .close => blk: {
                 socket.close_submitted = true;
                 break :blk rotor.Operation.close(user_data(index, kind), socket.descriptor);
+            },
+            .shutdown => blk: {
+                socket.shutdown_submitted = true;
+                socket.shutting_down = true;
+                break :blk rotor.Operation.shutdown(user_data(index, kind), socket.descriptor, .send);
             },
             // A client submits its connect itself, with the address it holds until the event.
             .connect => unreachable,

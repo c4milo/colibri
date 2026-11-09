@@ -39,6 +39,9 @@ pub const Entry = struct {
     attached: bool,
     /// The engine reported the connection's `close`: the socket closes once its octets are out.
     closing: bool,
+    /// The engine reported the connection's `half_close`: the socket's write side closes once its
+    /// octets are out, and its receives go on (decision 160).
+    half_closing: bool = false,
     /// The connection owes octets no `send_stream` has taken.
     send_owed: bool,
 };
@@ -163,8 +166,7 @@ fn request_connection(reported: server.Event) ?server.ConnectionHandle {
 fn on_connection_event(state: anytype, reported: server.Event) void {
     switch (reported) {
         .send => |handle| named(state, handle).send_owed = true,
-        // The socket closes at the `close` that follows within `half_close_ns`.
-        .half_close => {},
+        .half_close => |handle| named(state, handle).half_closing = true,
         .close => |handle| named(state, handle).closing = true,
         // A QUIC connection has no socket of its own, and its slot frees in the engine.
         .ended => |over| if (is_tcp(state, over.connection)) {

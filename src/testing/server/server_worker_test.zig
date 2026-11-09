@@ -266,3 +266,27 @@ test "design §8 step 13f: an accepted socket sends at once, with Nagle's algori
     try testing.expectEqual(0, std.c.getsockopt(descriptor, std.c.IPPROTO.TCP, std.c.TCP.NODELAY, &enabled, &enabled_len));
     try testing.expect(enabled != 0);
 }
+
+test "decision 160: a 405 before a body past the bound goes out whole, then the socket half-closes and reads on" {
+    server_mode.routes_mode = true;
+    defer server_mode.routes_mode = false;
+    const worker = try fresh_worker();
+    const index = accept(worker, 0);
+    const socket = &worker.sockets[index];
+    deliver(worker, index, "POST /emojis HTTP/1.1\r\nHost: a\r\nContent-Length: 1048576\r\n\r\nabc", constants.tick_ns);
+    // RFC 9112 §9.6: the socket holds the whole response, and its write side closes once `arm`
+    // finds it sent.
+    try testing.expect(std.mem.startsWith(u8, staged(worker, index), "HTTP/1.1 405 "));
+    try testing.expect(std.mem.endsWith(u8, staged(worker, index), "\r\n\r\n"));
+    try testing.expect(socket.half_closing and !socket.closing);
+    handle(worker, &.{event_of(index, .send, @intCast(socket.output_len))}, null, constants.tick_ns);
+    // The peer's octets after the half-close are read and discarded, and nothing is sent.
+    deliver(worker, index, "more of the body", constants.tick_ns);
+    try testing.expectEqual(0, socket.unread().len);
+    try testing.expectEqual(0, socket.output_len);
+    // The shutdown ends, then the peer closes, which ends the connection.
+    handle(worker, &.{event_of(index, .shutdown, 0)}, null, constants.tick_ns);
+    try testing.expect(!socket.failed and worker.session.entries[index].attached);
+    handle(worker, &.{event_of(index, .receive, 0)}, null, constants.tick_ns);
+    try testing.expect(!worker.session.entries[index].attached);
+}

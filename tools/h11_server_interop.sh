@@ -13,6 +13,12 @@
 # that offers "http/1.1" and sends a record that does not authenticate after the handshake must
 # read bad_record_mac.
 #
+# curl also posts to a route of the server's --routes github mode that answers 405 at the head
+# (decision 160): a body under 256 KiB, which the server reads and discards, so the next request
+# shares the connection, and a body of 1 MiB, which gets the staged close of RFC 9112 §9.6. curl
+# must read each 405, and no reset. A python3 client on this host then keeps writing a body past
+# the bound while it waits, and must read the whole 405 with no reset. It needs python3.
+#
 # Usage: tools/h11_server_interop.sh [--tls] [curl] [go]
 #        (no peer runs both)
 set -euo pipefail
@@ -169,6 +175,104 @@ alt_svc_run() {
   fi
 }
 
+# Decision 160: a POST to /emojis, a GET route, gets 405 before its body is read. curl writes the
+# body while it waits, so a server that closed at once could reset the connection (RFC 9112 §9.6).
+readonly early_url_path=/emojis
+readonly early_small_len=10240
+readonly early_large_len=1048576
+early_run() {
+  local base="http://${container_host}:${port}"
+  local arguments=(--http1.1 -H "Expect:")
+  if [ "${mode}" = tls ]; then
+    base="https://localhost:${port}"
+    arguments+=(--cacert /identity/colibri.chain.pem --connect-to "localhost:${port}:${container_host}:${port}")
+  fi
+  local quoted answered
+  quoted="$(printf '%q ' "${arguments[@]}")"
+  # Under the bound: two POSTs on one connection, so curl connects once.
+  answered="$(in_container sh -c "head -c ${early_small_len} /dev/urandom >/tmp/small &&
+    curl -s ${quoted} --data-binary @/tmp/small -o /dev/null -w '%{http_code} %{num_connects}\n' \
+      ${base}${early_url_path} ${base}${early_url_path}")" ||
+    fail "curl ${mode}: a POST under the bound failed: ${answered:-}"
+  [ "${answered}" = $'405 1\n405 0' ] || fail "curl ${mode}: the POSTs under the bound got: ${answered}"
+  # Past the bound: the 405 arrives whole, and then the server closes in stages.
+  answered="$(in_container sh -c "head -c ${early_large_len} /dev/urandom >/tmp/large &&
+    curl -s ${quoted} --data-binary @/tmp/large -o /dev/null -w '%{http_code}' ${base}${early_url_path}")" ||
+    fail "curl ${mode}: the POST past the bound failed: ${answered:-}"
+  [ "${answered}" = 405 ] || fail "curl ${mode}: the POST past the bound got: ${answered}"
+  echo "h11_server_interop.sh: curl ${mode}: a ${early_small_len}-octet POST kept its connection, and a ${early_large_len}-octet one read its 405"
+}
+
+# RFC 9112 §9.6: a client on this host sends a head that declares 4 MiB, keeps writing the body,
+# and reads only after 300 ms. A server that closed at once would reset the connection by then,
+# and the reset can erase the 405 that the client has not read. The client must read the whole
+# 405 and then the end of the server's data, from its half-close, with no reset.
+early_reset_run() {
+  python3 - "${port}" "${early_url_path}" <<'PYTHON' || fail "a client that kept writing did not read its 405"
+import socket
+import sys
+import threading
+import time
+
+port, path = int(sys.argv[1]), sys.argv[2]
+declared = 4 * 1024 * 1024
+# The client reads at 0.3 s, so a half-close reaches it well before the server's bound of 1 s.
+half_close_seen_s = 0.8
+started = time.monotonic()
+connection = socket.create_connection(("127.0.0.1", port))
+connection.sendall(f"POST {path} HTTP/1.1\r\nHost: h\r\nContent-Length: {declared}\r\n\r\n".encode())
+
+
+def write_body():
+    part = b"x" * 65536
+    try:
+        for _ in range(declared // len(part)):
+            connection.sendall(part)
+    except OSError:
+        pass
+
+
+writer = threading.Thread(target=write_body, daemon=True)
+writer.start()
+time.sleep(0.3)
+connection.settimeout(10)
+received = b""
+try:
+    while True:
+        chunk = connection.recv(4096)
+        if not chunk:
+            break
+        received += chunk
+except ConnectionResetError:
+    print(f"reset after {len(received)} octets", file=sys.stderr)
+    sys.exit(1)
+if not received.startswith(b"HTTP/1.1 405 ") or not received.endswith(b"\r\n\r\n"):
+    print(f"read {received!r}", file=sys.stderr)
+    sys.exit(1)
+# The half-close ends the response at once. The server's full close comes 1 s after it.
+closed_after = time.monotonic() - started
+if closed_after >= half_close_seen_s:
+    print(f"the end came after {closed_after:.2f} s, not at the half-close", file=sys.stderr)
+    sys.exit(1)
+PYTHON
+  echo "h11_server_interop.sh: a client that kept writing past the bound read the whole 405, and no reset"
+}
+
+# early_round: runs early_run against the server in its --routes github mode, in cleartext and,
+# with --tls, over TLS, and early_reset_run in cleartext.
+early_round() {
+  mode=cleartext
+  start_server --routes github
+  early_run
+  early_reset_run
+  if [ -n "${tls}" ]; then
+    mode=tls
+    start_server --routes github --tls "${identity}"
+    early_run
+  fi
+  stop_server
+}
+
 plan_go() {
   local arguments=()
   [ "${mode}" = cleartext ] || arguments=("${identity}")
@@ -228,6 +332,7 @@ peers=("$@")
 [ "${#peers[@]}" -gt 0 ] || peers=(curl go)
 
 command -v go >/dev/null 2>&1 || fail "go is not installed"
+command -v python3 >/dev/null 2>&1 || fail "python3 is not installed"
 echo "h11_server_interop.sh: building the test-only server"
 mkdir -p "${identity_directory}"
 if [ -n "${tls}" ]; then
@@ -247,6 +352,7 @@ for peer in "${peers[@]}"; do
       echo "h11_server_interop.sh: $(in_container curl --version | head -1)"
       in_both_modes plan_curl
       coded_round plan_curl_coded
+      early_round
       ;;
     go)
       echo "h11_server_interop.sh: $(go version)"

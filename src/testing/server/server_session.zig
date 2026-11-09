@@ -61,6 +61,9 @@ pub const Entry = struct {
     /// The engine reported the connection's `close`: the program closes the socket once the
     /// octets it holds are out. A connection whose peer closed first gets none.
     closing: bool,
+    /// The engine reported the connection's `half_close`: the program closes the socket's write
+    /// side once the octets it holds are out, and reads on (decision 160).
+    half_closing: bool = false,
     /// The connection owes octets no `send_stream` has taken: the engine reported a `send`, a
     /// response was written, or the last `send_stream` filled its room.
     send_owed: bool,
@@ -113,6 +116,7 @@ pub fn SessionOf(comptime connections_max: usize) type {
                 entry.handle = no_connection;
                 entry.attached = false;
                 entry.closing = false;
+                entry.half_closing = false;
                 entry.send_owed = false;
                 entry.answers.reset(null);
             }
@@ -187,6 +191,7 @@ fn accept_into(session: anytype, index: usize, tls: bool, echo: ?*h11_echo.Echo,
     entry.handle = handle;
     entry.attached = true;
     entry.closing = false;
+    entry.half_closing = false;
     entry.send_owed = false;
     entry.answers.reset(echo);
     return true;
@@ -292,8 +297,7 @@ fn on_event(session: anytype, reported: server.Event) void {
         },
         .writable => |writable| _ = named(session, writable.id.connection),
         .send => |handle| named(session, handle).send_owed = true,
-        // The socket closes at the `close` that follows within `half_close_ns`.
-        .half_close => {},
+        .half_close => |handle| named(session, handle).half_closing = true,
         .close => |handle| named(session, handle).closing = true,
         // The slot takes another connection from here on, and the entry stays its socket's.
         .ended => |over| {
