@@ -111,8 +111,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
             if (connection.failed) return error.ExchangeWrong;
             ended += 1;
         },
-        // The client closes the socket, so the server is never the first to say `close`.
-        .close => return error.ExchangeWrong,
+        // The client closes the socket, so the server is never the first to say `close`, and
+        // it reads each request whole, so it never closes in stages (decision 160).
+        .half_close, .close => return error.ExchangeWrong,
         // Each write of the server finds room.
         .writable => return error.ExchangeWrong,
         // Only a shutdown ends in `closed`.

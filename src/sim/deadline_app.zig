@@ -61,7 +61,7 @@ pub const Application = struct {
             },
             // The run keeps these: the application writes each answer again in every pass, and
             // the rest name the connection and no request.
-            .writable, .send, .close, .ended, .closed => unreachable,
+            .writable, .send, .half_close, .close, .ended, .closed => unreachable,
         }
     }
 

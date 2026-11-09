@@ -106,7 +106,7 @@ pub fn Pool(comptime ContextOf: type, comptime table_of: anytype, comptime Route
                 .trailers => |trailers| if (entry_of(Self, pool, trailers.user_data)) |entry| on_body(Self, entry, context, engine, "", true),
                 .writable => |writable| if (entry_of(Self, pool, writable.user_data)) |entry| on_writable(Self, entry, context, engine),
                 .finished => |finished| if (entry_of(Self, pool, finished.user_data)) |entry| on_finished(Self, entry, context, finished),
-                .send, .close, .ended, .closed => return .{ .event = received },
+                .send, .half_close, .close, .ended, .closed => return .{ .event = received },
             }
             return .taken;
         }

@@ -333,7 +333,8 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
 fn note_event(storage: *Storage, plan: *const Plan, reported: server.Event, now_ms: u64) Error!bool {
     switch (reported) {
         // The run sends in every pass and the application writes in every pass, so neither waits.
-        .send, .writable => {},
+        // Its socket closes at the `close` that follows a `half_close`.
+        .send, .writable, .half_close => {},
         .close => {
             storage.closed = true;
             storage.lingered = storage.endpoint.tcp[storage.accepted.slot].clock.lingered;

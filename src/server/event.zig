@@ -1,7 +1,8 @@
 //! What `receive` reports, the same for h11, h2 and h3 (decision 100): a request's head, its
 //! content, its trailer section, its end by cancellation, or that its response is done; and, from
 //! the engine (decision 119), that a response can take more, that a TCP connection owes octets or
-//! is to be closed, that a connection ended, or that every connection did. Every slice points into
+//! is to be closed, in stages or at once (decision 160), that a connection ended, or that every
+//! connection did. Every slice points into
 //! storage the connection or the caller holds, and stays valid until the engine's next call that
 //! the comment on `Engine.receive` lists.
 const std = @import("std");
@@ -270,6 +271,10 @@ pub const Event = union(enum) {
     writable: Writable,
     /// A TCP connection owes octets: the program calls `send_stream` for it (decision 119).
     send: ConnectionHandle,
+    /// The program closes only the write side of this TCP connection's socket, and passes on what
+    /// the socket reads, which colibri discards (RFC 9112 §9.6, decision 160). A `close` follows,
+    /// or the program's `transport_closed` once the peer closes.
+    half_close: ConnectionHandle,
     /// The program closes this TCP connection's socket: colibri reads and writes nothing more on
     /// it.
     close: ConnectionHandle,

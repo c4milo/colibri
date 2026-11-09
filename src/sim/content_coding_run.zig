@@ -238,7 +238,7 @@ fn server_read(storage: *Storage) Error!void {
             .writable, .send => {},
             // The server refused what the client wrote: it ended a request, or the connection.
             .finished => |finished| if (finished.result == .cancelled) return error.ExchangeRefused,
-            .close => return error.ExchangeRefused,
+            .half_close, .close => return error.ExchangeRefused,
             // The run closes no socket and never shuts the endpoint down.
             .ended, .closed => unreachable,
         }

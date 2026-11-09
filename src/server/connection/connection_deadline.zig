@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 const h11 = @import("h11");
 const h2 = @import("h2");
 const deadline = @import("../deadline.zig");
+const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const connection_close = @import("connection_close.zig");
 const connection_bodies = @import("connection_bodies.zig");
@@ -36,6 +37,10 @@ pub const Clock = struct {
     /// passed since, after which it closes with them unsent (decision 110).
     linger_since_ns: ?u64,
     lingered: bool,
+    /// The instant the engine reported the connection's `half_close`, and whether
+    /// `half_close_ns` has passed since, after which it closes (decision 160).
+    half_close_since_ns: ?u64,
+    half_closed: bool,
     /// How long h2's SETTINGS deadline has waited while bodies arrived, and since when it waits
     /// now (decision 110 as amended).
     settings_paused_ns: u64,
@@ -55,6 +60,8 @@ pub const Clock = struct {
             .timed_out = null,
             .linger_since_ns = null,
             .lingered = false,
+            .half_close_since_ns = null,
+            .half_closed = false,
             .settings_paused_ns = 0,
             .settings_pause_since_ns = null,
             .drain_since_ns = null,
@@ -138,7 +145,7 @@ fn ended(connection: *const Connection) bool {
 /// The soonest instant a deadline passes, or null when none runs.
 pub fn soonest(connection: *const Connection) ?u64 {
     const linger_end = linger_end_ns(connection);
-    if (!running(connection)) return linger_end;
+    if (!running(connection)) return earliest(linger_end, half_close_end_ns(connection));
     const clock = &connection.clock;
     const limits = &connection.deadlines;
     var at: ?u64 = null;
@@ -150,6 +157,28 @@ pub fn soonest(connection: *const Connection) ?u64 {
     at = connection_sends.soonest(connection, connection_bodies.soonest(connection, at));
     const end_ns = linger_end orelse return at;
     return @min(at orelse end_ns, end_ns);
+}
+
+/// The sooner of two instants, either of which may be null.
+fn earliest(first: ?u64, second: ?u64) ?u64 {
+    const at = first orelse return second;
+    return @min(at, second orelse at);
+}
+
+/// The instant a staged close's bound passes, or null when none runs (decision 160).
+fn half_close_end_ns(connection: *const Connection) ?u64 {
+    const clock = &connection.clock;
+    if (clock.half_closed) return null;
+    const since_ns = clock.half_close_since_ns orelse return null;
+    return since_ns + constants.limits.half_close_ns;
+}
+
+/// Ends a staged close once `half_close_ns` has passed since its `half_close` (decision 160).
+fn half_close_pass(connection: *Connection, now_ns: u64) void {
+    // RFC 9112 §9.6: the server reads until the client closes, or until it is reasonably certain
+    // that the client has the response. The bound is that certainty.
+    const end_ns = half_close_end_ns(connection) orelse return;
+    if (now_ns >= end_ns) connection.clock.half_closed = true;
 }
 
 /// The instant a connection's linger passes, or null when none runs.
@@ -259,6 +288,7 @@ fn fire_at_new_instant(connection: *Connection, now_ns: u64) bool {
     assert(connection.clock.checked_ns != now_ns);
     connection.clock.checked_ns = now_ns;
     connection_sends.linger(connection, now_ns);
+    half_close_pass(connection, now_ns);
     if (!running(connection)) return false;
     const passed = due(connection, now_ns) orelse connection_bodies.fire(connection, now_ns) orelse
         connection_sends.fire(connection, now_ns) orelse return false;

@@ -428,8 +428,8 @@ pub const World = struct {
             .finished => |finished| world.on_finished(finished),
             // The run hands octets out and writes each response in actions of its own.
             .send, .writable => {},
-            // The endpoint closes the connection once its caller shut it down and no request is
-            // open, and not before.
+            // The endpoint closes in one step once its caller shut it down and no request is open.
+            .half_close => world.broken = true,
             .close => world.broken = world.broken or !world.shut_down,
             .ended => |over| world.broken = world.broken or over.failed or over.reason != null,
             .closed => {},

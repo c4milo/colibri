@@ -170,6 +170,11 @@ pub const bodies_max: usize = h2.constants.limits.concurrent_streams_max;
 /// 2026-11-09.
 pub const discard_len_max: u64 = 256 * 1024;
 
+/// How long a staged close reads and discards after the program closed the write side of its
+/// socket, before the engine reports `close`, when the client does not close first (RFC 9112
+/// §9.6, decision 160). The owner ruled 1 s on 2026-11-09.
+pub const half_close_ns: u64 = constants.nanoseconds_per_second;
+
 /// The parameters that one pattern of a route table holds, its wildcard included (decision 122
 /// ruling 10). It sizes `PathParameters`. A table that needs more does not compile, so the limit
 /// never fails at run time.
@@ -210,6 +215,8 @@ comptime {
     assert(response_headers_max > 0 and response_pieces_max > 0);
     // A pattern can hold one parameter at least.
     assert(path_parameters_max > 0);
+    // Decision 160: a staged close ends within its bound, which the deadlines' sum holds.
+    assert(half_close_ns > 0 and half_close_ns <= timeout_ns_max);
     // A leaf's mask of methods fits a u16.
     assert(route_methods_max > 0 and route_methods_max <= @bitSizeOf(u16));
     // Each path that the engine gives the program fits, in each version.
@@ -253,6 +260,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(100, requests_max);
     try expectEqual(86400000000000, timeout_ns_max);
     try expectEqual(262144, discard_len_max);
+    try expectEqual(1000000000, half_close_ns);
     try expectEqual(128, bodies_max);
     try expectEqual(8, path_parameters_max);
     try expectEqual(10, route_methods_max);

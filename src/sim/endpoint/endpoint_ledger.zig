@@ -228,6 +228,7 @@ pub const Ledger = struct {
                 ledger.counts.sends += 1;
                 _ = try ledger.open_socket(handle, "send", now_ms);
             },
+            .half_close => |handle| _ = try ledger.open_socket(handle, "half_close", now_ms),
             .close => |handle| {
                 ledger.counts.closes += 1;
                 (try ledger.open_socket(handle, "close", now_ms)).close_socket(.closed_by_endpoint);

@@ -11,6 +11,7 @@ const event = @import("../event.zig");
 const connection_module = @import("../connection/connection.zig");
 const connection_internal = @import("../connection/connection_internal.zig");
 const connection_owed = @import("../connection/connection_owed.zig");
+const connection_close = @import("../connection/connection_close.zig");
 const engine_requests = @import("engine_requests.zig");
 const engine_state = @import("engine_state.zig");
 const engine_state_events = @import("engine_state_events.zig");
@@ -117,7 +118,7 @@ pub fn poll(state: *State, slot: u32, now_ns: u64) ?Event {
         if (table.first()) |entry| return engine_state_events.ending(handle, table, entry.number, .closed);
     }
     if (engine_state_events.writable_of(state, slot, table, @This())) |reported| return reported;
-    return transport_event(state, slot, connection);
+    return transport_event(state, slot, connection, now_ns);
 }
 
 /// The next event of the connection in `slot` that a request of its table owns. A connection
@@ -152,14 +153,20 @@ fn send_first(state: *State, slot: u32) ?Event {
     return .{ .send = state.slots.handle_of(slot) };
 }
 
-/// The slot's `send`, once for each debt, while the socket is open; its `close` once the
-/// connection has finished; and its `ended` once the socket closed and every request ended.
-fn transport_event(state: *State, slot: u32, connection: *Connection) ?Event {
+/// The slot's `send`, once for each debt, while the socket is open; its `half_close` at `now_ns`
+/// once the response of a staged close is out; its `close` once the connection has finished; and
+/// its `ended` once the socket closed and every request ended.
+fn transport_event(state: *State, slot: u32, connection: *Connection, now_ns: u64) ?Event {
     const handle = state.slots.handle_of(slot);
     if (state.transports[slot] != .open) return end(state, slot, connection);
     if (!state.send_outstanding[slot] and connection_owed.owes_octets(connection)) {
         state.send_outstanding[slot] = true;
         return .{ .send = handle };
+    }
+    // RFC 9112 §9.6: the write side closes first, and the bound runs from the event.
+    if (connection_close.owes_half_close(connection)) {
+        connection_close.half_close(connection, now_ns);
+        return .{ .half_close = handle };
     }
     if (!connection.should_close()) return null;
     state.transports[slot] = .closed_by_engine;

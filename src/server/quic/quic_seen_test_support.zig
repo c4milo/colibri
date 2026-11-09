@@ -11,7 +11,7 @@ const Event = event.Event;
 
 /// The kind of what the server reported. A request's `finished` counts as `done` when its
 /// response was sent and as `cancelled` when it was not, so a test reads the two apart.
-pub const Kind = enum { request, body, trailers, cancelled, done, writable, send, close, ended, closed };
+pub const Kind = enum { request, body, trailers, cancelled, done, writable, send, half_close, close, ended, closed };
 
 fn kind_of(reported: Event) Kind {
     return switch (reported) {
@@ -108,7 +108,7 @@ pub fn keep(reported: Event) void {
             entry.id = writable.id.number;
             entry.user_data = writable.user_data;
         },
-        .send, .close, .ended, .closed => engine_support.note(reported),
+        .send, .half_close, .close, .ended, .closed => engine_support.note(reported),
     }
     seen_len += 1;
 }

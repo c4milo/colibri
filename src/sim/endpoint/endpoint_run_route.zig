@@ -56,6 +56,8 @@ pub fn route(storage: *Storage, reported: server.Event, now_ns: u64, now_ms: u64
         .trailers => |trailers| answer_module.on_request_end(storage.ledger.request_of(trailers.id).?),
         .writable, .finished => {},
         .send => |handle| try answer_send(storage, handle, now_ns),
+        // The peer reads on: the `close` that follows ends the socket (decision 160).
+        .half_close => {},
         // The program closes the socket: its peer reads and writes nothing more on it.
         .close => |handle| storage.tcp.peers[storage.ledger.connection_of(handle).?.peer].closed = true,
         .ended => |over| note_ended(storage, over.connection),

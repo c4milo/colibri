@@ -139,7 +139,7 @@ fn take(asked: udp_arguments.Server, input: server.Input, now_ns: u64) void {
             .ended => |over| end(asked, over),
             // A QUIC connection owes no `send` or `close`, and the run never shuts the engine
             // down.
-            .send, .close, .closed => unreachable,
+            .send, .half_close, .close, .closed => unreachable,
             inline else => |carried| if (asked.routes) {
                 var context: void = {};
                 const handled = route_pool.handle(&context, &engine, reported);

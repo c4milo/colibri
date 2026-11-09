@@ -156,13 +156,15 @@ fn request_connection(reported: server.Event) ?server.ConnectionHandle {
         .trailers => |trailers| trailers.id.connection,
         .writable => |writable| writable.id.connection,
         .finished => |finished| finished.id.connection,
-        .send, .close, .ended, .closed => null,
+        .send, .half_close, .close, .ended, .closed => null,
     };
 }
 
 fn on_connection_event(state: anytype, reported: server.Event) void {
     switch (reported) {
         .send => |handle| named(state, handle).send_owed = true,
+        // The socket closes at the `close` that follows within `half_close_ns`.
+        .half_close => {},
         .close => |handle| named(state, handle).closing = true,
         // A QUIC connection has no socket of its own, and its slot frees in the engine.
         .ended => |over| if (is_tcp(state, over.connection)) {

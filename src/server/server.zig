@@ -242,6 +242,7 @@ test {
     _ = @import("engine/engine_config.zig");
     _ = @import("engine/engine_writable_test.zig");
     _ = @import("engine/engine_tcp_test.zig");
+    _ = @import("engine/engine_staged_close_test.zig");
     _ = @import("engine/engine_tcp_send_test.zig");
     _ = @import("engine/engine_tcp_writable_test.zig");
     _ = @import("quic/quic_connection_h3_room.zig");

@@ -23,8 +23,36 @@ pub fn should_close(connection: *const Connection) bool {
         .handshake, .choosing => false,
         .closed => true,
         .open => finished(connection) and
-            (connection.config.tls == null or connection.close_sent or failure_sent(connection)),
+            (connection.config.tls == null or connection.close_sent or failure_sent(connection)) and
+            // RFC 9112 §9.6: a staged close closes in full once its bound passes.
+            (!staged(connection) or connection.clock.half_closed),
     };
+}
+
+/// Whether the connection closes in stages (RFC 9112 §9.6, decision 160): h11 closed after a
+/// response with its request's body unread, and nothing else ended the connection.
+pub fn staged(connection: *const Connection) bool {
+    if (connection.phase != .open or connection.stopped or connection.peer_closed) return false;
+    const session = switch (connection.session) {
+        .h11 => |*session| session,
+        .h2, .none => return false,
+    };
+    // A failure, such as a body that a deadline cut, ends the connection at once.
+    return session.phase == .closed and session.failure == null and session.reader.open();
+}
+
+/// Whether the engine reports `half_close` now: the connection closes in stages, and the response
+/// is out, over TLS with the `close_notify` (RFC 9846 §6.1).
+pub fn owes_half_close(connection: *const Connection) bool {
+    if (connection.clock.half_close_since_ns != null or connection.output_len > 0) return false;
+    if (!staged(connection) or !finished(connection)) return false;
+    return connection.config.tls == null or connection.close_sent;
+}
+
+/// The engine reported `half_close` at `now_ns`, from which `half_close_ns` runs (decision 160).
+pub fn half_close(connection: *Connection, now_ns: u64) void {
+    assert(owes_half_close(connection));
+    connection.clock.half_close_since_ns = now_ns;
 }
 
 /// Whether the connection has nothing more to say but what `output` holds: it failed or was

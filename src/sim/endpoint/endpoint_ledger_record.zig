@@ -45,8 +45,9 @@ const Fields = struct {
 };
 
 /// The kind each record names: the kinds of the events from before decision 126, when a request's
-/// end came as `cancelled` or `done`, so the CRC of the events stays what it was.
-const Kind = enum(u8) { request, body, trailers, cancelled, done, writable, send, close, ended, closed };
+/// end came as `cancelled` or `done`, so the CRC of the events stays what it was. Decision 160's
+/// `half_close` comes last, so no kind before it changes its value.
+const Kind = enum(u8) { request, body, trailers, cancelled, done, writable, send, close, ended, closed, half_close };
 
 fn kind_of(reported: server.Event) Kind {
     return switch (reported) {
@@ -69,6 +70,7 @@ fn fields_of(reported: server.Event) Fields {
         },
         .writable => |writable| .{ .handle = writable.id.connection, .number = writable.id.number, .word = writable.user_data },
         .send => |handle| .{ .handle = handle },
+        .half_close => |handle| .{ .handle = handle },
         .close => |handle| .{ .handle = handle },
         .ended => |over| .{ .handle = over.connection, .detail = @intFromBool(over.failed), .length = close_detail(over.reason) },
         .closed => .{},

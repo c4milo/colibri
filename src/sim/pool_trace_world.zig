@@ -275,7 +275,7 @@ pub const World = struct {
             .close => |connection| if (world.socket_of(connection)) |socket| {
                 socket.server_closed = true;
             },
-            .body, .trailers, .finished, .writable, .ended, .closed => {},
+            .body, .trailers, .finished, .writable, .half_close, .ended, .closed => {},
         }
     }
 

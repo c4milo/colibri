@@ -94,7 +94,7 @@ pub fn note(reported: event.Event) void {
         },
         .closed => closed = true,
         // QUIC connections alone: no TCP connection owes octets or a close.
-        .send, .close => unreachable,
+        .send, .half_close, .close => unreachable,
         .request, .body, .trailers, .finished, .writable => unreachable,
     }
 }

@@ -22,7 +22,7 @@ pub var config: engine_module.Config align(@alignOf(engine_module.Config)) = und
 
 /// The kind of what the engine reported. A request's `finished` counts as `done` when its
 /// response was sent and as `cancelled` when it was not, so a test reads the two apart.
-pub const Kind = enum { request, body, trailers, cancelled, done, writable, send, close, ended, closed };
+pub const Kind = enum { request, body, trailers, cancelled, done, writable, send, half_close, close, ended, closed };
 
 fn kind_of(reported: Event) Kind {
     return switch (reported) {
@@ -160,6 +160,7 @@ fn note(reported: Event) void {
             entry.connection = handle;
             if (flushing) flush(handle);
         },
+        .half_close => |handle| entry.connection = handle,
         .close => |handle| {
             entry.connection = handle;
             closed[handle.slot] = true;
@@ -169,7 +170,7 @@ fn note(reported: Event) void {
     }
     switch (reported) {
         .request, .body, .trailers, .finished, .writable => if (program) |take| take(reported),
-        .send, .close, .ended, .closed => {},
+        .send, .half_close, .close, .ended, .closed => {},
     }
 }
 

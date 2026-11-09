@@ -330,7 +330,7 @@ pub const World = struct {
             // The run hands octets out and offers content in actions of its own.
             .send, .writable => {},
             // Two honest endpoints cause none of these, and the run never shuts the endpoint down.
-            .trailers, .close, .ended, .closed => world.broken = true,
+            .trailers, .half_close, .close, .ended, .closed => world.broken = true,
         }
     }
 

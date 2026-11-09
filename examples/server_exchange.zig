@@ -155,9 +155,10 @@ const routes = .{
 const Router = server.Router(App, routes, .{ .requests = requests_max, .body_bytes = note.len });
 var router: Router align(@alignOf(Router)) = .{};
 
-/// Sockets the engine said to close, connections that are over, those that ended at their idle
-/// deadline, and whether the shut-down engine is over.
+/// Sockets the engine said to close, and to close in stages (decision 160), connections that are
+/// over, those that ended at their idle deadline, and whether the shut-down engine is over.
 var closes: u32 = 0;
+var half_closes: u32 = 0;
 var connections_ended: u32 = 0;
 var idle_ended: u32 = 0;
 var shut: bool = false;
@@ -324,6 +325,9 @@ fn serve(event: server.Event, now_ns: u64) !void {
             // colibri reads and writes nothing more on this TCP connection. A program closes the
             // socket once the socket has taken the octets `send_stream` returned, and owes the
             // engine no call: the connection's `ended` follows by itself.
+            // RFC 9112 §9.6: the program closes only the write side of this TCP connection's
+            // socket, and passes on what the socket reads. The `close` follows.
+            .half_close => half_closes += 1,
             .close => closes += 1,
             // The connection is over, and its slot takes a later socket or client.
             .ended => |over| try count_ended(over, now_ns),

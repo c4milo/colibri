@@ -104,7 +104,7 @@ pub const Files = struct {
             .writable => {},
             // The run reads `ended`. A QUIC connection owes no `send` or `close`, and the run never
             // shuts the engine down (decision 119).
-            .send, .close, .ended, .closed => unreachable,
+            .send, .half_close, .close, .ended, .closed => unreachable,
         }
     }
 

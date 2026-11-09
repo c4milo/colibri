@@ -292,6 +292,8 @@ fn on_event(session: anytype, reported: server.Event) void {
         },
         .writable => |writable| _ = named(session, writable.id.connection),
         .send => |handle| named(session, handle).send_owed = true,
+        // The socket closes at the `close` that follows within `half_close_ns`.
+        .half_close => {},
         .close => |handle| named(session, handle).closing = true,
         // The slot takes another connection from here on, and the entry stays its socket's.
         .ended => |over| {
@@ -312,7 +314,7 @@ fn routed(session: anytype, pool: *server_routes.Pool, reported: server.Event) b
         .trailers => |trailers| trailers.id.connection,
         .writable => |writable| writable.id.connection,
         .finished => |finished| finished.id.connection,
-        .send, .close, .ended, .closed => return false,
+        .send, .half_close, .close, .ended, .closed => return false,
     };
     _ = named(session, connection);
     var context: void = {};
