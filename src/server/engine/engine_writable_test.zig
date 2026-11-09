@@ -114,6 +114,20 @@ test "decision 119: trailers past a response's runs wait, and writable comes onc
     try expect_writable_once(id.number);
 }
 
+test "design §8 step 46: a release wait stays quiet until the peer acknowledges held octets" {
+    try support.start_engine(null);
+    const id = try open_get(&.{});
+    try engine.respond(id, .{ .status = ok, .end = false });
+    _ = try engine.write_body(id, .{ .bytes = piece, .end = false });
+    // RFC 9000 §3.1: the uncoded content stays the caller's until the client acknowledges it.
+    try testing.expectEqual(piece.len, engine.state.held_len(id));
+    engine.state.wait_release(id);
+    try expect_no_room();
+    try await_writable();
+    try testing.expect(engine.state.held_len(id) < piece.len);
+    try expect_writable_once(id.number);
+}
+
 /// The engine starts again, coding responses in gzip (decision 101).
 fn start_coding() !void {
     try support.start_engine(null);
