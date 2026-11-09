@@ -1,20 +1,28 @@
-//! The response status code as RFC 9110 §15 models it (decision 15): an integer from 100 to 599,
-//! whose first digit is its class, and where a code the recipient does not recognise is treated as
-//! the x00 code of its class.
+//! The response status code as RFC 9110 §15 models it (decision 15): a valid code is an integer
+//! from 100 to 599, whose first digit is its class. A code the recipient does not recognise is
+//! treated as the x00 code of its class.
 //!
-//! A status written as text is checked in this order (invariant 7):
-//!   1. exactly three octets, or `error.StatusNotThreeDigits`;
-//!   2. every octet a DIGIT, or `error.StatusNotThreeDigits`;
-//!   3. the value in 100 to 599, or `error.StatusOutOfRange`.
-//! h2 and h3 both carry the status as the text of the `:status` pseudo-header, so the text form is
-//! the form the peer's octets carry. `error.StatusOutOfRange` is a reason, not a verdict:
-//! RFC 9110 §15 asks
-//! a client to process an invalid code as a 5xx, so the protocol module decides whether to refuse
-//! the response and cites its own rule when it does.
+//! The two directions check a status in different ways (decision 158, ruling 17):
+//! - `from_code` checks a code that a program sends. It refuses a value outside 100 to 599 with
+//!   `error.StatusOutOfRange`.
+//! - `from_digits` reads a code that a peer sent. It accepts any three DIGIT octets, 000 to 999,
+//!   and refuses other text with `error.StatusNotThreeDigits`.
+//!
+//! RFC 9110 §15 tells a client to process an invalid code as a 5xx, so `class` returns
+//! `.server_error` for a code outside 100 to 599. Such a code is never interim. h2 and h3 carry
+//! the status as the text of `:status`, so the text form is the form that the peer's octets carry.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("constants.zig");
+
+/// The highest code that three decimal digits hold: RFC 9110 §15 makes a status three digits.
+const three_digits_code_max: u16 = std.math.pow(u16, constants.protocol.status_digit_radix, constants.protocol.status_digits_len) - 1;
+
+comptime {
+    assert(three_digits_code_max == 999);
+    assert(constants.protocol.status_code_max < three_digits_code_max);
+}
 
 /// A response's status code (RFC 9110 §15), as `std.http.Status` models it (decision 158 ruling
 /// 5). Each named member is a code that RFC 9110 §15.2 to §15.6 defines, named as its section
@@ -81,7 +89,8 @@ pub const Status = enum(u16) {
         server_error = 5,
     };
 
-    /// The status whose code is `code`.
+    /// The status whose code is `code`, which a program sends. It refuses a code outside 100 to
+    /// 599, so a program cannot send an invalid code.
     pub fn from_code(code: u16) Error!Status {
         const in_range = code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max;
         // RFC 9110 §15: all valid status codes are within the range of 100 to 599, inclusive.
@@ -89,7 +98,8 @@ pub const Status = enum(u16) {
         return @enumFromInt(code);
     }
 
-    /// The status written as three ASCII digits.
+    /// The status written as three ASCII digits, as a peer sends it. Any code of three digits is
+    /// accepted, also one outside 100 to 599, which `class` reads as a 5xx.
     pub fn from_digits(digits: []const u8) Error!Status {
         // RFC 9110 §15: the status code is a three-digit integer code.
         if (digits.len != constants.protocol.status_digits_len) return error.StatusNotThreeDigits;
@@ -99,15 +109,19 @@ pub const Status = enum(u16) {
             if (!std.ascii.isDigit(digit)) return error.StatusNotThreeDigits;
             code = code * constants.protocol.status_digit_radix + (digit - '0');
         }
-        return from_code(code);
+        // RFC 9110 §15: a client SHOULD process a response with an invalid status code as if it
+        // had a 5xx status, so a code outside 100 to 599 is not refused here.
+        assert(code <= three_digits_code_max);
+        return @enumFromInt(code);
     }
 
     /// Writes the three digits of the status code into `digits`, the mirror of `from_digits`:
     /// RFC 9113 §8.3.2 and RFC 9114 §4.3.2 carry them as the `:status` value, and RFC 9110 §15
-    /// makes them three, leading zeros included.
+    /// makes them three, leading zeros included. A status that `from_digits` read writes too, so
+    /// a client can write the code it received.
     pub fn write_digits(self: Status, digits: *[constants.protocol.status_digits_len]u8) []const u8 {
         const code = @intFromEnum(self);
-        assert(code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max);
+        assert(code <= three_digits_code_max);
         var rest = code;
         var index = constants.protocol.status_digits_len;
         while (index > 0) {
@@ -120,11 +134,17 @@ pub const Status = enum(u16) {
     }
 
     /// The class the first digit names (RFC 9110 §15). A 1xx class is interim: zero or more such
-    /// responses precede exactly one final response.
+    /// responses precede exactly one final response. A code outside 100 to 599 is a 5xx, so it is
+    /// a final response.
     pub fn class(self: Status) Class {
         const code = @intFromEnum(self);
-        assert(code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max);
-        return @enumFromInt(code / constants.protocol.status_class_size);
+        const in_range = code >= constants.protocol.status_code_min and code <= constants.protocol.status_code_max;
+        // RFC 9110 §15: "A client that receives a response with an invalid status code SHOULD
+        // process the response as if it had a 5xx (Server Error) status code."
+        if (!in_range) return .server_error;
+        const found: Class = @enumFromInt(code / constants.protocol.status_class_size);
+        assert(@intFromEnum(found) == code / constants.protocol.status_class_size);
+        return found;
     }
 
     /// True when RFC 9110 §15.2 to §15.6 define this code, so the enum names it.
@@ -164,9 +184,20 @@ test "three digits parse, and anything else is refused in check order" {
     try testing.expectError(error.StatusNotThreeDigits, Status.from_digits("2x4"));
     try testing.expectError(error.StatusNotThreeDigits, Status.from_digits(" 20"));
     try testing.expectError(error.StatusNotThreeDigits, Status.from_digits("+20"));
-    try testing.expectError(error.StatusOutOfRange, Status.from_digits("099"));
-    try testing.expectError(error.StatusOutOfRange, Status.from_digits("600"));
-    try testing.expectError(error.StatusOutOfRange, Status.from_digits("999"));
+}
+
+test "decision 158 ruling 17: a peer's code outside 100 to 599 parses, and its class is 5xx" {
+    for ([_][]const u8{ "000", "099", "600", "800", "999" }) |digits| {
+        const status = try Status.from_digits(digits);
+        const code = try std.fmt.parseInt(u16, digits, constants.protocol.status_digit_radix);
+        try testing.expectEqual(code, @intFromEnum(status));
+        try testing.expectEqual(Status.Class.server_error, status.class());
+        try testing.expect(!status.is_recognized());
+        var written: [constants.protocol.status_digits_len]u8 = undefined;
+        try testing.expectEqualStrings(digits, status.write_digits(&written));
+        // A program cannot send it: `from_code` checks what a program sends.
+        try testing.expectError(error.StatusOutOfRange, Status.from_code(code));
+    }
 }
 
 test "the first digit is the class" {
@@ -219,13 +250,12 @@ fn fuzz_from_digits(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const digits = input[0..smith.slice(&input)];
     const status = Status.from_digits(digits) catch return;
-    try testing.expect(@intFromEnum(status) >= constants.protocol.status_code_min);
-    try testing.expect(@intFromEnum(status) <= constants.protocol.status_code_max);
+    try testing.expect(@intFromEnum(status) <= three_digits_code_max);
     const class_code = @as(u16, @intFromEnum(status.class())) * constants.protocol.status_class_size;
     try testing.expect((try Status.from_code(class_code)).is_recognized());
 }
 
-test "fuzz: a status that parses is in range, and the x00 code of its class is recognised" {
+test "fuzz: a status that parses has three digits, and the x00 code of its class is recognised" {
     try testing.fuzz({}, fuzz_from_digits, .{ .corpus = &.{
         core.fuzz.input("200"),
         core.fuzz.input("471"),
@@ -234,17 +264,17 @@ test "fuzz: a status that parses is in range, and the x00 code of its class is r
     } });
 }
 
-test "every three-digit string parses exactly when it is 100 to 599" {
-    for (0..1000) |number| {
+test "every three-digit string parses, and its class is 5xx exactly when it is not 100 to 599" {
+    for (0..three_digits_code_max + 1) |number| {
         var digits: [constants.protocol.status_digits_len]u8 = @splat('0');
         _ = std.fmt.bufPrint(&digits, "{d:0>3}", .{number}) catch unreachable;
         const in_range = number >= constants.protocol.status_code_min and number <= constants.protocol.status_code_max;
-        if (Status.from_digits(&digits)) |status| {
-            try testing.expect(in_range);
-            try testing.expectEqual(number, @intFromEnum(status));
-        } else |err| {
-            try testing.expect(!in_range);
-            try testing.expectEqual(error.StatusOutOfRange, err);
-        }
+        const status = try Status.from_digits(&digits);
+        try testing.expectEqual(number, @intFromEnum(status));
+        const first_digit: u16 = @intCast(number / constants.protocol.status_class_size);
+        const class_expected: u16 = if (in_range) first_digit else @intFromEnum(Status.Class.server_error);
+        try testing.expectEqual(class_expected, @intFromEnum(status.class()));
+        const sendable = if (Status.from_code(@intCast(number))) |_| true else |_| false;
+        try testing.expectEqual(in_range, sendable);
     }
 }

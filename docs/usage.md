@@ -531,8 +531,8 @@ request therefore answers it before its next call: a final response, the program
 `cancel` takes the place of the 100 the connection owes.
 
 A route's function answers through a `server.ResponseWriter` ([decision 127](decisions.md)). It
-sets `status`, a `server.Status`, which is `.ok` by default. It adds headers, and writes the body
-through the `std.Io.Writer` that `body()` returns:
+sets `status`, a `server.Status`, which is `.ok` by default and is a code from 100 to 599. It
+adds headers, and writes the body through the `std.Io.Writer` that `body()` returns:
 
 ```zig
 fn greet(_: *App, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
@@ -1360,6 +1360,13 @@ The response's `outcome` says what happened to the exchange:
 
 `status` is a `client.Status`. It holds a code only after the final head arrived, so read it
 with the outcome `response` or `too_large` ([decision 158](decisions.md) ruling 5).
+
+The client accepts any status of three digits, 000 to 999, over h11, h2 and h3. A code outside
+100 to 599 is invalid, and RFC 9110 §15 tells a client to process it as a 5xx. Thus
+`status.class()` returns `.server_error` for such a code, and the response is a final response,
+never an interim one. `@intFromEnum(status)` gives the code as it arrived, and `_` holds it. A
+status that is not three digits makes the response `malformed`. A server cannot send a code
+outside 100 to 599 ([decision 158](decisions.md) ruling 17).
 
 The events:
 

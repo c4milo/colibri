@@ -49,8 +49,8 @@
 //!      - for an http or https scheme, an `:authority` that holds `@`, the delimiter that ends
 //!        userinfo, is `AuthorityUserinfo` (§8.3.1, RFC 9110 §4.2.4);
 //!      - a response without `:status` is `StatusMissing` (§8.3.2), one whose status is not three
-//!        digits from 100 to 599 is `StatusInvalid`, and an interim one with END_STREAM set is
-//!        `InterimWithEndStream` (§8.1).
+//!        digits is `StatusInvalid`, and an interim one with END_STREAM set is
+//!        `InterimWithEndStream` (§8.1). A status outside 100 to 599 is a 5xx (RFC 9110 §15).
 //!   4. A content-length that `http.content_length.from_section` refuses is `ContentLengthInvalid`
 //!      (RFC 9113 §8.1.1). That file states its own order.
 //!
@@ -141,7 +141,7 @@ pub const Error = error{
     AuthorityUserinfo,
     /// A response without `:status` (RFC 9113 §8.3.2).
     StatusMissing,
-    /// A `:status` that is not three digits from 100 to 599 (RFC 9113 §8.3, RFC 9110 §15).
+    /// A `:status` that is not three digits (RFC 9113 §8.3, RFC 9110 §15).
     StatusInvalid,
     /// A content-length that is not a list of one repeated 1*DIGIT value fitting a u64. No such
     /// value equals the sum of the DATA payload lengths, which RFC 9113 §8.1.1 makes malformed;
@@ -206,8 +206,8 @@ pub fn validate_response(section: *const FieldSection, end_stream: bool) Error!R
     const seen = try message_lines.walk(section, .response);
     // RFC 9113 §8.3.2: :status is included in all responses, interim responses included.
     const digits = seen.status orelse return error.StatusMissing;
-    // RFC 9113 §8.3: an invalid pseudo-header field is malformed; RFC 9110 §15: three digits from
-    // 100 to 599.
+    // RFC 9113 §8.3: an invalid pseudo-header field is malformed; RFC 9110 §15: three digits, and
+    // a code outside 100 to 599 is read as a 5xx.
     const status = Status.from_digits(digits) catch return error.StatusInvalid;
     // RFC 9113 §8.1: a HEADERS frame with END_STREAM set that carries an informational status
     // code is malformed.
@@ -300,12 +300,21 @@ test "a response with :status 200 passes, and one with no :status is StatusMissi
     try expect_response(error.StatusMissing, try section_of(&.{}), true);
 }
 
-test "a :status that is not three digits from 100 to 599 is StatusInvalid" {
-    for ([_][]const u8{ "", "20", "2000", "2x0", "099", "600", "OK" }) |digits| {
+test "a :status that is not three digits is StatusInvalid" {
+    for ([_][]const u8{ "", "20", "2000", "2x0", "OK" }) |digits| {
         try expect_response(error.StatusInvalid, try section_of(&.{line_of(":status", digits)}), false);
     }
     const unrecognised = try validate_response(try section_of(&.{line_of(":status", "599")}), false);
     try testing.expectEqual(599, @intFromEnum(unrecognised.status));
+}
+
+test "RFC 9110 §15: a :status outside 100 to 599 is a final 5xx, also with END_STREAM" {
+    const codes = [_]u16{ 99, 600, 800, 999 };
+    for ([_][]const u8{ "099", "600", "800", "999" }, codes) |digits, code| {
+        const found = try validate_response(try section_of(&.{line_of(":status", digits)}), true);
+        try testing.expectEqual(code, @intFromEnum(found.status));
+        try testing.expectEqual(Status.Class.server_error, found.status.class());
+    }
 }
 
 test "a 100 response with END_STREAM is InterimWithEndStream, and without END_STREAM it is interim" {

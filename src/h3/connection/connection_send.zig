@@ -97,7 +97,10 @@ pub fn write_response(
 ) Error!void {
     assert(connection.options.role == .server);
     // RFC 9114 §4.1.2: colibri sends no malformed response.
-    _ = message.validate_response(section) catch return error.MessageInvalid;
+    const found = message.validate_response(section) catch return error.MessageInvalid;
+    // RFC 9110 §15: "All valid status codes are within the range of 100 to 599, inclusive", and
+    // colibri sends no invalid one, though it reads one as a 5xx.
+    _ = http.Status.from_code(@intFromEnum(found.status)) catch return error.MessageInvalid;
     const payload_len = try write_headers(connection, transport, stream_id, section, indexing, output);
     connection_qlog.frame_event(connection, .created, stream_id, .{ .headers = .{ .section = section, .payload_len = payload_len } });
 }

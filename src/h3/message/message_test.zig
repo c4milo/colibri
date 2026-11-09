@@ -173,6 +173,20 @@ test "RFC 9114 §4.3.2: a response carries :status, and h3 has no END_STREAM rul
     try testing.expectError(error.StatusMissing, message.validate_response(try section_of(&.{})));
 }
 
+test "RFC 9110 §15: a :status outside 100 to 599 is a final 5xx, and one not three digits is malformed" {
+    const codes = [_]u16{ 99, 600, 800, 999 };
+    for ([_][]const u8{ "099", "600", "800", "999" }, codes) |digits, code| {
+        const response = try message.validate_response(try section_of(&.{.{ .name = ":status", .value = digits }}));
+        try testing.expectEqual(code, @intFromEnum(response.status));
+        try testing.expectEqual(http.Status.Class.server_error, response.status.class());
+    }
+    for ([_][]const u8{ "", "80", "8000", "8x0" }) |digits| {
+        // RFC 9114 §4.1.2: an invalid value for a pseudo-header field is malformed.
+        const found = message.validate_response(try section_of(&.{.{ .name = ":status", .value = digits }}));
+        try testing.expectError(error.StatusInvalid, found);
+    }
+}
+
 test "RFC 9114 §4.3: a trailer section carries no pseudo-header" {
     try message.validate_trailers(try section_of(&.{.{ .name = "x-checksum", .value = "0" }}));
     try testing.expectError(

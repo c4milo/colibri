@@ -432,7 +432,10 @@ test "a send RFC 9113 §5.1 forbids writes nothing, and so does a buffer with no
     _ = try feed_request(3, "/", true);
     var cramped: [2]u8 = undefined;
     try testing.expectError(error.OutputTooSmall, write_response(test_connection, &cramped, 3, 200, &.{}, true));
-    try testing.expectError(error.StatusInvalid, write_response(test_connection, test_output, 3, 99, &.{}, true));
+    // RFC 9110 §15: a server sends no status outside 100 to 599, though a client reads one.
+    for ([_]u16{ 99, 600, 800, 999 }) |status| {
+        try testing.expectError(error.StatusInvalid, write_response(test_connection, test_output, 3, status, &.{}, true));
+    }
 }
 
 test "a RST_STREAM the caller asks for closes the stream and is queued with the other replies" {

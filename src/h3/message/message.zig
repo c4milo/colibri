@@ -99,7 +99,7 @@ pub const Error = error{
     AuthorityHostDiffer,
     /// A response without `:status` (RFC 9114 §4.3.2).
     StatusMissing,
-    /// A `:status` that is not three digits from 100 to 599 (RFC 9114 §4.3.2, RFC 9110 §15).
+    /// A `:status` that is not three digits (RFC 9114 §4.3.2, RFC 9110 §15).
     StatusInvalid,
     /// A content-length that disagrees with itself or does not fit a u64 (RFC 9114 §4.1.2,
     /// RFC 9110 §8.6).
@@ -168,7 +168,7 @@ pub fn validate_response(section: *const FieldSection) Error!Response {
     // RFC 9114 §4.3.2: :status MUST be included in all responses, interim responses included.
     const digits = seen.status orelse return error.StatusMissing;
     // RFC 9114 §4.1.2: an invalid value for a pseudo-header field is malformed; RFC 9110 §15:
-    // three digits from 100 to 599.
+    // three digits, and a code outside 100 to 599 is read as a 5xx.
     const status = Status.from_digits(digits) catch return error.StatusInvalid;
     const length = try content_length_of(section);
     assert(seen.method == null and seen.path == null);

@@ -166,7 +166,7 @@ test "a refused head resets the scanner, and each layer's refusal reaches the ca
     try testing.expectEqual(0, scanner.scanned);
     try testing.expectError(error.VersionInvalid, read_request(&scanner, "GET / http/1.1\r\n\r\n", &test_section));
     try testing.expectError(error.ObsFold, read_request(&scanner, "GET / HTTP/1.1\r\nX: a\r\n b\r\n\r\n", &test_section));
-    try testing.expectError(error.StatusInvalid, read_response(&scanner, .other, "HTTP/1.1 700 X\r\n\r\n", &test_section));
+    try testing.expectError(error.StatusInvalid, read_response(&scanner, .other, "HTTP/1.1 7x0 X\r\n\r\n", &test_section));
     try testing.expectError(error.StartLineEmpty, read_response(&scanner, .other, "\r\nHTTP/1.1 200 X\r\n\r\n", &test_section));
     try testing.expectError(error.HostMissing, read_request(&scanner, "GET / HTTP/1.1\r\n\r\n", &test_section));
     try testing.expectError(error.ChunkedNotLast, read_request(&scanner, "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip\r\n\r\n", &test_section));

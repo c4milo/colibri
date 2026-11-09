@@ -109,7 +109,7 @@ test "RFC 9114 §4.1: an interim head ends nothing, and nothing goes out of orde
 
 test "RFC 9110 §15: a status is 100 to 599, and RFC 9114 §4.5: h3 has no 101" {
     const fetch = try get("/");
-    for ([_]u16{ 99, 101, 600 }) |status| {
+    for ([_]u16{ 99, 101, 600, 800, 999 }) |status| {
         try testing.expectError(error.StatusInvalid, connection.respond(fetch.id, .{ .status = @enumFromInt(status), .end = true }));
     }
     try testing.expectError(error.RequestUnknown, connection.respond(fetch.id + 4, .{ .status = ok, .end = true }));

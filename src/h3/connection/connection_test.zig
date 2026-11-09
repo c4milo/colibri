@@ -325,4 +325,5 @@ test {
     _ = @import("connection_request_test.zig");
     _ = @import("connection_peer_test.zig");
     _ = @import("connection_qpack_test.zig");
+    _ = @import("connection_status_test.zig");
 }

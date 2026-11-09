@@ -470,6 +470,7 @@ test {
     _ = @import("connection_h2_flow_test.zig");
     _ = @import("connection_h11_test.zig");
     _ = @import("connection_h11_drop_test.zig");
+    _ = @import("connection_status_test.zig");
     _ = @import("connection_tls_test.zig");
     _ = @import("connection_records_test.zig");
     _ = @import("connection_streamed_test.zig");

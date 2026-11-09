@@ -31,7 +31,7 @@ pub const Error = error{
     VersionInvalid,
     /// An HTTP-version whose major version is not 1 (RFC 9110 §2.5).
     VersionUnsupported,
-    /// A status code that is not three digits from 100 to 599 (RFC 9112 §4, RFC 9110 §15).
+    /// A status code that is not three digits (RFC 9112 §4, RFC 9110 §15).
     StatusInvalid,
     /// A reason phrase holding an octet other than HTAB, SP, VCHAR or obs-text (RFC 9112 §4).
     ReasonInvalid,
@@ -91,7 +91,7 @@ pub fn parse_status_line(line: []const u8) Error!StatusLine {
     try expect_separator(&reader);
     // RFC 9112 §4: status-code = 3DIGIT, after the first SP.
     const digits = reader.take(http.constants.protocol.status_digits_len) catch return error.StartLineInvalid;
-    // RFC 9112 §4: status-code = 3DIGIT; RFC 9110 §15: from 100 to 599.
+    // RFC 9112 §4: status-code = 3DIGIT; RFC 9110 §15: a code outside 100 to 599 is read as a 5xx.
     const status = http.Status.from_digits(digits) catch return error.StatusInvalid;
     // RFC 9112 §4: a server MUST send the SP after the status code even when the reason phrase
     // is absent.
@@ -239,12 +239,23 @@ test "RFC 9112 §4: the SP after the status code is required, and the elements a
     try testing.expectError(error.StartLineInvalid, parse_status_line("HTTP/1.1"));
 }
 
-test "RFC 9112 §4 and RFC 9110 §15: a status is three digits from 100 to 599" {
-    try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1 099 X"));
-    try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1 600 X"));
+test "RFC 9112 §4 and RFC 9110 §15: a status is three digits, and one outside 100 to 599 is a 5xx" {
+    try expect_server_error(99, "HTTP/1.1 099 X");
+    try expect_server_error(600, "HTTP/1.1 600 X");
+    try expect_server_error(800, "HTTP/1.1 800 X");
+    try expect_server_error(999, "HTTP/1.1 999 X");
     try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1 2x0 X"));
+    try testing.expectError(error.StatusInvalid, parse_status_line("HTTP/1.1 20 X"));
+    try testing.expectError(error.StartLineInvalid, parse_status_line("HTTP/1.1 8000 X"));
     try testing.expectEqual(599, @intFromEnum((try parse_status_line("HTTP/1.1 599 X")).status));
     try testing.expectEqual(100, @intFromEnum((try parse_status_line("HTTP/1.1 100 X")).status));
+}
+
+/// Checks that `line` parses to the status `code`, which RFC 9110 §15 makes a 5xx. Test-only.
+fn expect_server_error(code: u16, line: []const u8) !void {
+    const parsed = try parse_status_line(line);
+    try testing.expectEqual(code, @intFromEnum(parsed.status));
+    try testing.expectEqual(http.Status.Class.server_error, parsed.status.class());
 }
 
 test "RFC 9112 §4: a reason phrase refuses controls other than HTAB" {

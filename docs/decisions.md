@@ -6713,6 +6713,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
           take `http.Status`. `server` and `client` re-export it as `Status`.
         - `client.Response.status` has no default of 0. A program reads `result` to know whether
           a final status arrived.
+        - Ruling 17 amends this ruling: `from_digits` accepts a code outside 100 to 599.
      6. Each type in a public signature has a public name, as a declaration of the type whose
         calls take or return it (pattern 5). Design §8 step 45 lists each name.
         - The types of one exported type's calls move from the file's lowercase namespace into
@@ -6858,6 +6859,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - `colibri.ServerConfig.endpoint` becomes `colibri.ServerConfig.engine`, as ruling 15
            names the engine. Step 44 rebuilds `colibri.Server`, so the field changes there, in
            44d.
+     17. Amended by the owner on 2026-11-09, for ruling 5. The client accepts any status code of
+         three digits, 000 to 999, over h11, h2 and h3, and gives it to the program as
+         `http.Status`. connectrpc's conformance suite sends a status of 800, through connect-zig
+         on `client.ConnectionPool`, and `from_digits` refused it.
+         - RFC 9110 §15 says: "A client that receives a response with an invalid status code
+           SHOULD process the response as if it had a 5xx (Server Error) status code." colibri
+           follows the SHOULD.
+         - `from_digits` reads what a peer sends, and accepts any three DIGIT octets. Text that is
+           not three digits stays `error.StatusNotThreeDigits`, and the response stays malformed.
+         - `class` returns `.server_error` for a code outside 100 to 599. Such a code is a final
+           response, never an interim one.
+         - `write_digits` writes any code of three digits, so a client can write the code it
+           received.
+         - The send path does not change. `from_code` refuses a code outside 100 to 599 with
+           `error.StatusOutOfRange`, so a server cannot send one. `h3.Connection.write_response`
+           checks its `:status` with `from_code` too, since `from_digits` no longer refuses it.
+         - No public name changes. The release is v0.15.1.
+         - The alternative that lost: a refusal of the response as malformed. RFC 9110 §15 asks
+           for a 5xx, and a program then cannot read the response that the server sent.
 
      What the amended decisions now say:
      - Decisions 35 and 125: the comptime count of a server is `server.Engine(capacity)`, not

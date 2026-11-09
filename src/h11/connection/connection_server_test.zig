@@ -56,6 +56,14 @@ test "requests are read one at a time, each after the last one's final response"
     try testing.expectEqual(connection.Phase.waiting, target.phase);
 }
 
+test "RFC 9110 §15: a server sends no status outside 100 to 599, though a client reads one" {
+    const target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+    for ([_]u16{ 99, 600, 800, 999 }) |status| {
+        try testing.expectError(error.StatusInvalid, target.write_response(&test_output, status, "", &.{}));
+    }
+}
+
 test "a request body arrives as data then end, and a chunked one leaves its trailers" {
     var target = server();
     const fixed = "POST / HTTP/1.1\r\nHost: h\r\nContent-Length: 3\r\n\r\nabc";

@@ -163,8 +163,8 @@ test "decision 158: a response with no final head reads no status, and its resul
     support.client_send();
     try support.peer_h11_read();
     support.to_client_len += try support.peer_h11.write_response(support.to_client[support.to_client_len..], early_hints, "", &.{});
-    // RFC 9110 §15: 999 is no status code, so no final head arrives.
-    try peer_writes("HTTP/1.1 999 X\r\n\r\n");
+    // RFC 9112 §4: status-code = 3DIGIT, so 9x9 is no status code and no final head arrives.
+    try peer_writes("HTTP/1.1 9x9 X\r\n\r\n");
     try testing.expectEqual(.malformed, exchange.response.result);
     try testing.expectEqual(1, exchange.response.interims);
     try testing.expectError(error.StatusOutOfRange, http.Status.from_code(@intFromEnum(exchange.response.status)));
@@ -284,8 +284,8 @@ test "RFC 9112 §8: a malformed response ends its exchange malformed, and the co
     _ = try connection.request(&exchange.request, &exchange.response);
     _ = try connection.request(&next.request, &next.response);
     support.client_send();
-    // RFC 9110 §15: 999 is no status code.
-    const response = "HTTP/1.1 999 X\r\n\r\n";
+    // RFC 9112 §4: status-code = 3DIGIT, so 9x9 is no status code.
+    const response = "HTTP/1.1 9x9 X\r\n\r\n";
     @memcpy(support.to_client[0..response.len], response);
     support.to_client_len = response.len;
     try support.client_receive();

@@ -277,6 +277,7 @@ test {
     _ = @import("quic/quic_resume_test.zig");
     _ = @import("quic/quic_coding_test.zig");
     _ = @import("quic/quic_trailers_test.zig");
+    _ = @import("quic/quic_status_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

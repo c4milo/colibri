@@ -14,6 +14,9 @@ const FieldSection = http.FieldSection;
 /// Most octets one fuzz input carries: room for a start line, a few field lines and a body.
 const fuzz_input_len_max = 96;
 
+/// The highest code that three digits hold (RFC 9112 §4: status-code = 3DIGIT).
+const max_three_digits = 999;
+
 /// The empty line that ends a head (RFC 9112 §2.1).
 const head_end = "\r\n\r\n";
 
@@ -37,7 +40,8 @@ fn fuzz_head(_: void, smith: *Smith) anyerror!void {
     if (message.read_response(&scanner, .other, octets, &fuzz_section)) |read| {
         if (read) |response| {
             try expect_head(octets, response.head_len);
-            _ = try http.Status.from_code(@intFromEnum(response.line.status));
+            // RFC 9112 §4: status-code = 3DIGIT, so any code a response carries has three digits.
+            try std.testing.expect(@intFromEnum(response.line.status) <= max_three_digits);
         }
     } else |_| {}
 }
