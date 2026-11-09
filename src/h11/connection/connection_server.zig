@@ -2,9 +2,11 @@
 //! application writes to them, in order (RFC 9112 §9.3.2, decision 92).
 //!
 //! The next request is read only after the current one's final response is written, so the octets
-//! of a pipelined request stay unread in the caller's buffer until then. A response written
-//! before the request's body has all been read ends the connection after it, because RFC 9112 §9.3
-//! has a server read the whole body or close.
+//! of a pipelined request stay unread in the caller's buffer until then. RFC 9112 §9.3 has a
+//! server read the whole request body or close. So a response written before the request's body
+//! has all been read is followed by the `discard` phase, which reads the rest of the body and
+//! reports none of it, when the rest fits `Options.discard_len_max` (decision 160). Otherwise the
+//! connection closes after the response.
 //!
 //! A malformed request fails the connection, and the error response colibri owes is written by
 //! `write_pending` with `Connection: close` (decision 92).
@@ -38,6 +40,7 @@ pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection
         .tunnel => .{ .consumed = input.len, .event = if (input.len == 0) null else .{ .tunnel = input } },
         .head => read_request(target, input),
         .body => read_body(target, input, decoded),
+        .discard => discard_body(target, input),
     };
 }
 
@@ -77,6 +80,35 @@ fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.C
         return .{ .consumed = read.consumed, .event = .{ .data = read.data } };
     }
     return .{ .consumed = read.consumed, .event = if (read.ended) .end else null };
+}
+
+/// Reads the rest of a body the response did not wait for, and reports none of it (decision 160).
+/// The body ends within `discard_left` octets, or the connection closes.
+fn discard_body(target: *Connection, input: []const u8) connection.Connection.Error!Received {
+    assert(target.phase == .discard and target.answered and target.responded);
+    // Decision 160: the body must end within the octets left, so no read takes more of them.
+    const allowed = input[0..@intCast(@min(input.len, target.discard_left))];
+    // A decoder was given back when the phase began, so the octets are read as they came.
+    const read = connection_body.read(&target.reader, .request, allowed, &target.trailers) catch |failure| {
+        return target.fail(failure, null);
+    };
+    target.discard_left -= read.consumed;
+    if (read.ended) {
+        end_discard(target);
+    } else if (read.consumed == 0 and allowed.len < input.len) {
+        // RFC 9112 §9.3: a body that does not end within the bound is not read whole, so the
+        // connection closes.
+        target.close_after = true;
+        target.phase = .closed;
+    }
+    return .{ .consumed = read.consumed, .event = null };
+}
+
+/// The body that the `discard` phase read ended: the connection reads the next request, or closes.
+fn end_discard(target: *Connection) void {
+    assert(target.phase == .discard and !target.reader.open());
+    target.answered = false;
+    target.phase = if (target.close_after) .closed else .head;
 }
 
 /// Writes a response head to the request read last. An interim response (1xx) may come first;
@@ -174,16 +206,44 @@ pub fn finish_response(target: *Connection) void {
     assert(target.role == .server and target.answered);
     target.responded = true;
     if (target.phase == .tunnel) return;
-    // RFC 9112 §9.3: a server MUST read the whole request body or close after its response.
-    if (target.phase == .body) target.close_after = true;
+    if (target.phase == .body) start_discard(target);
     if (target.close_after) {
         target.phase = .closed;
         connection.release_decoding(target);
         return;
     }
+    // The body's rest is read in the `discard` phase, which ends the request.
+    if (target.phase == .discard) return;
     assert(target.phase == .waiting);
     target.phase = .head;
     target.answered = false;
+}
+
+/// Starts the `discard` phase of a body the response did not wait for, or closes the connection
+/// after the response when the body's rest may not fit `discard_len_max` (decision 160).
+fn start_discard(target: *Connection) void {
+    assert(target.phase == .body and target.reader.open());
+    // Decision 160: nothing reads what the body decodes to, so its decoder goes back now.
+    connection.release_decoding(target);
+    // RFC 9112 §9.3: a server MUST read the whole request body or close after its response.
+    if (target.close_after or !discard_fits(target)) {
+        target.close_after = true;
+        return;
+    }
+    target.phase = .discard;
+    target.discard_left = target.discard_len_max;
+}
+
+/// Whether the rest of the body may end within `discard_len_max` octets.
+fn discard_fits(target: *const Connection) bool {
+    return switch (target.reader.kind) {
+        // RFC 9112 §6.2: the Content-Length says how many octets are left.
+        .fixed => target.reader.remaining <= target.discard_len_max,
+        // RFC 9112 §7.1: a chunked body says where it ends only as it arrives, so the read judges.
+        .chunked => target.discard_len_max > 0,
+        // RFC 9112 §6.3: a request body has a length or is chunked, and a tunnel is no body.
+        .none, .close_delimited, .tunnel => false,
+    };
 }
 
 /// The error response colibri owes for a refused request (decision 92): no content, and the close.

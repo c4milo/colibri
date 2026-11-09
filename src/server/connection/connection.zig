@@ -424,4 +424,5 @@ test {
     _ = @import("connection_deadline_test.zig");
     _ = @import("connection_bodies_test.zig");
     _ = @import("connection_sends_test.zig");
+    _ = @import("connection_discard_test.zig");
 }

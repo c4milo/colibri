@@ -248,7 +248,7 @@ With chapulin's host objects:
 | `client.ConnectionPool(.{ .quic = false })` | 9088 | the fixed part of a pool with no QUIC state |
 | `client.ConnectionPool(.{}).memory_bytes(.{})` | 317536 | the memory a pool takes at the default counts: one TCP connection, its link and 16 requests |
 | `client.ReceivePool(.{})` | 1507848 | the receive pool a program passes to a pool, at its default capacity |
-| `h11.Connection` | 35040 | the h11 state inside a TCP connection |
+| `h11.Connection` | 35056 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163520 | the h2 state inside a TCP connection |
 | `h3.Connection` | 147112 | the h3 state inside a QUIC connection |
 | `quic.Connection` | 208472 | the QUIC state inside an h3 connection |

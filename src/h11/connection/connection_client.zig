@@ -106,7 +106,8 @@ pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection
         .tunnel => .{ .consumed = input.len, .event = if (input.len == 0) null else .{ .tunnel = input } },
         .head => read_response(target, input),
         .body => read_body(target, input, decoded),
-        .waiting => unreachable,
+        // A client writes no response, so it neither waits to write one nor discards a body.
+        .waiting, .discard => unreachable,
     };
 }
 

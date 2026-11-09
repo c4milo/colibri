@@ -12,6 +12,7 @@ const connection_bodies = @import("connection_bodies.zig");
 const connection_config = @import("connection_config.zig");
 const connection_coding = @import("connection_coding.zig");
 const h2 = @import("h2");
+const constants = @import("../constants.zig");
 
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
@@ -46,7 +47,7 @@ fn make_h2_session(connection: *Connection) void {
 }
 
 /// Makes h11 the session's protocol and leaves its payload's octets as they are, as
-/// `make_h2_session` does for h2. ReleaseSafe would fill all 35,040 octets of `h11.Connection`
+/// `make_h2_session` does for h2. ReleaseSafe would fill all 35,056 octets of `h11.Connection`
 /// with 0xAA on every connection. `h11.Connection.init` then writes every field that code reads.
 /// h11's `connection_init_test.zig` and `connection_internal_test.zig` check it.
 fn make_h11_session(connection: *Connection) void {
@@ -67,7 +68,12 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
         },
         .h11 => {
             make_h11_session(connection);
-            connection.session.h11.init(.{ .role = .server, .decoders = connection.config.decoders });
+            connection.session.h11.init(.{
+                .role = .server,
+                .decoders = connection.config.decoders,
+                // Decision 160: the rest of a body a response did not wait for is read, to a bound.
+                .discard_len_max = constants.limits.discard_len_max,
+            });
         },
         // RFC 9114 §3.1: h3 runs over QUIC alone, which `QuicConnection` serves.
         .h3 => unreachable,
@@ -109,11 +115,16 @@ pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64
     return switch (connection.session) {
         .h2 => connection_h2.receive(connection, plaintext, now_ns),
         .h11 => |*session| {
-            const reading_body = session.phase == .body;
+            const reading_body = session.phase == .body or session.phase == .discard;
+            const discarding = session.phase == .discard;
+            // A call that discards the rest of a body may read the next request's head after it.
+            const id = connection.current_id;
             const received = try connection_h11.receive(connection, plaintext);
             // Decision 110: the octets h11 reads of a body, its framing included, are the
-            // body's.
-            if (reading_body) connection_bodies.count(connection, connection.current_id, received.consumed);
+            // body's, and so are the octets it discards (decision 160).
+            if (reading_body) connection_bodies.count(connection, id, received.consumed);
+            // Decision 160: h11 reports no end of a body it discards, so its deadlines end here.
+            if (discarding and session.phase != .discard) connection_bodies.remove(connection, id);
             return received;
         },
         // `receive` reads the protocol only once the connection is open.

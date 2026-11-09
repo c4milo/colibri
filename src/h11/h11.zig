@@ -97,6 +97,7 @@ test {
     _ = @import("chunked/chunked_write.zig");
     _ = @import("message/message_fuzz.zig");
     _ = @import("connection/connection_server_test.zig");
+    _ = @import("connection/connection_discard_test.zig");
     _ = @import("connection/connection_client_test.zig");
     _ = @import("connection/connection_tls_test.zig");
     _ = @import("connection/connection_coding_test.zig");

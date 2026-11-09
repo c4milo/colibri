@@ -164,6 +164,12 @@ pub const timeout_ns_max: u64 = 86_400 * constants.nanoseconds_per_second;
 /// peer may open.
 pub const bodies_max: usize = h2.constants.limits.concurrent_streams_max;
 
+/// The most octets of an h11 request body the server reads and discards after the request's final
+/// response, so the connection serves the next request (RFC 9112 §9.3, decision 160). A body that
+/// does not end within them gets the staged close of RFC 9112 §9.6. The owner ruled 256 KiB on
+/// 2026-11-09.
+pub const discard_len_max: u64 = 256 * 1024;
+
 /// The parameters that one pattern of a route table holds, its wildcard included (decision 122
 /// ruling 10). It sizes `PathParameters`. A table that needs more does not compile, so the limit
 /// never fails at run time.
@@ -246,6 +252,7 @@ test "decision 137: each limit holds the value the owner ruled" {
     try expectEqual(4, encoders_default);
     try expectEqual(100, requests_max);
     try expectEqual(86400000000000, timeout_ns_max);
+    try expectEqual(262144, discard_len_max);
     try expectEqual(128, bodies_max);
     try expectEqual(8, path_parameters_max);
     try expectEqual(10, route_methods_max);
