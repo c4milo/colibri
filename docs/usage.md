@@ -550,11 +550,23 @@ the engine has released the bytes there (decision 103 as amended on 2026-11-09):
 - Over h3, once the client has acknowledged the bytes (RFC 9000 §3.1).
 
 So the entry's `response_bytes` bound the body bytes in flight, not the body. `flush()` sends the
-bytes the writer holds. One write through `body()` goes into the memory whole, or fails with
-`error.WriteFailed` and writes nothing. A struct route with `on_writable` keeps that message and
-writes it again in its next call. `trailers` returns `error.NoSpaceLeft` in the same case, and the
-route calls it again. Over h3, a response sends at most about `response_bytes` in each round trip.
-So a program that streams a long response through `body()` sets a larger `response_bytes`.
+bytes the writer holds. When the memory has no room, a call fails, and a struct route with
+`on_writable` tries again in its next call:
+
+- One `writeAll` of one slice through `body()` goes into the memory whole, or fails with
+  `error.WriteFailed` and writes nothing. The route writes the slice again.
+- A `print` can write part of a message and then fail, and so can a write through a middleware's
+  wrapper. The route does not write that message again.
+- A `flush()` that fails with `error.WriteFailed` keeps its bytes in the writer, and the writer
+  sends them later. The route does not write them again. Over h3 the writer holds at most
+  `server.constants.limits.response_pieces_max` runs that the client has not acknowledged. So a
+  route that flushes each small message finds this limit first.
+- `trailers` returns `error.NoSpaceLeft`, and the route calls it again.
+
+Over h3, a response sends at most about `response_bytes` in each round trip. On a path with loss,
+a small `response_bytes` can keep the response under decision 110's `send_rate_min`, and the
+server then closes the connection. So a program that streams a long response through `body()` sets
+a larger `response_bytes`.
 
 `write_kept` sends bytes the program keeps valid until the `finished`, with no copy, such as a
 file the program mapped. `trailers` ends the response with a trailer section. When the engine
@@ -763,14 +775,20 @@ const Echo = struct {
 A request body larger than `body_bytes` gets 413. The router ends the response once `on_body` ran
 with the last byte, unless the route has `on_writable`. `on_writable` writes a response over many
 calls: the router calls it while the response is open, the engine took all it was given, and the
-writer has room. The route ends the response itself. The router calls `on_writable` while the
-request body is still open too, so a route can answer while the client still sends (decision 127
-as amended on 2026-11-09). A call that writes nothing while the body is open waits for the next
-body bytes or the next `writable`. Once the body has ended, a route that neither ends its response
-nor fills the engine is cancelled. A `.whole_body` route's `on_writable` runs only after its
-`on_body`. Decision 110's request body deadlines apply to such a route too, so a route that waits
-for a quiet client needs a program that sets them for its connection with `set_timeouts`. `on_finished` runs at the request's `finished` event, with its
-result.
+writer has room. The route ends the response itself. `on_finished` runs at the request's
+`finished` event, with its result.
+
+The router calls `on_writable` while the request body is still open too, so a route can answer
+while the client still sends (decision 127 as amended on 2026-11-09):
+
+- A call that writes nothing while the body is open waits for the next body bytes or the next
+  `writable`.
+- Once the body has ended, a route that neither ends its response nor fills the engine is
+  cancelled.
+- A `.whole_body` route's `on_writable` runs only after its `on_body`.
+
+Decision 110's request body deadlines apply to such a route too. So a route that waits for a
+quiet client needs a program that sets them for its connection with `set_timeouts`.
 
 The route table must name `error_handler`, which chooses the status after a route's function returns an
 error ([decision 127](decisions.md) ruling 4). After the head went out, the router cancels the

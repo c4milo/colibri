@@ -3436,10 +3436,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: a caller keeps each response body until its request is done, and the `done` event joins
      the server's events for every version.
 
-     **Amended by the owner on 2026-11-09, for design §8 step 46 and v0.15.2.** connect-zig reported
-     that `server.ResponseWriter.body()` stops at `response_bytes` on every version. The router's
-     response writer now writes again into its body's memory once the engine has released the bytes
-     there:
+     **Amended by the owner on 2026-11-09, for design §8 step 46 and v0.15.2.** connect-zig
+     reported that `server.ResponseWriter.body()` stops at `response_bytes` on every version. The
+     router's response writer now writes again into its body's memory once the engine has released
+     the bytes there:
      - h11 and h2 release them at once, because the connection copies them inside `write_body`.
      - A coded h3 response releases them at once, because its encoder copies them into its ring.
      - An uncoded h3 response releases them when the peer has acknowledged them (RFC 9000 §3.1).
@@ -3450,8 +3450,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - That alternative added a copy for each octet and a cap on the octets in flight to the
        server. `body()` already makes that copy, into the entry's memory, and that memory already
        caps it. A program sets the cap with `response_bytes`.
-     - The engine's contract does not change. `write_body` copies nothing, and the bytes of
-       `write_kept` stay the program's until the request's `finished`.
+     - The engine's contract does not change. Over h3, `write_body` still reads the bytes it took
+       in place, with no copy, and the bytes of `write_kept` stay the program's until the
+       request's `finished`.
 
      Cost: over h3, a stream that `body()` writes sends at most about `response_bytes` in each round
      trip, so a program that streams sets a larger `response_bytes`.

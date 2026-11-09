@@ -10,8 +10,9 @@
 //! The bytes of `body` go into the entry's memory after the headers. The writer writes again into
 //! memory whose bytes the engine released (decisions 103 and 127 as amended, design §8 step 46):
 //! at once over h11 and h2, and over h3 once the peer acknowledged them. So `response_bytes`
-//! bounds the bytes in flight, not the response. One write goes into the memory whole, or fails
-//! with `error.WriteFailed` and writes nothing, and a route writes it again in `on_writable`.
+//! bounds the bytes in flight, not the response. One `writeAll` of one slice goes into the memory
+//! whole, or fails with `error.WriteFailed` and writes nothing, and a route writes it again in
+//! `on_writable`. A failed `flush` keeps its bytes, and the writer sends them later.
 //!
 //! A middleware's `wrap_response` may wrap the body's writer (design §8 step 25.6). `body` then
 //! returns the wrapper, and `end` and `trailers` only record that the response ends: the router
@@ -87,8 +88,8 @@ pub const ResponseWriter = struct {
     }
 
     /// The writer of the body, over the entry's memory after the headers. Its first call closes
-    /// the headers. A write that does not fit the memory the engine released, or a write after
-    /// `end`, fails with `error.WriteFailed` and writes nothing.
+    /// the headers. One `writeAll` of one slice that does not fit the memory the engine released,
+    /// or a write after `end`, fails with `error.WriteFailed` and writes nothing.
     pub fn body(response: *ResponseWriter) *std.Io.Writer {
         if (!response.body_started) internal.start_body(response);
         return response.wrapped orelse &response.writer;

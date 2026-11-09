@@ -14757,15 +14757,17 @@ library.
   - **The ring of the body's writer** (decision 103 as amended, decision 127 amendment 1).
     - The runs of an h3 response count the caller's octets they hold, in `caller_len`. The
       engine's state reads them in `held_len`: none over TCP, none for a coded h3 response, and
-      `caller_len` for an uncoded one. `Engine` has no call for it, and the response writer's sink reads the state.
+      `caller_len` for an uncoded one. `Engine` has no call for it, and the response writer's sink
+      reads the state.
     - A request's wait gains `release`. The writer arms it when the engine took every run and holds
       some, and the engine reports `writable` once it holds fewer octets.
     - The writer counts the octets the engine took and the runs it released. A write that does not
       fit its region takes back the released runs, and moves to the larger free region: after the
       newest run, or from the start of the body's memory up to the oldest run held. These are the
       slow path, in `response_writer_ring.zig`. A write that fits costs what it costs now.
-    - One write goes into the memory whole, or fails and writes nothing. The router calls
-      `on_writable` only when the writer has room.
+    - One `writeAll` of one slice goes into the memory whole, or fails and writes nothing. A
+      failed `flush` keeps its bytes. The router calls `on_writable` only when the writer has
+      room.
     - Cost: 18 octets of fields for each router entry and 8 for each h3 request record. No copy
       and no count on the per-frame path.
   - **`on_writable` while the request body is open** (decision 127 amendment 2). The router calls
@@ -14793,14 +14795,23 @@ library.
     4. 46d `test(server)`: a struct route that answers each request octet before the body ends,
        on the engine.
        - Checks: over h11 the reply to each octet is longer than the connection's output, over h2
-         it is longer than ten windows of the stream, and over h3 it is eight times the route's response
-         memory. Each reply arrives before the client sends the next octet, calls that write
+         it is longer than ten windows of the stream, and over h3 it is eight times the route's
+         response memory. Each reply arrives before the client sends the next octet, calls that write
          nothing while the body is open cancel nothing, and the response ends after the body. Over
          h2 a `.whole_body` route's `on_writable` does not run before the body ends.
        - Mutations, against `zig build test-server`: the old check of the body back, CAUGHT by the
          h11, h2 and h3 tests; a call that wrote nothing while the body is open goes on to the
          cancel, CAUGHT by the h11, h2 and h3 tests; the cancel while the body is open, CAUGHT by
          the struct test of 46c only; the `.whole_body` check left out, CAUGHT by the h2 test.
+    5. 46e `fix(server)`: `trailers` with no room sends the run it cut before it waits. Before,
+       no call went to the engine and no wait was armed, so no `writable` came.
+       - Checks: a writer test where trailers find no room after a body the engine holds. The run
+         goes to the engine, the writer waits for a release, and the trailers go after it.
+       - Mutation, against `zig build test-server`: no send before the trailers wait, CAUGHT.
+    6. 46f `test(server)`: a `release` wait reports no `writable` until the peer acknowledges
+       some of the octets the engine holds.
+       - Mutation, against `zig build test-server`: the wait also ends at an equal count,
+         CAUGHT. A review found it NOT CAUGHT before this test.
 
 ## 9. Test-only entry points
 
