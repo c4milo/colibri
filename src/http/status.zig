@@ -5,8 +5,11 @@
 //! The two directions check a status in different ways (decision 158, ruling 17):
 //! - `from_code` checks a code that a program sends. It refuses a value outside 100 to 599 with
 //!   `error.StatusOutOfRange`.
-//! - `from_digits` reads a code that a peer sent. It accepts any three DIGIT octets, 000 to 999,
-//!   and refuses other text with `error.StatusNotThreeDigits`.
+//! - `from_digits` reads a code that a peer sent. It accepts any three DIGIT octets, 000 to 999.
+//!
+//! `from_digits` checks the text in this order (invariant 7):
+//!   1. exactly three octets, or `error.StatusNotThreeDigits`;
+//!   2. every octet a DIGIT, or `error.StatusNotThreeDigits`.
 //!
 //! RFC 9110 §15 tells a client to process an invalid code as a 5xx, so `class` returns
 //! `.server_error` for a code outside 100 to 599. Such a code is never interim. h2 and h3 carry

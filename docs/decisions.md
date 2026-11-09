@@ -334,8 +334,9 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     change between versions, only their expression on the wire, and colibri draws the module
     boundary there. `src/http/` holds: method as an opaque case-sensitive token (§9.1); status as a
     `u16` in 100..599 with class from the first digit and an unrecognised code treated as the x00 of
-    its class (§15); the `field-name = token` and `tchar` grammar (§5.1, §5.6.2) and
-    case-insensitive comparison; the `field-value` grammar with `obs-text` at %x80-FF and the rule
+    its class (§15; decision 158 ruling 17 amends the range a client reads); the
+    `field-name = token` and `tchar` grammar (§5.1, §5.6.2) and case-insensitive comparison; the
+    `field-value` grammar with `obs-text` at %x80-FF and the rule
     that CR, LF and NUL are invalid (§5.5); the order-preserving field-section model, because §5.3
     makes the order of same-name lines significant; the connection-option denylist of §7.6.1, which
     RFC 9114 §4.2 delegates to rather than restates; the "no content" table of §6.4.1, which both

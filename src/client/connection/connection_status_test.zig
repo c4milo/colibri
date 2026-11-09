@@ -13,7 +13,7 @@ const connection = &support.connection;
 const Exchange = support.Exchange;
 
 /// The codes the tests send, as text, which RFC 9110 §15 calls invalid.
-const texts = [_][]const u8{ "099", "600", "800", "999" };
+const texts = [_][]const u8{ "000", "099", "600", "800", "999" };
 
 /// The code that `text` names. Test-only.
 fn code_of(text: []const u8) !u16 {

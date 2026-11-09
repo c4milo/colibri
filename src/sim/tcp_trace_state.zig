@@ -192,10 +192,14 @@ fn drop_goaways(frames: *[limits.frames_max]Frame, len: u32) u32 {
     return kept;
 }
 
+/// The value that the client writes into `Response.status` before the final head. It is above
+/// 999, so a peer cannot send it (RFC 9110 §15), and 000 is a final head.
+const status_before_final_head: u16 = std.math.maxInt(u16);
+
 /// How far the client read a response, from what it filled in the exchange (RFC 9110 §15.2).
 fn response_read_of(outcome: client.Result, status: u16, interims: u32) ResponsePhase {
     if (outcome == .response) return .ended;
-    if (status != 0) return .final;
+    if (status != status_before_final_head) return .final;
     return if (interims > 0) .interim else .none;
 }
 
@@ -278,4 +282,12 @@ fn in_flight(written: Written, consumed: usize, preface: Kind, heads: ?[]const H
 /// The plaintext the client's connection opened and has not read. None before it started.
 fn client_plain_in_len(world: *const World) usize {
     return if (world.started) world.pool.tcp[0].plain_in_len else 0;
+}
+
+test "RFC 9110 §15: a final head of 000 counts as final, and the client's marker as no head" {
+    try std.testing.expectEqual(.final, response_read_of(.pending, 0, 0));
+    try std.testing.expectEqual(.final, response_read_of(.pending, 800, 1));
+    try std.testing.expectEqual(.interim, response_read_of(.pending, status_before_final_head, 1));
+    try std.testing.expectEqual(.none, response_read_of(.pending, status_before_final_head, 0));
+    try std.testing.expectEqual(.ended, response_read_of(.response, 0, 0));
 }

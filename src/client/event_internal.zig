@@ -12,9 +12,16 @@ const headers = @import("headers.zig");
 const Request = event.Request;
 const Response = event.Response;
 
-/// What `Response.status` holds before the final head: 0, which is no status code (RFC 9110 §15).
-/// The client checks with it that it records one final head, and a program reads `result`.
-pub const no_status: http.Status = @enumFromInt(0);
+/// What `Response.status` holds before the final head. A peer sends three digits, 000 to 999
+/// (RFC 9110 §15), so the client uses a value above 999, which no peer can send. The client
+/// checks with it that it records one final head, and a program reads `result`.
+pub const no_status: http.Status = @enumFromInt(std.math.maxInt(u16));
+
+comptime {
+    const digits = http.constants.protocol.status_digits_len;
+    const radix = http.constants.protocol.status_digit_radix;
+    assert(@intFromEnum(no_status) >= std.math.pow(u16, radix, digits));
+}
 
 /// The Content-Length value of `request`, written into `digits`, or null when it sends none.
 /// RFC 9110 §8.6: a user agent sends one when the request has content, or when its method gives
@@ -80,6 +87,7 @@ test "clearing a response makes it pending again, and keeps where the response g
     response.coding = .gzip;
     clear(&response);
     try testing.expectEqual(.pending, response.result);
+    try testing.expectEqual(no_status, response.status);
     try testing.expectEqual(0, response.body_len);
     try testing.expectEqual(null, response.coding);
     try testing.expectEqual(0, response.headers.len);
