@@ -2,9 +2,9 @@
 //! engine's events and calls the routes' functions (decision 127 ruling 2, design §8 step 25.3).
 //!
 //! Each request a route answers holds one entry from its head to its `finished`. The entry holds
-//! the request's `ResponseWriter` and its response memory, which the engine may read until the
-//! `finished` (decision 103), and a struct route's state and held body bytes. The engine's word
-//! for the request is the entry's index plus one, so 0 names no entry.
+//! the request's `ResponseWriter` and its response memory, which the engine may read until it
+//! releases the bytes (decision 103 as amended), and a struct route's state and held body bytes.
+//! The engine's word for the request is the entry's index plus one, so 0 names no entry.
 //!
 //! The router ends a response the program left open: a function's at its return, and a struct
 //! route's once the request body ended and `on_body` ran with its last byte, unless the route has
@@ -230,10 +230,14 @@ fn on_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: a
     }
 }
 
-/// Calls `on_writable` while the response is open and the engine took all it was given.
+/// Calls `on_writable` while the response is open, the engine took all it was given, and the
+/// writer has room (design §8 step 46).
 fn run_writable(comptime P: type, entry: *P.Entry, context: *P.Context, engine: anytype, comptime handler: anytype) void {
     for (0..writable_calls_max) |_| {
         if (entry.response.ended or writer_internal.waiting(&entry.response)) return;
+        // A writer with no room waits for the engine to release bytes, which `waiting` says.
+        const room = writer_internal.has_room(&entry.response) catch return engine.cancel(entry.response.id);
+        if (!room) break;
         const outcome = router_call.call_writable(handler, context, state_of(P, handler, entry), &entry.response);
         if (!after(P, entry, context, engine, null, outcome)) return;
     }

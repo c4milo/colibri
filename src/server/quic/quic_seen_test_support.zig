@@ -67,8 +67,13 @@ pub const seen_max: usize = 256;
 pub var seen: [seen_max]Seen align(@alignOf(Seen)) = undefined;
 pub var seen_len: usize = 0;
 
+/// A program that takes each event in place of `keep`, as a router does (design §8 step 46), or
+/// null. `quic_test_support.start` clears it.
+pub var program: ?*const fn (Event) void = null;
+
 /// Keeps `reported`, and hands an event only the engine reports to `engine_support`.
 pub fn keep(reported: Event) void {
+    if (program) |take| return take(reported);
     assert(seen_len < seen.len);
     const entry = &seen[seen_len];
     entry.* = .{ .kind = kind_of(reported), .id = 0 };

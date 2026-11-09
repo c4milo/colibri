@@ -363,4 +363,5 @@ test {
     _ = @import("server_tcp_test.zig");
     _ = @import("server_deinit_test.zig");
     _ = @import("server_udp_test.zig");
+    _ = @import("server_stream_test.zig");
 }

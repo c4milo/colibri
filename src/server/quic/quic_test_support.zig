@@ -150,6 +150,7 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     client_reads = true;
     client_mute = false;
     seen_support.seen_len = 0;
+    seen_support.program = null;
     server_drop = 0;
     server_datagram_len = quic.constants.protocol.datagram_len_max;
     fetches_len = 0;

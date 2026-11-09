@@ -14,12 +14,18 @@ const support = @import("test_support.zig");
 pub const greeting = "hello from colibri";
 /// The instant the tests pass as `unix_seconds`, inside the test identity's dates.
 pub const now_seconds = testdata.now_seconds;
-/// The requests a test makes at most, and the room of each response's body.
+/// The requests a test makes at most, and the room of each response's body: the stream of
+/// `/stream`, `stream_turns` times the router's room for each response (design §8 step 46).
 pub const requests_max = 4;
-const body_len = 64;
+const stream_turns = 16;
+pub const stream_len = stream_turns * response_bytes;
+const body_len = stream_len;
 /// The connections the test server holds, and the router's room for each response.
 const connections = 4;
 const response_bytes = 256;
+/// The octets of each message of `/stream`, and the prime its octets count modulo.
+const message_len = 100;
+const pattern_period = 251;
 /// RFC 9110 §15.3.1: 200 (OK), and §15.6.1: 500 (Internal Server Error).
 const ok: client.Status = .ok;
 const internal_server_error: server.Status = .internal_server_error;
@@ -38,6 +44,7 @@ const routes = .{
     .routes = .{
         .{ .get, "/greeting", greet },
         .{ .get, "/goodbye", greet_and_close },
+        .{ .get, "/stream", Stream },
     },
 };
 const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = 0 });
@@ -54,6 +61,47 @@ fn greet_and_close(_: *void, _: *const server.Request, _: void, _: void, respons
     try response.header("content-type", "text/plain");
     try response.body().writeAll(greeting);
     try response.end();
+}
+
+/// Writes `stream_len` octets through `body()`, one message at a time, each flushed: many times
+/// the router's room for the response (design §8 step 46). A message that does not fit is
+/// written again in the next call.
+const Stream = struct {
+    pub const State = struct { written: usize = 0 };
+
+    pub fn on_request(_: *void, _: *State, _: *const server.Request, _: void, _: void, response: *server.ResponseWriter) !void {
+        try response.header("content-type", "application/octet-stream");
+    }
+
+    pub fn on_writable(_: *void, state: *State, response: *server.ResponseWriter) !void {
+        const writer = response.body();
+        var message: [message_len]u8 = undefined;
+        // Bounded: each pass writes one message.
+        for (0..stream_len) |_| {
+            if (state.written == stream_len) return response.end();
+            const len = @min(message_len, stream_len - state.written);
+            for (message[0..len], state.written..) |*octet, offset| octet.* = stream_octet(offset);
+            writer.writeAll(message[0..len]) catch return;
+            state.written += len;
+            try writer.flush();
+        }
+    }
+};
+
+/// The octet at `offset` of `/stream`'s response.
+fn stream_octet(offset: usize) u8 {
+    return @intCast(offset % pattern_period);
+}
+
+/// Whether `response` holds `/stream`'s response, whole and in order.
+fn stream_in(response: *const client.Response) bool {
+    if (response.result != .response or response.status != ok) return false;
+    const body = response.body_received();
+    if (body.len != stream_len) return false;
+    for (body, 0..) |octet, offset| {
+        if (octet != stream_octet(offset)) return false;
+    }
+    return true;
 }
 
 fn on_error(_: *void, _: *const server.Request, _: anyerror, response: *server.ResponseWriter) void {
@@ -152,6 +200,7 @@ pub const Handler = struct {
     connected: ?client.Protocol = null,
     connections: u32 = 0,
     greetings: u32 = 0,
+    streams: u32 = 0,
     path: []const u8 = "/greeting",
     method: []const u8 = "GET",
 
@@ -172,6 +221,7 @@ pub const Handler = struct {
         std.debug.assert(running == &test_client);
         handler.finished += 1;
         if (greeting_in(finished.response)) handler.greetings += 1;
+        if (stream_in(finished.response)) handler.streams += 1;
         if (handler.more > 0) {
             handler.more -= 1;
             handler.request(1) catch |failure| std.debug.panic("request failed: {t}", .{failure});

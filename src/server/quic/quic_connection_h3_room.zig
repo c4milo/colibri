@@ -46,3 +46,13 @@ pub fn takes_trailers(connection: *QuicConnection, id: Number) bool {
     }
     return record.response.has_room();
 }
+
+/// Octets of the caller's that the response to request `id` still reads in place: those of an
+/// uncoded response that the peer has not acknowledged (RFC 9000 §3.1, design §8 step 46). A coded
+/// response's encoder copied them into its ring, and a request the connection no longer holds
+/// reads none.
+pub fn held_len(connection: *QuicConnection, id: Number) usize {
+    const record = quic_connection_h3.live(connection, id) orelse return 0;
+    if (record.coded != null) return 0;
+    return record.response.caller_len;
+}

@@ -543,12 +543,23 @@ fn greet(_: *App, _: *const server.Request, _: void, _: void, response: *server.
 ```
 
 `end` sends a head that carries the whole body with its Content-Length. The writer copies each
-header and writes the body into the request's entry, which the engine may read until the
-request's `finished` (decision 103). So the entry's `response_bytes` bound a body that `body()`
-writes. `write_kept` sends bytes the program keeps valid until the `finished`, with no copy, such
-as a file the program mapped. `trailers` ends the response with a trailer section. When the
-engine takes less than the writer gives it, the rest waits, and the router sends it at the
-request's `writable`.
+header and writes the body into the request's entry. It writes again into the entry's memory once
+the engine has released the bytes there (decision 103 as amended on 2026-11-09):
+
+- Over h11 and h2, at once, because the connection copies the bytes inside the call.
+- Over h3, once the client has acknowledged the bytes (RFC 9000 §3.1).
+
+So the entry's `response_bytes` bound the body bytes in flight, not the body. `flush()` sends the
+bytes the writer holds. One write through `body()` goes into the memory whole, or fails with
+`error.WriteFailed` and writes nothing. A struct route with `on_writable` keeps that message and
+writes it again in its next call. `trailers` returns `error.NoSpaceLeft` in the same case, and the
+route calls it again. Over h3, a response sends at most about `response_bytes` in each round trip.
+So a program that streams a long response through `body()` sets a larger `response_bytes`.
+
+`write_kept` sends bytes the program keeps valid until the `finished`, with no copy, such as a
+file the program mapped. `trailers` ends the response with a trailer section. When the engine
+takes less than the writer gives it, the rest waits, and the router sends it at the request's
+`writable`.
 
 The writer calls the engine's three calls that write a response, which a program that answers
 requests itself calls by the request's id: `respond` writes the head, `write_body` the content and
@@ -751,8 +762,8 @@ const Echo = struct {
 
 A request body larger than `body_bytes` gets 413. The router ends the response once `on_body` ran
 with the last byte, unless the route has `on_writable`. `on_writable` writes a response over many
-calls: the router calls it while the response is open and the engine took all it was given, and
-the route ends the response itself. `on_finished` runs at the request's `finished` event, with its
+calls: the router calls it while the response is open, the engine took all it was given, and the
+writer has room. The route ends the response itself. `on_finished` runs at the request's `finished` event, with its
 result.
 
 The route table must name `error_handler`, which chooses the status after a route's function returns an

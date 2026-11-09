@@ -222,6 +222,8 @@ pub fn takes(state: *State, slot: u32, entry: *const Entry) bool {
         .trailers => connection_owed.takes_trailers(connection, entry.number),
         // A TCP connection writes a head into its output alone, which an empty output takes.
         .head => unreachable,
+        // A TCP connection copies the content inside `write_body`, so it holds none to release.
+        .release => unreachable,
     };
 }
 

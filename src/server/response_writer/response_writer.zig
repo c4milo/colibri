@@ -7,9 +7,11 @@
 //! section. `write_kept` sends bytes the program keeps, with no copy. The head goes to the engine
 //! with the first bytes of the body that go, or with `end`.
 //!
-//! Over h3 the engine copies no body: the bytes stay the caller's until the request's `finished`
-//! (decision 103). So the bytes of `body` stay in the entry's memory, and the memory serves one
-//! response of `response_bytes` at most. A larger body goes through `write_kept`.
+//! The bytes of `body` go into the entry's memory after the headers. The writer writes again into
+//! memory whose bytes the engine released (decisions 103 and 127 as amended, design §8 step 46):
+//! at once over h11 and h2, and over h3 once the peer acknowledged them. So `response_bytes`
+//! bounds the bytes in flight, not the response. One write goes into the memory whole, or fails
+//! with `error.WriteFailed` and writes nothing, and a route writes it again in `on_writable`.
 //!
 //! A middleware's `wrap_response` may wrap the body's writer (design §8 step 25.6). `body` then
 //! returns the wrapper, and `end` and `trailers` only record that the response ends: the router
@@ -47,6 +49,13 @@ pub const ResponseWriter = struct {
     piece_count: u8 = 0,
     piece_sent: u8 = 0,
     piece_offset: usize = 0,
+    /// The runs before `piece_released` the engine released, whose memory the writer may write
+    /// again: `released_len` of the `taken_len` octets the engine took (design §8 step 46).
+    piece_released: u8 = 0,
+    taken_len: u64 = 0,
+    released_len: u64 = 0,
+    /// The writer asked the engine for a `writable` once it releases bytes.
+    release_waited: bool = false,
     /// The Content-Length value `end` adds to a head that carries the whole body.
     length_digits: [internal.length_digits_max]u8 = undefined,
     body_started: bool = false,
@@ -78,7 +87,8 @@ pub const ResponseWriter = struct {
     }
 
     /// The writer of the body, over the entry's memory after the headers. Its first call closes
-    /// the headers. A write past the memory, or after `end`, fails with `error.WriteFailed`.
+    /// the headers. A write that does not fit the memory the engine released, or a write after
+    /// `end`, fails with `error.WriteFailed` and writes nothing.
     pub fn body(response: *ResponseWriter) *std.Io.Writer {
         if (!response.body_started) internal.start_body(response);
         return response.wrapped orelse &response.writer;

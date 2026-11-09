@@ -26,6 +26,7 @@ const engine_deadline_heap = @import("engine_deadline_heap.zig");
 const engine_requests = @import("engine_requests.zig");
 const engine_state_quic = @import("engine_state_quic.zig");
 const engine_state_tcp = @import("engine_state_tcp.zig");
+const quic_connection_h3_room = @import("../quic/quic_connection_h3_room.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Connection = connection_module.Connection;
@@ -249,6 +250,28 @@ pub const State = struct {
             return failure;
         };
         state.unarm(slot, id.number);
+    }
+
+    /// Octets of the program's content that the engine still reads in place for request `id`
+    /// (design §8 step 46): none over TCP, whose connections copy them inside `write_body`, and
+    /// those of an uncoded h3 response that the peer has not acknowledged (RFC 9000 §3.1). The
+    /// router's response writer reads it, and `Engine` has no call for it.
+    pub fn held_len(state: *State, id: RequestId) usize {
+        const slot = state.open_slot(id) orelse return 0;
+        if (state.is_tcp(slot)) return 0;
+        return quic_connection_h3_room.held_len(state.connections.at(slot), id.number);
+    }
+
+    /// Request `id` waits until the engine reads fewer of its octets in place: its `writable`
+    /// comes once the peer acknowledges some (design §8 step 46). A wait above `maxInt(u32)`
+    /// octets begins at that count.
+    pub fn wait_release(state: *State, id: RequestId) void {
+        const slot = state.open_slot(id) orelse return;
+        // A TCP connection holds none, and a request that ended waits for nothing.
+        if (state.is_tcp(slot) or state.entry_of(slot, id.number) == null) return;
+        const held = state.held_len(id);
+        assert(held > 0);
+        state.arm(slot, id.number, .release, held);
     }
 
     /// Notes that request `number` found no room for `wait`: its `writable` comes once the slot's

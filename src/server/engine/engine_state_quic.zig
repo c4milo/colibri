@@ -144,6 +144,8 @@ pub fn takes(state: *State, slot: u32, entry: *const Entry) bool {
         .content => quic_connection_h3_room.takes_content(connection, entry.number),
         .trailers => quic_connection_h3_room.takes_trailers(connection, entry.number),
         .empty => quic_connection_h3_room.takes_any(connection, entry.number),
+        // Design §8 step 46: the peer acknowledged some of the octets held when the wait began.
+        .release => quic_connection_h3_room.held_len(connection, entry.number) < entry.waiting_len,
     };
 }
 

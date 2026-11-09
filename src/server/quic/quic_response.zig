@@ -31,11 +31,15 @@ pub const Pieces = struct {
     runs_len: usize,
     /// One past the stream's last octet the runs hold.
     end: u64,
+    /// Octets of the caller's runs held, which the caller may not write again until the peer
+    /// acknowledges them (design §8 step 46).
+    caller_len: usize,
 
     pub fn init(pieces: *Pieces) void {
         pieces.kept_len = 0;
         pieces.runs_len = 0;
         pieces.end = 0;
+        pieces.caller_len = 0;
     }
 
     /// Where the next kept frame is written.
@@ -66,6 +70,7 @@ pub const Pieces = struct {
         pieces.runs[pieces.runs_len] = .{ .offset = pieces.end, .len = octets.len, .caller = octets.ptr, .kept_start = 0 };
         pieces.runs_len += 1;
         pieces.end += octets.len;
+        pieces.caller_len += octets.len;
     }
 
     /// Whether `release_below` can drop a run once the peer has acknowledged `acknowledged_len`
@@ -97,6 +102,8 @@ pub const Pieces = struct {
         for (pieces.runs[0..rest]) |*run| {
             if (run.caller == null) run.kept_start -= kept_dropped;
         }
+        assert(caller_dropped <= pieces.caller_len);
+        pieces.caller_len -= caller_dropped;
         return caller_dropped;
     }
 
@@ -157,8 +164,11 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     pieces.add_caller("hello");
     test_keep(pieces, "DH");
     pieces.add_caller("world");
+    // Design §8 step 46: the caller's octets held, and not the kept frames.
+    try testing.expectEqual(10, pieces.caller_len);
     // A run partly acknowledged stays whole.
     try testing.expectEqual(0, pieces.release_below(6));
+    try testing.expectEqual(10, pieces.caller_len);
     try testing.expectEqual(3, pieces.runs_len);
     try testing.expectEqual(2, pieces.kept_len);
     // A frame kept next lands where the dropped ones were, so a run read from its old place shows.
@@ -169,6 +179,7 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     try testing.expectEqual(0, pieces.read(0, &output));
     // The caller's octets dropped are "hello" and "world"; the kept frames are not the caller's.
     try testing.expectEqual(10, pieces.release_below(pieces.end));
+    try testing.expectEqual(0, pieces.caller_len);
     try testing.expectEqual(0, pieces.runs_len);
     try testing.expectEqual(0, pieces.kept_len);
     test_keep(pieces, "END");

@@ -10,9 +10,10 @@ const Number = event.Number;
 
 /// What a request's response found no room for: its head, more of its content, or its trailer
 /// section, or a head or trailer section larger than the room its earlier frames leave, which
-/// waits for the response to hold nothing unacknowledged. The engine reports `writable` once
-/// the connection can take it.
-pub const Wait = enum { head, content, trailers, empty };
+/// waits for the response to hold nothing unacknowledged. `release` waits for the connection to
+/// release some of the caller's octets it reads in place (design §8 step 46). The engine reports
+/// `writable` once the connection can take it.
+pub const Wait = enum { head, content, trailers, empty, release };
 
 /// One open request.
 pub const Entry = struct {
@@ -26,7 +27,8 @@ pub const Entry = struct {
     waiting_since: ?u32 = null,
     waiting_for: Wait = .content,
     /// The octets of content the program waits to write, which an h2 stream's window may hold only
-    /// whole when it is shorter than decision 110's floor.
+    /// whole when it is shorter than decision 110's floor. For `release`, the octets the connection
+    /// held when the wait began.
     waiting_len: u32 = 0,
 };
 

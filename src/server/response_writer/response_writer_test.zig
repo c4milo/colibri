@@ -22,13 +22,17 @@ const Call = union(enum) {
 };
 
 /// An engine that records each call. `room` is how many body bytes the next `write_body`
-/// takes, `head_blocked` refuses the next `respond`, and `failure` fails the next call.
+/// takes, `head_blocked` refuses the next `respond`, and `failure` fails the next call. It reads
+/// each run of body bytes in place, as h3 does, so it holds `held` octets until a test releases
+/// them (design §8 step 46).
 const Recorder = struct {
     calls: [calls_max]Call = undefined,
     count: usize = 0,
     room: usize = std.math.maxInt(usize),
     head_blocked: bool = false,
     failure: ?connection_errors.SendError = null,
+    held: usize = 0,
+    release_waits: usize = 0,
 
     pub fn respond(recorder: *Recorder, _: event.RequestId, response: event.Response) connection_errors.SendError!void {
         if (recorder.failure) |failure| return failure;
@@ -41,8 +45,17 @@ const Recorder = struct {
         if (recorder.room == 0 and body.bytes.len > 0) return error.Blocked;
         const taken = @min(recorder.room, body.bytes.len);
         recorder.room -= taken;
+        recorder.held += taken;
         recorder.add(.{ .body = .{ .bytes = body.bytes[0..taken], .end = body.end and taken == body.bytes.len } });
         return taken;
+    }
+
+    pub fn held_len(recorder: *Recorder, _: event.RequestId) usize {
+        return recorder.held;
+    }
+
+    pub fn wait_release(recorder: *Recorder, _: event.RequestId) void {
+        recorder.release_waits += 1;
     }
 
     pub fn write_trailers(recorder: *Recorder, _: event.RequestId, headers: []const http.Field) connection_errors.SendError!void {
@@ -147,7 +160,7 @@ test "decision 127: a header after the body, past the limit, or past the memory 
     try testing.expectError(error.NoSpaceLeft, response.header("a", "b" ** memory_len));
 }
 
-test "decision 103: the body never writes over bytes the engine took, and fails past the memory" {
+test "decision 103: the body never writes over bytes the engine holds, and fails past the memory" {
     var fixture: Fixture = .{};
     const response = fixture.start();
     const writer = response.body();
@@ -158,6 +171,32 @@ test "decision 103: the body never writes over bytes the engine took, and fails 
     // The first run the recorder holds still reads as it was taken.
     try testing.expectEqualStrings("abc", fixture.recorder.calls[1].body.bytes);
     try testing.expectError(error.WriteFailed, writer.writeAll("x" ** memory_len));
+    // Design §8 step 46: the writer waits for the engine to release bytes.
+    try testing.expectEqual(1, fixture.recorder.release_waits);
+    try testing.expect(internal.waiting(response));
+}
+
+test "design §8 step 46: the body writes again over the bytes the engine released, a write whole" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    try writer.writeAll("a" ** (memory_len - 2));
+    try writer.flush();
+    // Three octets fit neither after the run nor before it, so none of them is written.
+    try testing.expectError(error.WriteFailed, writer.writeAll("bcd"));
+    try testing.expectEqual(2, writer.unusedCapacityLen());
+    var out: [memory_len]u8 = undefined;
+    const before, _ = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("a" ** (memory_len - 2), before);
+    // The engine releases the run, and the write goes to the front of the memory, whole.
+    fixture.recorder.held = 0;
+    try testing.expect(try internal.resume_writes(response) == false);
+    try writer.writeAll("bcd");
+    try testing.expectEqual(@intFromPtr(&fixture.memory), @intFromPtr(writer.buffer.ptr));
+    try response.end();
+    const last = fixture.recorder.calls[fixture.recorder.count - 1].body;
+    try testing.expectEqualStrings("bcd", last.bytes);
+    try testing.expect(last.end);
 }
 
 test "decision 127: what the engine does not take waits for writable, in order" {

@@ -7,6 +7,7 @@ const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const ResponseWriter = @import("response_writer.zig").ResponseWriter;
+const ring = @import("response_writer_ring.zig");
 
 /// What the calls of `ResponseWriter` return: the engine's errors, with their meaning, and `Full`
 /// for more runs of body bytes than `response_pieces_max` that wait for the engine. The
@@ -22,12 +23,15 @@ pub const EndAsked = enum { none, end, trailers };
 pub const length_digits_max = std.fmt.count("{d}", .{std.math.maxInt(u64)});
 
 /// The engine's three calls that write a response, without its type, so one `ResponseWriter`
-/// serves every `Engine`.
+/// serves every `Engine`, and the two the ring of its body reads (design §8 step 46): the octets
+/// the engine still reads in place, and the wait for their release.
 pub const Sink = struct {
     context: *anyopaque,
     respond: *const fn (context: *anyopaque, id: event.RequestId, response: event.Response) connection_errors.SendError!void,
     write_body: *const fn (context: *anyopaque, id: event.RequestId, body: event.ResponseBody) connection_errors.SendError!usize,
     write_trailers: *const fn (context: *anyopaque, id: event.RequestId, headers: []const http.Field) connection_errors.SendError!void,
+    held_len: *const fn (context: *anyopaque, id: event.RequestId) usize,
+    wait_release: *const fn (context: *anyopaque, id: event.RequestId) void,
 
     /// The sink of `engine`, an `*Engine(capacity)`.
     pub fn of(comptime Engine: type, engine: *Engine) Sink {
@@ -41,8 +45,28 @@ pub const Sink = struct {
             fn write_trailers(context: *anyopaque, id: event.RequestId, headers: []const http.Field) connection_errors.SendError!void {
                 return engine_of(Engine, context).write_trailers(id, headers);
             }
+            // `Engine` has no call for these two: its state answers. A test's engine answers
+            // itself, or copies each write and holds none.
+            fn held_len(context: *anyopaque, id: event.RequestId) usize {
+                const held_by = engine_of(Engine, context);
+                if (comptime @hasField(Engine, "state")) return held_by.state.held_len(id);
+                if (comptime @hasDecl(Engine, "held_len")) return held_by.held_len(id);
+                return 0;
+            }
+            fn wait_release(context: *anyopaque, id: event.RequestId) void {
+                const held_by = engine_of(Engine, context);
+                if (comptime @hasField(Engine, "state")) return held_by.state.wait_release(id);
+                if (comptime @hasDecl(Engine, "wait_release")) return held_by.wait_release(id);
+            }
         };
-        return .{ .context = engine, .respond = calls.respond, .write_body = calls.write_body, .write_trailers = calls.write_trailers };
+        return .{
+            .context = engine,
+            .respond = calls.respond,
+            .write_body = calls.write_body,
+            .write_trailers = calls.write_trailers,
+            .held_len = calls.held_len,
+            .wait_release = calls.wait_release,
+        };
     }
 };
 
@@ -60,13 +84,26 @@ pub fn init(response: *ResponseWriter, sink: Sink, id: event.RequestId, memory: 
 
 /// Sends what waits, on the request's `writable`. It returns whether the response is whole.
 pub fn resume_writes(response: *ResponseWriter) Error!bool {
+    response.release_waited = false;
     try push(response);
     return response.complete;
 }
 
-/// Whether bytes, the head or the end wait for the engine, which a `writable` sends.
+/// Whether bytes, the head or the end wait for the engine, or the writer waits for the engine to
+/// release bytes. A `writable` comes for each.
 pub fn waiting(response: *const ResponseWriter) bool {
-    return response.piece_sent < response.piece_count or (response.ended and !response.complete);
+    return response.piece_sent < response.piece_count or (response.ended and !response.complete) or response.release_waited;
+}
+
+/// Whether a call of `on_writable` finds room in the body's writer (design §8 step 46). A full
+/// region sends what it holds and takes back the memory the engine released. When none is free,
+/// the writer waits for the engine's `writable`.
+pub fn has_room(response: *ResponseWriter) Error!bool {
+    if (!response.body_started) return true;
+    if (response.writer.end < response.writer.buffer.len) return true;
+    try cut(response);
+    try push(response);
+    return ring.refill(response, 1);
 }
 
 /// Whether the engine took the whole response.
@@ -106,12 +143,12 @@ pub fn cut(response: *ResponseWriter) Error!void {
 
 pub fn add_piece(response: *ResponseWriter, bytes: []const u8) Error!void {
     if (bytes.len == 0) return;
-    // Runs the engine took whole free their slots.
-    if (response.piece_sent == response.piece_count) {
-        response.piece_sent = 0;
-        response.piece_count = 0;
+    // Runs the engine released free their slots.
+    if (response.piece_count == constants.limits.response_pieces_max) ring.free_pieces(response);
+    if (response.piece_count == constants.limits.response_pieces_max) {
+        ring.wait_for_release(response);
+        return error.Full;
     }
-    if (response.piece_count == constants.limits.response_pieces_max) return error.Full;
     response.pieces[response.piece_count] = bytes;
     response.piece_count += 1;
 }
@@ -123,19 +160,29 @@ pub fn close_body(response: *ResponseWriter) void {
     response.writer.buffer = response.writer.buffer[0..0];
 }
 
+/// Copies the trailers into the writer's free region, after the body. With no room it returns
+/// `error.NoSpaceLeft`, and the writer may wait for the engine to release bytes.
 pub fn copy_trailers(response: *ResponseWriter, headers: []const http.Field) Error!void {
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
     if (response.header_count + headers.len > constants.limits.response_headers_max) return error.SectionTooLarge;
-    // The trailers' names and values go after the body, in the memory the writer has not used.
-    const offset = @intFromPtr(response.writer.buffer.ptr) - @intFromPtr(response.memory.ptr);
-    var first = offset;
+    assert(response.writer.end == 0);
+    const total = lines_len(headers);
+    if (response.writer.buffer.len < total and !ring.refill(response, total)) return error.NoSpaceLeft;
+    var first = @intFromPtr(response.writer.buffer.ptr) - @intFromPtr(response.memory.ptr);
     for (headers, 0..) |line, index| {
         const copied = try copy_line(response, first, line.name, line.value);
         response.lines[response.header_count + index] = copied.field;
         first = copied.end;
     }
     response.trailer_count = @intCast(headers.len);
-    response.writer.buffer = response.memory[first..];
+    response.writer.buffer = response.writer.buffer[total..];
+}
+
+/// Octets of the names and values of `headers`.
+fn lines_len(headers: []const http.Field) usize {
+    var total: usize = 0;
+    for (headers) |line| total += line.name.len + line.value.len;
+    return total;
 }
 
 /// Ends the body, and sends what waits.
@@ -162,17 +209,21 @@ pub fn end_wrapped(response: *ResponseWriter) Error!void {
     return trailers_now(response);
 }
 
-/// Copies the trailers to the end of `response.memory`, where a wrapper's last bytes do not reach,
-/// and keeps the body's writer before them.
+/// Copies the trailers to the end of the writer's region, where a wrapper's last bytes do not
+/// reach, and keeps the body's writer before them. The region then stays where it is.
 pub fn copy_trailers_last(response: *ResponseWriter, headers: []const http.Field) Error!void {
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
     if (response.header_count + headers.len > constants.limits.response_headers_max) return error.SectionTooLarge;
-    var total: usize = 0;
-    for (headers) |line| total += line.name.len + line.value.len;
-    // The writer's buffer ends where the memory ends, until the body closes.
-    assert(response.writer.buffer.ptr + response.writer.buffer.len == response.memory.ptr + response.memory.len);
-    if (total > response.writer.buffer.len - response.writer.end) return error.NoSpaceLeft;
-    var first = response.memory.len - total;
+    const total = lines_len(headers);
+    if (total > response.writer.buffer.len - response.writer.end) {
+        try cut(response);
+        try push(response);
+        if (!ring.refill(response, total)) return error.NoSpaceLeft;
+    }
+    const region_end = @intFromPtr(response.writer.buffer.ptr + response.writer.buffer.len) - @intFromPtr(response.memory.ptr);
+    var first = region_end - total;
+    // Design §8 step 46: the trailers take memory the engine released.
+    assert(!ring.overlaps_held(response, first, region_end));
     for (headers, 0..) |line, index| {
         const copied = try copy_line(response, first, line.name, line.value);
         response.lines[response.header_count + index] = copied.field;
@@ -255,6 +306,7 @@ fn push_pieces(response: *ResponseWriter) Error!bool {
         const last = response.piece_sent + 1 == response.piece_count and response.ended and !response.trailers_owed;
         const body: event.ResponseBody = .{ .bytes = piece, .end = last };
         const taken = response.sink.write_body(response.sink.context, response.id, body) catch |failure| return wait_or(failure);
+        response.taken_len += taken;
         if (taken < piece.len) {
             response.piece_offset += taken;
             return false;
@@ -287,16 +339,20 @@ fn wait_or(failure: connection_errors.SendError) Error!bool {
     };
 }
 
-/// The body writer's drain: it sends what the writer holds, then copies what fits of `data` into
-/// the memory after it. Memory the engine may still read is never written again (decision 103).
-/// Before the body starts and after `end` the buffer is empty, so every write fails: a wrapper
-/// writes nothing while the headers are open (design §8 step 25.6).
+/// The body writer's drain: it sends what the writer holds, then copies `data` whole into memory
+/// the engine released, or fails and copies none (design §8 step 46). Memory the engine may still
+/// read is never written again (decision 103). Before the body starts and after `end` the buffer
+/// is empty, so every write fails: a wrapper writes nothing while the headers are open (design §8
+/// step 25.6).
 fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
     const response: *ResponseWriter = @alignCast(@fieldParentPtr("writer", writer));
     cut(response) catch return error.WriteFailed;
     push(response) catch return error.WriteFailed;
+    const len = data_len(data, splat);
+    if (len == 0) return 0;
+    if (writer.buffer.len < len and !ring.refill(response, len)) return error.WriteFailed;
     const copied = copy_data(writer, data, splat);
-    if (copied == 0 and data_len(data, splat) > 0) return error.WriteFailed;
+    assert(copied == len);
     return copied;
 }
 
