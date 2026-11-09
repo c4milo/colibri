@@ -176,30 +176,32 @@ inputs are set:
 ### Latency at fixed rates
 
 `bench/run.sh --latency` measures servers that route, under oha at fixed rates (design §8 step
-13f). Run [40526708637](https://github.com/c4milo/colibri/actions/runs/40526708637) is the
-baseline. It measured main at `42445f1c` on the judge, `ubuntu-24.04-arm` with Linux
-6.17.0-1022-azure, in two jobs on 2026-10-27.
+13f). Run [42532331627](https://github.com/c4milo/colibri/actions/runs/42532331627) is the
+baseline. It measured main at `29c407a4` on the judge, `ubuntu-24.04-arm` with Linux
+7.0.0-1017-azure, in two jobs on 2026-11-08. The baseline before it, run
+[40526708637](https://github.com/c4milo/colibri/actions/runs/40526708637) of 2026-10-27, ran on
+Linux 6.17.0-1022-azure. Every server reached a lower rate at 80,000 req/s on Linux 7.0, so
+compare servers inside one run alone.
 
 This table gives each server's highest rate whose median p99 stays under 10 ms. At that rate,
-every request got 200, and every round reached 95% of the rate. A cell with two values gives job 1,
-then job 2.
+every request got 200, and every round reached 95% of the rate. Both jobs gave the same table.
 
 | Server | h11 | h2 | h2-tls | h3 |
 |---|---|---|---|---|
 | colibri | 80,000 | 80,000 | 40,000 | 20,000 |
-| axum | 80,000 | 40,000 / 80,000 | 40,000 | 20,000 |
-| chi | 40,000 | 20,000 | 10,000 / 20,000 | 10,000 |
+| axum | 80,000 | 40,000 | 40,000 | 20,000 |
+| chi | 40,000 | 20,000 | 10,000 | 10,000 |
 | http.zig | 40,000 | — | — | — |
 | Fastify | 10,000 | 10,000 | none | — |
 
 The rates step by a factor of two, so the table hides a difference smaller than that. Compare the
-p99 at one rate inside one job (§11.4):
+p99 at one rate inside one job (§11.4). Each pair gives job 1, then job 2:
 
-- **h2-tls at 40,000 req/s.** colibri loses here: its p99 was 4.68 ms and 3.72 ms, and axum's
-  3.49 ms and 2.93 ms. At 20,000 req/s the two match, about 1.2 ms each.
-- **h3 at 40,000 req/s.** colibri's p99 was 13.76 ms and 11.98 ms, and axum's 15.79 ms and
-  14.28 ms. Neither stays under 10 ms.
-- **h3 at 80,000 offered.** colibri reached 64,439 and 66,865 req/s, and axum 58,465 and 61,102.
+- **h2-tls at 40,000 req/s.** colibri loses here: its p99 was 4.93 ms and 5.20 ms, and axum's
+  4.18 ms and 4.08 ms. At 20,000 req/s the two match, about 1.3 ms each.
+- **h3 at 40,000 req/s.** colibri's p99 was 15.51 ms and 15.30 ms, and axum's 22.86 ms and
+  18.61 ms. Neither stays under 10 ms.
+- **h3 at 80,000 offered.** colibri reached 54,651 and 57,855 req/s, and axum 50,752 and 54,597.
 
 ## Memory per connection
 

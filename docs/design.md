@@ -5572,6 +5572,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   h11 is still where colibri loses, to nginx and hyper alone: 1.12 to 1.16 times theirs with many
   requests, and 1.20 times hyper's over TLS.
 
+  **The competitors after step 29d.19, 2026-11-08.** The owner asked how colibri compares now.
+  [Run 42532324158](https://github.com/c4milo/colibri/actions/runs/42532324158), on main
+  `29c407a4`, ran `--competitors --h11 --h3`. Its two jobs give the same verdict on each of the 28
+  ratios. The judge now runs Linux 7.0.0-1017-azure. Instructions a request on the `-many` inputs
+  and a connection on the `-one` inputs, from job 1:
+
+  | Input | colibri | nginx | h2o | hyper | http.zig | quic-go |
+  |---|---|---|---|---|---|---|
+  | h3-many | 28,682 | — | — | — | — | 218,698 |
+  | h3-one | 1,328,069 | — | — | — | — | 3,342,483 |
+
+  - h3-many takes 0.13 of quic-go's instructions in both jobs, where it took 0.52 on 0.10.0.
+    Step 29d took colibri from 146,740 a request on 2026-10-27 to 28,682, and quic-go's count
+    stayed near 215,000.
+  - h3-one takes 0.40 of quic-go's. It completes 3,684 and 3,907 connections a second of one
+    core, against quic-go's 1,306 and 1,533.
+  - Every h2 ratio wins, as on 0.10.0: from 0.26 of nginx's on h2-many to 0.96 of hyper's on
+    h2-tls-one.
+  - h11 still loses to nginx and hyper alone: 1.11 and 1.12 times nginx's and 1.16 times
+    hyper's on h11-many, 1.20 and 1.21 times nginx's on h11-one, and 1.16 to 1.20 times hyper's
+    over TLS. It wins against h2o and http.zig on each h11 input.
+
+  [Run 42532331627](https://github.com/c4milo/colibri/actions/runs/42532331627) measured the
+  latency at fixed rates on the same commit, and docs/performance.md holds it as the new baseline.
+  Each server's highest rate under a p99 of 10 ms did not change. Over h3 at 40,000 req/s,
+  colibri's p99 was 15.51 ms and 15.30 ms, against axum's 22.86 ms and 18.61 ms.
+
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
