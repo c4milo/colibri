@@ -13326,7 +13326,7 @@ library.
   - **The commits.** Step 38a, the response's header and trailer sections, shipped in v0.14.0.
     Step 38b, `Request.trailers`, `RequestError.InvalidTrailer` and `te: trailers`, ships in
     v0.15.0, after step 39, because both change the client's request path (the owner's ruling of
-    2026-11-05). v0.15.0 waits for step 44 too.
+    2026-11-05). v0.15.0 ships without step 44, which moves to v0.16.0 (the owner's ruling of 2026-11-08).
   - **The rules.** The client copies each field line into its section's buffer before
     `finished`: the header section over each protocol, and the trailer section from h11's
     chunked trailer section (RFC 9112 §7.1.2) and from the trailing HEADERS frame of h2 (RFC 9113
@@ -13395,7 +13395,8 @@ library.
       each stream. A request whose two sections do not fit in it together ends `invalid` at
       `open`. The owner accepted this, and docs/usage.md states it.
 - **Step 39 — streamed bodies in the pool, proposed 2026-11-05.** [Decision 153](decisions.md)
-  as amended. It depends on no other step, and ships in v0.15.0 with steps 38b, 42, 43 and 44.
+  as amended. It depends on no other step, and ships in v0.15.0 with steps 38b, 42 and 43.
+  Step 44 moves to v0.16.0 (the owner's ruling of 2026-11-08).
   - **The public names:** `client.Streamed`, `client.WriteBodyError`, `Request.streamed`,
     `ConnectionPool.write_body`, `ConnectionPool.release_body`, and the events `headers`, `body`
     and `body_taken` (decision 153 ruling 7). `h11.Connection.write_chunk_head`,
@@ -13607,7 +13608,8 @@ library.
   step 37d is on main, with the `colibri` module, step 38a and the h3 status fix, and that steps
   39 and 42 ship as v0.15.0. On 2026-11-06 the owner added steps 38b, 43 and 44 to v0.15.0.
   v0.15.0 waits for Rotor's tag `v0.10.0`, which step 44 needs. Rotor's session reports that
-  it carries Rotor's decisions 26 to 30 and 32 (decision 156, fifth amendment).
+  it carries Rotor's decisions 26 to 30 and 32 (decision 156, fifth amendment). On 2026-11-08
+  the owner ruled that v0.15.0 ships from main without step 44, which moves to v0.16.0.
   - **The public names.** A connection option `datagram_len_max`, 1,452 octets by default and up
     to 65,527 (decision 155 ruling 6), which `server.Config` and `client.Config` carry, and the
     search's limits in `quic.constants.limits`. Each goes on its
@@ -13786,7 +13788,7 @@ library.
       connect that succeeded read as a close that ran.
 - **Step 43 — a protocol preference in the client, proposed 2026-11-05.** [Decision
   117](decisions.md) as amended. It ships in v0.15.0, after step 39, whose pool files it touches.
-  v0.15.0 waits for step 44 too.
+  v0.15.0 ships without step 44, which moves to v0.16.0 (the owner's ruling of 2026-11-08).
   - **The public names:** the field `client.Protocols.prefer` and its type, `.tcp` by default
     or `.quic`. `colibri.ClientConfig` passes it through.
   - **The rules.** With `.tcp`, the default, the pool opens TCP first and opens QUIC only once
@@ -13846,14 +13848,14 @@ library.
 - **Step 44 — colibri on a shared Rotor loop, proposed 2026-11-06.** [Decision 156](decisions.md).
   `colibri.Client` and `colibri.Server` run on a `rotor.Loop` that the program may share with
   other libraries, such as a resolver. Only the program ticks a shared loop. It ships in
-  v0.15.0. Commit 44b waits for Rotor's tag: see "The Rotor bump" below. Decision 156 was
+  v0.16.0: the owner's ruling of 2026-11-08 cut v0.15.0 from main without it. Commit 44b waits for Rotor's tag: see "The Rotor bump" below. Decision 156 was
   amended on 2026-11-06 for Rotor's decisions 28 and 29, and again for the thread that calls
   `shutdown`. Its fifth amendment, of 2026-11-07, records what Rotor's `v0.10.0` carries. This
   entry follows each amendment.
   - **The public names**, in decision 115's order:
     - The root: `client`, `server`, `constants`, `Server`, `ServerConfig`, `Identity`,
       `InitError`, `RunError`, `Client`, `ClientCapacity` and `ClientConfig`. `client` and
-      `server` are module re-exports. `ClientOf` and `ServerOf` shipped in v0.14.0, and v0.15.0
+      `server` are module re-exports. `ClientOf` and `ServerOf` shipped in v0.14.0, and v0.16.0
       removes them from the list (decision 156 ruling 1).
     - The root re-exports no `rotor`. A second Rotor pin gives a different `*rotor.SharedLoop`
       type, and the compiler refuses it.

@@ -6278,7 +6278,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 156. **`colibri.Client` and `colibri.Server` run on a Rotor loop that the program may share.**
      Ruled by the owner on 2026-11-06 (design §8 step 44), for v0.15.0, and amended by the owner
-     the same day. A program that runs colibri beside another library, such as a resolver, needs
+     the same day. On 2026-11-08 the owner cut v0.15.0 from main without step 44, so this decision
+     ships in v0.16.0, and each "v0.15.0" below reads as v0.16.0. A program that runs colibri beside another library, such as a resolver, needs
      one Rotor loop on one thread for both. Rotor's decision 26
      (`docs/decisions/0026-a-shared-loop.md` in https://github.com/c4milo/rotor) gives each operation a completion record, which the tick
      calls. Rotor's decision 27 adds `rotor.Task`, and rules that only the program ticks a shared
