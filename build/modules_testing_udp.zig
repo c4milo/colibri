@@ -19,16 +19,16 @@ pub fn add(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
-    const module = create(b, "src/testing/quic_udp.zig", target, optimize);
+    const testing_udp = create(b, "src/testing/quic_udp.zig", target, optimize);
     // Design §8 step 13f: `routes=github` builds the route table of the TCP server's `--routes`.
-    module.addAnonymousImport("github_routes", .{ .root_source_file = b.path("bench/router/competitors/github_routes.txt") });
-    module.addImport("h2", graph.h2);
-    module.addImport("quic", graph.quic);
+    testing_udp.addAnonymousImport("github_routes", .{ .root_source_file = b.path("bench/router/competitors/github_routes.txt") });
+    testing_udp.addImport("h2", graph.h2);
+    testing_udp.addImport("quic", graph.quic);
     // The h3 server and client of design §9, ruled by the owner on 2026-09-24.
-    module.addImport("h3", graph.h3);
-    module.addImport("rotor", rotor);
-    module.addImport("tls", graph.tls_keylog);
-    module.addImport("chapulin", graph.chapulin_quic_keylog.module("chapulin"));
+    testing_udp.addImport("h3", graph.h3);
+    testing_udp.addImport("rotor", rotor);
+    testing_udp.addImport("tls", graph.tls_keylog);
+    testing_udp.addImport("chapulin", graph.chapulin_quic_keylog.module("chapulin"));
     // Design §8 step 17b: the h3 server runs on `server`, ruled by the owner on 2026-09-28. The
     // endpoint links `tls_keylog`'s objects, and a second chapulin object fails the link, so it
     // takes an instance of `server` over `tls_keylog`, which nothing packaged sees.
@@ -44,9 +44,9 @@ pub fn add(
     server_keylog.addImport("codec", graph.stdx.module("codec"));
     server_keylog.addImport("gzip", graph.stdx.module("gzip"));
     server_keylog.addImport("zlib", graph.stdx.module("zlib"));
-    module.addImport("server", server_keylog);
+    testing_udp.addImport("server", server_keylog);
     // Decision 97 as amended: the endpoint asks its CPU once, through stdx's `platform`.
-    module.addImport("platform", graph.stdx.module("platform"));
-    module.link_libc = true;
-    return module;
+    testing_udp.addImport("platform", graph.stdx.module("platform"));
+    testing_udp.link_libc = true;
+    return testing_udp;
 }

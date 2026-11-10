@@ -6,8 +6,10 @@
 //! build. A clean tree cannot show that: a run that dropped a rule passes a tree that rule would
 //! have passed anyway. The canary tree shows it. It is a tree written into the build cache holding
 //! one violation of every rule, and the lint must exit 1 over it and print each rule of
-//! `canary_rules` on stdout. Both runs take their arguments from `add_rules_run`, so a change to
-//! how the rules are selected applies to the canary too.
+//! `canary_rules` on stdout. The rotor-import canaries must each print their one finding too.
+//! A third run reads a tree of the files that rotor-import allows, and must exit 0 (decision 159).
+//! Each run takes its arguments from `add_rules_run`, so a change to how the rules are selected
+//! applies to the canary too.
 const std = @import("std");
 
 /// The cognitive-complexity threshold of CLAUDE.md (Conventions). Never raised: a function over
@@ -31,6 +33,7 @@ const canary_rules = [_][]const u8{
     "static-alignment",
     "global-state",
     "root-exports",
+    "rotor-import",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -90,6 +93,38 @@ const canary_modules =
     \\
 ;
 
+/// Rotor given to `quic`, which the rotor-import rule refuses in the build (decision 159).
+const canary_rotor_build =
+    \\pub fn add() void {
+    \\    quic.addImport("rotor", rotor);
+    \\}
+    \\
+;
+
+/// An import of Rotor, which the rotor-import rule refuses in `src/server/` and in the driver of
+/// `colibri`, and allows in its Rotor adapter and in `src/testing/`.
+const canary_rotor_source =
+    \\const rotor = @import("rotor");
+    \\
+;
+
+/// The one finding of each rotor-import canary, with its place.
+const canary_rotor_findings = [_][]const u8{
+    "build/rotor.zig:2:5: error: [rotor-import]",
+    "src/server/canary_rotor.zig:1:15: error: [rotor-import]",
+    "src/colibri/client.zig:1:15: error: [rotor-import]",
+};
+
+/// What the rotor-import rule allows: Rotor given to `colibri` through a lazy fetch, and an import
+/// of Rotor in the Rotor adapter and in `src/testing/`. No rule may report a finding over it.
+const allowed_rotor_build =
+    \\pub fn add(b: *std.Build) void {
+    \\    const rotor = b.lazyDependency("rotor", .{}) orelse return;
+    \\    colibri.addImport("rotor", rotor.module("rotor"));
+    \\}
+    \\
+;
+
 pub const Options = struct {
     /// Every directory the complexity score reads, beside build.zig itself.
     source_directories: []const []const u8,
@@ -126,10 +161,19 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Step {
     for (canary_rules) |rule| {
         canary_run.addCheck(.{ .expect_stdout_match = b.fmt("[{s}]", .{rule}) });
     }
+    for (canary_rotor_findings) |finding| {
+        canary_run.addCheck(.{ .expect_stdout_match = finding });
+    }
     canary_run.step.dependOn(&tree_run.step);
 
+    // Decision 159: the files rotor-import allows give no finding, so the run exits 0.
+    const allowed_run = add_rules_run(b, options.rules);
+    allowed_run.addDirectoryArg(add_allowed_tree(b));
+    allowed_run.expectExitCode(0);
+    allowed_run.step.dependOn(&canary_run.step);
+
     const lint_step = b.step("lint", "Score cognitive complexity, then run the tools/lint rules");
-    lint_step.dependOn(&canary_run.step);
+    lint_step.dependOn(&allowed_run.step);
     return lint_step;
 }
 
@@ -145,5 +189,16 @@ fn add_canary_tree(b: *std.Build) std.Build.LazyPath {
     _ = tree.add("docs/canary.md", canary_markdown);
     _ = tree.add("build/modules.zig", canary_modules);
     _ = tree.add("src/h2/h2.zig", canary_root);
+    _ = tree.add("build/rotor.zig", canary_rotor_build);
+    _ = tree.add("src/server/canary_rotor.zig", canary_rotor_source);
+    _ = tree.add("src/colibri/client.zig", canary_rotor_source);
+    return tree.getDirectory();
+}
+
+fn add_allowed_tree(b: *std.Build) std.Build.LazyPath {
+    const tree = b.addWriteFiles();
+    _ = tree.add("build/rotor.zig", allowed_rotor_build);
+    _ = tree.add("src/colibri/rotor_host.zig", canary_rotor_source);
+    _ = tree.add("src/testing/canary_rotor.zig", canary_rotor_source);
     return tree.getDirectory();
 }

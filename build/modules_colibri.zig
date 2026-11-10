@@ -25,6 +25,24 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
     const colibri = modules.library(b, "colibri", target, optimize);
+    add_imports(b, colibri, imports, rotor);
+    return colibri;
+}
+
+/// The module as a dependent that passes no `.rotor = true` gets it, which no dependent reaches by
+/// name: `zig build colibri-hosted-check` compiles its fixtures against it (decision 159).
+pub fn add_without_rotor(
+    b: *std.Build,
+    imports: Imports,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const colibri = modules.create(b, "src/colibri/colibri.zig", target, optimize);
+    add_imports(b, colibri, imports, null);
+    return colibri;
+}
+
+fn add_imports(b: *std.Build, colibri: *std.Build.Module, imports: Imports, rotor: ?*std.Build.Module) void {
     colibri.addImport("core", imports.core);
     colibri.addImport("http", imports.http);
     colibri.addImport("server", imports.server);
@@ -34,5 +52,4 @@ pub fn add(
     options.addOption(bool, "rotor", rotor != null);
     colibri.addOptions("build_options", options);
     if (rotor) |held| colibri.addImport("rotor", held);
-    return colibri;
 }

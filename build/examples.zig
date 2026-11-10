@@ -38,22 +38,22 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
 ) void {
     const all = b.step("examples", "Build and run every program in examples/ (decision 96)");
-    inline for (examples) |example| {
-        const module = b.createModule(.{
-            .root_source_file = b.path("examples/" ++ example.name ++ ".zig"),
+    inline for (examples) |entry| {
+        const example = b.createModule(.{
+            .root_source_file = b.path("examples/" ++ entry.name ++ ".zig"),
             .target = target,
             .optimize = optimize,
         });
-        module.addImport("h11", graph.h11);
-        module.addImport("h2", graph.h2);
-        module.addImport("http", graph.http);
-        module.addImport("rotor", rotor);
-        if (example.tls) add_tls(module, graph, testdata);
-        if (example.dnssec) module.addImport("dnssec", graph.dnssec);
-        if (example.colibri) module.addImport("colibri", graph.colibri);
-        const program = b.addExecutable(.{ .name = example.name, .root_module = module });
+        example.addImport("h11", graph.h11);
+        example.addImport("h2", graph.h2);
+        example.addImport("http", graph.http);
+        example.addImport("rotor", rotor);
+        if (entry.tls) add_tls(example, graph, testdata);
+        if (entry.dnssec) example.addImport("dnssec", graph.dnssec);
+        if (entry.colibri) example.addImport("colibri", graph.colibri);
+        const program = b.addExecutable(.{ .name = entry.name, .root_module = example });
         const run = b.addRunArtifact(program);
-        b.step("example-" ++ example.name, "Build and run examples/" ++ example.name ++ ".zig").dependOn(&run.step);
+        b.step("example-" ++ entry.name, "Build and run examples/" ++ entry.name ++ ".zig").dependOn(&run.step);
         all.dependOn(&run.step);
     }
 }

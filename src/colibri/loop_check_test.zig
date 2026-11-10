@@ -1,4 +1,6 @@
 //! The cases of `zig build colibri-loop-check` (build/colibri_loop_check.zig, design §8 step 44d).
+//! `zig build colibri-hosted-check` compiles three of them against `colibri` with no Rotor
+//! (build/colibri_hosted_check.zig, step 44k).
 //! It is a test file: it runs on one thread, and no library module imports it.
 //! A program compiles this file. It imports `colibri`, `server`, `client` and `tls` by the names
 //! that a dependent uses, and the root of `colibri` does not import it. The build option `case`

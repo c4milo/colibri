@@ -3,11 +3,13 @@
 //! parsed out of bytes the caller has already read, so every function that would block returns
 //! what it wants instead.
 //!
-//! Over every `.zig` file under `src/` but not under `src/testing/` or `src/colibri/` and not `src/sim/run_main.zig`, the rule flags a chain that
-//! starts with one of `forbidden_prefixes` at a dot boundary: `std.posix`, `std.fs`, `std.net`,
-//! `std.Thread`, `std.Io` and `std.process`. `src/testing/` holds the test-only entry points of
-//! design §9, and `src/colibri/` binds the sockets of `colibri.Server` (decision 150). They are the
-//! two directories permitted to touch a socket (CLAUDE.md, Layout), so both are exempt.
+//! Over every `.zig` file under `src/` but not under `src/testing/`, not `src/sim/run_main.zig` and
+//! not one of `colibri_io_paths`, the rule flags a chain that starts with one of
+//! `forbidden_prefixes` at a dot boundary: `std.posix`, `std.fs`, `std.net`, `std.Thread`, `std.Io`
+//! and `std.process`. `src/testing/` holds the test-only entry points of design §9, and it is
+//! exempt. Of `src/colibri/`, only the Rotor adapter of `.private`, `rotor_host*.zig`, binds
+//! sockets, and only the tests of `.private` on loopback open them (decision 159). The rest of
+//! `src/colibri/` is the driver, which does no I/O, so the rule reads it.
 //!
 //! `std.Io.Writer` and `std.Io.Reader`, every name under them, and `std.Io.Limit`, the count
 //! they take, are not findings. They are interfaces over memory, and decision 127 has a route read a request body through one and write
@@ -45,16 +47,34 @@ const memory_interfaces = [_]forbidden_references.Exception{
     .{ .prefix = "std.Io.Limit", .last_segment_prefixes = &.{""} },
 };
 
+/// The files of `src/colibri/` that do I/O (decision 159). The first five are colibri's Rotor
+/// adapter of `.private`, which binds the sockets and runs the loop. The other six are tests of
+/// `.private` on loopback: each runs a peer on a thread of its own and opens a socket to the
+/// object. The rest of `src/colibri/` is the driver, which does no I/O. pepegrillo's `Scope` names
+/// whole paths, so a new file of the adapter joins this list.
+const colibri_io_paths = [_][]const u8{
+    "src/colibri/rotor_host.zig",
+    "src/colibri/rotor_host_end.zig",
+    "src/colibri/rotor_host_entropy.zig",
+    "src/colibri/rotor_host_submit.zig",
+    "src/colibri/rotor_host_udp.zig",
+    "src/colibri/rotor_host_client_test.zig",
+    "src/colibri/rotor_host_server_test.zig",
+    "src/colibri/client_tcp_test.zig",
+    "src/colibri/client_test_support.zig",
+    "src/colibri/server_tcp_test.zig",
+    "src/colibri/loop_check_test.zig",
+};
+
 /// The configuration. It reads `src/`, and exempts `src/testing/`, the test-only entry points of
-/// docs/design.md §9, and `src/colibri/`, the one library module that binds sockets and runs a
-/// loop (decision 150).
+/// docs/design.md §9, and `colibri_io_paths`.
 pub const config: forbidden_references.Config = .{
     .name = "io",
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_directories = &.{ "src/testing", "src/colibri" },
-        .exclude_paths = &.{"src/sim/run_main.zig"},
+        .exclude_directories = &.{"src/testing"},
+        .exclude_paths = &([_][]const u8{"src/sim/run_main.zig"} ++ colibri_io_paths),
     },
     .prefixes = &forbidden_prefixes,
     .exceptions = &memory_interfaces,
@@ -174,14 +194,17 @@ test "decision 127: io passes std.Io.Writer and std.Io.Reader, and flags the res
     });
 }
 
-test "io exempts src/testing/ and reads nothing outside src/" {
+test "io exempts src/testing/ and the Rotor adapter, and reads nothing outside src/" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     try testing.expect(config.scope.applies("src/quic/quic.zig"));
     try testing.expect(!config.scope.applies("src/testing/endpoint.zig"));
     try testing.expect(!config.scope.applies("./src/testing/deep/endpoint.zig"));
-    try testing.expect(!config.scope.applies("src/colibri/server.zig"));
+    try testing.expect(config.scope.applies("src/colibri/server.zig"));
+    try testing.expect(config.scope.applies("src/colibri/client_loop.zig"));
+    try testing.expect(!config.scope.applies("src/colibri/rotor_host.zig"));
+    try testing.expect(!config.scope.applies("src/colibri/rotor_host_udp.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try harness.expect_messages(try findings_of(arena, "src/testing/endpoint.zig", failing_fixture), &.{});
     try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});

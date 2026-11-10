@@ -242,8 +242,9 @@ is added to the root and to the list in its test, which prints the name that dif
   over TLS read: it lives once in `src/testing/testdata/`, a test-only module no packaged module
   imports, beside the openssl commands that made it.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
-  library and is one of two directories permitted to open a socket; `src/colibri/` is the other
-  (decision 150). Every endpoint there does its I/O
+  library and is one of two places permitted to open a socket. The other is the Rotor adapter
+  of `.private`, `src/colibri/rotor_host*.zig`, with the tests of `.private` on loopback
+  (decisions 150 and 159). Every endpoint there does its I/O
   without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
   58 and 83).
 - `examples/` holds programs a project that depends on colibri would write, importing the library
@@ -330,8 +331,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   to place it right), global-state (no library `var` that every thread shares; a fixture
   several test files share lives in a `*_test_support.zig` file) and root-exports (a library
   module's root exports no file but `constants`, and lists what it exports in a test; decision
-  115). Every rule
-  `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it. The
+  115) and rotor-import (only `colibri`, `testing`, `testing_client`, `testing_udp` and `example`
+  get Rotor, only through `lazyDependency`, and only `src/testing/` and
+  `src/colibri/rotor_host*.zig` import it; decision 159). The io rule exempts `src/testing/` and,
+  of `src/colibri/`, the Rotor adapter and the tests of `.private` on loopback. Every rule
+  `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it. A third
+  run over the files rotor-import allows must exit 0. The
   rules read `bench/`, `build/`, `examples/`, `src/`, `tools/` and `docs/`, and the Markdown
   files at the repository root, which `lint_rule_files` in `build.zig` names. A new one joins
   that list.
@@ -354,6 +359,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   with SIGABRT and colibri's message: a stray completion, `deinit` of a `.hosted` object before
   `stopped()`, a handler or a route that calls `turn`, `complete` or `run` inside a turn, and a
   handler that calls `fetch` (decision 159, rules 6, 2 and 4). `zig build test` runs it.
+  `zig build colibri-hosted-check` builds three of its cases against `colibri` with no Rotor, as
+  a dependent that passes no `.rotor = true` gets it (`build/colibri_hosted_check.zig`, design §8
+  step 44k). `hosted_init` must compile and run. A `.private` server and client must fail to
+  compile with colibri's message. `zig build test` runs it.
 - Route cross-check: `zig build router-hidden-check` runs two test binaries apart from `zig build
   test-server` (`build/router_check.zig`, the owner's rulings of 2026-10-14). `router-hidden`, from
   `src/server/router_hidden_check.zig`, runs `src/server/router/router_hidden_test.zig`, which
