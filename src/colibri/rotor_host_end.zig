@@ -25,12 +25,10 @@ pub fn end(state: anytype) void {
 /// (Rotor's decision 5, rules 2 and 4), so `close_open` closes its socket. A close that failed
 /// otherwise ran, and the system released the descriptor, so a second close could close another
 /// descriptor with the same number. An accept that succeeded gave a socket that no driver holds,
-/// so it closes here. Every other event changes nothing. A connect that succeeded leaves its socket
-/// open, and `close_open` closes it.
+/// so it closes here. Every other event changes nothing. A connect that succeeded, or the shutdown
+/// of a write side, leaves its socket open, and `close_open` closes it.
 pub fn on_last_event(state: anytype, event: rotor.Event) void {
     if (event.flags.message) return;
-    // The shutdown of a write side leaves the socket open, and `close_open` closes it.
-    if (rotor_host.half_close_of(event) != null) return;
     const tagged = rotor_host.tag_of(event);
     switch (tagged.kind) {
         .accept => {

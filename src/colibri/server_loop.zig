@@ -46,8 +46,8 @@ pub fn sockets_max(tcp_connections: usize) u16 {
     return @intFromEnum(datagram_id(tcp_connections)) + 1;
 }
 
-/// The operations a server holds in flight at most: an accept, for each socket a receive, a send
-/// and a close, and the UDP socket's receive and sends.
+/// The operations a server holds in flight at most: an accept, for each socket a receive, a send,
+/// a close and the shutdown of its write side, and the UDP socket's receive and sends.
 pub fn operations_max(tcp_connections: usize) u32 {
     return @intCast(tcp_connections * socket_module.operations_per_socket + 1 + Datagrams.operations);
 }
@@ -71,7 +71,6 @@ pub fn reset(state: anytype, now_ns: u64) void {
     state.entry_of = @splat(null);
     state.pending = .initEmpty();
     state.touched = .initEmpty();
-    state.half_closes = .initEmpty();
     state.operations = .empty;
     state.accepting = false;
     state.accept_canceled = false;
@@ -141,6 +140,7 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
         .receive => socket.on_received(completion.result),
         .send => socket.on_sent(completion.result),
         .close => socket.closed = true,
+        .shutdown => socket.on_shut_down(completion.result),
         // A server's sockets come from its listener, so it connects none.
         .connect => unreachable,
     }
@@ -230,8 +230,7 @@ fn serve_entry(run: anytype, index: usize, now_ns: u64) void {
 }
 
 /// Writes what each socket this turn changed needs next. A socket whose operation found no room
-/// stays changed for the next turn. A socket whose write side closes now is marked for
-/// `take_half_close`.
+/// stays changed for the next turn.
 fn arm(state: anytype, out: *operation_table.Outbox) void {
     var left: @TypeOf(state.touched) = .initEmpty();
     for (0..state.sockets.len) |_| {
@@ -239,39 +238,8 @@ fn arm(state: anytype, out: *operation_table.Outbox) void {
         const socket = &state.sockets[index];
         if (!socket.live) continue;
         if (!socket.arm(out, &state.operations, index)) left.set(index);
-        if (socket.half_close_due()) state.half_closes.set(index);
     }
     state.touched.setUnion(left);
-}
-
-/// The next socket whose write side closes now, which this call marks in flight (RFC 9112 §9.6,
-/// decision 160). The host contract has no operation for a half-close, so colibri's own Rotor
-/// host asks for each one after a turn (`rotor_host.zig`), and calls `half_closed` at its end.
-pub fn take_half_close(run: anytype) ?host.SocketId {
-    const state = run;
-    for (0..state.sockets.len) |_| {
-        const index = state.half_closes.toggleFirstSet() orelse return null;
-        const socket = &state.sockets[index];
-        if (!socket.live or !socket.half_close_due()) continue;
-        socket.shutdown_submitted = true;
-        socket.shutting_down = true;
-        return @enumFromInt(index);
-    }
-    return null;
-}
-
-/// Takes the end of the shutdown of the write side of `socket_id` at `now_ns`. One that failed
-/// ends the connection, as a failed send does.
-pub fn half_closed(run: anytype, socket_id: host.SocketId, shut: bool, now_ns: u64) void {
-    const state = run;
-    host.enter(&state.in_turn, "complete()");
-    defer state.in_turn = false;
-    const index = @intFromEnum(socket_id);
-    const socket = &state.sockets[index];
-    assert(socket.live);
-    socket.on_shut_down(shut);
-    if (socket.failed) pump.peer_closed(run, index, now_ns);
-    state.pending.set(index);
 }
 
 /// Whether the run may end: the engine reported `closed`, every socket is free, and each operation

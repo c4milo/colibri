@@ -32,6 +32,11 @@ pub fn submit(self: anytype, operation: *const host.Operation) void {
             const data = user_data(id, .send, send.socket, 0);
             submit_one(self, rotor.Operation.send(data, self.descriptor_of(send.socket), send.bytes), null);
         },
+        // RFC 9112 §9.6: the write side closes, and the receive on the socket goes on.
+        .shutdown_send => |shutdown| {
+            const data = user_data(id, .shutdown_send, shutdown.socket, 0);
+            submit_one(self, rotor.Operation.shutdown(data, self.descriptor_of(shutdown.socket), .send), null);
+        },
         .close => |close| submit_close(self, id, close.socket),
         .receive_datagram => |receive| submit_receive_datagram(self, id, receive.socket),
         .send_datagram => |send| submit_send_datagram(self, id, send),
@@ -43,17 +48,6 @@ pub fn submit(self: anytype, operation: *const host.Operation) void {
 pub fn refuse(self: anytype, id: host.OperationId, result: host.Completion.Result) void {
     self.refused[self.refused_len] = .{ .id = id, .result = result };
     self.refused_len += 1;
-}
-
-/// Shuts down the write side of each socket whose connection closes in stages, and goes on with
-/// its receive (RFC 9112 §9.6, decision 160). The loop holds a shutdown for each socket beside
-/// the driver's operations.
-pub fn submit_half_closes(self: anytype, run_context: anytype, comptime driver: type) void {
-    for (0..self.descriptors.len) |_| {
-        const socket = driver.take_half_close(run_context) orelse return;
-        const data = rotor_host.half_close_user_data(socket);
-        submit_one(self, rotor.Operation.shutdown(data, self.descriptor_of(socket), .send), null);
-    }
 }
 
 const Cancelable = struct { socket: host.SocketId, id: host.OperationId };

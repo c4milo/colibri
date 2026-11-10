@@ -132,6 +132,8 @@ pub fn complete(run: anytype, slot: usize, kind: socket_module.Kind, result: hos
         .receive => socket.on_received(result),
         .send => socket.on_sent(result),
         .close => socket.closed = true,
+        // A client never closes its write side alone (`socket_module.client_operations_per_socket`).
+        .shutdown => unreachable,
     }
     // The peer closed first, or a call failed: the pool ends the connection. The pool changes
     // nothing for a handle it already ended, so each later completion of the socket may call again.

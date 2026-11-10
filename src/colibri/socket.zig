@@ -22,17 +22,22 @@ const host = @import("host.zig");
 const operation_table = @import("operation_table.zig");
 
 /// What an operation a socket has in flight does. A client's socket connects (design §8 step 42),
-/// and a server's comes from its listener.
-pub const Kind = enum(u8) { receive, send, close, connect };
+/// and a server's comes from its listener. A server's socket closes its write side for a staged
+/// close (decision 160).
+pub const Kind = enum(u8) { receive, send, close, shutdown, connect };
 
 /// The slots of the driver's operation table that each socket holds: one for each kind. Socket
 /// `index` holds the slots from `index * slots_per_socket` (`operation_table.zig`).
 pub const slots_per_socket: u32 = @typeInfo(Kind).@"enum".fields.len;
 
-/// The operations a socket holds in flight at once: a receive, a send and a close. A connect is
-/// in flight before the socket receives or sends, alone or with the close that cancels it, so it
-/// takes no more room.
+/// The operations a server's socket holds in flight at once: a receive, a send, a close and the
+/// shutdown of its write side. A connect is in flight before the socket receives or sends, alone
+/// or with the close that cancels it, so it takes no more room.
 pub const operations_per_socket: u32 = slots_per_socket - 1;
+
+/// The operations a client's socket holds in flight at once. A client never closes its write
+/// side alone, so it holds no shutdown.
+pub const client_operations_per_socket: u32 = operations_per_socket - 1;
 
 comptime {
     // The connect is the one kind that is never in flight beside a receive or a send.
@@ -85,7 +90,7 @@ pub const Socket = struct {
     /// Whether the engine asked for a half-close: once the octets left are out, the socket's
     /// write side closes and its receives go on (RFC 9112 §9.6, decision 160).
     half_closing: bool,
-    /// Whether the host took the shutdown of the write side, and whether it is in flight.
+    /// Whether the shutdown of the write side was written, and whether it is in flight.
     shutdown_submitted: bool,
     shutting_down: bool,
     /// Whether the socket closes now, with nothing more sent: the peer left or a call failed.
@@ -165,18 +170,18 @@ pub const Socket = struct {
     }
 
     /// Whether the write side closes now: the engine closes the connection in stages, and the
-    /// octets left are out (RFC 9112 §9.6, decision 160). The host contract has no operation for
-    /// it, so only colibri's own Rotor host does it (`rotor_host.zig`).
+    /// octets left are out (RFC 9112 §9.6, decision 160).
     pub fn half_close_due(socket: *const Socket) bool {
         if (!socket.half_closing or socket.shutdown_submitted or socket.stopped()) return false;
         return !socket.sending and socket.output_sent == socket.output_len;
     }
 
-    /// Takes the end of the shutdown of the write side. One that failed leaves the socket `failed`.
-    pub fn on_shut_down(socket: *Socket, shut: bool) void {
+    /// Takes the end of the shutdown of the write side. One that failed, or that a close ended,
+    /// leaves the socket `failed`.
+    pub fn on_shut_down(socket: *Socket, result: host.Completion.Result) void {
         assert(socket.shutting_down);
         socket.shutting_down = false;
-        if (!shut) socket.failed = true;
+        if (result != .shut_down) socket.failed = true;
     }
 
     /// Whether the host has closed the socket and given the final completion of each operation
@@ -214,15 +219,18 @@ pub const Socket = struct {
     }
 
     /// Writes what the socket needs next: its close once it is failed or closing and drained,
-    /// otherwise a send of what is owed and a receive while there is room for more. `index` is
-    /// where its driver holds it, which is its `SocketId`. False when `out` had no room for an
-    /// operation the socket needs, so the next turn writes it.
+    /// otherwise a send of what is owed, the shutdown of its write side once a staged close has
+    /// sent everything, and a receive while there is room for more. `index` is where its driver
+    /// holds it, which is its `SocketId`. False when `out` had no room for an operation the socket
+    /// needs, so the next turn writes it.
     pub fn arm(socket: *Socket, out: *operation_table.Outbox, table: anytype, index: usize) bool {
         if (socket.close_submitted) return true;
         const drained = socket.output_sent == socket.output_len;
         if (socket.failed or (socket.closing and drained)) return socket.write(out, table, index, .close);
         var written = true;
         if (!socket.sending and !drained) written = socket.write(out, table, index, .send);
+        // RFC 9112 §9.6: the write side closes once the response is out, and the receives go on.
+        if (socket.half_close_due()) written = socket.write(out, table, index, .shutdown) and written;
         const free = input_capacity - socket.input_len;
         if (!socket.receiving and !socket.closing and free > 0) written = socket.write(out, table, index, .receive) and written;
         return written;
@@ -242,6 +250,11 @@ pub const Socket = struct {
             .send => blk: {
                 socket.sending = true;
                 break :blk .{ .send = .{ .socket = socket_id, .bytes = socket.output[socket.output_sent..socket.output_len] } };
+            },
+            .shutdown => blk: {
+                socket.shutdown_submitted = true;
+                socket.shutting_down = true;
+                break :blk .{ .shutdown_send = .{ .socket = socket_id } };
             },
             // The host's close ends the socket's receive and send first (decision 159, rule 1).
             .close => blk: {
@@ -346,21 +359,30 @@ test "decision 159: a socket whose close completes first is finished only after 
 }
 
 test "decision 160: the write side closes once the octets are out, and the socket is finished after it" {
+    var table: operation_table.Table(slots_per_socket) = .empty;
+    var operations: [operations_per_socket]host.Operation = undefined;
+    var out: operation_table.Outbox = .{ .operations = &operations };
     test_socket.open();
     test_socket.half_closing = true;
     test_socket.wrote(3);
     // RFC 9112 §9.6: the response goes out first.
     try testing.expect(!test_socket.half_close_due());
-    test_socket.sending = true;
+    try testing.expect(test_socket.arm(&out, &table, 0));
+    try testing.expectEqual(2, out.len);
+    try testing.expect(operations[0].kind == .send and operations[1].kind == .receive);
     test_socket.on_sent(.{ .sent = 3 });
     try testing.expect(test_socket.half_close_due());
-    test_socket.shutdown_submitted = true;
-    test_socket.shutting_down = true;
-    try testing.expect(!test_socket.half_close_due());
+    out = .{ .operations = &operations };
+    try testing.expect(test_socket.arm(&out, &table, 0));
+    // The shutdown is written once, and the receive stays in flight.
+    try testing.expectEqual(1, out.len);
+    try testing.expectEqual(0, @intFromEnum(operations[0].kind.shutdown_send.socket));
+    try testing.expect(test_socket.receiving and !test_socket.half_close_due());
     // The close may complete before the shutdown that it ended.
     test_socket.closed = true;
     try testing.expect(!test_socket.finished());
-    test_socket.on_shut_down(false);
+    test_socket.on_received(.canceled);
+    test_socket.on_shut_down(.canceled);
     try testing.expect(test_socket.finished() and test_socket.failed);
     // A socket that failed shuts nothing down.
     test_socket.open();

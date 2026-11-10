@@ -165,8 +165,8 @@ test "decision 160: the end of a run reads a shutdown of a write side, and close
     const descriptor = try rotor.sync.open_socket(.ipv4);
     hold_accepted(descriptor);
     // A staged close left the shutdown in flight. The socket has no peer, so the shutdown fails.
-    const shutdown = rotor.Operation.shutdown(rotor_host.half_close_user_data(socket_id), descriptor, .send);
-    try testing.expectEqual(1, test_server.host.loop.submit(&.{shutdown}, &.{}));
+    test_server.host.submit(&.{ .id = @enumFromInt(0), .kind = .{ .shutdown_send = .{ .socket = socket_id } } });
+    try testing.expectEqual(.open, test_server.host.states[0]);
     end_run();
     try testing.expect(!test_server.host.open(socket_id));
     // getsockname(2) on a closed descriptor fails with EBADF, which Rotor reports as unexpected.

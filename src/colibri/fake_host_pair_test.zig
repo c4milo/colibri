@@ -122,6 +122,7 @@ const Pair = struct {
             .connect => host_pair.connect(operation.id),
             .receive => host_pair.pipes[index].receive = operation,
             .send => |written| host_pair.send(side, operation.id, written.bytes),
+            .shutdown_send => host_pair.shutdown_send(side, operation.id),
             .close => host_pair.close(side, operation.id),
             .cancel => |named| host_pair.cancel(side, named.target),
             .receive_datagram => host_pair.datagram_receives[index] = operation.id,
@@ -151,6 +152,13 @@ const Pair = struct {
         @memcpy(pipe.bytes[pipe.len..][0..count], bytes[0..count]);
         pipe.len += count;
         host_pair.complete(side, .{ .id = id, .result = .{ .sent = @intCast(count) } });
+    }
+
+    /// Closes the write side of the socket of `side`: its peer reads the end of the octets, and its
+    /// own receive goes on (RFC 9112 §9.6).
+    fn shutdown_send(host_pair: *Pair, side: Side, id: host.OperationId) void {
+        host_pair.pipes[@intFromEnum(peer_of(side))].ended = true;
+        host_pair.complete(side, .{ .id = id, .result = .shut_down });
     }
 
     /// Closes the socket of `side`. The close ends the socket's receive first (decision 159, rule

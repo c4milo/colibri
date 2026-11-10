@@ -59,10 +59,7 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         const Engine = server.Engine(capacity);
         /// What each kind does: `server_kinds.zig`.
         const Kinded = @field(kinds, @tagName(kind));
-        /// colibri's own Rotor host of `.private` holds each operation of the driver, and the
-        /// shutdown of each socket's write side for a staged close, which the host contract has no
-        /// operation for (decision 160).
-        const Host = Kinded.Host(sockets_max, operations_max + tcp_connections, capacity.quic_connections > 0);
+        const Host = Kinded.Host(sockets_max, operations_max, capacity.quic_connections > 0);
         comptime {
             assert(tcp_connections > 0);
         }
@@ -98,11 +95,9 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         accepting: bool,
         accept_canceled: bool,
         accept_into: u32,
-        /// The entries a completion named since their last step, the sockets a turn changed, and
-        /// the sockets whose write side closes now (`server_loop.take_half_close`).
+        /// The entries a completion named since their last step, and the sockets a turn changed.
         pending: Bits,
         touched: Bits,
-        half_closes: Bits,
         /// Whether a read of the engine's events stopped at its bound.
         undrained: bool,
         /// The instant of the last call into the engine.

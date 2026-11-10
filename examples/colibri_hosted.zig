@@ -223,6 +223,7 @@ const Host = struct {
                 socket.send = operation;
                 try self.send(side);
             },
+            .shutdown_send => self.shutdown_send(side, operation.id),
             .close => self.close(side, operation.id),
             .cancel => |named| self.cancel(side, named.target),
             // The host opened no UDP socket, so no object writes a datagram.
@@ -251,6 +252,13 @@ const Host = struct {
         try link.send(side, bytes[0..count]);
         socket.send = null;
         self.complete(side, .{ .id = operation.id, .result = .{ .sent = @intCast(count) } });
+    }
+
+    /// Closes the write side of the socket of `side`: its peer reads the end of the octets, and
+    /// its own receive goes on (RFC 9112 §9.6).
+    fn shutdown_send(self: *Host, side: Side, id: colibri.OperationId) void {
+        self.sockets[@intFromEnum(side.other())].ended = true;
+        self.complete(side, .{ .id = id, .result = .shut_down });
     }
 
     /// Closes the socket of `side`: its receive ends first (decision 159, rule 1), and its peer

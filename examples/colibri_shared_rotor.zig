@@ -137,6 +137,11 @@ fn submit(self: anytype, operation: *const colibri.Operation) void {
             const socket = @intFromEnum(named.socket);
             submit_one(self, rotor.Operation.send(user_data(owner, .send, socket, id), self.descriptors[socket].?, named.bytes), null, id);
         },
+        // The write side closes, and the receive on the socket goes on.
+        .shutdown_send => |named| {
+            const socket = @intFromEnum(named.socket);
+            submit_one(self, rotor.Operation.shutdown(user_data(owner, .shutdown_send, socket, id), self.descriptors[socket].?, .send), null, id);
+        },
         .close => |named| {
             const socket = @intFromEnum(named.socket);
             // A connect whose socket the system refused opened nothing, so its close has nothing
@@ -208,6 +213,7 @@ fn succeeded(self: anytype, tag: Tag, count: u32) colibri.Completion.Result {
         .connect => return .connected,
         .receive => return .{ .received = count },
         .send => return .{ .sent = count },
+        .shutdown_send => return .shut_down,
         .close => {
             self.descriptors[tag.socket] = null;
             return .closed;

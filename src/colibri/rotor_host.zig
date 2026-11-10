@@ -35,28 +35,6 @@ pub fn user_data(id: host.OperationId, kind: Kind, socket: host.SocketId, outbou
     return (@as(u64, @as(u32, @bitCast(tag))) << tag_shift) | @intFromEnum(id);
 }
 
-/// The kind byte of the tag of a shutdown of a socket's write side, above each kind of
-/// `host.Operation`. The host contract has no operation for a half-close (decision 160), so the
-/// host takes each one from the server's driver after a turn (`server_loop.take_half_close`).
-const half_close_kind: u8 = std.math.maxInt(u8);
-
-comptime {
-    assert(std.meta.fields(Kind).len < half_close_kind);
-}
-
-/// The `user_data` of the shutdown of `socket`'s write side. It names no operation of the driver.
-pub fn half_close_user_data(socket: host.SocketId) u64 {
-    const tag: Tag = .{ .socket = @intFromEnum(socket), .outbound = 0, .kind = half_close_kind };
-    return @as(u64, @as(u32, @bitCast(tag))) << tag_shift;
-}
-
-/// The socket of the event of a shutdown of a write side, or null for an operation's event.
-pub fn half_close_of(event: rotor.Event) ?host.SocketId {
-    const tag: Tag = @bitCast(@as(u32, @truncate(event.user_data >> tag_shift)));
-    if (tag.kind != half_close_kind) return null;
-    return @enumFromInt(tag.socket);
-}
-
 /// The driver's id, the kind and the socket of an event, from its `user_data`.
 pub const Tagged = struct { id: host.OperationId, kind: Kind, socket: host.SocketId, outbound: u8 };
 
@@ -249,7 +227,6 @@ fn host_submit_turn(self: anytype, run_context: anytype, comptime driver: type, 
     const turned = driver.turn(run_context, now_ns, &self.operations);
     self.refused_len = 0;
     for (self.operations[0..turned.operations]) |*operation| self.submit(operation);
-    if (@hasDecl(driver, "take_half_close")) submit_module.submit_half_closes(self, run_context, driver);
     for (self.refused[0..self.refused_len]) |*completion| driver.complete(run_context, completion, now_ns);
     // A completion leaves work for the next turn, which comes before any wait (rule 5).
     return if (self.refused_len > 0) 0 else wait_of(turned.wait, now_ns);
@@ -273,17 +250,10 @@ pub fn wait_of(wait: host.Wait, now_ns: u64) u64 {
 }
 
 /// Gives the driver the completion of one event. A receive of datagrams gives its buffer back to
-/// the loop once the driver has read it. The end of a shutdown of a write side goes to the
-/// server's driver, which has no operation for it (decision 160).
+/// the loop once the driver has read it.
 fn deliver(self: anytype, run_context: anytype, comptime driver: type, event: rotor.Event, now_ns: u64) void {
     // No other loop posts to this one.
     assert(!event.flags.message);
-    if (@hasDecl(driver, "half_closed")) {
-        if (half_close_of(event)) |socket| {
-            const shut = if (event.outcome()) |_| true else |_| false;
-            return driver.half_closed(run_context, socket, shut, now_ns);
-        }
-    }
     const tagged = tag_of(event);
     if (tagged.kind == .receive_datagram) {
         if (!@TypeOf(self.*).has_datagrams) unreachable;
@@ -310,6 +280,7 @@ fn result_of(self: anytype, tagged: Tagged, event: rotor.Event) host.Completion.
         .receive => .{ .received = count },
         .send => .{ .sent = count },
         .send_datagram => .{ .datagram_sent = count },
+        .shutdown_send => .shut_down,
         .close => closed(self, tagged.socket),
         .receive_datagram, .cancel => unreachable,
     };

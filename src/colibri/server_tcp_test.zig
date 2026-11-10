@@ -167,7 +167,6 @@ fn pass_at(now_ns: u64) !usize {
     const count = try host.loop.tick(&host.events, pass_wait_ns);
     var read: usize = 0;
     for (host.events[0..count]) |event| {
-        if (rotor_host.half_close_of(event) != null) continue;
         const tagged = rotor_host.tag_of(event);
         if (tagged.kind == .receive and @intFromEnum(tagged.socket) == 0) read += event.outcome() catch 0;
     }

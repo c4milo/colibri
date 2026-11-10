@@ -88,6 +88,9 @@ pub const Operation = struct {
             ecn: server.Ecn,
             segment_bytes: u16,
         },
+        /// Close the write side of the socket, as shutdown(2) with SHUT_WR does. The receive on
+        /// the socket goes on, and a `close` follows (RFC 9112 §9.6, decision 160).
+        shutdown_send: struct { socket: SocketId },
         close: struct { socket: SocketId },
         /// Asks for the final completion of `target` to come early. A cancel has the id of its
         /// target and gets no completion of its own. A target that already ended names nothing,
@@ -116,6 +119,8 @@ pub const Completion = struct {
             ecn: server.Ecn = .not_ect,
         },
         datagram_sent: u32,
+        /// The write side of the socket is closed.
+        shut_down,
         closed,
         canceled,
         failed: Failure,

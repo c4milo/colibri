@@ -61,7 +61,7 @@ pub fn sockets_max(tcp_connections: usize) u16 {
 /// The operations a client holds in flight at most: for each TCP socket a receive, a send and a
 /// close, or its connect alone, and the UDP socket's receive and sends.
 pub fn operations_max(tcp_connections: usize, quic: bool) u32 {
-    return @intCast(tcp_connections * socket_module.operations_per_socket + if (quic) Datagrams.operations else 0);
+    return @intCast(tcp_connections * socket_module.client_operations_per_socket + if (quic) Datagrams.operations else 0);
 }
 
 /// Runs the client `state` names on the calling thread until its pool reports `closed`, every
