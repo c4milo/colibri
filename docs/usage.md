@@ -314,8 +314,10 @@ the count of bytes of the body. These rules apply to `fetch`:
   `deinit`.
 
 `cancel` ends an exchange that `request` returned, and the handler gets no `finished` for it. The
-memory of its request and its response is your program's again when the call returns. A handler
-may call `cancel`:
+memory of its request and its response is your program's again when the call returns. `cancel`
+takes no instant: it uses the instant of the last `turn` or `complete` ([decision
+146](decisions.md) ruling 3). A host that calls `cancel` long after its last turn calls `turn` with
+the current instant first. A handler may call `cancel`:
 
 ```zig
 const id = try http_client.request(&fetched.requests[1], &dropped);
@@ -377,8 +379,10 @@ loop, beside a timer of its own, and binds loopback.
    listener's id is `Server.listener`, and the UDP sockets' ids are `Server.datagram`,
    `Client.datagram_ipv4` and `Client.datagram_ipv6`.
 5. When an operation ends, call `complete(&completion, now_ns)` with its id and its result. A
-   receive of datagrams may complete many times with `more = true`. Its bytes are yours, and
-   colibri reads them during the call alone.
+   receive of datagrams may complete many times with `more = true`, but only with a `.datagram`
+   result: a failure or a cancel ends the receive, with `more = false`. You lend the datagram's
+   bytes for the call alone. colibri may write them, because QUIC removes its packet protection in
+   place (RFC 9001 §5), and keeps no pointer to them.
 6. Call `turn` again at once after a completion, and otherwise at the instant that the `Wait`
    names. `.none` waits for the next completion.
 7. To stop, call `shutdown`, then `turn` and `complete` until `stopped()` holds, then `deinit`.
@@ -408,8 +412,8 @@ colibri halts with its message when it sees a host break a rule:
 3. One thread makes each call into an object. A completion from another thread goes through a
    queue that your program owns. A `.hosted` object makes no thread check, because the check is
    a system call on Linux.
-4. Never call `turn` or `complete` from inside `turn`. Your handler and your routes run inside
-   `turn`.
+4. Never call `turn` or `complete` from inside `turn` or `complete`. Your handler and your routes
+   run inside `turn`, and inside a `complete` that gives colibri a datagram.
 5. After a `complete`, or after a call such as `request`, `cancel`, `set_destination` or
    `shutdown`, call `turn` before your loop waits.
 6. `now_ns` never goes back. A completion with an id that colibri does not hold halts.
