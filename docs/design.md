@@ -15062,12 +15062,31 @@ library.
     2. `fix(h11)`: the `discard` phase, and the server's limit and deadlines on it.
     3. `fix(server)`: the staged close and `half_close`.
     4. `fix(server)`: the half-close and the read in the `colibri` module and `src/testing`.
+    5. `fix(h11)`: the close option in a response that ends at its head, when the server knows
+       that it closes (RFC 9110 §10.1.1, decision 160 ruling 5).
+    6. `test(server)`: each loop receives after the half-close, at one instant for every turn.
+    7. `test(server)`: a failure in the `discard` phase closes at once. The check of the failure
+       in `staged` was dead code, because each failure stops the connection first. It became an
+       assertion.
+    8. `test(server)`: the host client of `tools/h11_server_interop.sh` checks the half-close by
+       an acknowledgement, and not by a clock.
+    9. `docs`: this list.
   - **The checks.** A 405 to a POST with a 10 KiB body keeps the connection, which serves a
     second request, with a Content-Length and chunked. A body past the bound gets the staged
     close, and the client reads the whole 405 before the close. A client that never closes is
     closed 1 s after the half-close, at a simulated instant. A peer that drips the body is cut by
-    decision 110's body deadline. `tools/h11_server_interop.sh` runs curl against the router's
-    405, with a body under the bound and one past it.
+    decision 110's body deadline. A malformed chunk in the `discard` phase closes at once.
+    `tools/h11_server_interop.sh` runs curl against the router's 405, with a body under the bound
+    and one past it. A python3 client on the host then keeps writing past the bound:
+    1. It reads the whole 405 and the end of the data, with no reset.
+    2. A write after that is acknowledged. A full close answers it with a reset.
+    3. A later write fails, at the server's close.
+
+    No step reads a clock to decide. Step 2 must end within the server's bound of 1 s after its
+    half-close, and on an idle host it takes some milliseconds.
+  - **Checked on macOS 26.6.2 arm64 on 2026-11-10:** 20 runs of `tools/h11_server_interop.sh curl`
+    passed, and 10 more passed with two busy processes on each of the 10 cores. With the test
+    server's half-close made a full close, the script failed in 3 runs of 3.
 
 ## 9. Test-only entry points
 
