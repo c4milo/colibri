@@ -14537,6 +14537,25 @@ library.
              error of `fetch` on `.hosted`, CAUGHT.
     9. 44i `feat(colibri)!`: the root re-exports `client` and `server`, and the tests of the
        names lists run again.
+       - Done on 2026-11-10.
+         - The root of `colibri` exports `client` and `server`, each the module itself, before
+           `constants` (decision 115's order). The root's list holds 18 names, as "The public
+           names" above states them.
+         - A program that imports `colibri` needs no import of `client` or `server`. So
+           `examples/colibri_server.zig` takes both from `colibri`, and `tools/consumer/` builds
+           its router from `colibri.server`. docs/usage.md shows the two lines.
+         - The lists of `Server` and of `Client` did not change in this commit. The test checks
+           each list for `.private` and for `.hosted`, and checks that a type has one identity
+           by either path.
+         - The commit keeps the `!` of the plan. No name left a list and no signature changed,
+           so a program that builds against 44h builds against 44i.
+         - A point for the owner to rule: decision 156 ruling 14 says that the examples name the
+           variable `client`. `examples/colibri_server.zig` keeps `http_client`, because this
+           plan names no such change. 44l can name the variable in its two new examples.
+         - Mutations, each against `zig build test-colibri`:
+           - No `client` at the root, and no `server` at the root: each CAUGHT. The test of the
+             names does not compile.
+           - `client` that names the module `server`: CAUGHT by the test of the names.
     10. 44j `build`: Rotor lazy, the option `rotor`, `build_options`, and the compile error of
         `.private` with no Rotor. `tools/consumer/` passes `.rotor = true`.
         - Check: `tools/consumer_check.sh` builds a second consumer, of the protocol modules and

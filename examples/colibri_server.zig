@@ -32,8 +32,9 @@
 //! Run it with `zig build example-colibri_server`, or every example with `zig build examples`.
 const std = @import("std");
 const colibri = @import("colibri");
-const server = @import("server");
-const client = @import("client");
+// `colibri` re-exports the modules `server` and `client`, so the program imports neither by name.
+const server = colibri.server;
+const client = colibri.client;
 const tls = @import("tls");
 const platform = @import("platform");
 const identity = @import("testdata");

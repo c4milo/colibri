@@ -130,6 +130,15 @@ socket and the UDP socket of one port, reads the server's identity, and runs `se
 of `server.Router` at `init`, and calls `run`. The code in this section is from
 [`examples/colibri_server.zig`](../examples/colibri_server.zig).
 
+The root of `colibri` re-exports the modules `client` and `server`
+([decision 156](decisions.md) ruling 14). So a program that imports `colibri` reaches both
+through it, and needs no import of its own for either:
+
+```zig
+const server = colibri.server;
+const client = colibri.client;
+```
+
 `colibri.Server(capacity, kind)` is a type function, as Zig's `std.ArrayList(T)` is
 ([decision 156](decisions.md) ruling 1). `capacity` is a `server.Capacity`. `kind` is `.private`,
 which runs on colibri's own Rotor loop, or `.hosted`, which runs on your program's loop

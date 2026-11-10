@@ -49,7 +49,8 @@ const bound_routes = .{
         .{ .get, "/", on_root },
     },
 };
-const BoundRouter = server_module.Router(void, bound_routes, .{ .requests = 1 });
+// `colibri.server` is the module `server`, which the root of `colibri` re-exports.
+const BoundRouter = colibri.server.Router(void, bound_routes, .{ .requests = 1 });
 var router: BoundRouter align(@alignOf(BoundRouter)) = .{};
 var router_context: void = {};
 // A `colibri.Client` of one TCP connection, four requests and no QUIC, which the program places
@@ -174,12 +175,12 @@ pub fn main() !void {
 
 /// Answers a GET of `/` with an empty 200. The program never runs the server, so no request
 /// arrives.
-fn on_root(_: *void, _: *const server_module.Request, _: void, _: void, response: *server_module.ResponseWriter) !void {
+fn on_root(_: *void, _: *const colibri.server.Request, _: void, _: void, response: *colibri.server.ResponseWriter) !void {
     try response.end();
 }
 
 /// Answers 500 when a route's function fails (RFC 9110 §15.6.1).
-fn on_route_error(_: *void, _: *const server_module.Request, _: anyerror, response: *server_module.ResponseWriter) void {
+fn on_route_error(_: *void, _: *const colibri.server.Request, _: anyerror, response: *colibri.server.ResponseWriter) void {
     response.status = .internal_server_error;
 }
 
