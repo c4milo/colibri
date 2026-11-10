@@ -211,9 +211,12 @@ early_run() {
 #  2. Its writer sends the 1 MiB, and a further octet sent on the same socket is acknowledged. A
 #     socket that the server closed fully answers with a reset, so a full close fails here.
 #  3. A later write fails: the server closed fully at the client's close or at its bound of 1 s.
-# No step reads a clock to decide. Each wait has a bound of 30 s only so that a broken server
-# cannot hang the check. Step 2 must end within the server's bound of 1 s after its half-close,
-# and on an idle host it takes some milliseconds.
+# A pass is decided by these events alone, never by a clock. One case needs a clock: when step 2
+# fails after the server's own bound of 1 s passed since the half-close, the server closed fully
+# by its bound, as it must, and the client was too slow, as a loaded host can make it. That case
+# runs again, at most attempts_max times in all. A step 2 that fails before the bound is a full
+# close, and fails the check at once. Each wait has a bound of 30 s so that a broken server cannot
+# hang the check.
 early_reset_run() {
   python3 - "${port}" "${early_url_path}" <<'PYTHON' || fail "a client that kept writing past the bound did not see the half-close"
 import socket
@@ -227,6 +230,11 @@ written = 1024 * 1024
 # A bound on each wait, so that a broken server cannot hang the check. No step expects to come
 # near it.
 wait_s = 30
+# The server's half_close_ns (server.constants.limits), and the share of it after which a failed
+# step 2 can come from the server's own bound and not from a full close.
+half_close_s = 1.0
+too_late_s = 0.8 * half_close_s
+attempts_max = 3
 # The octets of the send buffer that the peer has not acknowledged: SIOCOUTQ on Linux, which
 # termios names TIOCOUTQ, and SO_NWRITE (0x1024 in <sys/socket.h>) on macOS.
 if sys.platform == "darwin":
@@ -242,65 +250,84 @@ else:
         return struct.unpack("i", queued)[0]
 
 
+class TooLate(Exception):
+    """Step 2 failed after the server's bound passed: the client was too slow, not the server."""
+
+
 def fail(message):
     print(message, file=sys.stderr)
     sys.exit(1)
 
 
-connection = socket.create_connection(("127.0.0.1", port))
-connection.settimeout(wait_s)
-connection.sendall(f"POST {path} HTTP/1.1\r\nHost: h\r\nContent-Length: {declared}\r\n\r\n".encode())
-writer_errors = []
+def step_two_failed(message, half_closed_at):
+    if time.monotonic() - half_closed_at >= too_late_s:
+        raise TooLate(message)
+    fail(message)
 
 
-def write_body():
-    part = b"x" * 65536
+def attempt():
+    connection = socket.create_connection(("127.0.0.1", port))
+    connection.settimeout(wait_s)
+    connection.sendall(f"POST {path} HTTP/1.1\r\nHost: h\r\nContent-Length: {declared}\r\n\r\n".encode())
+    writer_errors = []
+
+    def write_body():
+        part = b"x" * 65536
+        try:
+            for _ in range(written // len(part)):
+                connection.sendall(part)
+        except OSError as error:
+            writer_errors.append(error)
+
+    writer = threading.Thread(target=write_body, daemon=True)
+    writer.start()
+    # Step 1: the 405 and then the end of the data, from the half-close.
+    received = b""
     try:
-        for _ in range(written // len(part)):
-            connection.sendall(part)
+        while True:
+            chunk = connection.recv(4096)
+            if not chunk:
+                break
+            received += chunk
+    except ConnectionResetError:
+        fail(f"reset after {len(received)} octets")
+    half_closed_at = time.monotonic()
+    if not received.startswith(b"HTTP/1.1 405 ") or not received.endswith(b"\r\n\r\n"):
+        fail(f"read {received!r}")
+    # Step 2: the server still reads after its half-close.
+    writer.join(wait_s)
+    if writer.is_alive():
+        fail("the server did not read the body after its half-close")
+    if writer_errors:
+        step_two_failed(f"the body's writes failed: {writer_errors[0]!r}, a full close in place of the half-close", half_closed_at)
+    try:
+        connection.sendall(b"x")
+        for _ in range(wait_s * 1000):
+            if unacknowledged(connection) == 0:
+                break
+            time.sleep(0.001)
     except OSError as error:
-        writer_errors.append(error)
+        step_two_failed(f"a write after the half-close failed: {error!r}, a full close in place of the half-close", half_closed_at)
+    error = connection.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+    if error != 0 or unacknowledged(connection) != 0:
+        step_two_failed(f"the server did not acknowledge a write after its half-close (error {error})", half_closed_at)
+    # Step 3: the server closes fully, so a later write fails.
+    for _ in range(wait_s * 20):
+        try:
+            connection.send(b"x")
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        time.sleep(0.05)
+    fail(f"the server did not close within {wait_s} s")
 
 
-writer = threading.Thread(target=write_body, daemon=True)
-writer.start()
-# Step 1: the 405 and then the end of the data, from the half-close.
-received = b""
-try:
-    while True:
-        chunk = connection.recv(4096)
-        if not chunk:
-            break
-        received += chunk
-except ConnectionResetError:
-    fail(f"reset after {len(received)} octets")
-if not received.startswith(b"HTTP/1.1 405 ") or not received.endswith(b"\r\n\r\n"):
-    fail(f"read {received!r}")
-# Step 2: the server still reads after its half-close.
-writer.join(wait_s)
-if writer.is_alive():
-    fail("the server did not read the body after its half-close")
-if writer_errors:
-    fail(f"the body's writes failed: {writer_errors[0]!r}, a full close in place of the half-close")
-try:
-    connection.sendall(b"x")
-    for _ in range(wait_s * 1000):
-        if unacknowledged(connection) == 0:
-            break
-        time.sleep(0.001)
-except OSError as error:
-    fail(f"a write after the half-close failed: {error!r}, a full close in place of the half-close")
-error = connection.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-if error != 0 or unacknowledged(connection) != 0:
-    fail(f"the server did not acknowledge a write after its half-close (error {error})")
-# Step 3: the server closes fully, so a later write fails.
-for _ in range(wait_s * 20):
+for number in range(1, attempts_max + 1):
     try:
-        connection.send(b"x")
-    except (BrokenPipeError, ConnectionResetError):
+        attempt()
         sys.exit(0)
-    time.sleep(0.05)
-fail(f"the server did not close within {wait_s} s")
+    except TooLate as late:
+        print(f"attempt {number}: {late}, after the server's bound of {half_close_s} s: the client was too slow", file=sys.stderr)
+fail(f"the client was too slow in each of {attempts_max} attempts")
 PYTHON
   echo "h11_server_interop.sh: a client that kept writing past the bound read the whole 405, the half-close, and the close"
 }
