@@ -14561,9 +14561,49 @@ library.
         - Check: `tools/consumer_check.sh` builds a second consumer, of the protocol modules and
           `.hosted` alone, with an empty `--global-cache-dir`. No `rotor-*` folder may appear
           under `p/`. `zig build --fetch` must not fetch Rotor for it.
+        - Done on 2026-11-10, as `8d858242`.
+          - `build.zig.zon` marks Rotor lazy. `build/modules.zig` reads the option `rotor`, true
+            at colibri's root and false for a dependent, and gives `colibri` a `build_options`
+            value. The root imports `rotor_host*.zig` only when it is true.
+          - `colibri.Server(_, .private)` and `colibri.Client(_, .private)` call
+            `host.require_rotor`, which stops the compile with decision 159's message.
+          - colibri's own build asks for Rotor whatever the option says, for `src/testing/` and
+            `examples/`.
+          - `tools/consumer/` passes `.rotor = true`. `tools/consumer_hosted/` is a second project
+            of `h11` and the `.hosted` kind. `tools/consumer_check.sh` builds and runs it with a
+            global cache that starts empty. It requires that neither the cache's `p/` nor the
+            project's `zig-pkg/` holds Rotor, pepegrillo or `qifs`. A program of the project that
+            names `.private` must fail with the message once for each type.
+          - The first project is the control: its `zig-pkg/` must hold `rotor-*`.
+          - Mutations, each against `tools/consumer_check.sh`, each CAUGHT: the option true for a
+            dependent, and `.lazy` removed (each fetched Rotor); `require_rotor` removed (the
+            program compiled); `tools/consumer/` with no option (colibri's message).
     11. 44k `test(lint)`: the rule `rotor-import`, the narrower `io` exemption,
         `colibri-hosted-check` and the canaries.
         - Check: `zig build lint` passes on the tree, and each canary gives its one finding.
+        - Done on 2026-11-10, as `da27c89e`.
+          - `tools/lint/rotor_import.zig` reads the parsed tree. In `build.zig` and `build/`, an
+            `addImport("rotor", ...)` must name `colibri`, `testing`, `testing_client`,
+            `testing_udp` or `example`, and a `dependency("rotor", ...)` is a finding. The
+            examples' module and the UDP endpoint's module took those names.
+          - Under `src/`, an `@import("rotor")` must be in `src/testing/` or in a file of
+            `src/colibri/` whose name starts with `rotor_host`. The rule reads the import through
+            pepegrillo's `imported_path`, not `forbidden_references`. That rule reads chains, so
+            an import under another name would pass it.
+          - The `io` rule exempts eleven paths of `src/colibri/` in place of the directory: the
+            five files of the adapter, its two test files, and four loopback tests of
+            `.private`, which run a peer on a thread. Decision 159 names the adapter alone.
+          - `build/lint.zig` adds three canaries, each with its one finding and its place. A
+            third run over the files the rule allows must exit 0.
+          - `zig build colibri-hosted-check` builds `colibri` with no Rotor through
+            `modules_colibri.add_without_rotor`. `hosted_init` of
+            `src/colibri/loop_check_test.zig` runs, and `private_server_turn` and
+            `private_client_turn` fail with colibri's message.
+          - Mutations, each CAUGHT: `quic` allowed, `src/colibri/` exempt whole and the source
+            part removed (each by a canary of `zig build lint`); a wrong prefix of the adapter
+            (`zig build lint` on the tree); an eager fetch allowed and `io` exempting
+            `src/colibri/` (each by `zig build test-tools`); `require_rotor` removed
+            (`zig build colibri-hosted-check`).
     12. 44l `docs(colibri)`: two examples and docs/usage.md's section "Host colibri on your own
         loop".
         - `examples/colibri_hosted.zig` joins a hosted Server and a hosted Client through an
@@ -14578,10 +14618,38 @@ library.
         - Checks: `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh`.
           Mutation: `set_destination` ignored, measured with `zig build
           example-colibri_shared_rotor`.
+        - Done on 2026-11-10, as `cfd1fea6`.
+          - `examples/colibri_hosted.zig` hosts a server and a client in memory over
+            `link.zig`, with one seed. Two GETs run over h2 with TLS. The host opened no UDP
+            socket, so neither object speaks h3.
+          - `examples/colibri_shared_rotor.zig` has its adapter in about 140 lines. The program
+            binds `::` before `init`, and the server's idle deadline of 20 ms closes the first
+            connection. The program's timer then calls `set_destination` with ::1. The
+            program requires the first connect to name an IPv4 address and the second an IPv6
+            address.
+          - The client's `connection: close` was the first plan, and the pool refuses that
+            header (`error.FieldReserved`). So the idle deadline closes the connection.
+          - docs/usage.md has the section "Host colibri on your own loop", with the rules of the
+            host and the sketches for `std.Io` and libxev as `text` blocks. docs/performance.md
+            states that only `.private` has numbers. README.md shows the `.hosted` types.
+          - The examples name the variable `hosted_client`, not `client`, because `client` names
+            the module that the root re-exports (decision 156 ruling 14).
+          - Mutation: `set_destination` ignored, CAUGHT by `zig build
+            example-colibri_shared_rotor` (`error.DestinationWrong`).
   - **The checks.** `zig build test-colibri` for each commit, `zig build examples`,
     `tools/doc_snippets.sh`, `tools/consumer_check.sh`, `zig build colibri-loop-check`, `zig
     build colibri-hosted-check`, and the bench of 44c on the judge.
     The branch goes to main once, after 44l.
+  - **The run of step 44**, on macOS arm64 (kqueue) with Zig 0.16.0, on 2026-11-10. Before
+    each of 44j, 44k and 44l, each of these returned 0: `zig fmt --check build.zig bench build
+    examples src tools`, `zig build lint`, `zig build test`, `zig build examples`,
+    `tools/doc_snippets.sh`, `tools/consumer_check.sh`, `zig build colibri-loop-check` and,
+    from 44k, `zig build colibri-hosted-check`. `zig build lint-commits` returned 0 after each
+    commit.
+    - The mutations of 44c to 44l are in each entry above. Each NOT CAUGHT has its reason:
+      `undrained` in 44g, and a loop made twice in 44h.
+    - Not run: the bench on the judge, which owes `h2-many` and `h3-many` for 44c to 44h; the
+      checks of `tools/ci.sh` that need Linux, Docker or the judge; and the TLA+ models.
 - **Step 45 — colibri's public API in Zig's idioms, proposed 2026-11-07.** [Decision
   158](decisions.md). TigerStyle rules first, and Zig 0.16's std rules where TigerStyle says
   nothing. The step changes names and signatures, and no behaviour on the wire. It ships in
