@@ -174,7 +174,7 @@ fn write_all(sockets: anytype, comptime count: u32, out: *operation_table.Outbox
 /// `DatagramSockets.complete` of `count` sockets, for the slot `offset` past their first.
 fn complete_one(sockets: anytype, comptime count: u32, offset: u32, completion: *const host.Completion, context: anytype, comptime take: anytype, now_ns: u64) void {
     if (offset >= count) {
-        assert(completion.final());
+        assert(!completion.more);
         sockets.batches.release(offset - count);
         return;
     }
@@ -182,9 +182,9 @@ fn complete_one(sockets: anytype, comptime count: u32, offset: u32, completion: 
     assert(receiver.open);
     switch (completion.result) {
         .datagram => |datagram| take(context, .{ .bytes = datagram.bytes, .ecn = datagram.ecn, .from = datagram.from }, now_ns),
-        else => assert(completion.final()),
+        else => assert(!completion.more),
     }
-    if (completion.final()) receiver.receiving = false;
+    if (!completion.more) receiver.receiving = false;
 }
 
 /// Starts a socket's receive again after its final completion while `receives` holds. Once it

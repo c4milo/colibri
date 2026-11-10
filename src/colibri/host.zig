@@ -98,7 +98,8 @@ pub const Operation = struct {
 
 pub const Completion = struct {
     id: OperationId,
-    /// True while a `receive_datagram` stays in flight. The last completion has false.
+    /// True while a `receive_datagram` stays in flight. The last completion has false. Only a
+    /// `.datagram` result may have true: a failure or a cancel is always the last completion.
     more: bool = false,
     result: Result,
 
@@ -119,11 +120,6 @@ pub const Completion = struct {
         canceled,
         failed: Failure,
     };
-
-    /// Whether no other completion of the operation follows.
-    pub fn final(completion: *const Completion) bool {
-        return !completion.more;
-    }
 };
 
 /// colibri's words for an I/O failure. The host maps its own errors onto them.

@@ -129,7 +129,7 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
     host.enter(&state.in_turn, "complete()");
     defer state.in_turn = false;
     const slot = state.operations.held(completion.id);
-    if (completion.final()) state.operations.finish(slot);
+    if (!completion.more) state.operations.finish(slot);
     const tcp_connections = state.sockets.len;
     if (slot == accept_slot(tcp_connections)) return on_accept(run, completion.result, now_ns);
     if (state.udp.served and state.udp.owns(slot)) return server_udp.complete(run, slot, completion, now_ns);

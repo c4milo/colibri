@@ -174,7 +174,7 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
     defer state.in_turn = false;
     state.latest_ns = now_ns;
     const slot = state.operations.held(completion.id);
-    if (completion.final()) state.operations.finish(slot);
+    if (!completion.more) state.operations.finish(slot);
     if (state.udp.served and state.udp.owns(slot)) return @import("client_udp.zig").complete(run, slot, completion, now_ns);
     const index = slot / socket_module.slots_per_socket;
     const kind: socket_module.Kind = @enumFromInt(slot % socket_module.slots_per_socket);
