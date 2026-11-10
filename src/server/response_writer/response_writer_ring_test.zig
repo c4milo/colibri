@@ -2,11 +2,14 @@
 //! `response_writer_test_support.zig`: what a writer does that waits for the engine to release
 //! octets, or that finds a run in every slot. Split out of `response_writer_test.zig` for length.
 const std = @import("std");
+const http = @import("http");
+const internal = @import("response_writer_internal.zig");
 const support = @import("response_writer_test_support.zig");
 
 const testing = std.testing;
 const Fixture = support.Fixture;
 const memory_len = support.memory_len;
+const slots = support.slots;
 
 test "design §8 step 46: a writer that waits for a release asks again after a push" {
     var fixture: Fixture = .{};
@@ -26,4 +29,110 @@ test "design §8 step 46: a writer that waits for a release asks again after a p
     fixture.recorder.held = 0;
     try writer.writeAll("b" ** 16);
     try testing.expectEqual(3, fixture.recorder.release_waits);
+}
+
+/// Fills every slot with a run of four octets that the engine takes whole and holds.
+fn fill_slots(writer: *std.Io.Writer) !void {
+    for (0..slots) |_| {
+        try writer.writeAll("abcd");
+        try writer.flush();
+    }
+}
+
+test "design §8 step 46: once the bytes a cut kept went, a writable cuts no bytes before a flush" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    try fill_slots(writer);
+    // No slot is free, and the engine took the newest run, so the flush keeps its bytes.
+    try writer.writeAll("efgh");
+    try writer.flush();
+    try testing.expect(response.cut_owed);
+    // A release frees the slots, and the `writable` cuts the bytes kept into a run.
+    fixture.recorder.held = 0;
+    try testing.expect(try internal.resume_writes(response) == false);
+    try testing.expect(!response.cut_owed);
+    const calls = fixture.recorder.count;
+    try testing.expectEqualStrings("efgh", fixture.recorder.calls[calls - 1].body.bytes);
+    // The route writes two octets and does not flush them. The next `writable` leaves them in
+    // the writer: only a flush, a full region or the end sends them.
+    try writer.writeAll("ij");
+    try testing.expect(try internal.resume_writes(response) == false);
+    try testing.expectEqual(2, writer.end);
+    try testing.expectEqual(calls, fixture.recorder.count);
+}
+
+test "design §8 step 46: a write goes to the start of the memory once the oldest of sixteen runs is released" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    // Sixteen runs fill the memory and every slot, and the engine takes each whole and holds it.
+    const run_len = memory_len / slots;
+    try writer.writeAll("a" ** run_len);
+    try writer.flush();
+    for (1..slots) |_| {
+        try writer.writeAll("b" ** run_len);
+        try writer.flush();
+    }
+    try testing.expectEqual(0, writer.unusedCapacityLen());
+    try testing.expectError(error.WriteFailed, writer.writeAll("c" ** 8));
+    // The engine releases the oldest run alone. Its slot is free for the run cut next, so the
+    // writer's region goes to the start of the memory, over the octets of that run.
+    fixture.recorder.held -= run_len;
+    try writer.writeAll("c" ** 8);
+    try testing.expectEqual(@intFromPtr(&fixture.memory), @intFromPtr(writer.buffer.ptr));
+    try testing.expectEqual(run_len, writer.buffer.len);
+    try response.end();
+    var out: [memory_len + 8]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("a" ** run_len ++ "b" ** (memory_len - run_len) ++ "c" ** 8, body);
+    try testing.expect(ended);
+}
+
+test "design §8 step 46: a flush that keeps its bytes fails only when no octet of room is left" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    try fill_slots(writer);
+    // The flush keeps its bytes, and one octet of the writer's region is free: no error.
+    const filler: [memory_len]u8 = @splat('e');
+    try writer.writeAll(filler[0 .. writer.unusedCapacityLen() - 1]);
+    try writer.flush();
+    try testing.expect(response.cut_owed);
+    try testing.expectEqual(1, writer.unusedCapacityLen());
+    // The last octet fills the region, and the flush fails. It keeps its bytes too.
+    try writer.writeAll("f");
+    try testing.expectError(error.WriteFailed, writer.flush());
+    try testing.expectEqual(memory_len - 4 * slots, writer.end);
+}
+
+test "decision 127: end, trailers and write_kept return Full while a cut keeps its bytes" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    try fill_slots(writer);
+    try writer.writeAll("efgh");
+    try writer.flush();
+    const calls = fixture.recorder.count;
+    const before = internal.mark(response);
+    // No run takes the bytes the writer keeps, and nothing goes out before them. Each call
+    // returns `error.Full` and changes nothing of the response.
+    const lines: []const http.Field = &.{.{ .name = "checksum", .value = "1" }};
+    try testing.expectError(error.Full, response.end());
+    try testing.expectError(error.Full, response.trailers(lines));
+    try testing.expectError(error.Full, response.write_kept("KEPT"));
+    try testing.expect(internal.mark(response).eql(before));
+    try testing.expectEqual(4, writer.end);
+    try testing.expectEqual(calls, fixture.recorder.count);
+    try testing.expect(!response.ended and response.trailer_count == 0);
+    try testing.expect(internal.waiting(response));
+    // The engine releases the oldest run. The second call of `end` cuts the bytes kept into
+    // the slot that the release freed, and ends the response.
+    fixture.recorder.held -= 4;
+    try response.end();
+    try testing.expect(internal.complete(response));
+    var out: [memory_len]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("abcd" ** slots ++ "efgh", body);
+    try testing.expect(ended);
 }
