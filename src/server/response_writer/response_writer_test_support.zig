@@ -28,8 +28,9 @@ pub const Call = union(enum) {
 /// An engine that records each call. `room` is how many body bytes the next `write_body`
 /// takes, `head_blocked` refuses the next `respond`, and `failure` fails the next call. It reads
 /// each run of body bytes in place, as h3 does, so it holds `held` octets until a test releases
-/// them (design §8 step 46). `stream` is a copy of each body byte at the call that took it, since
-/// the writer writes again over a run the test released.
+/// them (design §8 step 46). With `copies` it holds none, as h11 and h2 do. `stream` is a copy of
+/// each body byte at the call that took it, since the writer writes again over a run the test
+/// released.
 pub const Recorder = struct {
     calls: [calls_max]Call = undefined,
     count: usize = 0,
@@ -38,6 +39,7 @@ pub const Recorder = struct {
     room: usize = std.math.maxInt(usize),
     head_blocked: bool = false,
     failure: ?connection_errors.SendError = null,
+    copies: bool = false,
     held: usize = 0,
     release_waits: usize = 0,
 
@@ -52,7 +54,7 @@ pub const Recorder = struct {
         if (recorder.room == 0 and body.bytes.len > 0) return error.Blocked;
         const taken = @min(recorder.room, body.bytes.len);
         recorder.room -= taken;
-        recorder.held += taken;
+        if (!recorder.copies) recorder.held += taken;
         @memcpy(recorder.stream[recorder.stream_len..][0..taken], body.bytes[0..taken]);
         recorder.stream_len += taken;
         recorder.add(.{ .body = .{ .bytes = body.bytes[0..taken], .end = body.end and taken == body.bytes.len } });
@@ -64,6 +66,8 @@ pub const Recorder = struct {
     }
 
     pub fn wait_release(recorder: *Recorder, _: event.RequestId) void {
+        // `State.wait_release` asserts it too: a wait for a release needs octets that are held.
+        std.debug.assert(recorder.held > 0);
         recorder.release_waits += 1;
     }
 

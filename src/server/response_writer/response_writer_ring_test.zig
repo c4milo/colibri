@@ -136,3 +136,52 @@ test "decision 127: end, trailers and write_kept return Full while a cut keeps i
     try testing.expectEqualStrings("abcd" ** slots ++ "efgh", body);
     try testing.expect(ended);
 }
+
+test "decision 127: write_kept with no free slot sends the run it cut before it waits" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    // The engine takes fifteen runs whole and holds each.
+    for (0..slots - 1) |_| {
+        try writer.writeAll("ab");
+        try writer.flush();
+    }
+    const calls = fixture.recorder.count;
+    // The bytes the writer holds take the last slot, so the program's bytes find none, and the
+    // call returns `error.Full`. The run it cut goes to the engine first. So the engine holds
+    // every run, the writer waits for a release, and a `writable` comes.
+    try writer.writeAll("cd");
+    try testing.expectError(error.Full, response.write_kept("KEPT"));
+    try testing.expectEqual(calls + 1, fixture.recorder.count);
+    try testing.expectEqualStrings("cd", fixture.recorder.calls[calls].body.bytes);
+    try testing.expectEqual(1, fixture.recorder.release_waits);
+    try testing.expect(internal.waiting(response));
+    // The engine releases the oldest run, and the second call adds the program's bytes.
+    fixture.recorder.held -= 2;
+    try testing.expect(try internal.resume_writes(response) == false);
+    try response.write_kept("KEPT");
+    try response.end();
+    var out: [memory_len]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("ab" ** (slots - 1) ++ "cd" ++ "KEPT", body);
+    try testing.expect(ended);
+}
+
+test "decision 127: write_kept with no free slot goes on once the engine takes the runs that wait" {
+    var fixture: Fixture = .{ .recorder = .{ .copies = true } };
+    const response = fixture.start();
+    // RFC 9113 §6.9: the window is closed, so each run waits in a slot.
+    fixture.recorder.room = 0;
+    for (0..slots) |_| try response.write_kept("a");
+    try testing.expectError(error.Full, response.write_kept("b"));
+    // The window opens before the request's `writable`. The call sends the runs that wait. The
+    // engine copies each and releases it at once, so the slots are free for the program's bytes.
+    fixture.recorder.room = std.math.maxInt(usize);
+    try response.write_kept("b");
+    try testing.expectEqual(0, fixture.recorder.release_waits);
+    try response.end();
+    var out: [memory_len]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("a" ** slots ++ "b", body);
+    try testing.expect(ended);
+}

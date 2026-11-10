@@ -106,7 +106,9 @@ pub const ResponseWriter = struct {
     }
 
     /// Sends `bytes` after the body written so far, with no copy. The program keeps them valid
-    /// until the request's `finished`. The head goes out first, when it has not.
+    /// until the request's `finished`. The head goes out first, when it has not. With a run in
+    /// every slot it returns `error.Full` and adds none of `bytes`, and the program calls it
+    /// again at the request's next `writable`.
     pub fn write_kept(response: *ResponseWriter, bytes: []const u8) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
@@ -119,7 +121,9 @@ pub const ResponseWriter = struct {
     }
 
     /// Ends the response. A head that has not gone out carries the whole body, so `end` adds its
-    /// Content-Length when the program set none.
+    /// Content-Length when the program set none. While the writer keeps the bytes of a `flush`
+    /// that found a run in every slot, `end` returns `error.Full` and changes nothing. The
+    /// program calls it again at the request's next `writable`.
     pub fn end(response: *ResponseWriter) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;
@@ -133,7 +137,9 @@ pub const ResponseWriter = struct {
     }
 
     /// Ends the response with a trailer section (RFC 9110 §6.5). Each name and value is copied into
-    /// the entry's memory after the body.
+    /// the entry's memory after the body. It returns `error.Full` as `end` does, and
+    /// `error.NoSpaceLeft` while that memory has no room for the section. After either, the
+    /// response is open and has no trailer, and the program calls `trailers` again.
     pub fn trailers(response: *ResponseWriter, headers: []const http.Field) Error!void {
         // RFC 9110 §6.4.1: the content ended, and nothing follows it.
         if (response.ended or response.end_asked != .none) return error.SectionOutOfOrder;

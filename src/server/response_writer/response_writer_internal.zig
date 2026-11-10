@@ -188,14 +188,23 @@ pub fn push_open(response: *ResponseWriter) Error!void {
 
 pub fn add_piece(response: *ResponseWriter, bytes: []const u8) Error!void {
     if (bytes.len == 0) return;
-    // Runs the engine released free their slots.
-    if (response.piece_count == constants.limits.response_pieces_max) ring.free_pieces(response);
-    if (response.piece_count == constants.limits.response_pieces_max) {
-        ring.wait_for_release(response);
-        return error.Full;
-    }
+    if (response.piece_count == constants.limits.response_pieces_max) try free_slot(response);
     response.pieces[response.piece_count] = bytes;
     response.piece_count += 1;
+}
+
+/// The slow path of `add_piece`, with a run in every slot. The runs the engine released free
+/// their slots. With none free, it sends what waits, the run that `write_kept` cut too (design
+/// §8 step 46h). So the engine owes a `writable`, or it holds every run and the writer waits for
+/// a release. Then it returns `error.Full`, unless that push freed a slot.
+fn free_slot(response: *ResponseWriter) Error!void {
+    ring.free_pieces(response);
+    if (response.piece_count < constants.limits.response_pieces_max) return;
+    try push(response);
+    ring.free_pieces(response);
+    if (response.piece_count < constants.limits.response_pieces_max) return;
+    ring.wait_for_release(response);
+    return error.Full;
 }
 
 /// Ends the body: the writer takes no more bytes.

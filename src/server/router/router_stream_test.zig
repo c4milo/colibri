@@ -27,6 +27,10 @@ const message_len_even = 32;
 /// writes, of 7 to 128 octets each (the owner's ruling of 2026-11-09).
 const long_response_bytes = 8192;
 const long_messages = stream.messages_max;
+/// The messages of a route that flushes each one through an engine that holds every run, and
+/// octets of each. They leave room for the trailer section after them in the memory.
+const short_messages = 20;
+const short_message_len = 5;
 /// The acknowledgments a test gives at most before the response ends: two for each octet.
 const acknowledgments_per_octet = 2;
 const internal_server_error: http.Status = .internal_server_error;
@@ -220,4 +224,48 @@ test "design §8 step 46: an engine that copies takes 1,000 flushed messages in 
     try testing.expectEqual(0, fixture.app.failed_writes);
     try testing.expectEqual(0, fixture.app.failed_flushes);
     try testing.expectEqual(0, fixture.holder.release_waits);
+}
+
+test "decision 127: a route that flushed 20 messages ends once the engine releases a run" {
+    for ([_]bool{ false, true }) |trailers| {
+        var fixture: Fixture = .{
+            .app = .{ .stream_len = short_messages * short_message_len, .message_len = short_message_len, .flush = true, .trailers = trailers, .end_again = true },
+            .holder = .{ .holds = true, .runs_max = stream.runs_all },
+        };
+        fixture.start();
+        // The engine took sixteen runs whole and holds each, so no slot is free. Each of the last
+        // four flushes kept its bytes in the writer and returned no error. Then `end`, or
+        // `trailers`, returned `error.Full` and changed nothing, and the route returned.
+        try testing.expectEqual(constants.limits.response_pieces_max * short_message_len, fixture.holder.taken);
+        try testing.expectEqual(1, fixture.app.calls);
+        try testing.expectEqual(0, fixture.app.failed_writes);
+        try testing.expectEqual(0, fixture.app.failed_flushes);
+        try testing.expectEqual(1, fixture.app.failed_ends);
+        try testing.expect(!fixture.holder.ended);
+        try testing.expectEqual(0, fixture.holder.cancelled);
+        // The writer waits for a release. Its `writable` cuts the bytes kept into the slot the
+        // release freed, and the route's next call ends the response.
+        try testing.expect(fixture.holder.owed);
+        try fixture.acknowledge_late();
+        try fixture.expect_stream();
+        try testing.expectEqual(2, fixture.app.calls);
+        try testing.expectEqual(1, fixture.app.failed_ends);
+        try testing.expectEqual(@intFromBool(trailers), fixture.holder.trailers);
+    }
+}
+
+test "decision 127: a route that returns the Full of its end from on_writable is cancelled" {
+    for ([_]bool{ false, true }) |trailers| {
+        var fixture: Fixture = .{
+            .app = .{ .stream_len = short_messages * short_message_len, .message_len = short_message_len, .flush = true, .trailers = trailers },
+            .holder = .{ .holds = true, .runs_max = stream.runs_all },
+        };
+        fixture.start();
+        // Ruling 4: the head went out, so the router cancels a request whose route returns an
+        // error.
+        try testing.expectEqual(1, fixture.app.calls);
+        try testing.expectEqual(1, fixture.holder.heads);
+        try testing.expectEqual(1, fixture.holder.cancelled);
+        try testing.expect(!fixture.holder.ended);
+    }
 }

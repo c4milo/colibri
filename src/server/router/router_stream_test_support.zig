@@ -5,6 +5,7 @@
 //! octet it took, and checks that no run it holds changes before its release. Test-only.
 const std = @import("std");
 const http = @import("http");
+const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const ResponseWriter = @import("../response_writer/response_writer.zig").ResponseWriter;
@@ -20,8 +21,13 @@ pub const stream_len_max = messages_max * message_len_max;
 pub const message_len_min = 7;
 const varied_lengths = message_len_max - message_len_min + 1;
 const varied_step = 37;
-/// The runs the engine holds at most, as an h3 response holds 16 runs, two for each DATA frame.
-const runs_max = 8;
+/// The runs the engine holds at most unless a test says more, as an h3 response holds 16 runs,
+/// two for each DATA frame. And the runs of an engine that holds every run it takes: one for each
+/// slot of the writer, which frees a slot only at a release.
+const runs_h3 = 8;
+pub const runs_all = constants.limits.response_pieces_max;
+/// The trailer section of a route that ends with one.
+const trailer_lines = [_]http.Field{.{ .name = "checksum", .value = "1" }};
 /// The prime that `octet_at` counts modulo, so no message repeats the one before it.
 const pattern_period = 251;
 
@@ -64,14 +70,19 @@ pub const App = struct {
     /// Whether the route, after a write that failed, writes the next octet of the response alone
     /// and flushes it, as a route does that sends a short message while a long one waits.
     octet_after_failure: bool = false,
+    /// Whether the route ends with a trailer section, and whether it returns with no error from
+    /// an end that changed nothing, and ends again in its next call.
+    trailers: bool = false,
+    end_again: bool = false,
     /// The calls of `on_writable`, those that found the writer with no room, the writes that
-    /// failed, which the route makes again in a later call, the flushes that failed, and the
-    /// octets written alone after a write that failed.
+    /// failed, which the route makes again in a later call, the flushes that failed, the octets
+    /// written alone after a write that failed, and the ends that changed nothing.
     calls: usize = 0,
     roomless_calls: usize = 0,
     failed_writes: usize = 0,
     failed_flushes: usize = 0,
     octets_after_failure: usize = 0,
+    failed_ends: usize = 0,
 };
 
 /// Writes `App.stream_len` octets, `App.message_len` at a time, and ends the response. A message
@@ -88,7 +99,7 @@ pub const Stream = struct {
         var message: [message_len_max]u8 = undefined;
         // Bounded: each pass writes one message of one octet at least.
         for (0..stream_len_max) |_| {
-            if (state.written == app.stream_len) return response.end();
+            if (state.written == app.stream_len) return end_response(app, response);
             const next_len = if (app.varied) varied_len(state.messages) else app.message_len;
             const len = @min(next_len, app.stream_len - state.written);
             for (message[0..len], state.written..) |*octet, offset| octet.* = octet_at(offset);
@@ -102,6 +113,17 @@ pub const Stream = struct {
         }
     }
 };
+
+/// Ends the response, with a trailer section when the test asks for one. `error.Full` and
+/// `error.NoSpaceLeft` say that the call changed nothing. A route that the test lets end again
+/// returns with no error, and its next call ends the response. Else it returns the error.
+fn end_response(app: *App, response: *ResponseWriter) !void {
+    const ended = if (app.trailers) response.trailers(&trailer_lines) else response.end();
+    ended catch |failure| {
+        if (!app.end_again or (failure != error.Full and failure != error.NoSpaceLeft)) return failure;
+        app.failed_ends += 1;
+    };
+}
 
 /// Writes `octet`, the next of the response, alone after a write that failed, and flushes it, when
 /// the test asks for it. The engine takes that run whole, after the writer began its wait for a
@@ -128,13 +150,16 @@ fn flush_message(app: *App, writer: *std.Io.Writer) !void {
 /// does: the engine keeps one wait for a request, and a write that found room waits for none.
 pub const Holder = struct {
     holds: bool,
+    /// The runs the engine holds at most: `runs_all` for an engine that holds every run it takes.
+    runs_max: usize = runs_h3,
     stream: [stream_len_max]u8 = undefined,
     taken: usize = 0,
     acknowledged: usize = 0,
-    runs: [runs_max][]const u8 = undefined,
-    run_offsets: [runs_max]usize = undefined,
+    runs: [runs_all][]const u8 = undefined,
+    run_offsets: [runs_all]usize = undefined,
     runs_len: usize = 0,
     heads: usize = 0,
+    trailers: usize = 0,
     ended: bool = false,
     user_data: usize = 0,
     cancelled: usize = 0,
@@ -151,7 +176,7 @@ pub const Holder = struct {
     pub fn write_body(holder: *Holder, _: event.RequestId, body: event.ResponseBody) connection_errors.SendError!usize {
         holder.check();
         if (body.bytes.len > 0) {
-            const full = holder.holds and holder.runs_len == runs_max;
+            const full = holder.holds and holder.runs_len == holder.runs_max;
             holder.owed = holder.owed or full;
             // RFC 9000 §3.1: a run leaves only once the peer acknowledges it.
             if (full) return error.Blocked;
@@ -165,7 +190,9 @@ pub const Holder = struct {
     }
 
     pub fn write_trailers(holder: *Holder, _: event.RequestId, _: []const http.Field) connection_errors.SendError!void {
+        holder.trailers += 1;
         holder.ended = true;
+        holder.owed = false;
     }
 
     pub fn set_user_data(holder: *Holder, _: event.RequestId, user_data: usize) error{RequestUnknown}!void {
