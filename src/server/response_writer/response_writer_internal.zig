@@ -174,8 +174,16 @@ pub fn cut(response: *ResponseWriter) error{Full}!void {
 /// bytes stay in the writer: the writer then waits for a `writable`, which cuts again.
 fn send(response: *ResponseWriter) Error!bool {
     cut(response) catch return false;
-    try push(response);
+    try push_open(response);
     return true;
+}
+
+/// Sends what waits while the body is open. A writer that waits for a release asks the engine
+/// again after the push. The engine keeps one wait for a request, and a run that it takes whole
+/// ends that wait (`State.write_body`), so the first ask brings no `writable`.
+pub fn push_open(response: *ResponseWriter) Error!void {
+    try push(response);
+    if (response.release_waited) ring.wait_again(response);
 }
 
 pub fn add_piece(response: *ResponseWriter, bytes: []const u8) Error!void {

@@ -70,6 +70,15 @@ pub fn wait_for_release(response: *ResponseWriter) void {
     response.release_waited = true;
 }
 
+/// Asks the engine again for the `writable` of a release, after a push that followed the first
+/// ask. It reads the octets the engine holds again first. When the engine holds none, the push
+/// gave it no run, so its wait still stands, and `wait_for_release` asks for nothing.
+pub fn wait_again(response: *ResponseWriter) void {
+    assert(response.release_waited);
+    reclaim(response);
+    wait_for_release(response);
+}
+
 /// The slow path of a cut that found a run in every slot (the owner's ruling of 2026-11-09). It
 /// frees the slots of the runs the engine released, and cuts a run of the writer's bytes. With no
 /// slot free, it adds them to the newest run. When that run cannot take them, they stay in the

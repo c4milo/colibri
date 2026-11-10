@@ -115,7 +115,7 @@ pub const ResponseWriter = struct {
         if (response.wrapped) |wrapper| return wrapper.writeAll(bytes) catch error.NoSpaceLeft;
         try internal.cut(response);
         try internal.add_piece(response, bytes);
-        try internal.push(response);
+        try internal.push_open(response);
     }
 
     /// Ends the response. A head that has not gone out carries the whole body, so `end` adds its
@@ -166,4 +166,5 @@ test "decision 127: ResponseWriter exports header, body, write_kept, end, traile
 
 test {
     _ = @import("response_writer_test.zig");
+    _ = @import("response_writer_ring_test.zig");
 }

@@ -89,6 +89,31 @@ test "design §8 step 46: a struct route sends sixteen times response_bytes over
     try testing.expectEqual(0, app.roomless_calls);
 }
 
+test "design §8 step 46: a struct route writes after a write that failed, over h3" {
+    // A message finds no room, so the writer asks the engine for a `writable` at a release. The
+    // route then writes one octet, which fits, and flushes it. The engine takes that run whole,
+    // which ends the wait it held (`State.write_body`), so the writer asks again. Before it did,
+    // no `writable` came and the response stopped.
+    try quic_support.start_engine(null);
+    try quic_support.connect();
+    router = .{};
+    app = .{ .stream_len = stream_len, .message_len = message_len, .flush = true, .octet_after_failure = true };
+    quic_support.seen_support.program = take;
+    defer quic_support.seen_support.program = null;
+    const fetch = try quic_support.request("GET", "/stream", "");
+    // Bounded: each round moves time on and moves datagrams both ways.
+    for (0..rounds_max) |_| {
+        if (fetch.ended) break;
+        try quic_support.pump(1);
+    }
+    try testing.expect(fetch.ended);
+    try testing.expectEqual(null, fetch.reset);
+    try testing.expectEqual(ok_code, fetch.status);
+    try testing.expect(stream.is_stream(quic_support.content_of(fetch), stream_len));
+    try testing.expect(app.octets_after_failure > 0);
+    try testing.expectEqual(0, app.failed_flushes);
+}
+
 test "design §8 step 46: a struct route flushes 1,000 small messages over h3, acknowledged late" {
     // The owner's ruling of 2026-11-09: an h3 response holds about seven runs until the peer
     // acknowledges them, and the writer has sixteen slots. A flush that finds a run in each slot

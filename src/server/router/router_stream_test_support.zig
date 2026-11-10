@@ -61,12 +61,17 @@ pub const App = struct {
     message_len: usize,
     varied: bool = false,
     flush: bool = false,
+    /// Whether the route, after a write that failed, writes the next octet of the response alone
+    /// and flushes it, as a route does that sends a short message while a long one waits.
+    octet_after_failure: bool = false,
     /// The calls of `on_writable`, those that found the writer with no room, the writes that
-    /// failed, which the route makes again in a later call, and the flushes that failed.
+    /// failed, which the route makes again in a later call, the flushes that failed, and the
+    /// octets written alone after a write that failed.
     calls: usize = 0,
     roomless_calls: usize = 0,
     failed_writes: usize = 0,
     failed_flushes: usize = 0,
+    octets_after_failure: usize = 0,
 };
 
 /// Writes `App.stream_len` octets, `App.message_len` at a time, and ends the response. A message
@@ -89,7 +94,7 @@ pub const Stream = struct {
             for (message[0..len], state.written..) |*octet, offset| octet.* = octet_at(offset);
             writer.writeAll(message[0..len]) catch {
                 app.failed_writes += 1;
-                return;
+                return write_octet_after_failure(app, state, writer, message[0]);
             };
             state.written += len;
             state.messages += 1;
@@ -97,6 +102,17 @@ pub const Stream = struct {
         }
     }
 };
+
+/// Writes `octet`, the next of the response, alone after a write that failed, and flushes it, when
+/// the test asks for it. The engine takes that run whole, after the writer began its wait for a
+/// release.
+fn write_octet_after_failure(app: *App, state: *Stream.State, writer: *std.Io.Writer, octet: u8) !void {
+    if (!app.octet_after_failure) return;
+    writer.writeAll(&.{octet}) catch return;
+    state.written += 1;
+    app.octets_after_failure += 1;
+    try flush_message(app, writer);
+}
 
 /// Flushes the message the route just wrote, and counts a flush that fails.
 fn flush_message(app: *App, writer: *std.Io.Writer) !void {
@@ -108,7 +124,8 @@ fn flush_message(app: *App, writer: *std.Io.Writer) !void {
 
 /// An engine that takes every body byte, and holds each run in place until `acknowledge` releases
 /// it when `holds` is set. It owes a `writable` once a write found no room, or once the writer
-/// asked for one at a release.
+/// asked for one at a release. A write it takes whole ends that wait, as the engine's `write_body`
+/// does: the engine keeps one wait for a request, and a write that found room waits for none.
 pub const Holder = struct {
     holds: bool,
     stream: [stream_len_max]u8 = undefined,
@@ -143,6 +160,7 @@ pub const Holder = struct {
             holder.taken += body.bytes.len;
         }
         holder.ended = body.end;
+        holder.owed = false;
         return body.bytes.len;
     }
 

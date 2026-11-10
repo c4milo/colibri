@@ -128,6 +128,19 @@ test "design §8 step 46: a release wait stays quiet until the peer acknowledges
     try expect_writable_once(id.number);
 }
 
+test "design §8 step 46: content the engine takes whole ends a release wait" {
+    try support.start_engine(null);
+    const id = try open_get(&.{});
+    try engine.respond(id, .{ .status = ok, .end = false });
+    _ = try engine.write_body(id, .{ .bytes = piece, .end = false });
+    engine.state.wait_release(id);
+    // The engine keeps one wait for a request, and a write that found room ends it. So the
+    // response writer asks again after a push (`push_open`), and the router's test engine ends
+    // its wait the same way.
+    _ = try engine.write_body(id, .{ .bytes = piece, .end = false });
+    try expect_no_writable();
+}
+
 /// The engine starts again, coding responses in gzip (decision 101).
 fn start_coding() !void {
     try support.start_engine(null);

@@ -155,6 +155,36 @@ test "design §8 step 46: the router calls on_writable only when the writer has 
     try testing.expectEqual(0, fixture.app.roomless_calls);
 }
 
+test "design §8 step 46: a route writes after a write that failed, and its response still ends" {
+    // The sixth message finds no room, so the writer asks the engine for a `writable` at a
+    // release. The route then writes one octet, which fits, and flushes it. The engine takes that
+    // run whole, which ends the wait it held, so the writer asks again.
+    var fixture: Fixture = .{
+        .app = .{ .stream_len = stream_len, .message_len = message_len_odd, .flush = true, .octet_after_failure = true },
+        .holder = .{ .holds = true },
+    };
+    fixture.start();
+    try testing.expectEqual(5 * message_len_odd + 1, fixture.holder.taken);
+    try testing.expectEqual(1, fixture.app.octets_after_failure);
+    try testing.expectEqual(2, fixture.holder.release_waits);
+    try testing.expect(fixture.holder.owed);
+    try testing.expect(writer_internal.waiting(fixture.response()));
+    try fixture.acknowledge_late();
+    try fixture.expect_stream();
+    try testing.expectEqual(0, fixture.app.failed_flushes);
+}
+
+test "design §8 step 46: the test engine ends a wait at a write it takes whole, as the engine does" {
+    var holder: Holder = .{ .holds = true };
+    const id: event.RequestId = @bitCast(@as(u128, 1));
+    _ = try holder.write_body(id, .{ .bytes = "ab", .end = false });
+    holder.wait_release(id);
+    try testing.expect(holder.owed);
+    // `State.write_body`: a write that found room ends the wait of its request.
+    _ = try holder.write_body(id, .{ .bytes = "c", .end = false });
+    try testing.expect(!holder.owed);
+}
+
 test "design §8 step 46: a route flushes 1,000 small messages while the engine holds runs" {
     // The owner's ruling of 2026-11-09: the writer has a slot for each of sixteen runs, and the
     // engine holds eight until late acknowledgments. A flush past the sixteenth run adds its
