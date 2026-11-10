@@ -14770,6 +14770,8 @@ library.
       room.
     - A `flush` that finds a run in every slot adds its bytes to the newest run (the owner's
       ruling of 2026-11-09, commit 46g).
+    - A writer that waits for a release asks the engine again after a push, because a write
+      that the engine takes whole ends the wait (commit 46h).
     - Cost: 18 octets of fields for each router entry and 8 for each h3 request record. No copy
       and no count on the per-frame path.
   - **`on_writable` while the request body is open** (decision 127 amendment 2). The router calls
@@ -14880,6 +14882,122 @@ library.
            every run fails.
          - A write takes back memory while the writer keeps bytes: that test stops on an
            assertion.
+    8. 46h, on 2026-11-10: four commits after an adversarial review of 46g. The review found
+       one defect, which came from 46b, and four mutations that no test caught. connect-zig
+       reported one case more. Each mutation below ran against `zig build test-server`, which
+       runs 624 tests after these commits.
+       - `fix(server)`: a writer that waits for a release asks again after a push.
+         - The defect, in four steps:
+           1. A write finds no room. The engine took every run and holds some, so the writer
+              arms the engine's `release` wait.
+           2. Before the `writable`, the route writes a smaller message, which fits, and
+              flushes it.
+           3. The engine takes that run whole. A write that found room ends the one wait that
+              the engine keeps for a request (`State.write_body`), so the `release` wait goes.
+           4. The writer still says that it waits. The router waits for a `writable` that never
+              comes, and the response stops.
+         - Over h3 with `response_bytes` 512, the client had 501 of 8,192 octets after 200
+           rounds. No test reached the defect. The test routes returned at the first write that
+           failed, and the router's test engine kept its wait through a write.
+         - The fix is in the writer. `push_open` sends what waits while the body is open. When
+           the writer waits for a release, it then asks the engine again (`ring.wait_again`).
+           It reads the octets that the engine holds again first, because `State.wait_release`
+           asserts that the engine holds some. `flush`, a write and `write_kept` send through it.
+         - The other fix kept a `release` wait in the engine through a write that found room.
+           It was refused, for three reasons:
+           - The engine keeps one wait for a request, and each write sets it. A write that
+             found no room arms it, and a write that found room ends it. The other fix adds an
+             exception to that rule for one kind of wait.
+           - A `release` wait holds the count of octets that the engine held when it began.
+             After the write the engine holds more. So the `writable` comes later than the
+             first release, unless `write_body` reads the count again.
+           - `write_body` is on the path of each h11 and h2 write, and those never arm that
+             wait. The writer's fix costs one branch after a push while the body is open, and
+             nothing on the path of `end`.
+         - Checks:
+           - A writer test. The writer asks again after a `flush` that the engine takes whole,
+             and after a `write_kept`. It asks for nothing when the engine holds no octet.
+           - A struct route that writes the next octet alone after each write that failed, and
+             flushes it. Over the router's test engine it ends, with each octet in order.
+           - The same route over h3 through the engine, with `response_bytes` 512 and 8,192
+             octets. It ends in 17 rounds, and the test allows 512. It wrote 16 octets after
+             writes that failed. Before the fix it did not end, and the test failed at its
+             bound.
+           - The router's test engine now ends its wait at a write it takes whole. One test
+             pins that, and one test of the engine pins the same rule of `State.write_body`.
+         - The writer tests share their engine through `response_writer_test_support.zig`, and
+           `response_writer_ring_test.zig` holds the new ones, because of the file length limit.
+         - Mutations, each CAUGHT:
+           - No second ask after a push: the writer test, the route test over the test engine
+             and the h3 test fail. The h3 test stops at its bound of rounds.
+           - `write_kept` sends with no second ask: the writer test fails.
+           - The second ask does not read the held octets again: the writer test fails.
+           - The test engine keeps its wait through a write, as before: its own test fails.
+           - The engine keeps a `release` wait through a write that found room: the engine's
+             test fails.
+       - `test(server)`: one writer test for each of the review's four mutations.
+         - `cut_full` does not clear `cut_owed` after a cut. The test: once the bytes that a
+           cut kept went, a `writable` cuts no bytes before a `flush`. CAUGHT.
+         - `select` refuses the start of the memory when `piece_count` is 16, though the engine
+           released the oldest run. The test: with sixteen runs and the oldest released, a
+           write goes to the start. CAUGHT.
+         - A `flush` that keeps its bytes fails with one octet of room left. The test: it
+           returns no error with one octet left, and fails with none. CAUGHT.
+         - `end_now` ignores a cut that keeps its bytes. The test: `end`, `trailers` and
+           `write_kept` return `error.Full` and change nothing, and `end` goes after a
+           release. CAUGHT: the assertion of `close_body` stops the test.
+         - One more, `trailers` ignores such a cut: CAUGHT by the same test, on the assertion
+           of `copy_trailers`.
+       - `fix(server)`: `write_kept` with no free slot sends the run it cut before it waits.
+         - The case that connect-zig found. A struct route flushes 20 messages of 5 octets,
+           one by one, through an engine that takes each run whole and holds it. Then it calls
+           `end`, or `trailers`. Each call returns this:
+           1. Flushes 1 to 16 return no error. Each makes a run, and the engine takes it.
+           2. Flushes 17 to 20 return no error. No slot is free, and the engine took the
+              newest run, so their bytes stay in the writer.
+           3. `end`, or `trailers`, returns `error.Full`, and changes nothing.
+           4. The route returns with no error. The writer waits for a release, so the router
+              does not cancel the request.
+           5. The engine releases the oldest run. The `writable` cuts the 20 octets kept into
+              one run, in the slot that the release freed.
+           6. The route's next call makes the call again. It returns no error, and the
+              response ends with each octet in order.
+         - A route that returns that `error.Full` from `on_writable` has its request cancelled,
+           because the head went out (decision 127 ruling 4).
+         - The contract, which docs/usage.md states:
+           - A `flush` keeps its bytes.
+           - `end`, `trailers` and `write_kept` return `error.Full` while a cut keeps its
+             bytes, and change nothing. A second call after a release goes.
+           - `end` and `trailers` needed no change for it. The tests are new.
+         - `write_kept` had one path with no wait, which the review found:
+           - Its cut puts the writer's bytes in the last slot, so its own bytes find no slot.
+             It returned `error.Full`, and the run that it cut went to no engine.
+           - When the engine had taken and held each of the 15 runs before, no `writable` was
+             owed, and the response stopped. Only the engine of a test holds 15 runs.
+           - `add_piece` now sends what waits before it waits, as `trailers` does since 46e.
+             Then the engine owes a `writable`, or the writer waits for a release.
+           - When that push frees a slot, `write_kept` goes on with no error. An engine that
+             copies does this once its window opens.
+         - Checks: the route above over the router's test engine, with `end` and with
+           `trailers`, and the route that returns the error. Two writer tests of `write_kept`,
+           one over an engine that holds each run and one over an engine that copies.
+         - The writer tests' engine now asserts that it holds octets when the writer asks for
+           a release, as `State.wait_release` does.
+         - Mutations, each CAUGHT:
+           - `add_piece` does not send before it waits: both writer tests fail.
+           - It frees no slot after the push: the test over an engine that copies stops on the
+             assertion above.
+           - It does not wait after the push: the test over an engine that holds runs fails.
+           - A cut that keeps its bytes does not wait for the engine: the route test fails, and
+             three writer tests.
+           - `end`, or `trailers`, ignores a cut that keeps its bytes: both route tests stop on
+             an assertion, and one writer test.
+       - `docs`: this entry, the second amendment of decision 127, and docs/usage.md, which
+         names the two errors of `end`, `trailers` and `write_kept`.
+       - Before each of the three code commits, on macOS on arm64, each of these ended with
+         status 0: `zig fmt --check`, `zig build lint`, `zig build test`, `zig build examples`,
+         `tools/doc_snippets.sh`, `tools/consumer_check.sh` and `zig build bench-memory`. No
+         size of the memory table changed.
 
 ## 9. Test-only entry points
 

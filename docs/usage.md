@@ -567,7 +567,32 @@ bytes the writer holds. When the memory has no room, a call fails, and a struct 
   `flush()` then keeps its bytes in the writer, and the writer sends them once a slot is free.
   That `flush()` fails with `error.WriteFailed` only when the memory is full too. The route does
   not write its bytes again.
-- `trailers` returns `error.NoSpaceLeft`, and the route calls it again.
+
+`end`, `trailers` and `write_kept` can return two errors that leave the response as it was
+(design §8 step 46h):
+
+- `error.Full`: each slot holds a run, and no run takes the bytes of the call.
+  - `end`, `trailers` and `write_kept` return it while the writer keeps the bytes of a `flush()`.
+  - `write_kept` returns it too when its own bytes find no free slot.
+- `error.NoSpaceLeft`: `trailers` returns it while the memory has no room for the trailer
+  section. A section longer than the memory after the headers never fits, and a route that asks
+  again for it is cancelled.
+
+After either error the response is open. It has no end and no trailer section, and `write_kept`
+added none of its bytes. A struct route then does two things:
+
+1. It returns from `on_writable` with no error.
+2. It makes the call again in its next `on_writable`, which the router calls at the request's
+   next `writable`.
+
+A route that returns the error from `on_writable` has its request cancelled once the head went
+out. A route that writes through `body()` alone gets no `error.Full` over h11, h2 or h3. A route
+that calls `write_kept` can get it, and so can any route over a test's engine that holds every run
+it takes.
+
+Through a middleware's wrapper, `write_kept` writes a copy of its bytes, and returns
+`error.NoSpaceLeft` when that write fails. The wrapper can keep part of the bytes then
+([#129](https://github.com/c4milo/colibri/issues/129)), so the route does not write them again.
 
 Over h3, a response sends at most about `response_bytes` in each round trip. On a path with loss,
 a small `response_bytes` can keep the response under decision 110's `send_rate_min`, and the

@@ -5353,6 +5353,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         route. A route that waits for a quiet client in a bidirectional exchange needs a program
         that sets them to null for its connection.
 
+     **Amended by the owner a second time on 2026-11-09: "merge flushes",** for commit 46g of
+     design §8 step 46. A review found that a route which flushes each small message had its
+     request cancelled at its 17th `flush`. The writer has `response_pieces_max` slots for the
+     runs that the engine has not released, and an h3 response holds about 7 runs of the caller
+     until the peer acknowledges them. That `flush` found no free slot, and failed.
+     1. A `flush` that finds a run in each slot adds its bytes to the newest run that the engine
+        has not taken whole.
+        - A run that the engine took whole takes none, because the engine may read it again in
+          place (decision 103).
+        - A run of `write_kept` takes none, because its bytes are the program's.
+        - When no run takes the bytes, they stay in the writer until a slot is free.
+     2. No named limit changes. `response_pieces_max` stays 16.
+     3. On an h3 path with loss, a small `response_bytes` can keep a response under decision
+        110's `send_rate_min`. The text of docs/usage.md that says so is enough, and no code
+        changes for it.
+     4. A write through a middleware's wrapper gets no whole-or-nothing promise now. One
+        `writeAll` of one slice through `body()` keeps that promise, and
+        [#129](https://github.com/c4milo/colibri/issues/129) records the gap.
+
 128. **A route table's walk backs up for a method, as it backs up for a path.** Ruled by the
      owner on 2026-10-28, who chose it from three ways and then ruled on this text. Amends
      decision 122 rulings 10 and 12.
