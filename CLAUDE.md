@@ -692,9 +692,13 @@ Everything below exists. Change this section when a step adds or renames a comma
 - Examples: `zig build examples` builds and runs every program in `examples/`, and `zig build
   example-<name>` runs one (decision 96). Each checks what arrived octet for octet.
   `tools/doc_snippets.sh` requires every Zig block in README.md, docs/usage.md and
-  examples/README.md to be a verbatim excerpt of an example or of `tools/consumer/`, and
-  `tools/consumer_check.sh` builds and runs `tools/consumer/` as a project that depends on colibri
-  as a package. `tools/ci.sh` runs all three.
+  examples/README.md to be a verbatim excerpt of an example, of `tools/consumer/` or of
+  `tools/consumer_hosted/`. `tools/consumer_check.sh` builds and runs `tools/consumer/` as a
+  project that depends on colibri as a package and passes `.rotor = true`. It then builds and
+  runs `tools/consumer_hosted/`, a project of a protocol module and the `.hosted` kind alone,
+  with a global cache that starts empty. That build must fetch no Rotor and no other lazy
+  package, and its program that names `.private` must fail to compile with colibri's message
+  (decision 159, design §8 step 44j). `tools/ci.sh` runs all three.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
@@ -703,6 +707,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   `qifs` vectors (decision 75), chapulin (decision 94) and stdx (decision 90). stdx is not lazy,
   because the library imports it; a bump is `zig fetch --save=stdx
   git+https://github.com/c4milo/stdx#<commit>`, to a commit whose CI passed.
+  Rotor is lazy (decision 159). The build option `rotor` gives the `colibri` module its import of
+  Rotor. Its default is true in colibri's own build and false for a dependent, which passes
+  `.rotor = true` to use `.private`. colibri's own build always fetches Rotor, for `src/testing/`
+  and `examples/`.
   A Rotor bump is `zig fetch --save=rotor git+https://github.com/c4milo/rotor#<commit>`, and
   `.lazy = true` must survive it too (decision 159). After a pepegrillo bump with `zig
   fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm `.lazy = true`

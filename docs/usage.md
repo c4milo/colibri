@@ -19,11 +19,24 @@ In `build.zig`, import the modules your program uses. Most programs take these t
 protocol module is imported the same way:
 
 ```zig
-const colibri = b.dependency("colibri", .{ .target = target, .release = true });
+const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
 exe.root_module.addImport("server", colibri.module("server"));
 exe.root_module.addImport("client", colibri.module("client"));
 exe.root_module.addImport("tls", colibri.module("tls"));
 exe.root_module.addImport("colibri", colibri.module("colibri"));
+```
+
+`.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop of the `.private` kind
+of `colibri.Server` and `colibri.Client` ([decision 159](decisions.md)). Rotor is a lazy package,
+and the default of the option is false. Without it, `.private` does not compile, and the compiler
+prints the line to add.
+
+A program that uses the protocol modules, or the `.hosted` kind of `colibri` on its own loop,
+leaves `.rotor` out. Its build fetches chapulin and stdx, and no Rotor. This line is from
+[`tools/consumer_hosted/build.zig`](../tools/consumer_hosted/build.zig):
+
+```zig
+const colibri = b.dependency("colibri", .{ .target = target, .release = true });
 ```
 
 The library is seventeen modules, each exported by name:

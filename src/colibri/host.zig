@@ -10,6 +10,11 @@
 //! neither `ObjectKind` nor `Features`, which a program writes as literals.
 const std = @import("std");
 const server = @import("server");
+const build_options = @import("build_options");
+
+/// Whether this build gave the module Rotor: the build option `rotor` (decision 159). It is true
+/// in colibri's own build, and false for a dependent that does not pass `.rotor = true`.
+pub const rotor_present: bool = build_options.rotor;
 
 /// Who runs the loop of a `colibri.Server` or a `colibri.Client`: colibri, on its own Rotor loop,
 /// or the program. It is the second comptime argument of each, with no public name (decision 156
@@ -20,6 +25,12 @@ pub const ObjectKind = enum { private, hosted };
 /// kind does not have (decision 156 ruling 4 as amended by decision 159).
 pub fn require(comptime kind: ObjectKind, comptime wanted: ObjectKind, comptime message: []const u8) void {
     if (kind != wanted) @compileError(message);
+}
+
+/// Stops the compile for a `.private` object in a build with no Rotor (decision 159). The build
+/// fetches Rotor, a lazy package, only for a build that asks for it.
+pub fn require_rotor(comptime kind: ObjectKind) void {
+    if (kind == .private and !rotor_present) @compileError("colibri: .private runs on Rotor; pass .rotor = true to b.dependency(\"colibri\", ...)");
 }
 
 /// Halts when `call` comes from inside a `turn` or a `complete`, which `in_turn` records. The

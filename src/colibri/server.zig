@@ -47,8 +47,10 @@ pub const RunError = errors.RunError;
 
 /// A server whose engine holds `capacity`'s connections, on colibri's own loop (`.private`) or on
 /// the program's (`.hosted`). Each kind has the same calls. A call that the kind does not have is
-/// a compile error with colibri's message (decision 156 ruling 4 as amended).
+/// a compile error with colibri's message (decision 156 ruling 4 as amended). `.private` runs on
+/// Rotor, so a build with no Rotor refuses it the same way (decision 159).
 pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind) type {
+    comptime host.require_rotor(kind);
     return struct {
         const Self = @This();
 

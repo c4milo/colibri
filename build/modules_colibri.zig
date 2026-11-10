@@ -1,7 +1,8 @@
-//! The `colibri` module (decision 150): it binds the sockets and runs the loop over `server` and
-//! `client`, on Rotor's own calls (ruling 6). Ruling 1 puts it above both, and decision 153 ruling
-//! 8 gives it the client. It is the one library module that does I/O, and no library module
-//! imports it. Split from `modules.zig`, which `zig build` reads first.
+//! The `colibri` module (decisions 150 and 159): `colibri.Server` and `colibri.Client` over
+//! `server` and `client`. Decision 150 ruling 1 puts it above both, and decision 153 ruling 8 gives
+//! it the client. No library module imports it. Its `.private` kind binds the sockets and runs the
+//! loop on Rotor, so the module imports Rotor only when the build has it. `build_options.rotor`
+//! tells the source which build it is. Split from `modules.zig`, which `zig build` reads first.
 const std = @import("std");
 const modules = @import("modules.zig");
 
@@ -14,10 +15,12 @@ pub const Imports = struct {
     tls: *std.Build.Module,
 };
 
+/// The packaged module. `rotor` is null when the build option `rotor` is false: the module then
+/// imports no Rotor, and its `.private` kind is a compile error with colibri's message.
 pub fn add(
     b: *std.Build,
     imports: Imports,
-    rotor: *std.Build.Dependency,
+    rotor: ?*std.Build.Module,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
@@ -27,6 +30,9 @@ pub fn add(
     colibri.addImport("server", imports.server);
     colibri.addImport("client", imports.client);
     colibri.addImport("tls", imports.tls);
-    colibri.addImport("rotor", rotor.module("rotor"));
+    const options = b.addOptions();
+    options.addOption(bool, "rotor", rotor != null);
+    colibri.addOptions("build_options", options);
+    if (rotor) |held| colibri.addImport("rotor", held);
     return colibri;
 }

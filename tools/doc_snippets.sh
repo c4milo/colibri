@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # Every Zig snippet in README.md, docs/usage.md and examples/README.md is a verbatim excerpt of a
-# file that runs: a program in examples/, which `zig build examples` runs, or tools/consumer/,
-# which tools/consumer_check.sh builds and runs. A snippet found in neither is code no build
-# checks, and this refuses it. Indentation is ignored, so an excerpt may come from inside a
-# function.
+# file that runs: a program in examples/, which `zig build examples` runs, or tools/consumer/ or
+# tools/consumer_hosted/, which tools/consumer_check.sh builds and runs. A snippet found in none
+# is code no build checks, and this refuses it. Indentation is ignored, so an excerpt may come
+# from inside a function.
 #
 #   tools/doc_snippets.sh
 set -euo pipefail
@@ -18,7 +18,8 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 documents = ["README.md", "docs/usage.md", "examples/README.md"]
-sources = sorted(root.glob("examples/*.zig")) + [root / "tools/consumer/build.zig", root / "tools/consumer/main.zig"]
+consumers = ["tools/consumer/build.zig", "tools/consumer/main.zig", "tools/consumer_hosted/build.zig", "tools/consumer_hosted/main.zig"]
+sources = sorted(root.glob("examples/*.zig")) + [root / path for path in consumers]
 source_lines = {path: path.read_text().splitlines() for path in sources}
 
 

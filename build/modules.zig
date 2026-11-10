@@ -68,9 +68,9 @@ pub const Modules = struct {
     /// HTTP requests behind one set of calls for h11 and h2, which runs the TLS handshake itself
     /// (decision 100, design §8 step 17c).
     client: *std.Build.Module,
-    /// Decision 150: `colibri.Server`, and Rotor, its loop, which the library imports.
+    /// Decisions 150 and 159: `colibri.Server` and `colibri.Client`. The module imports Rotor
+    /// only when the build option `rotor` is true.
     colibri: *std.Build.Module,
-    rotor: *std.Build.Dependency,
     /// The TCP object `tls` links. `src/testing/`'s TCP endpoints link it too, because two objects
     /// of one transport define the same names.
     chapulin_tcp: *std.Build.Dependency,
@@ -235,7 +235,11 @@ pub fn add(
     client.addImport("zstd", stdx.module("zstd"));
     client.addImport("brotli", stdx.module("brotli"));
 
-    const rotor = b.dependency("rotor", .{ .target = target, .release = optimize == .ReleaseSafe });
+    // Decision 159: Rotor is a lazy package, and the option `rotor` is the one signal a dependent
+    // can give before Zig decides the fetch. Its default is true at colibri's own root and false
+    // for a dependent, which then fetches no Rotor.
+    const rotor_wanted = b.option(bool, "rotor", rotor_option_description) orelse (b.pkg_hash.len == 0);
+    const rotor: ?*std.Build.Module = if (rotor_wanted) rotor_module(b, target, optimize) else null;
     const colibri = modules_colibri.add(b, .{ .core = core, .http = http, .server = server, .client = client, .tls = tls }, rotor, target, optimize);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
@@ -382,7 +386,6 @@ pub fn add(
         .server = server,
         .client = client,
         .colibri = colibri,
-        .rotor = rotor,
         .dnssec = dnssec,
         .chapulin_tcp = chapulin_tcp,
         .tls_keylog = tls_keylog,
@@ -399,6 +402,22 @@ pub fn add(
         .testing_quic = testing_quic,
         .testing_qif = testing_qif,
     };
+}
+
+/// What `zig build --help` and a dependent's `b.dependency("colibri", ...)` read for `rotor`.
+const rotor_option_description = "Fetch Rotor, the loop of the .private kind of colibri.Server and colibri.Client (decision 159)";
+
+/// Rotor's module at this build's target and mode. Rotor, like colibri, offers ReleaseSafe as
+/// `release`. It is null on the first run of a build that has not fetched the package: Zig then
+/// fetches it and runs the build again. Only the `.private` kind of `colibri`, `src/testing/` and
+/// `examples/` run on it (decision 159).
+pub fn rotor_module(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) ?*std.Build.Module {
+    const rotor = b.lazyDependency("rotor", .{ .target = target, .release = optimize == .ReleaseSafe }) orelse return null;
+    return rotor.module("rotor");
 }
 
 /// One module of the packaged library, exported by name so a project that depends on colibri

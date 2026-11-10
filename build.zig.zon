@@ -11,12 +11,16 @@
             .hash = "pepegrillo-0.0.0-axiFUFeJDACO8UB_GWT7OSbSKD2QOChXCg68MdfzduJq",
             .lazy = true,
         },
-        // The event loop of `src/testing/`'s endpoints (decision 58) and of the library's
-        // `colibri` module (decision 150). The library imports it, so it is not lazy: a project
-        // that depends on colibri fetches it too.
+        // The event loop of the `.private` kind of the `colibri` module (decisions 150 and 159),
+        // of `src/testing/`'s endpoints (decision 58) and of `examples/` (decision 96). Lazy: a
+        // build requests it only with the option `rotor`, whose default is true at colibri's own
+        // root and false for a dependent. So a project that uses the protocol modules, or
+        // `colibri` with `.hosted`, never fetches it. A project that uses `.private` passes
+        // `.rotor = true` to `b.dependency("colibri", ...)`.
         .rotor = .{
             .url = "git+https://github.com/c4milo/rotor#933985882d693e4d8b876e1403618a3fc6d989ef",
             .hash = "rotor-0.10.0-YZkxRFCxJABaRNenAUK5EC84mD-ZR3zmBesT76zmXoqu",
+            .lazy = true,
         },
         // The QPACK vectors of qpackers/qifs, which tools/qpack_vectors.zig decodes (decisions 25
         // and 75). Test data, never linked into anything. Lazy, and requested only when colibri

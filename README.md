@@ -76,7 +76,7 @@ Then import the modules you use. Each of the seventeen library modules is export
 `quic`, `h2`, `h3`, `h11`, `server`, `client` and `colibri`.
 
 ```zig
-const colibri = b.dependency("colibri", .{ .target = target, .release = true });
+const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
 exe.root_module.addImport("server", colibri.module("server"));
 exe.root_module.addImport("client", colibri.module("client"));
 exe.root_module.addImport("tls", colibri.module("tls"));
@@ -85,6 +85,11 @@ exe.root_module.addImport("colibri", colibri.module("colibri"));
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
+
+`.rotor = true` fetches [Rotor](https://github.com/c4milo/rotor), the loop of the `.private` kind
+of `colibri.Server` and `colibri.Client` ([decision 159](docs/decisions.md)). A program that uses
+the protocol modules, or the `.hosted` kind on its own loop, leaves the option out and fetches no
+Rotor. Without the option, `.private` does not compile, and the compiler prints the line to add.
 
 Most programs use two modules. `server` answers requests and `client` sends them, behind one set
 of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the

@@ -17,7 +17,11 @@ pub fn build(b: *std.Build) void {
     // Decision 100: `server` and `client` put one set of calls over every version, and `tls` holds
     // the values their handshakes take. `colibri` binds a port and runs `server` (decision 150). The
     // protocol modules follow, for a program that drives one version by itself.
-    const colibri = b.dependency("colibri", .{ .target = target, .release = true });
+    // Decision 159: `.rotor = true` asks for Rotor, the loop of the `.private` kind of
+    // `colibri.Server` and `colibri.Client`, which this program uses. A program that uses the
+    // protocol modules or the `.hosted` kind alone leaves the option out, and fetches no Rotor
+    // (`tools/consumer_hosted/`).
+    const colibri = b.dependency("colibri", .{ .target = target, .release = true, .rotor = true });
     exe.root_module.addImport("server", colibri.module("server"));
     exe.root_module.addImport("client", colibri.module("client"));
     exe.root_module.addImport("tls", colibri.module("tls"));

@@ -54,8 +54,10 @@ pub const ClientCapacity = struct {
 /// A client whose pool holds `capacity`'s connections and requests, on colibri's own loop
 /// (`.private`) or on the program's (`.hosted`). Each kind has the same calls. A call that the
 /// kind does not have is a compile error with colibri's message (decision 156 ruling 4 as
-/// amended).
+/// amended). `.private` runs on Rotor, so a build with no Rotor refuses it the same way (decision
+/// 159).
 pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind) type {
+    comptime host.require_rotor(kind);
     return struct {
         const Self = @This();
 

@@ -20,7 +20,9 @@
 //! The library has two dependencies: chapulin, its TLS stack (decision 94), and stdx, its gzip and
 //! deflate decoders (decision 90). Adding another needs the owner (CLAUDE.md, Ask before). The
 //! tools take lazy packages, pepegrillo first, which only the root build requests, so a project
-//! depending on colibri never fetches them (decision 36). The module graph is build/modules.zig.
+//! depending on colibri never fetches them (decision 36). Rotor is lazy too: a dependent fetches it
+//! only when it passes `.rotor = true`, for the `.private` kind of the `colibri` module (decision
+//! 159). The module graph is build/modules.zig.
 const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
@@ -86,26 +88,27 @@ pub fn build(b: *std.Build) void {
     // zig-out/docs/: the performance method to performance/ and the API guide to api.md.
     const pepegrillo_build = b.lazyImport(@This(), "pepegrillo") orelse return;
     pepegrillo_build.add_guide_step(b, pepegrillo_dependency);
-    // Decision 58: rotor is the loop of `src/testing/`'s UDP endpoints, and decision 150 makes it
-    // the library's loop too, so `modules.add` fetches it with the target and mode this build
-    // resolved. rotor's build, like this one, offers ReleaseSafe as `-Drelease`.
-    const rotor_dependency = graph.rotor;
+    // Decision 58: Rotor is the loop of `src/testing/`'s endpoints, and decision 96 makes it the
+    // loop of `examples/`. colibri's own build runs both, so it asks for the lazy package here
+    // whatever the option `rotor` says: the option decides the `colibri` module alone (decision
+    // 159).
+    const rotor = modules.rotor_module(b, target, optimize) orelse return;
     // Design §8 step 16b: the UDP endpoint's sessions are `tls`'s, over the `KEYLOG=on` objects.
-    const testing_udp = modules_testing_udp.add(b, graph, rotor_dependency.module("rotor"), target, optimize);
+    const testing_udp = modules_testing_udp.add(b, graph, rotor, target, optimize);
     // The QUIC Interop Runner's endpoint is the same program, under the name its image copies. It
     // pins the server's key, because the runner's certificates fail the Web PKI profile (the
     // owner's ruling of 2026-09-26, design §8 step 16b).
     add_interop_endpoint_step(b, testing_udp);
     // https://github.com/c4milo/colibri/issues/61 amends decision 58: the h2 endpoints run on
     // Rotor's loop too.
-    graph.testing.addImport("rotor", rotor_dependency.module("rotor"));
-    graph.testing_client.addImport("rotor", rotor_dependency.module("rotor"));
+    graph.testing.addImport("rotor", rotor);
+    graph.testing_client.addImport("rotor", rotor);
     // Decision 96: the programs of examples/ run over an in-memory link on rotor's loop.
     // The owner's ruling of 2026-09-28: the test identity, which `tls_keylog`, `sim_run` and the
     // roots the tests of `tls`, `server` and `client` compile from import, and no packaged
     // module does. It is made here, in colibri's own build alone.
     const testdata = modules_test_roots.add_testdata(b, graph, target, optimize);
-    examples.add(b, graph, rotor_dependency.module("rotor"), testdata, target, optimize);
+    examples.add(b, graph, rotor, testdata, target, optimize);
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");

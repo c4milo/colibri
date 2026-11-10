@@ -4,7 +4,8 @@
 //! pool's configuration and a handler, and hands it requests. Each object is a driver, which does
 //! no I/O, and a host, which does each operation the driver writes:
 //! - `.private` runs on colibri's own Rotor host (`rotor_host.zig`), which binds and runs one loop
-//!   on the thread that calls `run` (decision 150 ruling 7);
+//!   on the thread that calls `run` (decision 150 ruling 7). Rotor is a lazy package: a dependent's
+//!   build passes `.rotor = true` to get it, and `.private` does not compile without it;
 //! - `.hosted` runs on the program's loop, which calls `turn` and `complete` with the seven types
 //!   from `SocketId` to `Turn`.
 //!
@@ -16,6 +17,8 @@ pub const server = @import("server");
 pub const constants = @import("constants.zig");
 
 const files = struct {
+    const rotor_present = @import("host.zig").rotor_present;
+
     pub const client = @import("client.zig");
     pub const client_fetch = @import("client_fetch.zig");
     pub const client_kinds = @import("client_kinds.zig");
@@ -27,11 +30,13 @@ const files = struct {
     pub const host = @import("host.zig");
     pub const identity = @import("identity.zig");
     pub const operation_table = @import("operation_table.zig");
-    pub const rotor_host = @import("rotor_host.zig");
-    pub const rotor_host_end = @import("rotor_host_end.zig");
-    pub const rotor_host_entropy = @import("rotor_host_entropy.zig");
-    pub const rotor_host_submit = @import("rotor_host_submit.zig");
-    pub const rotor_host_udp = @import("rotor_host_udp.zig");
+    // colibri's own Rotor host, which only a build with Rotor compiles (decision 159). Zig does
+    // not analyse the branch that it does not take.
+    pub const rotor_host = if (rotor_present) @import("rotor_host.zig") else void;
+    pub const rotor_host_end = if (rotor_present) @import("rotor_host_end.zig") else void;
+    pub const rotor_host_entropy = if (rotor_present) @import("rotor_host_entropy.zig") else void;
+    pub const rotor_host_submit = if (rotor_present) @import("rotor_host_submit.zig") else void;
+    pub const rotor_host_udp = if (rotor_present) @import("rotor_host_udp.zig") else void;
     pub const server = @import("server.zig");
     pub const server_kinds = @import("server_kinds.zig");
     pub const server_loop = @import("server_loop.zig");
