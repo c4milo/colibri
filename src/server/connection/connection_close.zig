@@ -37,8 +37,10 @@ pub fn staged(connection: *const Connection) bool {
         .h11 => |*session| session,
         .h2, .none => return false,
     };
-    // A failure, such as a body that a deadline cut, ends the connection at once.
-    return session.phase == .closed and session.failure == null and session.reader.open();
+    // A failure ends the connection at once: `connection_internal.fail` and a deadline's cut stop
+    // it, so a session that failed never reaches this line.
+    assert(session.failure == null);
+    return session.phase == .closed and session.reader.open();
 }
 
 /// Whether the engine reports `half_close` now: the connection closes in stages, and the response

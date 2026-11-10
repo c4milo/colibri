@@ -168,3 +168,21 @@ test "decision 160: over TLS, records past the plaintext buffer are discarded af
     for (0..parts) |_| try testing.expectEqual(0, try support.give_sealed(handle, &body_part));
     try testing.expectEqual(null, support.nth(.close, 0));
 }
+
+test "decision 160: a malformed chunk in a discarded body closes at once, with no half_close" {
+    try support.start(null, .{});
+    const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
+    _ = support.give(handle, "POST /a HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n");
+    const request = support.nth(.request, 0).?;
+    try engine.respond(support.id_of(handle, request.number), .{ .status = method_not_allowed, .end = true });
+    support.collect();
+    // The rest of a chunked body may end within the bound, so the connection reads it.
+    try testing.expectEqual(null, support.nth(.half_close, 0));
+    try testing.expectEqual(null, support.nth(.close, 0));
+    // RFC 9112 §7.1: a chunk size is hexadecimal digits, so "zz" fails the connection.
+    _ = support.give(handle, "zz\r\n");
+    // A failure ends the connection at once, and does not wait half_close_ns.
+    try testing.expect(support.nth(.close, 0) != null);
+    try testing.expectEqual(null, support.nth(.half_close, 0));
+    try testing.expectEqual(null, engine.deadline_ns());
+}
