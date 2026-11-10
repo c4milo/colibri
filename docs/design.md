@@ -14130,7 +14130,9 @@ library.
     - A peer address is `server.Address`, the same type as `client.Address`
       (`quic.PeerAddress`). The ECN codepoint is `server.Ecn` (`quic.Ecn`).
     - `Server`: `init`, `deinit`, `port`, `run`, `turn`, `complete`, `shutdown`, `stopped`,
-      `operations_max`, `sockets_max`, `listener` and `datagram`.
+      `operations_max`, `sockets_max`, `listener`, `datagram` and `InitError`. The owner's
+      ruling 7 of 2026-11-10 adds `InitError`: a hosted program that returns the error of
+      `init` from its own function names the set, as it names `Client.InitError`.
     - `Client`: `init`, `deinit`, `request`, `fetch`, `cancel`, `set_destination`, `run`, `turn`,
       `complete`, `shutdown`, `stopped`, `operations_max`, `sockets_max`, `datagram_ipv4`,
       `datagram_ipv6`, `InitError`, `RunError`, `FetchOptions`, `FetchResult` and `FetchError`.

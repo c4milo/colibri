@@ -64,6 +64,10 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
             assert(tcp_connections > 0);
         }
 
+        /// What `init` returns: on `.private` the identity's PEM text refused or the bind
+        /// refused, and on `.hosted` the identity's PEM text refused or the engine's start
+        /// refused (decision 159 as amended on 2026-11-10).
+        pub const InitError = Kinded.InitError;
         /// The most operations in flight, which a host sizes its table of operations by.
         pub const operations_max: u32 = server_loop.operations_max(tcp_connections);
         /// The size of the host's table of sockets.
@@ -243,6 +247,13 @@ test "decision 150: no identity serves cleartext" {
     try testing.expect(!test_server.udp.served);
     try testing.expectEqual(null, test_server.engine_config.h3_alternative);
     test_server.deinit();
+}
+
+test "decision 159 as amended: each kind of Server names the errors of its init" {
+    // A hosted server binds nothing, and starts its engine in `init`.
+    const Hosted = Server(.{}, .hosted);
+    try testing.expect(Hosted.InitError == (identity_module.LoadError || server.StartError));
+    try testing.expect(Server(.{}, .private).InitError == InitError);
 }
 
 test "decision 150: a host that is no IP literal is refused" {
