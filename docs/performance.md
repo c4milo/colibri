@@ -197,8 +197,12 @@ every request got 200, and every round reached 95% of the rate. Both jobs gave t
 The rates step by a factor of two, so the table hides a difference smaller than that. Compare the
 p99 at one rate inside one job (§11.4). Each pair gives job 1, then job 2:
 
-- **h2-tls at 40,000 req/s.** colibri loses here: its p99 was 4.93 ms and 5.20 ms, and axum's
-  4.18 ms and 4.08 ms. At 20,000 req/s the two match, about 1.3 ms each.
+- **h2-tls at 40,000 req/s.** colibri's p99 was 4.93 ms and 5.20 ms, and axum's 4.18 ms and
+  4.08 ms. At 20,000 req/s the two match, about 1.3 ms each.
+- **A 5 s load over TLS measures oha's start.** oha waits about 33 ms after each TCP connect
+  before it sends its ClientHello (design §8 step 13j). At 40,000 req/s the requests of those
+  33 ms fill the p99 of a 5 s load. In loads of 10 s and longer, colibri and axum match at
+  1.4 ms to 1.9 ms. So the p99 over h2-tls at 40,000 req/s does not compare the servers.
 - **h3 at 40,000 req/s.** colibri's p99 was 15.51 ms and 15.30 ms, and axum's 22.86 ms and
   18.61 ms. Neither stays under 10 ms.
 - **h3 at 80,000 offered.** colibri reached 54,651 and 57,855 req/s, and axum 50,752 and 54,597.

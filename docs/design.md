@@ -5390,6 +5390,52 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         of the first, connections not kept apart, the client's segments counted as the
         server's, the port file not read, either time left in seconds, and the warm-up's capture
         kept.
+    - **The start of a load, 2026-11-10.** At 40,000 req/s over h2-tls, the latency run of 13f
+      gave colibri a p99 of 4.93 ms and 5.20 ms, and axum 4.18 ms and 4.08 ms. The waits run of
+      2026-11-09 gave 1.76 ms and 1.54 ms, and 1.76 ms and 1.63 ms. The owner asked which one is
+      correct. The two runs differ in one thing: 13f loads for 5 s, and the waits run for 11 s.
+      - Judge run [42828654918](https://github.com/c4milo/colibri/actions/runs/42828654918), on
+        `0fe16198`, a branch not on main, loaded each server at 40,000 req/s for 5, 10, 20 and
+        40 s. The p99 in ms, job 1 and then job 2:
+
+        | Load | colibri, h2-tls | axum, h2-tls | colibri, h2 | axum, h2 |
+        | --- | --- | --- | --- | --- |
+        | 5 s | 5.08 and 4.33 | 4.44 and 3.88 | 1.17 and 1.17 | 1.89 and 1.86 |
+        | 10 s | 1.87 and 1.72 | 1.75 and 1.88 | 1.24 and 1.22 | 1.93 and 1.83 |
+        | 20 s | 1.48 and 1.86 | 1.59 and 1.56 | 1.26 and 1.27 | 1.93 and 1.86 |
+        | 40 s | 1.44 and 1.40 | 1.51 and 1.40 | 1.27 and 1.26 | 1.98 and 1.89 |
+
+        Over h2-tls the p99 falls as the load runs longer, and from 10 s the two servers match.
+        Over h2 the p99 does not move. Over h2 the p99.9 rises with the time of the load, for
+        both servers alike: 2.2 ms to 3.1 ms at 5 s, and 12.6 ms to 16.8 ms at 40 s. This run
+        does not explain that.
+      - Judge run [42857194699](https://github.com/c4milo/colibri/actions/runs/42857194699), on
+        `aa75d67d`, a branch not on main, captured the packets of both directions for the first
+        1.5 s of each 5 s load at 40,000 req/s. tcpdump started before oha, so each capture holds
+        the SYN of each connection, and no capture dropped a packet. Over h2-tls, each range
+        covers rounds 1 to 5 of both jobs, in ms:
+
+        | Figure | Against colibri | Against axum |
+        | --- | --- | --- |
+        | SYN-ACK to oha's ClientHello, median | 32.7 to 33.1 | 32.9 to 33.1 |
+        | ClientHello to the server's first flight, median | 0.84 to 1.13 | 0.47 to 0.59 |
+        | that flight to oha's Finished, median | 0.31 to 0.61 | 0.16 to 0.26 |
+        | Finished to the server's next segment, median | 0.04 to 0.07 | 0.44 to 0.71 |
+        | first ClientHello to the last connection ready | 1.70 to 2.19 | 1.16 to 1.31 |
+        | octets of the server's first flight | 2,263 | 1,087 |
+        | group of the key exchange | X25519MLKEM768 | X25519 |
+        | p99 of the load, median of each job | 6.01 and 6.80 | 5.91 and 5.27 |
+
+        Over h2, oha sends its first request 0.22 ms to 0.47 ms after its first SYN.
+      - So oha waits about 33 ms after each TCP connect before it sends its ClientHello, against
+        both servers. At 40,000 req/s, more than 1,300 requests of its plan wait before any
+        connection can carry one. They fill the tail of a 5 s load, which holds 200,000
+        requests. The p99 of 13f over h2-tls at 40,000 req/s therefore measures oha's start of
+        TLS, and does not compare how the servers answer requests.
+      - colibri's 8 handshakes take about 0.8 ms more than axum's. chapulin chooses
+        X25519MLKEM768 from oha's offer, and axum's rustls chooses X25519. So colibri's first
+        flight carries an ML-KEM-768 ciphertext, 1,176 octets more, and oha takes longer to
+        read it. The group is chapulin's choice, and colibri does not set it (non-negotiable 2).
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
