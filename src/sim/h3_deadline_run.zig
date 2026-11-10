@@ -137,7 +137,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     const now_ns = ns_of(plan, 0);
     // Decision 110 as amended: an endpoint refuses limits a connection would refuse, and an
     // identity whose key does not sign.
-    storage.endpoint.init(&storage.endpoint_config, tls.Random.init(&storage.server_random, fill), .{ .ns = now_ns, .unix_seconds = identity.now_seconds }) catch return error.ServerRefused;
+    storage.endpoint.init(&storage.endpoint_config, tls.Random.init(&storage.server_random, fill), .{ .unix_seconds = identity.now_seconds, .monotonic_ns = now_ns }) catch return error.ServerRefused;
     storage.ended = null;
     storage.link.init(plan.link_rate);
     try storage.peer.start(plan, tls.Random.init(&storage.peer_random, fill), now_ns);

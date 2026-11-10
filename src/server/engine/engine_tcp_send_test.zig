@@ -132,7 +132,7 @@ test "decision 101: a coded response's ring owes octets, which a send writes out
     tcp_support.pool.init(.none());
     support.config.codings = &tcp_support.codings;
     support.config.encoders = tcp_support.pool.encoders();
-    try engine.init(&support.config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = tcp_support.now_seconds });
+    try engine.init(&support.config, tcp_support.stream.random(), .{ .unix_seconds = tcp_support.now_seconds, .monotonic_ns = support.now_ns });
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, "GET / HTTP/1.1\r\nHost: example.com\r\nAccept-Encoding: gzip\r\n\r\n");
     const id = support.id_of(handle, support.nth(.request, 0).?.number);
@@ -164,7 +164,7 @@ test "decision 101: a coded ring an h2 window holds owes a send once a WINDOW_UP
     tcp_support.fill_incompressible();
     support.config.codings = &tcp_support.codings;
     support.config.encoders = tcp_support.pool.encoders();
-    try engine.init(&support.config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = tcp_support.now_seconds });
+    try engine.init(&support.config, tcp_support.stream.random(), .{ .unix_seconds = tcp_support.now_seconds, .monotonic_ns = support.now_ns });
     const handle = engine.accept(.{ .tls = false }, support.now_ns).?;
     _ = support.give(handle, preface_small_window);
     const accepts_gzip = [_]tcp_support.Field{.{ .name = "accept-encoding", .value = "gzip" }};

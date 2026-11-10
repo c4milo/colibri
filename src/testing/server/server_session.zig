@@ -126,7 +126,7 @@ pub fn SessionOf(comptime connections_max: usize) type {
             session.pending = Pending.initEmpty();
             session.undrained = false;
             session.now_ns = now_ns;
-            try session.engine.init(config, random, .{ .ns = now_ns, .unix_seconds = 0 });
+            try session.engine.init(config, random, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
         }
 
         /// Starts the connection of a socket the listener accepted at `now_ns`, in the free entry

@@ -58,7 +58,7 @@ pub fn start(state: anytype, now_ns: u64) !void {
     reset(state, now_ns);
     // The server issues no ticket unless the program gave a ticket key, so the instant in seconds
     // it judges tickets at is chapulin's 0 for none.
-    try state.engine.init(&state.engine_config, state.random, .{ .ns = now_ns, .unix_seconds = 0 });
+    try state.engine.init(&state.engine_config, state.random, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
     const tcp_connections = state.sockets.len;
     if (state.udp.served) state.udp.start(accept_slot(tcp_connections) + 1, state.datagram_segments);
 }

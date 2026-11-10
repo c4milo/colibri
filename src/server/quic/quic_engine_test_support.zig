@@ -38,7 +38,7 @@ pub fn start_engine(retry: ?*const tls.quic.Retry) !void {
 
 /// Starts `engine` again from `engine_config`, which a test changed, holding no connection.
 pub fn restart() !void {
-    try engine.init(&engine_config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = 0 });
+    try engine.init(&engine_config, tcp_support.stream.random(), .{ .unix_seconds = 0, .monotonic_ns = support.now_ns });
 }
 
 /// The QUIC connection in the engine's lowest slot that holds one, read off the engine's

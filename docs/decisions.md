@@ -6808,6 +6808,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `Engine.init` takes one `server.Instant`, with the fields `ns` and `unix_seconds`, in
           place of the two adjacent `u64` values `now_seconds` and `now_ns`. The compiler then
           refuses two instants in the wrong order.
+        - Ruling 19 amends this ruling: `server.Timestamp` replaces `server.Instant`, with the
+          fields `unix_seconds` and `monotonic_ns`.
      3. A type function takes the name of the thing (pattern 2). Ruling 1 of decision 156 now
         applies to each `*Of` name and each `Default*` alias.
         - `server.Engine(capacity)` replaces `server.EndpointOf(capacity)` and
@@ -7009,14 +7011,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - No public name changes. The release is v0.15.1.
          - The alternative that lost: a refusal of the response as malformed. RFC 9110 §15 asks
            for a 5xx, and a program then cannot read the response that the server sent.
-
-     17. Amended by decision 159 on 2026-11-08, for ruling 6:
+     18. Amended by decision 159 on 2026-11-08, for ruling 6:
          - `colibri.Client.InitError`, `Client.RunError` and `Client.FetchError` apply to
            `.private` alone. They spell colibri's own members, and the Rotor adapter maps Rotor's
            errors onto them. A change of a name in Rotor then breaks no dependent.
          - `init` of a `.hosted` object returns `server.StartError` or `client.StartError` alone.
            `.hosted` has no `RunError`.
          - `error.BufferGroupsFull` leaves `RunError`, and `error.PollersFull` leaves `InitError`.
+     19. Amended by the owner on 2026-11-10, for ruling 2
+         ([#131](https://github.com/c4milo/colibri/issues/131)). colibri and cocuyo name their pair
+         of clock readings the same way:
+         - `server.Instant` becomes `server.Timestamp`, with the fields `unix_seconds` and
+           `monotonic_ns`, in this order and with no default. `ns` becomes `monotonic_ns`.
+         - In Zig 0.16, `std.Io.Timestamp` is one reading of a clock, and `std.Io.Clock` says which
+           clock. The value has no function and reads no clock, so it is not a clock. Its doc
+           comment says that it holds two readings of one instant, where `std.Io.Timestamp` holds
+           one.
+         - `server.Engine(capacity).init` takes a `server.Timestamp`. cocuyo names its own pair
+           `cocuyo.Timestamp`, with the same two fields.
+         - The rename breaks each caller, so it ships in v0.16.0. The separate fields of the
+           client, such as `colibri.ClientConfig.unix_seconds`, are outside this amendment.
 
      What the amended decisions now say:
      - Decisions 35 and 125: the comptime count of a server is `server.Engine(capacity)`, not

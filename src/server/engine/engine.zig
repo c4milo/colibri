@@ -59,12 +59,13 @@ pub const Capacity = struct {
     receive_pool_len: usize = quic.constants.limits.receive_pool_len_default,
 };
 
-/// An instant as the program reads its clocks: the nanoseconds of its monotonic clock, and the Unix
-/// time in seconds at that instant, or 0 for none (decision 158 ruling 2). One value holds both, so
-/// the compiler refuses the two in the wrong order.
-pub const Instant = struct {
-    ns: u64,
+/// Two readings of one instant, where `std.Io.Timestamp` holds one: the Unix time in seconds, or 0
+/// for none, and the nanoseconds of the program's monotonic clock (decision 158 ruling 2 as
+/// amended, https://github.com/c4milo/colibri/issues/131). One value holds both, so the compiler
+/// refuses the two in the wrong order. It reads no clock: the program reads its clocks.
+pub const Timestamp = struct {
     unix_seconds: u64,
+    monotonic_ns: u64,
 };
 
 /// An engine that holds the connections `capacity` names: the server side of every connection one
@@ -117,9 +118,9 @@ pub fn Engine(comptime capacity: Capacity) type {
         pub const Accepted = engine_state.Accepted;
 
         /// Prepares an engine that holds no connection. Every value it draws comes from
-        /// `random`. `now.unix_seconds` is the Unix time at `now.ns`, which the server's tickets
-        /// are issued at, or 0 for none. It builds the TLS configuration of each transport it serves
-        /// from `config.tls` and checks that its key signs. `error.NoVersion` says no slot it
+        /// `random`. `now.unix_seconds` is the Unix time at `now.monotonic_ns`, which the server's
+        /// tickets are issued at, or 0 for none. It builds the TLS configuration of each transport
+        /// it serves from `config.tls` and checks that its key signs. `error.NoVersion` says no slot it
         /// holds serves a version `versions` allows: its TCP slots no h11 or h2, and its QUIC
         /// slots no h3 or no identity. `error.TimeoutInvalid` says that
         /// `config.deadlines` holds a limit `Timeouts.validate` or `validate_units` refuses
@@ -128,7 +129,7 @@ pub fn Engine(comptime capacity: Capacity) type {
         /// identity. The engine copies `config`, so the program may change or free its own
         /// `Config` once `init` returns. The pools, the identity and the providers `config`
         /// names stay the program's, and live as long as the engine.
-        pub fn init(engine: *Self, config: *const Config, random: tls.Random, now: Instant) StartError!void {
+        pub fn init(engine: *Self, config: *const Config, random: tls.Random, now: Timestamp) StartError!void {
             engine.config = config.*;
             const counts: engine_config.Counts = .{ .tcp = capacity.tcp_connections, .quic = capacity.quic_connections };
             const served = try engine_config.build(&engine.config, counts, .{
@@ -165,7 +166,7 @@ pub fn Engine(comptime capacity: Capacity) type {
                 .order = &engine.order,
                 .stale_numbers = &engine.stale_numbers,
                 .stale_queued = &engine.stale_queued,
-            }, random, now.unix_seconds, now.ns);
+            }, random, now.unix_seconds, now.monotonic_ns);
         }
 
         /// Starts a connection on a TCP socket the program accepted, over TLS by default, `.{}`,

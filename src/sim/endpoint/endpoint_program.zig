@@ -297,7 +297,7 @@ test "P5: a deadline heap whose top differs from the soonest slot's deadline is 
         .cpu = identity.cpu,
     } };
     test_random = sim.Random.init(test_seed);
-    try test_endpoint.init(&test_config, tls.Random.init(&test_random, test_fill), .{ .ns = test_start_ns, .unix_seconds = identity.now_seconds });
+    try test_endpoint.init(&test_config, tls.Random.init(&test_random, test_fill), .{ .unix_seconds = identity.now_seconds, .monotonic_ns = test_start_ns });
     test_ledger.init();
     test_program.init(&test_endpoint, &test_ledger);
     const handle = (try test_program.accept(.cleartext, test_start_ns)).?;

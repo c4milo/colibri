@@ -58,9 +58,9 @@ pub const CloseReason = files.close_reason.CloseReason;
 pub const Limit = files.close_reason.Limit;
 pub const Engine = files.engine.Engine;
 pub const Capacity = files.engine.Capacity;
-/// The instant `Engine.init` takes: the program's monotonic nanoseconds, and the Unix seconds at
-/// that instant (decision 158 ruling 2).
-pub const Instant = files.engine.Instant;
+/// The instant `Engine.init` takes, as two readings of it: the Unix seconds and the program's
+/// monotonic nanoseconds (decision 158 ruling 2 as amended).
+pub const Timestamp = files.engine.Timestamp;
 /// What `Engine.receive` takes: `.none`, the `StreamBytes` a program's TCP socket read, or a
 /// `Datagram` its UDP socket read.
 pub const Input = files.engine.Input;
@@ -156,12 +156,13 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Finished` and `Result` in place of `Done` and `Cancelled`. 25.2 adds `ResponseWriter`, 25.3 `Handled`, and 25.5 `middleware`. 35d adds `ResumeProvider`, `ResumeState` and `ResumeBounds`. 45g puts
     // `Engine` in place of `Endpoint` and `EndpointOf`, the options of each pool in place of each
     // `Default*` name, and `Router` and `RouterOptions` in place of `router` (decision 158). 45h
-    // adds `Instant`, and 45i `Status`.
+    // adds `Instant`, and 45i `Status`. v0.16.0 renames `Instant` to `Timestamp`
+    // (https://github.com/c4milo/colibri/issues/131).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
         "constants",          "Config",         "Protocols",    "Limits",             "Timeout",
         "Timeouts",           "CloseReason",    "Limit",        "Engine",             "Capacity",
-        "Instant",            "Input",          "Datagram",     "StreamBytes",        "LogProvider",
+        "Timestamp",          "Input",          "Datagram",     "StreamBytes",        "LogProvider",
         "ResumeProvider",     "ResumeState",    "ResumeBounds", "Sent",               "Address",
         "Ecn",                "StartError",     "SendError",    "Header",             "RequestId",
         "ConnectionHandle",   "Version",        "Headers",      "Event",              "Request",

@@ -543,7 +543,7 @@ engine_config = .{
 const now_ns = link.now_ns(.server);
 // One engine for every socket the program accepts and for its UDP socket, in storage the
 // program owns. `init` checks that the key signs.
-try engine.init(&engine_config, program.random(), .{ .ns = now_ns, .unix_seconds = now_seconds });
+try engine.init(&engine_config, program.random(), .{ .unix_seconds = now_seconds, .monotonic_ns = now_ns });
 // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
 // names the connection in every later call and event. Null says the engine starts no
 // connection, and a program then closes the socket.
@@ -555,15 +555,16 @@ A program turns Nagle's algorithm off on each TCP socket it accepts, with `TCP_N
 peer to acknowledge the one before it only adds latency: over h2 at low rates, colibri's test-only
 server waited about 3 ms a request with the option off (design §8 step 13f).
 
-`init` takes one `server.Instant`. Its `unix_seconds` is Unix time, which the server's tickets
-are issued at. With a `ticket_key` the engine issues each client a ticket, which a later
-connection of that client offers to resume the session. Its `ns` is the instant on the clock every
-later call passes, and a connection's deadlines count from the instant its
-`accept` is given. `accept` returns null when no slot is free, after `shutdown`, when `protocols`
-allows neither h11 nor h2, or when the TLS stack refuses to start a session. The program closes
-the socket then. A socket runs TLS unless the program passes `.{ .tls = false }`, and a
-configuration with no identity takes cleartext sockets alone. With h3
-turned off, or with no identity, an engine that serves no TCP version returns `error.NoVersion`
+`init` takes one `server.Timestamp`: two readings of one instant, where `std.Io.Timestamp` holds
+one. Its `unix_seconds` is Unix time, which the server's tickets are issued at. With a
+`ticket_key` the engine issues each client a ticket, which a later connection of that client
+offers to resume the session. Its `monotonic_ns` is the instant on the clock that every later
+call passes, and a connection's deadlines count from the instant its `accept` is given.
+
+`accept` returns null when no slot is free, after `shutdown`, when `protocols` allows neither h11
+nor h2, or when the TLS stack refuses to start a session. The program closes the socket then. A
+socket runs TLS unless the program passes `.{ .tls = false }`, and a configuration with no
+identity takes cleartext sockets alone. With h3 turned off, or with no identity, an engine that serves no TCP version returns `error.NoVersion`
 from `init`, and one that also serves TCP starts no QUIC connection. The engine copies the
 configuration at `init`, so the program may change or free its `Config` once `init` returns
 ([decision 158](decisions.md)). The engine keeps pointers into itself, so the program keeps the

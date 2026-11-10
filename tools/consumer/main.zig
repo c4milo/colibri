@@ -133,7 +133,7 @@ pub fn main() !void {
     // connection preface (decision 117).
     const engine_config: server_module.Config = .{};
     const client_config: client_module.Config = .{ .protocols = .{ .h11 = false, .h3 = false }, .authority = "example.test" };
-    try engine.init(&engine_config, entropy, .{ .ns = 0, .unix_seconds = 0 });
+    try engine.init(&engine_config, entropy, .{ .unix_seconds = 0, .monotonic_ns = 0 });
     // One call for the socket a program accepted, in cleartext here. The handle names the
     // connection from then on.
     const accepted = engine.accept(.{ .tls = false }, 0) orelse return error.ExchangeWrong;

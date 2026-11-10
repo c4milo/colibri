@@ -262,7 +262,7 @@ threadlocal var tcp_only_config: Config align(@alignOf(Config)) = undefined;
 
 fn start_tcp_only(identity: ?tls.Server, deadlines: deadline.Timeouts) StartError!void {
     tcp_only_config = .{ .tls = identity, .protocols = .{ .h2 = false }, .timeouts = deadlines };
-    return tcp_only.init(&tcp_only_config, tcp_support.stream.random(), .{ .ns = tcp_support.now_ns, .unix_seconds = 0 });
+    return tcp_only.init(&tcp_only_config, tcp_support.stream.random(), .{ .unix_seconds = 0, .monotonic_ns = tcp_support.now_ns });
 }
 
 test "decision 110 as amended: units are judged only where a body may arrive in them" {

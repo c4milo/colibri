@@ -223,7 +223,7 @@ fn start_server(cpu: tls.Cpu) !void {
     const now_ns = link.now_ns(.server);
     // One engine for every socket the program accepts and for its UDP socket, in storage the
     // program owns. `init` checks that the key signs.
-    try engine.init(&engine_config, program.random(), .{ .ns = now_ns, .unix_seconds = now_seconds });
+    try engine.init(&engine_config, program.random(), .{ .unix_seconds = now_seconds, .monotonic_ns = now_ns });
     // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
     // names the connection in every later call and event. Null says the engine starts no
     // connection, and a program then closes the socket.

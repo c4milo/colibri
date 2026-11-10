@@ -49,7 +49,7 @@ var ended: u32 = 0;
 /// Starts the server's engine on the stream link the example holds.
 pub fn init(streams: *StreamsLink) !void {
     link = streams;
-    try engine.init(&config, program.random(), .{ .ns = link.now_ns(.server), .unix_seconds = 0 });
+    try engine.init(&config, program.random(), .{ .unix_seconds = 0, .monotonic_ns = link.now_ns(.server) });
 }
 
 /// The listener accepts the socket the client connected on `stream`.

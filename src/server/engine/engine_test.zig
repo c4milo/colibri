@@ -186,10 +186,10 @@ test "decision 103: a connection that is over is handed back once, and its slot 
 test "the Unix seconds a connection's tickets carry count on from the engine's start" {
     try support.start_engine(null);
     const later_ns = support.now_ns + elapsed_seconds * constants.nanoseconds_per_second;
-    try engine.init(&engine_support.engine_config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = start_seconds });
+    try engine.init(&engine_support.engine_config, tcp_support.stream.random(), .{ .unix_seconds = start_seconds, .monotonic_ns = support.now_ns });
     try testing.expectEqual(start_seconds + elapsed_seconds, engine.state.connections.seconds_at(later_ns));
     // An engine started at 0 issues no ticket, however late.
-    try engine.init(&engine_support.engine_config, tcp_support.stream.random(), .{ .ns = support.now_ns, .unix_seconds = 0 });
+    try engine.init(&engine_support.engine_config, tcp_support.stream.random(), .{ .unix_seconds = 0, .monotonic_ns = support.now_ns });
     try testing.expectEqual(0, engine.state.connections.seconds_at(later_ns));
 }
 const start_seconds: u64 = 1_790_000_000;
