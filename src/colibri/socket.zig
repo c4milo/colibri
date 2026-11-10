@@ -323,6 +323,28 @@ test "decision 159: a socket writes the operations it needs, and none while they
     try testing.expect(test_socket.close_submitted);
 }
 
+test "decision 159: a socket whose close completes first is finished only after its receive's final completion" {
+    test_socket.open();
+    test_socket.receiving = true;
+    test_socket.sending = true;
+    // Rule 2: the host may give the close's completion before those of the operations it ended.
+    test_socket.closed = true;
+    try testing.expect(!test_socket.finished());
+    test_socket.on_sent(.canceled);
+    try testing.expect(!test_socket.finished());
+    test_socket.on_received(.canceled);
+    try testing.expect(test_socket.finished());
+    // The same holds when the send's final completion comes last.
+    test_socket.open();
+    test_socket.receiving = true;
+    test_socket.sending = true;
+    test_socket.closed = true;
+    test_socket.on_received(.canceled);
+    try testing.expect(!test_socket.finished());
+    test_socket.on_sent(.canceled);
+    try testing.expect(test_socket.finished());
+}
+
 test "decision 160: the write side closes once the octets are out, and the socket is finished after it" {
     test_socket.open();
     test_socket.half_closing = true;

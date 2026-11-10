@@ -277,6 +277,34 @@ const Clock = struct {
     started_ns: u64,
 };
 
+/// The fields `wait` reads, with nothing else of a client: a pool and a connect with no
+/// deadline. Test-only.
+const Waiting = struct {
+    const Pool = struct {
+        fn deadline_ns(_: *const Pool) ?u64 {
+            return null;
+        }
+    };
+    const Connection = struct {
+        connecting: bool = false,
+        connect_owed: bool = false,
+        connect_canceled: bool = false,
+        connect_deadline_ns: ?u64 = null,
+    };
+    undrained: bool = false,
+    pending: std.bit_set.IntegerBitSet(1) = .initEmpty(),
+    pool: Pool = .{},
+    connections: [1]Connection = .{.{}},
+};
+
+test "decision 159: a socket that a turn left to step makes the host turn again at once" {
+    var state: Waiting = .{};
+    try testing.expectEqual(host.Wait.none, wait(&state, false));
+    // A step that ran out of its bound leaves the socket pending (`client_tcp.zig`).
+    state.pending.set(0);
+    try testing.expectEqual(host.Wait.now, wait(&state, false));
+}
+
 test "design §8 step 42: a chain is judged at the program's instant plus the run's time since" {
     const second_ns = client.constants.nanoseconds_per_second;
     const clock: Clock = .{ .unix_seconds = 1_000, .started_ns = 5 * second_ns };
