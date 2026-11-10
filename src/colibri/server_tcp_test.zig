@@ -87,6 +87,11 @@ test "decision 150: a server on port 0 answers an h11 request through its router
     try testing.expect(std.mem.startsWith(u8, missing, "HTTP/1.1 404"));
     test_server.shutdown();
     thread.join();
+    try testing.expect(test_server.stopped());
+    test_server.deinit();
+    // A second `init` starts a server that has not stopped.
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &router, &context);
+    try testing.expect(!test_server.stopped());
     test_server.deinit();
 }
 

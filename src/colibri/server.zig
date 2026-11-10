@@ -125,8 +125,9 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         pub fn init(self: *Self, config: *const Kinded.Config, router: anytype, context: anytype) Kinded.InitError!void {
             self.router = .of(router, context);
             self.udp.close_all();
-            // A run that fails before `start` holds no live socket.
-            for (&self.sockets) |*socket| socket.live = false;
+            // A run that fails before `start` holds no live socket, and `stopped()` is false
+            // until a run ends.
+            server_loop.reset(self, 0);
             self.engine_config = config.engine;
             assert(self.engine_config.tls == null);
             self.stopping = .init(false);
@@ -267,4 +268,5 @@ test {
     _ = @import("server_stream_test.zig");
     _ = @import("fake_host_test.zig");
     _ = @import("server_half_close_test.zig");
+    _ = @import("fake_host_pair_test.zig");
 }

@@ -129,6 +129,13 @@ http_client.shutdown();
 try http_client.run();
 ```
 
+`fetch` runs one exchange on the thread that calls it, and returns how it ended. It needs no
+handler:
+
+```zig
+const got = try http_client.fetch(&.{ .path = "/greeting", .response_body = &body });
+```
+
 The pool opens TCP first by default, and h3 over QUIC only once TCP fails. With
 `.prefer = .quic` in its `protocols`, it tries h3 over QUIC first, and h2 or h11 over TCP when
 QUIC gets no answer ([decision 117](docs/decisions.md) as amended).

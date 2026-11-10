@@ -20,6 +20,7 @@ pub const private = struct {
     pub const Config = client_module.ClientConfig;
     pub const InitError = errors.ClientInitError;
     pub const RunError = errors.LoopError;
+    pub const FetchError = errors.LoopError || client.RequestError || error{ShutDown};
     pub const Host = rotor_host.Host;
 
     /// Starts the pool, and opens a UDP socket of each family when the pool offers QUIC
@@ -49,8 +50,10 @@ pub const private = struct {
         state.udp.open(@intFromEnum(family), id);
     }
 
-    /// Closes the UDP socket when `run` did not close it.
+    /// Stops the loop that a `fetch` started, and closes the UDP socket when `run` did not
+    /// close it.
     pub fn deinit(state: anytype) void {
+        client_loop.stop(state);
         state.host.close_open();
     }
 };
@@ -78,8 +81,9 @@ pub const hosted = struct {
 
     /// The pool's refusals. A hosted client binds nothing and parses no text.
     pub const InitError = client.StartError;
-    /// A hosted client has no run, so the set is empty.
+    /// A hosted client has no run and no fetch, so each set is empty.
     pub const RunError = error{};
+    pub const FetchError = error{};
 
     /// A hosted client has no host of colibri's.
     pub fn Host(comptime _: u16, comptime _: u32, comptime _: bool) type {

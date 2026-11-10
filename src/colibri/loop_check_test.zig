@@ -14,6 +14,8 @@
 //!     `halt_client_run_in_handler`, `halt_server_turn_in_route`, `halt_server_complete_in_route`
 //!     and `halt_server_run_in_route`: a handler or a route that calls `turn`, `complete` or `run`
 //!     from inside a turn (rule 4, design §8 step 44e).
+//!   - `halt_client_fetch_in_handler`: a handler that calls `fetch` from inside a turn (rule 4,
+//!     design §8 step 44h).
 //!   A test binary does not live through its own halt, so the step runs each one as a program.
 const std = @import("std");
 const colibri = @import("colibri");
@@ -123,9 +125,16 @@ const RunInHandler = struct {
         running.run() catch {};
     }
 };
+/// A handler that calls `fetch` of its own client from `on_finished` (design §8 step 44h).
+const FetchInHandler = struct {
+    pub fn on_finished(_: *FetchInHandler, running: *PrivateClient, _: client.Finished) void {
+        _ = running.fetch(&.{ .path = "/" }) catch {};
+    }
+};
 var turn_in_handler: TurnInHandler align(@alignOf(TurnInHandler)) = .{};
 var complete_in_handler: CompleteInHandler align(@alignOf(CompleteInHandler)) = .{};
 var run_in_handler: RunInHandler align(@alignOf(RunInHandler)) = .{};
+var fetch_in_handler: FetchInHandler align(@alignOf(FetchInHandler)) = .{};
 
 /// One GET of `/` and the response it fills.
 const get: client.Request = .{ .method = "GET", .path = "/" };
@@ -190,6 +199,10 @@ const cases = struct {
 
     pub fn hosted_client_run() !void {
         try hosted_client.run();
+    }
+
+    pub fn hosted_client_fetch() !void {
+        _ = try hosted_client.fetch(&.{ .path = "/" });
     }
 
     pub fn private_server_turn() !void {
@@ -290,9 +303,20 @@ const halts = struct {
 
     /// A handler that calls `run` from `on_finished`, which runs inside a turn of `run`.
     pub fn halt_client_run_in_handler() !void {
+        try private_inside_handler(&run_in_handler);
+    }
+
+    /// A handler that calls `fetch` from `on_finished`, which runs inside a turn of `run`.
+    pub fn halt_client_fetch_in_handler() !void {
+        try private_inside_handler(&fetch_in_handler);
+    }
+
+    /// Runs one exchange to a port that refuses it, so `handler`'s `on_finished` runs inside a
+    /// turn of `run`.
+    fn private_inside_handler(handler: anytype) !void {
         var pool: client.Config = .{ .authority = "localhost", .protocols = .{ .h3 = false } };
         pool.timeouts.connect_ns = connect_ns;
-        try private_client.init(&.{ .destination = loopback(unserved_port), .pool = pool, .random = zero_source, .unix_seconds = 0 }, &run_in_handler);
+        try private_client.init(&.{ .destination = loopback(unserved_port), .pool = pool, .random = zero_source, .unix_seconds = 0 }, handler);
         _ = try private_client.request(&get, &answer_of_get);
         try private_client.run();
     }

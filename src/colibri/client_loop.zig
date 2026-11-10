@@ -72,33 +72,62 @@ pub fn run_loop(state: anytype) !void {
     assert(!state.ran);
     state.ran = true;
     defer state.host.close_open();
-    const now_ns = try state.host.begin();
-    defer state.host.end();
-    start(state, now_ns);
+    // A `fetch` may have made the loop and started the run already.
+    try begin(state);
+    defer end(state);
     try state.host.run(state, @This(), state);
+}
+
+/// Makes the loop of a `.private` client on the calling thread, and starts the run at the loop's
+/// first instant, unless a `fetch` did already (`client_fetch.zig`).
+pub fn begin(state: anytype) !void {
+    if (state.begun) return;
+    const now_ns = try state.host.begin();
+    state.begun = true;
+    start(state, now_ns);
+}
+
+/// Frees the loop that `begin` made, after the run's last operation or a failure of the loop.
+pub fn end(state: anytype) void {
+    assert(state.begun);
+    state.host.end();
+    state.begun = false;
+}
+
+/// Stops a run that a `fetch` began and no `run` ended (`Client.deinit` of `.private`). It calls
+/// `shutdown`, and runs the loop until each exchange has finished and each connection has closed
+/// (decision 156 ruling 10). A loop that fails ends at once: `end` cancels what is in flight.
+pub fn stop(state: anytype) void {
+    if (!state.begun) return;
+    state.shutdown();
+    state.host.run(state, @This(), state) catch {};
+    end(state);
 }
 
 /// Starts a run at `now_ns`, the instant `unix_seconds` counts from, with the receive of each UDP
 /// socket owed.
 pub fn start(state: anytype, now_ns: u64) void {
     assert(!state.started);
-    reset(state, now_ns);
     state.started = true;
+    state.started_ns = now_ns;
     if (state.udp.served) state.udp.start(datagram_slot(state.sockets.len), state.datagram_segments);
 }
 
-/// Empties what a run holds: no socket, pending step or operation.
-pub fn reset(state: anytype, now_ns: u64) void {
+/// Empties what a run holds, at `init`: no socket, pending step or operation, and a pool that has
+/// not closed. So `stopped()` holds only after the run that follows.
+pub fn reset(state: anytype) void {
     for (&state.sockets) |*socket| socket.live = false;
     state.connections = @splat(client_tcp.Connection.empty);
     state.pending = .initEmpty();
     state.touched = .initEmpty();
     state.operations = .empty;
-    // A request made before `run` waits for the first drain, which the first turn makes at once.
-    state.undrained = true;
+    // Each turn reads the pool's events first, so a request made before the first turn leaves
+    // in it.
+    state.undrained = false;
     state.shut_down = false;
     state.closed = false;
-    state.started_ns = now_ns;
+    state.started = false;
+    state.started_ns = 0;
 }
 
 /// The seconds since 1970 at `now_ns`: the program's instant at the start of `run`, and the time
@@ -113,6 +142,7 @@ pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run;
     host.enter(&state.in_turn, "turn()");
     defer state.in_turn = false;
+    state.latest_ns = now_ns;
     if (!state.started) start(state, now_ns);
     var out: operation_table.Outbox = .{ .operations = operations };
     pass_shutdown(state);
@@ -142,6 +172,7 @@ pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) v
     const state = run;
     host.enter(&state.in_turn, "complete()");
     defer state.in_turn = false;
+    state.latest_ns = now_ns;
     const slot = state.operations.held(completion.id);
     if (completion.final()) state.operations.finish(slot);
     if (state.udp.served and state.udp.owns(slot)) return @import("client_udp.zig").complete(run, slot, completion, now_ns);
@@ -203,10 +234,19 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
         },
         // `Client.request` takes no streamed exchange, so no exchange has pieces.
         .headers, .body, .body_taken => unreachable,
-        .finished => |ended| state.handler.on_finished(state, ended),
+        .finished => |ended| finish(state, ended),
         // The next turn cancels the UDP socket's receive.
         .closed => state.closed = true,
     }
+}
+
+/// Hands an exchange that ended to the handler, unless it is the one a `fetch` runs, which
+/// `fetch` returns (decision 156 ruling 12).
+fn finish(state: anytype, ended: client.Finished) void {
+    const fetching = state.fetching orelse return state.handler.on_finished(state, ended);
+    if (fetching != ended.id) return state.handler.on_finished(state, ended);
+    state.fetching = null;
+    state.fetched = true;
 }
 
 /// Starts the QUIC connection that `asked` opens, from the UDP socket of its address's family.

@@ -349,11 +349,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   it.
 - colibri's kinds: `zig build colibri-loop-check` builds `src/colibri/loop_check_test.zig` once
   for each case (`build/colibri_loop_check.zig`, design §8 step 44d). A `.hosted` server and client
-  must compile and run with no socket. `run` and `port` on `.hosted`, and `turn` and `complete` on
-  `.private`, must fail to compile with colibri's message. Eight programs must halt with SIGABRT
-  and colibri's message: a stray completion, `deinit` of a `.hosted` object before `stopped()`, and
-  a handler or a route that calls `turn`, `complete` or `run` inside a turn (decision 159, rules 6,
-  2 and 4). `zig build test` runs it.
+  must compile and run with no socket. `run`, `fetch` and `port` on `.hosted`, and `turn` and
+  `complete` on `.private`, must fail to compile with colibri's message. Nine programs must halt
+  with SIGABRT and colibri's message: a stray completion, `deinit` of a `.hosted` object before
+  `stopped()`, a handler or a route that calls `turn`, `complete` or `run` inside a turn, and a
+  handler that calls `fetch` (decision 159, rules 6, 2 and 4). `zig build test` runs it.
 - Route cross-check: `zig build router-hidden-check` runs two test binaries apart from `zig build
   test-server` (`build/router_check.zig`, the owner's rulings of 2026-10-14). `router-hidden`, from
   `src/server/router_hidden_check.zig`, runs `src/server/router/router_hidden_test.zig`, which

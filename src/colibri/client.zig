@@ -17,6 +17,7 @@ const errors = @import("errors.zig");
 const host = @import("host.zig");
 const erased = @import("erased.zig");
 const kinds = @import("client_kinds.zig");
+const client_fetch = @import("client_fetch.zig");
 
 /// Where a `.private` client connects and how its pool runs. The program keeps each slice the
 /// pool's configuration names alive while the client runs: the authority, the TLS anchors and
@@ -76,6 +77,12 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// What `run` returns on `.private`: the loop failed. A hosted client has no run, so the
         /// set is empty.
         pub const RunError = Kinded.RunError;
+        /// What `fetch` takes and returns (decision 156 ruling 12).
+        pub const FetchOptions = client_fetch.FetchOptions;
+        pub const FetchResult = client_fetch.FetchResult;
+        /// What `fetch` returns on `.private`: the loop failed, the pool refused the request, or
+        /// the client was shut down. A hosted client has no fetch, so the set is empty.
+        pub const FetchError = Kinded.FetchError;
         /// The most operations in flight, which a host sizes its table of operations by.
         pub const operations_max: u32 = client_loop.operations_max(tcp_connections, capacity.quic);
         /// The size of the host's table of sockets.
@@ -120,6 +127,18 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         closed: bool,
         /// `run` was called since `init`.
         ran: bool,
+        /// The loop of `.private` is made: a `fetch` or a `run` made it, and no `run` or `deinit`
+        /// freed it since (`client_loop.begin`).
+        begun: bool,
+        /// The exchange that a `fetch` runs, whose `finished` the handler does not get, and
+        /// whether it ended. Its request and its response stay here until it does
+        /// (`client_fetch.zig`).
+        fetching: ?client.RequestId,
+        fetched: bool,
+        fetch_request: client.Request,
+        fetch_response: client.Response,
+        /// The instant of the last `turn` or `complete`, which `cancel` passes to the pool.
+        latest_ns: u64,
         /// A `turn` or a `complete` runs, and the handler with it (decision 159, rule 4).
         in_turn: bool,
         /// colibri's own Rotor host of `.private`: the loop and the descriptors
@@ -131,7 +150,8 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// QUIC (RFC 9114 §3.1). `handler` points at the program's struct, or is null for a client
         /// that only fetches. The struct declares `on_finished(handler, *Client,
         /// client.Finished)` and may declare `on_connected(handler, *Client, client.Connected)`.
-        /// Each runs inside a turn, on the object's thread, and may call `request` and `shutdown`.
+        /// Each runs inside a turn, on the object's thread, and may call `request`, `cancel`,
+        /// `set_destination` and `shutdown`.
         /// - `.private` opens the UDP socket.
         /// - `.hosted` does no I/O. Its host opened the UDP sockets.
         /// colibri keeps no pointer to `config` after `init` (decision 158 ruling 2).
@@ -139,23 +159,29 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
             self.handler = .of(handler);
             self.udp.close_all();
             self.ran = false;
+            self.begun = false;
+            self.fetching = null;
+            self.fetched = false;
+            self.latest_ns = 0;
             self.in_turn = false;
-            self.started = false;
-            // A run that fails before its first turn holds no live socket.
-            for (&self.sockets) |*socket| socket.live = false;
+            // A run that fails before its first turn holds no live socket, and `stopped()` is
+            // false until a run ends.
+            client_loop.reset(self);
             self.unix_seconds = config.unix_seconds;
             self.pool_config = config.pool;
             self.pool_config.tcp_connections = capacity.tcp_connections;
             self.pool_config.requests = capacity.requests;
             self.stopping = .init(false);
-            self.undrained = false;
             return Kinded.init(self, config);
         }
 
-        /// Closes the UDP socket of `.private` when `run` did not close it. The program calls it
-        /// once after `init` returns, and after `run` returns when it calls `run`. A hosted
-        /// client's host calls it once `stopped()` holds (decision 159, rule 2). The client keeps
-        /// no ticket and no private key, so it wipes nothing.
+        /// Ends the client. The program calls it once after `init` returns, and after `run`
+        /// returns when it calls `run`.
+        /// - `.private` stops the loop that a `fetch` made and no `run` ended: it calls
+        ///   `shutdown`, and runs the loop until each exchange has finished and each connection
+        ///   has closed (decision 156 ruling 10). Then it closes each UDP socket that is open.
+        /// - `.hosted`: the host calls it once `stopped()` holds (decision 159, rule 2).
+        /// The client keeps no ticket and no private key, so it wipes nothing.
         pub fn deinit(self: *Self) void {
             Kinded.deinit(self);
         }
@@ -177,6 +203,38 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
             // The pool reports the open or the send the request needs at the next read.
             self.undrained = true;
             return id;
+        }
+
+        /// Runs one exchange on the thread that calls it, and returns how it ended (decision 156
+        /// ruling 12).
+        /// - The loop runs inside the call. The handler gets each other exchange that ends in
+        ///   that time, and a handler never calls `fetch`.
+        /// - The first `fetch` makes the loop, which stays made for the next `fetch` or `run`
+        ///   until `deinit`. The program calls `fetch`, `run` and `deinit` on one thread.
+        /// - `options` and each slice it names stay the program's. The slices of the result
+        ///   point into the buffers that `options` names.
+        /// - A protocol failure is the result's `result`, not an error. After `shutdown` the
+        ///   call returns `ShutDown`.
+        /// - When the loop fails, the exchange ends with no result, and the program calls
+        ///   `deinit`.
+        pub fn fetch(self: *Self, options: *const FetchOptions) FetchError!FetchResult {
+            comptime host.require(kind, .private, "colibri: a .hosted object has no fetch(); call request() and read on_finished (decision 159)");
+            host.refuse_inside(self.in_turn, "fetch()");
+            return client_fetch.fetch(self, options);
+        }
+
+        /// Ends exchange `id`, which `request` returned, and the handler gets no `finished` for
+        /// it (decision 156 ruling 12). The memory of its request and its response is the
+        /// program's again when the call returns (decision 124). An id of an exchange that has
+        /// ended changes nothing. The program calls `cancel` on the object's thread, as it calls
+        /// `request`. A hosted client's host calls `turn` after it: a connection may owe octets
+        /// for the end, such as h2's RST_STREAM (RFC 9113 §8.1). The pool counts an h11 drop's
+        /// time from the instant of the last `turn` or `complete` (decision 146 ruling 3).
+        pub fn cancel(self: *Self, id: client.RequestId) void {
+            // `fetch` returns no id, and its exchange ends when `fetch` returns.
+            assert(self.fetching == null or self.fetching.? != id);
+            // Each turn reads the pool's events first, so `undrained` stays as it is.
+            self.pool.cancel(id, self.latest_ns);
         }
 
         /// Gives the pool new addresses, for example from a later DNS answer, while exchanges run
@@ -315,6 +373,7 @@ test "decision 124: a client with no QUIC refuses h3" {
 test {
     _ = @import("rotor_host_client_test.zig");
     _ = @import("client_tcp_test.zig");
+    _ = @import("client_fetch_test.zig");
     _ = @import("client_udp_test.zig");
 }
 

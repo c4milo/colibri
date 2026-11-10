@@ -14112,7 +14112,8 @@ library.
   is a driver and a host. The driver does no I/O, reads no clock and imports no Rotor. The host
   does each operation on its own loop. `.private` is the driver plus colibri's own Rotor adapter.
   `.hosted` is the driver alone, and the program is the host. A program on libuv, libxev or
-  `std.Io` can host `.hosted`. It ships in v0.15.0, and v0.15.0 ships after all of step 44.
+  `std.Io` can host `.hosted`. It ships whole in v0.16.0: the owner cut v0.15.0 from main without
+  it on 2026-11-08.
   - **The plan that decision 159 replaces.** Decision 156 and its seven amendments put colibri on
     a `rotor.SharedLoop`, with completion records, a poller, a task, a scheduling group and one of
     the loop's 16 buffer group ids. The owner replaced that plan on 2026-11-08, after 44b had
@@ -14121,7 +14122,7 @@ library.
     - The root: `client`, `server`, `constants`, `Server`, `ServerConfig`, `Identity`,
       `InitError`, `RunError`, `Client`, `ClientCapacity`, `ClientConfig`, `SocketId`,
       `OperationId`, `Operation`, `Completion`, `Failure`, `Wait` and `Turn`. `client` and
-      `server` are module re-exports. `ClientOf` and `ServerOf` shipped in v0.14.0, and v0.15.0
+      `server` are module re-exports. `ClientOf` and `ServerOf` shipped in v0.14.0, and v0.16.0
       removes them from the list (decision 156 ruling 1).
     - The seven names from `SocketId` to `Turn` are the host interface. Client and Server share
       them, so they are top-level names (decision 158 ruling 6). Decision 159 gives each one's
@@ -14472,6 +14473,68 @@ library.
              the pool's events first. So the call does not set it.
     8. 44h `feat(colibri)`: `fetch` and `cancel`. Its tests on a shared loop become tests on the
        fake host.
+       - Done on 2026-11-10.
+         - `fetch` hands the pool one request, and runs the loop of `.private` until that
+           exchange has ended. `FetchOptions`, `FetchResult` and `FetchError` join the list of
+           `Client`. `FetchError` holds colibri's `LoopError`, `client.RequestError` and
+           `ShutDown`. On `.hosted` it is the empty set, and `fetch` is a compile error.
+         - The first `fetch` or `run` makes the loop, and it stays made between fetches. `deinit`
+           of `.private` calls `shutdown`, and runs the loop until each connection has closed
+           (decision 156 ruling 10).
+         - The handler gets each exchange that ends, except the one of the fetch. A `fetch` from a
+           handler halts, as 44e planned.
+         - When the loop fails, `fetch` cancels its exchange in the pool before it returns the
+           error. So the pool keeps no pointer into the memory that `FetchOptions` names.
+         - `cancel(id)` takes no instant, so it passes the pool the instant of the last `turn` or
+           `complete`. An h11 drop counts its time from that instant (decision 146 ruling 3). The
+           call does not set `undrained`, as 44g found for `set_destination`.
+         - `init` now empties what a run holds. Before, `stopped()` read what only the first turn
+           set, so a hosted client that `init` started again had already stopped. A `.private`
+           server had the same fault with its `over` flag.
+         - Tests on `.private`, on loopback: a GET and a POST over h11, h2 and h3, each pair on one
+           connection; a body longer than `response_body`; a fetch beside an exchange of
+           `request`; a `cancel` that gives no `finished`; a fetch after `shutdown`.
+         - Tests on the fake host. `fake_host_pair_test.zig` is the host of a `.hosted` client and
+           a `.hosted` server at once. It carries each send and each datagram between them in
+           its own memory. So a GET and a POST run over h11, h2 and h3 through `request` and the
+           handler, with no socket and no thread. Three more tests cancel an exchange: before its
+           request left, on an open connection, and from `on_finished`. Two tests of
+           `fake_host_test.zig` check the instant of an h11 drop.
+         - `zig build colibri-loop-check` has two more cases: `fetch` on `.hosted` fails to
+           compile, and a handler that calls `fetch` halts.
+         - Decision 159 and this entry now name v0.16.0, because the owner cut v0.15.0 from main
+           without step 44.
+         - Points for the owner to rule:
+           - `cancel` of a `.hosted` client between two turns uses the instant of the last turn.
+             When the host waited long before the cancel, an h11 drop has less than `drop_ns`
+             left, and the connection closes. A `cancel(id, now_ns)` on `.hosted` would end this.
+           - `deinit` of `.private` after a `fetch` returns only when each exchange of `request`
+             has ended, as decision 156 ruling 10 rules. No deadline bounds it.
+           - The private loop is made at the first `fetch` or `run`, as 44d left it. So a program
+             calls `fetch`, `run` and `deinit` on one thread, and `init` on any thread.
+         - Mutations, each against `zig build test-colibri` unless stated:
+           - The five that the first plan named. The fetch's `finished` sent to the handler:
+             CAUGHT. The wrong default method: CAUGHT. `body_len` not copied: CAUGHT. `cancel`
+             not passed to the pool: CAUGHT by six tests. A fetch loop that returns early:
+             CAUGHT by the test of `client_fetch.zig`.
+           - Any `finished` ends the fetch: NOT CAUGHT at first, because the handler then got the
+             fetch's exchange in place of its own. The test now compares the id, and the mutation
+             is CAUGHT.
+           - No cancel in the pool after a failed loop, and `fetching` kept after it: each CAUGHT
+             by the test of `client_fetch.zig`.
+           - The last instant not kept in `complete`, and not kept in `turn`: each CAUGHT by its
+             drop test.
+           - `deinit` that does not stop the loop: CAUGHT. `closed` kept by `init`: CAUGHT by 28
+             tests. Under it one older test of `client_tcp_test.zig` does not return, because
+             its peer waits for a connection that never comes. The server's `init` with no
+             reset: CAUGHT.
+           - The response's header buffer not passed, and the request body not sent: each CAUGHT.
+           - `stop` with no `shutdown`: CAUGHT by the watchdog of five tests alone, as a run that
+             does not return.
+           - A loop made twice: NOT CAUGHT. The assertion in `client_loop.start` fires first, so
+             no test can read a result.
+           - Against `zig build colibri-loop-check`: no guard in `fetch`, CAUGHT, and no compile
+             error of `fetch` on `.hosted`, CAUGHT.
     9. 44i `feat(colibri)!`: the root re-exports `client` and `server`, and the tests of the
        names lists run again.
     10. 44j `build`: Rotor lazy, the option `rotor`, `build_options`, and the compile error of

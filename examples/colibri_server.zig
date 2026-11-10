@@ -10,8 +10,8 @@
 //! h11 and h2 over TLS, as ALPN selects, and h3 on the UDP socket of the same port.
 //!
 //! The client gets the server's destination, its addresses and its port, a pool's configuration
-//! and the program's handler. The program hands it requests, calls `shutdown`, and calls `run`, which returns once
-//! each exchange has finished.
+//! and the program's handler. The program hands it requests, calls `shutdown`, and calls `run`,
+//! which returns once each exchange has finished. `fetch` runs one exchange in one call.
 //!
 //! The run goes in this order:
 //! 1. The program places the server and calls `init` on 127.0.0.1, port 0, with the test identity
@@ -19,9 +19,11 @@
 //! 2. A thread of its own calls `run`.
 //! 3. A `colibri.Client` sends two GETs over h11, then over h2, then over h3, and the program
 //!    checks each response octet for octet.
-//! 4. The program calls `shutdown`, and the server's `run` returns once each connection has
+//! 4. A client with no handler hands the pool one request and cancels it, and runs one GET
+//!    through `fetch`. Its `deinit` stops the loop that `fetch` made.
+//! 5. The program calls `shutdown`, and the server's `run` returns once each connection has
 //!    closed.
-//! 5. The program calls `deinit`, which wipes the private key and the cookie key. `run` has
+//! 6. The program calls `deinit`, which wipes the private key and the cookie key. `run` has
 //!    closed the sockets, and `deinit` closes neither again.
 //!
 //! This example binds loopback sockets, which decision 96 as amended allows for `colibri` alone.
@@ -113,7 +115,8 @@ pub fn main() !void {
     try fetch(cpu, .{ .h3 = false }, .h2);
     try fetch(cpu, .{}, .h2);
     try fetch(cpu, .{ .prefer = .quic }, .h3);
-    std.debug.print("colibri_server: two GETs over h11, h2 and h3 to port {d}\n", .{http_server.port()});
+    try fetch_one(cpu);
+    std.debug.print("colibri_server: two GETs over h11, h2 and h3, and one fetch, to port {d}\n", .{http_server.port()});
 }
 
 /// Runs the server until `shutdown`, on the thread that calls it.
@@ -169,6 +172,32 @@ fn fetch(cpu: tls.Cpu, protocols: client.Protocols, expected: client.Protocol) !
     if (fetched.finished != 2 or fetched.protocol != expected) return error.FetchWrong;
     try expect_response(greeting, &fetched.responses[0]);
     try expect_response(named_greeting, &fetched.responses[1]);
+}
+
+/// Runs one GET through `fetch` on a client with no handler, over h2. Before it, the program
+/// hands the pool one request and cancels it, so that exchange never ends.
+fn fetch_one(cpu: tls.Cpu) !void {
+    try http_client.init(&.{
+        .destination = .{ .addresses = &server_addresses, .port = http_server.port() },
+        .pool = .{
+            .authority = origin,
+            .protocols = .{ .h3 = false },
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+        },
+        .unix_seconds = now_seconds,
+    }, null);
+    // `deinit` stops the loop that `fetch` made: the connection closes.
+    defer http_client.deinit();
+    var dropped_body: [body_len_max]u8 = undefined;
+    var dropped: client.Response = .{ .body = &dropped_body };
+    const id = try http_client.request(&fetched.requests[1], &dropped);
+    http_client.cancel(id);
+    var body: [body_len_max]u8 = undefined;
+    const got = try http_client.fetch(&.{ .path = "/greeting", .response_body = &body });
+    if (got.result != .response or got.status != ok) return error.ResponseWrong;
+    if (!std.mem.eql(u8, greeting, body[0..got.body_len])) return error.ResponseWrong;
+    // The cancelled exchange never ended, and its memory is the program's again.
+    if (dropped.result != .pending) return error.CancelWrong;
 }
 
 fn expect_response(expected: []const u8, response: *const client.Response) !void {

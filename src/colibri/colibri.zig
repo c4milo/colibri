@@ -11,6 +11,7 @@ pub const constants = @import("constants.zig");
 
 const files = struct {
     pub const client = @import("client.zig");
+    pub const client_fetch = @import("client_fetch.zig");
     pub const client_kinds = @import("client_kinds.zig");
     pub const client_loop = @import("client_loop.zig");
     pub const client_tcp = @import("client_tcp.zig");
@@ -67,9 +68,9 @@ test "decision 115: the root exports the names design §8 steps 37, 42 and 44 li
     const server_names = &.{ "operations_max", "sockets_max", "listener", "datagram", "init", "deinit", "port", "run", "turn", "complete", "shutdown", "stopped" };
     try public_names.expect(Server(.{}, .private), server_names);
     try public_names.expect(Server(.{}, .hosted), server_names);
-    // Step 44f adds the second UDP socket, 44g `set_destination`, and 44h and 44i the rest of
-    // decision 159's list.
-    const client_names = &.{ "InitError", "RunError", "operations_max", "sockets_max", "datagram_ipv4", "datagram_ipv6", "init", "deinit", "request", "set_destination", "run", "turn", "complete", "shutdown", "stopped" };
+    // Step 44f adds the second UDP socket, 44g `set_destination`, and 44h `fetch`, `cancel` and
+    // their types.
+    const client_names = &.{ "InitError", "RunError", "FetchOptions", "FetchResult", "FetchError", "operations_max", "sockets_max", "datagram_ipv4", "datagram_ipv6", "init", "deinit", "request", "fetch", "cancel", "set_destination", "run", "turn", "complete", "shutdown", "stopped" };
     try public_names.expect(Client(.{}, .private), client_names);
     try public_names.expect(Client(.{}, .hosted), client_names);
 }

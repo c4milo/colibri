@@ -7096,9 +7096,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        it is, and RFC 9000 §19.19 names the frame CONNECTION_CLOSE.
 
 159. **`colibri.Client` and `colibri.Server` take a host interface in colibri's own terms, and
-     Rotor is one host.** Ruled by the owner on 2026-11-08 (design §8 step 44), for v0.15.0.
+     Rotor is one host.** Ruled by the owner on 2026-11-08 (design §8 step 44), for v0.16.0.
      The owner accepted this text on the same day, with the answers at its end. This decision
-     amends decisions 150 (rulings 3, 9 and 12), 156 and 158 (ruling 6).
+     amends decisions 150 (rulings 3, 9 and 12), 156 and 158 (ruling 6). The owner cut v0.15.0
+     from main without step 44 on the same day, so this decision ships in v0.16.0.
 
      Context:
      - Decision 156 put `*rotor.SharedLoop`, `rotor.BufferGroup` and `rotor.NamedSchedulingGroup`
@@ -7374,7 +7375,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          true`.
        - colibri as the root package: Rotor too, for `src/testing/` and `examples/`.
      - This breaks each build script that uses `.private` and passes no option: stompy, cocuyo
-       and `tools/consumer/`. The release notes of v0.15.0 state the one line that each one adds.
+       and `tools/consumer/`. The release notes of v0.16.0 state the one line that each one adds.
 
      The lint rule `rotor-import`, in `tools/lint/`, as decision 36 requires for colibri's own
      rules. It has three parts:
@@ -7456,8 +7457,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          count and a descriptor in one `u32`.
        - Its names `on_*` read as callbacks, which colibri does not have.
      - Keep decision 156's `.shared` on `*rotor.SharedLoop`. It breaks rulings 1 and 4.
-     - Drop the hosted kind from v0.15.0, and document how to host the engines. Each such program
-       writes the 1,700 lines of socket glue again, where steps 37 to 42 found most defects.
+     - Drop the hosted kind from the release, and document how to host the engines. Each such
+       program writes the 1,700 lines of socket glue again, where steps 37 to 42 found most
+       defects.
      - colibri asks the host to bind and to listen. The host then reports the bound port through
        a completion. The host already binds in its own API, and its errors are its own.
      - An option that a dependent passes to get the `colibri` module at all, with a refusal module
@@ -7543,7 +7545,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         for a dependent, and of true at colibri's own root. With the option false, `.private` is
         a `@compileError` with colibri's message. A program that uses `.private` passes
         `.rotor = true`.
-     4. v0.15.0 ships after all of step 44, not after 44d.
+     4. Step 44 ships whole, not in parts after 44d. The owner first tied v0.15.0 to it. Later
+        on 2026-11-08 the owner cut v0.15.0 from main without step 44, which ships in v0.16.0.
      5. The module of the examples keeps its import of Rotor (decision 96).
      6. A `.hosted` object makes no thread check, because `gettid` is a system call. The host
         passes no thread id. docs/usage.md states the rule of one thread.

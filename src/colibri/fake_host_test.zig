@@ -430,9 +430,59 @@ test "decision 159: the pool's ECN and the segments hold only when each UDP sock
     try testing.expect(!test_client.pool_config.ecn and !test_client.datagram_segments);
     var held: InFlight = .{};
     try stop(&test_client, &held, 0);
+    try testing.expect(test_client.stopped());
     test_client.deinit();
     try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = able, .ipv6 = able } }, null);
+    // A second `init` starts a client that has not stopped, before its first turn too.
+    try testing.expect(!test_client.stopped());
     try testing.expect(test_client.pool_config.ecn and test_client.datagram_segments);
     try stop(&test_client, &held, 0);
     test_client.deinit();
+}
+
+/// The instant that the cancel tests move the client to, later than the end of a drop that
+/// started at instant 0.
+const seen_ns: u64 = 5_000_000_000;
+
+/// Sends one GET over h11, shows the client the instant `seen_ns` in a completion or in a turn,
+/// cancels the exchange, and checks that the drop's time counts from `seen_ns`.
+fn expect_drop_from_last_instant(seen_in: enum { complete, turn }) !void {
+    var counter: support.Counter = .{};
+    var handler: HostedHandler = .{};
+    const pool = h11_pool();
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    const exchange = &handler.exchanges[0];
+    exchange.response = .{ .body = &exchange.body };
+    const id = try test_client.request(&exchange.request, &exchange.response);
+    var operations: [operations_len]host.Operation = undefined;
+    var turned = test_client.turn(0, &operations);
+    const connect = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
+    test_client.complete(&.{ .id = connect.id, .result = .connected }, 0);
+    turned = test_client.turn(0, &operations);
+    const send = (find(operations[0..turned.operations], .send) orelse return error.OperationMissing);
+    const receive = (find(operations[0..turned.operations], .receive) orelse return error.OperationMissing);
+    const sent: host.Completion = .{ .id = send.id, .result = .{ .sent = @intCast(send.kind.send.bytes.len) } };
+    test_client.complete(&sent, if (seen_in == .complete) seen_ns else 0);
+    var held: InFlight = .{};
+    held.add(&.{receive});
+    // The request is out and its receive is in flight, so a turn before the cancel writes nothing.
+    if (seen_in == .turn) try testing.expectEqual(0, test_client.turn(seen_ns, &operations).operations);
+    test_client.cancel(id);
+    turned = test_client.turn(seen_ns, &operations);
+    // Decision 146 ruling 2: the connection reads the response and drops it for `drop_ns` after
+    // the cancel, so the connection stays open and the turn names the end of the drop.
+    try testing.expectEqual(null, find(operations[0..turned.operations], .close));
+    try testing.expectEqual(host.Wait{ .at_ns = seen_ns + pool.timeouts.drop_ns.? }, turned.wait);
+    try testing.expectEqual(0, handler.finished);
+    held.add(operations[0..turned.operations]);
+    try stop(&test_client, &held, seen_ns);
+    test_client.deinit();
+}
+
+test "decision 146 ruling 3: a cancel starts an h11 drop at the instant of the last completion" {
+    try expect_drop_from_last_instant(.complete);
+}
+
+test "decision 146 ruling 3: a cancel starts an h11 drop at the instant of the last turn" {
+    try expect_drop_from_last_instant(.turn);
 }

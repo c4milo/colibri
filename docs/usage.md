@@ -266,6 +266,40 @@ UDP socket ends, and the pool opens TCP ([decision 156](decisions.md) ruling 13)
 learns that the client takes no more. A program calls `run` once for each `init`. `deinit` closes
 the UDP socket when `run` did not close it.
 
+`fetch` runs one exchange on the thread that calls it, and returns how it ended
+([decision 156](decisions.md) ruling 12). It takes a pointer to a `FetchOptions`, which names the
+path. Each other field has a default: the method, the headers, the request body and the buffers
+of the response. With no method, a request body makes the method POST, and no body makes it GET.
+A client that only fetches passes null as its handler:
+
+```zig
+const got = try http_client.fetch(&.{ .path = "/greeting", .response_body = &body });
+if (got.result != .response or got.status != ok) return error.ResponseWrong;
+if (!std.mem.eql(u8, greeting, body[0..got.body_len])) return error.ResponseWrong;
+```
+
+The `FetchResult` holds the `result`, the `status`, the header section, the trailer section and
+the count of bytes of the body. These rules apply to `fetch`:
+
+- A protocol failure is the `result`, not an error. Read `result` before `status`: an exchange
+  that ended before its final head has no status.
+- The handler gets each other exchange that ends while `fetch` runs.
+- The first `fetch` makes the loop, and the loop stays made between fetches. `deinit` stops it:
+  it calls `shutdown`, and runs the loop until each connection has closed.
+- Call `fetch`, `run` and `deinit` on one thread.
+- A handler never calls `fetch`. Such a call halts with colibri's message.
+- When `fetch` returns an error of the loop, its exchange ended with no result. Then call
+  `deinit`.
+
+`cancel` ends an exchange that `request` returned, and the handler gets no `finished` for it. The
+memory of its request and its response is your program's again when the call returns. A handler
+may call `cancel`:
+
+```zig
+const id = try http_client.request(&fetched.requests[1], &dropped);
+http_client.cancel(id);
+```
+
 `colibri.ClientConfig` holds these fields:
 
 - `destination`: a `client.Destination`, with the server's addresses, each with port 0, and the
@@ -287,7 +321,7 @@ not complete in that time ends its attempt as a refused connect does, and null t
 off. colibri cancels the connect at its deadline itself, so the largest value holds a connect
 until the pool closes it.
 
-A `.hosted` client or server has the same calls, without `run`, `port` and the bind. Your
+A `.hosted` client or server has the same calls, without `run`, `fetch`, `port` and the bind. Your
 program's host opens the sockets before `init`, and calls `turn` and `complete` with the seven
 types from `colibri.SocketId` to `colibri.Turn` ([decision 159](decisions.md)). Design §8 step
 44l adds the section that shows a host.

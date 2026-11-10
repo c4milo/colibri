@@ -40,7 +40,7 @@ pub const stream_len = stream_turns * response_bytes;
 const body_len = stream_len;
 /// The connections the test server holds, and the router's room for each response.
 const connections = 4;
-const response_bytes = 256;
+pub const response_bytes = 256;
 /// The octets of each message of `/stream`, and the prime its octets count modulo.
 const message_len = 100;
 const pattern_period = 251;
@@ -63,9 +63,23 @@ const routes = .{
         .{ .get, "/greeting", greet },
         .{ .get, "/goodbye", greet_and_close },
         .{ .get, "/stream", Stream },
+        .{ .post, "/echo", Echo, .{ .whole_body = true } },
     },
 };
-const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = 0 });
+/// The room of a request's body that `/echo` takes.
+pub const request_body_bytes = 64;
+const Router = server.Router(void, routes, .{ .requests = connections, .response_bytes = response_bytes, .body_bytes = request_body_bytes });
+
+/// Answers a POST of `/echo` with the request's body, once the body has arrived whole.
+pub const Echo = struct {
+    pub fn on_request(_: *void, _: *void, _: *const server.Request, _: void, _: void, _: *server.ResponseWriter) !void {}
+
+    pub fn on_body(_: *void, _: *void, content: *std.Io.Reader, response: *server.ResponseWriter) !void {
+        try response.header("content-type", "text/plain");
+        try response.body().writeAll(content.buffered());
+        try response.end();
+    }
+};
 
 /// The routes that ran while the running server's `in_turn` was clear: none, because each runs
 /// inside a `turn` or a `complete` (decision 159, rule 4). The server's thread writes it.

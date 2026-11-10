@@ -3,8 +3,8 @@
 //! build option `case` names one case, and each case is a program of its own:
 //! - `hosted_init` must compile and run to its end: a `.hosted` server and client start, turn
 //!   and stop with no socket.
-//! - Each case with a compile `message` must fail to compile with it: `run` and `port` on
-//!   `.hosted`, and `turn` and `complete` on `.private` (decision 156 ruling 4 as amended).
+//! - Each case with a compile `message` must fail to compile with it: `run`, `fetch` and `port`
+//!   on `.hosted`, and `turn` and `complete` on `.private` (decision 156 ruling 4 as amended).
 //! - Each case with a halt `message` must compile, and its run must halt with SIGABRT and write
 //!   the message: decision 159's rules 2, 4 and 6, which a test binary does not live through.
 const std = @import("std");
@@ -21,18 +21,21 @@ const Case = struct {
 
 const no_run = "colibri: a .hosted object has no run(); its host calls turn() and complete() (decision 159)";
 const no_port = "colibri: a .hosted Server has no port(); its host bound the sockets (decision 159)";
+const no_fetch = "colibri: a .hosted object has no fetch(); call request() and read on_finished (decision 159)";
 const no_turn = "colibri: a .private object has no turn(); run() calls it on colibri's own loop (decision 159)";
 const no_complete = "colibri: a .private object has no complete(); run() calls it on colibri's own loop (decision 159)";
 
 const turn_inside = "colibri: turn() called inside turn() or complete() (decision 159, rule 4)";
 const complete_inside = "colibri: complete() called inside turn() or complete() (decision 159, rule 4)";
 const run_inside = "colibri: run() called inside turn() or complete() (decision 159, rule 4)";
+const fetch_inside = "colibri: fetch() called inside turn() or complete() (decision 159, rule 4)";
 
 const cases = [_]Case{
     .{ .name = "hosted_init", .ending = .runs },
     .{ .name = "hosted_server_run", .ending = .compile_error, .message = no_run },
     .{ .name = "hosted_server_port", .ending = .compile_error, .message = no_port },
     .{ .name = "hosted_client_run", .ending = .compile_error, .message = no_run },
+    .{ .name = "hosted_client_fetch", .ending = .compile_error, .message = no_fetch },
     .{ .name = "private_server_turn", .ending = .compile_error, .message = no_turn },
     .{ .name = "private_server_complete", .ending = .compile_error, .message = no_complete },
     .{ .name = "private_client_turn", .ending = .compile_error, .message = no_turn },
@@ -50,6 +53,7 @@ const cases = [_]Case{
     .{ .name = "halt_client_turn_in_handler", .ending = .halt, .message = turn_inside },
     .{ .name = "halt_client_complete_in_handler", .ending = .halt, .message = complete_inside },
     .{ .name = "halt_client_run_in_handler", .ending = .halt, .message = run_inside },
+    .{ .name = "halt_client_fetch_in_handler", .ending = .halt, .message = fetch_inside },
     .{ .name = "halt_server_turn_in_route", .ending = .halt, .message = turn_inside },
     .{ .name = "halt_server_complete_in_route", .ending = .halt, .message = complete_inside },
     .{ .name = "halt_server_run_in_route", .ending = .halt, .message = run_inside },
