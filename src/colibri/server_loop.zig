@@ -9,6 +9,7 @@
 //! operation table holds each TCP socket's slots, the accept's, and the UDP socket's.
 const std = @import("std");
 const assert = std.debug.assert;
+const server = @import("server");
 const constants = @import("constants.zig");
 const host = @import("host.zig");
 const operation_table = @import("operation_table.zig");
@@ -52,13 +53,12 @@ pub fn operations_max(tcp_connections: usize) u32 {
     return @intCast(tcp_connections * socket_module.operations_per_socket + 1 + Datagrams.operations);
 }
 
-/// Starts a run at `now_ns`: no socket, entry or pending step, the engine started, and the UDP
-/// socket's receive owed.
-pub fn start(state: anytype, now_ns: u64) !void {
-    reset(state, now_ns);
-    // The server issues no ticket unless the program gave a ticket key, so the instant in seconds
-    // it judges tickets at is chapulin's 0 for none.
-    try state.engine.init(&state.engine_config, state.random, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
+/// Starts a run at `now`: no socket, entry or pending step, the engine started, and the UDP
+/// socket's receive owed. The engine's deadlines count on `now.monotonic_ns`, and the tickets it
+/// issues carry the Unix seconds of `now.unix_seconds`, where 0 issues none.
+pub fn start(state: anytype, now: server.Timestamp) !void {
+    reset(state, now.monotonic_ns);
+    try state.engine.init(&state.engine_config, state.random, now);
     const tcp_connections = state.sockets.len;
     if (state.udp.served) state.udp.start(accept_slot(tcp_connections) + 1, state.datagram_segments);
 }

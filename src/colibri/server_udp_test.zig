@@ -107,7 +107,7 @@ test "design §8 step 37: the engine takes a datagram marked ECT(0) and counts i
     // Decision 68: the server's host reads each codepoint, so its engine says so, whatever the
     // program's configuration says.
     try testing.expect(test_server.engine_config.ecn);
-    try server_loop.start(&test_server, 0);
+    try server_loop.start(&test_server, .{ .unix_seconds = 0, .monotonic_ns = 0 });
     var operations: [operations_len]host.Operation = undefined;
     const first = server_loop.turn(&test_server, 0, &operations);
     const receive = receive_written(operations[0..first.operations]).?;

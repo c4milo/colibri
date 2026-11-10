@@ -314,10 +314,11 @@ the count of bytes of the body. These rules apply to `fetch`:
   `deinit`.
 
 `cancel` ends an exchange that `request` returned, and the handler gets no `finished` for it. The
-memory of its request and its response is your program's again when the call returns. `cancel`
-takes no instant: it uses the instant of the last `turn` or `complete` ([decision
-146](decisions.md) ruling 3). A host that calls `cancel` long after its last turn calls `turn` with
-the current instant first. A handler may call `cancel`:
+memory of its request and its response is your program's again when the call returns. An h11
+connection then reads the rest of the response and drops it for `drop_ns`, from the instant of
+the cancel ([decision 146](decisions.md) ruling 3). On `.private`, `cancel(id)` takes the instant
+of the last turn of colibri's loop. A hosted client's `cancel(id, now_ns)` takes your host's
+instant. A handler may call `cancel`:
 
 ```zig
 const id = try http_client.request(&fetched.requests[1], &dropped);
@@ -371,7 +372,9 @@ loop, beside a timer of its own, and binds loopback.
    the configuration, with what the host does on each UDP socket (`segments` and `ecn`). A family
    with no UDP socket turns h3 off for it, and the client falls back to TCP.
 2. Call `init` with the configuration, and the router or the handler. A hosted object takes your
-   program's source of randomness, with no default.
+   program's source of randomness and `now`, a `server.Timestamp`, each with no default. `now`
+   holds two readings of the instant of `init`: the Unix seconds and your loop's monotonic
+   nanoseconds, which each later call passes.
 3. Call `turn(now_ns, &operations)`. It calls your handler or your routes, and writes the
    operations into `operations`. Size the slice with `operations_max` and `sockets_max` of the
    type.

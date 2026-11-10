@@ -262,12 +262,15 @@ pub fn main() !void {
 
     const random = tls.Random.init(&generator, fill);
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    try hosted_server.init(&.{ .cpu = cpu, .random = random, .engine = .{ .timeouts = .{ .idle_ns = idle_ns } } }, &router, &router_context);
+    // Each object starts at the loop's instant. A cleartext client judges no date, so the
+    // example names a fixed second in place of a reading of the system's clock.
+    const now: colibri.server.Timestamp = .{ .unix_seconds = 1_800_000_000, .monotonic_ns = loop.now_ns() };
+    try hosted_server.init(&.{ .cpu = cpu, .random = random, .now = now, .engine = .{ .timeouts = .{ .idle_ns = idle_ns } } }, &router, &router_context);
     try hosted_client.init(&.{
         .destination = .{ .addresses = &ipv4_addresses, .port = port },
         .pool = .{ .authority = "localhost", .protocols = .{ .h2 = false, .h3 = false } },
         .random = random,
-        .unix_seconds = 1_800_000_000,
+        .now = now,
     }, &exchanges);
     try request(0);
     try run_until(second_exchange_ended);

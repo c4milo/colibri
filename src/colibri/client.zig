@@ -119,8 +119,9 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// Whether a read of the pool's events stopped at its bound, or a call left events to
         /// read.
         undrained: bool,
-        /// The instant of the run's first turn, which `unix_seconds` counts from, and whether it
-        /// came.
+        /// The instant the run started at, which `unix_seconds` counts from, and whether it
+        /// started: the loop's first instant on `.private`, and the instant of `init` on
+        /// `.hosted`.
         started_ns: u64,
         started: bool,
         /// `shutdown` asked, the turn passed it to the pool, and the pool reported `closed`.
@@ -139,7 +140,8 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         fetched: bool,
         fetch_request: client.Request,
         fetch_response: client.Response,
-        /// The instant of the last `turn` or `complete`, which `cancel` passes to the pool.
+        /// The instant of the last `turn` or `complete`, or of a hosted `init`. A `.private`
+        /// `cancel` passes it to the pool.
         latest_ns: u64,
         /// A `turn` or a `complete` runs, and the handler with it (decision 159, rule 4).
         in_turn: bool,
@@ -169,7 +171,6 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
             // A run that fails before its first turn holds no live socket, and `stopped()` is
             // false until a run ends.
             client_loop.reset(self);
-            self.unix_seconds = config.unix_seconds;
             self.pool_config = config.pool;
             self.pool_config.tcp_connections = capacity.tcp_connections;
             self.pool_config.requests = capacity.requests;
@@ -229,10 +230,25 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// it (decision 156 ruling 12). The memory of its request and its response is the
         /// program's again when the call returns (decision 124). An id of an exchange that has
         /// ended changes nothing. The program calls `cancel` on the object's thread, as it calls
-        /// `request`. A hosted client's host calls `turn` after it: a connection may owe octets
-        /// for the end, such as h2's RST_STREAM (RFC 9113 §8.1). The pool counts an h11 drop's
-        /// time from the instant of the last `turn` or `complete` (decision 146 ruling 3).
-        pub fn cancel(self: *Self, id: client.RequestId) void {
+        /// `request`. The pool counts an h11 drop's time from the instant of the cancel (decision
+        /// 146 ruling 3).
+        /// - `.private`: `cancel(id)`, at the instant of the last turn of colibri's loop.
+        /// - `.hosted`: `cancel(id, now_ns)`, at the host's instant, which never goes back
+        ///   (non-negotiable 3, decision 159 as amended on 2026-11-10). The host calls `turn`
+        ///   after it: a connection may owe octets for the end, such as h2's RST_STREAM (RFC 9113
+        ///   §8.1).
+        pub const cancel = if (kind == .hosted) cancel_at else cancel_at_latest;
+
+        fn cancel_at(self: *Self, id: client.RequestId, now_ns: u64) void {
+            // Decision 159, rule 6: the host's instant never goes back.
+            assert(now_ns >= self.latest_ns);
+            // A hosted client has no `fetch`.
+            assert(self.fetching == null);
+            // Each turn reads the pool's events first, so `undrained` stays as it is.
+            self.pool.cancel(id, now_ns);
+        }
+
+        fn cancel_at_latest(self: *Self, id: client.RequestId) void {
             // `fetch` returns no id, and its exchange ends when `fetch` returns.
             assert(self.fetching == null or self.fetching.? != id);
             // Each turn reads the pool's events first, so `undrained` stays as it is.

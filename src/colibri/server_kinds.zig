@@ -61,6 +61,12 @@ pub const hosted = struct {
         /// The program's source. A hosted server has no default (decision 150 ruling 9 as
         /// amended).
         random: tls.Random,
+        /// Two readings of the instant of `init`, which the program reads from its clocks. The
+        /// engine starts at it: its deadlines count on the host's monotonic clock, which every
+        /// later call passes, and with a ticket key its tickets carry the Unix seconds (decision
+        /// 159 as amended on 2026-11-10). It has no default, because no instant is right to
+        /// assume.
+        now: server.Timestamp,
         /// What the engine starts from. `colibri` fills its `tls` from `identity`, and sets its
         /// `ecn` from the UDP socket's `Features`. The host knows its port, so the program names
         /// the h3 alternative in `h3_alternative` itself (RFC 7838 §3).
@@ -81,9 +87,7 @@ pub const hosted = struct {
         return void;
     }
 
-    /// Reads the identity and starts the engine. The engine's first instant is 0, because `init`
-    /// takes no instant: the instant bases only the seconds of the tickets that the server issues,
-    /// and it issues none with 0 Unix seconds (`server_loop.start`).
+    /// Reads the identity and starts the engine at `config.now` (non-negotiable 3).
     pub fn init(state: anytype, config: *const Config, quic_slots: bool) InitError!void {
         state.random = config.random;
         state.listening = config.sockets.listener;
@@ -95,7 +99,7 @@ pub const hosted = struct {
         errdefer server_module.wipe_keys(state);
         try load(state, config.identity, config.cpu);
         if (server_udp.served(quic_slots and features != null, config.identity != null)) state.udp.open(0, @TypeOf(state.*).datagram);
-        try server_loop.start(state, 0);
+        try server_loop.start(state, config.now);
     }
 
     /// A host calls `deinit` once `stopped()` holds (decision 159, rule 2). Before it, an

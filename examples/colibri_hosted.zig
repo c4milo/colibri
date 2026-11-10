@@ -97,6 +97,7 @@ pub fn main() !void {
         .identity = .{ .chain = identity.chain_pem, .key = identity.key_pem },
         .cpu = cpu,
         .random = random,
+        .now = .{ .unix_seconds = identity.now_seconds, .monotonic_ns = link.now_ns(.server) },
     }, &router, &router_context);
     try hosted_client.init(&.{
         .destination = .{ .addresses = &server_addresses, .port = https_port },
@@ -106,7 +107,7 @@ pub fn main() !void {
             .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
         },
         .random = random,
-        .unix_seconds = identity.now_seconds,
+        .now = .{ .unix_seconds = identity.now_seconds, .monotonic_ns = link.now_ns(.client) },
     }, &exchanges);
     for (&exchanges.responses, &exchanges.bodies) |*response, *body| {
         response.* = .{ .body = body };

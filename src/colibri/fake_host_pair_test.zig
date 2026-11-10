@@ -14,6 +14,7 @@ const constants = @import("constants.zig");
 const host = @import("host.zig");
 const server_module = @import("server.zig");
 const client_module = @import("client.zig");
+const client_loop = @import("client_loop.zig");
 const support = @import("test_support.zig");
 const fixture = @import("client_test_support.zig");
 
@@ -289,7 +290,7 @@ const Handler = struct {
         program.finished += 1;
         const dropped = program.dropped orelse return;
         program.dropped = null;
-        running.cancel(dropped);
+        running.cancel(dropped, pair.now_ns);
     }
 
     pub fn on_connected(program: *Handler, _: *PairClient, connected: client.Connected) void {
@@ -297,24 +298,32 @@ const Handler = struct {
     }
 };
 
-/// Starts the server over TLS with the test identity, and the client of `protocols`. The host
-/// opened the listener, the server's UDP socket and the client's UDP socket of IPv4.
+/// The instant of each `init`: the test identity's Unix seconds, and the host's instant, which a
+/// first turn does not repeat.
+const started: server.Timestamp = .{ .unix_seconds = fixture.now_seconds, .monotonic_ns = started_ns };
+const started_ns: u64 = 7_000_000_000;
+const second_ns: u64 = 1_000_000_000;
+
+/// Starts the server over TLS with the test identity, and the client of `protocols`, at
+/// `started`. The host opened the listener, the server's UDP socket and the client's UDP socket
+/// of IPv4.
 fn start(protocols: client.Protocols) !void {
     counters = @splat(.{});
     router = .{};
-    pair = .{};
+    pair = .{ .now_ns = started.monotonic_ns };
     handler = .{};
     try pair_server.init(&.{
         .identity = .{ .chain = testdata.chain_pem, .key = testdata.key_pem },
         .cpu = support.cpu(),
         .random = counters[@intFromEnum(Side.server)].random(),
+        .now = started,
         .sockets = .{ .datagram = .{} },
     }, &router, &context);
     try pair_client.init(&.{
         .destination = fixture.loopback(fixture.https_port),
         .pool = fixture.pool_config(protocols, true),
         .random = counters[@intFromEnum(Side.client)].random(),
-        .unix_seconds = fixture.now_seconds,
+        .now = started,
         .datagram = .{ .ipv4 = .{} },
     }, &handler);
 }
@@ -367,6 +376,16 @@ fn get_and_post(protocols: client.Protocols, expected: client.Protocol) !void {
     try stop();
 }
 
+test "decision 159 as amended: a hosted server and client start at the Timestamp of init" {
+    try start(.{ .h3 = false });
+    // Before any turn, each counts the Unix seconds from `started` (non-negotiable 3).
+    const later_ns = started.monotonic_ns + 3 * second_ns;
+    try testing.expectEqual(started.monotonic_ns, pair_server.now_ns);
+    try testing.expectEqual(started.unix_seconds + 3, pair_server.engine.state.connections.seconds_at(later_ns));
+    try testing.expectEqual(started.unix_seconds + 3, client_loop.unix_seconds(&pair_client, later_ns));
+    try stop();
+}
+
 test "decision 159: a hosted client and server run a GET and a POST over h11" {
     try get_and_post(.{ .h2 = false, .h3 = false }, .h11);
 }
@@ -383,7 +402,7 @@ test "decision 156 ruling 12: an exchange cancelled before its request left give
     try start(.{ .h3 = false });
     _ = try handler.request("GET", "/greeting", "");
     const dropped = try handler.request("GET", "/greeting", "");
-    pair_client.cancel(dropped);
+    pair_client.cancel(dropped, pair.now_ns);
     try pair.run_until(one_exchange_ended);
     try stop();
     // The handler got the first exchange alone, and the second one's response was never written.
@@ -398,7 +417,7 @@ test "decision 156 ruling 12: an exchange cancelled on an open connection gives 
     const dropped = try handler.request("GET", "/greeting", "");
     // The connection took both exchanges, so the cancel ends a stream (RFC 9113 §8.1).
     try pair.run_until(connection_taken);
-    pair_client.cancel(dropped);
+    pair_client.cancel(dropped, pair.now_ns);
     try pair.run_until(one_exchange_ended);
     try stop();
     try testing.expectEqual(1, handler.finished);

@@ -130,20 +130,21 @@ pub fn reset(state: anytype) void {
     state.started_ns = 0;
 }
 
-/// The seconds since 1970 at `now_ns`: the program's instant at the start of `run`, and the time
-/// the run has lasted since. chapulin judges a chain's dates at it (RFC 5280 §4.1.2.5).
+/// The seconds since 1970 at `now_ns`: the program's instant at the start of the run, and the
+/// time the run has lasted since. A `.private` run starts at the loop's first instant, and a
+/// `.hosted` one at `init`. chapulin judges a chain's dates at it (RFC 5280 §4.1.2.5).
 pub fn unix_seconds(state: anytype, now_ns: u64) u64 {
     return state.unix_seconds + (now_ns -| state.started_ns) / client.constants.nanoseconds_per_second;
 }
 
-/// One turn at `now_ns`. See the header. A hosted client's first turn is the instant that
-/// `unix_seconds` counts from, because its `init` takes no instant.
+/// One turn at `now_ns`. See the header. The run started before it: at the loop's first instant
+/// on `.private`, and at `init` on `.hosted`.
 pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run;
     host.enter(&state.in_turn, "turn()");
     defer state.in_turn = false;
+    assert(state.started);
     state.latest_ns = now_ns;
-    if (!state.started) start(state, now_ns);
     var out: operation_table.Outbox = .{ .operations = operations };
     pass_shutdown(state);
     const due = if (state.pool.deadline_ns()) |at_ns| at_ns <= now_ns else false;

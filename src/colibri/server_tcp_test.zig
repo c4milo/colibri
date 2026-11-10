@@ -155,7 +155,7 @@ const passes_max: usize = 1000;
 /// the instant of each. Test-only.
 fn start_loop() !u64 {
     const now_ns = try test_server.host.begin();
-    try server_loop.start(&test_server, now_ns);
+    try server_loop.start(&test_server, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
     return now_ns;
 }
 

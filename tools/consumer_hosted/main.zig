@@ -75,7 +75,7 @@ pub fn main() !void {
     // The server: its first turn writes the accept on the listener that a host opened. This
     // program opened none, so it stops the server, and ends the accept that the server cancels.
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
-    try hosted_server.init(&.{ .cpu = cpu, .random = entropy }, &router, &router_context);
+    try hosted_server.init(&.{ .cpu = cpu, .random = entropy, .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 } }, &router, &router_context);
     const first = hosted_server.turn(0, &operations);
     if (first.operations != 1 or operations[0].kind != .accept) return error.AcceptMissing;
     const accept = operations[0].id;
@@ -90,7 +90,7 @@ pub fn main() !void {
         .destination = .{ .addresses = &server_addresses, .port = server_port },
         .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } },
         .random = entropy,
-        .unix_seconds = now_seconds,
+        .now = .{ .unix_seconds = now_seconds, .monotonic_ns = 0 },
     }, null);
     hosted_client.shutdown();
     const last = hosted_client.turn(0, &operations);

@@ -1,7 +1,7 @@
 //! The tests of `.hosted` `colibri.Server` and `colibri.Client` objects on a fake host (decision
-//! 159, design §8 steps 44c, 44d and 44g). The test is the host: it reads the operations that each
-//! `turn` writes, completes the ones it chooses through `complete`, and moves its own clock. It
-//! waits at most 1 s at a time, so a turn that names a late instant, or that asks for no wait
+//! 159, design §8 steps 44c, 44d and 44g), and one of a `.private` client's driver. The test is the
+//! host: it reads the operations of each turn, completes the ones it chooses, and moves its clock.
+//! It waits at most 1 s at a time, so a turn that names a late instant, or that asks for no wait
 //! while it has no work, shows in the instants it is called at. The tests open no socket.
 //!
 //! `zig build colibri-loop-check` runs the halts of decision 159's rules 2 and 6
@@ -12,6 +12,7 @@ const client = @import("client");
 const host = @import("host.zig");
 const server_module = @import("server.zig");
 const client_module = @import("client.zig");
+const client_loop = @import("client_loop.zig");
 const support = @import("test_support.zig");
 const fixture = @import("client_test_support.zig");
 
@@ -22,6 +23,8 @@ const host_wait_ns: u64 = 1_000_000_000;
 const turns_max = 64;
 /// The room each turn writes into.
 const operations_len = 16;
+/// The instant of each hosted `init`: the identity's Unix seconds and the host's first instant.
+const started: server.Timestamp = .{ .unix_seconds = fixture.now_seconds, .monotonic_ns = 0 };
 
 /// RFC 9110 §15.6.1: 500 (Internal Server Error).
 const internal_server_error: server.Status = .internal_server_error;
@@ -55,7 +58,7 @@ var test_client: TestClient align(@alignOf(TestClient)) = undefined;
 /// Starts the hosted server: its host opened the listener alone.
 fn start_server(counter: *support.Counter) !void {
     router = .{};
-    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random() }, &router, &context);
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random(), .now = started }, &router, &context);
 }
 
 /// The one operation of `kind` among `written`, or null.
@@ -166,7 +169,7 @@ test "decision 159: a server stops once each operation had its final completion"
 test "decision 159: a hosted server whose host opened no listener writes no accept" {
     var counter: support.Counter = .{};
     router = .{};
-    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random(), .sockets = .{ .listener = false } }, &router, &context);
+    try test_server.init(&.{ .cpu = support.cpu(), .random = counter.random(), .now = started, .sockets = .{ .listener = false } }, &router, &context);
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_server.turn(0, &operations);
     try testing.expectEqual(0, turned.operations);
@@ -213,7 +216,7 @@ const empty_response = "HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n";
 test "decision 159: a request that on_finished makes leaves in the same turn" {
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{ .more = 1 };
-    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .now = started }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
@@ -244,7 +247,7 @@ test "decision 156 ruling 13: a family with no UDP socket falls back to TCP" {
     var handler: HostedHandler = .{};
     // The host opened a UDP socket of IPv6 alone, and the destination is IPv4.
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv6 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv6 = .{} } }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_client.turn(0, &operations);
@@ -266,7 +269,7 @@ test "decision 159: a family with a UDP socket receives on it" {
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = .{} } }, &handler);
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_client.turn(0, &operations);
     const receive = (find(operations[0..turned.operations], .receive_datagram) orelse return error.OperationMissing);
@@ -292,7 +295,7 @@ test "decision 156 ruling 13: a client receives on each family's socket and send
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .destination = fixture.loopback_ipv6_on(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{}, .ipv6 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback_ipv6_on(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = .{}, .ipv6 = .{} } }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     const turned = test_client.turn(0, &operations);
@@ -319,7 +322,7 @@ test "decision 153 ruling 9: a connect is cancelled at its deadline under a host
     var pool = h11_pool();
     pool.timeouts.connect_ns = client_connect_ns;
     var handler: HostedHandler = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = pool, .random = counter.random(), .now = started }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
@@ -348,7 +351,7 @@ test "decision 153 ruling 9: a connect is cancelled at its deadline under a host
 test "decision 156 ruling 11: a connection that opens after set_destination goes to a new address" {
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .now = started }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
@@ -375,7 +378,7 @@ test "decision 156 ruling 11: a connection that opens after set_destination goes
 test "decision 125: an open connection keeps its exchange after set_destination" {
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{};
-    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .now = started }, &handler);
     try handler.request();
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
@@ -403,7 +406,7 @@ test "decision 156 ruling 13: after set_destination to a family with no UDP sock
     var counter: support.Counter = .{};
     var handler: HostedHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = .{} } }, &handler);
     test_client.set_destination(fixture.loopback_ipv6_on(fixture.https_port));
     try handler.request();
     // A turn with room for one operation: the open of QUIC to ::1 ended before the TCP connect
@@ -424,7 +427,7 @@ test "decision 159: the pool's ECN and the segments hold only when each UDP sock
     var counter: support.Counter = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
     const able: host.Features = .{ .ecn = true, .segments = true };
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = able, .ipv6 = .{} } }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = able, .ipv6 = .{} } }, null);
     // A later destination of IPv6 sends from a socket that reads no codepoint (decision 68 as
     // amended by decision 159).
     try testing.expect(!test_client.pool_config.ecn and !test_client.datagram_segments);
@@ -432,7 +435,7 @@ test "decision 159: the pool's ECN and the segments hold only when each UDP sock
     try stop(&test_client, &held, 0);
     try testing.expect(test_client.stopped());
     test_client.deinit();
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = able, .ipv6 = able } }, null);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = able, .ipv6 = able } }, null);
     // A second `init` starts a client that has not stopped, before its first turn too.
     try testing.expect(!test_client.stopped());
     try testing.expect(test_client.pool_config.ecn and test_client.datagram_segments);
@@ -440,49 +443,58 @@ test "decision 159: the pool's ECN and the segments hold only when each UDP sock
     test_client.deinit();
 }
 
-/// The instant that the cancel tests move the client to, later than the end of a drop that
-/// started at instant 0.
-const seen_ns: u64 = 5_000_000_000;
+/// The instant of each cancel, later than the end of a drop that started at instant 0.
+const cancel_ns: u64 = 5_000_000_000;
+/// The exchange that the cancel tests drop. Test-only.
+var dropped: fixture.Exchange align(@alignOf(fixture.Exchange)) = .{};
 
-/// Sends one GET over h11, shows the client the instant `seen_ns` in a completion or in a turn,
-/// cancels the exchange, and checks that the drop's time counts from `seen_ns`.
-fn expect_drop_from_last_instant(seen_in: enum { complete, turn }) !void {
-    var counter: support.Counter = .{};
-    var handler: HostedHandler = .{};
-    const pool = h11_pool();
-    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds }, &handler);
-    const exchange = &handler.exchanges[0];
-    exchange.response = .{ .body = &exchange.body };
-    const id = try test_client.request(&exchange.request, &exchange.response);
+/// Sends one GET over h11 at instant 0, and cancels it at `cancel_ns`: long after the last turn on
+/// `.hosted`, and after a turn of colibri's loop on `.private`. A `.private` client has no `turn`,
+/// so the test calls the driver's, as `turn` does. `held` gets the operations in flight.
+fn expect_drop_from_cancel(object: anytype, comptime kind: host.ObjectKind, held: *InFlight) !void {
+    dropped = .{};
+    dropped.response = .{ .body = &dropped.body };
+    const id = try object.request(&dropped.request, &dropped.response);
     var operations: [operations_len]host.Operation = undefined;
-    var turned = test_client.turn(0, &operations);
+    var turned = client_loop.turn(object, 0, &operations);
     const connect = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
-    test_client.complete(&.{ .id = connect.id, .result = .connected }, 0);
-    turned = test_client.turn(0, &operations);
+    client_loop.complete(object, &.{ .id = connect.id, .result = .connected }, 0);
+    turned = client_loop.turn(object, 0, &operations);
     const send = (find(operations[0..turned.operations], .send) orelse return error.OperationMissing);
-    const receive = (find(operations[0..turned.operations], .receive) orelse return error.OperationMissing);
-    const sent: host.Completion = .{ .id = send.id, .result = .{ .sent = @intCast(send.kind.send.bytes.len) } };
-    test_client.complete(&sent, if (seen_in == .complete) seen_ns else 0);
-    var held: InFlight = .{};
-    held.add(&.{receive});
-    // The request is out and its receive is in flight, so a turn before the cancel writes nothing.
-    if (seen_in == .turn) try testing.expectEqual(0, test_client.turn(seen_ns, &operations).operations);
-    test_client.cancel(id);
-    turned = test_client.turn(seen_ns, &operations);
-    // Decision 146 ruling 2: the connection reads the response and drops it for `drop_ns` after
-    // the cancel, so the connection stays open and the turn names the end of the drop.
+    held.add(&.{(find(operations[0..turned.operations], .receive) orelse return error.OperationMissing)});
+    client_loop.complete(object, &.{ .id = send.id, .result = .{ .sent = @intCast(send.kind.send.bytes.len) } }, 0);
+    switch (kind) {
+        .hosted => object.cancel(id, cancel_ns),
+        .private => {
+            // The request is out and its receive is in flight, so the turn writes nothing.
+            try testing.expectEqual(0, client_loop.turn(object, cancel_ns, &operations).operations);
+            object.cancel(id);
+        },
+    }
+    turned = client_loop.turn(object, cancel_ns, &operations);
+    // Decision 146 ruling 2: the connection stays open, and drops the response for `drop_ns`.
     try testing.expectEqual(null, find(operations[0..turned.operations], .close));
-    try testing.expectEqual(host.Wait{ .at_ns = seen_ns + pool.timeouts.drop_ns.? }, turned.wait);
-    try testing.expectEqual(0, handler.finished);
+    try testing.expectEqual(host.Wait{ .at_ns = cancel_ns + h11_pool().timeouts.drop_ns.? }, turned.wait);
+    try testing.expectEqual(client.Result.pending, dropped.response.result);
     held.add(operations[0..turned.operations]);
-    try stop(&test_client, &held, seen_ns);
+}
+
+test "decision 159 as amended: a hosted cancel long after the last turn gives an h11 drop its whole drop_ns" {
+    var counter: support.Counter = .{};
+    try test_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .now = started }, null);
+    var held: InFlight = .{};
+    try expect_drop_from_cancel(&test_client, .hosted, &held);
+    try stop(&test_client, &held, cancel_ns);
     test_client.deinit();
 }
 
-test "decision 146 ruling 3: a cancel starts an h11 drop at the instant of the last completion" {
-    try expect_drop_from_last_instant(.complete);
-}
-
-test "decision 146 ruling 3: a cancel starts an h11 drop at the instant of the last turn" {
-    try expect_drop_from_last_instant(.turn);
+test "decision 146 ruling 3: a .private cancel starts an h11 drop at the instant of the last turn" {
+    var counter: support.Counter = .{};
+    const private_client = &fixture.default_client;
+    try private_client.init(&.{ .destination = fixture.loopback(1), .pool = h11_pool(), .random = counter.random(), .unix_seconds = fixture.now_seconds }, null);
+    // colibri's loop starts the run at its first instant, which this test names.
+    client_loop.start(private_client, 0);
+    var held: InFlight = .{};
+    try expect_drop_from_cancel(private_client, .private, &held);
+    private_client.deinit();
 }

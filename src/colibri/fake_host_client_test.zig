@@ -3,6 +3,7 @@
 //! socket. The other tests of hosted objects are in `fake_host_test.zig`.
 const std = @import("std");
 const client = @import("client");
+const server = @import("server");
 const host = @import("host.zig");
 const client_module = @import("client.zig");
 const support = @import("test_support.zig");
@@ -13,6 +14,8 @@ const testing = std.testing;
 /// The turns the test runs at most, and the room each turn writes into.
 const turns_max = 8;
 const operations_len = 16;
+/// The instant of `init`: the test identity's Unix seconds, and the host's first instant.
+const started: server.Timestamp = .{ .unix_seconds = fixture.now_seconds, .monotonic_ns = 0 };
 
 /// A hosted client with one TCP connection and QUIC, which the test places outside any stack
 /// frame. Test-only.
@@ -30,7 +33,7 @@ test "decision 159: a client stops once its cancelled receive of datagrams had i
     var counter: support.Counter = .{};
     var handler: IdleHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
-    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .unix_seconds = fixture.now_seconds, .datagram = .{ .ipv4 = .{} } }, &handler);
+    try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = .{} } }, &handler);
     var operations: [operations_len]host.Operation = undefined;
     var turned = test_client.turn(0, &operations);
     try testing.expectEqual(1, turned.operations);

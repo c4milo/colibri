@@ -159,7 +159,9 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
             defer self.host.close_open();
             const now_ns = try self.host.begin();
             defer self.host.end();
-            try server_loop.start(self, now_ns);
+            // colibri's own loop reads no Unix time, so its engine issues no ticket: 0 is
+            // chapulin's value for none.
+            try server_loop.start(self, .{ .unix_seconds = 0, .monotonic_ns = now_ns });
             try self.host.run(self, server_loop, self);
         }
 

@@ -97,6 +97,8 @@ const Zero = struct {
 };
 var zero: Zero align(@alignOf(Zero)) = .{};
 const zero_source: tls.Random = tls.Random.init(&zero, Zero.fill);
+/// The instant of each hosted `init`: no Unix time, and the host's first instant.
+const started: server.Timestamp = .{ .unix_seconds = 0, .monotonic_ns = 0 };
 
 /// A CPU with no fast path, which each TLS configuration names.
 const cpu: tls.Cpu = .{
@@ -175,7 +177,7 @@ const stray_id: colibri.OperationId = @enumFromInt(std.math.maxInt(u32));
 const cases = struct {
     /// A hosted server and client that a host starts, turns and stops, with no socket.
     pub fn hosted_init() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source }, &router, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &router, &context);
         const turned = hosted_server.turn(0, &operations);
         const accept = operations[0];
         if (turned.operations != 1 or accept.kind != .accept) return error.AcceptMissing;
@@ -184,7 +186,7 @@ const cases = struct {
         hosted_server.complete(&.{ .id = accept.id, .result = .canceled }, 0);
         if (!hosted_server.stopped()) return error.NotStopped;
         hosted_server.deinit();
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
         hosted_client.shutdown();
         _ = hosted_client.turn(0, &operations);
         if (!hosted_client.stopped()) return error.NotStopped;
@@ -225,14 +227,14 @@ const cases = struct {
 
     /// A completion of an operation that the client never wrote: a halt (decision 159, rule 6).
     pub fn halt_stray_completion() !void {
-        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, null);
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
         _ = hosted_client.turn(0, &operations);
         hosted_client.complete(&.{ .id = stray_id, .result = .closed }, 0);
     }
 
     /// `deinit` while the server's accept is in flight: a halt (decision 159, rule 2).
     pub fn halt_deinit_early() !void {
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source }, &router, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &router, &context);
         _ = hosted_server.turn(0, &operations);
         hosted_server.deinit();
     }
@@ -252,7 +254,7 @@ const halts = struct {
 
     /// Ends one exchange refused, so `handler`'s `on_finished` runs inside the last turn.
     fn refuse_inside_handler(handler: anytype) !void {
-        try hosted_client.init(&.{ .destination = loopback(unserved_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .unix_seconds = 0 }, handler);
+        try hosted_client.init(&.{ .destination = loopback(unserved_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, handler);
         _ = try hosted_client.request(&get, &answer_of_get);
         const first = hosted_client.turn(0, &operations);
         const connect = try written(first.operations, .connect);
@@ -292,7 +294,7 @@ const halts = struct {
     /// Gives a hosted server one request, so its route calls what `call` names inside a turn.
     fn route_inside(call: RouteCall) !void {
         route_call = call;
-        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source }, &reentrant_router, &context);
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &reentrant_router, &context);
         const first = hosted_server.turn(0, &operations);
         const accept = try written(first.operations, .accept);
         hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, 0);

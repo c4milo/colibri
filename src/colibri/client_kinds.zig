@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
+const server = @import("server");
 const tls = @import("tls");
 const client_module = @import("client.zig");
 const client_loop = @import("client_loop.zig");
@@ -30,6 +31,7 @@ pub const private = struct {
     pub fn init(state: anytype, config: *const Config) InitError!void {
         state.host.prepare();
         state.random = config.random orelse entropy.random();
+        state.unix_seconds = config.unix_seconds;
         // Decision 68: the client's host reads each datagram's codepoint and sets the one the
         // pool names, so the pool reads ECN whatever the program set. A pool that does not read
         // it halts on a datagram marked ECT(0), as a `colibri.Server` marks them.
@@ -72,8 +74,11 @@ pub const hosted = struct {
         /// The program's source. A hosted client has no default (decision 150 ruling 9 as
         /// amended).
         random: tls.Random,
-        /// The seconds since 1970 at the instant of the first `turn`.
-        unix_seconds: u64,
+        /// Two readings of the instant of `init`, which the program reads from its clocks: the
+        /// seconds since 1970, at which a web PKI trust judges each chain's dates, and the host's
+        /// monotonic nanoseconds, which every later call passes (decision 159 as amended on
+        /// 2026-11-10). It has no default, because no instant is right to assume.
+        now: server.Timestamp,
         /// One UDP socket for each family. A family that the host could not open stays null, and
         /// the pool falls back to TCP for it (decision 156 ruling 13).
         datagram: struct { ipv4: ?host.Features = null, ipv6: ?host.Features = null } = .{},
@@ -94,8 +99,11 @@ pub const hosted = struct {
     /// offers no QUIC. An open of QUIC to a family with no socket ends, and the pool opens TCP
     /// (decision 156 ruling 13, `client_loop.zig`). A destination can change family at
     /// `set_destination`, so the pool's ECN and the segments hold only when each socket has them.
+    /// The run starts at `config.now`, which `unix_seconds` counts from (non-negotiable 3).
     pub fn init(state: anytype, config: *const Config) InitError!void {
         state.random = config.random;
+        state.unix_seconds = config.now.unix_seconds;
+        state.latest_ns = config.now.monotonic_ns;
         const opened = config.datagram.ipv4 != null or config.datagram.ipv6 != null;
         if (!opened) state.pool_config.protocols.h3 = false;
         const features = shared_features(config.datagram.ipv4, config.datagram.ipv6);
@@ -104,10 +112,12 @@ pub const hosted = struct {
         state.pool_config.ecn = features.ecn;
         state.datagram_segments = features.segments;
         try start_pool(state, config.destination);
-        if (!state.pool.offered.quic) return;
-        assert(opened);
-        if (config.datagram.ipv4 != null) state.udp.open(@intFromEnum(Family.ipv4), client_loop.datagram_id(state.sockets.len, .ipv4));
-        if (config.datagram.ipv6 != null) state.udp.open(@intFromEnum(Family.ipv6), client_loop.datagram_id(state.sockets.len, .ipv6));
+        if (state.pool.offered.quic) {
+            assert(opened);
+            if (config.datagram.ipv4 != null) state.udp.open(@intFromEnum(Family.ipv4), client_loop.datagram_id(state.sockets.len, .ipv4));
+            if (config.datagram.ipv6 != null) state.udp.open(@intFromEnum(Family.ipv6), client_loop.datagram_id(state.sockets.len, .ipv6));
+        }
+        client_loop.start(state, config.now.monotonic_ns);
     }
 
     /// A host calls `deinit` once `stopped()` holds (decision 159, rule 2). Before it, an
