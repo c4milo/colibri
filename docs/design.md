@@ -5599,6 +5599,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Each server's highest rate under a p99 of 10 ms did not change. Over h3 at 40,000 req/s,
   colibri's p99 was 15.51 ms and 15.30 ms, against axum's 22.86 ms and 18.61 ms.
 
+  **The network, waits and bulk runs after step 29d.19, 2026-11-09.** The owner asked for the
+  other latency runs too. Each measured main `5b858fe3` on the judge, on Linux 7.0.0-1017-azure,
+  in two jobs. Each pair below gives job 1, then job 2. Step 29d cut the server's instructions,
+  and none of these runs is bound by them, so each agrees with its last record.
+
+  - **`network`**, [run 42558149617](https://github.com/c4milo/colibri/actions/runs/42558149617),
+    5 rounds. The p99 over h3 at 4,000 req/s, in ms:
+
+    | Profile | colibri (CUBIC) | colibri-bbr | chi (quic-go) |
+    | --- | --- | --- | --- |
+    | `clean` | 0.32 and 0.33 | 0.32 and 0.32 | 0.66 and 0.71 |
+    | `far` | 59.88 and 60.02 | 64.82 and 64.56 | 65.00 and 66.29 |
+    | `lossy` | 109.00 and 107.71 | 105.29 and 106.59 | 106.93 and 106.96 |
+    | `mobile` | 2,041 and 2,001 | 1,939 and 1,806 | 2,002 and 1,860 |
+
+    On `mobile` no h3 server reached 4,000 req/s: colibri reached 3,220 and 3,231, and chi 3,200
+    and 3,268. Over h2-tls on `mobile`, colibri's p99 was 593 ms and 649 ms, and chi's 4,126 ms
+    and 4,130 ms.
+  - **`waits`**, [run 42558165516](https://github.com/c4milo/colibri/actions/runs/42558165516),
+    5 rounds. Neither server waited for its core: each delay p99 was 0.000 ms. At 80,000 req/s
+    colibri ran about 15,000 times a second, and a run took 0.016 to 0.024 ms at its p50.
+    - h2 at 40,000 req/s: colibri's p99 was 1.19 ms and 1.33 ms, and axum's 1.86 ms and 2.01 ms.
+    - h2-tls at 40,000 req/s: colibri's p99 was 2.72 ms and 2.97 ms, and axum's 2.34 ms and
+      3.06 ms.
+    - The two jobs differ at 80,000 req/s. Over h2, colibri's p99 was 12.45 ms and 28.30 ms, and
+      axum's 76.30 ms and 640.51 ms. Over h2-tls, colibri's was 25.92 ms and 246.52 ms, and
+      axum's 22.98 ms and 29.17 ms. In job 2, colibri's rounds over h2-tls went from 62.77 ms to
+      548.46 ms. No run has measured the cause.
+  - **`bulk`**, [run 42575264322](https://github.com/c4milo/colibri/actions/runs/42575264322),
+    3 rounds. A first run at 5 rounds,
+    [42558157711](https://github.com/c4milo/colibri/actions/runs/42558157711), passed the job's
+    limit of 180 minutes in its fifth round and left no report. Goodput in Mbit/s for 1
+    connection, and the p99 of the GETs beside it:
+
+    | Path | colibri (CUBIC) | colibri-bbr | colibri-newreno | chi (quic-go) | ngtcp2 |
+    | --- | --- | --- | --- | --- | --- |
+    | 20 Mbit/s, 25 ms | 17.34 and 17.34; 127 ms | 17.34 and 17.34; 105 and 106 ms | 17.34 and 17.34; 127 ms | 17.34 and 17.34; 232 ms | 16.78 and 16.78; 116 and 118 ms |
+    | the same, 1% loss | 2.24 and 2.24; 129 and 132 ms | 15.10 and 13.98; 133 and 179 ms | 2.24 and 1.68; 178 ms | 3.36 and 3.36; 134 and 179 ms | 13.42 and 11.18; 182 and 192 ms |
+
+    Through one bottleneck with 1 connection each, CUBIC took 0.62 of the goodput with no loss
+    in both jobs, and BBRv3 took 0.86 and 0.89 with 1% loss. CUBIC at 1% loss still gets less
+    than quic-go, which [#123](https://github.com/c4milo/colibri/issues/123) tracks.
+
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
