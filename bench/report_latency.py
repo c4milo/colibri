@@ -16,8 +16,13 @@ for the server's process (design §8 step 13j). The report gives, for each proto
 rate, the median over the counted rounds of: the times the server ran in a second, how long a run
 took at p50, p99 and its longest, how long the server waited for its core once woken, at p99 and
 its longest, and how long it slept before a run, at p50 and p99. A <rate>.pcap holds the heads of
-the packets the server sent for part of the load. From it the report gives the server's TCP
-segments with data for each response, at the rate oha reached, and the octets of data in each.
+the packets of both directions for part of the load, and a <rate>.port the server's port. From
+them the report gives the server's TCP segments with data for each response, at the rate oha
+reached, and the octets of data in each. It also gives the turns of each connection: the time the
+server took to answer a segment of requests, and the time the client took to send the next one.
+A <rate>.counts holds what `perf stat` counted of the server for a part of the load, with the
+time it counted for. From it the report gives the server's instructions, cycles and system calls
+for each request, at the rate oha reached, and the share of its core the server used.
 
     python3 bench/report_latency.py <scratch> <report.md> --p99-bound-ms <ms>
     python3 bench/report_latency.py <scratch> <report.md> --network
@@ -211,17 +216,16 @@ IPV4 = 4
 US = 1_000_000
 
 
-def read_capture(data):
-    """The server's segments with data a second, and their octets of data each, from a pcap, or
-    None for fewer than two segments. Each length comes from the IP and TCP headers, so a capture
-    of the heads alone serves."""
+def read_packets(data):
+    """[(time, source port, destination port, octets of data)] of the IPv4 TCP packets of a pcap,
+    or None for a file that is not one. Each length comes from the IP and TCP headers, so a
+    capture of the heads alone serves."""
     if len(data) < PCAP_FILE_HEADER_LEN or struct.unpack("<I", data[:4])[0] != PCAP_MAGIC:
         return None
-    link = struct.unpack("<I", data[20:24])[0]
-    skip = LINK_HEADER_LEN.get(link)
+    skip = LINK_HEADER_LEN.get(struct.unpack("<I", data[20:24])[0])
     if skip is None:
         return None
-    times, octets, offset = [], 0, PCAP_FILE_HEADER_LEN
+    packets, offset = [], PCAP_FILE_HEADER_LEN
     while offset + PCAP_RECORD_HEADER_LEN <= len(data):
         seconds, micros, captured, _ = struct.unpack("<IIII", data[offset:offset + PCAP_RECORD_HEADER_LEN])
         packet = data[offset + PCAP_RECORD_HEADER_LEN:offset + PCAP_RECORD_HEADER_LEN + captured]
@@ -230,14 +234,58 @@ def read_capture(data):
         if len(ip) < 20 or ip[0] >> 4 != IPV4:
             continue
         ip_header_len = (ip[0] & 0x0F) * 4
+        source, destination = struct.unpack(">HH", ip[ip_header_len:ip_header_len + 4])
         tcp_header_len = (ip[ip_header_len + 12] >> 4) * 4
         payload = struct.unpack(">H", ip[2:4])[0] - ip_header_len - tcp_header_len
-        if payload > 0:
-            times.append(seconds + micros / US)
-            octets += payload
-    if len(times) < 2 or times[-1] <= times[0]:
+        packets.append((seconds + micros / US, source, destination, payload))
+    return packets
+
+
+def read_turns(packets, port):
+    """The turns of each connection to the server on `port`, or None for no turn. An answer runs
+    from the first segment of requests after an answer to the first segment that answers it. A
+    next request runs from that segment to the client's next segment of requests. A segment with
+    no data, such as an acknowledgment, starts and ends nothing."""
+    request_at, answer_at, answers, next_requests = {}, {}, [], []
+    for at, source, destination, payload in packets:
+        if payload <= 0:
+            continue
+        if source == port:
+            if request_at.get(destination) is not None:
+                answers.append((at - request_at[destination]) * MS)
+                request_at[destination] = None
+            if answer_at.get(destination) is None:
+                answer_at[destination] = at
+        elif destination == port:
+            if answer_at.get(source) is not None:
+                next_requests.append((at - answer_at[source]) * MS)
+                answer_at[source] = None
+            if request_at.get(source) is None:
+                request_at[source] = at
+    if not answers or not next_requests:
         return None
-    return {"segments a second": (len(times) - 1) / (times[-1] - times[0]), "octets a segment": octets / len(times)}
+    return {"answer p50": percentile(answers, 0.5), "answer mean": statistics.fmean(answers),
+            "next request p50": percentile(next_requests, 0.5),
+            "next request mean": statistics.fmean(next_requests)}
+
+
+def read_capture(data, port=None):
+    """The server's segments with data a second and their octets of data each, from a pcap, with
+    the turns of each connection when `port` names the server's port. None for fewer than two of
+    the server's segments. With no port, every segment with data is the server's."""
+    packets = read_packets(data)
+    if packets is None:
+        return None
+    sent = [(at, payload) for at, source, _, payload in packets
+            if payload > 0 and (port is None or source == port)]
+    if len(sent) < 2 or sent[-1][0] <= sent[0][0]:
+        return None
+    figures = {"segments a second": (len(sent) - 1) / (sent[-1][0] - sent[0][0]),
+               "octets a segment": sum(payload for _, payload in sent) / len(sent)}
+    turns = read_turns(packets, port) if port is not None else None
+    if turns is not None:
+        figures.update(turns)
+    return figures
 
 
 def read_captures(scratch):
@@ -247,7 +295,9 @@ def read_captures(scratch):
         round_, protocol, server = path.parts[-4], path.parts[-3], path.parts[-2]
         if round_ == "0":
             continue
-        figures = read_capture(path.read_bytes())
+        port_path = path.with_suffix(".port")
+        port = int(port_path.read_text()) if port_path.exists() else None
+        figures = read_capture(path.read_bytes(), port)
         if figures is not None:
             captures.setdefault((protocol, server, int(path.stem)), []).append(figures)
     return captures
@@ -261,6 +311,114 @@ def capture_cells(captures, runs, key):
     reached = statistics.median(m["rps"] for m in runs[key])
     per_response = statistics.median(r["segments a second"] for r in rounds) / reached
     return [f"{per_response:.3f}", f"{statistics.median(r['octets a segment'] for r in rounds):.1f}"]
+
+
+# The events of a run's counts, by the names perf stat writes. `duration_time` is the time perf
+# counted for, in nanoseconds.
+COUNT_EVENTS = ("instructions:u", "instructions:k", "cycles:u", "cycles:k", "task-clock",
+                "raw_syscalls:sys_enter", "duration_time")
+# The nanoseconds in one unit of task-clock, by the unit perf stat writes beside it, as
+# bench/report.py reads it.
+TASK_CLOCK_NANOSECONDS = {"": 1.0, "ns": 1.0, "nsec": 1.0, "usec": 1e3, "msec": 1e6}
+NANOSECONDS_PER_SECOND = 1e9
+COUNT_COLUMNS = ("instructions a request", "user instructions a request", "cycles a request",
+                 "user cycles a request", "system calls a request", "share of the core")
+
+
+def read_count(text):
+    """What one `perf stat -x,` file holds, each count for a second of the time perf counted, and
+    the share of that time the server ran. None when perf did not count an event."""
+    counts = {}
+    for line in text.splitlines():
+        fields = line.strip().split(",")
+        if len(fields) < 3 or line.startswith("#") or fields[2] not in COUNT_EVENTS:
+            continue
+        try:
+            counts[fields[2]] = float(fields[0])
+        except ValueError:
+            # perf writes "<not counted>" or "<not supported>" in place of a number.
+            return None
+        if fields[2] == "task-clock":
+            if fields[1] not in TASK_CLOCK_NANOSECONDS:
+                return None
+            counts[fields[2]] *= TASK_CLOCK_NANOSECONDS[fields[1]]
+    if set(counts) != set(COUNT_EVENTS) or counts["duration_time"] <= 0:
+        return None
+    seconds = counts["duration_time"] / NANOSECONDS_PER_SECOND
+    return {
+        "instructions a second": (counts["instructions:u"] + counts["instructions:k"]) / seconds,
+        "user instructions a second": counts["instructions:u"] / seconds,
+        "cycles a second": (counts["cycles:u"] + counts["cycles:k"]) / seconds,
+        "user cycles a second": counts["cycles:u"] / seconds,
+        "system calls a second": counts["raw_syscalls:sys_enter"] / seconds,
+        "share of the core": counts["task-clock"] / counts["duration_time"],
+    }
+
+
+def read_counts(scratch):
+    """{(protocol, server, rate): [figures of each counted round's counts]}."""
+    counts = {}
+    for path in sorted(pathlib.Path(scratch, "runs").glob("*/*/*/*.counts")):
+        round_, protocol, server = path.parts[-4], path.parts[-3], path.parts[-2]
+        if round_ == "0":
+            continue
+        figures = read_count(path.read_text())
+        if figures is not None:
+            counts.setdefault((protocol, server, int(path.stem)), []).append(figures)
+    return counts
+
+
+def count_cells(counts, runs, key):
+    """The counts of `key` for each request, as medians at the rate oha reached, or dashes."""
+    rounds = counts.get(key)
+    if not rounds:
+        return ["—"] * len(COUNT_COLUMNS)
+    reached = statistics.median(m["rps"] for m in runs[key])
+    cells = []
+    for column in COUNT_COLUMNS[:-1]:
+        a_second = statistics.median(r[column.replace("a request", "a second")] for r in rounds)
+        cells.append(f"{a_second / reached:,.1f}" if "calls" not in column else f"{a_second / reached:.3f}")
+    return cells + [f"{statistics.median(r['share of the core'] for r in rounds):.3f}"]
+
+
+def counts_table(scratch, runs, protocols, servers):
+    """The lines of the table of counts: one row for each protocol, server and rate."""
+    counts = read_counts(scratch)
+    lines = ["", "## Counts of the server", "",
+             "Medians over the counted rounds of `perf stat` on the server's process, after the "
+             "record, each divided by the rate oha reached. The share of the core is the time the "
+             "server ran over the time perf counted for. A dash marks a load with no counts.", "",
+             "| Protocol | Server | Rate | " + " | ".join(COUNT_COLUMNS) + " |",
+             "|---|---|---|" + "---|" * len(COUNT_COLUMNS)]
+    for protocol in protocols:
+        for server in servers:
+            for rate in sorted(rate for (p, s, rate) in runs if p == protocol and s == server):
+                cells = count_cells(counts, runs, (protocol, server, rate))
+                lines.append(f"| {protocol} | {server} | {rate} | " + " | ".join(cells) + " |")
+    return lines
+
+
+TURN_COLUMNS = ("answer p50", "answer mean", "next request p50", "next request mean")
+
+
+def turns_table(captures, runs, protocols, servers):
+    """The lines of the table of turns: one row for each protocol, server and rate."""
+    lines = ["", "## Turns of each connection", "",
+             "Medians over the counted rounds, from the capture of both directions. On each "
+             "connection, \"answer\" is the time from the first segment of requests after an answer "
+             "to the first segment that answers it, and \"next request\" is the time from that "
+             "segment to the client's next segment of requests. Times in milliseconds. A dash marks "
+             "a load with no capture of both directions.", "",
+             "| Protocol | Server | Rate | " + " | ".join(TURN_COLUMNS) + " |",
+             "|---|---|---|" + "---|" * len(TURN_COLUMNS)]
+    for protocol in protocols:
+        for server in servers:
+            for rate in sorted(rate for (p, s, rate) in runs if p == protocol and s == server):
+                rounds = [r for r in captures.get((protocol, server, rate), []) if TURN_COLUMNS[0] in r]
+                cells = [f"{statistics.median(r[name] for r in rounds):.3f}" if rounds else "—"
+                         for name in TURN_COLUMNS]
+                lines.append(f"| {protocol} | {server} | {rate} | " + " | ".join(cells) + " |")
+    return lines
 
 
 def waits_report(scratch):
@@ -287,6 +445,8 @@ def waits_report(scratch):
                          for name in WAIT_FIGURES]
                 cells += capture_cells(captures, runs, (protocol, server, rate))
                 lines.append(f"| {protocol} | {server} | {rate} | " + " | ".join(cells) + " |")
+    lines += turns_table(captures, runs, protocols, servers)
+    lines += counts_table(scratch, runs, protocols, servers)
     return "\n".join(lines + details(runs, protocols, servers)) + "\n"
 
 
@@ -357,7 +517,8 @@ def test_waits(scratch):
     # One counted round, so a warm-up the report does not discard changes each median.
     for round_ in (0, 1):
         warm = round_ == 0
-        write_run(scratch, round_, "h2-tls", "a", 1000, 1000, 5, {"200": 10})
+        # oha reached 800 req/s of the 1,000, and each figure for a response divides by the 800.
+        write_run(scratch, round_, "h2-tls", "a", 1000, 800, 5, {"200": 10})
         write_run(scratch, round_, "h2-tls", "b", 1000, 1000, 4, {"200": 10})
         # 101 runs 0.01 s apart: 100 runs a second. Run i takes i/100 ms, so p50 is 0.50 and p99
         # 0.99, and the warm-up's runs are ten times longer, which the report must discard.
@@ -366,31 +527,102 @@ def test_waits(scratch):
         delays = [0.0] * 100 + [0.5 * round_]
         path = pathlib.Path(scratch, "runs", str(round_), "h2-tls", "a", "1000.waits")
         path.write_text(timehist_lines([0.2] * 101, delays, runs))
-        # 11 segments of 120 octets of data 0.01 s apart: 100 a second, one for every ten
-        # responses at 1,000 req/s. The warm-up's segments come ten times as often.
+        # 11 segments of 120 octets of data 0.01 s apart: 100 a second, one for every eight
+        # responses at 800 req/s. The warm-up's segments come ten times as often.
         pcap = pathlib.Path(scratch, "runs", str(round_), "h2-tls", "a", "1000.pcap")
-        pcap.write_bytes(capture_bytes(11, 0.001 if warm else 0.01, 120))
+        step = 0.001 if warm else 0.01
+        # The client sends its next segment of requests 2 ms after each of the server's segments,
+        # so the server answers 8 ms later.
+        sent = [(100 + index * step, TEST_PORT, TEST_CLIENT, 120) for index in range(11)]
+        asked = [(at + 0.002, TEST_CLIENT, TEST_PORT, 40) for at, _, _, _ in sent]
+        pcap.write_bytes(pcap_bytes(sorted(sent + asked)))
+        pcap.with_suffix(".port").write_text(f"{TEST_PORT}\n")
+        # 2 s of 800 req/s: 1,600 requests. Each takes 30,000 instructions, 20,000 of them the
+        # server's own, 10,000 cycles, 6,000 of them its own, and 1.5 system calls, and the server
+        # runs half of the time. The warm-up's counts are ten times these.
+        counts = pathlib.Path(scratch, "runs", str(round_), "h2-tls", "a", "1000.counts")
+        counts.write_text(count_lines(scale, 2.0))
     text = waits_report(scratch)
-    assert "| h2-tls | a | 1000 | 100.000 | 0.500 | 0.990 | 1.000 | 0.000 | 0.500 | 0.200 | 0.200 | 0.100 | 120.0 |" in text, text
+    assert "| h2-tls | a | 1000 | 100.000 | 0.500 | 0.990 | 1.000 | 0.000 | 0.500 | 0.200 | 0.200 | 0.125 | 120.0 |" in text, text
     # b has no record, and its latency still has its table.
     assert "| h2-tls | b | 1000 | — |" in text and "## h2-tls" in text, text
+    assert "| h2-tls | a | 1000 | 30,000.0 | 20,000.0 | 10,000.0 | 6,000.0 | 1.500 | 0.500 |" in text, text
+    assert "| h2-tls | b | 1000 | — | — | — | — | — | — |" in text, text
+    assert "| h2-tls | a | 1000 | 8.000 | 8.000 | 2.000 | 2.000 |" in text, text
+    assert "| h2-tls | b | 1000 | — | — | — | — |" in text.splitlines(), text
+    # A count perf did not take, a file with no time and an unknown unit of task-clock give no row.
+    assert read_count(count_lines(1, 2.0).replace("9600000,,cycles:u", "<not counted>,,cycles:u")) is None
+    assert read_count(count_lines(1, 0.0)) is None
+    assert read_count(count_lines(1, 2.0).replace(",msec,", ",hours,")) is None
     assert read_timehist(TIMEHIST_HEAD) is None
     # A segment with no data, such as an acknowledgment, counts for nothing.
     assert read_capture(capture_bytes(3, 0.5, 0)) is None
+    test_turns()
+
+
+# The server's port and two clients' ports in the test's capture of both directions.
+TEST_PORT, TEST_CLIENT, TEST_OTHER = 443, 5001, 5002
+
+
+def test_turns():
+    request = lambda at, client: (at, client, TEST_PORT, 40)
+    answer = lambda at, client: (at, TEST_PORT, client, 60)
+    packets = [
+        # The first client: two segments of requests, an acknowledgment, and two of answers. The
+        # answer took 0.3 ms from the first request, and the next request 0.1 ms from the first
+        # answer.
+        request(100.0000, TEST_CLIENT), request(100.0001, TEST_CLIENT),
+        (100.00015, TEST_PORT, TEST_CLIENT, 0),
+        # The other client's turns lie between the first one's: 0.5 ms and 0.3 ms.
+        request(100.0002, TEST_OTHER),
+        answer(100.0003, TEST_CLIENT), answer(100.00035, TEST_CLIENT),
+        request(100.0004, TEST_CLIENT),
+        answer(100.0007, TEST_OTHER),
+        # The first client's second answer took 0.4 ms, and its next request 0.2 ms.
+        answer(100.0008, TEST_CLIENT),
+        request(100.0010, TEST_CLIENT), request(100.0010, TEST_OTHER),
+    ]
+    figures = read_capture(pcap_bytes(packets), TEST_PORT)
+    turns = {name: round(figures[name], 6) for name in TURN_COLUMNS}
+    assert turns == {"answer p50": 0.4, "answer mean": 0.4, "next request p50": 0.2,
+                     "next request mean": 0.2}, turns
+    # Only the server's four segments with data count as its segments: 3 spans in 0.5 ms.
+    assert round(figures["segments a second"]) == 6000 and figures["octets a segment"] == 60, figures
+    # With no port the capture holds no turns, and every segment with data is the server's.
+    assert TURN_COLUMNS[0] not in read_capture(pcap_bytes(packets))
+    # A capture of one direction holds no turn.
+    assert TURN_COLUMNS[0] not in read_capture(pcap_bytes([p for p in packets if p[1] == TEST_PORT]), TEST_PORT)
+
+
+def count_lines(scale, seconds):
+    """A `perf stat -x,` file of `seconds` of the test's server at 800 req/s, `scale` times over."""
+    requests = 800 * seconds * scale
+    nanoseconds = seconds * NANOSECONDS_PER_SECOND
+    return ("# started on a test\n\n"
+            f"{20000 * requests:.0f},,instructions:u,1,100.00,,\n{10000 * requests:.0f},,instructions:k,1,100.00,,\n"
+            f"{6000 * requests:.0f},,cycles:u,1,100.00,,\n{4000 * requests:.0f},,cycles:k,1,100.00,,\n"
+            f"{nanoseconds / 2 / 1e6:.6f},msec,task-clock,1,100.00,,\n"
+            f"{1.5 * requests:.0f},,raw_syscalls:sys_enter,1,100.00,,\n"
+            f"{nanoseconds:.0f},ns,duration_time,{nanoseconds:.0f},100.00,,\n")
+
+
+def pcap_bytes(packets):
+    """A pcap on Ethernet of IPv4 TCP packets, each (time, source port, destination port, octets
+    of data), holding the heads alone."""
+    data = struct.pack("<IHHiIII", PCAP_MAGIC, 2, 4, 0, 0, 96, 1)
+    for at, source, destination, payload in packets:
+        ip_header_len, tcp_header_len = 20, 32
+        ip = bytes([0x45, 0]) + struct.pack(">H", ip_header_len + tcp_header_len + payload) + bytes(16)
+        tcp = struct.pack(">HH", source, destination) + bytes(8) + bytes([(tcp_header_len // 4) << 4])
+        head = bytes(14) + ip + tcp + bytes(tcp_header_len - 13)
+        data += struct.pack("<IIII", int(at), round((at % 1) * US), len(head), len(head) + payload) + head
+    return data
 
 
 def capture_bytes(count, step, payload):
-    """A pcap on Ethernet of `count` IPv4 TCP segments with `payload` octets of data each, `step`
-    seconds apart, holding the heads alone."""
-    data = struct.pack("<IHHiIII", PCAP_MAGIC, 2, 4, 0, 0, 96, 1)
-    for index in range(count):
-        at = 100 + index * step
-        ip_header_len, tcp_header_len = 20, 32
-        ip = bytes([0x45, 0]) + struct.pack(">H", ip_header_len + tcp_header_len + payload) + bytes(16)
-        tcp = bytes(12) + bytes([(tcp_header_len // 4) << 4]) + bytes(tcp_header_len - 13)
-        head = bytes(14) + ip + tcp
-        data += struct.pack("<IIII", int(at), round((at % 1) * US), len(head), len(head) + payload) + head
-    return data
+    """A pcap of `count` segments of the server with `payload` octets of data each, `step` seconds
+    apart."""
+    return pcap_bytes([(100 + index * step, TEST_PORT, TEST_CLIENT, payload) for index in range(count)])
 
 
 def main(argv):

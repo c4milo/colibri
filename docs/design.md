@@ -5309,6 +5309,87 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       40,000 req/s as 3.20 ms and 3.28 ms, against axum's 2.72 ms and 2.97 ms. The owner closed
       https://github.com/c4milo/colibri/issues/113 on 2026-10-29 with that gap of about 0.4 ms
       left, since neither the server's runs nor its segments explain it.
+    - **The counts and the turns, 2026-11-09.** Run
+      [42558165516](https://github.com/c4milo/colibri/actions/runs/42558165516), on `5b858fe3`,
+      gave colibri a p99 over h2-tls at 80,000 req/s of 25.92 ms in job 1 and 246.52 ms in job 2,
+      where oha reached 78,182 req/s with a p50 of 183.94 ms. With 160,000 req/s offered, in run
+      [42532331627](https://github.com/c4milo/colibri/actions/runs/42532331627), oha reached
+      79,920 and 79,739 req/s against colibri, and 83,921 and 85,893 against axum. The owner asked
+      for the cause on 2026-11-09.
+      - After the record, `perf stat` counts the server's process for 2 s: the events of the
+        judge of 13a, and `duration_time`, the time perf counted for. The load runs 11 s, in
+        place of 8 s, so the counts end before it does. The report gives a table, "Counts of
+        the server": the instructions, the cycles and the system calls for each request, at the
+        rate oha reached, with the user's part of the first two, and the share of its core the
+        server used.
+      - Judge run [42748400556](https://github.com/c4milo/colibri/actions/runs/42748400556), on
+        `c0510ad2`, counted the servers. Over h2-tls at 80,000 req/s, job 1 and then job 2:
+
+        | For each request | colibri | axum |
+        | --- | --- | --- |
+        | instructions | 27,398 and 27,838 | 42,627 and 42,706 |
+        | cycles | 17,894 and 18,514 | 30,765 and 30,949 |
+        | system calls | 0.406 and 0.403 | 0.729 and 0.731 |
+        | share of its core | 0.531 and 0.542 | 0.767 and 0.772 |
+
+        So colibri's server is not the limit: about half of its core is idle. oha keeps at most
+        32 requests in flight, on 8 connections of 4 streams, so the rate it reaches is 32 over
+        the time of a round trip: about 0.40 ms against colibri and 0.376 ms against axum. In
+        this run colibri's p99 there was 89.43 ms and 172.10 ms, with rounds from 32.06 ms to
+        493.93 ms.
+      - tcpdump now keeps the packets of both directions, and the script writes the server's
+        port beside the capture. The report gives a table, "Turns of each connection". On each
+        connection, an answer is the time from the first segment of requests after an answer to
+        the first segment that answers it. A next request is the time from that segment to the
+        client's next segment of requests. So the two split a round trip between the server and
+        oha. The job's log names a capture whose packets the kernel dropped.
+      - Judge run [42758386837](https://github.com/c4milo/colibri/actions/runs/42758386837), on
+        `0ddf5a4b`, timed the turns, and no capture dropped a packet. Over h2-tls at 80,000
+        req/s, the mean in ms, job 1 and then job 2:
+
+        | Part of a round trip | Against colibri | Against axum |
+        | --- | --- | --- |
+        | answer | 0.032 and 0.031 | 0.071 and 0.076 |
+        | next request | 0.373 and 0.351 | 0.335 and 0.311 |
+
+        colibri answers in less than half of axum's time, and oha's side is 82% to 92% of each
+        round trip. So oha and the kernel's path set the rate there, and neither server does.
+        While a load keeps to its rate, the rate fixes the length of a round trip, so a shorter
+        answer gives a longer wait for oha's schedule. Only colibri's load of job 1 was past its
+        limit, at 76,097 req/s, so the run does not compare oha's own time against the two
+        servers.
+      - The loads gain a rate of 160,000 req/s, past the limit of each. There oha sends each
+        request as soon as it can, so its time to the next request compares against each server.
+      - Judge run [42761188584](https://github.com/c4milo/colibri/actions/runs/42761188584), on
+        `dd3ad79c`, ran the three rates, and no capture dropped a packet. Over h2-tls with
+        160,000 req/s offered, job 1 and then job 2, the times as means in ms:
+
+        | Figure | Against colibri | Against axum |
+        | --- | --- | --- |
+        | req/s oha reached | 78,643 and 84,757 | 80,230 and 88,260 |
+        | answer | 0.031 and 0.029 | 0.076 and 0.068 |
+        | next request | 0.362 and 0.347 | 0.333 and 0.302 |
+        | responses in a segment | 3.82 and 3.92 | 4.00 and 3.97 |
+        | share of the server's core | 0.523 and 0.536 | 0.776 and 0.798 |
+
+        A round trip takes about the same time against each: 0.393 ms and 0.376 ms against
+        colibri, and 0.409 ms and 0.370 ms against axum. oha's two cores set it. colibri's
+        shorter answer waits for oha, so it shows as a longer time to the next request. Each
+        connection holds 4 streams, and colibri's segments carry a few responses fewer than
+        axum's, so oha takes a few more turns for the same requests. oha reached 2% and 4% less
+        against colibri. The two jobs differ by more: 8% against colibri and 10% against axum.
+      - So over h2-tls at 80,000 req/s and past it, the load of 13f is at oha's limit, with
+        colibri's server at about half of its core. A p99 at such a rate measures oha's queue,
+        and does not compare the servers.
+      - Mutations of the report, by `python3 bench/report_latency.py --test`, 18 of 18 CAUGHT.
+        Of the counts: the warm-up's counts kept, a count divided by the offered rate, the
+        user's instructions or cycles given as all of them, a count perf did not take read as
+        zero, an unknown unit of task-clock read as nanoseconds, the unit ignored, a file with
+        no time read, and the time perf counted for ignored. Of the turns: an acknowledgment
+        that starts or ends a turn, the last segment of requests or of an answer taken in place
+        of the first, connections not kept apart, the client's segments counted as the
+        server's, the port file not read, either time left in seconds, and the warm-up's capture
+        kept.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the

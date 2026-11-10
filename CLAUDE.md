@@ -474,11 +474,14 @@ Everything below exists. Change this section when a step adds or renames a comma
   `colibri-bbr` is colibri's UDP server with `bbr` (design §8 step 29c). It
   needs sudo -n, tc, ethtool and sch_netem, and the workflow's `network` input runs it on the judge.
   `bench/run.sh --latency --waits [--rounds <n>] [report.md]` loads colibri and axum over h2 and
-  h2-tls at 40,000 and 80,000 req/s, and records the server's core with `perf sched record` during
-  each load, then captures the heads of the packets the server sends with tcpdump. The report
+  h2-tls at 40,000, 80,000 and 160,000 req/s, and records the server's core with `perf sched
+  record` during each load, then captures the heads of the packets of both directions with
+  tcpdump. The report
   gives how often the server ran, how long each run took, how long it waited for its core, how long
-  it slept between runs, and its TCP segments a response (design §8 step 13j). It needs sudo -n,
-  perf and tcpdump, and the workflow's `waits` input runs it on the judge.
+  it slept between runs, its TCP segments a response, and how long the server and the client each
+  took to answer the other. Then `perf stat` counts the server, and the report gives its
+  instructions, cycles and system calls a request (design §8 step 13j). It
+  needs sudo -n, perf and tcpdump, and the workflow's `waits` input runs it on the judge.
   `bench/run.sh --latency --bulk [--rounds <n>] [report.md]` runs `bench/run_bulk.sh` instead:
   oha downloads a file of 2 MiB again and again for 30 s, from 1 and 4 connections, over a
   loopback path where tc holds the server's packets at 20 Mbit/s and 25 ms with a queue of 1,000

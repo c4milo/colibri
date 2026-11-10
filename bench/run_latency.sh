@@ -26,11 +26,14 @@
 #
 # With --waits it records where a server spends the time between its requests (design §8 step
 # 13j, https://github.com/c4milo/colibri/issues/113), in place of the inputs above. colibri and
-# axum serve h2 and h2-tls at `waits_rates` for 8 s. 1 s into each load tcpdump captures the head
-# of each packet the server sends for 0.7 s, so the report gives the server's segments for each
-# response and its octets in each segment. Then `perf sched record` records the server's core for
+# axum serve h2 and h2-tls at `waits_rates` for 11 s. 1 s into each load tcpdump captures the head
+# of each packet of both directions for 0.7 s, so the report gives the server's segments for each
+# response, its octets in each segment, and how long the server and the client each took to answer
+# the other. Then `perf sched record` records the server's core for
 # 3 s, and `perf sched timehist` gives each time the server ran: how long it ran, how long it
-# waited for the core once woken, and how long it slept before. It needs sudo -n, perf and tcpdump.
+# waited for the core once woken, and how long it slept before. Then `perf stat` counts the
+# server's instructions, cycles and system calls for 2 s, which the report divides by the requests
+# of those seconds. It needs sudo -n, perf and tcpdump.
 #
 # It runs on Linux, with the server and oha pinned to cores of their own by taskset, as the judge
 # runs bench/run.sh (decision 33 as amended). Round 0 is a warm-up that the report discards. A time
@@ -119,16 +122,19 @@ if [ "$network" = true ]; then
   seconds="$network_seconds"
 fi
 
-# --waits: the rate where colibri's p99 over h2-tls lost to axum's, and the one past it where
-# colibri's rounds spread (https://github.com/c4milo/colibri/issues/113). The record starts once
-# the load has run a second, and it ends a second before the load does.
-readonly waits_rates=(40000 80000)
+# --waits: the rate where colibri's p99 over h2-tls lost to axum's, the one past it where
+# colibri's rounds spread (https://github.com/c4milo/colibri/issues/113), and one past the limit
+# of every load, where oha sends each request as soon as it can. The record starts once
+# the load has run a second. The counts follow the record, so the record's tracepoints add nothing
+# to them, and they end three seconds before the load does.
+readonly waits_rates=(40000 80000 160000)
 readonly waits_delay_seconds=1
 readonly waits_record_seconds=3
-readonly waits_seconds=8
+readonly waits_count_seconds=2
+readonly waits_seconds=11
 # The capture before the record: 0.7 s, of each packet's Ethernet, IP and TCP headers, on a core
-# apart from the server's and oha's. The load runs 8 s, so the record ends before the load does
-# whatever perf takes to start and to write.
+# apart from the server's and oha's. The load runs 11 s, so the record and the counts end before
+# the load does whatever perf takes to start and to write.
 readonly capture_seconds=0.7
 readonly capture_snap_len=96
 readonly capture_core=0
@@ -316,11 +322,14 @@ machine() {
   fi
   if [ "$waits" = true ]; then
     echo "waits=perf sched record of core ${server_core} for ${waits_record_seconds} s, ${waits_delay_seconds} s into each load, $(sudo -n perf --version)"
+    echo "counts=perf stat of the server for ${waits_count_seconds} s, after the record"
   fi
 }
 
 # oha's load at <rate> for <protocol>, into <out>.json, with the server's runs on its core recorded
-# into <out>.waits: the lines of `perf sched timehist` for the server's process.
+# into <out>.waits: the lines of `perf sched timehist` for the server's process. <out>.counts
+# holds what `perf stat` counted of the server after the record, with the time it counted for.
+# <out>.pcap holds the heads of the packets of both directions, and <out>.port the server's port.
 load_with_waits() {  # load_with_waits <protocol> <rate> <out>
   load "$1" "$2" "$3.json" &
   local load_pid=$!
@@ -328,7 +337,13 @@ load_with_waits() {  # load_with_waits <protocol> <rate> <out>
   # tcpdump drops root for its own user before it opens a file, and that user cannot write into
   # this script's scratch directory, so tcpdump writes to its output and this shell writes the file.
   sudo -n taskset -c "$capture_core" timeout "$capture_seconds" tcpdump -U -i lo -s "$capture_snap_len" \
-    -w - "tcp src port $port" >"$3.pcap" 2>"$3.tcpdump" || true
+    -w - "tcp port $port" >"$3.pcap" 2>"$3.tcpdump" || true
+  echo "$port" >"$3.port"
+  # A packet the kernel dropped leaves a turn with no end, so the job's log names such a capture.
+  if ! grep -q "^0 packets dropped by kernel" "$3.tcpdump"; then
+    echo "run_latency.sh: the capture of $3 may have dropped packets" >&2
+    cat "$3.tcpdump" >&2
+  fi
   # A capture with no packet holds its file header alone: the job's log says so, with tcpdump's
   # own words.
   if [ "$(wc -c <"$3.pcap")" -le "$pcap_header_len" ]; then
@@ -336,6 +351,10 @@ load_with_waits() {  # load_with_waits <protocol> <rate> <out>
     cat "$3.tcpdump" >&2
   fi
   sudo -n perf sched record -C "$server_core" -o "$3.data" -- sleep "$waits_record_seconds" >/dev/null 2>&1
+  # The events of bench/run.sh's judge, and `duration_time`, the nanoseconds perf counted for.
+  sudo -n perf stat -x, -o "$3.counts" \
+    -e instructions:u,instructions:k,cycles:u,cycles:k,task-clock,raw_syscalls:sys_enter,duration_time \
+    -p "$server_pid" -- sleep "$waits_count_seconds" >/dev/null 2>&1 || true
   wait "$load_pid"
   sudo -n perf sched timehist -i "$3.data" --pid "$server_pid" >"$3.waits" 2>/dev/null
   sudo -n rm -f "$3.data"

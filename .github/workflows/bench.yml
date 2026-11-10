@@ -12,9 +12,9 @@
 # `network`, bench/run.sh --latency --network measures colibri, chi and axum over h2 over TLS and
 # h3 on a loopback path that tc netem gives delay and loss (design §8 step 13i). With `waits`,
 # bench/run.sh --latency --waits records how colibri's and axum's servers run and sleep on their
-# core under the latency load, with perf sched (design §8 step 13j). With `bulk`, bench/run.sh
-# --latency --bulk measures downloads of one file at a bottleneck that tc netem holds (design §8
-# step 13k). With
+# core under the latency load, with perf sched, and counts each server with perf stat (design §8
+# step 13j). With `bulk`, bench/run.sh --latency --bulk measures downloads of one file at a
+# bottleneck that tc netem holds (design §8 step 13k). With
 # `profile`, perf record samples colibri's server and its call stacks under each input, and the
 # artifact holds the folded stacks (design §8 step 13h). The work is bench/run.sh, which a person on
 # Linux with perf runs for the same answer; this file only installs what it needs.

@@ -202,6 +202,9 @@ p99 at one rate inside one job (§11.4). Each pair gives job 1, then job 2:
 - **h3 at 40,000 req/s.** colibri's p99 was 15.51 ms and 15.30 ms, and axum's 22.86 ms and
   18.61 ms. Neither stays under 10 ms.
 - **h3 at 80,000 offered.** colibri reached 54,651 and 57,855 req/s, and axum 50,752 and 54,597.
+- **h2-tls at 80,000 req/s and past it measures oha.** A capture of both directions timed each
+  round trip there (design §8 step 13j). oha's side takes 81% to 92% of it, and colibri's
+  server uses about half of its core. So a p99 at such a rate does not compare the servers.
 
 ## Memory per connection
 
