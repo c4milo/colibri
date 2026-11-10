@@ -145,6 +145,10 @@ test "decision 153: a piece handed before the head goes out after it, and the ne
     try testing.expectEqual(1, read_ends);
 }
 
+/// A bound for the `discard` phase of the test's peer (decision 160). Any bound above 0 lets the
+/// peer read the rest of a chunked body.
+const peer_discard_len_max: u64 = 1024;
+
 test "RFC 9112 §9.5: a final response that ends while a streamed body is open fails the connection" {
     try support.start_cleartext(.h11);
     var post = streamed_post(null);
@@ -154,6 +158,9 @@ test "RFC 9112 §9.5: a final response that ends while a streamed body is open f
     try support.client_receive();
     // Decision 124 ruling 2: the response ends before the body does.
     try h11_server_read(support.to_peer[0..support.to_peer_len]);
+    // Decision 160: a server that reads the rest of the body keeps the connection, so its response
+    // carries no close option. With the option, the client closes and does not fail (RFC 9112 §9.6).
+    support.peer_h11.discard_len_max = peer_discard_len_max;
     try support.peer_h11_answer(ok, empty_length, "");
     try support.client_receive();
     // The response arrived whole, and the rest of the body is not written.

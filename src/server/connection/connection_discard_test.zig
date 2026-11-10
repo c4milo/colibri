@@ -143,10 +143,13 @@ test "decision 160: a Content-Length at discard_len_max is discarded, and one oc
     for ([_]u64{ bound, bound + 1 }) |content_len| {
         try support.start_cleartext(.h11);
         const head = try std.fmt.bufPrint(&buffer, "POST /a HTTP/1.1\r\nHost: h\r\nContent-Length: {d}\r\n\r\n", .{content_len});
-        _ = try answer_early(head);
+        const sent = try answer_early(head);
         // RFC 9112 §9.3: a body that fits the bound is read, and h11 closes after any other.
         const phase = connection.session.h11.phase;
         try testing.expectEqual(content_len <= bound, phase == .discard);
         try testing.expectEqual(content_len > bound, phase == .closed);
+        // RFC 9110 §10.1.1: the 405 says whether the connection closes.
+        const says_close = std.mem.indexOf(u8, sent, "Connection: close\r\n") != null;
+        try testing.expectEqual(content_len > bound, says_close);
     }
 }

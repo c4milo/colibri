@@ -40,7 +40,8 @@ const reference = struct {
         if (code.class() == .informational) return message_reference.write_response_head(output, status, reason, fields);
         if (target.asked == .connect) try answer_connect(target, code, fields);
         const writer = try response_body(target, code, fields);
-        const close_after = target.close_after or writer.kind == .close_delimited or fields_ask_close(fields);
+        const close_after = target.close_after or writer.kind == .close_delimited or fields_ask_close(fields) or
+            (!writer.open() and target.phase == .body and !discard_fits(target));
         const written = try write_final_head(close_after, output, status, reason, fields);
         target.close_after = close_after;
         target.answered = true;
@@ -48,6 +49,16 @@ const reference = struct {
         if (writer.kind == .tunnel) target.phase = .tunnel;
         if (!writer.open()) connection_server.finish_response(target);
         return written;
+    }
+
+    /// RFC 9110 §10.1.1 and decision 160: whether the `discard` phase may read the rest of the
+    /// body, or the head says the connection closes.
+    fn discard_fits(target: *const Connection) bool {
+        return switch (target.reader.kind) {
+            .fixed => target.reader.remaining <= target.discard_len_max,
+            .chunked => target.discard_len_max > 0,
+            .none, .close_delimited, .tunnel => false,
+        };
     }
 
     fn answer_connect(target: *Connection, code: http.Status, fields: []const Field) SendError!void {

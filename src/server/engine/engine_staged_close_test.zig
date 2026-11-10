@@ -38,6 +38,8 @@ test "decision 160: a body past the bound gets the 405 whole, then half_close, t
     // RFC 9112 §9.6: the response goes out whole before the write side closes.
     try testing.expect(std.mem.startsWith(u8, support.sent_of(handle.slot), "HTTP/1.1 405 Method Not Allowed\r\n"));
     try testing.expect(std.mem.endsWith(u8, support.sent_of(handle.slot), "\r\n\r\n"));
+    // RFC 9110 §10.1.1: the Content-Length is past the bound, so the 405 says that the server closes.
+    try testing.expect(std.mem.indexOf(u8, support.sent_of(handle.slot), "\r\nConnection: close\r\n") != null);
     try testing.expect(support.index_of(.send).? < support.index_of(.half_close).?);
     try testing.expectEqual(null, support.nth(.close, 0));
     const end_ns = support.instant_ns + server_constants.limits.half_close_ns;

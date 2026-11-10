@@ -7060,12 +7060,32 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - `server.Event.half_close`, the one new call that a program makes: it closes the write
           side of a socket. The `colibri` module and `src/testing`'s endpoints submit Rotor's
           `shutdown` operation for it.
-        - The new field breaks a program whose `switch` names every field of `server.Event` and
-          has no `else`. The owner ruled on 2026-11-10 that this work ships in v0.16.0 for that
-          reason, and not in v0.15.2.
+
+        The new field breaks a program whose `switch` names every field of `server.Event` and
+        has no `else`. The owner ruled on 2026-11-10 that this work ships in v0.16.0 for that
+        reason, and not in v0.15.2.
+     5. A response says that the connection closes when the server knows it. RFC 9110 §10.1.1
+        has a server that answers before it reads the whole content say whether it closes. A
+        final response that ends at its head carries `Connection: close` (RFC 9112 §9.6) in
+        three cases:
+        - The request carried the close option.
+        - The rest of the body has a known length past the bound.
+        - The bound is 0.
+
+        Two responses cannot know, and their heads say nothing:
+        - A response whose body is still open when its head goes out. The program can read the
+          request body before the response ends, so the end of the response decides.
+        - A response to a request whose chunked body is not read whole, with a bound above 0.
+          Only the read finds where a chunked body ends.
+
+        After each of the two, the half-close tells the client that the connection closes.
 
      Alternatives that lost:
      - Close at once, as before. The client can read a reset in place of the response.
+     - No close option in a response that ends at its head, which was the first build. The
+       server knows that it closes, and RFC 9110 §10.1.1 has it say so.
+     - The close option in each response that goes out before the body is read. The connection
+       then closes after a body that the `discard` phase can read.
      - Read the whole body, with no bound. A peer with a large Content-Length holds the connection
        for as long as it sends.
      - A staged close with no event: the engine waits with the socket open, and then reports

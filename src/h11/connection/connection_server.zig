@@ -6,7 +6,9 @@
 //! server read the whole request body or close. So a response written before the request's body
 //! has all been read is followed by the `discard` phase, which reads the rest of the body and
 //! reports none of it, when the rest fits `Options.discard_len_max` (decision 160). Otherwise the
-//! connection closes after the response.
+//! connection closes after the response. A response that ends at its head says so with
+//! `Connection: close` when the rest is known not to fit (RFC 9110 §10.1.1). A response whose body
+//! is open at its head cannot know, because the program may still read the request body.
 //!
 //! A malformed request fails the connection, and the error response colibri owes is written by
 //! `write_pending` with `Connection: close` (decision 92).
@@ -131,7 +133,8 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     const writer = try response_body(target, code, &checked);
     // RFC 9112 §6.3 rule 8: a response with no declared length ends with the connection. RFC 9112
     // §9.6: a server that sends the close option closes after this response.
-    const close_after = target.close_after or writer.kind == .close_delimited or checked.close;
+    const close_after = target.close_after or writer.kind == .close_delimited or checked.close or
+        leaves_body(target, &writer);
     const written = try write_final_head(close_after, output, status, reason, fields, &checked);
     // The head is written, so the response's state changes now and not on a refusal.
     target.close_after = close_after;
@@ -140,6 +143,16 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     if (writer.kind == .tunnel) target.phase = .tunnel;
     if (!writer.open()) finish_response(target);
     return written;
+}
+
+/// Whether a final response that ends at its head leaves a request body that the `discard` phase
+/// cannot read, so the connection closes after it (decision 160). A response whose body is open
+/// cannot know: the program may read the request body before the response ends.
+fn leaves_body(target: *const Connection, writer: *const connection_body.Writer) bool {
+    if (writer.open() or target.phase != .body) return false;
+    // RFC 9110 §10.1.1: a server that answers before it reads the whole content SHOULD say
+    // whether it closes, so this head carries `Connection: close` (RFC 9112 §9.6).
+    return !discard_fits(target);
 }
 
 /// What a final response to CONNECT decides besides its framing (decision 109): a 2xx opens the
