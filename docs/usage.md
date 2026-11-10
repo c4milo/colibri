@@ -343,10 +343,136 @@ not complete in that time ends its attempt as a refused connect does, and null t
 off. colibri cancels the connect at its deadline itself, so the largest value holds a connect
 until the pool closes it.
 
-A `.hosted` client or server has the same calls, without `run`, `fetch`, `port` and the bind. Your
-program's host opens the sockets before `init`, and calls `turn` and `complete` with the seven
-types from `colibri.SocketId` to `colibri.Turn` ([decision 159](decisions.md)). Design §8 step
-44l adds the section that shows a host.
+A `.hosted` client or server has the same calls, without `run`, `fetch`, `port` and the bind.
+The next section shows how your program hosts one.
+
+## Host colibri on your own loop
+
+A `.hosted` `colibri.Server` or `colibri.Client` runs on your program's loop
+([decision 159](decisions.md)). The object does no I/O and reads no clock. It writes the
+operations that it needs into storage that your program owns, and your program gives back one
+completion for each. Your program is the host. It can run on libxev, on `std.Io`, on Rotor or on
+its own calls.
+
+Use `.hosted` when your program already has a loop, or when it shares one thread with other
+libraries. Use `.private` when colibri can have a thread and a loop of its own. A `.hosted`
+object needs no Rotor, so your build leaves `.rotor` out.
+
+The program [`examples/colibri_hosted.zig`](../examples/colibri_hosted.zig) hosts a server and a
+client at once, in memory, with no socket. The program
+[`examples/colibri_shared_rotor.zig`](../examples/colibri_shared_rotor.zig) hosts both on one Rotor
+loop, beside a timer of its own, and binds loopback.
+
+### What the host does
+
+1. Open the sockets before `init`: the TCP listener of a server, and each UDP socket. Name them in
+   the configuration, with what the host does on each UDP socket (`segments` and `ecn`). A family
+   with no UDP socket turns h3 off for it, and the client falls back to TCP.
+2. Call `init` with the configuration, and the router or the handler. A hosted object takes your
+   program's source of randomness, with no default.
+3. Call `turn(now_ns, &operations)`. It calls your handler or your routes, and writes the
+   operations into `operations`. Size the slice with `operations_max` and `sockets_max` of the
+   type.
+4. Do each operation. Keep a table from each `colibri.SocketId` to your own socket handle: the
+   listener's id is `Server.listener`, and the UDP sockets' ids are `Server.datagram`,
+   `Client.datagram_ipv4` and `Client.datagram_ipv6`.
+5. When an operation ends, call `complete(&completion, now_ns)` with its id and its result. A
+   receive of datagrams may complete many times with `more = true`. Its bytes are yours, and
+   colibri reads them during the call alone.
+6. Call `turn` again at once after a completion, and otherwise at the instant that the `Wait`
+   names. `.none` waits for the next completion.
+7. To stop, call `shutdown`, then `turn` and `complete` until `stopped()` holds, then `deinit`.
+   Close the sockets that your program opened before `init`.
+
+Each turn of a host reads the same. This excerpt is from `examples/colibri_hosted.zig`:
+
+```zig
+const turned = hosted_server.turn(link.now_ns(.server), &operations);
+for (operations[0..turned.operations]) |operation| try self.perform(.server, operation);
+waits[@intFromEnum(Side.server)] = turned.wait;
+```
+
+The operations are `connect`, `accept`, `receive`, `send`, `receive_datagram`, `send_datagram`,
+`close` and `cancel`. A connect opens a TCP socket of the address's family, sets TCP_NODELAY and
+connects it. A `cancel` names its target and gets no completion of its own: the target gets its
+final completion, with `.canceled`. Map your loop's errors onto `colibri.Failure`.
+
+### The rules of the host
+
+colibri halts with its message when it sees a host break a rule:
+
+1. Each operation gets exactly one final completion, with `more = false`. An operation that a
+   `cancel` or a `close` ends gets one too.
+2. colibri frees a socket only after each operation on it had its final completion. Call
+   `deinit` only after `stopped()` holds.
+3. One thread makes each call into an object. A completion from another thread goes through a
+   queue that your program owns. A `.hosted` object makes no thread check, because the check is
+   a system call on Linux.
+4. Never call `turn` or `complete` from inside `turn`. Your handler and your routes run inside
+   `turn`.
+5. After a `complete`, or after a call such as `request`, `cancel`, `set_destination` or
+   `shutdown`, call `turn` before your loop waits.
+6. `now_ns` never goes back. A completion with an id that colibri does not hold halts.
+
+### A shared Rotor loop
+
+colibri exports no adapter for a Rotor loop, because its API would then name Rotor's types. Your
+program writes one of about 140 lines. It puts its own tag in the high 32 bits of each
+`user_data`, and colibri's `OperationId` in the low 32 bits:
+
+```zig
+fn user_data(owner: Owner, kind: Kind, socket: u16, id: colibri.OperationId) u64 {
+    const tag: Tag = .{ .socket = socket, .kind = @intFromEnum(kind), .owner = owner };
+    return @as(u64, @as(u32, @bitCast(tag))) << 32 | @intFromEnum(id);
+}
+```
+
+Each event of a tick then goes to its owner by that tag. The program's timer is one more owner:
+
+```zig
+switch (tag.owner) {
+    .server => server_adapter.complete(tag, id, event),
+    .client => client_adapter.complete(tag, id, event),
+    .timer => on_timer(),
+}
+```
+
+When the timer fires, the example calls `set_destination` with ::1. The next connection goes
+to ::1, and an open connection keeps its exchanges ([decision 125](decisions.md)).
+
+### Other loops
+
+These sketches show the shape of a host on `std.Io` and on libxev. No build checks them, so they
+are text and not Zig.
+
+On `std.Io`, one task runs the turns, and each operation is a call that a future holds:
+
+```text
+loop:
+    turned = object.turn(now_ns, &operations)
+    for each operation: start the std.Io call (accept, connect, read, write, close)
+                        and keep its future by the operation's id
+    wait until a future completes, or until turned.wait.at_ns
+    for each future that completed: object.complete(&completion, now_ns)
+```
+
+On libxev, each operation is an `xev.Completion` whose callback calls `complete`:
+
+```text
+on each tick:
+    turned = object.turn(loop.now(), &operations)
+    for each operation: xev.TCP.accept / connect / read / write / close with a callback
+    the callback: object.complete(&completion, loop.now()), then mark "turn again"
+    arm an xev.Timer for turned.wait.at_ns
+```
+
+Each sketch keeps the rules above: one thread for each object, and no call into the object from
+a callback that runs inside `turn`.
+
+### Numbers
+
+Only `.private` has published numbers ([decision 32](decisions.md)). The cost of a `.hosted`
+object depends on your program's loop.
 
 ## The server
 

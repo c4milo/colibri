@@ -1,6 +1,7 @@
 //! The programs of `examples/` (decision 96): what a project that depends on colibri writes, each
 //! one importing the library modules by the names a dependent uses, and run over an in-memory link
-//! on rotor's loop. `colibri_server` alone binds a loopback port, through `colibri`. `zig build
+//! on rotor's loop. Two bind a loopback port: `colibri_server` through `colibri`, and
+//! `colibri_shared_rotor` in its own adapter of `.hosted` objects (decision 159). `zig build
 //! examples` builds and runs every one, and `zig build example-<name>` one of them.
 const std = @import("std");
 const modules = @import("modules.zig");
@@ -27,6 +28,8 @@ const examples = [_]Example{
     .{ .name = "client_stream", .tls = true },
     .{ .name = "dnssec_check", .dnssec = true },
     .{ .name = "colibri_server", .tls = true, .colibri = true },
+    .{ .name = "colibri_hosted", .tls = true, .colibri = true },
+    .{ .name = "colibri_shared_rotor", .tls = true, .colibri = true },
 };
 
 pub fn add(

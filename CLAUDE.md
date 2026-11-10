@@ -249,8 +249,9 @@ is added to the root and to the list in its test, which prints the name that dif
   58 and 83).
 - `examples/` holds programs a project that depends on colibri would write, importing the library
   modules by name. They run on Rotor's loop over an in-memory link, and every one opens no socket
-  except `examples/colibri_server.zig`, which binds loopback through `colibri`. `zig build
-  examples` runs every one (decision 96 as amended).
+  except two. `examples/colibri_server.zig` binds loopback through `colibri`, and
+  `examples/colibri_shared_rotor.zig` binds it in the program's own adapter of `.hosted`
+  objects (decision 159). `zig build examples` runs every one (decision 96 as amended).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule

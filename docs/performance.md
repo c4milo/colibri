@@ -123,6 +123,10 @@ which the owner set on 2026-10-27 (design §8 step 13h). Its changes:
 
 ## The baselines
 
+Only the `.private` kind of `colibri.Server` and `colibri.Client` has numbers (decision 159). A
+`.hosted` object runs on the program's loop, so its cost depends on that loop, and no baseline
+measures it (decision 32).
+
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a
 baseline's binary is sampled by function names to split its time, and its source is not read.
 

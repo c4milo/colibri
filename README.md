@@ -118,8 +118,24 @@ defer http_server.shutdown();
 ```
 
 `run` serves on the thread that calls it until `shutdown`. `deinit` closes each socket that `run`
-did not close, and wipes the private key and the cookie key. The `colibri` module is the one module
-that does I/O. Every other module stays sans-I/O, for a program that brings its own loop.
+did not close, and wipes the private key and the cookie key. This is the `.private` kind, on
+colibri's own loop. Every module but `colibri` stays sans-I/O.
+
+### A server and a client on your own loop
+
+With the `.hosted` kind, your program runs the loop ([decision 159](docs/decisions.md)). The
+object does no I/O: each `turn` writes the operations that it needs, and your program gives back
+a completion for each. Your build fetches no Rotor. These lines are from
+[`examples/colibri_hosted.zig`](examples/colibri_hosted.zig):
+
+```zig
+const Server = colibri.Server(.{ .tcp_connections = 1, .quic_connections = 0 }, .hosted);
+const Client = colibri.Client(.{ .quic = false, .tcp_connections = 1, .requests = 2 }, .hosted);
+```
+
+docs/usage.md's section "Host colibri on your own loop" gives the rules of a host, and
+[`examples/colibri_shared_rotor.zig`](examples/colibri_shared_rotor.zig) hosts both on one Rotor
+loop beside a timer of the program.
 
 ### A client that runs its own loop
 
