@@ -5372,6 +5372,13 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         `writeAll` of one slice through `body()` keeps that promise, and
         [#129](https://github.com/c4milo/colibri/issues/129) records the gap.
 
+     The alternatives that ruling 1 beat:
+     - Raise `response_pieces_max` and `quic_response_pieces_max` to 64. Each router entry and
+       each QUIC slot then holds more memory, and a route that flushes often still reaches the
+       limit.
+     - Keep the code, and tell a program not to flush more often than the peer acknowledges. A
+       program cannot see the acknowledgments, so it cannot follow that rule.
+
 128. **A route table's walk backs up for a method, as it backs up for a path.** Ruled by the
      owner on 2026-10-28, who chose it from three ways and then ruled on this text. Amends
      decision 122 rulings 10 and 12.
