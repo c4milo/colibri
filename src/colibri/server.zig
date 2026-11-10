@@ -53,8 +53,9 @@ pub fn ServerOf(comptime capacity: server.Capacity) type {
 
         const tcp_connections = capacity.tcp_connections;
         const Bits = std.bit_set.IntegerBitSet(tcp_connections);
-        /// The operations the loop holds in flight: an accept, for each socket a receive, a send
-        /// and a close, and the UDP socket's receive and sends.
+        /// The operations the loop holds in flight: an accept, for each socket a receive, a send,
+        /// a close and the shutdown of a staged close (decision 160), and the UDP socket's receive
+        /// and sends.
         const loop_options: rotor.Loop.Options = .{
             .operations = tcp_connections * socket_module.operations_per_socket + 1 + datagram_socket.operations,
         };

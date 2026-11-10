@@ -33,7 +33,7 @@ const Touched = std.bit_set.IntegerBitSet(constants.connections_per_worker_max);
 pub const accept_user_data: u64 = std.math.maxInt(u64);
 
 /// The operations a worker's loop holds in flight: an accept, and for each socket a receive, a
-/// send and a close.
+/// send, a close and the shutdown of a staged close (decision 160).
 const loop_options: rotor.Loop.Options = .{
     .operations = constants.connections_per_worker_max * server_socket.operations_per_socket + 1,
 };
@@ -200,7 +200,7 @@ fn on_event(worker: *Worker, event: rotor.Event, now_ns: u64) void {
 
 /// Keeps one accept in flight while a socket is free. A worker with every socket taken leaves
 /// new connections in the kernel's backlog until one frees.
-fn arm_accept(worker: *Worker) void {
+pub fn arm_accept(worker: *Worker) void {
     if (worker.accepting or free_socket(worker) == null) return;
     const taken = worker.loop.submit(&.{rotor.Operation.accept(accept_user_data, worker.listener, false)}, &.{});
     assert(taken == 1);
@@ -274,7 +274,7 @@ fn serve_entry(worker: *Worker, index: usize, now_ns: u64) void {
 }
 
 /// Submits what each socket this turn changed needs next.
-fn arm(worker: *Worker) void {
+pub fn arm(worker: *Worker) void {
     for (0..constants.connections_per_worker_max) |_| {
         const index = worker.touched.toggleFirstSet() orelse return;
         const socket = &worker.sockets[index];

@@ -65,16 +65,30 @@ pub fn end(state: anytype) void {
     state.loop.deinit();
 }
 
-/// One turn of the loop: an accept when a socket is free, one tick, what its events ask for, and
-/// then the operations each socket it changed needs next.
+/// One turn of the loop: what `prepare` does, one tick, and what `handle` does with the tick's
+/// events at the loop's instant.
 pub fn turn(run: anytype) !void {
     const state = run.server;
+    const deadline_ns = prepare(state);
+    const count = try state.loop.tick(&state.events, wait_ns(state, deadline_ns, state.loop.now_ns()));
+    handle(run, state.events[0..count], deadline_ns, state.loop.now_ns());
+}
+
+/// What a turn does before its tick: it passes a `shutdown` to the engine, and keeps an accept in
+/// flight while a socket is free. Returns the engine's soonest deadline.
+pub fn prepare(state: anytype) ?u64 {
     if (state.stopping.load(.acquire) and !state.shut_down) shut_down(state);
     arm_accept(state);
-    const deadline_ns = state.engine.deadline_ns();
-    const count = try state.loop.tick(&state.events, wait_ns(state, deadline_ns, state.loop.now_ns()));
-    const now_ns = state.loop.now_ns();
-    for (state.events[0..count]) |event| on_event(run, event, now_ns);
+    return state.engine.deadline_ns();
+}
+
+/// What a turn does with its tick's events at `now_ns`. It reads no clock. Each event goes to its
+/// socket, the engine gets the instant when `deadline_ns`, read before the tick, has passed, and
+/// each socket that the turn changed gets the operations it needs next. A test passes its own
+/// instant, so no clock decides when a deadline passes.
+pub fn handle(run: anytype, events: []const rotor.Event, deadline_ns: ?u64, now_ns: u64) void {
+    const state = run.server;
+    for (events) |event| on_event(run, event, now_ns);
     const due = if (deadline_ns) |at_ns| at_ns <= now_ns else false;
     // With no deadline due the engine has nothing to fire, so the call is skipped.
     if (due or state.undrained) {

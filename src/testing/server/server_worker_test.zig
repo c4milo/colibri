@@ -2,10 +2,13 @@
 //! `handle` with events they make and never arm a socket, so no operation is submitted and no
 //! loop runs: a peer that leaves, a deadline, a slot that serves a new socket while its last one
 //! still sends, a send that makes room, the echo of two sockets, and a read of events that stops
-//! at its bound.
+//! at its bound. The last test alone runs the worker's loop, over a socket on 127.0.0.1, and
+//! names the instant of each turn: a socket that receives again after its half-close (decision
+//! 160).
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
+const server = @import("server");
 const constants = @import("../constants.zig");
 const server_mode = @import("server_mode.zig");
 const server_socket = @import("server_socket.zig");
@@ -289,4 +292,106 @@ test "decision 160: a 405 before a body past the bound goes out whole, then the 
     try testing.expect(!socket.failed and worker.session.entries[index].attached);
     handle(worker, &.{event_of(index, .receive, 0)}, null, constants.tick_ns);
     try testing.expect(!worker.session.entries[index].attached);
+}
+
+/// How long one turn of a test's own loop waits for an event, and the turns one wait of a test
+/// takes at most. A turn returns as soon as an event is ready. A wait takes all its turns, 10 s,
+/// only when its event never comes, and the test then fails. Test-only.
+const turn_wait_ns: u64 = 10_000_000;
+const turns_max: usize = 1000;
+/// The buffers of the test client's reader and writer, and the room for an answer. Test-only.
+const client_buffer_len = 256;
+const answer_len_max = 1024;
+
+/// One turn of the worker's loop at `now_ns`, an instant that the test names. Returns the octets
+/// that the receives of the socket at `index` read in the turn. Test-only.
+fn turn_at(worker: *Worker, index: usize, now_ns: u64) !usize {
+    server_worker.arm_accept(worker);
+    const deadline_ns = worker.session.deadline_ns();
+    const count = try worker.loop.tick(&worker.events, turn_wait_ns);
+    var read: usize = 0;
+    for (worker.events[0..count]) |event| {
+        if (event.user_data == server_socket.user_data(index, .receive)) read += event.outcome() catch 0;
+    }
+    handle(worker, worker.events[0..count], deadline_ns, now_ns);
+    server_worker.arm(worker);
+    return read;
+}
+
+/// What a test waits for in a worker's socket: the end of the shutdown of its write side, a
+/// receive that read octets, the end of its connection, or its own end. Test-only.
+const Wait = enum { shut_down, read, ended, freed };
+
+/// Turns the worker's loop at `now_ns` until `wait` holds for the socket at `index`, and fails
+/// after `turns_max` turns. Test-only.
+fn turn_until(worker: *Worker, index: usize, wait: Wait, now_ns: u64) !void {
+    const socket = &worker.sockets[index];
+    for (0..turns_max) |_| {
+        const read = try turn_at(worker, index, now_ns);
+        const reached = switch (wait) {
+            .shut_down => socket.live and socket.shutdown_submitted and !socket.shutting_down,
+            .read => read > 0,
+            .ended => !worker.session.entries[index].attached,
+            .freed => !socket.live,
+        };
+        if (reached) return;
+    }
+    return error.TestUnexpectedResult;
+}
+
+/// Ends the loop of a test that ran it: no operation stays in flight. Test-only.
+fn end_loop(worker: *Worker) void {
+    worker.loop.cancel_all();
+    worker.loop.drain(&worker.events) catch {};
+    worker.loop.deinit();
+}
+
+test "decision 160: after the half-close the socket receives again, and the peer's close ends the connection" {
+    server_mode.routes_mode = true;
+    defer server_mode.routes_mode = false;
+    const worker = try fresh_worker();
+    const port = try server_worker.bind_listeners(0, 1);
+    defer rotor.sync.close_now(worker.listener);
+    try worker.loop.init(&worker.loop_memory, .{ .operations = worker.events.len });
+    defer end_loop(worker);
+    // Each turn gets this one instant, so the bound of `half_close_ns` cannot pass in the test.
+    const now_ns = constants.tick_ns;
+    const index = server_worker.free_socket(worker).?;
+    var threaded: std.Io.Threaded = .init_single_threaded;
+    const io = threaded.io();
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
+    const stream = try address.connect(io, .{ .mode = .stream });
+    var client_open = true;
+    defer if (client_open) stream.close(io);
+    var write_buffer: [client_buffer_len]u8 = undefined;
+    var writer = stream.writer(io, &write_buffer);
+    // RFC 9112 §9.3: 1 MiB is past `discard_len_max`, so the server closes in stages.
+    try writer.interface.writeAll("POST /emojis HTTP/1.1\r\nHost: a\r\nContent-Length: 1048576\r\n\r\nabc");
+    try writer.interface.flush();
+    try turn_until(worker, index, .shut_down, now_ns);
+    const socket = &worker.sockets[index];
+    try testing.expect(socket.half_closing and !socket.closing and !socket.failed);
+    // RFC 9112 §9.6: the bound runs from the `half_close`, at the one instant of this test.
+    try testing.expectEqual(now_ns + server.constants.limits.half_close_ns, worker.session.deadline_ns().?);
+    // The shutdown ran, so the read ends at the end of the server's data, and waits for no clock.
+    var read_buffer: [client_buffer_len]u8 = undefined;
+    var reader = stream.reader(io, &read_buffer);
+    var answer_room: [answer_len_max]u8 = undefined;
+    const answer = answer_room[0..try reader.interface.readSliceShort(&answer_room)];
+    try testing.expect(std.mem.startsWith(u8, answer, "HTTP/1.1 405 "));
+    try testing.expect(std.mem.endsWith(u8, answer, "\r\n\r\n"));
+    // RFC 9110 §10.1.1: the Content-Length is past the bound, so the 405 says that the server closes.
+    try testing.expect(std.mem.indexOf(u8, answer, "\r\nConnection: close\r\n") != null);
+    // RFC 9112 §9.6: the client writes on, and the socket reads the octets and then receives again.
+    try writer.interface.writeAll("more of the body");
+    try writer.interface.flush();
+    try turn_until(worker, index, .read, now_ns);
+    try testing.expect(socket.receiving and socket.unread().len == 0);
+    // The peer closes first. The receive reads its close, and the connection ends with no `close`
+    // from the engine, at the instant of the `half_close`.
+    stream.close(io);
+    client_open = false;
+    try turn_until(worker, index, .ended, now_ns);
+    try testing.expect(socket.failed and !worker.session.entries[index].closing);
+    try turn_until(worker, index, .freed, now_ns);
 }

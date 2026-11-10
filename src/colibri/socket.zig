@@ -26,8 +26,8 @@ pub const Kind = enum(u8) { receive, send, close, shutdown, connect };
 pub const kind_bits = @bitSizeOf(Kind);
 
 /// The operations a loop holds in flight for each socket: a receive, a send, a close and a
-/// shutdown. A connect is in flight before the socket receives or sends, alone or with the close that cancels
-/// it, so it takes no more room.
+/// shutdown. A connect is in flight before the socket receives or sends, alone or with the close
+/// that cancels it, so it takes no more room.
 pub const operations_per_socket: u32 = @typeInfo(Kind).@"enum".fields.len - 1;
 
 comptime {

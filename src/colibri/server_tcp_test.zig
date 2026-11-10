@@ -1,10 +1,14 @@
 //! The tests of a `colibri.Server` over TCP (design §8 step 37b): a server runs on a thread of its
 //! own on 127.0.0.1, and a client of `std.Io.Threaded` fetches from it over h11, in cleartext and
-//! over TLS. Decision 150 ruling 7 lets these tests bind loopback.
+//! over TLS. Decision 150 ruling 7 lets these tests bind loopback. The test of the staged close
+//! (decision 160) starts no thread: it runs the loop itself, a turn at a time, and names the
+//! instant of each turn.
 const std = @import("std");
 const server = @import("server");
 const testdata = @import("testdata");
 const server_module = @import("server.zig");
+const server_loop = @import("server_loop.zig");
+const socket_module = @import("socket.zig");
 const support = @import("test_support.zig");
 
 const testing = std.testing;
@@ -135,37 +139,103 @@ test "decision 150: a server with an identity answers an h11 request over TLS" {
     try testing.expect(std.mem.endsWith(u8, answer, greeting));
 }
 
-/// How long the test client waits for the end of the server's data after its answer: the server's
-/// half-close sends it at once, and its full close comes `half_close_ns`, 1 s, later.
-const half_close_wait_us: i32 = 500_000;
-const microseconds_per_second: i32 = 1_000_000;
+/// How long one turn of a test's own loop waits for an event, and the turns one wait of a test
+/// takes at most. A turn returns as soon as an event is ready. A wait takes all its turns, 10 s,
+/// only when its event never comes, and the test then fails.
+const turn_wait_ns: u64 = 10_000_000;
+const turns_max: usize = 1000;
 
-test "decision 160: a POST past the bound reads its 501 whole, then the half-close ends the data" {
+/// What a test that runs the server's loop itself passes each turn, as `run` holds it.
+const Running = struct { server: *TestServer, router: *Router, context: *void };
+
+/// Starts the loop and the engine of `test_server` on the test's thread, as `run` starts them.
+/// The test then runs each turn itself, so it names the instant of each. Test-only.
+fn start_loop() !Running {
+    try test_server.loop.init(&test_server.loop_memory, .{ .operations = test_server.events.len });
+    server_loop.reset(&test_server);
+    try test_server.engine.init(&test_server.engine_config, test_server.config.random.?, .{ .ns = test_server.now_ns, .unix_seconds = 0 });
+    return .{ .server = &test_server, .router = &router, .context = &context };
+}
+
+/// One turn of the server's loop at `now_ns`, an instant that the test names. Returns the octets
+/// that the receives of the first socket read in the turn. Test-only.
+fn turn_at(running: *Running, now_ns: u64) !usize {
+    const state = running.server;
+    const deadline_ns = server_loop.prepare(state);
+    const count = try state.loop.tick(&state.events, turn_wait_ns);
+    var read: usize = 0;
+    for (state.events[0..count]) |event| {
+        if (event.user_data == socket_module.user_data(0, .receive)) read += event.outcome() catch 0;
+    }
+    server_loop.handle(running, state.events[0..count], deadline_ns, now_ns);
+    return read;
+}
+
+/// What a test waits for in the server's first socket: the end of the shutdown of its write
+/// side, a receive that read octets, the end of its connection, or its own end.
+const Wait = enum { shut_down, read, ended, freed };
+
+/// Turns the loop at `now_ns` until `wait` holds, and fails after `turns_max` turns. Test-only.
+fn turn_until(running: *Running, wait: Wait, now_ns: u64) !void {
+    const socket = &test_server.sockets[0];
+    for (0..turns_max) |_| {
+        const read = try turn_at(running, now_ns);
+        const reached = switch (wait) {
+            .shut_down => socket.live and socket.shutdown_submitted and !socket.shutting_down,
+            .read => read > 0,
+            .ended => !test_server.entries[0].attached,
+            .freed => !socket.live,
+        };
+        if (reached) return;
+    }
+    return error.TestUnexpectedResult;
+}
+
+test "decision 160: after the half-close the socket receives again, and the peer's close ends the connection" {
     var counter: support.Counter = .{};
     router = .{};
     try test_server.init(.{ .cpu = support.cpu(), .random = counter.random() });
     defer test_server.deinit();
-    const thread = try std.Thread.spawn(.{}, serve, .{});
-    defer thread.join();
-    defer test_server.shutdown();
+    var running = try start_loop();
+    defer server_loop.end(&test_server);
+    // Each turn gets this one instant, so the bound of `half_close_ns` cannot pass in the test.
+    const now_ns = test_server.now_ns;
     var threaded: std.Io.Threaded = .init_single_threaded;
     const io = threaded.io();
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", test_server.port());
     const stream = try address.connect(io, .{ .mode = .stream });
-    defer stream.close(io);
-    // A read that waits longer than the half-close needs fails, so a full close at 1 s fails it.
-    const wait: std.posix.timeval = .{ .sec = @divTrunc(half_close_wait_us, microseconds_per_second), .usec = half_close_wait_us };
-    try std.posix.setsockopt(stream.socket.handle, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&wait));
+    var client_open = true;
+    defer if (client_open) stream.close(io);
     var write_buffer: [client_buffer_len]u8 = undefined;
     var writer = stream.writer(io, &write_buffer);
     // RFC 9112 §9.3: 1 MiB is past `discard_len_max`, so the server closes in stages.
     try writer.interface.writeAll("POST /greeting HTTP/1.1\r\nHost: a\r\nContent-Length: 1048576\r\n\r\nabc");
     try writer.interface.flush();
+    try turn_until(&running, .shut_down, now_ns);
+    const socket = &test_server.sockets[0];
+    try testing.expect(socket.half_closing and !socket.closing and !socket.failed);
+    // RFC 9112 §9.6: the bound runs from the `half_close`, at the one instant of this test.
+    try testing.expectEqual(now_ns + server.constants.limits.half_close_ns, test_server.engine.deadline_ns().?);
+    // The shutdown ran, so the read ends at the end of the server's data, and waits for no clock.
     var read_buffer: [client_buffer_len]u8 = undefined;
     var reader = stream.reader(io, &read_buffer);
     var response: [response_len]u8 = undefined;
-    const len = try reader.interface.readSliceShort(&response);
+    const answer = response[0..try reader.interface.readSliceShort(&response)];
     // RFC 9110 §15.6.2: no route names POST, so the router answers 501 at the head.
-    try testing.expect(std.mem.startsWith(u8, response[0..len], "HTTP/1.1 501"));
-    try testing.expect(std.mem.endsWith(u8, response[0..len], "\r\n\r\n"));
+    try testing.expect(std.mem.startsWith(u8, answer, "HTTP/1.1 501"));
+    try testing.expect(std.mem.endsWith(u8, answer, "\r\n\r\n"));
+    // RFC 9110 §10.1.1: the Content-Length is past the bound, so the 501 says that the server closes.
+    try testing.expect(std.mem.indexOf(u8, answer, "\r\nConnection: close\r\n") != null);
+    // RFC 9112 §9.6: the client writes on, and the socket reads the octets and then receives again.
+    try writer.interface.writeAll("more of the body");
+    try writer.interface.flush();
+    try turn_until(&running, .read, now_ns);
+    try testing.expect(socket.receiving and socket.unread().len == 0);
+    // The peer closes first. The receive reads its close, and the connection ends with no `close`
+    // from the engine, at the instant of the `half_close`.
+    stream.close(io);
+    client_open = false;
+    try turn_until(&running, .ended, now_ns);
+    try testing.expect(socket.failed and !test_server.entries[0].closing);
+    try turn_until(&running, .freed, now_ns);
 }
