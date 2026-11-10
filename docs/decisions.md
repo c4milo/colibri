@@ -6116,6 +6116,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         - Ruling 7 stays for `.private`. The tests of `.hosted` run on an in-memory host and bind
           no socket.
 
+     14. Amended by decision 159 on 2026-11-10, for ruling 12, as decisions 156 and 159 amended
+         it. `colibri` makes its private loop at the first `run` or `fetch`, not at `init`. So
+         `init` may run on another thread than `run`, and `fetch`, `run` and `deinit` run on one
+         thread. This replaces the last sentence of item 12 and the sentence of item 13 that
+         keeps the loop at `init`.
+
      Alternatives that lost:
      - A separate package on colibri and Rotor. The owner wants the shape in colibri itself.
      - Wait for Rotor's adapter before any `colibri` (ruling 6). The dependent needs `colibri` now,
@@ -6649,6 +6655,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        longer apply to colibri.
      - Decision 159 reverses two alternatives that lost below: "`start`, `on_events` and
        `wait_ns`" and "Tags in `user_data`". Its text gives the reasons.
+
+     Amended a ninth time, by decision 159 as the owner amended it on 2026-11-10:
+     - Ruling 9: `init` may run on another thread than the loop's, because colibri makes its
+       private loop at the first `run` or `fetch`, not at `init` (decision 159, ruling 5 of
+       2026-11-10).
+     - Ruling 11: `set_destination` takes `*const client.Destination` (ruling 8 of 2026-11-10).
+     - Ruling 12: `cancel(id)` stays on `.private`. A hosted client's `cancel(id, now_ns)` takes
+       the host's instant (ruling 1 of 2026-11-10).
+     - Ruling 14: the examples cannot name the variable `client`, because `client` names the
+       module that the root re-exports. `examples/colibri_hosted.zig` and
+       `examples/colibri_shared_rotor.zig` name it `hosted_client`, and
+       `examples/colibri_server.zig` names it `http_client`.
 
      Alternatives that lost:
      - Tags in `user_data`, with `LoopIds` and `Host`, in the first draft of this decision. Each
@@ -7572,6 +7590,78 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         `give_back_buffer`.
      9. docs/performance.md states that only `.private` has numbers (decision 32). A host with no
         GSO, GRO or ECN serves h3 at a lower rate.
+
+     Amended by the owner on 2026-11-10, after the two reviews of step 44. The owner's rulings:
+     1. Time on `.hosted` is a value that the host passes (non-negotiable 3).
+        - A hosted `init` takes `now`, a `server.Timestamp`, in its configuration. A server's
+          engine starts at it. A client's Unix seconds count from it, and its run starts at it.
+        - A hosted `Client.cancel(id, now_ns)` takes the host's instant. `.private` keeps
+          `cancel(id)`, at the instant of the last turn of colibri's loop.
+     2. `Completion.datagram.bytes` is `[]u8`, not `[]const u8`. The host lends its buffer for
+        one `complete`, and colibri may write into it, because QUIC removes its packet
+        protection in place (RFC 9001 §5). docs/usage.md tells hosts.
+     3. Some fields of the hosted configurations have no default, and they stay so: `cpu`
+        (decision 97), `random`, `destination`, `pool` and `now`. No value is right to assume
+        for any of them. They are the exceptions to "Each field has a default except `random`"
+        above. The ruling names `cpu`, `host`, `pool` and `unix_seconds`: no hosted
+        configuration has a field `host`, and ruling 1 puts `unix_seconds` into `now`.
+     4. `Client.deinit` after a `fetch` waits for each exchange of `request` to end. Only the
+        pool's deadlines bound the wait, and colibri adds no limit. docs/usage.md says so.
+     5. The `.private` loop is made at the first `run` or `fetch`, not at `init`. So `init` may
+        run on another thread than `run`. This amends decision 150 ruling 12, as decisions 156
+        and 159 amended it, and the sentence "The private loop is still made at `init`" above.
+     6. A handler or a route may run inside a `complete` that gives colibri a datagram, while
+        the host lends the bytes. Neither may call `turn` or `complete`. This replaces "It calls
+        no handler and writes no operation" in the API above.
+     7. `Server` exports `InitError` on both kinds, on its names list. A hosted server's `init`
+        returns `identity.LoadError || server.StartError`, in place of "`server.StartError`
+        alone" in the error sets above. `Client` names its `InitError` on both kinds already.
+     8. `colibri.Client.set_destination` and `client.ConnectionPool.set_destination` take
+        `*const client.Destination`, because the argument is over 16 bytes (TigerStyle). The
+        change breaks each caller, in v0.16.0.
+     9. The host contract closes a write side, so a hosted server closes an h11 connection in
+        stages too (decision 160).
+        - `Operation.Kind` gains `shutdown_send: struct { socket: SocketId }`. The host shuts
+          down the write side of the socket, as shutdown(2) with SHUT_WR does. The receive on
+          that socket goes on, and a `close` follows.
+        - `Completion.Result` gains `shut_down`.
+        - colibri's Rotor adapter does it with Rotor's shutdown of the send side. The bridge of
+          the replay of 2026-11-10 goes: the adapter's own tag kind, `take_half_close`,
+          `half_closed`, and the operations that the adapter held beside the driver's.
+
+     The session's decisions of 2026-11-10 on the rest of the reviews' list:
+     - A failure or a cancel of a `receive_datagram` ends it with `more = false`. Only a
+       `.datagram` result may carry `more = true`. The driver asserts it, and host.zig and
+       docs/usage.md state it.
+     - colibri's adapter puts its own tag in the high 32 bits of `user_data`, and the
+       `OperationId` in the low 32 bits. A host may do the same. This replaces "`user_data` is
+       the `OperationId`" above.
+     - The source part of `rotor-import` reads the import with pepegrillo's `imported_path`, not
+       with `forbidden_references`. `const r = @import("rotor")` passes `forbidden_references`,
+       which reads chains such as `rotor.Loop`.
+     - The `io` exemption covers 11 exact paths: the five files of the adapter, its two test
+       files, and four loopback tests of `.private` that open sockets. pepegrillo's `Scope`
+       names exact paths, so a new file of the adapter joins the list.
+     - The adapter of `examples/colibri_shared_rotor.zig` is about 140 lines, not 120. The
+       generic type scored 41 on cognitive complexity, so it became free functions.
+     - The examples name the variable `hosted_client`, because `client` names the module that
+       the root re-exports. `examples/colibri_server.zig` names it `http_client`. This amends
+       decision 156 ruling 14.
+     - A hosted server's `init` returns `error.IdentityInvalid` too, through
+       `identity.LoadError` (ruling 7). A hosted client's `init` returns `client.StartError`
+       alone: 44g gave it a `client.Destination`, so it parses no host.
+     - A hosted server names its h3 alternative in `engine.h3_alternative` itself, because its
+       host knows the port and colibri does not (RFC 7838 §3).
+     - A hosted client's `RunError` and `FetchError` are `error{}`.
+     - A `cancel` operation carries its target's id and gets no completion of its own.
+     - `.private` keeps the error at `init` when the system refuses the UDP socket of the
+       destination's family. The socket of the other family may fail with no error, and an
+       open of QUIC to that family falls back to TCP (decision 156 ruling 13).
+     - On `.hosted`, the pool's ECN and segments hold only when each UDP socket that the host
+       opened has them, because `set_destination` can change the family. The session's first
+       text said the `Features` of the destination's family.
+     - Rotor's decision 33, proposed, adds a call `wait_until` to Rotor's core. colibri does
+       not use it.
 
 160. **The h11 server reads the rest of a body that its response did not wait for, or closes in
      stages.** Ruled by the owner on 2026-11-09, for v0.16.0 (design §8 step 47). connectrpc's

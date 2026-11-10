@@ -14354,8 +14354,10 @@ library.
            - It gives the end of each shutdown to `server_loop.half_closed`.
            - It holds one more operation for each TCP socket.
 
-           A hosted server, which 44d adds, does no half-close. Its connection closes in one step
-           at the bound of `half_close_ns`, or when the peer closes.
+           A hosted server, which 44d adds, did no half-close until the owner's ruling 9 of
+           2026-11-10. Its connection closed in one step at the bound of `half_close_ns`, or when
+           the peer closed. Ruling 9 replaces this bridge with the operation `shutdown_send` (the
+           rulings of 2026-11-10, below).
          - Mutations of that half-close, each against `zig build test-colibri`, all CAUGHT: no
            shutdown taken; its end not given to the socket; the pump drops `half_close`; no
            receive after the half-close; the end of a run reads the shutdown's tag as an
@@ -14652,6 +14654,68 @@ library.
       `undrained` in 44g, and a loop made twice in 44h.
     - Not run: the bench on the judge, which owes `h2-many` and `h3-many` for 44c to 44h; the
       checks of `tools/ci.sh` that need Linux, Docker or the judge; and the TLA+ models.
+  - **The owner's rulings of 2026-11-10**, after the two reviews of step 44. Decision 159 as
+    amended on that day lists them, with the session's decisions on the rest of the reviews'
+    list. They replace these sentences of this entry:
+    - "Each field has a default except `random`": `cpu`, `now`, and a client's `destination`
+      and `pool` have none too (ruling 3).
+    - "`pool`, `random` and `unix_seconds` stay": a hosted client takes `now`, a
+      `server.Timestamp`, in place of `unix_seconds` (ruling 1).
+    - "On `.private`, `init` binds, makes the loop": the loop is made at the first `run` or
+      `fetch` (ruling 5).
+    - "It calls no handler and writes no operation": a handler or a route may run inside a
+      `complete` that gives a datagram (ruling 6).
+    - "`.hosted`: `init` returns `server.StartError`": a hosted server returns
+      `identity.LoadError || server.StartError`, and names it `InitError` (ruling 7).
+    - "`user_data` is the `OperationId`": the adapter puts its own tag in the high 32 bits.
+    - "A hosted server, which 44d adds, does no half-close" (44c): ruling 9 replaces the bridge.
+  - **The commits of the rulings**, on the replay of step 44 onto main, on macOS arm64 (kqueue)
+    with Zig 0.16.0, on 2026-11-10:
+    - `46848f28` `feat(colibri)!` (ruling 9): `Operation.Kind` gains `shutdown_send` and
+      `Completion.Result` gains `shut_down`. The driver writes `shutdown_send` once a staged
+      close has sent its response, keeps its receive, and closes at the engine's close. The
+      Rotor adapter submits Rotor's shutdown of the send side, and the bridge of the replay
+      goes: the adapter's own tag kind, `take_half_close`, `half_closed`, and the operations
+      that the adapter held beside the driver's. The fake hosts and both examples handle the
+      operation.
+      - Mutations, against `zig build test-colibri`, each CAUGHT: `close` in place of
+        `shutdown_send` (the loopback test over the Rotor adapter and three fake-host tests);
+        no receive after it; Rotor's shutdown of both sides; its completion dropped;
+        `finished()` ignores it.
+      - `tools/h11_server_interop.sh`, in cleartext and with `--tls`, returned 0 on `46848f28`
+        and on `a3a78431`. It runs `zig-out/bin/http-server`, the test-only server of
+        `src/testing/`, whose own Rotor loop does the half-close. That server does not run
+        colibri's driver, so a mutation of the driver cannot fail the script. The loopback test
+        of `server_tcp_test.zig` is the check of the driver over a real socket.
+    - `469538e4` `feat(server)!`
+      ([#131](https://github.com/c4milo/colibri/issues/131)): `server.Instant{ ns,
+      unix_seconds }` becomes `server.Timestamp{ unix_seconds, monotonic_ns }`, on the `server`
+      root's list. Decision 158's amendment 19 records it. The rename adds no check, so no
+      mutation ran.
+    - `97d409c6` `feat(colibri)!` (ruling 1): a hosted `init` takes `now`, a `server.Timestamp`,
+      and a hosted `cancel` takes `now_ns`. The client's run starts at `init` on `.hosted`, so
+      its first `turn` no longer starts it.
+      - Mutations, against `zig build test-colibri`, each CAUGHT: the server's engine started at
+        0; the client's run started at 0; its Unix seconds 0; a hosted cancel at the instant of
+        the last turn; a `.private` cancel at instant 0. The last one needed a new test, which
+        drives a `.private` client's driver from a fake host.
+    - `91cefc09` `feat(colibri)` (ruling 7): `Server.InitError`, on the `Server` list of both
+      kinds.
+      - Mutations, against `zig build test-colibri`, each CAUGHT: `InitError` removed (the
+        compile of its test); the hosted set as `server.StartError` alone.
+    - `a3a78431` `feat(client)!` (ruling 8): `colibri.Client.set_destination` and
+      `client.ConnectionPool.set_destination` take `*const client.Destination`. The change adds
+      no check. Mutation, against `zig build test-client`: the pool's call by value, CAUGHT by
+      the compile of each caller.
+    - This commit, `docs`: decision 159's amendment, decision 150's item 14, decision 156's
+      ninth amendment, this record, and docs/usage.md's rules of the host.
+    - Before each code commit, each of these returned 0: `zig fmt --check build.zig bench build
+      examples src tools`, `zig build lint`, `zig build test`, `zig build examples`,
+      `tools/doc_snippets.sh`, `tools/consumer_check.sh`, `zig build colibri-hosted-check`,
+      `zig build colibri-loop-check` and `zig build bench-memory`, whose table did not change.
+      `zig build lint-commits` returned 0 after each commit.
+    - Not run: the bench on the judge, which still owes `h2-many` and `h3-many` for 44c to 44h;
+      the checks of `tools/ci.sh` that need Linux or the judge; and the TLA+ models.
 - **Step 45 — colibri's public API in Zig's idioms, proposed 2026-11-07.** [Decision
   158](decisions.md). TigerStyle rules first, and Zig 0.16's std rules where TigerStyle says
   nothing. The step changes names and signatures, and no behaviour on the wire. It ships in

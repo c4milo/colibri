@@ -307,8 +307,11 @@ the count of bytes of the body. These rules apply to `fetch`:
   that ended before its final head has no status.
 - The handler gets each other exchange that ends while `fetch` runs.
 - The first `fetch` makes the loop, and the loop stays made between fetches. `deinit` stops it:
-  it calls `shutdown`, and runs the loop until each connection has closed.
-- Call `fetch`, `run` and `deinit` on one thread.
+  it calls `shutdown`, and runs the loop until each exchange of `request` has ended and each
+  connection has closed. Only the pool's deadlines, which its `timeouts` set, bound that wait
+  ([decision 159](decisions.md) as amended).
+- Call `fetch`, `run` and `deinit` on one thread. `init` makes no loop, so it may run on another
+  thread.
 - A handler never calls `fetch`. Such a call halts with colibri's message.
 - When `fetch` returns an error of the loop, its exchange ended with no result. Then call
   `deinit`.
@@ -347,6 +350,7 @@ off. colibri cancels the connect at its deadline itself, so the largest value ho
 until the pool closes it.
 
 A `.hosted` client or server has the same calls, without `run`, `fetch`, `port` and the bind.
+Its `init` takes `now`, and a hosted client's `cancel` takes `now_ns`.
 The next section shows how your program hosts one.
 
 ## Host colibri on your own loop
@@ -372,9 +376,10 @@ loop, beside a timer of its own, and binds loopback.
    the configuration, with what the host does on each UDP socket (`segments` and `ecn`). A family
    with no UDP socket turns h3 off for it, and the client falls back to TCP.
 2. Call `init` with the configuration, and the router or the handler. A hosted object takes your
-   program's source of randomness and `now`, a `server.Timestamp`, each with no default. `now`
-   holds two readings of the instant of `init`: the Unix seconds and your loop's monotonic
-   nanoseconds, which each later call passes.
+   program's source of randomness and `now`, a `server.Timestamp`. `now` holds two readings of
+   the instant of `init`: the Unix seconds and your loop's monotonic nanoseconds, which each
+   later call passes. These fields have no default, because no value is right to assume:
+   `random` and `now`, a server's `cpu`, and a client's `destination` and `pool`.
 3. Call `turn(now_ns, &operations)`. It calls your handler or your routes, and writes the
    operations into `operations`. Size the slice with `operations_max` and `sockets_max` of the
    type.
@@ -385,7 +390,8 @@ loop, beside a timer of its own, and binds loopback.
    receive of datagrams may complete many times with `more = true`, but only with a `.datagram`
    result: a failure or a cancel ends the receive, with `more = false`. You lend the datagram's
    bytes for the call alone. colibri may write them, because QUIC removes its packet protection in
-   place (RFC 9001 §5), and keeps no pointer to them.
+   place (RFC 9001 §5), and keeps no pointer to them. Your handler or your routes may run inside
+   that call.
 6. Call `turn` again at once after a completion, and otherwise at the instant that the `Wait`
    names. `.none` waits for the next completion.
 7. To stop, call `shutdown`, then `turn` and `complete` until `stopped()` holds, then `deinit`.
@@ -400,9 +406,15 @@ waits[@intFromEnum(Side.server)] = turned.wait;
 ```
 
 The operations are `connect`, `accept`, `receive`, `send`, `receive_datagram`, `send_datagram`,
-`close` and `cancel`. A connect opens a TCP socket of the address's family, sets TCP_NODELAY and
-connects it. A `cancel` names its target and gets no completion of its own: the target gets its
-final completion, with `.canceled`. Map your loop's errors onto `colibri.Failure`.
+`shutdown_send`, `close` and `cancel`. These rules apply to them:
+
+- A `connect` opens a TCP socket of the address's family, sets TCP_NODELAY and connects it.
+- A `shutdown_send` closes the write side of a TCP socket, as shutdown(2) with `SHUT_WR` does,
+  and completes with `.shut_down`. The receive on the socket goes on, and a `close` follows. A
+  server closes an h11 connection in stages with it ([decision 160](decisions.md)).
+- A `cancel` names its target and gets no completion of its own: the target gets its final
+  completion, with `.canceled`.
+- Map your loop's errors onto `colibri.Failure`.
 
 ### The rules of the host
 
@@ -419,7 +431,8 @@ colibri halts with its message when it sees a host break a rule:
    run inside `turn`, and inside a `complete` that gives colibri a datagram.
 5. After a `complete`, or after a call such as `request`, `cancel`, `set_destination` or
    `shutdown`, call `turn` before your loop waits.
-6. `now_ns` never goes back. A completion with an id that colibri does not hold halts.
+6. `now_ns` never goes back: in `turn`, in `complete`, in a hosted client's `cancel`, and from
+   the `now` of `init`. A completion with an id that colibri does not hold halts.
 
 ### A shared Rotor loop
 
