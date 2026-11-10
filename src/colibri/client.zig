@@ -261,8 +261,10 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         /// (decision 125). The port stays the origin's (RFC 9110 §4.3.1). The program keeps the
         /// addresses alive until the next `set_destination` or `deinit`. It calls
         /// `set_destination` on the object's thread, as it calls `request`. An open of QUIC to a
-        /// family with no UDP socket ends, and the pool opens TCP (decision 156 ruling 13).
-        pub fn set_destination(self: *Self, destination: client.Destination) void {
+        /// family with no UDP socket ends, and the pool opens TCP (decision 156 ruling 13). The
+        /// pool copies `destination`, which is over 16 octets, so the call takes a pointer
+        /// (TigerStyle, decision 159 as amended on 2026-11-10).
+        pub fn set_destination(self: *Self, destination: *const client.Destination) void {
             // The pool reports no event for the call, and each turn reads the pool's events
             // first, so `undrained` stays as it is.
             self.pool.set_destination(destination);

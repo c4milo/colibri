@@ -289,7 +289,7 @@ fn quic_after_set_values(over_first: bool) !pool_module.Address {
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     if (over_first) try pump(rounds_to_close);
-    pool.set_destination(.{ .addresses = &new_addresses, .port = https_port });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = https_port });
     pool.transport_closed(pool_support.connection_of(pool, .tcp));
     try pump(rounds_to_close);
     try testing.expectEqual(.refused, exchanges[0].response.result);
@@ -318,7 +318,7 @@ test "decision 125 ruling 8: a QUIC open still owed when set_destination comes g
     // The pool asks for QUIC, and the program has not read the `open` yet.
     pool_events.plan(pool, quic_support.now_ns);
     try testing.expect(pool.quic_link.open_owed);
-    pool.set_destination(.{ .addresses = &new_addresses, .port = https_port });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = https_port });
     try collect();
     const open = opened(0).?;
     try testing.expectEqual(Transport.quic, open.transport);

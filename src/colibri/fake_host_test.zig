@@ -363,7 +363,7 @@ test "decision 156 ruling 11: a connection that opens after set_destination goes
     try testing.expectEqual(1, handler.finished);
     const close = (find(operations[0..turned.operations], .close) orelse return error.OperationMissing);
     test_client.complete(&.{ .id = close.id, .result = .closed }, 0);
-    test_client.set_destination(fixture.loopback_ipv6_on(1));
+    test_client.set_destination(&fixture.loopback_ipv6_on(1));
     try handler.request();
     turned = test_client.turn(0, &operations);
     const second = (find(operations[0..turned.operations], .connect) orelse return error.OperationMissing);
@@ -387,7 +387,7 @@ test "decision 125: an open connection keeps its exchange after set_destination"
     turned = test_client.turn(0, &operations);
     const send = (find(operations[0..turned.operations], .send) orelse return error.OperationMissing);
     const receive = (find(operations[0..turned.operations], .receive) orelse return error.OperationMissing);
-    test_client.set_destination(fixture.loopback_ipv6_on(1));
+    test_client.set_destination(&fixture.loopback_ipv6_on(1));
     test_client.complete(&.{ .id = send.id, .result = .{ .sent = @intCast(send.kind.send.bytes.len) } }, 0);
     @memcpy(receive.kind.receive.buffer[0..empty_response.len], empty_response);
     test_client.complete(&.{ .id = receive.id, .result = .{ .received = empty_response.len } }, 0);
@@ -407,7 +407,7 @@ test "decision 156 ruling 13: after set_destination to a family with no UDP sock
     var handler: HostedHandler = .{};
     const pool = fixture.pool_config(.{ .prefer = .quic }, true);
     try test_client.init(&.{ .destination = fixture.loopback(fixture.https_port), .pool = pool, .random = counter.random(), .now = started, .datagram = .{ .ipv4 = .{} } }, &handler);
-    test_client.set_destination(fixture.loopback_ipv6_on(fixture.https_port));
+    test_client.set_destination(&fixture.loopback_ipv6_on(fixture.https_port));
     try handler.request();
     // A turn with room for one operation: the open of QUIC to ::1 ended before the TCP connect
     // was written, so the connect is the one operation.

@@ -239,7 +239,7 @@ fn on_finished(ended: client.Finished) !void {
     if (finished == first_round) {
         // A later DNS answer names another address. Each connection that opens from now on goes
         // to it, and each open connection keeps its exchanges.
-        pool.set_destination(.{ .addresses = &second_addresses, .port = server_port });
+        pool.set_destination(&.{ .addresses = &second_addresses, .port = server_port });
         try request(second_round);
     }
     if (finished == requests_count) pool.shutdown();

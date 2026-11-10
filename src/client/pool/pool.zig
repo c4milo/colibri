@@ -309,9 +309,11 @@ pub fn ConnectionPool(comptime capacity: Capacity) type {
         /// exchanges run (decision 125). Each connection that opens after the call goes to
         /// `values.addresses`, from the first, and each open connection keeps its exchanges. The
         /// port stays the origin's. The pool keeps the h3 alternative it knows unless
-        /// `values.alternative` names one. The pool reads `values.addresses` until the next
-        /// `set_destination` or `init`.
-        pub fn set_destination(pool: *Self, values: Destination) void {
+        /// `values.alternative` names one. The pool copies `values`, and reads
+        /// `values.addresses` until the next `set_destination` or `init`. `values` is over 16
+        /// octets, so the call takes a pointer (TigerStyle, decision 159 as amended on
+        /// 2026-11-10).
+        pub fn set_destination(pool: *Self, values: *const Destination) void {
             pool_calls.set_destination(pool, values);
         }
 

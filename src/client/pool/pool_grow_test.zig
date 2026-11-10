@@ -240,7 +240,7 @@ test "decision 125 ruling 8: a connection that opens after set_destination goes 
     try collect();
     const one = find(.open, 0).?.open;
     try expect_to(one, &loopback);
-    pool.set_destination(.{ .addresses = &new_addresses, .port = http_port });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port });
     _ = try pool.request(&second.request, &second.response);
     try collect();
     try expect_to(find(.open, 1).?.open, &second_host);
@@ -258,7 +258,7 @@ test "decision 125 ruling 8: set_destination restarts the address list at its fi
     try collect();
     // The connect fails, so the next connection would try the next address.
     pool.transport_closed(find(.open, 0).?.open.connection);
-    pool.set_destination(.{ .addresses = &new_addresses, .port = http_port });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port });
     try collect();
     try expect_to(find(.open, 1).?.open, &second_host);
 }
@@ -269,7 +269,7 @@ test "decision 125 ruling 8: a connect to an old address that fails after set_de
     _ = try pool.request(&first.request, &first.response);
     starts = false;
     try collect();
-    pool.set_destination(.{ .addresses = &new_addresses, .port = http_port });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port });
     pool.transport_closed(find(.open, 0).?.open.connection);
     try collect();
     try expect_to(find(.open, 1).?.open, &second_host);
@@ -295,7 +295,7 @@ test "decision 125 ruling 8: an open still owed when set_destination comes goes 
         const reported = received.event orelse continue;
         if (reported == .close) break;
     } else return error.TestUnexpectedResult;
-    pool.set_destination(.{ .addresses = &new_addresses, .port = http_port });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port });
     try collect();
     try expect_to(find(.open, 2).?.open, &second_host);
 }
@@ -333,9 +333,9 @@ test "decision 125: two connections to one address that both fail skip no other 
 test "decision 125 ruling 8: set_destination keeps the h3 alternative unless the values name one" {
     config = .{ .authority = support.authority, .protocols = .{ .h2 = false, .h3 = false }, .tcp_connections = two_slots.tcp_connections, .requests = two_slots.requests };
     try pool.init(&pool_memory, &config, .{ .addresses = &addresses, .port = http_port, .alternative = learned }, null);
-    pool.set_destination(.{ .addresses = &new_addresses, .port = http_port });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port });
     try testing.expectEqual(learned, pool.alternative().?);
-    pool.set_destination(.{ .addresses = &new_addresses, .port = http_port, .alternative = named });
+    pool.set_destination(&.{ .addresses = &new_addresses, .port = http_port, .alternative = named });
     try testing.expectEqual(named, pool.alternative().?);
 }
 

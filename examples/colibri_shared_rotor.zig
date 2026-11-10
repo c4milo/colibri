@@ -348,7 +348,7 @@ fn pass() !void {
 /// any, would keep its exchanges (decision 125).
 fn on_timer() void {
     timer = .fired;
-    hosted_client.set_destination(.{ .addresses = &ipv6_addresses, .port = server_port });
+    hosted_client.set_destination(&.{ .addresses = &ipv6_addresses, .port = server_port });
     request(1) catch |failure| std.debug.panic("request failed: {t}", .{failure});
 }
 

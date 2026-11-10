@@ -1548,7 +1548,7 @@ alternative it learned, unless the new values name one.
 ```zig
         // A later DNS answer names another address. Each connection that opens from now on goes
         // to it, and each open connection keeps its exchanges.
-        pool.set_destination(.{ .addresses = &second_addresses, .port = server_port });
+        pool.set_destination(&.{ .addresses = &second_addresses, .port = server_port });
 ```
 
 A program sizes its memory and bounds its loops with two limits of `client.constants` and one

@@ -72,12 +72,12 @@ pub fn init(pool: anytype, memory: []align(pool_module.pool_memory_alignment) u8
     pool.closed_reported = false;
 }
 
-pub fn set_destination(pool: anytype, values: Destination) void {
+pub fn set_destination(pool: anytype, values: *const Destination) void {
     assert(values.addresses.len > 0);
     // RFC 9110 §4.3.1: the port is part of the origin, and a pool carries one origin's exchanges.
     assert(values.port == pool.values.port);
     const known = pool.values.alternative;
-    pool.values = values;
+    pool.values = values.*;
     if (values.alternative == null) pool.values.alternative = known;
     pool.quic_address_index = 0;
     pool.tcp_address_index = 0;
