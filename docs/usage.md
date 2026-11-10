@@ -557,10 +557,16 @@ bytes the writer holds. When the memory has no room, a call fails, and a struct 
   `error.WriteFailed` and writes nothing. The route writes the slice again.
 - A `print` can write part of a message and then fail, and so can a write through a middleware's
   wrapper. The route does not write that message again.
-- A `flush()` that fails with `error.WriteFailed` keeps its bytes in the writer, and the writer
-  sends them later. The route does not write them again. Over h3 the writer holds at most
-  `server.constants.limits.response_pieces_max` runs that the client has not acknowledged. So a
-  route that flushes each small message finds this limit first.
+- Each `flush()` makes one run of the bytes the writer holds. The writer has
+  `server.constants.limits.response_pieces_max` slots for the runs that the engine has not
+  released. When each slot holds a run, a `flush()` adds its bytes to the newest run. So a route
+  can flush each small message, and only the memory bounds the bytes in flight.
+- While each slot holds a run, the writer does not go back to the start of the memory. A write
+  that finds no room after the newest run fails, and the route writes it again.
+- When each slot holds a run and the newest is a run of `write_kept`, that run takes no bytes. A
+  `flush()` then keeps its bytes in the writer, and the writer sends them once a slot is free.
+  That `flush()` fails with `error.WriteFailed` only when the memory is full too. The route does
+  not write its bytes again.
 - `trailers` returns `error.NoSpaceLeft`, and the route calls it again.
 
 Over h3, a response sends at most about `response_bytes` in each round trip. On a path with loss,

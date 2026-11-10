@@ -14,6 +14,11 @@ const testing = std.testing;
 const calls_max = 32;
 /// Octets of response memory each test gives. Test-only.
 const memory_len = 256;
+/// Octets of the longest body a test writes, which is longer than its memory when the writer
+/// writes again over the runs the engine released. Test-only.
+const stream_len_max = 512;
+/// The runs a writer has slots for. Test-only.
+const slots = constants.limits.response_pieces_max;
 
 const Call = union(enum) {
     head: event.Response,
@@ -24,10 +29,13 @@ const Call = union(enum) {
 /// An engine that records each call. `room` is how many body bytes the next `write_body`
 /// takes, `head_blocked` refuses the next `respond`, and `failure` fails the next call. It reads
 /// each run of body bytes in place, as h3 does, so it holds `held` octets until a test releases
-/// them (design §8 step 46).
+/// them (design §8 step 46). `stream` is a copy of each body byte at the call that took it, since
+/// the writer writes again over a run the test released.
 const Recorder = struct {
     calls: [calls_max]Call = undefined,
     count: usize = 0,
+    stream: [stream_len_max]u8 = undefined,
+    stream_len: usize = 0,
     room: usize = std.math.maxInt(usize),
     head_blocked: bool = false,
     failure: ?connection_errors.SendError = null,
@@ -46,6 +54,8 @@ const Recorder = struct {
         const taken = @min(recorder.room, body.bytes.len);
         recorder.room -= taken;
         recorder.held += taken;
+        @memcpy(recorder.stream[recorder.stream_len..][0..taken], body.bytes[0..taken]);
+        recorder.stream_len += taken;
         recorder.add(.{ .body = .{ .bytes = body.bytes[0..taken], .end = body.end and taken == body.bytes.len } });
         return taken;
     }
@@ -69,17 +79,13 @@ const Recorder = struct {
 
     /// Every body byte the recorder took, in order, and whether the last call ended the body.
     fn body_of(recorder: *const Recorder, out: []u8) struct { []const u8, bool } {
-        var len: usize = 0;
         var ended = false;
         for (recorder.calls[0..recorder.count]) |call| switch (call) {
-            .body => |body| {
-                @memcpy(out[len..][0..body.bytes.len], body.bytes);
-                len += body.bytes.len;
-                ended = body.end;
-            },
+            .body => |body| ended = body.end,
             else => {},
         };
-        return .{ out[0..len], ended };
+        @memcpy(out[0..recorder.stream_len], recorder.stream[0..recorder.stream_len]);
+        return .{ out[0..recorder.stream_len], ended };
     }
 };
 
@@ -317,4 +323,161 @@ test "design §8 step 46: trailers with no room send the body first, and go once
     const last = fixture.recorder.calls[fixture.recorder.count - 1];
     try testing.expectEqualStrings("v" ** 20, last.trailers[0].value);
     try testing.expect(internal.complete(response));
+}
+
+test "design §8 step 46: a flush with a run in every slot adds its bytes to the newest run" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    // The engine takes no content, so each flush leaves a run in a slot.
+    fixture.recorder.room = 0;
+    for (0..slots) |index| {
+        try writer.writeAll(&.{ 'a' + @as(u8, @intCast(index)), '.' });
+        try writer.flush();
+    }
+    try testing.expectEqual(slots, response.piece_count);
+    // The engine takes fourteen runs and one octet of the next, and holds each in place.
+    fixture.recorder.room = 2 * (slots - 2) + 1;
+    try testing.expect(try internal.resume_writes(response) == false);
+    // No slot is free. The engine took none of the newest run, so that run takes the bytes.
+    try writer.writeAll("qr");
+    try writer.flush();
+    try testing.expectEqual(0, writer.end);
+    try testing.expectEqual(slots, response.piece_count);
+    try testing.expect(!response.cut_owed);
+    // The engine takes the run before the newest, and one octet of the newest. The run still
+    // takes bytes at its end, and the octet the engine took stays where it was.
+    fixture.recorder.room = 2;
+    try testing.expect(try internal.resume_writes(response) == false);
+    const calls = fixture.recorder.count;
+    try writer.writeAll("st");
+    try writer.flush();
+    try testing.expectEqual(0, writer.end);
+    try testing.expectEqual(slots, response.piece_count);
+    try testing.expectEqualStrings("p", fixture.recorder.calls[calls - 1].body.bytes);
+    // The rest of the run goes in one call, in the order the program wrote it.
+    fixture.recorder.room = std.math.maxInt(usize);
+    try testing.expect(try internal.resume_writes(response) == false);
+    try testing.expectEqual(calls + 1, fixture.recorder.count);
+    try testing.expectEqualStrings(".qrst", fixture.recorder.calls[calls].body.bytes);
+    try response.end();
+    var out: [memory_len]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.qrst", body);
+    try testing.expect(ended);
+}
+
+test "design §8 step 46: a flush stays in the writer while the engine holds a run in every slot" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    // The engine takes each run whole and holds it in place.
+    for (0..slots) |_| {
+        try writer.writeAll("abcd");
+        try writer.flush();
+    }
+    const calls = fixture.recorder.count;
+    // No slot is free, and the engine took the newest run, which must stay as it is. The flush
+    // keeps its bytes with no error, and the writer waits for a release.
+    try writer.writeAll("efgh");
+    try writer.flush();
+    try testing.expectEqual(4, writer.end);
+    try testing.expectEqual(1, fixture.recorder.release_waits);
+    try testing.expect(internal.waiting(response));
+    try testing.expectEqualStrings("abcd", fixture.recorder.calls[calls - 1].body.bytes);
+    // The next message goes after the bytes kept. Once the memory is full too, the flush fails,
+    // and so does a write.
+    var rest: [memory_len]u8 = @splat('i');
+    const rest_len = writer.unusedCapacityLen();
+    try writer.writeAll(rest[0..rest_len]);
+    try testing.expectError(error.WriteFailed, writer.flush());
+    try testing.expectError(error.WriteFailed, writer.writeAll("x"));
+    try testing.expect(!try internal.has_room(response));
+    try testing.expectEqual(calls, fixture.recorder.count);
+    // The engine releases its runs. The `writable` cuts the bytes kept into one run, once.
+    fixture.recorder.held = 0;
+    try testing.expect(try internal.resume_writes(response) == false);
+    try testing.expectEqual(0, writer.end);
+    try testing.expectEqual(calls + 1, fixture.recorder.count);
+    try testing.expectEqual(4 + rest_len, fixture.recorder.calls[calls].body.bytes.len);
+    // The engine holds that run, and the next write goes to the memory before it.
+    try writer.writeAll("yz");
+    try response.end();
+    var out: [memory_len + 2]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("abcd" ** slots ++ "efgh", body[0 .. 4 * slots + 4]);
+    try testing.expectEqualStrings(rest[0..rest_len], body[4 * slots + 4 ..][0..rest_len]);
+    try testing.expectEqualStrings("yz", body[4 * slots + 4 + rest_len ..]);
+    try testing.expect(ended);
+}
+
+test "decision 127: bytes after a write_kept run stay in the writer until a slot is free" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    const kept: []const u8 = "KEPT";
+    fixture.recorder.room = 0;
+    for (0..slots - 1) |_| {
+        try writer.writeAll("ab");
+        try writer.flush();
+    }
+    try response.write_kept(kept);
+    // The newest run is the program's, so it takes no bytes of the writer.
+    try writer.writeAll("xy");
+    try writer.flush();
+    try testing.expectEqual(2, writer.end);
+    try testing.expectError(error.Full, response.write_kept("zz"));
+    // The engine takes every run and holds each: no slot is free until it releases one.
+    fixture.recorder.room = std.math.maxInt(usize);
+    try testing.expect(try internal.resume_writes(response) == false);
+    try testing.expectEqual(2, writer.end);
+    try testing.expectEqual(1, fixture.recorder.release_waits);
+    try testing.expectEqual(kept.ptr, fixture.recorder.calls[slots].body.bytes.ptr);
+    try testing.expectEqual(kept.len, fixture.recorder.calls[slots].body.bytes.len);
+    fixture.recorder.held = 0;
+    try testing.expect(try internal.resume_writes(response) == false);
+    try testing.expectEqual(0, writer.end);
+    try response.end();
+    var out: [memory_len]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("ab" ** (slots - 1) ++ "KEPT" ++ "xy", body);
+    try testing.expect(ended);
+}
+
+test "design §8 step 46: the writer's region stays after the newest run while no slot is free" {
+    var fixture: Fixture = .{};
+    const response = fixture.start();
+    const writer = response.body();
+    // The engine takes four runs and releases them, so the front of the memory is free.
+    for (0..4) |_| {
+        try writer.writeAll("a" ** 16);
+        try writer.flush();
+    }
+    fixture.recorder.held = 0;
+    // Sixteen runs that the engine does not take fill the rest of the memory, and every slot.
+    fixture.recorder.room = 0;
+    for (0..slots) |_| {
+        try writer.writeAll("b" ** 12);
+        try writer.flush();
+    }
+    try testing.expectEqual(0, writer.unusedCapacityLen());
+    // The front has room. A run cut there would find no slot, and the newest run does not end
+    // there, so it could not take the bytes. The write waits, as it does for a full memory.
+    try testing.expectError(error.WriteFailed, writer.writeAll("c" ** 8));
+    try testing.expectEqual(@intFromPtr(&fixture.memory) + memory_len, @intFromPtr(writer.buffer.ptr));
+    // The engine takes every run and holds each, so no slot is free yet.
+    fixture.recorder.room = std.math.maxInt(usize);
+    try testing.expect(try internal.resume_writes(response) == false);
+    try testing.expectError(error.WriteFailed, writer.writeAll("c" ** 8));
+    try testing.expectEqual(1, fixture.recorder.release_waits);
+    // A release frees the slots, and the write goes to the front.
+    fixture.recorder.held = 0;
+    try testing.expect(try internal.resume_writes(response) == false);
+    try writer.writeAll("c" ** 8);
+    try testing.expectEqual(@intFromPtr(&fixture.memory), @intFromPtr(writer.buffer.ptr));
+    try response.end();
+    var out: [memory_len + 8]u8 = undefined;
+    const body, const ended = fixture.recorder.body_of(&out);
+    try testing.expectEqualStrings("a" ** 64 ++ "b" ** 192 ++ "c" ** 8, body);
+    try testing.expect(ended);
 }

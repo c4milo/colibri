@@ -86,9 +86,10 @@ pub const quic_response_pieces_max: usize = 16;
 /// §8 step 25.2). Its `header` and `trailers` refuse one more.
 pub const response_headers_max: usize = 32;
 
-/// The runs of body bytes one `ResponseWriter` holds until the engine takes them: each run the
+/// The runs of body bytes one `ResponseWriter` holds until the engine releases them: each run the
 /// body's writer wrote before a flush, and each run of `write_kept`. An h3 response holds as many
-/// (decision 103).
+/// (decision 103). A flush that finds a run in each slot adds its bytes to the newest run (design
+/// §8 step 46).
 pub const response_pieces_max: usize = quic_response_pieces_max;
 
 /// Octets of request content h3 copies out of the receive pool in one event (decision 80).

@@ -14768,6 +14768,8 @@ library.
     - One `writeAll` of one slice goes into the memory whole, or fails and writes nothing. A
       failed `flush` keeps its bytes. The router calls `on_writable` only when the writer has
       room.
+    - A `flush` that finds a run in every slot adds its bytes to the newest run (the owner's
+      ruling of 2026-11-09, commit 46g).
     - Cost: 18 octets of fields for each router entry and 8 for each h3 request record. No copy
       and no count on the per-frame path.
   - **`on_writable` while the request body is open** (decision 127 amendment 2). The router calls
@@ -14812,6 +14814,72 @@ library.
        some of the octets the engine holds.
        - Mutation, against `zig build test-server`: the wait also ends at an equal count,
          CAUGHT. A review found it NOT CAUGHT before this test.
+    7. 46g `fix(server)`: a `flush` that finds a run in every slot adds its bytes to the newest
+       run. The owner ruled it on 2026-11-09, after a review. The writer has `response_pieces_max`
+       (16) slots and frees one only at a release, and an h3 response holds about 7 runs of the
+       caller. So the 17th `flush` of a route that flushed each small message failed with
+       `error.WriteFailed`, and the router cancelled the request. No named limit changes.
+       - The merge is the slow path of a cut, in `response_writer_ring.zig`:
+         - The newest run is the run in the last slot. It takes the bytes when the engine has
+           not taken it whole. Over h3 the engine takes a run whole or not at all.
+         - The run grows at its end only, over bytes of the writer's own region, which no run
+           the engine holds overlaps. A run the engine took whole never changes, because QUIC
+           may read it again after a loss (decision 103).
+         - The run stays one piece of the memory. The writer's region leaves the newest run only
+           when a slot is free. While each slot holds a run, a write that needs the room at the
+           start of the memory fails, and the route writes it again. An assertion states that
+           the run ends where the writer's bytes start.
+         - A run of `write_kept` takes no bytes, because its octets are the program's.
+       - When no run takes the bytes, they stay in the writer, and the `flush` returns no error.
+         - Later bytes go after them. The writer waits for the engine, and the next `writable`
+           cuts them into a run once a slot is free.
+         - This occurs when the engine took every run and holds each, or when the newest run is
+           one of `write_kept`. An h3 response holds 8 runs of the caller at most, so only the
+           engine of a test does the first.
+         - Such a `flush` fails only when the writer's region is full too, and it keeps its
+           bytes.
+       - `write_kept`, `end` and `trailers` still return `error.Full` when no run takes the
+         writer's bytes. A route that writes through `body()` alone gets no such error over h11,
+         h2 or h3.
+       - Cost: one flag in the writer, which its padding holds, so a router entry keeps its size.
+         No copy, and nothing new on the path of a cut that finds a free slot.
+       - Checks:
+         - Four writer tests, one for each case. A `flush` with a run in every slot adds its
+           bytes to the newest run: one the engine took none of, then one it took an octet of.
+           A `flush` stays in the writer while the engine holds a run in every slot. It fails
+           once the memory is full too, and its bytes go once, after a release. Bytes after a
+           `write_kept` run stay in the writer until a slot is free. A write does not go to the
+           start of the memory while no slot is free.
+         - A struct route flushes 1,000 messages of 7 to 128 octets, with `response_bytes` 8192.
+           It does so over an engine that holds 8 runs until late acknowledgments. It does so
+           over h3 through the engine too, with two of the client's datagrams in three lost. No
+           `flush` fails, no request is cancelled, and each octet arrives in order. Both tests
+           failed before the fix.
+         - The same route over an engine that copies, as h11 and h2 do, ends in one call, as it
+           did before.
+       - Mutations, against `zig build test-server`. Each one was CAUGHT.
+         - The merge adds to a run the engine took whole: the writer test of an engine that
+           holds every run fails.
+         - The merge adds to the oldest run the engine has not taken, so the octets go out of
+           order: the assertion stops 4 tests. With the assertion left out too, the octets
+           differ in 2 writer tests and in both tests of 1,000 messages.
+         - A cut with no free slot adds to no run: the writer test of the merge fails, and so do
+           both tests of 1,000 messages.
+         - The region moves to the start of the memory with no slot free, so a merge leaves a
+           gap between its two parts. The writer test of the region fails, and the assertion
+           stops both tests of 1,000 messages. With the assertion left out too, their octets
+           differ.
+         - A run of `write_kept` takes the bytes: the `write_kept` test stops on an overflow.
+         - A run the engine took an octet of takes no bytes: the writer test of the merge fails.
+         - A `flush` that keeps its bytes fails while the memory has room, or never fails:
+           writer tests fail for each.
+         - A cut that keeps its bytes does not mark them, or does not wait for the engine: 2
+           writer tests fail for each.
+         - The next `writable` does not cut the kept bytes again: 2 writer tests fail.
+         - `has_room` returns the error of the cut: the writer test of an engine that holds
+           every run fails.
+         - A write takes back memory while the writer keeps bytes: that test stops on an
+           assertion.
 
 ## 9. Test-only entry points
 

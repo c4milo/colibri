@@ -10,9 +10,10 @@ const ResponseWriter = @import("response_writer.zig").ResponseWriter;
 const ring = @import("response_writer_ring.zig");
 
 /// What the calls of `ResponseWriter` return: the engine's errors, with their meaning, and `Full`
-/// for more runs of body bytes than `response_pieces_max` that wait for the engine. The
-/// engine's `NoSpaceLeft` and `Blocked` never come back: the writer holds what the engine did
-/// not take until the request's `writable`. `NoSpaceLeft` here says the entry's memory is full.
+/// when `response_pieces_max` runs of body bytes wait for the engine or for their release, and
+/// none of them takes the bytes of the call. The engine's `NoSpaceLeft` and `Blocked` never come
+/// back: the writer holds what the engine did not take until the request's `writable`.
+/// `NoSpaceLeft` here says the entry's memory is full.
 pub const Error = error{Full} || connection_errors.SendError;
 
 /// How a program ended a response whose body a middleware wraps (design §8 step 25.6): not yet,
@@ -74,7 +75,7 @@ fn engine_of(comptime Engine: type, context: *anyopaque) *Engine {
     return @ptrCast(@alignCast(context));
 }
 
-const vtable: std.Io.Writer.VTable = .{ .drain = drain, .rebase = std.Io.Writer.failingRebase };
+const vtable: std.Io.Writer.VTable = .{ .drain = drain, .flush = flush, .rebase = std.Io.Writer.failingRebase };
 
 /// Places a writer for request `id` over `memory`. The writer must not move after this call:
 /// its body's `std.Io.Writer` finds it by its address.
@@ -82,10 +83,12 @@ pub fn init(response: *ResponseWriter, sink: Sink, id: event.RequestId, memory: 
     response.* = .{ .sink = sink, .id = id, .memory = memory, .writer = .{ .vtable = &vtable, .buffer = memory[0..0] } };
 }
 
-/// Sends what waits, on the request's `writable`. It returns whether the response is whole.
+/// Sends what waits, on the request's `writable`. It returns whether the response is whole. Bytes
+/// that a cut left in the writer, with a run in every slot, are cut again and sent.
 pub fn resume_writes(response: *ResponseWriter) Error!bool {
     response.release_waited = false;
     try push(response);
+    if (response.cut_owed) _ = try send(response);
     return response.complete;
 }
 
@@ -124,8 +127,7 @@ pub fn mark(response: *const ResponseWriter) Mark {
 pub fn has_room(response: *ResponseWriter) Error!bool {
     if (!response.body_started) return true;
     if (response.writer.end < response.writer.buffer.len) return true;
-    try cut(response);
-    try push(response);
+    if (!try send(response)) return false;
     return ring.refill(response, 1);
 }
 
@@ -156,12 +158,24 @@ pub fn start_body(response: *ResponseWriter) void {
 }
 
 /// Makes a run of the bytes the body's writer holds, and gives the writer the memory after them.
-pub fn cut(response: *ResponseWriter) Error!void {
+/// With a run in every slot, the bytes go to a slot the engine released or to the newest run, or
+/// they stay in the writer and the call returns `error.Full` (the owner's ruling of 2026-11-09).
+pub fn cut(response: *ResponseWriter) error{Full}!void {
     const written = response.writer.end;
     if (written == 0) return;
-    try add_piece(response, response.writer.buffer[0..written]);
+    if (response.piece_count == constants.limits.response_pieces_max) return ring.cut_full(response);
+    response.pieces[response.piece_count] = response.writer.buffer[0..written];
+    response.piece_count += 1;
     response.writer.buffer = response.writer.buffer[written..];
     response.writer.end = 0;
+}
+
+/// Cuts a run of the bytes the writer holds, and sends what waits. It returns false when the
+/// bytes stay in the writer: the writer then waits for a `writable`, which cuts again.
+fn send(response: *ResponseWriter) Error!bool {
+    cut(response) catch return false;
+    try push(response);
+    return true;
 }
 
 pub fn add_piece(response: *ResponseWriter, bytes: []const u8) Error!void {
@@ -376,14 +390,26 @@ fn wait_or(failure: connection_errors.SendError) Error!bool {
 /// step 25.6).
 fn drain(writer: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
     const response: *ResponseWriter = @alignCast(@fieldParentPtr("writer", writer));
-    cut(response) catch return error.WriteFailed;
-    push(response) catch return error.WriteFailed;
+    const whole = send(response) catch return error.WriteFailed;
     const len = data_len(data, splat);
     if (len == 0) return 0;
-    if (writer.buffer.len < len and !ring.refill(response, len)) return error.WriteFailed;
+    // Bytes a cut left in the writer hold its region where it is.
+    const room = writer.buffer.len - writer.end;
+    if (room < len and (!whole or !ring.refill(response, len))) return error.WriteFailed;
     const copied = copy_data(writer, data, splat);
     assert(copied == len);
     return copied;
+}
+
+/// The body writer's flush: it makes a run of the bytes the writer holds, and sends what waits.
+/// With a run in every slot, the bytes go to the newest run, or stay in the writer until a slot
+/// is free (the owner's ruling of 2026-11-09). It fails only when they stay and the writer's
+/// region has no room for one more byte. Either way the route does not write them again.
+fn flush(writer: *std.Io.Writer) std.Io.Writer.Error!void {
+    if (writer.end == 0) return;
+    const response: *ResponseWriter = @alignCast(@fieldParentPtr("writer", writer));
+    const whole = send(response) catch return error.WriteFailed;
+    if (!whole and writer.end == writer.buffer.len) return error.WriteFailed;
 }
 
 fn copy_data(writer: *std.Io.Writer, data: []const []const u8, splat: usize) usize {

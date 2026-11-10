@@ -12,7 +12,14 @@
 //! at once over h11 and h2, and over h3 once the peer acknowledged them. So `response_bytes`
 //! bounds the bytes in flight, not the response. One `writeAll` of one slice goes into the memory
 //! whole, or fails with `error.WriteFailed` and writes nothing, and a route writes it again in
-//! `on_writable`. A failed `flush` keeps its bytes, and the writer sends them later.
+//! `on_writable`.
+//!
+//! A `flush` makes a run of the bytes the writer holds. The writer has `response_pieces_max`
+//! slots for the runs the engine has not released. With a run in each slot, a `flush` adds its
+//! bytes to the newest run (the owner's ruling of 2026-11-09). A run the engine took whole takes
+//! none, and a run of `write_kept` takes none. The bytes then stay in the writer until a slot is
+//! free, and that `flush` fails only when the memory is full too. A `flush` that fails keeps its
+//! bytes, and the writer sends them later.
 //!
 //! A middleware's `wrap_response` may wrap the body's writer (design §8 step 25.6). `body` then
 //! returns the wrapper, and `end` and `trailers` only record that the response ends: the router
@@ -57,6 +64,9 @@ pub const ResponseWriter = struct {
     released_len: u64 = 0,
     /// The writer asked the engine for a `writable` once it releases bytes.
     release_waited: bool = false,
+    /// A cut found a run in every slot, and none took its bytes: they stay in the writer, and the
+    /// next `writable` cuts again (the owner's ruling of 2026-11-09).
+    cut_owed: bool = false,
     /// The Content-Length value `end` adds to a head that carries the whole body.
     length_digits: [internal.length_digits_max]u8 = undefined,
     body_started: bool = false,
