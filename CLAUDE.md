@@ -396,7 +396,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   `tools/h11_interop.sh [--tls] [go] [h2o] [caddy]` and `tools/h11_server_interop.sh [--tls] [curl]
   [go]` run the same peers over h11: the client against Go's, h2o's and Caddy's servers, and curl
   and Go's client against the server, where curl also offers no ALPN over TLS and must read an
-  Alt-Svc line naming h3 over TLS and none in cleartext. Against Go the client also runs 8 GETs
+  Alt-Svc line naming h3 over TLS and none in cleartext. `tools/h11_server_interop.sh curl` also
+  posts to a route that answers 405 at the head (decision 160): curl must read each 405 with a body
+  under the bound and past it. A python3 client on the host then keeps writing past the bound. It
+  must read the whole 405 and the end of the data with no reset, a later write must be
+  acknowledged, and a write after that must fail at the server's close. The script needs python3.
+  Against Go the client also runs 8 GETs
   through one pool with `--tcp-connections 8`, which must open 8 connections (decision 125).
   Both endpoints also take `--coded` (decision
   101): the server codes its answers in gzip or deflate, and each server script requires curl

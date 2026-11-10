@@ -17,7 +17,8 @@
 # (decision 160): a body under 256 KiB, which the server reads and discards, so the next request
 # shares the connection, and a body of 1 MiB, which gets the staged close of RFC 9112 §9.6. curl
 # must read each 405, and no reset. A python3 client on this host then keeps writing a body past
-# the bound while it waits, and must read the whole 405 with no reset. It needs python3.
+# the bound while it reads. It must read the whole 405 and the end of the data with no reset, a
+# write after that must be acknowledged, and a later write must fail. It needs python3.
 #
 # Usage: tools/h11_server_interop.sh [--tls] [curl] [go]
 #        (no peer runs both)
@@ -203,12 +204,18 @@ early_run() {
   echo "h11_server_interop.sh: curl ${mode}: a ${early_small_len}-octet POST kept its connection, and a ${early_large_len}-octet one read its 405"
 }
 
-# RFC 9112 §9.6: a client on this host sends a head that declares 4 MiB, keeps writing the body,
-# and reads only after 300 ms. A server that closed at once would reset the connection by then,
-# and the reset can erase the 405 that the client has not read. The client must read the whole
-# 405 and then the end of the server's data, from its half-close, with no reset.
+# RFC 9112 §9.6: a client on this host declares 4 MiB, keeps writing 1 MiB of it, and reads while
+# it writes. A server that closed at once would reset the connection, and the reset can erase the
+# 405 that the client has not read. The client requires these, in order:
+#  1. It reads the whole 405 and then the end of the server's data, with no reset.
+#  2. Its writer sends the 1 MiB, and a further octet sent on the same socket is acknowledged. A
+#     socket that the server closed fully answers with a reset, so a full close fails here.
+#  3. A later write fails: the server closed fully at the client's close or at its bound of 1 s.
+# No step reads a clock to decide. Each wait has a bound of 30 s only so that a broken server
+# cannot hang the check. Step 2 must end within the server's bound of 1 s after its half-close,
+# and on an idle host it takes some milliseconds.
 early_reset_run() {
-  python3 - "${port}" "${early_url_path}" <<'PYTHON' || fail "a client that kept writing did not read its 405"
+  python3 - "${port}" "${early_url_path}" <<'PYTHON' || fail "a client that kept writing past the bound did not see the half-close"
 import socket
 import sys
 import threading
@@ -216,26 +223,48 @@ import time
 
 port, path = int(sys.argv[1]), sys.argv[2]
 declared = 4 * 1024 * 1024
-# The client reads at 0.3 s, so a half-close reaches it well before the server's bound of 1 s.
-half_close_seen_s = 0.8
-started = time.monotonic()
+written = 1024 * 1024
+# A bound on each wait, so that a broken server cannot hang the check. No step expects to come
+# near it.
+wait_s = 30
+# The octets of the send buffer that the peer has not acknowledged: SIOCOUTQ on Linux, which
+# termios names TIOCOUTQ, and SO_NWRITE (0x1024 in <sys/socket.h>) on macOS.
+if sys.platform == "darwin":
+    def unacknowledged(connection):
+        return connection.getsockopt(socket.SOL_SOCKET, 0x1024)
+else:
+    import fcntl
+    import struct
+    import termios
+
+    def unacknowledged(connection):
+        queued = fcntl.ioctl(connection.fileno(), termios.TIOCOUTQ, struct.pack("i", 0))
+        return struct.unpack("i", queued)[0]
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
 connection = socket.create_connection(("127.0.0.1", port))
+connection.settimeout(wait_s)
 connection.sendall(f"POST {path} HTTP/1.1\r\nHost: h\r\nContent-Length: {declared}\r\n\r\n".encode())
+writer_errors = []
 
 
 def write_body():
     part = b"x" * 65536
     try:
-        for _ in range(declared // len(part)):
+        for _ in range(written // len(part)):
             connection.sendall(part)
-    except OSError:
-        pass
+    except OSError as error:
+        writer_errors.append(error)
 
 
 writer = threading.Thread(target=write_body, daemon=True)
 writer.start()
-time.sleep(0.3)
-connection.settimeout(10)
+# Step 1: the 405 and then the end of the data, from the half-close.
 received = b""
 try:
     while True:
@@ -244,18 +273,36 @@ try:
             break
         received += chunk
 except ConnectionResetError:
-    print(f"reset after {len(received)} octets", file=sys.stderr)
-    sys.exit(1)
+    fail(f"reset after {len(received)} octets")
 if not received.startswith(b"HTTP/1.1 405 ") or not received.endswith(b"\r\n\r\n"):
-    print(f"read {received!r}", file=sys.stderr)
-    sys.exit(1)
-# The half-close ends the response at once. The server's full close comes 1 s after it.
-closed_after = time.monotonic() - started
-if closed_after >= half_close_seen_s:
-    print(f"the end came after {closed_after:.2f} s, not at the half-close", file=sys.stderr)
-    sys.exit(1)
+    fail(f"read {received!r}")
+# Step 2: the server still reads after its half-close.
+writer.join(wait_s)
+if writer.is_alive():
+    fail("the server did not read the body after its half-close")
+if writer_errors:
+    fail(f"the body's writes failed: {writer_errors[0]!r}, a full close in place of the half-close")
+try:
+    connection.sendall(b"x")
+    for _ in range(wait_s * 1000):
+        if unacknowledged(connection) == 0:
+            break
+        time.sleep(0.001)
+except OSError as error:
+    fail(f"a write after the half-close failed: {error!r}, a full close in place of the half-close")
+error = connection.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+if error != 0 or unacknowledged(connection) != 0:
+    fail(f"the server did not acknowledge a write after its half-close (error {error})")
+# Step 3: the server closes fully, so a later write fails.
+for _ in range(wait_s * 20):
+    try:
+        connection.send(b"x")
+    except (BrokenPipeError, ConnectionResetError):
+        sys.exit(0)
+    time.sleep(0.05)
+fail(f"the server did not close within {wait_s} s")
 PYTHON
-  echo "h11_server_interop.sh: a client that kept writing past the bound read the whole 405, and no reset"
+  echo "h11_server_interop.sh: a client that kept writing past the bound read the whole 405, the half-close, and the close"
 }
 
 # early_round: runs early_run against the server in its --routes github mode, in cleartext and,
