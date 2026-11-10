@@ -139,7 +139,12 @@ fn submit(self: anytype, operation: *const colibri.Operation) void {
         },
         .close => |named| {
             const socket = @intFromEnum(named.socket);
-            submit_one(self, rotor.Operation.close(user_data(owner, .close, socket, id), self.descriptors[socket].?), null, id);
+            // A connect whose socket the system refused opened nothing, so its close has nothing
+            // to close.
+            const descriptor = self.descriptors[socket] orelse {
+                return self.object.complete(&.{ .id = id, .result = .closed }, loop.now_ns());
+            };
+            submit_one(self, rotor.Operation.close(user_data(owner, .close, socket, id), descriptor), null, id);
         },
         .cancel => |named| for (self.cancelable, self.handles) |held, handle| {
             if (held == named.target) loop.cancel(handle);
@@ -174,13 +179,21 @@ fn connect(self: anytype, id: colibri.OperationId, socket: colibri.SocketId, add
 
 /// Gives the object the completion of one event.
 fn adapter_complete(self: anytype, tag: Tag, id: colibri.OperationId, event: rotor.Event) void {
-    const result: colibri.Completion.Result = if (event.outcome()) |count| succeeded(self, tag, count) else |failure| switch (failure) {
+    const result: colibri.Completion.Result = if (event.outcome()) |count| succeeded(self, tag, count) else |failure| failed(self, tag, failure);
+    self.object.complete(&.{ .id = id, .result = result }, loop.now_ns());
+}
+
+/// The result of an operation that failed. A close that failed and was not canceled frees its
+/// descriptor all the same, so the socket is closed.
+fn failed(self: anytype, tag: Tag, failure: rotor.Error) colibri.Completion.Result {
+    const canceled = failure == error.Canceled or failure == error.Timeout;
+    if (@as(Kind, @enumFromInt(tag.kind)) == .close and !canceled) self.descriptors[tag.socket] = null;
+    return switch (failure) {
         error.Canceled, error.Timeout => .canceled,
         error.ConnectionRefused => .{ .failed = .refused },
         error.ConnectionReset, error.ConnectionAborted, error.BrokenPipe => .{ .failed = .reset },
         else => .{ .failed = .other },
     };
-    self.object.complete(&.{ .id = id, .result = result }, loop.now_ns());
 }
 
 /// The result of an operation that succeeded. An accept gives a new socket, and a close frees
