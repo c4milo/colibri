@@ -29,6 +29,7 @@ const turn_inside = "colibri: turn() called inside turn() or complete() (decisio
 const complete_inside = "colibri: complete() called inside turn() or complete() (decision 159, rule 4)";
 const run_inside = "colibri: run() called inside turn() or complete() (decision 159, rule 4)";
 const fetch_inside = "colibri: fetch() called inside turn() or complete() (decision 159, rule 4)";
+const instant_back = "colibri: now_ns went back (decision 159, rule 6)";
 
 const cases = [_]Case{
     .{ .name = "hosted_init", .ending = .runs },
@@ -57,6 +58,11 @@ const cases = [_]Case{
     .{ .name = "halt_server_turn_in_route", .ending = .halt, .message = turn_inside },
     .{ .name = "halt_server_complete_in_route", .ending = .halt, .message = complete_inside },
     .{ .name = "halt_server_run_in_route", .ending = .halt, .message = run_inside },
+    .{ .name = "halt_server_turn_before_init", .ending = .halt, .message = instant_back },
+    .{ .name = "halt_server_complete_back", .ending = .halt, .message = instant_back },
+    .{ .name = "halt_client_turn_before_init", .ending = .halt, .message = instant_back },
+    .{ .name = "halt_client_complete_back", .ending = .halt, .message = instant_back },
+    .{ .name = "halt_client_cancel_back", .ending = .halt, .message = instant_back },
 };
 
 /// Adds `zig build colibri-loop-check` and returns its step, which `zig build test` depends on.

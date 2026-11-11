@@ -138,13 +138,14 @@ pub fn unix_seconds(state: anytype, now_ns: u64) u64 {
 }
 
 /// One turn at `now_ns`. See the header. The run started before it: at the loop's first instant
-/// on `.private`, and at `init` on `.hosted`.
+/// on `.private`, and at `init` on `.hosted`. An instant before the last call's is a halt
+/// (decision 159, rule 6).
 pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run;
     host.enter(&state.in_turn, "turn()");
     defer state.in_turn = false;
     assert(state.started);
-    state.latest_ns = now_ns;
+    host.record_instant(&state.latest_ns, now_ns);
     var out: operation_table.Outbox = .{ .operations = operations };
     pass_shutdown(state);
     const due = if (state.pool.deadline_ns()) |at_ns| at_ns <= now_ns else false;
@@ -168,12 +169,12 @@ pub fn wait(state: anytype, full: bool) host.Wait {
 }
 
 /// Takes one completion at `now_ns`. A completion with an id that the client does not hold is a
-/// halt (decision 159, rule 6).
+/// halt, and so is an instant before the last call's (decision 159, rule 6).
 pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
     const state = run;
     host.enter(&state.in_turn, "complete()");
     defer state.in_turn = false;
-    state.latest_ns = now_ns;
+    host.record_instant(&state.latest_ns, now_ns);
     const slot = state.operations.held(completion.id);
     if (!completion.more) state.operations.finish(slot);
     if (state.udp.served and state.udp.owns(slot)) return @import("client_udp.zig").complete(run, slot, completion, now_ns);

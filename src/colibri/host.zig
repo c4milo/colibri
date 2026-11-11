@@ -47,6 +47,14 @@ pub fn enter(in_turn: *bool, comptime call: []const u8) void {
     in_turn.* = true;
 }
 
+/// Records `now_ns`, the instant of a call, in `latest_ns`. Halts when it is before the instant
+/// of the call before it, or before the `now` of `init`: the host's instant went back, which
+/// breaks decision 159's rule 6.
+pub fn record_instant(latest_ns: *u64, now_ns: u64) void {
+    if (now_ns < latest_ns.*) std.debug.panic("colibri: now_ns went back (decision 159, rule 6)", .{});
+    latest_ns.* = now_ns;
+}
+
 /// What a host does on one UDP socket that it opened before `init` (decision 159).
 pub const Features = struct {
     /// The host sends a batch of equal segments in one call (UDP_SEGMENT).

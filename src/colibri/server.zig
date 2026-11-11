@@ -104,7 +104,9 @@ pub fn Server(comptime capacity: server.Capacity, comptime kind: host.ObjectKind
         touched: Bits,
         /// Whether a read of the engine's events stopped at its bound.
         undrained: bool,
-        /// The instant of the last call into the engine.
+        /// The instant of the last `turn` or `complete`, which each call into the engine passes.
+        /// The next call may not go before it, nor the first before the run's start (decision
+        /// 159, rule 6).
         now_ns: u64,
         /// `shutdown` asked, the turn passed it to the engine, and the engine reported
         /// `closed`.

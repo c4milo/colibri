@@ -18,6 +18,10 @@
 //!     from inside a turn (rule 4, design §8 step 44e).
 //!   - `halt_client_fetch_in_handler`: a handler that calls `fetch` from inside a turn (rule 4,
 //!     design §8 step 44h).
+//!   - `halt_server_turn_before_init`, `halt_server_complete_back`,
+//!     `halt_client_turn_before_init`, `halt_client_complete_back` and `halt_client_cancel_back`:
+//!     a call whose instant goes back, from the `now` of `init` or from the call before it
+//!     (rule 6).
 //!   A test binary does not live through its own halt, so the step runs each one as a program.
 const std = @import("std");
 const colibri = @import("colibri");
@@ -99,6 +103,9 @@ var zero: Zero align(@alignOf(Zero)) = .{};
 const zero_source: tls.Random = tls.Random.init(&zero, Zero.fill);
 /// The instant of each hosted `init`: no Unix time, and the host's first instant.
 const started: server.Timestamp = .{ .unix_seconds = 0, .monotonic_ns = 0 };
+/// An instant 1 s after `started`, and an `init` at it, for the cases of rule 6.
+const later_ns: u64 = 1_000_000_000;
+const later: server.Timestamp = .{ .unix_seconds = 0, .monotonic_ns = later_ns };
 
 /// A CPU with no fast path, which each TLS configuration names.
 const cpu: tls.Cpu = .{
@@ -303,6 +310,43 @@ const halts = struct {
         @memcpy(receive.kind.receive.buffer[0..request_head.len], request_head);
         hosted_server.complete(&.{ .id = receive.id, .result = .{ .received = request_head.len } }, 0);
         _ = hosted_server.turn(0, &operations);
+    }
+
+    /// A hosted server whose first turn names an instant before the `now` of `init`.
+    pub fn halt_server_turn_before_init() !void {
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = later }, &router, &context);
+        _ = hosted_server.turn(later_ns - 1, &operations);
+    }
+
+    /// The accept's completion at an instant before the turn that wrote it.
+    pub fn halt_server_complete_back() !void {
+        try hosted_server.init(&.{ .cpu = cpu, .random = zero_source, .now = started }, &router, &context);
+        const first = hosted_server.turn(later_ns, &operations);
+        const accept = try written(first.operations, .accept);
+        hosted_server.complete(&.{ .id = accept.id, .result = .accepted }, later_ns - 1);
+    }
+
+    /// A hosted client whose first turn names an instant before the `now` of `init`.
+    pub fn halt_client_turn_before_init() !void {
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = later }, null);
+        _ = hosted_client.turn(later_ns - 1, &operations);
+    }
+
+    /// The connect's completion at an instant before the turn that wrote it.
+    pub fn halt_client_complete_back() !void {
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
+        _ = try hosted_client.request(&get, &answer_of_get);
+        const first = hosted_client.turn(later_ns, &operations);
+        const connect = try written(first.operations, .connect);
+        hosted_client.complete(&.{ .id = connect.id, .result = .connected }, later_ns - 1);
+    }
+
+    /// A cancel at an instant before the last turn.
+    pub fn halt_client_cancel_back() !void {
+        try hosted_client.init(&.{ .destination = loopback(https_port), .pool = .{ .authority = "localhost", .protocols = .{ .h3 = false } }, .random = zero_source, .now = started }, null);
+        const id = try hosted_client.request(&get, &answer_of_get);
+        _ = hosted_client.turn(later_ns, &operations);
+        hosted_client.cancel(id, later_ns - 1);
     }
 
     /// A handler that calls `run` from `on_finished`, which runs inside a turn of `run`.

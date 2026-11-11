@@ -140,8 +140,9 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         fetched: bool,
         fetch_request: client.Request,
         fetch_response: client.Response,
-        /// The instant of the last `turn` or `complete`, or of a hosted `init`. A `.private`
-        /// `cancel` passes it to the pool.
+        /// The instant of the last `turn`, `complete` or hosted `cancel`, or of a hosted `init`.
+        /// The next call may not go before it (decision 159, rule 6). A `.private` `cancel`
+        /// passes it to the pool.
         latest_ns: u64,
         /// A `turn` or a `complete` runs, and the handler with it (decision 159, rule 4).
         in_turn: bool,
@@ -240,8 +241,9 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         pub const cancel = if (kind == .hosted) cancel_at else cancel_at_latest;
 
         fn cancel_at(self: *Self, id: client.RequestId, now_ns: u64) void {
-            // Decision 159, rule 6: the host's instant never goes back.
-            assert(now_ns >= self.latest_ns);
+            // Decision 159, rule 6: the host's instant never goes back, so a later call may not
+            // go before this one.
+            host.record_instant(&self.latest_ns, now_ns);
             // A hosted client has no `fetch`.
             assert(self.fetching == null);
             // Each turn reads the pool's events first, so `undrained` stays as it is.

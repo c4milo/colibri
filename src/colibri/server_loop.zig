@@ -82,17 +82,18 @@ pub fn reset(state: anytype, now_ns: u64) void {
 
 /// One turn at `now_ns`, in decision 159's order: a `shutdown` passed to the engine, the engine's
 /// deadlines and events, a step of each socket a completion named, and then the operations each
-/// one needs, which it writes into `operations`.
+/// one needs, which it writes into `operations`. An instant before the last call's is a halt
+/// (decision 159, rule 6).
 pub fn turn(run: anytype, now_ns: u64, operations: []host.Operation) host.Turn {
     const state = run;
     host.enter(&state.in_turn, "turn()");
     defer state.in_turn = false;
+    host.record_instant(&state.now_ns, now_ns);
     var out: operation_table.Outbox = .{ .operations = operations };
     if (state.stopping.load(.acquire) and !state.shut_down) shut_down(state, now_ns);
     const due = if (state.engine.deadline_ns()) |at_ns| at_ns <= now_ns else false;
     // With no deadline due the engine has nothing to fire, so the call is skipped.
     if (due or state.undrained) {
-        state.now_ns = now_ns;
         state.engine.on_instant(now_ns);
         pump.drain(run);
     }
@@ -122,11 +123,12 @@ fn shut_down(state: anytype, now_ns: u64) void {
 }
 
 /// Takes one completion at `now_ns`. A completion with an id that the server does not hold is a
-/// halt (decision 159, rule 6).
+/// halt, and so is an instant before the last call's (decision 159, rule 6).
 pub fn complete(run: anytype, completion: *const host.Completion, now_ns: u64) void {
     const state = run;
     host.enter(&state.in_turn, "complete()");
     defer state.in_turn = false;
+    host.record_instant(&state.now_ns, now_ns);
     const slot = state.operations.held(completion.id);
     if (!completion.more) state.operations.finish(slot);
     const tcp_connections = state.sockets.len;
