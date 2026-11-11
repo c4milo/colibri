@@ -157,7 +157,11 @@ four h2 ones. Each competitor is set up so that all of them do the same work:
   those errors there, one for each request at most. load.sh writes the wrk command first, and the
   report requires the close on each `-one` input and on no other. wrk sets no ALPN, so each server
   speaks h11 to it over TLS too.
-- Each keeps its own TLS ticket behavior, and each issues tickets, which h2load never uses.
+- Each keeps its own TLS ticket behavior, and each issues tickets. colibri's server issues them
+  since design §8 step 48, because the judge passes it `--seconds`. wrk resumes its sessions on
+  the h11 `-one` inputs, and h2load never does. So a ticket saves colibri 16% of the instructions
+  of a connection on h11-tls-one, and costs it 2.5% on h2-tls-one, which the owner accepted on
+  2026-11-11 (design §8 step 13, "Main against v0.15.0").
 - The report gives the change's ratio to each competitor, losses first, and a competitor's numbers
   never fail the run. Decision 31 reports where colibri wins, matches and loses.
 

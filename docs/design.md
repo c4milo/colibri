@@ -5858,6 +5858,36 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     in both jobs, and BBRv3 took 0.86 and 0.89 with 1% loss. CUBIC at 1% loss still gets less
     than quic-go, which [#123](https://github.com/c4milo/colibri/issues/123) tracks.
 
+  **Main against v0.15.0, 2026-11-11.** The owner asked whether steps 44, 46, 47 and 48 made an
+  input slower. [Run 43070881619](https://github.com/c4milo/colibri/actions/runs/43070881619)
+  judged main `14ae68a9` against `29c407a4`, with `h11` and `h3` at 10 rounds. Its two jobs give
+  the same verdict on each input. Three earlier attempts measured nothing: the runners could not
+  resolve Ubuntu's package servers.
+
+  | Input | Main / v0.15.0, job 1 and job 2 | Verdict |
+  | --- | --- | --- |
+  | h11-tls-one | 0.839 and 0.841 | wins |
+  | h2-tls-one | 1.025 and 1.025 | loses |
+  | h11-one, user instructions | 1.022 and 1.021 | loses |
+  | h2-many, h2-one, h2-routes-many, h2-tls-many | 1.001 to 1.006 | within the noise |
+  | h3-many, h3-one, h3-bbr-many, h3-bbr-one | 0.995 to 1.001 | within the noise |
+  | h11-many, h11-tls-many | 1.007 and 1.008 | within the noise |
+
+  - h11-tls-one wins because wrk resumes its sessions (step 48): 937,677 and 940,799
+    instructions a connection became 786,422 and 790,889.
+  - h2-tls-one loses by step 48. h2load resumes no session, so the server seals and sends tickets
+    that the client never offers: 1,030,335 and 1,031,745 instructions a connection became
+    1,056,089 and 1,057,491, with 1.5 more system calls. The same input took 1,030,781 on
+    `83d58c09`, where the bench passed no `--seconds`. The owner ruled on 2026-11-11 to accept
+    this cost: tickets stay on by default.
+  - h11-one loses by its user instructions, the measure of the h11 admission rule: 19,845 and
+    19,882 a connection became 20,277 and 20,296. Its total is within the noise. Step 48 did not
+    cause it: main `53866d8f` took 20,298 and 20,293 before that step
+    ([run 42967640462](https://github.com/c4milo/colibri/actions/runs/42967640462)). So the cost
+    came with step 44, 46 or 47, and no run has named the step yet.
+  - The loop that the program hosts (step 44), the long streams (step 46) and the h3 path show
+    no change.
+
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
@@ -15576,6 +15606,10 @@ library.
     - Mutations, 6 of 6 CAUGHT: the wipe not zeroing, a taken ticket left in its room with its
       flag or without it, the caller's copy not wiped, the QUIC room not wiped, and `deinit` not
       wiping.
+  - **What tickets cost a client that never resumes, 2026-11-11.** The record "Main against
+    v0.15.0" of step 13 holds the run. On h2-tls-one, where h2load resumes no session, a
+    connection takes 2.5% more instructions and 1.5 more system calls. On h11-tls-one, where wrk
+    resumes, it takes 16% fewer. The owner ruled to accept the cost.
 
 ## 9. Test-only entry points
 
