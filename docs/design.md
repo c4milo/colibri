@@ -5498,6 +5498,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
         7 of the 12 loads of 40 s, against both servers. In the millisecond before it, the
         server sent as many segments as the client. The server answers in about 0.03 ms, so it
         most likely answered, and h2load read the answers when the silence ended.
+    - **The h11 inputs against nginx and hyper, 2026-11-10.** colibri loses on h11 to nginx and
+      hyper alone. The owner asked where the instructions go.
+      - Judge run [42951238198](https://github.com/c4milo/colibri/actions/runs/42951238198), on
+        `e04a8f8a`, profiled colibri's server with `h11`. On h11-one, 84% of the samples are in
+        the kernel under `io_uring_enter`: the send 31%, the close 27% and the accept 10.5%. On
+        h11-tls-one, X25519 takes about 30% of the samples and the P-256 signature 11%.
+      - Judge run [42954423174](https://github.com/c4milo/colibri/actions/runs/42954423174), on
+        `be33c75f`, a branch not on main, profiled nginx beside colibri on h11-one. `tcp_close`
+        holds 23.3% of colibri's samples and 15.9% of nginx's. Only colibri's close holds
+        `tcp_fin`, `tcp_time_wait` and `tcp_done`.
+        - nginx closes right after its `writev`, before wrk reads the response.
+        - colibri submits its close one loop turn after its send completes, and wrk has closed by
+          then. On loopback the receiver's path runs inside the sender's call, so colibri's
+          close also takes wrk's socket to TIME_WAIT: about 8% to 10% of colibri's samples.
+        - Off loopback, colibri's close goes out microseconds after its send, and a client's FIN
+          comes a round trip later. So colibri closes first there, as nginx does. A close in the
+          send's turn would also need Rotor, whose close cancels the socket's send first. The owner
+          ruled on 2026-11-10 to change nothing for it.
+      - Judge run [42954490618](https://github.com/c4milo/colibri/actions/runs/42954490618), on
+        `c082419f`, a branch not on main, profiled hyper beside colibri on h11-tls-one. X25519
+        takes 28% of hyper's samples and 31% of colibri's, at equal cycles a connection. So
+        chapulin's X25519 costs about what aws-lc-rs's costs, and no request went to chapulin.
+      - hyper's samples hold rustls's `check_binder` and `attempt_tls13_ticket_decryption`, and
+        its signature takes 0.02% of them. So wrk resumes almost every session with hyper.
+        colibri's test server issues no ticket, so each connection to it runs a full handshake.
+        h11-tls-one therefore compares colibri's full handshake with hyper's resumed one. The
+        owner ruled step 48 on 2026-11-10: colibri's TCP servers issue tickets.
   - **13k**, bulk downloads at a bottleneck, which the owner ruled on 2026-10-30 in
     [decision 136](decisions.md). The loads of 13i keep each connection's window at its first
     12,000 octets, so they cannot tell two congestion controllers apart. This input fills the
@@ -15437,7 +15464,6 @@ library.
   - **Checked on macOS 26.6.2 arm64 on 2026-11-10:** 20 runs of `tools/h11_server_interop.sh curl`
     passed, and 10 more passed with two busy processes on each of the 10 cores. With the test
     server's half-close made a full close, the script failed in 3 runs of 3.
-
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
