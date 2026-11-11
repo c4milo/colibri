@@ -18,6 +18,7 @@ const host = @import("host.zig");
 const erased = @import("erased.zig");
 const kinds = @import("client_kinds.zig");
 const client_fetch = @import("client_fetch.zig");
+const client_tickets = @import("client_tickets.zig");
 
 /// Where a `.private` client connects and how its pool runs. The program keeps each slice the
 /// pool's configuration names alive while the client runs: the authority, the TLS anchors and
@@ -95,6 +96,9 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
 
         random: tls.Random,
         unix_seconds: u64,
+        /// The newest session ticket of each transport, which the next connection of that
+        /// transport offers once (`client_tickets.zig`, decision 161).
+        tickets: client_tickets.Kept,
         /// The program's handler (`erased.zig`).
         handler: erased.Handler(Self),
         /// The pool, its configuration and its memory. The pool stays in place after `init`: its
@@ -169,6 +173,7 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
             self.fetched = false;
             self.latest_ns = 0;
             self.in_turn = false;
+            self.tickets = .{};
             // A run that fails before its first turn holds no live socket, and `stopped()` is
             // false until a run ends.
             client_loop.reset(self);
@@ -185,9 +190,10 @@ pub fn Client(comptime capacity: ClientCapacity, comptime kind: host.ObjectKind)
         ///   `shutdown`, and runs the loop until each exchange has finished and each connection
         ///   has closed (decision 156 ruling 10). Then it closes each UDP socket that is open.
         /// - `.hosted`: the host calls it once `stopped()` holds (decision 159, rule 2).
-        /// The client keeps no ticket and no private key, so it wipes nothing.
+        /// It wipes each session ticket the client kept (decision 161).
         pub fn deinit(self: *Self) void {
             Kinded.deinit(self);
+            self.tickets.wipe();
         }
 
         /// Hands the pool a request and the response it fills, and returns the exchange's id. The
@@ -393,6 +399,7 @@ test "decision 124: a client with no QUIC refuses h3" {
 }
 
 test {
+    _ = @import("client_tickets.zig");
     _ = @import("rotor_host_client_test.zig");
     _ = @import("client_tcp_test.zig");
     _ = @import("client_fetch_test.zig");

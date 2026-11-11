@@ -26,7 +26,12 @@ pub fn start(state: anytype, now_ns: u64) void {
         unreachable;
     } else {
         assert(state.udp.served);
-        state.pool.start_quic(state.random, client_loop.unix_seconds(state, now_ns), now_ns, null) catch {};
+        // Decision 161: the newest QUIC ticket, offered by this connection alone (RFC 9846
+        // Appendix C.4), and wiped once the start has copied it.
+        var offered = state.tickets.take(.quic, now_ns);
+        defer if (offered) |*held| held.ticket.wipe();
+        const resumption = if (offered) |*held| held.resumption(now_ns) else null;
+        state.pool.start_quic(state.random, client_loop.unix_seconds(state, now_ns), now_ns, resumption) catch {};
     }
 }
 

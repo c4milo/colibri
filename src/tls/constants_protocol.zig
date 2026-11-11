@@ -23,3 +23,7 @@ comptime {
 /// Octets of a server's cookie key and ticket key, chapulin's `CH_SRV_COOKIE_KEY_LEN` and
 /// `CH_SRV_TICKET_KEY_LEN`, which the configurations assert.
 pub const server_key_len: usize = 32;
+
+/// RFC 9846 §4.7.1: no server sets a ticket_lifetime above 604,800 seconds (7 days), and no client
+/// uses a ticket for longer than 7 days after it was issued.
+pub const ticket_lifetime_max_s: u32 = 604_800;

@@ -102,6 +102,29 @@ test "design §8 step 42: a slot's next connection opens once its last socket ha
     try testing.expectEqual(3, handler.connections);
 }
 
+test "decision 161: each later connection over TLS resumes with the ticket of the one before" {
+    var counter: support.Counter = .{};
+    try fixture.start_server(true, false);
+    defer fixture.stop_server();
+    // RFC 9112 §9.6: the server closes each connection after its response, so each of the three
+    // requests opens a connection of its own.
+    var handler: fixture.Handler = .{ .path = "/goodbye", .more = 2, .stop_after = 3 };
+    try start_client(.{ .h2 = false }, true, &counter, &handler);
+    errdefer test_client.deinit();
+    try handler.request(1);
+    try fixture.run();
+    try testing.expect(handler.greeted());
+    try testing.expectEqual(3, handler.connections);
+    // The first connection runs a full handshake. colibri.Server sends a ticket on each, and the
+    // client offers the newest one once (RFC 9846 Appendix C.4), so the second and the third
+    // resume.
+    try testing.expectEqual(2, handler.resumed);
+    // The third connection's ticket is still kept, and `deinit` wipes it.
+    try testing.expect(test_client.tickets.tcp != null);
+    test_client.deinit();
+    try testing.expectEqual(null, test_client.tickets.tcp);
+}
+
 /// A handler that shuts the client down as each exchange ends, and then makes a request.
 const StopHandler = struct {
     recorded: fixture.Handler = .{},

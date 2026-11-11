@@ -229,10 +229,10 @@ pub fn handle(run: anytype, reported: client.Event, now_ns: u64) void {
         .send => |connection| client_tcp.owed(state, connection),
         .close => |connection| client_tcp.close(state, connection),
         .connected => |connected| state.handler.on_connected(state, connected),
-        // The client offers no ticket, so it keeps none it is given.
+        // Decision 161: the next connection of the ticket's transport offers it once.
         .ticket => |connection| if (state.pool.take_ticket(connection)) |ticket| {
-            var held = ticket;
-            held.wipe();
+            var taken = ticket;
+            state.tickets.keep(&taken, now_ns);
         },
         // `Client.request` takes no streamed exchange, so no exchange has pieces.
         .headers, .body, .body_taken => unreachable,

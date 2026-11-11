@@ -398,6 +398,26 @@ test "decision 159: a hosted client and server run a GET and a POST over h3" {
     try get_and_post(.{ .prefer = .quic }, .h3);
 }
 
+/// Whether the client's QUIC connection ended and the client kept the server's QUIC ticket.
+fn quic_over_with_ticket() bool {
+    return pair_client.pool.quic.stopped and pair_client.tickets.quic != null;
+}
+
+test "decision 161: a later QUIC connection resumes with the ticket of the one before" {
+    // h3 alone, so the pool opens QUIC again once the first connection ended.
+    try start(.{ .h11 = false, .h2 = false });
+    _ = try handler.request("GET", "/greeting", "");
+    try pair.run_until(one_exchange_ended);
+    try testing.expectEqual(client.Protocol.h3, handler.connected.?);
+    try testing.expect(!pair_client.pool.quic.session.resumed());
+    // RFC 9000 §10.1: the connection ends at its idle timeout, which the test's clock reaches.
+    try pair.run_until(quic_over_with_ticket);
+    _ = try handler.request("GET", "/greeting", "");
+    try pair.run_until(each_exchange_ended);
+    try testing.expect(pair_client.pool.quic.session.resumed());
+    try stop();
+}
+
 test "decision 156 ruling 12: an exchange cancelled before its request left gives no finished" {
     try start(.{ .h3 = false });
     _ = try handler.request("GET", "/greeting", "");

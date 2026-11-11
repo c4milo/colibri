@@ -20,6 +20,9 @@ pub const limits = @import("constants_limits.zig");
 /// (draft-ietf-ccwg-bbr-06 §4.1).
 pub const nanoseconds_per_second: u64 = 1_000_000_000;
 
+/// Nanoseconds in a millisecond. RFC 9846 §4.3.11.1 counts a ticket's age in milliseconds.
+pub const nanoseconds_per_millisecond: u64 = 1_000_000;
+
 comptime {
     // A field section that could not hold one maximal field line would make the two limits
     // disagree, and the peer would see the disagreement as a refusal it cannot diagnose.

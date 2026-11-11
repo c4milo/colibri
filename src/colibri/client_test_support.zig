@@ -239,6 +239,8 @@ pub const Handler = struct {
     stop_after: u32 = std.math.maxInt(u32),
     connected: ?client.Protocol = null,
     connections: u32 = 0,
+    /// The connections over TLS whose handshake resumed a session (decision 161).
+    resumed: u32 = 0,
     greetings: u32 = 0,
     streams: u32 = 0,
     path: []const u8 = "/greeting",
@@ -277,6 +279,11 @@ pub const Handler = struct {
         if (!running.in_turn) handler.outside_turn += 1;
         handler.connected = connected.protocol;
         handler.connections += 1;
+        // The check reads the pool's own connection, which a program does not: its TLS session
+        // says whether the handshake resumed with the client's ticket.
+        if (connected.protocol == .h3) return;
+        const connection = &running.pool.tcp[connected.connection.slot];
+        if (connection.config.tls != null and connection.tls_client.resumed()) handler.resumed += 1;
     }
 
     /// Whether each exchange requested ended with the greeting.

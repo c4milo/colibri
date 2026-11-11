@@ -158,7 +158,12 @@ fn on_connected(state: anytype, slot: usize, result: host.Completion.Result, now
         state.pool.transport_closed(connection.handle);
         return;
     }
-    state.pool.start_tcp(connection.handle, state.random, client_loop.unix_seconds(state, now_ns), null) catch {
+    // Decision 161: the newest TCP ticket, offered by this connection alone (RFC 9846 Appendix
+    // C.4). The start copies what it needs, so the client's copy is wiped once it returns.
+    var offered = state.tickets.take(.tcp, now_ns);
+    defer if (offered) |*held| held.ticket.wipe();
+    const resumption = if (offered) |*held| held.resumption(now_ns) else null;
+    state.pool.start_tcp(connection.handle, state.random, client_loop.unix_seconds(state, now_ns), resumption) catch {
         socket.failed = true;
         return;
     };
